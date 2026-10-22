@@ -34,6 +34,32 @@ namespace Desert::Editor::Tools
                 return { ICON_MDI_CONTENT_CUT, "UV Unwrap", true };
             case T::UVLayout:
                 return { ICON_MDI_VIEW_GRID_OUTLINE, "UV Layout", true };
+            case T::UVTransform:
+                return { ICON_MDI_CURSOR_MOVE, "UV Transform", true };
+            // UE's Deform tools preview until Accept; Cancel puts the mesh back (MeshProcessingTool).
+            case T::Smooth:
+                return { ICON_MDI_BLUR, "Smooth", true };
+            case T::Offset:
+                return { ICON_MDI_ARROW_EXPAND_ALL, "Offset", true };
+            case T::Warp:
+                return { ICON_MDI_ROTATE_ORBIT, "Warp", true };
+            case T::Lattice:
+                return { ICON_MDI_GRID, "Lattice", true };
+            // UE's VSculpt keeps its strokes until Accept; ours commits each stroke as its own undo step, so
+            // there is nothing for Cancel to drop - Complete is the honest button (as PolyEdit).
+            case T::VertexSculpt:
+                return { ICON_MDI_BRUSH, "Vertex Sculpt", false };
+            // UE's Normals tool previews until Accept; Cancel puts the mesh back (MeshProcessingTool).
+            case T::Normals:
+                return { ICON_MDI_ARROW_TOP_RIGHT_THICK, "Normals", true };
+            case T::Tangents:
+                return { ICON_MDI_ARROW_TOP_RIGHT_THICK, "Tangents", true };
+            // UE's Edit Materials previews until Accept; Cancel puts mesh and slots back (EditMaterialsTool).
+            case T::EditMaterials:
+                return { ICON_MDI_BRUSH, "Edit Materials", true };
+            // UE's group paint keeps its strokes until Accept; Cancel drops them (PaintGroupsTool).
+            case T::PaintGroups:
+                return { ICON_MDI_BRUSH, "Paint PolyGroups", true };
         }
         return {};
     }

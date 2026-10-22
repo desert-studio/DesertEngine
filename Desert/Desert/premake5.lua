@@ -16,6 +16,9 @@ local kVendoredSources = {
     ImageCore = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp" },
     TextCore  = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp" },
     Audio     = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp" },
+    -- MikkTSpace (Morten S. Mikkelsen, zlib licence, ThirdParty/mikktspace/mikktspace.h): mikktspace.c, unaltered,
+    -- compiled as C++ - UE's Modeling Tangents tool "MikkTSpace" method (DynamicMeshMikkTWrapper).
+    GeometryCore = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/mikktspace/mikktspace.cpp" },
 }
 for name in pairs(kVendoredSources) do
     if not DesertModuleLibs.LegacyFiles()[name] then
@@ -89,6 +92,7 @@ local function EngineModuleLibrary(module, legacyFiles)
 
     includedirs {
         "Source/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/mikktspace",
         "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",

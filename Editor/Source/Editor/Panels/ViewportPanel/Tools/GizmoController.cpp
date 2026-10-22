@@ -24,6 +24,8 @@
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <functional>
 #include <vector>
 
@@ -69,6 +71,261 @@ namespace Desert::Editor::Tools
             glm::mat4           m_Old, m_New;
         };
     } // namespace
+
+    bool GizmoController::RenderFrame( const char* site, glm::mat4& frame,
+                                       const std::shared_ptr<::Desert::Core::Camera>& camera,
+                                       const glm::vec2& viewportPos, const glm::vec2& viewportSize, int handles )
+    {
+        if ( !camera )
+            return false;
+        const Core::GizmoIdScope gizmoId( site );
+        const ImGuizmo::OPERATION operation = handles == kFrameTranslateRotateScale
+                                                   ? ImGuizmo::TRANSLATE | ImGuizmo::ROTATE | ImGuizmo::SCALE
+                                                   : ImGuizmo::TRANSLATE | ImGuizmo::ROTATE;
+        ImGuizmo::SetOrthographic( false );
+        ImGuizmo::SetDrawlist();
+        ImGuizmo::SetRect( viewportPos.x, viewportPos.y, viewportSize.x, viewportSize.y );
+        const auto& view  = camera->GetViewMatrix();
+        const auto& proj  = camera->GetProjectionMatrix();
+        const auto  scale = ScaleHandles( site, frame, view, proj, viewportPos, viewportSize, operation, nullptr );
+        if ( scale.Owns )
+            ImGuizmo::Enable( false );
+        const bool manipulated =
+             ImGuizmo::Manipulate( &view[0][0], &proj[0][0], operation, ImGuizmo::LOCAL, &frame[0][0] );
+        if ( scale.Owns )
+            ImGuizmo::Enable( true );
+        DrawScaleHandle( site );
+        if ( ImGuizmo::IsOver() || ImGuizmo::IsUsing() )
+            m_Hovered = true;
+        return manipulated || scale.Changed;
+    }
+
+    GizmoController::ScaleHandleResult GizmoController::ScaleHandles( const char* site, glm::mat4& matrix,
+                                                                      const glm::mat4& view, const glm::mat4& proj,
+                                                                      const glm::vec2& viewportPos,
+                                                                      const glm::vec2& viewportSize, int operation,
+                                                                      const float* snap )
+    {
+        ScaleHandleResult result;
+        const bool        held = m_ScaleAxis >= 0 && m_ScaleSite == site;
+        if ( m_ScaleAxis >= 0 && !held )
+            return result; // another site's handle is held
+        if ( !held &&
+             ( ImGuizmo::IsUsing() || IntervalOwnsInput() || viewportSize.x <= 0.0f || viewportSize.y <= 0.0f ) )
+            return result;
+
+        const ImVec2    mouseIm = ::ImGui::GetMousePos();
+        const glm::vec2 mouse( mouseIm.x, mouseIm.y );
+        if ( held )
+        {
+            result.Owns = true;
+            m_Hovered   = true;
+            if ( !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
+            {
+                m_ScaleAxis  = -1;
+                m_ScaleHover = -1;
+                m_ScaleSite  = nullptr;
+                return result;
+            }
+            // ImGuizmo's ratio: the cursor's travel along the handle's screen direction over the handle's
+            // length; snapped to the step, never below 0.001 (ImGuizmo's floor).
+            float factor = 1.0f + glm::dot( mouse - m_ScaleMouse, m_ScaleDir ) / m_ScalePixels;
+            if ( snap && snap[0] > 0.0f )
+                factor = std::round( factor / snap[0] ) * snap[0];
+            factor              = std::max( factor, 0.001f );
+            m_ScaleFactor       = factor;
+            glm::mat4 scaled    = m_ScaleStart;
+            scaled[m_ScaleAxis] = m_ScaleStart[m_ScaleAxis] * factor;
+            if ( scaled != matrix )
+            {
+                matrix         = scaled;
+                result.Changed = true;
+            }
+            return result;
+        }
+
+        // The handle geometry ImGuizmo draws (DrawScaleGizmo): along each orthonormalised local axis, from
+        // 0.1 to 1.0 screen factors (1.0 to 1.4 when the axis also translates), flipped to the side that is
+        // longer on screen, hidden when shorter than its plane limit (0.02 clip).
+        const glm::mat4 viewProj = proj * view;
+        const float     aspect   = viewportSize.x / viewportSize.y;
+        auto            toNdc    = [&]( const glm::vec3& world, glm::vec2& ndc )
+        {
+            const glm::vec4 clip = viewProj * glm::vec4( world, 1.0f );
+            if ( clip.w <= 0.0001f )
+                return false;
+            ndc = glm::vec2( clip ) / clip.w;
+            return true;
+        };
+        auto clipLength = [&]( const glm::vec3& a, const glm::vec3& b )
+        {
+            glm::vec2 na, nb;
+            if ( !toNdc( a, na ) || !toNdc( b, nb ) )
+                return 0.0f;
+            glm::vec2 d = nb - na;
+            if ( aspect < 1.0f )
+                d.x *= aspect;
+            else
+                d.y /= aspect;
+            return glm::length( d );
+        };
+        auto toScreen = [&]( const glm::vec2& ndc )
+        {
+            return glm::vec2( viewportPos.x + ( ndc.x * 0.5f + 0.5f ) * viewportSize.x,
+                              viewportPos.y + ( 0.5f - ndc.y * 0.5f ) * viewportSize.y );
+        };
+        const glm::vec3 origin( matrix[3] );
+        const glm::vec3 camRight( glm::inverse( view )[0] );
+        const float     rightLength = clipLength( origin, origin + camRight );
+        glm::vec2       originNdc;
+        if ( rightLength <= 0.0f || !toNdc( origin, originNdc ) )
+            return result;
+        const float screenFactor = 0.1f / rightLength; // ImGuizmo's default gizmo size, 0.1 clip
+
+        int       best     = -1;
+        float     bestDist = 12.0f; // ImGuizmo's pixel tolerance
+        glm::vec2 bestBall( 0.0f );
+        for ( int i = 0; i < 3; ++i )
+        {
+            if ( ( operation & ( ImGuizmo::SCALE_X << i ) ) == 0 )
+                continue;
+            glm::vec3 dir( matrix[i] );
+            if ( glm::length( dir ) <= 1e-8f )
+                continue;
+            dir = glm::normalize( dir );
+            if ( clipLength( origin, origin + dir ) < clipLength( origin, origin - dir ) )
+                dir = -dir;
+            if ( clipLength( origin, origin + dir * screenFactor ) <= 0.02f )
+                continue;
+            const bool translates = ( operation & ( ImGuizmo::TRANSLATE_X << i ) ) != 0;
+            glm::vec2  startNdc, endNdc;
+            if ( !toNdc( origin + dir * screenFactor * ( translates ? 1.0f : 0.1f ), startNdc ) ||
+                 !toNdc( origin + dir * screenFactor * ( translates ? 1.4f : 1.0f ), endNdc ) )
+                continue;
+            const glm::vec2 a = toScreen( startNdc ), b = toScreen( endNdc );
+            const glm::vec2 ab = b - a;
+            const float     t =
+                 glm::clamp( glm::dot( mouse - a, ab ) / std::max( glm::dot( ab, ab ), 1e-6f ), 0.0f, 1.0f );
+            const float d = glm::length( mouse - ( a + ab * t ) );
+            if ( d < bestDist )
+            {
+                best     = i;
+                bestDist = d;
+                bestBall = b;
+            }
+        }
+        if ( best < 0 )
+            return result;
+        m_ScaleHover  = best;
+        m_ScaleSite   = site;
+        m_Hovered     = true;
+        m_ScaleOrigin = toScreen( originNdc );
+        m_ScalePixels = std::max( glm::length( bestBall - m_ScaleOrigin ), 1.0f );
+        m_ScaleDir    = ( bestBall - m_ScaleOrigin ) / m_ScalePixels;
+        m_ScaleFactor = 1.0f;
+        if ( ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+        {
+            m_ScaleAxis  = best;
+            m_ScaleStart = matrix;
+            m_ScaleMouse = mouse;
+            result.Owns  = true;
+        }
+        return result;
+    }
+
+    void GizmoController::DrawScaleHandle( const char* site ) const
+    {
+        if ( m_ScaleSite != site || ( m_ScaleAxis < 0 && m_ScaleHover < 0 ) )
+            return;
+        ImDrawList*     dl      = ::ImGui::GetWindowDrawList();
+        const glm::vec2 ball    = m_ScaleOrigin + m_ScaleDir * m_ScalePixels * m_ScaleFactor;
+        constexpr auto  kActive = IM_COL32( 255, 255, 16, 255 ); // ImGuizmo's SELECTION colour
+        if ( m_ScaleAxis >= 0 )
+            dl->AddLine( ImVec2( m_ScaleOrigin.x, m_ScaleOrigin.y ), ImVec2( ball.x, ball.y ), kActive, 3.0f );
+        dl->AddCircleFilled( ImVec2( ball.x, ball.y ), 6.0f, kActive );
+    }
+
+    bool GizmoController::RenderInterval( const glm::mat4& frame, float& lower, float& upper,
+                                          const std::shared_ptr<::Desert::Core::Camera>& camera,
+                                          const glm::vec2& viewportPos, const glm::vec2& viewportSize )
+    {
+        if ( !camera || viewportSize.x <= 0.0f || viewportSize.y <= 0.0f )
+            return false;
+        const glm::mat4 viewProj = camera->GetProjectionMatrix() * camera->GetViewMatrix();
+        const glm::vec3 origin( frame[3] );
+        const glm::vec3 axis     = glm::normalize( glm::vec3( frame[2] ) );
+        auto            toScreen = [&]( const glm::vec3& world, ImVec2& out )
+        {
+            const glm::vec4 clip = viewProj * glm::vec4( world, 1.0f );
+            if ( clip.w <= 0.0001f )
+                return false; // behind the camera
+            out = ImVec2( viewportPos.x + ( clip.x / clip.w * 0.5f + 0.5f ) * viewportSize.x,
+                          viewportPos.y + ( 0.5f - clip.y / clip.w * 0.5f ) * viewportSize.y );
+            return true;
+        };
+        ImVec2 lo, hi;
+        if ( !toScreen( origin + axis * lower, lo ) || !toScreen( origin + axis * upper, hi ) )
+        {
+            m_IntervalDrag  = 0;
+            m_IntervalHover = false;
+            return false;
+        }
+        const ImVec2 mouse  = ::ImGui::GetMousePos();
+        auto         isNear = [&]( const ImVec2& p )
+        { return ( p.x - mouse.x ) * ( p.x - mouse.x ) + ( p.y - mouse.y ) * ( p.y - mouse.y ) <= 81.0f; };
+        // The handles sit ON the frame's axis arrow; like UE's input router (nearest hit wins, and the
+        // interval handle is the smaller target), a handle under the cursor outranks the transform gizmo:
+        // m_IntervalHover disables ImGuizmo on the next frame (IntervalOwnsInput), before it is rendered.
+        int hover = m_IntervalDrag;
+        if ( hover == 0 && !ImGuizmo::IsUsing() )
+            hover = isNear( hi ) ? 2 : isNear( lo ) ? 1 : 0;
+        m_IntervalHover = hover != 0;
+        if ( hover != 0 )
+            m_Hovered = true;
+
+        ImDrawList*    dl       = ::ImGui::GetWindowDrawList();
+        constexpr auto kLine    = IM_COL32( 230, 200, 60, 255 );
+        constexpr auto kHandle  = IM_COL32( 240, 210, 70, 255 );
+        constexpr auto kHovered = IM_COL32( 255, 255, 255, 255 );
+        dl->AddLine( lo, hi, kLine, 2.0f );
+        for ( int h = 1; h <= 2; ++h )
+        {
+            const ImVec2 p = h == 1 ? lo : hi;
+            const float  r = hover == h ? 7.0f : 5.0f;
+            dl->AddRectFilled( ImVec2( p.x - r, p.y - r ), ImVec2( p.x + r, p.y + r ),
+                               hover == h ? kHovered : kHandle );
+            dl->AddRect( ImVec2( p.x - r, p.y - r ), ImVec2( p.x + r, p.y + r ), IM_COL32( 20, 20, 20, 255 ) );
+        }
+
+        if ( m_IntervalDrag == 0 && hover != 0 && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+            m_IntervalDrag = hover;
+        if ( m_IntervalDrag == 0 )
+            return false;
+        if ( !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
+        {
+            m_IntervalDrag = 0;
+            return false;
+        }
+        // The mouse ray against the axis line: the axis parameter of the closest point is the new bound.
+        const glm::mat4 inv = glm::inverse( viewProj );
+        const float     nx  = ( mouse.x - viewportPos.x ) / viewportSize.x * 2.0f - 1.0f;
+        const float     ny  = 1.0f - ( mouse.y - viewportPos.y ) / viewportSize.y * 2.0f;
+        const glm::vec4 a4  = inv * glm::vec4( nx, ny, 0.1f, 1.0f );
+        const glm::vec4 b4  = inv * glm::vec4( nx, ny, 0.9f, 1.0f );
+        const glm::vec3 p0  = glm::vec3( a4 ) / a4.w;
+        const glm::vec3 ray = glm::normalize( glm::vec3( b4 ) / b4.w - p0 );
+        const glm::vec3 w0  = origin - p0;
+        const float     b = glm::dot( axis, ray ), denom = 1.0f - b * b;
+        if ( denom < 1e-6f )
+            return false; // looking straight down the axis
+        const float t     = ( b * glm::dot( ray, w0 ) - glm::dot( axis, w0 ) ) / denom;
+        float&      bound = m_IntervalDrag == 2 ? upper : lower;
+        const float next  = m_IntervalDrag == 2 ? std::max( 0.0f, t ) : std::min( 0.0f, t );
+        if ( next == bound )
+            return false;
+        bound = next;
+        return true;
+    }
 
     void GizmoController::RenderObject( ::Desert::Core::Scene&                         scene,
                                         const std::shared_ptr<::Desert::Core::Camera>& camera,
@@ -172,9 +429,17 @@ namespace Desert::Editor::Tools
         // cannot disagree about which space is in force. Core::GizmoState::Space mirrors ImGuizmo::MODE.
         const auto space = static_cast<ImGuizmo::MODE>( Core::GizmoState::EffectiveSpace( operation ) );
 
+        const auto scale = ScaleHandles( "LevelSelection", modelMatrix, view, proj, viewportPos, viewportSize,
+                                         static_cast<int>( operation ), snap );
+        if ( scale.Owns )
+            ImGuizmo::Enable( false );
         const bool manipulated =
              ImGuizmo::Manipulate( &view[0][0], &proj[0][0], static_cast<ImGuizmo::OPERATION>( operation ), space,
-                                   &modelMatrix[0][0], nullptr, snap );
+                                   &modelMatrix[0][0], nullptr, snap ) ||
+             scale.Changed;
+        if ( scale.Owns )
+            ImGuizmo::Enable( true );
+        DrawScaleHandle( "LevelSelection" );
 
         // Picking must stand down whenever the cursor is OVER the gizmo — not only mid-drag. Setting this
         // only while manipulating meant a first click on a gizmo axis drawn over another mesh SELECTED
@@ -184,7 +449,7 @@ namespace Desert::Editor::Tools
 
         // One undo entry per drag: when the drag STARTS this frame, capture the pre-drag TRS of every
         // selected top-level root NOW — before any of this frame's deltas are written below.
-        const bool usingNow = ImGuizmo::IsUsing();
+        const bool usingNow = ImGuizmo::IsUsing() || scale.Owns;
         Core::GizmoState::SetEntityInteraction( usingNow );
         if ( usingNow && !m_DragActive )
         {
@@ -269,6 +534,8 @@ namespace Desert::Editor::Tools
     void GizmoController::ResetHovered()
     {
         m_Hovered = false;
+        if ( m_ScaleAxis < 0 )
+            m_ScaleHover = -1; // ScaleHandles re-finds it this frame
         Core::GizmoState::SetPoseInteraction( false );
         Core::GizmoState::SetEntityInteraction( false );
     }
@@ -353,18 +620,29 @@ namespace Desert::Editor::Tools
 
         const auto& view = mainCamera->GetViewMatrix();
         const auto& proj = mainCamera->GetProjectionMatrix();
-        // Scale on a bone's rest pose is rarely wanted; default None/Scale to Translate.
-        const auto op = ( Core::GizmoState::Get() == Operation::Rotate ) ? ImGuizmo::ROTATE : ImGuizmo::TRANSLATE;
+        // The toolbar's operation, as for the object gizmo (Persona scales bones too); None means Translate.
+        const Operation toolbarOp = Core::GizmoState::Get();
+        const Operation boneOp    = ( toolbarOp == Operation::Rotate || toolbarOp == Operation::Scale )
+                                         ? toolbarOp
+                                         : Operation::Translate;
+        const auto      op        = static_cast<ImGuizmo::OPERATION>( boneOp );
 
         // The bone gizmo honours the SAME toolbar toggle as the object gizmo — one control, both gizmos,
         // or the button would mean different things depending on a mode the user is not looking at.
-        // Asked with the operation this call actually passes (never Scale here), not with the toolbar's,
-        // so the space in force matches the handles being drawn.
-        const auto boneSpace = static_cast<ImGuizmo::MODE>( Core::GizmoState::EffectiveSpace(
-             op == ImGuizmo::ROTATE ? Operation::Rotate : Operation::Translate ) );
+        // Asked with the operation this call actually passes, so the space in force matches the handles drawn.
+        const auto boneSpace = static_cast<ImGuizmo::MODE>( Core::GizmoState::EffectiveSpace( boneOp ) );
 
+        // Scale goes through our screen-space handles, as RenderObject's: ImGuizmo's own scale hit misses
+        // an axis seen edge-on (see ScaleHandles).
+        const auto scale = ScaleHandles( "LevelBone", gizmoWorld, view, proj, viewportPos, viewportSize,
+                                         static_cast<int>( op ), nullptr );
+        if ( scale.Owns )
+            ImGuizmo::Enable( false );
         const bool boneManipulated =
-             ImGuizmo::Manipulate( &view[0][0], &proj[0][0], op, boneSpace, &gizmoWorld[0][0] );
+             ImGuizmo::Manipulate( &view[0][0], &proj[0][0], op, boneSpace, &gizmoWorld[0][0] ) || scale.Changed;
+        if ( scale.Owns )
+            ImGuizmo::Enable( true );
+        DrawScaleHandle( "LevelBone" );
 
         // Same rule as the object gizmo: picking stands down on HOVER, not only mid-drag.
         if ( ImGuizmo::IsOver() || ImGuizmo::IsUsing() )
@@ -372,7 +650,7 @@ namespace Desert::Editor::Tools
 
         // One undo entry per drag: capture the bone's pre-drag rest transform when the drag STARTS, before
         // this frame's edit is written below. Rig editing only — pose-mode edits are persisted by keying.
-        const bool usingNow = ImGuizmo::IsUsing();
+        const bool usingNow = ImGuizmo::IsUsing() || scale.Owns;
 
         // AND THE POSE BRANCH PUBLISHES THE SAME BOUNDARY IT ALREADY COMPUTES. `m_BoneDragActive` above is
         // the rig-editing half of one fact — "the bone gizmo is being held" — and the pose half of it was

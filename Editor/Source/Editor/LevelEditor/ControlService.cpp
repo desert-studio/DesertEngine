@@ -471,6 +471,11 @@ namespace Desert::Editor
                 // Named on the wire so a report cannot quote a viewport capture as a picture of the
                 // editor. The two are different subjects and only one of them contains an interface.
                 payload["subject"] = rfl::Generic( std::string( window ? "window" : "viewport" ) );
+                // The unit a caller must divide by to aim `drag` / `input` from this picture: the window
+                // capture is the swapchain, in framebuffer pixels; the viewport capture is drawn at the
+                // viewport's size in points, so it is already in the channel's one unit.
+                payload["pixelsPerPoint"] = rfl::Generic(
+                     window ? static_cast<double>( ::ImGui::GetIO().DisplayFramebufferScale.x ) : 1.0 );
                 reply              = Control::Response::Success( m_ControlInFlight->Id, std::move( payload ) );
             }
             else
@@ -836,7 +841,12 @@ namespace Desert::Editor
                      request.Steps.value_or( Control::PointerDrag::kDefaultSteps ) );
                 if ( !plan.IsSuccess() )
                     return Control::Response::Failure( request.Id, plan.GetError() );
-                if ( const auto armed = Control::PointerInjection::Arm( plan.GetValue() ); !armed.IsSuccess() )
+                const auto mods = Control::ParseInputModifiers( request.DragModifiers );
+                if ( !mods.IsSuccess() )
+                    return Control::Response::Failure( request.Id, mods.GetError() );
+                if ( const auto armed =
+                          Control::PointerInjection::Arm( plan.GetValue().WithModifiers( mods.GetValue() ) );
+                     !armed.IsSuccess() )
                     return Control::Response::Failure( request.Id, armed.GetError() );
                 return Control::Response::Success( request.Id );
             }

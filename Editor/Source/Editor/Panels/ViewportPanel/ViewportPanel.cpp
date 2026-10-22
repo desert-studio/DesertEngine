@@ -1956,9 +1956,13 @@ namespace Desert::Editor
             if ( auto ref = m_Scene->FindEntityByID( *sel ) )
                 selectedIsUI = m_Scene->GetRegistry().has<ECS::UILayoutComponent>( ref->get().GetHandle() );
 
-        // Handle gizmos (Select mode only — Foliage/Modeling use LMB for their own tools, not gizmo/pick).
+        // Handle gizmos (Select mode — Foliage/Landscape use LMB for their own tools, not gizmo/pick). Modeling
+        // mode with NO tool active keeps the object gizmo, as UE's Modeling Mode does (the level editor's
+        // transform gizmo stays on the selected actor until a tool starts and takes the viewport's input).
         m_Gizmo.ResetHovered();
-        if ( !foliageMode && !modelingMode && !landscapeMode )
+        const bool modelingIdle =
+             modelingMode && Core::ModelingState::Get().ActiveTool == Core::ModelingState::Tool::None;
+        if ( !foliageMode && ( !modelingMode || modelingIdle ) && !landscapeMode )
         {
             if ( Core::ActiveAuthoringContext().ShowsBones() )
             {
@@ -2059,8 +2063,48 @@ namespace Desert::Editor
                      static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 const glm::mat4 viewProj = camera->GetProjectionMatrix() * camera->GetViewMatrix();
-                // Before CubeGrid: while a UV tool is active its Accept / Cancel requests are the UV tool's.
-                m_UVTool.Update( *m_Scene );
+                // Before CubeGrid: while a UV or Deform tool is active its Accept / Cancel requests are its own.
+                m_UVTool.Update( *m_Scene, glm::dvec3( camera->GetPosition() ) );
+                // UV Project's volume: UE's transform gizmo on the projection (UUVProjectionTool TransformProxy).
+                if ( auto volume = m_UVTool.ProjectionGizmo( *m_Scene ) )
+                {
+                    if ( m_Gizmo.RenderFrame( "UVProjectVolume", *volume, ViewCamera(), m_ViewportData.ViewportPos,
+                                              m_ViewportData.Size,
+                                              Tools::GizmoController::kFrameTranslateRotateScale ) )
+                        m_UVTool.ApplyProjectionGizmo( *m_Scene, *volume );
+                }
+                m_MeshProcessingTool.Update( *m_Scene );
+                m_EditMaterialsTool.Update( *m_Scene, m_AssetManager );
+                m_PaintGroupsTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
+                                          m_ViewportData.IsHovered );
+                m_VertexSculptTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
+                                           m_ViewportData.IsHovered );
+                // Warp's frame: UE's transform gizmo on the deformer (UMeshSpaceDeformerTool TransformProxy).
+                // Its Upper / Lower bounds: UE's interval gizmo on the frame's axis; Bend draws the bent axis.
+                if ( m_MeshProcessingTool.HasWarpSession() )
+                {
+                    auto& ms = Core::ModelingState::Get();
+                    const bool intervalOwns = m_Gizmo.IntervalOwnsInput();
+                    if ( intervalOwns )
+                        ImGuizmo::Enable( false );
+                    m_Gizmo.RenderFrame( "WarpFrame", ms.WarpGizmo, ViewCamera(), m_ViewportData.ViewportPos,
+                                         m_ViewportData.Size, Tools::GizmoController::kFrameTranslateRotate );
+                    if ( intervalOwns )
+                        ImGuizmo::Enable( true );
+                    Tools::MeshProcessingTool::DrawWarpVisualization( ms, viewProj, m_ViewportData.ViewportPos,
+                                                              m_ViewportData.Size );
+                    m_Gizmo.RenderInterval( ms.WarpGizmo, ms.DeformWarp.LowerBound, ms.DeformWarp.UpperBound,
+                                            ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
+                }
+                // Lattice: its control points and the gizmo on the selected ones (UE ULatticeControlPointsMechanic).
+                if ( m_MeshProcessingTool.HasLatticeSession() )
+                    m_MeshProcessingTool.DrawLatticeControls( *m_Scene, m_Gizmo, ViewCamera(), viewProj,
+                                                      m_ViewportData.ViewportPos, m_ViewportData.Size,
+                                                      m_ViewportData.IsHovered );
+                // Tangents: the previewed frames as lines (UE UMeshTangentsTool PreviewGeometry line sets).
+                if ( m_MeshProcessingTool.HasTangentsSession() )
+                    m_MeshProcessingTool.DrawTangentsVisualization( *m_Scene, Core::ModelingState::Get(), viewProj,
+                                                                    m_ViewportData.ViewportPos, m_ViewportData.Size );
                 m_CubeGridTool.Update( *m_Scene, Core::ModelingState::Get().CubeGridAimCentre ? centreRay : ray,
                                        viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                        m_ViewportData.IsHovered );
@@ -2564,6 +2608,7 @@ namespace Desert::Editor
                 return m_CubeGridTool.Cursor();
             case T::PolyEdit:
                 return m_PolyEditTool.Cursor();
+            case T::EditMaterials: // picks triangles with the element selection
             case T::ElementSelect:
                 return m_ElementSelectTool.Cursor();
             case T::CreateShape:
@@ -2572,7 +2617,15 @@ namespace Desert::Editor
             case T::UVProject:
             case T::UVUnwrap:
             case T::UVLayout:
-                return Tools::ToolCursor::None; // the UV tools take no click
+            case T::UVTransform:
+            case T::Smooth:
+            case T::Offset:
+            case T::Warp:
+            case T::Lattice:
+            case T::Normals:
+            case T::VertexSculpt: // draws its own brush ring (VertexSculptTool)
+            case T::PaintGroups:  // draws its own brush ring (PaintGroupsTool)
+                return Tools::ToolCursor::None; // the UV and Deform tools take no click
         }
         return Tools::ToolCursor::None;
     }
@@ -2742,8 +2795,24 @@ namespace Desert::Editor
         const bool   overImage = mp.x >= vp.ViewportPos.x && mp.y >= vp.ViewportPos.y &&
                                  mp.x < vp.ViewportPos.x + vp.Size.x && mp.y < vp.ViewportPos.y + vp.Size.y;
 
+        // Lattice owns the scene's left clicks (UE: the tool's click behaviour selects control points, an empty
+        // click clears them); the entity selection stays, or the session would end.
+        if ( e.GetMouseButton() == Common::MouseButton::Left && m_MeshProcessingTool.HasLatticeSession() && overImage )
+            return false;
+        // Vertex Sculpt owns a left click on the mesh it brushes (the stroke), so the click does not reselect.
+        if ( e.GetMouseButton() == Common::MouseButton::Left && m_VertexSculptTool.OwnsClick() && overImage )
+            return false;
+        // Paint PolyGroups owns a left click on the mesh it paints, likewise.
+        if ( e.GetMouseButton() == Common::MouseButton::Left && m_PaintGroupsTool.OwnsClick() && overImage )
+            return false;
+
+        // Modeling mode with NO tool active picks entities like Select mode: UE's Modeling Mode keeps the level
+        // editor's click-to-select until a tool starts and takes the viewport's clicks.
+        const bool modelingIdlePick = Core::ViewportMode::Get() == Core::EditorMode::Modeling &&
+                                      Core::ModelingState::Get().ActiveTool == Core::ModelingState::Tool::None;
         if ( e.GetMouseButton() == Common::MouseButton::Left && !m_UIPreview &&
-             Core::ViewportMode::Get() == Core::EditorMode::Select && m_ViewportData.IsHovered && overImage )
+             ( Core::ViewportMode::Get() == Core::EditorMode::Select || modelingIdlePick ) &&
+             m_ViewportData.IsHovered && overImage )
         {
             // In-scene UI: the 2D canvas overlays the 3D scene, so a click on a UI element selects it and
             // skips the 3D raycast (unless a 3D gizmo handle is being grabbed). Edit anchors/colour in Details.

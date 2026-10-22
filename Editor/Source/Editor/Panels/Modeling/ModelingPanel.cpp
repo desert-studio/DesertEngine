@@ -85,7 +85,9 @@ namespace Desert::Editor
             Create,
             PolyModel,
             TriModel,
+            Deform,
             Transform,
+            Attributes,
             UVs,
             Collision,
         };
@@ -94,14 +96,16 @@ namespace Desert::Editor
             const char* Icon;
             const char* Name;
         };
-        constexpr std::array<PaletteEntry, 8> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
-                                                              { ICON_MDI_SHAPE_PLUS, "Shapes" },
-                                                              { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
-                                                              { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
-                                                              { ICON_MDI_VECTOR_TRIANGLE, "TriModel" },
-                                                              { ICON_MDI_ARROW_ALL, "Transform" },
-                                                              { ICON_MDI_CHECKERBOARD, "UVs" },
-                                                              { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
+        constexpr std::array<PaletteEntry, 10> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
+                                                               { ICON_MDI_SHAPE_PLUS, "Shapes" },
+                                                               { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
+                                                               { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
+                                                               { ICON_MDI_VECTOR_TRIANGLE, "TriModel" },
+                                                               { ICON_MDI_BLUR, "Deform" },
+                                                               { ICON_MDI_ARROW_ALL, "Transform" },
+                                                               { ICON_MDI_PALETTE_SWATCH, "Attributes" },
+                                                               { ICON_MDI_CHECKERBOARD, "UVs" },
+                                                               { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
         static_assert( kPalettes.size() == static_cast<size_t>( Palette::Collision ) + 1,
                        "one rail entry per palette" );
     } // namespace
@@ -136,15 +140,23 @@ namespace Desert::Editor
             else if ( ms.ActiveTool == MS::Tool::ElementSelect )
                 m_Category = static_cast<int>( Palette::Selection );
             else if ( ms.ActiveTool == MS::Tool::AutoUV || ms.ActiveTool == MS::Tool::UVProject ||
-                      ms.ActiveTool == MS::Tool::UVUnwrap || ms.ActiveTool == MS::Tool::UVLayout )
+                      ms.ActiveTool == MS::Tool::UVUnwrap || ms.ActiveTool == MS::Tool::UVLayout ||
+                      ms.ActiveTool == MS::Tool::UVTransform )
                 m_Category = static_cast<int>( Palette::UVs );
+            else if ( ms.ActiveTool == MS::Tool::Smooth || ms.ActiveTool == MS::Tool::Offset ||
+                      ms.ActiveTool == MS::Tool::Warp || ms.ActiveTool == MS::Tool::Lattice ||
+                      ms.ActiveTool == MS::Tool::VertexSculpt )
+                m_Category = static_cast<int>( Palette::Deform );
+            else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents ||
+                      ms.ActiveTool == MS::Tool::EditMaterials || ms.ActiveTool == MS::Tool::PaintGroups )
+                m_Category = static_cast<int>( Palette::Attributes );
         }
 
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 6.0f ) );
         ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 8.0f, 6.0f ) );
 
         // --- Left category rail: only the palettes something of ours lives in ---
-        // UE's other palettes (Deform, MeshOps, VoxOps, Attributes, Baking, Volumes, LODs) are absent, not
+        // UE's other palettes (MeshOps, VoxOps, Attributes, Baking, Volumes, LODs) are absent, not
         // greyed out, until each has a tool behind it: a category that opens onto "not implemented" is a button
         // that does nothing (owner's decision: hide empty tabs until their tools exist).
         ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 6.0f, 8.0f ) );
@@ -187,8 +199,14 @@ namespace Desert::Editor
             case Palette::TriModel:
                 DrawTriModelPalette();
                 break;
+            case Palette::Deform:
+                DrawDeformPalette();
+                break;
             case Palette::Transform:
                 DrawTransformPalette();
+                break;
+            case Palette::Attributes:
+                DrawAttributesPalette();
                 break;
             case Palette::UVs:
                 DrawUVsPalette();
@@ -571,8 +589,371 @@ namespace Desert::Editor
                  byGroups ? Geometry::SplitMethod::PolyGroups : Geometry::SplitMethod::ConnectedComponents;
     }
 
+    // UE's Deform palette: Smooth and Offset (UE's USmoothMeshTool / UOffsetMeshTool, Iterative type). Each is a
+    // tool on the selected mesh (MeshProcessingTool): the viewport previews it with the settings below, recomputed on
+    // every change, and the tool bar's Accept (one undo step) / Cancel (the mesh as it was) end it. The fields are
+    // UE's UIterativeSmoothProperties / UIterativeOffsetProperties with their ranges.
+    void ModelingPanel::DrawDeformPalette()
+    {
+        using MS          = Core::ModelingState;
+        auto&        ms   = MS::Get();
+        const ImVec4 sel  = ThemeManager::GetSelectedColor();
+        const float  half = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
+        struct DeformToolEntry
+        {
+            const char* Icon;
+            const char* Name;
+            MS::Tool    Tool;
+        };
+        constexpr std::array<DeformToolEntry, 5> kMeshProcessingTools = {
+             { { ICON_MDI_BLUR, "Smooth", MS::Tool::Smooth },
+               { ICON_MDI_ARROW_EXPAND_ALL, "Offset", MS::Tool::Offset },
+               { ICON_MDI_ROTATE_ORBIT, "Warp", MS::Tool::Warp },
+               { ICON_MDI_GRID, "Lattice", MS::Tool::Lattice },
+               { ICON_MDI_BRUSH, "VSculpt", MS::Tool::VertexSculpt } } };
+        for ( size_t i = 0; i < kMeshProcessingTools.size(); ++i )
+        {
+            const bool on = ms.ActiveTool == kMeshProcessingTools[i].Tool;
+            if ( on )
+                ImGui::PushStyleColor( ImGuiCol_Button, sel );
+            if ( i % 2 == 1 )
+                ImGui::SameLine();
+            char deformToolLabel[64];
+            std::snprintf( deformToolLabel, sizeof( deformToolLabel ), "%s  %s", kMeshProcessingTools[i].Icon,
+                           kMeshProcessingTools[i].Name );
+            if ( ImGui::Button( deformToolLabel, ImVec2( half, 26.0f ) ) )
+            {
+                ms.ActiveTool = kMeshProcessingTools[i].Tool;
+                Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            }
+            if ( on )
+                ImGui::PopStyleColor();
+        }
+        ImGui::Separator();
+
+        const auto row = []( const char* label )
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted( label );
+            ImGui::SameLine( 150.0f );
+            ImGui::SetNextItemWidth( -1.0f );
+        };
+        constexpr const char* kWeights[] = { "Uniform", "Cotan" };
+        switch ( ms.ActiveTool )
+        {
+            case MS::Tool::Smooth:
+            {
+                auto&                 s          = ms.DeformSmooth;
+                int                   smoothType = static_cast<int>( s.Type );
+                int                   weight     = static_cast<int>( s.WeightType );
+                constexpr const char* kTypes[]   = { "Iterative", "Implicit", "Diffusion" };
+                row( "Smoothing Type" );
+                if ( ImGui::Combo( "##SmoothType", &smoothType, kTypes, 3 ) )
+                    s.Type = static_cast<Geometry::SmoothType>( smoothType );
+                row( "Weight Type" );
+                if ( ImGui::Combo( "##SmoothWeight", &weight, kWeights, 2 ) )
+                    s.WeightType = static_cast<Geometry::SmoothWeightType>( weight );
+                if ( s.Type == Geometry::SmoothType::Implicit )
+                {
+                    row( "Smoothness" );
+                    ImGui::SliderFloat( "##SmoothSmoothness", &s.Smoothness, 0.0f, 1.0f, "%.2f",
+                                        ImGuiSliderFlags_AlwaysClamp );
+                    row( "Volume Correction" ); // UE UI range 0..1, clamp 0..10
+                    ImGui::SliderFloat( "##SmoothVolumeCorrection", &s.VolumeCorrection, 0.0f, 1.0f, "%.2f cm" );
+                    s.VolumeCorrection = std::clamp( s.VolumeCorrection, 0.0f, 10.0f );
+                }
+                else
+                {
+                    row( "Smoothing Per Step" );
+                    ImGui::SliderFloat( "##SmoothPerStep", &s.SmoothingPerStep, 0.0f, 1.0f, "%.2f",
+                                        ImGuiSliderFlags_AlwaysClamp );
+                    row( "Steps" );
+                    ImGui::SliderInt( "##SmoothSteps", &s.Steps, 1, 100, "%d", ImGuiSliderFlags_AlwaysClamp );
+                }
+                ImGui::Checkbox( "Smooth Boundary##Smooth", &s.SmoothBoundary );
+                ImGui::Checkbox( "Pin UV Seams##Smooth", &s.PinUVSeams );
+                break;
+            }
+            case MS::Tool::Offset:
+            {
+                auto&                 s          = ms.DeformOffset;
+                int                   offsetType = static_cast<int>( s.Type );
+                int                   weight     = static_cast<int>( s.WeightType );
+                constexpr const char* kTypes[]   = { "Iterative", "Implicit" };
+                row( "Offset Type" );
+                if ( ImGui::Combo( "##OffsetType", &offsetType, kTypes, 2 ) )
+                    s.Type = static_cast<Geometry::OffsetType>( offsetType );
+                row( "Distance" );
+                ImGui::DragFloat( "##OffsetDistance", &s.Distance, 0.5f, -10000.0f, 10000.0f, "%.1f cm",
+                                  ImGuiSliderFlags_AlwaysClamp );
+                if ( s.Type == Geometry::OffsetType::Implicit )
+                {
+                    row( "Smoothness" ); // UE UI range 0..1, clamp 0..100
+                    ImGui::SliderFloat( "##OffsetSmoothness", &s.Smoothness, 0.0f, 1.0f, "%.2f" );
+                    s.Smoothness = std::clamp( s.Smoothness, 0.0f, 100.0f );
+                }
+                else
+                {
+                    row( "Steps" );
+                    ImGui::SliderInt( "##OffsetSteps", &s.Steps, 1, 100, "%d", ImGuiSliderFlags_AlwaysClamp );
+                    row( "Smoothing Per Step" );
+                    ImGui::SliderFloat( "##OffsetPerStep", &s.SmoothingPerStep, 0.0f, 1.0f, "%.2f",
+                                        ImGuiSliderFlags_AlwaysClamp );
+                }
+                row( "Weight Type" );
+                if ( ImGui::Combo( "##OffsetWeight", &weight, kWeights, 2 ) )
+                    s.WeightType = static_cast<Geometry::SmoothWeightType>( weight );
+                if ( s.Type == Geometry::OffsetType::Iterative ) // UE: Implicit always holds the boundary
+                    ImGui::Checkbox( "Offset Boundary##Offset", &s.OffsetBoundary );
+                ImGui::Checkbox( "Pin UV Seams##Offset", &s.PinUVSeams );
+                break;
+            }
+            case MS::Tool::Warp:
+            {
+                // UE UMeshSpaceDeformerToolProperties, its ranges and EditConditions.
+                auto&                 s      = ms.DeformWarp;
+                int                   op     = static_cast<int>( s.Operation );
+                constexpr const char* kOps[] = { "Bend", "Twist", "Flare" };
+                row( "Operation Type" );
+                if ( ImGui::Combo( "##WarpOperation", &op, kOps, 3 ) )
+                    s.Operation = static_cast<Geometry::WarpOperation>( op );
+                row( "Upper Bound" );
+                ImGui::DragFloat( "##WarpUpper", &s.UpperBound, 0.5f, 0.0f, 100000.0f, "%.1f cm",
+                                  ImGuiSliderFlags_AlwaysClamp );
+                row( "Lower Bound" );
+                ImGui::DragFloat( "##WarpLower", &s.LowerBound, 0.5f, -100000.0f, 0.0f, "%.1f cm",
+                                  ImGuiSliderFlags_AlwaysClamp );
+                if ( s.Operation == Geometry::WarpOperation::Bend )
+                {
+                    row( "Bend Degrees" );
+                    ImGui::SliderFloat( "##WarpBend", &s.BendDegrees, -360.0f, 360.0f, "%.1f" );
+                    s.BendDegrees = std::clamp( s.BendDegrees, -3600.0f, 3600.0f );
+                }
+                else if ( s.Operation == Geometry::WarpOperation::Twist )
+                {
+                    row( "Twist Degrees" );
+                    ImGui::SliderFloat( "##WarpTwist", &s.TwistDegrees, -360.0f, 360.0f, "%.1f" );
+                    s.TwistDegrees = std::clamp( s.TwistDegrees, -3600.0f, 3600.0f );
+                }
+                else
+                {
+                    int                   profile    = static_cast<int>( s.Profile );
+                    constexpr const char* kProfile[] = { "Sin Mode", "Sin Squared", "Triangle" };
+                    row( "Flare Profile Type" );
+                    if ( ImGui::Combo( "##WarpProfile", &profile, kProfile, 3 ) )
+                        s.Profile = static_cast<Geometry::FlareProfile>( profile );
+                    row( "Flare Percent Y" );
+                    ImGui::SliderFloat( "##WarpFlareY", &s.FlarePercentY, -100.0f, 200.0f, "%.0f %%" );
+                    s.FlarePercentY = std::clamp( s.FlarePercentY, -1000.0f, 2000.0f );
+                    ImGui::Checkbox( "Lock X and Y Flaring##Warp", &s.LockXAndYFlaring );
+                    if ( !s.LockXAndYFlaring )
+                    {
+                        row( "Flare Percent X" );
+                        ImGui::SliderFloat( "##WarpFlareX", &s.FlarePercentX, -100.0f, 200.0f, "%.0f %%" );
+                        s.FlarePercentX = std::clamp( s.FlarePercentX, -1000.0f, 2000.0f );
+                    }
+                }
+                if ( s.Operation != Geometry::WarpOperation::Flare )
+                    ImGui::Checkbox( "Lock Bottom##Warp", &s.LockBottom );
+                ImGui::TextDisabled( "The viewport gizmo is the deformer's frame: Z is the axis." );
+                break;
+            }
+            case MS::Tool::Lattice:
+            {
+                // UE ULatticeDeformerToolProperties: resolution (a change rebuilds the lattice) and interpolation.
+                auto& s = ms.DeformLattice;
+                row( "X Axis Resolution" );
+                ImGui::SliderInt( "##LatticeX", &s.XResolution, Geometry::kLatticeMinResolution,
+                                  Geometry::kLatticeMaxResolution, "%d", ImGuiSliderFlags_AlwaysClamp );
+                row( "Y Axis Resolution" );
+                ImGui::SliderInt( "##LatticeY", &s.YResolution, Geometry::kLatticeMinResolution,
+                                  Geometry::kLatticeMaxResolution, "%d", ImGuiSliderFlags_AlwaysClamp );
+                row( "Z Axis Resolution" );
+                ImGui::SliderInt( "##LatticeZ", &s.ZResolution, Geometry::kLatticeMinResolution,
+                                  Geometry::kLatticeMaxResolution, "%d", ImGuiSliderFlags_AlwaysClamp );
+                int                   interpolation = static_cast<int>( s.Interpolation );
+                constexpr const char* kInterp[]     = { "Linear", "Cubic" };
+                row( "Interpolation Type" );
+                if ( ImGui::Combo( "##LatticeInterp", &interpolation, kInterp, 2 ) )
+                    s.Interpolation = static_cast<Geometry::LatticeInterpolation>( interpolation );
+                row( "Soft Deformation" );
+                ImGui::Checkbox( "##LatticeSoft", &s.SoftDeformation );
+                ImGui::Text( "%zu of %zu points selected", ms.LatticeSelection.size(), ms.LatticePoints.size() );
+                ImGui::TextDisabled( "Click a point (Shift adds, Ctrl toggles); the gizmo moves the selection." );
+                break;
+            }
+            case MS::Tool::VertexSculpt:
+            {
+                // UE UMeshVertexSculptTool: brush type + USculptBrushProperties (size, strength, falloff).
+                auto&                 s        = ms.DeformSculpt;
+                int                   brush    = static_cast<int>( s.Brush );
+                int                   falloff  = static_cast<int>( s.FalloffType );
+                constexpr const char* kFall[]  = { "Smooth", "Linear", "Inverse", "Round" };
+                row( "Brush" );
+                if ( ImGui::Combo(
+                          "##SculptBrush", &brush,
+                          []( void*, int i, const char** out )
+                          {
+                              *out = Geometry::ToString( Geometry::kSculptBrushes[i] );
+                              return true;
+                          },
+                          nullptr, static_cast<int>( std::size( Geometry::kSculptBrushes ) ) ) )
+                    s.Brush = Geometry::kSculptBrushes[brush];
+                row( "Brush Radius" );
+                ImGui::DragFloat( "##SculptRadius", &s.Radius, 0.5f, Geometry::kSculptMinRadius,
+                                  Geometry::kSculptMaxRadius, "%.1f cm", ImGuiSliderFlags_AlwaysClamp );
+                row( "Strength" );
+                ImGui::SliderFloat( "##SculptStrength", &s.Strength, 0.0f, 1.0f, "%.2f",
+                                    ImGuiSliderFlags_AlwaysClamp );
+                row( "Falloff" );
+                ImGui::SliderFloat( "##SculptFalloff", &s.FalloffAmount, 0.0f, 1.0f, "%.2f",
+                                    ImGuiSliderFlags_AlwaysClamp );
+                row( "Falloff Type" );
+                if ( ImGui::Combo( "##SculptFalloffType", &falloff, kFall, 4 ) )
+                    s.FalloffType = static_cast<Geometry::SculptFalloff>( falloff );
+                ImGui::TextDisabled( "Drag on the mesh; each stroke is one undo step." );
+                break;
+            }
+            default:
+                ImGui::TextDisabled( "Pick a Deform tool above; it works on the selected mesh." );
+                return;
+        }
+        ImGui::Separator();
+        ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+        ImGui::TextDisabled( "Accept / Cancel: bottom of the viewport" );
+    }
+
     // UE's UVs palette: AutoUV, Project, Unwrap (UE's Recompute UVs) and Layout. Each is a tool on the selected
     // mesh (UVTool): the viewport previews it with the settings below and the tool bar's Accept / Cancel end it.
+    // UE's Attributes palette. Normals = UE UEditNormalsTool (UEditNormalsProperties, its defaults and ranges): a
+    // tool on the selected mesh previewed by MeshProcessingTool's session, recomputed on every change, committed by the
+    // bar's Accept as one undo step.
+    void ModelingPanel::DrawAttributesPalette()
+    {
+        using MS         = Core::ModelingState;
+        auto&       ms   = MS::Get();
+        const float full = ImGui::GetContentRegionAvail().x;
+        // UE's Attributes palette buttons: Normals (UEditNormalsTool), Tangents (UMeshTangentsTool).
+        for ( const auto& [tool, name] :
+              { std::pair{ MS::Tool::Normals, "Normals" }, std::pair{ MS::Tool::Tangents, "Tangents" },
+                std::pair{ MS::Tool::EditMaterials, "Edit Materials" },
+                std::pair{ MS::Tool::PaintGroups, "Paint PolyGroups" } } )
+        {
+            const bool on = ms.ActiveTool == tool;
+            if ( on )
+                ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
+            char label[64];
+            std::snprintf( label, sizeof( label ), "%s  %s", ICON_MDI_ARROW_TOP_RIGHT_THICK, name );
+            if ( ImGui::Button( label, ImVec2( full, 26.0f ) ) )
+            {
+                ms.ActiveTool = tool;
+                Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            }
+            if ( on )
+                ImGui::PopStyleColor();
+        }
+        const auto row = []( const char* label )
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted( label );
+            ImGui::SameLine( 150.0f );
+            ImGui::SetNextItemWidth( -1.0f );
+        };
+        if ( ms.ActiveTool == MS::Tool::PaintGroups )
+        {
+            // UE UMeshGroupPaintTool: the brush / fill choice, the group painted, New Group, the radius.
+            ImGui::Separator();
+            ImGui::TextWrapped( "Paint the current group onto the mesh with the left button; Accept keeps it as "
+                                "one undo step." );
+            row( "Mode" );
+            int mode = static_cast<int>( ms.PaintGroupsMode );
+            if ( ImGui::Combo( "##PaintGroupsMode", &mode, "Brush\0Fill Connected\0" ) )
+                ms.PaintGroupsMode = static_cast<MS::PaintGroupsModeKind>( mode );
+            row( "Current Group" );
+            if ( ImGui::InputInt( "##PaintGroupsCurrent", &ms.PaintGroupsCurrent ) )
+                ms.PaintGroupsCurrent = std::max( ms.PaintGroupsCurrent, 0 );
+            if ( ImGui::Button( "New Group##PaintGroups", ImVec2( full, 0.0f ) ) )
+                ms.PaintGroupsReqNewGroup = true;
+            row( "Brush Radius" );
+            ImGui::SliderFloat( "##PaintGroupsRadius", &ms.PaintGroupsRadius, 1.0f, 500.0f, "%.0f cm",
+                                ImGuiSliderFlags_Logarithmic );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.PaintGroupsStatus.c_str() );
+            return;
+        }
+        if ( ms.ActiveTool == MS::Tool::EditMaterials )
+        {
+            // UE UEditMeshMaterialsTool: the material list (active slot), Assign / Add / Remove, the status.
+            ImGui::Separator();
+            ImGui::TextWrapped( "Select triangles or polygroups in the viewport (Shift adds, Ctrl removes)." );
+            for ( int i = 0; i < static_cast<int>( ms.EditMaterialsSlotNames.size() ); ++i )
+            {
+                char slotLabel[160];
+                std::snprintf( slotLabel, sizeof( slotLabel ), "Slot %d: %s##EditMaterialsSlot", i,
+                               ms.EditMaterialsSlotNames[i].c_str() );
+                if ( ImGui::RadioButton( slotLabel, ms.EditMaterialsActiveSlot == i ) )
+                    ms.EditMaterialsActiveSlot = i;
+            }
+            if ( ImGui::Button( "Assign Active Material##EditMaterials", ImVec2( full, 0.0f ) ) )
+                ms.EditMaterialsReqAssign = true;
+            if ( ImGui::Button( "Add Slot##EditMaterials" ) )
+                ms.EditMaterialsReqAddSlot = true;
+            ImGui::SameLine();
+            if ( ImGui::Button( "Remove Last Slot##EditMaterials" ) )
+                ms.EditMaterialsReqRemoveSlot = true;
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.EditMaterialsStatus.c_str() );
+            return;
+        }
+        if ( ms.ActiveTool == MS::Tool::Tangents )
+        {
+            // UE UMeshTangentsToolProperties: Calculation Method; Display (lines, preview only).
+            ImGui::Separator();
+            Geometry::TangentsSettings&  t          = ms.AttribTangents;
+            static constexpr const char* kMethods[] = { "Fast MikkT Space", "MikkT Space", "Per Triangle" };
+            int                          method     = static_cast<int>( t.CalculationMethod );
+            row( "Calculation Method" );
+            if ( ImGui::Combo( "##TangentsMethod", &method, kMethods, 3 ) )
+                t.CalculationMethod = static_cast<Geometry::TangentsMethod>( method );
+            ImGui::Checkbox( "Show Tangents##Tangents", &t.ShowTangents );
+            ImGui::Checkbox( "Show Normals##Tangents", &t.ShowNormals );
+            row( "Line Length" );
+            ImGui::SliderFloat( "##TangentsLength", &t.LineLength, 0.01f, 25.0f, "%.2f cm" );
+            row( "Line Thickness" );
+            ImGui::SliderFloat( "##TangentsThickness", &t.LineThickness, 0.0f, 25.0f, "%.1f" );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+            return;
+        }
+        if ( ms.ActiveTool != MS::Tool::Normals )
+            return;
+        ImGui::Separator();
+        Geometry::NormalsSettings& n = ms.AttribNormals;
+        ImGui::Checkbox( "Recompute Normals##Normals", &n.RecomputeNormals );
+        static constexpr const char* kMethods[] = { "Area Weighted", "Angle Weighted", "Area Angle Weighting" };
+        int                          method     = static_cast<int>( n.CalculationMethod );
+        row( "Normal Calculation" );
+        if ( ImGui::Combo( "##NormalsMethod", &method, kMethods, 3 ) )
+            n.CalculationMethod = static_cast<Geometry::NormalCalculationMethod>( method );
+        static constexpr const char* kSplits[] = { "Use Existing Topology", "Face Normal Threshold",
+                                                   "Face Group ID", "Per Triangle", "Per Vertex" };
+        int                          split     = static_cast<int>( n.SplitMethod );
+        row( "Split Normals" );
+        if ( ImGui::Combo( "##NormalsSplit", &split, kSplits, 5 ) )
+            n.SplitMethod = static_cast<Geometry::SplitNormalMethod>( split );
+        if ( n.SplitMethod == Geometry::SplitNormalMethod::FaceNormalThreshold )
+        {
+            row( "Sharp Edge Angle" );
+            ImGui::SliderFloat( "##NormalsThreshold", &n.SharpEdgeAngleThreshold, 0.0f, 180.0f, "%.1f deg",
+                                ImGuiSliderFlags_AlwaysClamp );
+            ImGui::Checkbox( "Allow Sharp Vertices##Normals", &n.AllowSharpVertices );
+        }
+        ImGui::Checkbox( "Fix Inconsistent Normals##Normals", &n.FixInconsistentNormals );
+        ImGui::Checkbox( "Invert Normals##Normals", &n.InvertNormals );
+        ImGui::Separator();
+        ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+    }
+
     void ModelingPanel::DrawUVsPalette()
     {
         using MS          = Core::ModelingState;
@@ -585,11 +966,12 @@ namespace Desert::Editor
             const char* Name;
             MS::Tool    Tool;
         };
-        constexpr std::array<UVToolEntry, 4> kUVTools = {
+        constexpr std::array<UVToolEntry, 5> kUVTools = {
              { { ICON_MDI_AUTO_FIX, "AutoUV", MS::Tool::AutoUV },
                { ICON_MDI_PROJECTOR, "Project", MS::Tool::UVProject },
                { ICON_MDI_CONTENT_CUT, "Unwrap", MS::Tool::UVUnwrap },
-               { ICON_MDI_VIEW_GRID_OUTLINE, "Layout", MS::Tool::UVLayout } } };
+               { ICON_MDI_VIEW_GRID_OUTLINE, "Layout", MS::Tool::UVLayout },
+               { ICON_MDI_CURSOR_MOVE, "Transform", MS::Tool::UVTransform } } };
         for ( size_t i = 0; i < kUVTools.size(); ++i )
         {
             const bool on = ms.ActiveTool == kUVTools[i].Tool;
@@ -720,9 +1102,47 @@ namespace Desert::Editor
                 ImGui::DragFloat( "##UVLayoutTranslateV", &s.Translation.y, 0.01f, -1000.0f, 1000.0f, "%.3f" );
                 break;
             }
+            case MS::Tool::UVTransform:
+            {
+                // UE's UV Editor Transform tool: scale, then rotate, about the pivot, then translate; on the
+                // selected triangles (Select Elements) or, with none, on every island.
+                auto&                 s         = ms.UVTransform;
+                constexpr const char* kPivots[] = { "Origin", "Island Center", "Selection Center", "Manual" };
+                int                   pivot     = static_cast<int>( s.Pivot );
+                row( "Scale U" );
+                ImGui::DragFloat( "##UVTransformScaleU", &s.Scale.x, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                row( "Scale V" );
+                ImGui::DragFloat( "##UVTransformScaleV", &s.Scale.y, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                row( "Rotation" );
+                ImGui::DragFloat( "##UVTransformRotation", &s.RotationDeg, 0.5f, -360.0f, 360.0f, "%.1f deg",
+                                  ImGuiSliderFlags_AlwaysClamp );
+                row( "Translate U" );
+                ImGui::DragFloat( "##UVTransformTranslateU", &s.Translation.x, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                row( "Translate V" );
+                ImGui::DragFloat( "##UVTransformTranslateV", &s.Translation.y, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                row( "Pivot" );
+                if ( ImGui::Combo( "##UVTransformPivot", &pivot, kPivots, 4 ) )
+                    s.Pivot = static_cast<Geometry::UVTransformPivot>( pivot );
+                if ( s.Pivot == Geometry::UVTransformPivot::Manual )
+                {
+                    row( "Pivot U" );
+                    ImGui::DragFloat( "##UVTransformPivotU", &s.ManualPivot.x, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                    row( "Pivot V" );
+                    ImGui::DragFloat( "##UVTransformPivotV", &s.ManualPivot.y, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                }
+                break;
+            }
             default:
                 ImGui::TextDisabled( "Pick a UV tool above; it works on the selected mesh." );
                 return;
+        }
+        ImGui::Separator();
+        ImGui::Checkbox( "Checker Preview##UV", &ms.UVShowChecker );
+        if ( ms.UVShowChecker )
+        {
+            row( "Checker Density" );
+            ImGui::DragFloat( "##UVCheckerDensity", &ms.UVCheckerDensity, 0.1f, 0.1f, 1000.0f, "%.1f",
+                              ImGuiSliderFlags_AlwaysClamp );
         }
         ImGui::Separator();
         ImGui::TextWrapped( "%s", ms.UVStatus.c_str() );
