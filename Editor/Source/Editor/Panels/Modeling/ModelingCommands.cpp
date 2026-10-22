@@ -95,8 +95,8 @@ namespace Desert::Editor
         // Entries for more levels than a generated chain holds; one past the selection's chain is refused.
         constexpr int kPreviewEntries = 8;
         for ( int level = 0; level < kPreviewEntries; ++level )
-            commands.push_back( { "Modeling", std::format( "LOD Manager: preview LOD {}", level ),
-                                  [&scene, level] { return Editor::ModelingPanel::PreviewLOD( scene, level ); } } );
+            commands.push_back( { "Modeling", std::format( "LOD Manager: preview LOD {}", level ), [&scene, level]
+                                  { return Editor::ModelingPanel::PreviewLOD( scene, level ); } } );
         for ( const Geometry::ElementMode mode :
               { Geometry::ElementMode::Vertex, Geometry::ElementMode::Edge, Geometry::ElementMode::Triangle,
                 Geometry::ElementMode::PolyGroup } )

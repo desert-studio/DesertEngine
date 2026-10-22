@@ -38,7 +38,7 @@ namespace Desert::Editor::MeshLODRows
         return tris;
     }
 
-    std::optional<std::size_t> DrawingLevel( const Core::Scene* scene, const ECS::Entity& entity,
+    std::optional<std::size_t> DrawingLevel( const ::Desert::Core::Scene* scene, const ::Desert::ECS::Entity& entity,
                                              const ::Desert::Mesh& mesh, const int forcedLOD, const int lodBias )
     {
         const std::size_t levels = LevelCount( mesh );
@@ -47,10 +47,10 @@ namespace Desert::Editor::MeshLODRows
         const auto& camera = scene->GetActiveCamera();
         if ( !camera )
             return std::nullopt;
-        const std::size_t level = Geometry::SelectLOD(
-             entity.GetWorldTransform(), mesh.GetSubmeshes(),
-             Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() }, mesh.GetLODScreenSizes(),
-             forcedLOD, lodBias );
+        const std::size_t level =
+             Geometry::SelectLOD( entity.GetWorldTransform(), mesh.GetSubmeshes(),
+                                  Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
+                                  mesh.GetLODScreenSizes(), forcedLOD, lodBias );
         return level < levels ? level : levels - 1;
     }
 
@@ -94,8 +94,7 @@ namespace Desert::Editor::MeshLODRows
         {
             if ( !home )
                 return;
-            if ( const auto written =
-                      Ser::SetImportRecordLodScreenSizes( home->Source, home->MeshFile, sizes );
+            if ( const auto written = Ser::SetImportRecordLodScreenSizes( home->Source, home->MeshFile, sizes );
                  !written )
                 LOG_ERROR( "[Details] LOD screen sizes of '{}': {}", home->MeshFile, written.GetError() );
         };
@@ -130,9 +129,8 @@ namespace Desert::Editor::MeshLODRows
             float             value = sizes[level];
             const std::string label = std::format( "LOD {} Screen Size", level );
             Utils::ImGuiUtilities::BeginPropertyRow(
-                 label.c_str(),
-                 "The bounding sphere's diameter, as a fraction of the screen, below which this "
-                 "level is drawn" );
+                 label.c_str(), "The bounding sphere's diameter, as a fraction of the screen, below which this "
+                                "level is drawn" );
             ImGui::PushID( static_cast<int>( level ) );
             if ( ImGui::DragFloat( "##lodscreensize", &value, 0.002f, lower, upper, "%.4f",
                                    ImGuiSliderFlags_AlwaysClamp ) )

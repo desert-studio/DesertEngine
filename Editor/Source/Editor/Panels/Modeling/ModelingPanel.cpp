@@ -83,9 +83,9 @@ namespace Desert::Editor
             return ICON_MDI_VECTOR_SELECTION;
         }
 
-        // UE 5.8 ModelingToolsEditorModeToolkit.cpp:1717-1737 (PaletteNames_Standard; LODs last, as there), with the Selection
-        // palette first as UE inserts it while mesh selection is on (:1756): only the palettes something of
-        // ours lives in, in UE's order.
+        // UE 5.8 ModelingToolsEditorModeToolkit.cpp:1717-1737 (PaletteNames_Standard; LODs last, as there), with
+        // the Selection palette first as UE inserts it while mesh selection is on (:1756): only the palettes
+        // something of ours lives in, in UE's order.
         enum class Palette
         {
             Selection,
@@ -1356,7 +1356,7 @@ namespace Desert::Editor
             uint32_t            DrawEntity = 0; // the id its draws carry (DrawStaticMeshCommand::Entity)
             ::Desert::Mesh*     Mesh       = nullptr;
             Assets::AssetHandle MeshHandle;
-            size_t              Levels     = 0;
+            size_t              Levels = 0;
         };
 
         Common::ResultStr<LODTarget> SelectedLODTarget( const std::shared_ptr<Desert::Core::Scene>& scene )
@@ -1369,7 +1369,7 @@ namespace Desert::Editor
             if ( !ref )
                 return Common::MakeFormattedError<LODTarget>( "entity {} is not in the scene",
                                                               static_cast<uint64_t>( ids.front() ) );
-            ECS::Entity& entity = ref->get();
+            ECS::Entity entity = ref->get(); // a handle: the copy names the same entity
             if ( !entity.HasComponent<ECS::StaticMeshComponent>() )
                 return Common::MakeFormattedError<LODTarget>( "entity {} has no static mesh",
                                                               static_cast<uint64_t>( ids.front() ) );
@@ -1389,7 +1389,7 @@ namespace Desert::Editor
     } // namespace
 
     Common::ResultStr<bool> ModelingPanel::PreviewLOD( const std::shared_ptr<Desert::Core::Scene>& scene,
-                                                       const int level )
+                                                       const int                                   level )
     {
         auto& ms = Core::ModelingState::Get();
         if ( level < 0 )
@@ -1441,14 +1441,15 @@ namespace Desert::Editor
                  !leased.IsSuccess() )
                 ImGui::TextDisabled( "%s", leased.GetError().c_str() );
 
-        const auto live = m_Scene->FindEntityByID( t.Id );
+        const auto            live = m_Scene->FindEntityByID( t.Id );
         std::optional<size_t> drawing;
         if ( ms.LODPreviewLevel >= 0 )
             drawing = static_cast<size_t>( ms.LODPreviewLevel );
         else if ( live )
         {
-            const auto& c = live->get().GetComponent<ECS::StaticMeshComponent>();
-            drawing = MeshLODRows::DrawingLevel( m_Scene.get(), live->get(), *t.Mesh, c.ForcedLOD, c.LODBias );
+            ECS::Entity e = live->get();
+            const auto& c = e.GetComponent<ECS::StaticMeshComponent>();
+            drawing       = MeshLODRows::DrawingLevel( m_Scene.get(), e, *t.Mesh, c.ForcedLOD, c.LODBias );
         }
         MeshLODRows::DrawLevels( *t.Mesh, drawing, ms.LODPreviewLevel >= 0 ? "previewing" : "drawing" );
 

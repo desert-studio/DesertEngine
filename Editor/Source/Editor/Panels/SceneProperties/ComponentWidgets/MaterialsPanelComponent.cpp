@@ -50,7 +50,6 @@ namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
 
-
     MaterialComponentWidget::MaterialComponentWidget( Assets::AssetManager* assetManager )
          : m_AssetManager( assetManager )
     {
