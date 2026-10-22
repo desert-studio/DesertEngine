@@ -23,6 +23,13 @@ fi
 BREW_PREFIX="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null || echo /opt/homebrew)}"
 export VK_LAYER_PATH="${VK_LAYER_PATH:-$BREW_PREFIX/share/vulkan/explicit_layer.d}"
 
+# THE DRIVER IS THE REPO'S: the pinned MoltenVK built by scripts/MacOS/BuildMoltenVK.sh, not Homebrew's
+# molten-vk (1.4.2 warns about blending on every non-blendable colour slot, blendEnable unread). A
+# missing build is a refusal, not a fall-back to whatever driver the loader would find.
+VK_ICD_JSON="$(bash scripts/MacOS/BuildMoltenVK.sh --icd)" || exit 1
+export VK_ICD_FILENAMES="$VK_ICD_JSON"
+export VK_DRIVER_FILES="$VK_ICD_JSON"
+
 # Engine resources (shaders/fonts) resolve relative to the working directory — same tree the editor uses.
 cd Editor
 
