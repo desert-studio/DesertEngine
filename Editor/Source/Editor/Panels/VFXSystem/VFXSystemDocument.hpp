@@ -4,6 +4,8 @@
 #include <Editor/Panels/IPanel.hpp>
 
 #include <Common/Core/Core.hpp> // Common::Filepath, which AssetMetadata.hpp names without including
+
+#include <array>
 #include <Engine/Assets/AssetMetadata.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 
@@ -132,7 +134,10 @@ namespace Desert::Editor
         // enable checkbox). Each is one Commit - one undo step - and, being a change of m_Working, restarts the
         // preview. A module added gets its inputs from the module's own declarations (ResolveParticleModule),
         // each a Value at zero.
-        Common::BoolResultStr AddModule( std::size_t emitter, std::size_t stage, const std::string& module );
+        // @p channel: the DataChannel a BindingRequired input (SpawnFromChannel's Channel) is bound to - UE picks the
+        // channel asset on the new row; a module with such an input and no channel is refused.
+        Common::BoolResultStr AddModule( std::size_t emitter, std::size_t stage, const std::string& module,
+                                         const std::string& channel = {} );
         Common::BoolResultStr RemoveModule( std::size_t emitter, std::size_t stage, std::size_t module );
         Common::BoolResultStr MoveModule( std::size_t emitter, std::size_t stage, std::size_t module, int delta );
         Common::BoolResultStr SetModuleEnabled( std::size_t emitter, std::size_t stage, std::size_t module,
@@ -143,6 +148,7 @@ namespace Desert::Editor
         {
             std::string Ref;
             std::string Error;
+            bool        NeedsChannel = false; // an input is BindingRequired: the picker asks for the channel
         };
         // What stage @p stage's picker offers (UE: the module picker filtered by Module Usage): the CPU emitter
         // modules, the engine library, then this system's LocalModules.
@@ -158,6 +164,7 @@ namespace Desert::Editor
         // m_Working when the active widget's gesture began (set while a drag is held).
         std::optional<Assets::Serialization::VFXSystemData> m_GestureBefore;
         std::string                                         m_Refusal;
+        std::array<char, 64>                                m_ChannelPick{}; // the picker's channel name field
         std::size_t                       m_SelectedEmitter = 0;
 
         std::unique_ptr<PreviewViewport> m_Preview;

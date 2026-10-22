@@ -283,6 +283,8 @@ namespace Desert::Assets::Serialization
             if ( l.Loop == VFXLoopBehavior::Multiple && l.LoopCount == 0 )
                 return Common::MakeFormattedError<bool>( "emitter '{}' loops Multiple with LoopCount 0", e.Name );
             const std::string at = std::format( "emitter '{}'", e.Name );
+            if ( auto ok = CheckGroup( e.Stack.EmitterSpawn, data, std::format( "{} EmitterSpawn", at ) ); !ok )
+                return ok;
             if ( auto ok = CheckGroup( e.Stack.EmitterUpdate, data, std::format( "{} EmitterUpdate", at ) ); !ok )
                 return ok;
             if ( auto ok = CheckGroup( e.Stack.ParticleSpawn, data, std::format( "{} ParticleSpawn", at ) ); !ok )

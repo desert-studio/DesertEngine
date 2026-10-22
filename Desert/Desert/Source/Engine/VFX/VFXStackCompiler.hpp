@@ -30,16 +30,20 @@ namespace Desert::VFX
 {
     using Assets::Serialization::VFXValueType;
 
-    /// The three stack groups of an emitter, in the stack's order (UE ENiagaraScriptUsage: EmitterUpdateScript,
-    /// ParticleSpawnScript, ParticleUpdateScript). EmitterUpdate is CPU administration, the other two the GPU program.
+    /// The four stack groups of an emitter, in the stack's order (UE ENiagaraScriptUsage: EmitterSpawnScript,
+    /// EmitterUpdateScript, ParticleSpawnScript, ParticleUpdateScript). The two Emitter groups are CPU administration
+    /// (EmitterSpawn runs once when the emitter instance starts, EmitterUpdate every step), the other two the GPU
+    /// program.
     enum class VFXStage : uint8_t
     {
+        EmitterSpawn,
         EmitterUpdate,
         ParticleSpawn,
         ParticleUpdate,
     };
 
-    /// The stack keys of the stages, indexed by VFXStage ("EmitterUpdate", "ParticleSpawn", "ParticleUpdate").
+    /// The stack keys of the stages, indexed by VFXStage ("EmitterSpawn", "EmitterUpdate", "ParticleSpawn",
+    /// "ParticleUpdate").
     [[nodiscard]] std::string_view StageName( VFXStage stage );
 
     /// One stage's bit in a module's Usage mask (UE UNiagaraScript::ModuleUsageBitmask).
@@ -62,6 +66,9 @@ namespace Desert::VFX
         std::string  Name;
         VFXValueType Type    = VFXValueType::Float;
         glm::vec4    Default = glm::vec4( 0.0f );
+        /// The input has no Value default: a new row binds it to what the user picks (UE: Spawn From Data
+        /// Channel's Channel, an asset reference that starts unset). Default is then unread.
+        bool BindingRequired = false;
 
         [[nodiscard]] bool operator==( const VFXModuleInputDecl& ) const = default;
     };

@@ -143,6 +143,9 @@ namespace Desert::Assets::Serialization
     /// The stack, in execution order inside each group (the array index IS the order).
     struct VFXEmitterStack
     {
+        /// UE's Emitter Spawn group: runs once when the emitter instance starts. A file written before the group
+        /// existed states no key and reads as the empty group it was.
+        std::vector<VFXModuleUse> EmitterSpawn;
         std::vector<VFXModuleUse> EmitterUpdate;
         std::vector<VFXModuleUse> ParticleSpawn;
         std::vector<VFXModuleUse> ParticleUpdate;

@@ -94,17 +94,25 @@ namespace Desert::Editor
             return {};
         }
 
-        constexpr std::array<const char*, 3> kStageKeys = { "EmitterUpdate", "ParticleSpawn", "ParticleUpdate" };
+        // Indexed by VFX::VFXStage.
+        constexpr std::array<const char*, 4> kStageKeys = { "EmitterSpawn", "EmitterUpdate", "ParticleSpawn",
+                                                            "ParticleUpdate" };
 
         std::vector<S::VFXModuleUse>& StageModules( S::VFXEmitterStack& stack, const std::size_t stage )
         {
-            return stage == 0 ? stack.EmitterUpdate : stage == 1 ? stack.ParticleSpawn : stack.ParticleUpdate;
+            return stage == 0   ? stack.EmitterSpawn
+                   : stage == 1 ? stack.EmitterUpdate
+                   : stage == 2 ? stack.ParticleSpawn
+                                : stack.ParticleUpdate;
         }
 
         const std::vector<S::VFXModuleUse>& StageModules( const S::VFXEmitterStack& stack,
                                                           const std::size_t         stage )
         {
-            return stage == 0 ? stack.EmitterUpdate : stage == 1 ? stack.ParticleSpawn : stack.ParticleUpdate;
+            return stage == 0   ? stack.EmitterSpawn
+                   : stage == 1 ? stack.EmitterUpdate
+                   : stage == 2 ? stack.ParticleSpawn
+                                : stack.ParticleUpdate;
         }
 
         const char* TypeWord( const S::VFXValueType type )
@@ -472,9 +480,10 @@ namespace Desert::Editor
         ImGui::Separator();
         // UE's stack order: Emitter Update runs once per tick, Particle Spawn once per new particle, Particle
         // Update per live particle per tick, then the Render rows.
-        DrawStage( "Emitter Update", m_SelectedEmitter, 0 );
-        DrawStage( "Particle Spawn", m_SelectedEmitter, 1 );
-        DrawStage( "Particle Update", m_SelectedEmitter, 2 );
+        DrawStage( "Emitter Spawn", m_SelectedEmitter, 0 );
+        DrawStage( "Emitter Update", m_SelectedEmitter, 1 );
+        DrawStage( "Particle Spawn", m_SelectedEmitter, 2 );
+        DrawStage( "Particle Update", m_SelectedEmitter, 3 );
         if ( ImGui::CollapsingHeader( "Render", ImGuiTreeNodeFlags_DefaultOpen ) )
         {
             // Indexed again: an edit refused above put back a whole earlier system, so `emitter` may be stale.
@@ -589,6 +598,27 @@ namespace Desert::Editor
                         ImGui::EndDisabled();
                         if ( ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
                             ImGui::SetTooltip( "%s", choice.Error.c_str() );
+                        continue;
+                    }
+                    if ( choice.NeedsChannel )
+                    {
+                        // UE's Spawn From Data Channel row starts by naming its channel: the name, then Add.
+                        if ( ImGui::BeginMenu( choice.Ref.c_str() ) )
+                        {
+                            ImGui::SetNextItemWidth( 160.0f );
+                            ImGui::InputTextWithHint( "##channel", "Data channel", m_ChannelPick.data(),
+                                                      m_ChannelPick.size() );
+                            const std::string channel( m_ChannelPick.data() );
+                            ImGui::BeginDisabled( channel.empty() );
+                            if ( ImGui::Button( "Add" ) )
+                            {
+                                structural = [this, emitter, stage, module = choice.Ref, channel]
+                                { (void)AddModule( emitter, stage, module, channel ); };
+                                ImGui::CloseCurrentPopup();
+                            }
+                            ImGui::EndDisabled();
+                            ImGui::EndMenu();
+                        }
                         continue;
                     }
                     if ( ImGui::Selectable( choice.Ref.c_str() ) )
@@ -893,13 +923,18 @@ namespace Desert::Editor
             if ( !described.IsSuccess() )
                 out.push_back( { ref, described.GetError() } );
             else if ( ( described.GetValue().Usage & bit ) != 0 )
-                out.push_back( { ref, {} } );
+            {
+                bool needsChannel = false;
+                for ( const auto& decl : described.GetValue().Inputs )
+                    needsChannel = needsChannel || decl.BindingRequired;
+                out.push_back( { ref, {}, needsChannel } );
+            }
         }
         return out;
     }
 
     Common::BoolResultStr VFXSystemDocument::AddModule( const std::size_t emitter, const std::size_t stage,
-                                                        const std::string& module )
+                                                        const std::string& module, const std::string& channel )
     {
         if ( emitter >= m_Working.Emitters.size() || stage >= kStageKeys.size() )
             return Common::MakeFormattedError<bool>( "'{}' can be added only to a stage of an emitter", module );
@@ -919,10 +954,23 @@ namespace Desert::Editor
         for ( const auto& decl : described.GetValue().Inputs )
         {
             S::VFXModuleInput input;
-            input.Name   = decl.Name;
-            input.Type   = decl.Type;
-            input.Source = S::VFXInputSource::Value;
-            input.Value  = decl.Default; // the module's own default (UE: the module script's input default)
+            input.Name = decl.Name;
+            input.Type = decl.Type;
+            if ( decl.BindingRequired )
+            {
+                if ( channel.empty() || channel.find( '.' ) != std::string::npos )
+                {
+                    m_Refusal = std::format( "Add {}: input '{}' needs a data channel name", module, decl.Name );
+                    return Common::MakeError<bool>( m_Refusal );
+                }
+                input.Source  = S::VFXInputSource::Binding;
+                input.Binding = std::format( "{}{}", S::kVFXDataChannelPrefix, channel );
+            }
+            else
+            {
+                input.Source = S::VFXInputSource::Value;
+                input.Value  = decl.Default; // the module's own default (UE: the module script's input default)
+            }
             use.Inputs.push_back( std::move( input ) );
         }
         auto before = m_Working;
@@ -1024,7 +1072,7 @@ namespace Desert::Editor
                                  } } );
             }
             for ( const ModuleChoice& choice : ModuleLibrary( st ) )
-                if ( choice.Error.empty() )
+                if ( choice.Error.empty() && !choice.NeedsChannel ) // the channel is named in the picker
                         out.push_back( { std::format( "Add {} to {}.{}", choice.Ref, name, kStageKeys[st] ),
                                  [this, name, st, module = choice.Ref]
                                  {

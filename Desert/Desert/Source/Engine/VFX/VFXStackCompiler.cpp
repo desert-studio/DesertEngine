@@ -241,6 +241,8 @@ namespace Desert::VFX
     {
         switch ( stage )
         {
+            case VFXStage::EmitterSpawn:
+                return "EmitterSpawn";
             case VFXStage::EmitterUpdate:
                 return "EmitterUpdate";
             case VFXStage::ParticleSpawn:
@@ -259,7 +261,7 @@ namespace Desert::VFX
         description.Ref = ref;
         if ( const std::vector<VFXModuleInputDecl>* cpu = EmitterModuleInputs( ref ) )
         {
-            description.Usage  = UsageBit( VFXStage::EmitterUpdate );
+            description.Usage  = EmitterModuleUsage( ref );
             description.Inputs = *cpu;
             return Common::MakeSuccess( std::move( description ) );
         }
