@@ -18,6 +18,6 @@
 Когда --subject viewport set Camera.Direction 0,-0.55,0.835
 Когда --subject viewport set Camera.Position 0,190,-290
 Когда state
-Тогда-вид 0_shapes left a round-section coil spring of two turns rising upward, both ends capped; right a thick ring with a rectangular cross-section turned 270 degrees, its two flat end caps visible at the gap; both closed, lit from outside, no black or inside-out faces; no default cubes/cylinders in the scene
+Тогда-вид 0_shapes right (+X reads screen-left from this camera, so the Spiral at x=-80 is on the right) a round-section coil spring of two turns rising upward, both ends capped; left a thick ring with a rectangular cross-section turned 270 degrees, its two flat end caps visible at the gap; both closed, lit from outside, no black or inside-out faces; no default cubes/cylinders in the scene
 Когда run Action Undo
-Тогда-вид 1_undo the Revolve ring is gone, the Spiral on the left stays; no translucent tool preview in frame
+Тогда-вид 1_undo the Revolve ring is gone, the Spiral on the right stays; no translucent tool preview in frame
