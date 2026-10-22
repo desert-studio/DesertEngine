@@ -35,6 +35,8 @@
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/System/PhysicsECSSystem.hpp>
+#include <Engine/Physics/PhysicsWorld.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <ImGui/imgui.h>
@@ -50,14 +52,34 @@ namespace Desert::Editor
     namespace
     {
         // Subject::Entity — the entity named by its decimal UUID, in the open scene.
-        Common::ResultStr<ECS::Entity> ControlEntity( ::Desert::Core::Scene& scene, const std::string& id )
+        // The entity a request names: its decimal UUID, or `selected` - the one selected entity, so a scripted
+        // scenario can address what it just created without knowing the UUID the editor generated.
+        Common::ResultStr<Common::UUID> ControlEntityId( const std::string& id )
         {
+            if ( id == "selected" )
+            {
+                if ( Core::SelectionManager::Count() != 1 )
+                    return Common::MakeError<Common::UUID>( std::format(
+                         "'selected' names the one selected entity, and {} are selected",
+                         Core::SelectionManager::Count() ) );
+                return Common::MakeSuccess( Common::UUID( Core::SelectionManager::GetSelection().front() ) );
+            }
             std::uint64_t value = 0;
             const char*   end   = id.data() + id.size();
             if ( const auto [at, ec] = std::from_chars( id.data(), end, value ); ec != std::errc{} || at != end )
-                return Common::MakeError<ECS::Entity>( std::format(
-                     "'{}' is not an entity UUID (decimal, as 'properties' / the outliner give it)", id ) );
-            const auto ref = scene.FindEntityByID( Common::UUID( value ) );
+                return Common::MakeError<Common::UUID>( std::format(
+                     "'{}' is not an entity UUID (decimal, as 'properties' / the outliner give it) nor "
+                     "'selected'",
+                     id ) );
+            return Common::MakeSuccess( Common::UUID( value ) );
+        }
+
+        Common::ResultStr<ECS::Entity> ControlEntity( ::Desert::Core::Scene& scene, const std::string& id )
+        {
+            const auto uuid = ControlEntityId( id );
+            if ( !uuid )
+                return Common::MakeError<ECS::Entity>( uuid.GetError() );
+            const auto ref = scene.FindEntityByID( uuid.GetValue() );
             if ( !ref )
                 return Common::MakeError<ECS::Entity>( std::format( "no entity {} in the open scene", id ) );
             return Common::MakeSuccess( ECS::Entity( ref->get() ) );
@@ -292,7 +314,7 @@ namespace Desert::Editor
         // whole subject of the sequence this document exists to prove.
         const bool waitsForAFrame =
              response.Ok() && ( request.Operation == Control::Op::Run || request.Operation == Control::Op::Set ||
-                                request.Operation == Control::Op::Drag ||
+                                request.Operation == Control::Op::Drag || request.Operation == Control::Op::Advance ||
                                 request.Operation == Control::Op::Input || Control::IsShot( request.Operation ) );
 
         if ( !waitsForAFrame )
@@ -341,6 +363,20 @@ namespace Desert::Editor
         return true;
     }
 
+    std::optional<double> ControlService::PlaySimulatedSeconds() const
+    {
+        if ( !m_Play.InPlayMode() )
+            return std::nullopt;
+        const auto scene = m_Workspace.ActiveScene();
+        if ( !scene )
+            return std::nullopt;
+        const auto* system = scene->FindSystem<ECS::PhysicsECSSystem>();
+        const auto* world  = system != nullptr ? system->GetPhysicsWorld() : nullptr;
+        if ( world == nullptr )
+            return std::nullopt;
+        return world->GetSimulatedSeconds();
+    }
+
     void ControlService::SampleFrameQuiescence( const bool startupLoading )
     {
         Control::EditorQuiescence quiescence;
@@ -369,6 +405,15 @@ namespace Desert::Editor
         quiescence.Set( Control::PendingWork::ControlNudge, Core::ControlNudgeRequests::HasPending() );
         quiescence.Set( Control::PendingWork::PointerDrag,
                         Control::PointerInjection::Playing() || Control::InputInjection::Playing() );
+        // Asked of the clock the world moves by, not of frames or wall time: physics banks real time and caps
+        // its steps per frame, so only its own count says how far the fall has gone. Leaving Play ends the wait.
+        if ( m_AdvanceUntil )
+        {
+            const auto now = PlaySimulatedSeconds();
+            if ( !now || *now >= *m_AdvanceUntil )
+                m_AdvanceUntil.reset();
+        }
+        quiescence.Set( Control::PendingWork::GameTime, m_AdvanceUntil.has_value() );
         // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
         // Create answers "started" at once and a client polls `state` until idle before photographing it.
         quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
@@ -732,7 +777,8 @@ namespace Desert::Editor
 
                     // Selected first, as a person editing it in Details has it selected: the undo record
                     // and the panel's view of the edit are then the ones a hand edit produces.
-                    const Common::UUID entityId( std::stoull( request.Entity ) );
+                    const auto         entityWord = ControlEntityId( request.Entity );
+                    const Common::UUID entityId   = entityWord.GetValue();
                     Core::SelectionManager::SetSelected( entityId );
                     // Only this entity's file is rewritten by the next save (WP17), as from Details.
                     const CommandHistory::FieldSubject fieldSubject( entityId );
@@ -773,6 +819,19 @@ namespace Desert::Editor
                 return Control::Response::Success( request.Id );
             }
 
+            case Control::Op::Advance:
+            {
+                // The scenario's wait for gameplay (a fall, a trigger): held behind the gate until Play's
+                // simulated clock has moved on by the asked seconds -- the client sleeps nowhere.
+                const auto now = PlaySimulatedSeconds();
+                if ( !now )
+                    return Control::Response::Failure(
+                         request.Id, "'advance' waits for Play's simulated time: press Play first (the scene "
+                                     "has no running physics world)." );
+                m_AdvanceUntil = *now + static_cast<double>( request.Value[0] );
+                return Control::Response::Success( request.Id );
+            }
+
             case Control::Op::AddComponent:
             {
                 // DETAILS' ADD COMPONENT (UE: the Details panel's +Add): selected first, as a person adding it
@@ -792,7 +851,8 @@ namespace Desert::Editor
                     return Control::Response::Failure(
                          request.Id,
                          std::format( "no component '{}' in the Add Component menu", request.Component ) );
-                Core::SelectionManager::SetSelected( Common::UUID( std::stoull( request.Entity ) ) );
+                const auto entityWord = ControlEntityId( request.Entity );
+                Core::SelectionManager::SetSelected( entityWord.GetValue() );
                 if ( const auto added = AddComponentUndoable( en, *found ); !added )
                     return Control::Response::Failure( request.Id, added.GetError() );
                 return Control::Response::Success( request.Id );

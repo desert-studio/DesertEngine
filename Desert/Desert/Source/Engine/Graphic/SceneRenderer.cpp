@@ -850,7 +850,9 @@ namespace Desert::Graphic
         // The scene's one sky light: this view reads it, and captures it when it is the frame's first view.
         skyboxSystem->SetSceneSkyLight( scene.GetSkyLight() );
 
-        m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
+        // Grid & other authoring aids hide while the game runs - not while it is simulated (UE: Simulate In
+        // Editor keeps the editor's viewport and its overlays).
+        m_ScenePlaying = scene.IsPlaying() && !scene.IsSimulating();
         // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
         m_FrameExtensions = &scene.GetExtensionPasses();
 #if DESERT_DEV_INSTRUMENTS

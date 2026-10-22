@@ -147,5 +147,12 @@ namespace Desert::Editor
         // answer is not lost to the exit — a client that never hears "ok" cannot tell a clean shutdown
         // from a crash.
         std::optional<int32_t> m_ControlQuitCode;
+
+        // An `advance`'s mark on Play's simulated clock (PhysicsWorld::GetSimulatedSeconds): the reply is held
+        // (PendingWork::GameTime) until the clock reaches it, or Play ends.
+        std::optional<double> m_AdvanceUntil;
+
+        // The playing scene's simulated seconds; empty outside Play or without a physics world.
+        [[nodiscard]] std::optional<double> PlaySimulatedSeconds() const;
     };
 } // namespace Desert::Editor

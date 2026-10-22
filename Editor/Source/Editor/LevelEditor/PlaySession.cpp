@@ -82,6 +82,17 @@ namespace Desert::Editor
 
     void PlaySession::Play( bool fromHere, const std::string& playerStartTag )
     {
+        Start( fromHere ? StartKind::PlayFromHere : StartKind::Play, playerStartTag );
+    }
+
+    void PlaySession::Simulate()
+    {
+        Start( StartKind::Simulate, {} );
+    }
+
+    void PlaySession::Start( const StartKind kind, const std::string& playerStartTag )
+    {
+        const bool fromHere = kind == StartKind::PlayFromHere;
         using SceneState  = ::Desert::Core::Scene::SceneState;
         const auto& scene = m_Workspace.ActiveScene();
         if ( scene->GetState() != SceneState::Edit )
@@ -126,6 +137,7 @@ namespace Desert::Editor
         // streamer, which may unload the cell the PlayerStart stands in.
         Desert::Core::PlayRequest request;
         request.PlayerStartTag = playerStartTag;
+        request.Simulate       = kind == StartKind::Simulate;
         if ( fromHere && scene->GetActiveCamera() )
         {
             // Stand where the editor camera is, facing where it faces - yaw only.
@@ -176,6 +188,8 @@ namespace Desert::Editor
         // An undo stack recorded against the authored scene must not fire into Play or the restored state.
         CommandHistory::Get().Clear();
         m_State = State::Play;
+        if ( request.Simulate )
+            LOG_INFO( "[Play] Simulate In Editor: the world runs with no player; Stop restores the level" );
     }
 
     void PlaySession::Stop()
@@ -400,6 +414,12 @@ namespace Desert::Editor
                 return PaletteCommandOutcome( state == SceneState::Edit && scene->GetState() != SceneState::Edit,
                                               "the scene is not playing; either it was already playing or "
                                               "Play refused (the log says why)." );
+            case Command::Simulate:
+                if ( state == SceneState::Edit )
+                    Simulate();
+                return PaletteCommandOutcome( state == SceneState::Edit && scene->GetState() != SceneState::Edit,
+                                              "the scene is not simulating; either it was already playing or "
+                                              "Simulate refused (the log says why)." );
             case Command::Pause:
                 if ( state == SceneState::Play )
                     scene->SetState( SceneState::Paused );
@@ -471,6 +491,8 @@ namespace Desert::Editor
                 run( Command::Play );
             if ( ImGui::MenuItem( ICON_MDI_CAMERA " Play from Here", nullptr, false ) )
                 run( Command::PlayFromHere );
+            if ( ImGui::MenuItem( ICON_MDI_COGS " Simulate", nullptr, false ) )
+                run( Command::Simulate );
             ImGui::EndPopup();
         }
 

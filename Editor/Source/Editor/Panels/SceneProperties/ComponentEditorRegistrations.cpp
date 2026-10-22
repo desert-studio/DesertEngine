@@ -120,6 +120,7 @@ namespace
 // below. Collider is registered as a CUSTOM component below (auto-fit to mesh bounds on add) instead of the plain
 // reflected one-liner — see MakeColliderEntry.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "RigidBodyData", "Rigid Body" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::VolumeComponent, Data, "VolumeData", "Volume" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::DestructibleComponent, Data, "DestructibleData",
                                      "Destructible" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WaterBodyComponent, Data, "WaterBodyData", "Water Body" )

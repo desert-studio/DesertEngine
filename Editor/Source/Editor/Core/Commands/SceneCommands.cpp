@@ -1896,6 +1896,32 @@ namespace Desert::Editor::Commands
         return Common::MakeSuccess( Common::UUID( folded ) );
     }
 
+    Common::ResultStr<Common::UUID> ReplaceWithNewEntity( const Common::UUID& source, const std::string& name,
+                                                          const std::function<void( ECS::Entity& )>& build )
+    {
+        if ( !Ready() )
+            return Common::MakeError<Common::UUID>( "No scene is open." );
+        auto found = FindEntity( source );
+        if ( !found )
+            return Common::MakeFormattedError<Common::UUID>( "entity {} is not in the scene",
+                                                             static_cast<uint64_t>( source ) );
+
+        auto composite = std::make_unique<CompositeCommand>();
+        auto snapshot  = CaptureSubtree( *found );
+        DestroyByUUID( source );
+        composite->Add( std::make_unique<DeleteCommand>( std::move( snapshot ) ) );
+
+        const Common::UUID created = Common::UUID::Generate();
+        ECS::Entity        entity  = s_Scene->CreateEntityWithUUID( created, name );
+        build( entity );
+        composite->Add( std::make_unique<CreateCommand>( std::vector<Common::UUID>{ created } ) );
+
+        CommandHistory::Get().PushCommand( std::move( composite ) );
+        OnStructuralChange();
+        Core::SelectionManager::SetSelected( created );
+        return Common::MakeSuccess( Common::UUID( created ) );
+    }
+
     struct EntityStateSnapshot
     {
         Common::UUID                    Root;

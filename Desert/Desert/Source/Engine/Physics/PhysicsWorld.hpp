@@ -71,6 +71,20 @@ namespace Desert::Physics
         CollisionProfileId Profile = kNoProfile;
     };
 
+    // The convex hull of a point set as a closed triangle list: the hull's own corners (no interior point, no
+    // point on a face) and three indices per triangle, outward winding. UE's volume brush is this hull
+    // (UMeshToVolumeTool, ConvexHull mode), not the source mesh's triangles.
+    struct ConvexHullGeometry
+    {
+        std::vector<glm::vec3> Points;
+        std::vector<uint32_t>  Indices;
+    };
+
+    /// Builds the hull with Jolt's ConvexHullBuilder at the tolerance and corner cap a ConvexHull collider is
+    /// cooked with (0.1 cm, ConvexHullShape::cMaxPointsInHull), so the outline drawn is the shape simulated.
+    /// Refuses, naming Jolt's reason, a set with fewer than four points or one that is flat.
+    Common::ResultStr<ConvexHullGeometry> BuildConvexHull( std::span<const glm::vec3> points );
+
     // Opaque handle wrapping a JPH::BodyID (its index+sequence uint32). kInvalidBody == not created.
     using BodyHandle = uint32_t;
     constexpr BodyHandle kInvalidBody = 0xFFFFFFFFu;

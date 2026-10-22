@@ -2130,8 +2130,8 @@ namespace Desert::Editor
         }
 
         // Editor gizmos (light/camera icons + frustums) are authoring aids — hide them in Play/Paused so the
-        // running game view is clean.
-        if ( m_Scene->GetState() == ::Desert::Core::Scene::SceneState::Edit )
+        // running game view is clean. Simulate In Editor keeps them: it is the editor's view of a running world.
+        if ( m_Scene->GetState() == ::Desert::Core::Scene::SceneState::Edit || m_Scene->IsSimulating() )
             m_LightGizmoRenderer->Render( ViewCamera(), m_ViewportData.Size.x, m_ViewportData.Size.y,
                                           m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y,
                                           m_AuthoringOwner, m_Authoring );

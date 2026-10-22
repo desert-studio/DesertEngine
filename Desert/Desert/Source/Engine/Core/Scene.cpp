@@ -1248,6 +1248,7 @@ namespace Desert::Core
         m_PlayerController = entt::null;
         m_GameMode.Reset();
         m_PlayFromHere = false;
+        m_Simulating   = false;
 
         m_Entities.Clear();
         m_VFXWorld.Clear();
