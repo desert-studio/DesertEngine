@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Engine/Geometry/MeshDeformOperations.hpp"
+#include "Engine/Geometry/ProgressCancel.hpp"
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -29,5 +30,9 @@ namespace Desert::Geometry
     };
 
     // Refuses an empty mesh, VoxelCount outside 8..1024, SurfaceSearchSteps outside 0..10, a negative thickness.
-    [[nodiscard]] Common::ResultStr<DeformOutcome> VoxWrap( const DynamicMesh3& mesh, const VoxWrapSettings& settings );
+    // progress (UE FDynamicMeshOperator::CalculateResult's FProgressCancel): polled between the build steps and
+    // between Marching Cubes slabs; once raised, VoxWrap stops and refuses with kVoxWrapCancelled.
+    inline constexpr const char* kVoxWrapCancelled = "VoxWrap was cancelled";
+    [[nodiscard]] Common::ResultStr<DeformOutcome> VoxWrap( const DynamicMesh3& mesh, const VoxWrapSettings& settings,
+                                                            const ProgressCancel* progress = nullptr );
 } // namespace Desert::Geometry

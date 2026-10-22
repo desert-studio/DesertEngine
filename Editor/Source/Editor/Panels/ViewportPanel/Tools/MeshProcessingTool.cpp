@@ -146,13 +146,26 @@ namespace Desert::Editor::Tools
             }
             ApplyLatticeGizmo( scene, ms );
         }
+        // UE UMeshOpPreviewWithBackgroundCompute::InvalidateResult: a settings change cancels the compute in
+        // flight (its result, even one already landed, is stale and never shown) and starts the next at once.
+        // The preview on screen stays the last one that was current (UE keeps it while recomputing).
+        if ( m_Session && SettingsChanged( ms ) )
+        {
+            if ( m_Session->Pending.valid() )
+            {
+                LOG_INFO( "[Modeling] {0}: settings changed, the compute running for {1:.1f} ms is cancelled",
+                          ToolName( m_Session->Tool ),
+                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
+                                                                     m_Session->PendingStarted )
+                               .count() );
+                m_Session->PendingCancel.Raise();
+                m_Session->Pending = {};
+            }
+            Recompute( scene, ms );
+        }
         if ( m_Session && m_Session->Pending.valid() &&
              m_Session->Pending.wait_for( std::chrono::seconds( 0 ) ) == std::future_status::ready )
             ApplyResult( scene, ms );
-        // One operator in flight at a time; a change made meanwhile starts the next one when it lands, and the
-        // preview on screen is the last finished one (UE keeps the previous result while recomputing).
-        if ( m_Session && !m_Session->Pending.valid() && SettingsChanged( ms ) )
-            Recompute( scene, ms );
 
         if ( ms.ReqAccept )
         {
@@ -254,9 +267,12 @@ namespace Desert::Editor::Tools
                   ? glm::inverse( glm::dmat4( ms.WarpGizmo ) ) * glm::dmat4( WorldOf( scene, m_Session->Entity ) )
                   : glm::dmat4( 1.0 );
         std::optional<Geometry::FFDLattice> lattice = m_Session->Lattice;
+        auto cancel                                 = std::make_shared<Geometry::ProgressCancel>();
+        m_Session->PendingCancel                    = CancelOnDrop( cancel );
         m_Session->PendingStarted                   = std::chrono::steady_clock::now();
         m_Session->Pending                          = Common::JobSystem::Get().Async(
-             [tool = m_Session->Tool, input = m_Session->Input, smooth = m_Smooth, offset = m_Offset,
+             [cancel = std::move( cancel ), tool = m_Session->Tool, input = m_Session->Input, smooth = m_Smooth,
+              offset = m_Offset,
               voxWrap = m_VoxWrap, normals = m_Normals, tangents = m_Tangents, warp = m_Warp,
               latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ),
               objectToGizmo]() -> Common::ResultStr<Geometry::DeformOutcome>
@@ -272,7 +288,7 @@ namespace Desert::Editor::Tools
                      case MS::Tool::Tangents:
                          return Geometry::ComputeTangents( *input, tangents );
                      case MS::Tool::VoxWrap:
-                         return Geometry::VoxWrap( *input, voxWrap );
+                         return Geometry::VoxWrap( *input, voxWrap, cancel.get() );
                      case MS::Tool::Lattice:
                          return Geometry::LatticeDeform( *input, *lattice, points, latticeSettings );
                      default:

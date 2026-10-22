@@ -7,6 +7,7 @@
 #include <Engine/Geometry/MeshAttributeOperations.hpp>
 
 #include <Engine/Geometry/MeshDeformOperations.hpp>
+#include <Engine/Geometry/ProgressCancel.hpp>
 
 #include <chrono>
 #include <future>
@@ -76,6 +77,31 @@ namespace Desert::Editor::Tools
                                            const glm::vec2& viewportPos, const glm::vec2& viewportSize );
 
     private:
+        // UE FBackgroundComputeSource's per-compute FProgressCancel: the token the running operator polls,
+        // raised when that compute is superseded (a settings change) or its session ends, so the worker stops.
+        struct CancelOnDrop
+        {
+            std::shared_ptr<Geometry::ProgressCancel> Token;
+
+            CancelOnDrop() = default;
+            explicit CancelOnDrop( std::shared_ptr<Geometry::ProgressCancel> token ) : Token( std::move( token ) ) {}
+            CancelOnDrop( CancelOnDrop&& ) noexcept = default;
+            CancelOnDrop& operator=( CancelOnDrop&& other ) noexcept
+            {
+                Raise();
+                Token = std::move( other.Token );
+                return *this;
+            }
+            CancelOnDrop( const CancelOnDrop& )            = delete;
+            CancelOnDrop& operator=( const CancelOnDrop& ) = delete;
+            ~CancelOnDrop() { Raise(); }
+            void Raise()
+            {
+                if ( Token )
+                    Token->Cancel();
+            }
+        };
+
         struct Session
         {
             Core::ModelingState::Tool                     Tool = Core::ModelingState::Tool::None;
@@ -85,9 +111,11 @@ namespace Desert::Editor::Tools
             std::shared_ptr<const Geometry::DynamicMesh3> Preview;   // null while the settings are refused
             std::optional<Geometry::FFDLattice>           Lattice;   // Lattice: the rest lattice over Input
             // UE UMeshOpPreviewWithBackgroundCompute: the operator runs on a JobSystem worker on copies of the
-            // input and the settings; the last preview stays on screen until it lands. Dropping the session
-            // drops the future, and the worker's result goes nowhere (the task owns its inputs).
+            // input and the settings; the last preview stays on screen until it lands. A settings change while it
+            // runs cancels it (PendingCancel) and starts the next one at once; dropping the session cancels it
+            // too. A cancelled compute's future is dropped, so its result goes nowhere (the task owns its inputs).
             std::future<Common::ResultStr<Geometry::DeformOutcome>> Pending;
+            CancelOnDrop                                            PendingCancel;
             std::chrono::steady_clock::time_point                   PendingStarted;
         };
 

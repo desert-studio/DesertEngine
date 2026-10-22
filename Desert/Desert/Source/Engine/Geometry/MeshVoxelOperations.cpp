@@ -84,8 +84,10 @@ namespace Desert::Geometry
         }
     } // namespace
 
-    Common::ResultStr<DeformOutcome> VoxWrap( const DynamicMesh3& mesh, const VoxWrapSettings& s )
+    Common::ResultStr<DeformOutcome> VoxWrap( const DynamicMesh3& mesh, const VoxWrapSettings& s,
+                                              const ProgressCancel* progress )
     {
+        const auto cancelled = [progress] { return progress != nullptr && progress->Cancelled(); };
         if ( mesh.TriangleCount() == 0 )
             return Common::MakeError<DeformOutcome>( "the mesh has no triangles" );
         if ( s.VoxelCount < 8 || s.VoxelCount > 1024 )
@@ -98,6 +100,8 @@ namespace Desert::Geometry
         DynamicMesh3         combined = GeometryOf( mesh, nullptr );
         DynamicMeshAABBTree3 spatial( &combined );
         FastWindingTree      winding( &spatial );
+        if ( cancelled() )
+            return Common::MakeError<DeformOutcome>( kVoxWrapCancelled );
         const AxisAlignedBox3d bounds   = combined.GetBounds();
         const glm::dvec3       size     = bounds.Max - bounds.Min;
         const double           maxDim   = std::max( { size.x, size.y, size.z } );
@@ -133,6 +137,7 @@ namespace Desert::Geometry
         mc.RootMode      = MarchingCubesRootMode::Bisection;
         mc.RootModeSteps = s.SurfaceSearchSteps;
         mc.IsoValue      = threshold;
+        mc.Cancel        = cancelled;
         mc.Implicit      = [&]( const glm::dvec3& p )
         {
             const bool inBounds = p.x >= useBounds.Min.x && p.y >= useBounds.Min.y && p.z >= useBounds.Min.z &&
@@ -155,6 +160,8 @@ namespace Desert::Geometry
             return winding.FastWindingNumber( p );
         };
         DynamicMesh3 result = mc.Generate();
+        if ( mc.Cancelled || cancelled() )
+            return Common::MakeError<DeformOutcome>( kVoxWrapCancelled );
         if ( result.TriangleCount() == 0 )
             return Common::MakeError<DeformOutcome>( "the solid is empty at this Winding Threshold" );
 
