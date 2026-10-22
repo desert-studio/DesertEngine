@@ -1,12 +1,16 @@
 // EditNormals: ported from UE 5.8 Engine/Plugins/Runtime/MeshModelingToolset/Source/ModelingOperators/Private/
 // CleaningOps/EditNormalsOp.cpp:47-150 (FEditNormalsOp::CalculateResultWholeMesh), adapted: UE Core as std/glm,
-// result as ResultStr. Not yet ported: bFixInconsistentNormals (needs FMeshRepairOrientation).
+// result as ResultStr. RepairOrientation: ported from UE 5.8
+// GeometryProcessing/Source/DynamicMesh/Private/Operations/ RepairOrientation.cpp
+// (FMeshRepairOrientation::OrientComponents, ComputeStatistics, SolveGlobalOrientation).
 
 #include "Engine/Geometry/MeshAttributeOperations.hpp"
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp"
+#include "Engine/Geometry/MeshCore/IndexUtil.hpp"
 #include "Engine/Geometry/MeshCore/Polygroups/PolygroupSet.hpp"
+#include "Engine/Geometry/MeshCore/Spatial/MeshAABBTree3.hpp"
 #include "Engine/Geometry/MeshRegionOperation.hpp"
 
 #include <spdlog/fmt/fmt.h>
@@ -50,6 +54,93 @@ namespace Desert::Geometry
         return "?";
     }
 
+    int RepairOrientation( DynamicMesh3& mesh )
+    {
+        // OrientComponents: flood each connected component from a seed triangle; a neighbour that walks the
+        // shared edge in the same direction as the current triangle has the opposite winding and is reversed.
+        struct Component
+        {
+            std::vector<int> Triangles;
+            double           OutFacing = 0.0;
+            double           InFacing  = 0.0;
+        };
+        std::vector<Component> components;
+        std::vector<int>       componentOf( static_cast<size_t>( mesh.MaxTriangleID() ), -1 );
+        std::vector<int>       stack;
+        int                    reversed = 0;
+        for ( const int seed : mesh.TriangleIndicesItr() )
+        {
+            if ( componentOf[seed] >= 0 )
+                continue;
+            const int  index  = static_cast<int>( components.size() );
+            Component& c      = components.emplace_back();
+            componentOf[seed] = index;
+            stack.push_back( seed );
+            while ( !stack.empty() )
+            {
+                const int tid = stack.back();
+                stack.pop_back();
+                c.Triangles.push_back( tid );
+                const Index3i tri   = mesh.GetTriangle( tid );
+                const Index3i edges = mesh.GetTriEdges( tid );
+                for ( int j = 0; j < 3; ++j )
+                {
+                    const Index2i edgeT = mesh.GetEdgeT( edges[j] );
+                    const int     nbr   = edgeT.A == tid ? edgeT.B : edgeT.A;
+                    if ( nbr == DynamicMesh3::InvalidID || componentOf[nbr] >= 0 )
+                        continue;
+                    const Index2i edgeV = mesh.GetEdgeV( edges[j] );
+                    // the edge as the current triangle walks it
+                    int a = edgeV.A, b = edgeV.B;
+                    if ( IndexUtil::FindTriOrderedEdge( a, b, tri ) == IndexConstants::InvalidID )
+                        std::swap( a, b );
+                    if ( IndexUtil::FindTriOrderedEdge( a, b, mesh.GetTriangle( nbr ) ) !=
+                         IndexConstants::InvalidID )
+                    {
+                        mesh.ReverseTriOrientation( nbr );
+                        ++reversed;
+                    }
+                    componentOf[nbr] = index;
+                    stack.push_back( nbr );
+                }
+            }
+        }
+
+        // ComputeStatistics: from a far point on each side of a triangle, ray-cast back at its component. A
+        // triangle hit from the front side is evidence the component faces out; from the back side, in.
+        const DynamicMeshAABBTree3 tree( &mesh );
+        const double               dist = 2.0 * mesh.GetBounds().DiagonalLength();
+        for ( int ci = 0; ci < static_cast<int>( components.size() ); ++ci )
+        {
+            Component&                               c = components[ci];
+            const DynamicMeshAABBTree3::QueryOptions options( [&componentOf, ci]( int tid )
+                                                              { return componentOf[tid] == ci; } );
+            for ( const int tid : c.Triangles )
+            {
+                glm::dvec3 normal, centroid;
+                double     area = 0.0;
+                mesh.GetTriInfo( tid, normal, area, centroid );
+                if ( area < 1e-12 )
+                    continue;
+                double t = 0.0;
+                if ( tree.FindNearestHitTriangle( centroid + dist * normal, -normal, t, options ) == tid )
+                    c.OutFacing += area;
+                if ( tree.FindNearestHitTriangle( centroid - dist * normal, normal, t, options ) == tid )
+                    c.InFacing += area;
+            }
+        }
+
+        // SolveGlobalOrientation
+        for ( const Component& c : components )
+            if ( c.InFacing > c.OutFacing )
+                for ( const int tid : c.Triangles )
+                {
+                    mesh.ReverseTriOrientation( tid );
+                    ++reversed;
+                }
+        return reversed;
+    }
+
     Common::ResultStr<DeformOutcome> EditNormals( const DynamicMesh3& input, const NormalsSettings& settings )
     {
         if ( input.TriangleCount() == 0 )
@@ -66,9 +157,14 @@ namespace Desert::Geometry
         if ( normals == nullptr )
             return Common::MakeError<DeformOutcome>( "Normals: the mesh has no primary normal overlay" );
 
-        // Splitting always recomputes as well.
-        const bool needsRecompute =
-             settings.RecomputeNormals || settings.SplitMethod != SplitNormalMethod::UseExistingTopology;
+        // Splitting always recomputes as well; so does a winding repair (the kept normals would point the old
+        // way).
+        const bool needsRecompute = settings.RecomputeNormals || settings.FixInconsistentNormals ||
+                                    settings.SplitMethod != SplitNormalMethod::UseExistingTopology;
+
+        int repaired = 0;
+        if ( settings.FixInconsistentNormals )
+            repaired = RepairOrientation( mesh );
 
         if ( settings.InvertNormals )
         {
@@ -143,8 +239,10 @@ namespace Desert::Geometry
 
         DeformOutcome out;
         out.Report = fmt::format(
-             "{} normal elements over {} vertices; split {}, {}{}{}", normals->ElementCount(), mesh.VertexCount(),
-             ToString( settings.SplitMethod ), ToString( settings.CalculationMethod ),
+             "{} normal elements over {} vertices; split {}, {}{}{}{}", normals->ElementCount(),
+             mesh.VertexCount(), ToString( settings.SplitMethod ), ToString( settings.CalculationMethod ),
+             settings.FixInconsistentNormals ? fmt::format( ", {} triangles reoriented", repaired )
+                                             : std::string(),
              settings.InvertNormals ? ", inverted" : "", needsRecompute ? "" : ", values kept" );
         out.Mesh = std::move( mesh );
         return Common::MakeSuccess( std::move( out ) );

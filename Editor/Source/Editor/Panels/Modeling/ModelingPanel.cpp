@@ -874,6 +874,7 @@ namespace Desert::Editor
                                 ImGuiSliderFlags_AlwaysClamp );
             ImGui::Checkbox( "Allow Sharp Vertices##Normals", &n.AllowSharpVertices );
         }
+        ImGui::Checkbox( "Fix Inconsistent Normals##Normals", &n.FixInconsistentNormals );
         ImGui::Checkbox( "Invert Normals##Normals", &n.InvertNormals );
         ImGui::Separator();
         ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );

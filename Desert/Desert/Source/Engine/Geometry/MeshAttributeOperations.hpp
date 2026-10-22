@@ -44,10 +44,16 @@ namespace Desert::Geometry
         SplitNormalMethod       SplitMethod             = SplitNormalMethod::UseExistingTopology;
         float                   SharpEdgeAngleThreshold = 60.0f; // degrees, UE NormalSplitThreshold, 0..180
         bool                    AllowSharpVertices      = false; // UE bAllowSharpVertices (FaceNormalThreshold)
+        bool FixInconsistentNormals = false; // UE bFixInconsistentNormals (FMeshRepairOrientation)
         bool                    InvertNormals           = false; // UE bInvertNormals: flips winding and normals
 
         bool operator==( const NormalsSettings& ) const = default;
     };
+
+    // UE FMeshRepairOrientation: OrientComponents makes every connected component's winding agree with its seed
+    // triangle; SolveGlobalOrientation then reverses each component that is seen from far away more from inside
+    // than from outside. Returns the number of reversed triangles.
+    int RepairOrientation( DynamicMesh3& mesh );
 
     // UE FEditNormalsOp::CalculateResultWholeMesh. Splitting always recomputes (UE: "if you split normals you must
     // always recompute as well"). Refuses an empty mesh or a threshold outside 0..180.

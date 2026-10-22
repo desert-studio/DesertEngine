@@ -646,6 +646,7 @@ namespace Desert::Editor
               std::initializer_list<std::pair<const char*, bool Geometry::NormalsSettings::*>>{
                    { "Recompute Normals", &Geometry::NormalsSettings::RecomputeNormals },
                    { "Allow Sharp Vertices", &Geometry::NormalsSettings::AllowSharpVertices },
+                   { "Fix Inconsistent Normals", &Geometry::NormalsSettings::FixInconsistentNormals },
                    { "Invert Normals", &Geometry::NormalsSettings::InvertNormals } } )
             commands.push_back( { "Modeling", std::string( "Normals toggle: " ) + name, [member]
                                   {
