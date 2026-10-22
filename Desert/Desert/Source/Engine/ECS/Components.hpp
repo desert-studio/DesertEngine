@@ -6,6 +6,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -33,6 +34,11 @@
 #include <Engine/Scripting/ScriptProperty.hpp>
 
 #include <CoreReflection/ReflectionMacros.hpp>
+
+namespace Desert::Assets::Serialization
+{
+    struct VFXSystemData;
+}
 #include <UI/Args/UIArgs.hpp>
 
 // Components big enough to own a file. They live in Desert::ECS like everything below, and are included
@@ -1295,6 +1301,12 @@ namespace Desert::ECS
 
         // One-shot restart from the editor (every emitter of the system starts over). Transient - not reflected.
         bool RequestRestart = false;
+
+        // The VFX System editor's working copy (UE: the Niagara editor previews its own copy of the system, not
+        // the asset): when set, this component plays it instead of what Data.System names. Set only on the
+        // preview scene's effect, never on a level's; a new pointer is a new system - every emitter starts over.
+        // Transient - not reflected.
+        std::shared_ptr<const Assets::Serialization::VFXSystemData> EditedSystem;
     };
 
     // ============================================================

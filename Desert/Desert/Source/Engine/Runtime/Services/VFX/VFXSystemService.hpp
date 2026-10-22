@@ -30,6 +30,10 @@ namespace Desert::Runtime
         /// The system @p handle names: null while it is being read; an error once it cannot be read.
         Common::ResultStr<System> Get( const Assets::AssetHandle& handle );
 
+        /// Forgets the copy of @p handle, so the next Get adopts the asset's data afresh - a new pointer, so every
+        /// component playing it starts over. Called after the editor saved the system (VFX-12).
+        void Refresh( const Assets::AssetHandle& handle );
+
         void Clear();
 
     private:

@@ -9,7 +9,9 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace Desert::Assets
 {
@@ -32,15 +34,22 @@ namespace Desert::Editor
      * PREVIEW (a PreviewViewport whose scene holds one VFXComponent playing this system, realtime) | STACK (the
      * selected emitter's modules by stage - Emitter Update, Particle Spawn, Particle Update - then Render rows).
      *
-     * READ-ONLY IN THIS SLICE: the document shows the asset's data as read at open; editing (one CommandHistory
-     * entry per edit, VFXSystemEditCommand) and the editor override that lets the preview play unsaved data
-     * (VFXSystemService::SetEditorOverride) are the next slices (12c/12a-override), so GetDiskState is Clean.
+     * WORKING AND SAVED (12c): the window edits m_Working, a copy of the asset's data; Dirty is m_Working !=
+     * m_Saved (derived, never a flag). A stack input's gesture (a drag, a typed number, a `set` from the control
+     * socket) is ONE CommandHistory entry (VFXSystemEditCommand, the whole system before/after), refused by name
+     * when ValidateVFXSystemData rejects the result. Save writes m_Working through VFXSystemAsset::Save, re-reads
+     * the held asset and refreshes VFXSystemService, so level effects play what was written.
+     *
+     * THE PREVIEW PLAYS THE WORKING COPY (12a-override, UE's Niagara editor plays its own system copy): whenever
+     * m_Working differs from what the preview last got - an edit, an undo, a redo - a new immutable copy goes to
+     * the preview's VFXComponent::EditedSystem, and the new pointer restarts the simulation (UE ResetSimulation on
+     * every stack change). Levels keep playing the asset until Save.
      */
     class VFXSystemDocument final : public ISubjectDocument
     {
     public:
         VFXSystemDocument( const Assets::AssetHandle& subject, Assets::AssetManager* assets );
-        ~VFXSystemDocument() override;
+        ~VFXSystemDocument() override; // forgets the history's entries, which point at m_Working
 
         [[nodiscard]] glm::vec2 GetDefaultSize() const override
         {
@@ -72,8 +81,19 @@ namespace Desert::Editor
 
         [[nodiscard]] DiskState GetDiskState() const override
         {
-            return m_Loaded ? DiskState::Clean : DiskState::Untracked;
+            if ( !m_Loaded )
+                return DiskState::Untracked;
+            return m_Working != m_Saved ? DiskState::Dirty : DiskState::Clean;
         }
+
+        bool SaveDocument() override;
+
+        /// Every stack input a number sets: `<Emitter>.<Stage>.<Module>.<Input>` for a Value, plus `.Min`/`.Max`
+        /// for a Random range (a module repeated in one stage is `<Module>#2`, ...). Curve and Binding inputs are
+        /// listed as not settable, saying why.
+        [[nodiscard]] std::vector<EditableProperty> EditableProperties() const override;
+        [[nodiscard]] Common::BoolResultStr         SetEditableProperty( const std::string&        name,
+                                                                         const std::vector<float>& value ) override;
 
         void ExtendToolbar( AssetEditorToolbar& toolbar ) override;
 
@@ -81,11 +101,22 @@ namespace Desert::Editor
         void EnsurePreview();
         void DrawSystemColumn();
         void DrawStackColumn();
+        void DrawStage( const char* title, std::size_t emitter, std::size_t stage );
+        void DrawInputEditor( std::size_t emitter, std::size_t stage, std::size_t module, std::size_t input );
+        // Ends a gesture that began from @p before: one undo step labelled @p label, or - when the result is not a
+        // valid system - m_Working back to @p before and the refusal shown.
+        Common::BoolResultStr Commit( Assets::Serialization::VFXSystemData before, const std::string& label );
 
         Assets::AssetManager*             m_Assets = nullptr;
         bool                              m_Loaded = false;
         std::string                       m_LoadError;
-        Assets::Serialization::VFXSystemData m_Data;
+        Assets::Serialization::VFXSystemData m_Working; // what the window edits (CommandHistory target)
+        Assets::Serialization::VFXSystemData m_Saved;   // what the file holds
+        // What the preview plays: a frozen copy of m_Working, replaced whenever the two differ.
+        std::shared_ptr<const Assets::Serialization::VFXSystemData> m_Played;
+        // m_Working when the active widget's gesture began (set while a drag is held).
+        std::optional<Assets::Serialization::VFXSystemData> m_GestureBefore;
+        std::string                                         m_Refusal;
         std::size_t                       m_SelectedEmitter = 0;
 
         std::unique_ptr<PreviewViewport> m_Preview;

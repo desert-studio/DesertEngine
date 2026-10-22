@@ -65,6 +65,13 @@ namespace Desert::Runtime
         return Common::MakeSuccess( found->second );
     }
 
+    void VFXSystemService::Refresh( const Assets::AssetHandle& handle )
+    {
+        m_Requests.erase( handle );
+        m_Ready.erase( handle );
+        m_Failed.erase( handle );
+    }
+
     void VFXSystemService::Clear()
     {
         m_Requests.clear();

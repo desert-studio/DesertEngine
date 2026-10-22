@@ -336,6 +336,9 @@ namespace Desert::Editor
         void SetVFXSystem( const Assets::AssetHandle& system, const Assets::Serialization::VFXBounds& bounds );
         // UE Reset Simulation: every emitter of the previewed system starts over (VFXComponent::RequestRestart).
         void RestartVFX();
+        /// Plays @p working (the VFX System editor's unsaved copy) instead of the asset SetVFXSystem named; null
+        /// returns to the asset. A new pointer starts every emitter over (VFXWorld keys instances by it).
+        void SetVFXWorkingCopy( std::shared_ptr<const Assets::Serialization::VFXSystemData> working );
 
         void Clear();
 

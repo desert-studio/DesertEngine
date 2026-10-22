@@ -97,10 +97,15 @@ namespace Desert::VFX
                      return; // an empty slot plays nothing
                  // Pending = not yet read (the system starts when it lands); a failed read is logged once by the
                  // service, naming the handle.
-                 const auto resolved = systems->Get( vfx.Data.System );
-                 if ( !resolved.IsSuccess() || !resolved.GetValue() )
-                     return;
-                 const auto& data = resolved.GetValue();
+                 // The editor's working copy, when the component carries one, is what plays (VFX-12).
+                 std::shared_ptr<const Assets::Serialization::VFXSystemData> data = vfx.EditedSystem;
+                 if ( !data )
+                 {
+                     const auto resolved = systems->Get( vfx.Data.System );
+                     if ( !resolved.IsSuccess() || !resolved.GetValue() )
+                         return;
+                     data = resolved.GetValue();
+                 }
 
                  const std::uint64_t uuid   = id.UUID;
                  SystemInstance&     system = m_Systems[uuid];
