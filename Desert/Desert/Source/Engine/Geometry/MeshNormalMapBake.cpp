@@ -99,12 +99,13 @@ namespace Desert::Geometry
                 out.Bitangents.push_back( glm::length( b ) < 1e-12 ? glm::dvec3( 0.0 ) : glm::normalize( b ) );
                 out.UVs.push_back( glm::dvec2( v.TexCoord ) );
             }
+            // The index buffer is triangles (Index), the submesh ranges count uint32 indices.
+            static_assert( sizeof( Index ) == 3 * sizeof( uint32_t ) );
+            const auto* flat = reinterpret_cast<const uint32_t*>( render.Indices.data() );
             for ( uint32_t i = 0; i + 2 < submesh.IndexCount; i += 3 )
             {
                 const size_t at = submesh.IndexOffset + i;
-                out.Triangles.push_back( { base + static_cast<uint32_t>( render.Indices[at] ),
-                                           base + static_cast<uint32_t>( render.Indices[at + 1] ),
-                                           base + static_cast<uint32_t>( render.Indices[at + 2] ) } );
+                out.Triangles.push_back( { base + flat[at], base + flat[at + 1], base + flat[at + 2] } );
             }
         }
         return Common::MakeSuccess( std::move( out ) );

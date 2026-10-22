@@ -786,7 +786,7 @@ namespace Desert::Editor
         const auto& out = baked.GetValue();
         LOG_INFO( "Bake Normal Map: {} -> {} ({} of {} texels hit)", out.TextureAsset.generic_string(),
                   out.Material.generic_string(), out.HitTexels, out.CoveredTexels );
-        return true;
+        return Common::MakeSuccess( true );
     }
 
     void ModelingPanel::DrawCollisionPalette()

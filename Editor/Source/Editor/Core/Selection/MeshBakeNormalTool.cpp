@@ -107,11 +107,11 @@ namespace Desert::Editor::Core
                                                                 static_cast<uint64_t>( shader ) );
             const auto source = Common::Utils::FileSystem::ReadFileContent( meta->Filepath );
             if ( !source.IsSuccess() )
-                return Common::MakeFormattedError<std::string>( "template '{}': {}", meta->Filepath,
+                return Common::MakeFormattedError<std::string>( "template '{}': {}", meta->Filepath.generic_string(),
                                                                 source.GetError() );
             const auto parsed = ::Desert::Core::Preprocess::DShaderParser::Parse( source.GetValue() );
             if ( !parsed )
-                return Common::MakeFormattedError<std::string>( "template '{}': {}", meta->Filepath,
+                return Common::MakeFormattedError<std::string>( "template '{}': {}", meta->Filepath.generic_string(),
                                                                 parsed.GetError() );
             std::vector<std::string> slots;
             for ( const auto& param : parsed.GetValue().Meta.Params )
@@ -120,7 +120,7 @@ namespace Desert::Editor::Core
             if ( slots.size() != 1 )
                 return Common::MakeFormattedError<std::string>(
                      "template '{}' declares {} texture properties with Intent(NormalMap), not one",
-                     meta->Filepath, slots.size() );
+                     meta->Filepath.generic_string(), slots.size() );
             return Common::MakeSuccess( slots.front() );
         }
 
