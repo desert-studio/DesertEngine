@@ -5,6 +5,7 @@
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
+#include <Editor/RenderSystems/Passes/EditorToolPreviewPass.hpp>
 
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -59,13 +60,12 @@ namespace Desert::Editor::Tools
         }
 
         // UE LinearColors::SelectFColor(GroupID): a stable, well-spread colour per group id (golden-ratio hue).
-        ImU32 GroupColour( int group, int alpha )
+        glm::vec4 GroupColour( int group, float alpha )
         {
             const float h = std::fmod( 0.13f + 0.6180339887f * static_cast<float>( group < 0 ? 0 : group ), 1.0f );
             float       r = 0.0f, g = 0.0f, b = 0.0f;
             ::ImGui::ColorConvertHSVtoRGB( h, 0.65f, 0.95f, r, g, b );
-            return IM_COL32( static_cast<int>( r * 255.0f ), static_cast<int>( g * 255.0f ),
-                             static_cast<int>( b * 255.0f ), alpha );
+            return glm::vec4( r, g, b, alpha );
         }
 
         void Refuse( MS& ms, const std::string& what, const std::string& why )
@@ -188,18 +188,29 @@ namespace Desert::Editor::Tools
         return true;
     }
 
-    void PaintGroupsTool::DrawPreview( const glm::dmat4& world, const glm::dvec3& eyeWorld,
-                                       const glm::mat4& viewProj, const glm::vec2& viewportPos,
-                                       const glm::vec2& viewportSize ) const
+    void PaintGroupsTool::DrawPreview( ::Desert::Core::Scene& scene, const glm::dmat4& world,
+                                       const glm::dvec3& eyeWorld ) const
     {
+        // UE UMeshGroupPaintTool's preview: the mesh itself tinted with each triangle's group colour, drawn BY
+        // THE SCENE RENDER with its depth (Render::ToolPreview), so whatever stands in front of it covers it;
+        // the group borders are depth-tested lines lifted off their surface, not an overlay over the frame.
+        using Vertex                         = Graphic::MaterialDebugLine::LineVertex;
         const Geometry::DynamicMesh3& mesh   = *m_Session->Working;
         const glm::dmat3              normal = glm::transpose( glm::inverse( glm::dmat3( world ) ) );
+        const auto at = [&]( int v ) { return glm::vec3( world * glm::dvec4( mesh.GetVertex( v ), 1.0 ) ); };
+        const auto worldNormal = [&]( int t )
+        {
+            const glm::dvec3 n   = normal * mesh.GetTriNormal( t );
+            const double     len = glm::length( n );
+            return len > 0.0 ? glm::vec3( n / len ) : glm::vec3( 0.0f );
+        };
         struct Face
         {
             int    Tri;
             double Depth;
         };
         std::vector<Face> faces;
+        std::vector<char> front( static_cast<size_t>( std::max( mesh.MaxTriangleID(), 0 ) ), 0 );
         for ( int t = 0; t < mesh.MaxTriangleID(); ++t )
         {
             if ( !mesh.IsTriangle( t ) )
@@ -207,36 +218,49 @@ namespace Desert::Editor::Tools
             const glm::dvec3 c = glm::dvec3( world * glm::dvec4( mesh.GetTriCentroid( t ), 1.0 ) );
             if ( glm::dot( normal * mesh.GetTriNormal( t ), c - eyeWorld ) >= 0.0 )
                 continue; // back-facing: hidden behind the front of the mesh
+            front[static_cast<size_t>( t )] = 1;
             faces.push_back( { t, glm::length( c - eyeWorld ) } );
         }
-        // Far to near, so a nearer face covers a farther one.
+        // Far to near: the translucent faces blend in the order a depth write would have kept.
         std::sort( faces.begin(), faces.end(), []( const Face& a, const Face& b ) { return a.Depth > b.Depth; } );
-        ImDrawList* dl     = ::ImGui::GetWindowDrawList();
-        const auto  screen = [&]( int v, ImVec2& out )
-        {
-            return ToScreen( viewProj, glm::vec3( world * glm::dvec4( mesh.GetVertex( v ), 1.0 ) ), viewportPos,
-                             viewportSize, out );
-        };
+
+        Render::ToolPreviewMesh preview;
+        preview.Triangles.reserve( faces.size() * 3 );
+        std::vector<char> edgeDone( static_cast<size_t>( std::max( mesh.MaxEdgeID(), 0 ) ), 0 );
+        const glm::vec4   borderColour( 0.08f, 0.08f, 0.08f, 1.0f );
         for ( const Face& f : faces )
         {
-            const auto tri = mesh.GetTriangle( f.Tri );
-            ImVec2     p[3];
-            if ( !screen( tri.A, p[0] ) || !screen( tri.B, p[1] ) || !screen( tri.C, p[2] ) )
-                continue;
-            dl->AddTriangleFilled( p[0], p[1], p[2], GroupColour( mesh.GetTriangleGroup( f.Tri ), 150 ) );
+            const glm::vec4 colour = GroupColour( mesh.GetTriangleGroup( f.Tri ), 0.6f );
+            const auto      tri    = mesh.GetTriangle( f.Tri );
+            for ( const int v : { tri.A, tri.B, tri.C } )
+                preview.Triangles.push_back( Vertex{ glm::vec4( at( v ), 1.0f ), colour } );
             // UE's group borders: an edge whose two triangles are in different groups (or an open edge).
             const auto edges = mesh.GetTriEdges( f.Tri );
             const auto nbrs  = mesh.GetTriNeighbourTris( f.Tri );
             for ( int k = 0; k < 3; ++k )
             {
+                if ( edgeDone[static_cast<size_t>( edges[k] )] != 0 )
+                    continue;
+                edgeDone[static_cast<size_t>( edges[k] )] = 1;
                 if ( nbrs[k] >= 0 && mesh.GetTriangleGroup( nbrs[k] ) == mesh.GetTriangleGroup( f.Tri ) )
                     continue;
+                // The surface the edge lies on: the more grazing of its front faces, for the pass's lift.
+                glm::vec3 surface = worldNormal( f.Tri );
+                if ( nbrs[k] >= 0 && front[static_cast<size_t>( nbrs[k] )] != 0 )
+                {
+                    const glm::vec3 other = worldNormal( nbrs[k] );
+                    const auto      ev    = mesh.GetEdgeV( edges[k] );
+                    const glm::vec3 toEye = glm::vec3( eyeWorld ) - ( at( ev.A ) + at( ev.B ) ) * 0.5f;
+                    if ( std::abs( glm::dot( other, toEye ) ) < std::abs( glm::dot( surface, toEye ) ) )
+                        surface = other;
+                }
                 const auto ev = mesh.GetEdgeV( edges[k] );
-                ImVec2     a, b;
-                if ( screen( ev.A, a ) && screen( ev.B, b ) )
-                    dl->AddLine( a, b, IM_COL32( 20, 20, 20, 255 ), 2.0f );
+                preview.Edges.push_back( Vertex{ glm::vec4( at( ev.A ), 1.0f ), borderColour } );
+                preview.Edges.push_back( Vertex{ glm::vec4( at( ev.B ), 1.0f ), borderColour } );
+                preview.EdgeSurfaces.push_back( surface );
             }
         }
+        Render::ToolPreview::Show( scene, std::move( preview ) );
     }
 
     void PaintGroupsTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
@@ -337,7 +361,7 @@ namespace Desert::Editor::Tools
         }
 
         // The preview stays while the cursor is elsewhere (the panel, the bar).
-        DrawPreview( world, glm::dvec3( ray.Origin ), viewProj, viewportPos, viewportSize );
+        DrawPreview( scene, world, glm::dvec3( ray.Origin ) );
 
         // UE's brush indicator: a circle of the brush radius across the surface normal at the hit.
         if ( !hit || !hovered || fill )
@@ -362,8 +386,10 @@ namespace Desert::Editor::Tools
             ring.push_back( s );
         }
         ImDrawList* dl = ::ImGui::GetWindowDrawList();
-        const ImU32 colour =
-             m_Painting ? GroupColour( ms.PaintGroupsCurrent, 255 ) : IM_COL32( 230, 230, 230, 230 );
+        const glm::vec4 group  = GroupColour( ms.PaintGroupsCurrent, 1.0f );
+        const ImU32     colour = m_Painting
+                                      ? ::ImGui::ColorConvertFloat4ToU32( ImVec4( group.r, group.g, group.b, 1.0f ) )
+                                      : IM_COL32( 230, 230, 230, 230 );
         dl->AddPolyline( ring.data(), static_cast<int>( ring.size() ), colour, ImDrawFlags_Closed, 2.0f );
     }
 } // namespace Desert::Editor::Tools

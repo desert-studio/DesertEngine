@@ -55,8 +55,9 @@ namespace Desert::Editor::Tools
         bool Accept( ::Desert::Core::Scene& scene );
         // Paints the current group from @p seed (brush region or flood fill); returns the triangles changed.
         int  Paint( int seed, const glm::dvec3& centreObject, double radiusObject );
-        void DrawPreview( const glm::dmat4& world, const glm::dvec3& eyeWorld, const glm::mat4& viewProj,
-                          const glm::vec2& viewportPos, const glm::vec2& viewportSize ) const;
+        // Shows the group-tinted working mesh and its group borders as the scene's tool preview.
+        void DrawPreview( ::Desert::Core::Scene& scene, const glm::dmat4& world,
+                          const glm::dvec3& eyeWorld ) const;
 
         std::optional<Session>         m_Session;
         bool                           m_Painting  = false;
