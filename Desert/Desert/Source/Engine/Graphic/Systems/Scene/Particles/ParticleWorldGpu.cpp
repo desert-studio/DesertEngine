@@ -73,11 +73,15 @@ namespace Desert::Graphic::System
                                                   : binding;
                 const auto*        a       = compiled.Layout.Find( name );
                 if ( a == nullptr || a->Type != VFX::VFXValueType::Int )
+                {
                     LOG_ERROR( "[VFX] entity {} emitter '{}' draws one ribbon: its RibbonIdBinding '{}' {}", entityId,
                                emitter, binding,
                                a == nullptr ? "names no attribute of the stack" : "is not an Int attribute" );
+                }
                 else
+                {
                     columns.Columns2.x = a->IntStart;
+                }
                 break;
             }
             for ( const DrawnAttribute& drawn : kDrawnAttributes )
