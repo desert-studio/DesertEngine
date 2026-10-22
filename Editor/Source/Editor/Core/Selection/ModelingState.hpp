@@ -55,7 +55,7 @@ namespace Desert::Editor::Core
                            // (EditMaterialsTool)
             PaintGroups, // UE's UMeshGroupPaintTool: a brush / flood fill paints triangle groups (PaintGroupsTool)
             // UE's VoxOps palette (same preview/Accept session, MeshProcessingTool).
-            VoxWrap, // UE's UVoxelSolidifyMeshesTool: winding-number solid of the mesh, re-meshed closed
+            VoxWrap,    // UE's UVoxelSolidifyMeshesTool: winding-number solid of the mesh, re-meshed closed
             VoxBoolean, // UE's UVoxelCSGMeshesTool: CSG of the two selected meshes' fields -> a new entity
         };
 
@@ -333,8 +333,9 @@ namespace Desert::Editor::Core
         Geometry::OffsetSettings DeformOffset;
         // VoxOps -> VoxWrap (UE UVoxelSolidifyMeshesTool, Geometry/MeshVoxelOperations.hpp).
         Geometry::VoxWrapSettings VoxWrap;
-        // VoxOps -> VoxBoolean (UE UVoxelCSGMeshesTool): its operation and voxel settings, and what Accept does with
-        // the two inputs (UE's HandleSourcesProperties; the result is always a new entity, UE Create-From-Selected).
+        // VoxOps -> VoxBoolean (UE UVoxelCSGMeshesTool): its operation and voxel settings, and what Accept does
+        // with the two inputs (UE's HandleSourcesProperties; the result is always a new entity, UE
+        // Create-From-Selected).
         Geometry::VoxBooleanSettings VoxBoolean;
         BooleanInputs                VoxBooleanInputs = BooleanInputs::Delete;
         // Warp (UE UMeshSpaceDeformerTool): its operation settings and its gizmo - a rigid world frame whose Z is

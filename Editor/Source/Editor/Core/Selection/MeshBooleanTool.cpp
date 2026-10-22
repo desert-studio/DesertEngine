@@ -258,7 +258,8 @@ namespace Desert::Editor::Core
                                              : applied.GetValue() );
         return Common::MakeSuccess( true );
     }
-    Common::ResultStr<SelectedMeshPair> SelectedPairInSpaceOfA( ::Desert::Core::Scene& scene, const char* toolName )
+    Common::ResultStr<SelectedMeshPair> SelectedPairInSpaceOfA( ::Desert::Core::Scene& scene,
+                                                                const char*            toolName )
     {
         auto inputs = SelectedInputs( scene, toolName );
         if ( !inputs.IsSuccess() )
@@ -269,8 +270,7 @@ namespace Desert::Editor::Core
         auto b = BakeInto( ab[0], ab[1], nullptr, toolName );
         if ( !b.IsSuccess() )
             return Common::MakeError<SelectedMeshPair>( b.GetError() );
-        return Common::MakeSuccess(
-             SelectedMeshPair{ ab[0].Id, ab[1].Id, ab[0].Name, ab[1].Name, ab[0].Mesh, b.ExtractValue(),
-                               ab[0].Committed, ab[1].Committed } );
+        return Common::MakeSuccess( SelectedMeshPair{ ab[0].Id, ab[1].Id, ab[0].Name, ab[1].Name, ab[0].Mesh,
+                                                      b.ExtractValue(), ab[0].Committed, ab[1].Committed } );
     }
 } // namespace Desert::Editor::Core

@@ -66,8 +66,8 @@ namespace Desert::Geometry
     // Refuses an input without triangles, VoxelCount outside 8..1024, SurfaceSearchSteps outside 0..10, an empty
     // result (e.g. an Intersect of inputs that do not overlap). Polls progress like VoxWrap; refuses with
     // kVoxBooleanCancelled once it is raised.
-    inline constexpr const char* kVoxBooleanCancelled = "VoxBoolean was cancelled";
+    inline constexpr const char*                   kVoxBooleanCancelled = "VoxBoolean was cancelled";
     [[nodiscard]] Common::ResultStr<DeformOutcome> VoxBoolean( const DynamicMesh3& a, const DynamicMesh3& b,
                                                                const VoxBooleanSettings& settings,
-                                                               const ProgressCancel* progress = nullptr );
+                                                               const ProgressCancel*     progress = nullptr );
 } // namespace Desert::Geometry

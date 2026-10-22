@@ -645,7 +645,8 @@ namespace Desert::Editor
         for ( const Geometry::VoxBooleanOperation op :
               { Geometry::VoxBooleanOperation::DifferenceAB, Geometry::VoxBooleanOperation::DifferenceBA,
                 Geometry::VoxBooleanOperation::Intersect, Geometry::VoxBooleanOperation::Union } )
-            commands.push_back( { "Modeling", std::string( "VoxBoolean operation: " ) + Geometry::ToString( op ), [op]
+            commands.push_back( { "Modeling", std::string( "VoxBoolean operation: " ) + Geometry::ToString( op ),
+                                  [op]
                                   {
                                       MS::Get().VoxBoolean.Operation = op;
                                       return PaletteCommandDone();

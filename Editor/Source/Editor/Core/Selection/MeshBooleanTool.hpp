@@ -95,9 +95,10 @@ namespace Desert::Editor::Core
     // does not cross the trimmed mesh). The result is selected.
     [[nodiscard]] Common::BoolResultStr ApplyBooleanTool( ::Desert::Core::Scene& scene, BooleanTool tool,
                                                           const BooleanToolArgs& args );
-    // UE UBaseCreateFromSelectedTool's two inputs, for an operator that runs on them in the background (VoxBoolean,
-    // MeshProcessingTool): A and B of the scene selection with the same refusals as ApplyBooleanTool, A's tool
-    // target mesh and B's baked into A's object space (material IDs are not carried: the voxel result has none).
+    // UE UBaseCreateFromSelectedTool's two inputs, for an operator that runs on them in the background
+    // (VoxBoolean, MeshProcessingTool): A and B of the scene selection with the same refusals as ApplyBooleanTool,
+    // A's tool target mesh and B's baked into A's object space (material IDs are not carried: the voxel result has
+    // none).
     struct SelectedMeshPair
     {
         Common::UUID                                  A, B;
@@ -107,5 +108,5 @@ namespace Desert::Editor::Core
         std::shared_ptr<const Geometry::DynamicMesh3> CommittedA, CommittedB;
     };
     [[nodiscard]] Common::ResultStr<SelectedMeshPair> SelectedPairInSpaceOfA( ::Desert::Core::Scene& scene,
-                                                                             const char* toolName );
+                                                                              const char*            toolName );
 } // namespace Desert::Editor::Core

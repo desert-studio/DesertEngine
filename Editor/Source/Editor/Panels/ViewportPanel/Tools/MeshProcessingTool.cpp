@@ -304,9 +304,9 @@ namespace Desert::Editor::Tools
         m_Session->PendingStarted                   = std::chrono::steady_clock::now();
         m_Session->Pending                          = Common::JobSystem::Get().Async(
              [cancel = std::move( cancel ), tool = m_Session->Tool, input = m_Session->Input, smooth = m_Smooth,
-              offset = m_Offset,
-              voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, other = m_Session->OtherInput, normals = m_Normals, tangents = m_Tangents, warp = m_Warp,
-              latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ),
+              offset = m_Offset, voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, other = m_Session->OtherInput,
+              normals = m_Normals, tangents = m_Tangents, warp = m_Warp, latticeSettings = m_Lattice,
+              points = m_LatticePoints, lattice = std::move( lattice ),
               objectToGizmo]() -> Common::ResultStr<Geometry::DeformOutcome>
              {
                  switch ( tool )
@@ -421,13 +421,13 @@ namespace Desert::Editor::Tools
             return refuse( "an input is no longer in the scene" );
         // A goes back to what it held; the result lands on a copy of A, in A's frame (the operator ran there).
         Restore( scene );
-        const auto& tc = refA->get().GetComponent<ECS::TransformComponent>();
+        const auto&                tc = refA->get().GetComponent<ECS::TransformComponent>();
         Commands::XformEntityState state{ m_Session->Entity, m_Session->Preview, tc.Translation, tc.Rotation,
                                           tc.Scale,          std::nullopt,       std::nullopt };
         std::vector<Commands::XformEntityState> changes;
         std::vector<Commands::XformNewEntity>   creates{
-             { m_Session->Entity, std::format( "{} VoxBoolean", m_Session->NameA ), std::move( state ) } };
-        std::vector<Common::UUID>               deletes;
+               { m_Session->Entity, std::format( "{} VoxBoolean", m_Session->NameA ), std::move( state ) } };
+        std::vector<Common::UUID> deletes;
         const struct
         {
             Common::UUID                                  Id;
@@ -446,8 +446,9 @@ namespace Desert::Editor::Tools
                      { in.Id, in.Committed, itc.Translation, itc.Rotation, itc.Scale, std::nullopt, false } );
             }
         }
-        const std::string label = std::format( "Modeling: VoxBoolean {}", Geometry::ToString( m_VoxBoolean.Operation ) );
-        auto              applied = Commands::ApplyXformEdit( label, changes, creates, deletes );
+        const std::string label =
+             std::format( "Modeling: VoxBoolean {}", Geometry::ToString( m_VoxBoolean.Operation ) );
+        auto applied = Commands::ApplyXformEdit( label, changes, creates, deletes );
         if ( !applied.IsSuccess() )
         {
             ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
