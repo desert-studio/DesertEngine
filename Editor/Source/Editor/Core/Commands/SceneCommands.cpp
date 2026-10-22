@@ -1333,17 +1333,8 @@ namespace Desert::Editor::Commands
             OnStructuralChange();
             return Common::MakeFormattedError<Out>( "{}: {}", label, why );
         };
-        for ( const XformEntityState& after : changes )
-        {
-            auto before =
-                 CaptureXformState( after.Entity, after.MaterialSlots.has_value(), after.Visible.has_value() );
-            if ( !before )
-                return rollback( fmt::format( "entity {} has no mesh or no transform",
-                                              static_cast<uint64_t>( after.Entity ) ) );
-            if ( auto r = ApplyXformState( after, after.Entity ); !r.IsSuccess() )
-                return rollback( r.GetError() );
-            changed.push_back( { std::move( *before ), after } );
-        }
+        // The copies are made BEFORE the changes: a copy is of the entity as it stands, not as this edit leaves
+        // it - a Boolean's "Hide inputs" hides the operand it copies, and a copy made after would inherit that.
         for ( const XformNewEntity& create : creates )
         {
             auto source = FindEntity( create.CopyOf );
@@ -1363,6 +1354,17 @@ namespace Desert::Editor::Commands
             made.back().State.Entity = id;
             if ( auto r = ApplyXformState( made.back().State, id ); !r.IsSuccess() )
                 return rollback( r.GetError() );
+        }
+        for ( const XformEntityState& after : changes )
+        {
+            auto before =
+                 CaptureXformState( after.Entity, after.MaterialSlots.has_value(), after.Visible.has_value() );
+            if ( !before )
+                return rollback( fmt::format( "entity {} has no mesh or no transform",
+                                              static_cast<uint64_t>( after.Entity ) ) );
+            if ( auto r = ApplyXformState( after, after.Entity ); !r.IsSuccess() )
+                return rollback( r.GetError() );
+            changed.push_back( { std::move( *before ), after } );
         }
         std::vector<XformCommand::Gone> gone;
         for ( const Common::UUID& id : deletes )
