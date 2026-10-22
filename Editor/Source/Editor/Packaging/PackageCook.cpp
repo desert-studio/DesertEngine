@@ -10,7 +10,10 @@
 #include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
+#include <Engine/Graphic/View/TemporalAA.hpp>
+#include <Engine/Graphic/View/TemporalSuperResolution.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
@@ -199,6 +202,8 @@ namespace Desert::Editor
         // ShippedByCook refuses the miss by name):
         //   the tracing consumers   under every tracer permutation (GlobalIllumination::kTracerPermutations):
         //                           WorldRadianceCache, SurfaceCacheRenderer, SSRRenderer ProgramVariants;
+        //   the untraced systems    DeferredLightingRenderer, TemporalAA, TemporalSuperResolution ProgramVariants
+        //                           (and SSR's untraced front layer in SSRRenderer's);
         //   the cloud media         every registered Volume medium into each of its programs
         //                           (CloudMediumProgramVariants);
         //   the screen probes       every layout a Scalability.json level names - {ScreenProbeDownsample,
@@ -217,6 +222,9 @@ namespace Desert::Editor
             append( GI::WorldRadianceCache::ProgramVariants() );
             append( Graphic::SurfaceCache::SurfaceCacheRenderer::ProgramVariants() );
             append( Graphic::System::SSRRenderer::ProgramVariants() );
+            append( Graphic::System::DeferredLightingRenderer::ProgramVariants() );
+            append( Graphic::TemporalAA::ProgramVariants() );
+            append( Graphic::TemporalSuperResolution::ProgramVariants() );
 
             if ( const auto shaders = Runtime::ResourceRegistry::GetShaderService() )
             {

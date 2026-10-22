@@ -194,6 +194,19 @@ namespace Desert::Graphic
         return Common::MakeSuccess( TemporalUpscalerOutputs{ .SceneColor = output } );
     }
 
+    Core::ShaderVariant TemporalAA::QualityVariant( const uint32_t quality )
+    {
+        return Core::ShaderVariant{ .Defines = { std::format( "TAA_QUALITY={}", quality ) }, .ShippedByCook = true };
+    }
+
+    std::vector<Core::CookedProgramVariant> TemporalAA::ProgramVariants()
+    {
+        std::vector<Core::CookedProgramVariant> variants;
+        for ( uint32_t quality = 0; quality < kQualityVariants; ++quality )
+            variants.push_back( { kShaderName, QualityVariant( quality ) } );
+        return variants;
+    }
+
     std::shared_ptr<ComputePipeline> TemporalAA::PipelineFor( TemporalAAQuality quality, std::string& error ) const
     {
         const auto index = static_cast<uint32_t>( quality );
@@ -214,8 +227,7 @@ namespace Desert::Graphic
             error = std::format( "{}: no shader service to compile '{}' ({})", DebugName(), kShaderName, define );
             return nullptr;
         }
-        const std::shared_ptr<Shader> shader =
-             service->AcquireVariant( kShaderName, Core::ShaderVariant{ .Defines = { define } } );
+        const std::shared_ptr<Shader> shader = service->AcquireVariant( kShaderName, QualityVariant( index ) );
         if ( !shader )
         {
             error = std::format( "{}: the shader '{}' ({}) did not compile — expected "

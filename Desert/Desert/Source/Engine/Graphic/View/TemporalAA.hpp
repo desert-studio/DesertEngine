@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
 
@@ -9,6 +10,7 @@
 #include <cstddef>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -50,6 +52,12 @@ namespace Desert::Graphic
         // The extent the resolve writes at @p split: Output for TAAU, Render for TAA (equal at Native; under
         // Supersample the downsample follows at Render).
         [[nodiscard]] RDG::Extent3D ResolveExtent( const ResolutionSplit& split ) const;
+
+        // The permutation of quality @p quality (TAA_QUALITY=<quality>), cooked: ShippedByCook - the one statement
+        // PipelineFor acquires and ProgramVariants lists.
+        [[nodiscard]] static Core::ShaderVariant QualityVariant( uint32_t quality );
+        // Every quality's permutation of "TemporalAA", cooked by the package (PackageCook CookShaderVariants).
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
     private:
         // The pipeline of @p quality, created on first use (record time). Null with @p error set when the
