@@ -108,8 +108,9 @@ namespace Desert::Core
     // (UE FRuntimePartitionDesc::HLODSetups), not once for the world - the world's DefaultHLODLayer moved onto
     // every grid (Tools/SceneMigrator, MigrateGridHLODLayerV67ToV68). v69 (PATH1): every asset reference is a
     // content key - the assets-relative and project-relative spellings are restated (Tools/SceneMigrator,
-    // MigrateAssetKeysV68ToV69).
-    inline constexpr int kSceneVersion = 69;
+    // MigrateAssetKeysV68ToV69). v70 (WP17): a ROOT record of an external-entities scene states no siblingIndex -
+    // a streamed world persists no root order, as UE's OFPA (Tools/SceneMigrator, MigrateRootSiblingIndexV69ToV70).
+    inline constexpr int kSceneVersion = 70;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

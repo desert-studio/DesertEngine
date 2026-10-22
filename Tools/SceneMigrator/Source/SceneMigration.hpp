@@ -405,7 +405,14 @@ namespace Desert::Migration
     //       prefabs alike.
     inline constexpr int kSceneVersionAssetKeys = 69;
 
-    static_assert( kSceneVersionAssetKeys == kSceneVersion,
+    //  70 - AN EXTERNAL-ENTITIES SCENE PERSISTS NO ROOT ORDER (WP17). Its roots are the cells streamed in,
+    //       appended in load order, so the running root count v69 wrote said 0 with the cells away and 28 with
+    //       Load All - an untouched entity differed from its own file depending on what was loaded. UE keeps no
+    //       order for OFPA top-level actors either. A ROOT record of a scene with a WorldPartition block states
+    //       no siblingIndex; children keep theirs (MigrateRootSiblingIndexV69ToV70). Scenes only.
+    inline constexpr int kSceneVersionRootSiblingIndex = 70;
+
+    static_assert( kSceneVersionRootSiblingIndex == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -785,6 +792,10 @@ namespace Desert::Migration
     // (kSceneVersionGridHLODLayer); how many grids were given the layer.
     std::size_t MigrateGridHLODLayerV67ToV68( SceneSerialized& scene );
 
+    // Drops siblingIndex from every root record of a partitioned (external-entities) scene
+    // (kSceneVersionRootSiblingIndex); how many records lost it.
+    std::size_t MigrateRootSiblingIndexV69ToV70( SceneSerialized& scene );
+
     // What MigrateSceneDependenciesV51ToV52 did to one scene.
     struct SceneDependenciesReport
     {
@@ -1064,6 +1075,8 @@ namespace Desert::Migration
         LandscapeHeightKeysReport LandscapeHeightKeys;
         bool        GridHLODLayerRaised = false; // below kSceneVersionGridHLODLayer
         std::size_t GridsGivenHLODLayer = 0;     // grids given the world's former DefaultHLODLayer
+        bool        RootSiblingIndexRaised  = false; // below kSceneVersionRootSiblingIndex
+        std::size_t RootSiblingIndexDropped = 0;     // root records that lost their siblingIndex
 
         bool                      AssetKeysRaised = false; // below kSceneVersionAssetKeys
         AssetKeysReport           AssetKeys;
@@ -1110,7 +1123,8 @@ namespace Desert::Migration
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
-                   GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised;
+                   GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
+                   RootSiblingIndexRaised;
         }
     };
 

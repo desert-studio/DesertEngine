@@ -4732,6 +4732,21 @@ namespace Desert::Migration
         return report;
     }
 
+    std::size_t MigrateRootSiblingIndexV69ToV70( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() )
+            return 0;
+        std::size_t dropped = 0;
+        for ( Assets::EntityData& record : scene.Entities )
+        {
+            if ( record.parent.has_value() || !record.siblingIndex.has_value() )
+                continue;
+            record.siblingIndex.reset();
+            ++dropped;
+        }
+        return dropped;
+    }
+
     SceneDependenciesReport MigrateSceneDependenciesV51ToV52( SceneSerialized&             scene,
                                                               const std::filesystem::path& assetsRoot )
     {
@@ -4894,6 +4909,11 @@ namespace Desert::Migration
                 report.Refused = RefusedWhole( scene.SceneName, report.AssetKeys.Refused );
                 return report;
             }
+        }
+        if ( statedSceneVersion < kSceneVersionRootSiblingIndex )
+        {
+            report.RootSiblingIndexRaised  = true;
+            report.RootSiblingIndexDropped = MigrateRootSiblingIndexV69ToV70( scene );
         }
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently

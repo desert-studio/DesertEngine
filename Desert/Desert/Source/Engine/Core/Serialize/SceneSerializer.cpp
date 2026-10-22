@@ -42,7 +42,14 @@ namespace Desert::Core
         // The entity's place among its siblings as the scene holds it: its position in the parent's
         // Children, or - for a root - the running count of roots saved so far. The scene's root order IS
         // its entity order, so the count is that order restated.
-        uint32_t SiblingIndexOf( const ECS::Entity& entity, uint32_t& nextRootIndex )
+        //
+        // EXCEPT IN AN EXTERNAL-ENTITIES SCENE (one with a WorldPartition block): there a root states no
+        // index at all. Its roots are whatever cells are streamed in, appended in load order, so a running
+        // count would say 0 with the cells unloaded and 28 with Load All - the same untouched entity would
+        // differ from its file depending on what is loaded. UE persists no order for OFPA top-level actors
+        // either; children keep theirs (their parent's Children is a real, saved order).
+        std::optional<uint32_t> SiblingIndexOf( const ECS::Entity& entity, uint32_t& nextRootIndex,
+                                                bool externalEntities )
         {
             if ( entity.HasComponent<ECS::RelationshipComponent>() )
             {
@@ -55,6 +62,8 @@ namespace Desert::Core
                     return static_cast<uint32_t>( found - siblings.begin() );
                 }
             }
+            if ( externalEntities )
+                return std::nullopt;
             return nextRootIndex++;
         }
 
@@ -245,7 +254,8 @@ namespace Desert::Core
     {
         std::vector<LiveEntity> live;
         live.reserve( m_Scene->GetAllEntities().size() );
-        uint32_t nextRootIndex = 0;
+        uint32_t   nextRootIndex    = 0;
+        const bool externalEntities = m_Scene->GetWorldPartition().has_value();
         for ( const auto& entity : m_Scene->GetAllEntities() )
         {
             LiveEntity row;
@@ -258,7 +268,7 @@ namespace Desert::Core
                     row.Parent = IdOf( *entity.GetRegistry(), parent );
             }
             // The same count SerializeToDocument keeps: every root of the scene in its order, records or not.
-            row.SiblingIndex = SiblingIndexOf( entity, nextRootIndex );
+            row.SiblingIndex = SiblingIndexOf( entity, nextRootIndex, externalEntities );
             live.push_back( row );
         }
         return live;
@@ -312,7 +322,8 @@ namespace Desert::Core
             return false;
         };
 
-        uint32_t nextRootIndex = 0;
+        uint32_t   nextRootIndex    = 0;
+        const bool externalEntities = scene.WorldPartition.has_value();
         for ( const auto& entity : m_Scene->GetAllEntities() )
         {
             if ( isPrefabChild( const_cast<ECS::Entity&>(entity) ) )
@@ -320,7 +331,7 @@ namespace Desert::Core
                 continue;
             }
             // Counted before the filter: a root's sibling index is its place among ALL roots.
-            const uint32_t siblingIndex = SiblingIndexOf( entity, nextRootIndex );
+            const std::optional<uint32_t> siblingIndex = SiblingIndexOf( entity, nextRootIndex, externalEntities );
             if ( only != nullptr &&
                  !only->contains( static_cast<uint64_t>( IdOf( *entity.GetRegistry(), entity.GetHandle() ) ) ) )
             {
