@@ -47,10 +47,11 @@ namespace Desert::Editor::Core
             Lattice,      // UE's ULatticeDeformerTool: a control-point lattice over the mesh's bounds (FFD)
             VertexSculpt, // UE's UMeshVertexSculptTool: brush strokes on the mesh's vertices (Move, Smooth)
             // UE's Attributes palette (same preview/Accept session as Deform, MeshProcessingTool).
-            Tangents, // UE's UMeshTangentsTool: MikkTSpace / Fast tangent frames, previewed as lines
-            Normals, // UE's UEditNormalsTool: recompute / split / invert the normal overlay
-            EditMaterials, // UE's UEditMeshMaterialsTool: selected triangles -> a material slot (EditMaterialsTool)
-            PaintGroups,   // UE's UMeshGroupPaintTool: a brush / flood fill paints triangle groups (PaintGroupsTool)
+            Tangents,      // UE's UMeshTangentsTool: MikkTSpace / Fast tangent frames, previewed as lines
+            Normals,       // UE's UEditNormalsTool: recompute / split / invert the normal overlay
+            EditMaterials, // UE's UEditMeshMaterialsTool: selected triangles -> a material slot
+                           // (EditMaterialsTool)
+            PaintGroups, // UE's UMeshGroupPaintTool: a brush / flood fill paints triangle groups (PaintGroupsTool)
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane

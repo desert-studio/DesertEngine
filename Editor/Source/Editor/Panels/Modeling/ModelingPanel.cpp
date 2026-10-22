@@ -833,10 +833,10 @@ namespace Desert::Editor
         auto&       ms   = MS::Get();
         const float full = ImGui::GetContentRegionAvail().x;
         // UE's Attributes palette buttons: Normals (UEditNormalsTool), Tangents (UMeshTangentsTool).
-        for ( const auto& [tool, name] : { std::pair{ MS::Tool::Normals, "Normals" },
-                                           std::pair{ MS::Tool::Tangents, "Tangents" },
-                                           std::pair{ MS::Tool::EditMaterials, "Edit Materials" },
-                                           std::pair{ MS::Tool::PaintGroups, "Paint PolyGroups" } } )
+        for ( const auto& [tool, name] :
+              { std::pair{ MS::Tool::Normals, "Normals" }, std::pair{ MS::Tool::Tangents, "Tangents" },
+                std::pair{ MS::Tool::EditMaterials, "Edit Materials" },
+                std::pair{ MS::Tool::PaintGroups, "Paint PolyGroups" } } )
         {
             const bool on = ms.ActiveTool == tool;
             if ( on )

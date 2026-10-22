@@ -35,7 +35,10 @@ namespace Desert::Editor::Tools
                      const glm::vec2& viewportPos, const glm::vec2& viewportSize, bool hovered );
 
         // The scene's left click belongs to the brush while it is over the mesh or painting.
-        [[nodiscard]] bool OwnsClick() const { return m_Painting || m_HoverHit; }
+        [[nodiscard]] bool OwnsClick() const
+        {
+            return m_Painting || m_HoverHit;
+        }
 
     private:
         struct Session
@@ -55,11 +58,11 @@ namespace Desert::Editor::Tools
         void DrawPreview( const glm::dmat4& world, const glm::dvec3& eyeWorld, const glm::mat4& viewProj,
                           const glm::vec2& viewportPos, const glm::vec2& viewportSize ) const;
 
-        std::optional<Session> m_Session;
-        bool                   m_Painting = false;
-        bool                   m_HoverHit = false;
-        uint64_t               m_TreeStamp = 0;
-        const Geometry::DynamicMesh3*  m_TreeMesh = nullptr;
+        std::optional<Session>         m_Session;
+        bool                           m_Painting  = false;
+        bool                           m_HoverHit  = false;
+        uint64_t                       m_TreeStamp = 0;
+        const Geometry::DynamicMesh3*  m_TreeMesh  = nullptr;
         Geometry::DynamicMeshAABBTree3 m_Tree;
     };
 } // namespace Desert::Editor::Tools

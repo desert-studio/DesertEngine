@@ -188,8 +188,9 @@ namespace Desert::Editor::Tools
         return true;
     }
 
-    void PaintGroupsTool::DrawPreview( const glm::dmat4& world, const glm::dvec3& eyeWorld, const glm::mat4& viewProj,
-                                       const glm::vec2& viewportPos, const glm::vec2& viewportSize ) const
+    void PaintGroupsTool::DrawPreview( const glm::dmat4& world, const glm::dvec3& eyeWorld,
+                                       const glm::mat4& viewProj, const glm::vec2& viewportPos,
+                                       const glm::vec2& viewportSize ) const
     {
         const Geometry::DynamicMesh3& mesh   = *m_Session->Working;
         const glm::dmat3              normal = glm::transpose( glm::inverse( glm::dmat3( world ) ) );
@@ -238,8 +239,9 @@ namespace Desert::Editor::Tools
         }
     }
 
-    void PaintGroupsTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, const glm::mat4& viewProj,
-                                  const glm::vec2& viewportPos, const glm::vec2& viewportSize, bool hovered )
+    void PaintGroupsTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
+                                  const glm::mat4& viewProj, const glm::vec2& viewportPos,
+                                  const glm::vec2& viewportSize, bool hovered )
     {
         m_HoverHit        = false;
         MS&        ms     = MS::Get();
@@ -322,9 +324,10 @@ namespace Desert::Editor::Tools
             if ( n > 0 )
             {
                 m_Session->Painted += n;
-                ms.PaintGroupsStatus = std::format( "{} triangle repaints (group {}). Accept keeps them as one undo "
-                                                    "step.",
-                                                    m_Session->Painted, ms.PaintGroupsCurrent );
+                ms.PaintGroupsStatus =
+                     std::format( "{} triangle repaints (group {}). Accept keeps them as one undo "
+                                  "step.",
+                                  m_Session->Painted, ms.PaintGroupsCurrent );
             }
             if ( fill )
                 m_Painting = false; // a fill is one click
@@ -337,11 +340,12 @@ namespace Desert::Editor::Tools
         if ( !hit || !hovered || fill )
             return;
         const glm::dvec3 centreWorld = glm::dvec3( world * glm::dvec4( rayO + t * rayD, 1.0 ) );
-        const glm::dvec3 n = glm::normalize( glm::transpose( glm::inverse( glm::dmat3( world ) ) ) * mesh.GetTriNormal( tri ) );
-        const glm::dvec3 helper = std::abs( n.y ) < 0.9 ? glm::dvec3( 0, 1, 0 ) : glm::dvec3( 1, 0, 0 );
-        const glm::dvec3 u      = glm::normalize( glm::cross( n, helper ) );
-        const glm::dvec3 v      = glm::cross( n, u );
-        constexpr int    kSegments = 48;
+        const glm::dvec3 n =
+             glm::normalize( glm::transpose( glm::inverse( glm::dmat3( world ) ) ) * mesh.GetTriNormal( tri ) );
+        const glm::dvec3    helper    = std::abs( n.y ) < 0.9 ? glm::dvec3( 0, 1, 0 ) : glm::dvec3( 1, 0, 0 );
+        const glm::dvec3    u         = glm::normalize( glm::cross( n, helper ) );
+        const glm::dvec3    v         = glm::cross( n, u );
+        constexpr int       kSegments = 48;
         std::vector<ImVec2> ring;
         ring.reserve( kSegments );
         for ( int i = 0; i < kSegments; ++i )
@@ -354,8 +358,9 @@ namespace Desert::Editor::Tools
                 return;
             ring.push_back( s );
         }
-        ImDrawList* dl     = ::ImGui::GetWindowDrawList();
-        const ImU32 colour = m_Painting ? GroupColour( ms.PaintGroupsCurrent, 255 ) : IM_COL32( 230, 230, 230, 230 );
+        ImDrawList* dl = ::ImGui::GetWindowDrawList();
+        const ImU32 colour =
+             m_Painting ? GroupColour( ms.PaintGroupsCurrent, 255 ) : IM_COL32( 230, 230, 230, 230 );
         dl->AddPolyline( ring.data(), static_cast<int>( ring.size() ), colour, ImDrawFlags_Closed, 2.0f );
     }
 } // namespace Desert::Editor::Tools
