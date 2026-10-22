@@ -2792,8 +2792,13 @@ namespace Desert::Editor
         if ( e.GetMouseButton() == Common::MouseButton::Left && m_PaintGroupsTool.OwnsClick() && overImage )
             return false;
 
+        // Modeling mode with NO tool active picks entities like Select mode: UE's Modeling Mode keeps the level
+        // editor's click-to-select until a tool starts and takes the viewport's clicks.
+        const bool modelingIdlePick = Core::ViewportMode::Get() == Core::EditorMode::Modeling &&
+                                      Core::ModelingState::Get().ActiveTool == Core::ModelingState::Tool::None;
         if ( e.GetMouseButton() == Common::MouseButton::Left && !m_UIPreview &&
-             Core::ViewportMode::Get() == Core::EditorMode::Select && m_ViewportData.IsHovered && overImage )
+             ( Core::ViewportMode::Get() == Core::EditorMode::Select || modelingIdlePick ) &&
+             m_ViewportData.IsHovered && overImage )
         {
             // In-scene UI: the 2D canvas overlays the 3D scene, so a click on a UI element selects it and
             // skips the 3D raycast (unless a 3D gizmo handle is being grabbed). Edit anchors/colour in Details.
