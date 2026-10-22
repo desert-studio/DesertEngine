@@ -1716,7 +1716,7 @@ namespace Desert::Graphic
             // path-traced frame draws none either: its paths trace every light's visibility through the TLAS.
             // Under HardwareTraced the deferred composite reads "Shadows: Ray Traced Local" (ShadowMaskSlot), and
             // the maps are drawn only while a queued forward draw in view samples them
-            // (MeshRenderer::LocalShadowMapReadersQueued) - no forward/translucent surface loses its shadows.
+            // (LocalShadowMapsRead: meshes, forward terrain, particles) - no forward surface loses its shadows.
             {
                 DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
                 System::MeshRenderer* const localShadowMeshes =
@@ -1724,7 +1724,7 @@ namespace Desert::Graphic
                 localShadowMeshes->UpdateLocalShadows(
                      m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights, m_SpotLightShadows,
                      !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) &&
-                          ( !LocalShadowsAreRayTraced() || localShadowMeshes->LocalShadowMapReadersQueued() ) );
+                          ( !LocalShadowsAreRayTraced() || LocalShadowMapsRead() ) );
                 AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
                 // The per-light denoisers' histories: a frame off HardwareTraced parks every one (a method that
                 // comes back starts new histories), and the retire queue is drained EVERY frame - a parked history
@@ -1746,14 +1746,15 @@ namespace Desert::Graphic
             RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask() );
             ImportViewShadowMaps( graph, textures );
             // The sun's cascades this frame: always under CascadedMaps; under a ray-traced sun only when a program
-            // of this frame samples them (MeshRenderer::SunCascadeReadersQueued: blended draws whose program
+            // of this frame samples them (SunCascadesRead: blended/glass mesh draws, forward terrain, particles,
+            // whose program
             // declares u_ShadowCascades - the low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency*
             // rows). Not drawn -> the view binds the far-plane stand-in, never last drawn frame's maps; drawn
             // after a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it). A
             // path-traced frame reads no cascade: its paths trace the sun's visibility through the TLAS, and the
             // lit passes that sample the maps do not run.
             m_FrameSunCascades = meshes != nullptr && !PathTraced( m_RenderMethods ) &&
-                                 ( !SunShadowIsScreenMask() || meshes->SunCascadeReadersQueued() );
+                                 ( !SunShadowIsScreenMask() || SunCascadesRead() );
             if ( !m_FrameSunCascades )
                 textures.Transients.ShadowCascades = AddFrameNoSunCascades( graph );
             else if ( !m_SunCascadesDrawnLastFrame )
@@ -2158,6 +2159,42 @@ namespace Desert::Graphic
     {
         return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::HardwareTraced &&
                !PathTraced( m_RenderMethods );
+    }
+
+    namespace
+    {
+        // The forward readers of one shadow map name outside the mesh renderer: the forward terrain and the view's
+        // particle sprites (both prepared before OnUpdate's shadow gates).
+        template <typename Systems>
+        bool TerrainOrParticlesSample( const Systems& systems, const std::string_view mapName )
+        {
+            const auto terrain = systems.find( "TerrainSystem" );
+            if ( terrain != systems.end() && terrain->second &&
+                 static_cast<const System::TerrainRenderer*>( terrain->second.get() )->ForwardReadsTexture( mapName ) )
+                return true;
+            const auto particles = systems.find( "ParticleSystem" );
+            return particles != systems.end() && particles->second &&
+                   static_cast<const System::ParticleRenderer*>( particles->second.get() )
+                        ->ViewEmittersSample( mapName );
+        }
+    } // namespace
+
+    bool SceneRenderer::LocalShadowMapsRead() const
+    {
+        const auto meshes = m_RenderSystems.find( "MeshSystem" );
+        if ( meshes != m_RenderSystems.end() && meshes->second &&
+             static_cast<const System::MeshRenderer*>( meshes->second.get() )->LocalShadowMapReadersQueued() )
+            return true;
+        return TerrainOrParticlesSample( m_RenderSystems, kSceneViewLocalShadowAtlasName );
+    }
+
+    bool SceneRenderer::SunCascadesRead() const
+    {
+        const auto meshes = m_RenderSystems.find( "MeshSystem" );
+        if ( meshes != m_RenderSystems.end() && meshes->second &&
+             static_cast<const System::MeshRenderer*>( meshes->second.get() )->SunCascadeReadersQueued() )
+            return true;
+        return TerrainOrParticlesSample( m_RenderSystems, kSceneViewShadowCascadesName );
     }
 
     void SceneRenderer::AssignLocalShadowMaskSlots( const Core::Frustum& view )

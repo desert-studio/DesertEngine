@@ -95,6 +95,10 @@ namespace Desert::Graphic::System
         {
             return !m_Queue.empty();
         }
+        // The terrain part of SceneRenderer::LocalShadowMapsRead / SunCascadesRead: this frame shades a queued
+        // terrain with the Forward program (render path Forward; in Deferred the terrain is in the G-buffer and
+        // the composite reads the screen masks) and that program samples @p textureName.
+        [[nodiscard]] bool ForwardReadsTexture( std::string_view textureName ) const;
         // The tiles whose ground (XZ) footprint the light reaches, each by what its depth is made of: placement,
         // LOD (the light's, LocalShadowCasterLight — not the camera's, so a moving camera keeps the cache),
         // holes, and the revisions of its two maps' texels. Resolved by PrepareFrame for this frame's lights.

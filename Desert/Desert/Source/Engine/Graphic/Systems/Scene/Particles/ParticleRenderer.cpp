@@ -106,6 +106,19 @@ namespace Desert::Graphic::System
         m_Materials.clear();
     }
 
+    bool ParticleRenderer::ViewEmittersSample( const std::string_view textureName ) const
+    {
+        for ( const ViewEmitter& emitter : m_ViewEmitters )
+        {
+            if ( emitter.Sprite == nullptr || !emitter.Sprite->Pipeline )
+                continue;
+            const auto& shader = emitter.Sprite->Pipeline->GetSpecification().Shader;
+            if ( shader && shader->SamplesTexture( textureName ) )
+                return true;
+        }
+        return false;
+    }
+
     void ParticleRenderer::PrepareFrame( const ::Desert::Core::Scene& scene )
     {
         m_ViewEmitters.clear();

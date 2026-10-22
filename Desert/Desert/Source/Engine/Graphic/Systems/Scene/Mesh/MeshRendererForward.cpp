@@ -534,13 +534,18 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::SunCascadeReadersQueued() const
     {
-        return QueuedForwardDrawSamples( kSceneViewShadowCascadesName, true );
+        return QueuedForwardDrawSamples( kSceneViewShadowCascadesName, /*blendedOnly*/ true ) ||
+               QueuedStaticTranslucentSamples( kSceneViewShadowCascadesName );
     }
 
     bool MeshRenderer::LocalShadowMapReadersQueued() const
     {
-        if ( QueuedForwardDrawSamples( kSceneViewLocalShadowAtlasName, false ) )
-            return true;
+        return QueuedForwardDrawSamples( kSceneViewLocalShadowAtlasName, /*blendedOnly*/ false ) ||
+               QueuedStaticTranslucentSamples( kSceneViewLocalShadowAtlasName );
+    }
+
+    bool MeshRenderer::QueuedStaticTranslucentSamples( const std::string_view textureName ) const
+    {
         // The static queue's translucent sections (RenderGlassManual's cells, TranslucentDrawFor) and their front
         // layer cells (BuildFrontLayerDraws, FrontLayerDrawFor): the same visibility, the same binding answer.
         const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
@@ -551,7 +556,7 @@ namespace Desert::Graphic::System
         const auto          samples = [&]( const std::string& shaderName )
         {
             const auto shader = shaders->GetByName( shaderName );
-            return shader && shader->IsCompiled() && shader->SamplesTexture( kSceneViewLocalShadowAtlasName );
+            return shader && shader->IsCompiled() && shader->SamplesTexture( textureName );
         };
         for ( const auto& data : m_StaticQueue )
         {
