@@ -83,7 +83,7 @@ namespace Common::Scalability
         BenchmarkCacheKey              Key;
         float                          GpuPerfIndex = 0.0f;
         bool                           Timed        = false;
-        std::array<Level, kGroupCount> Levels{};
+        GroupLevels                    Levels; // by group name in machine.json, as QualitySelection::Levels
 
         bool operator==( const RecommendedQuality& ) const = default;
     };

@@ -87,6 +87,12 @@ namespace Desert::Graphic::QualityBoot
         Common::Scalability::QualityState::Initialize( table.ExtractValue(), capabilities.Catalog,
                                                        std::move( initial ), &SaveSelection );
         Common::Scalability::QualityState::Subscribe( &PushSamplerState, nullptr );
+        // Quality.Levels was read from the former positional list or missed a group of this build: the file is
+        // rewritten by group name, with the level each group actually starts on (no legacy form kept on disk).
+        if ( MachineSettings::LevelsMigrated() && !start.FromRecommended )
+            if ( const auto saved = SaveSelection( start.Selection ); !saved )
+                LOG_ERROR( "[Scalability] the migrated quality levels were not written back: {}",
+                           saved.GetError() );
         if ( const auto& recommended = machine.Recommended; start.FromRecommended && recommended.has_value() )
         {
             LOG_INFO(
