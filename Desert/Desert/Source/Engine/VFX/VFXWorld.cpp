@@ -89,49 +89,40 @@ namespace Desert::VFX
 
         if ( m_Plan.Reset )
             for ( auto& entry : m_Systems )
+            {
+                entry.second.AgeSeconds = 0.0;
                 for ( EmitterInstance& emitter : entry.second.Emitters )
                     ResetInstance( emitter );
+            }
 
         const double stepSeconds = m_Clock.GetSettings().StepSeconds;
 
         for ( auto& entry : m_Systems )
             entry.second.Seen = false;
 
-        // THE SCALABILITY DECISION (UE FNiagaraScalabilityManager, per world and per EFFECT TYPE): the views
-        // reported since the last tick, each reading its Effects level of the system's type. The most demanding
-        // view wins the spawn scale; a system is culled only when it is past its type's MaxDistance at EVERY
-        // view's level (a level with MaxDistance 0 culls nothing). No view (headless) = the system as authored.
+        // THE SCALABILITY DECISION (UE FNiagaraScalabilityManager, per world and per EFFECT TYPE) from the views
+        // reported since the last tick: the first pass gathers every placed system as a candidate, the pure
+        // calculator (VFXScalability) decides all of them at once - the instance limits rank across the whole
+        // world - and the second pass applies each verdict through its type's cull reaction and plans the births.
+        // No view (headless) = nothing culled, the system as authored.
         std::vector<VFXViewReport> views;
         views.swap( m_PendingViews );
-        using Level        = Assets::Serialization::VFXEffectTypeLevel;
-        const auto levelOf = []( const Assets::Serialization::VFXEffectTypeData& type,
-                                 const int                                       level ) -> const Level&
-        {
-            return type.Levels[static_cast<std::size_t>( std::clamp(
-                 level, 0, static_cast<int>( Assets::Serialization::kVFXEffectTypeLevelCount ) - 1 ) )];
-        };
-        const auto spawnScaleOf = [&views, &levelOf]( const Assets::Serialization::VFXEffectTypeData& type )
-        {
-            double scale = views.empty() ? 1.0 : 0.0;
-            for ( const VFXViewReport& v : views )
-                scale = std::max( scale, v.SpawnCountScale * levelOf( type, v.EffectsLevel ).SpawnCountScale );
-            return scale;
-        };
-        const auto outOfRange = [&views, &levelOf]( const Assets::Serialization::VFXEffectTypeData& type,
-                                                    const glm::vec3& at, float& nearestCm )
-        {
-            nearestCm   = std::numeric_limits<float>::infinity();
-            bool culled = !views.empty();
-            for ( const VFXViewReport& v : views )
-            {
-                const float d   = glm::distance( at, v.Origin );
-                const float max = levelOf( type, v.EffectsLevel ).MaxDistance;
-                nearestCm       = std::min( nearestCm, d );
-                culled          = culled && max > 0.0f && d > max;
-            }
-            return culled;
-        };
         m_CulledSystems = 0;
+
+        constexpr std::size_t kNoCandidate = std::numeric_limits<std::size_t>::max();
+        struct Placed
+        {
+            SystemInstance*                                 System;
+            ECS::VFXComponent*                              Component;
+            std::uint64_t                                   UUID;
+            glm::vec3                                       EmitterCm;
+            const Assets::Serialization::VFXEffectTypeData* Type;
+            const std::string*                              TypeName;
+            std::size_t                                     Candidate;
+        };
+        std::vector<Placed>                  placed;
+        std::vector<VFXScalabilityCandidate> candidates;
+        const double                         tickSeconds = static_cast<double>( m_Plan.StepCount ) * stepSeconds;
 
         Runtime::VFXSystemService* systems = Runtime::ResourceRegistry::GetVFXSystemService();
         auto                       view    = registry.view<ECS::VFXComponent, ECS::UUIDComponent>();
@@ -151,12 +142,18 @@ namespace Desert::VFX
                  SystemInstance&     system = m_Systems[uuid];
                  if ( system.System != data )
                  {
-                     // A new system (first sight, renamed, reloaded): every emitter starts over from its plan.
+                     // A new system (first sight, renamed, reloaded): every emitter starts over from its plan,
+                     // and so does its scalability state.
                      const std::size_t count = data->Emitters.size();
                      system.System           = data;
                      system.Plans.assign( count, {} );
                      system.Runs.assign( count, false );
                      system.Emitters.assign( count, {} );
+                     system.Culled        = false;
+                     system.Deactivated   = false;
+                     system.Reason        = VFXCullReason::None;
+                     system.AgeSeconds    = 0.0;
+                     system.HiddenSeconds = 0.0;
                      for ( std::size_t k = 0; k < count; ++k )
                      {
                          auto plan = CompileSpawnPlan( *data, k );
@@ -177,45 +174,107 @@ namespace Desert::VFX
                  }
                  system.Seen = true;
 
-                 // The editor's Restart: this system alone starts over.
+                 // The editor's Restart: this system alone starts over - a Deactivated one becomes a candidate
+                 // again.
                  if ( vfx.RequestRestart )
                  {
                      vfx.RequestRestart = false;
+                     system.Deactivated = false;
+                     system.AgeSeconds  = 0.0;
                      for ( EmitterInstance& emitter : system.Emitters )
                          ResetInstance( emitter );
                  }
 
                  const auto*     transform = registry.try_get<ECS::TransformComponent>( entity );
-                 const glm::vec3 emitterCm =
-                      transform ? glm::vec3( transform->GetTransform()[3] ) : glm::vec3( 0.0f );
-                 // The system's effect type (ValidateVFXSystemData requires one); a missing type spawns nothing.
-                 const std::string&                              typeName  = data->EffectType.value();
-                 const Assets::Serialization::VFXEffectTypeData* type      = EffectType( typeName );
-                 float      nearestCm = 0.0f;
-                 const bool culled = !type || outOfRange( *type, emitterCm, nearestCm );
-                 if ( type && culled != system.Culled )
-                     LOG_INFO( "[VFX] entity {} {}: nearest view {:.0f} cm (effect type '{}' MaxDistance)", uuid,
-                               culled ? "culled, spawning stops" : "back in range, spawning resumes", nearestCm,
-                               typeName );
-                 system.Culled                = culled;
-                 const double spawnCountScale = type ? spawnScaleOf( *type ) : 0.0;
-                 m_CulledSystems += culled ? 1u : 0u;
-                 for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
-                 {
-                     EmitterInstance& emitter = system.Emitters[k];
-                     if ( !system.Runs[k] || !vfx.Data.AutoActivate || system.Culled )
+                 const glm::mat4 world = transform ? glm::mat4( transform->GetTransform() ) : glm::mat4( 1.0f );
+                 const glm::vec3 emitterCm( world[3] );
+                 // The world AABB of the system's fixed local bounds (Arvo: each axis of the box through the
+                 // transform's linear part).
+                 glm::vec3 minCm = emitterCm;
+                 glm::vec3 maxCm = emitterCm;
+                 for ( int axis = 0; axis < 3; ++axis )
+                     for ( int col = 0; col < 3; ++col )
                      {
-                         // Not active (UE bAutoActivate false), refused or distance-culled: no births, the
-                         // instance is kept (its live particles finish).
-                         emitter.Steps.clear();
-                         emitter.ChannelSpawns.clear();
-                         continue;
+                         const float lo = world[col][axis] * data->Bounds.Min[col];
+                         const float hi = world[col][axis] * data->Bounds.Max[col];
+                         minCm[axis] += std::min( lo, hi );
+                         maxCm[axis] += std::max( lo, hi );
                      }
-                     emitter.SpawnCountScale = spawnCountScale;
-                     PlanEmitterSteps( emitter, system.Plans[k], m_Plan.StepCount, stepSeconds, m_Channels,
-                                       emitterCm );
+                 // The system's effect type (ValidateVFXSystemData requires one); a missing type spawns nothing.
+                 const std::string&                              typeName = data->EffectType.value();
+                 const Assets::Serialization::VFXEffectTypeData* type     = EffectType( typeName );
+
+                 std::size_t candidate = kNoCandidate;
+                 if ( !system.Deactivated )
+                 {
+                     candidate = candidates.size();
+                     candidates.push_back( { .Type          = type,
+                                             .System        = data.get(),
+                                             .BoundsMinCm   = minCm,
+                                             .BoundsMaxCm   = maxCm,
+                                             .AgeSeconds    = system.AgeSeconds,
+                                             .HiddenSeconds = system.HiddenSeconds } );
                  }
+                 placed.push_back( { &system, &vfx, uuid, emitterCm, type, &typeName, candidate } );
              } );
+
+        const std::vector<VFXScalabilityVerdict> verdicts =
+             EvaluateVFXScalability( views, candidates, tickSeconds );
+        using Reaction = Assets::Serialization::VFXCullReaction;
+        for ( const Placed& p : placed )
+        {
+            SystemInstance&             system  = *p.System;
+            const bool                  decided = p.Candidate != kNoCandidate;
+            const VFXScalabilityVerdict verdict = decided ? verdicts[p.Candidate] : VFXScalabilityVerdict{};
+            if ( decided )
+            {
+                system.Reason        = verdict.Reason;
+                system.HiddenSeconds = verdict.HiddenSeconds;
+            }
+            const bool culled = !p.Type || system.Deactivated || verdict.Reason != VFXCullReason::None;
+            if ( p.Type && culled != system.Culled )
+            {
+                const Reaction reaction = p.Type->CullReaction;
+                const bool     immediate =
+                     reaction == Reaction::DeactivateImmediate || reaction == Reaction::DeactivateImmediateResume;
+                const bool resumes =
+                     reaction == Reaction::DeactivateResume || reaction == Reaction::DeactivateImmediateResume;
+                if ( culled )
+                {
+                    if ( immediate )
+                        for ( EmitterInstance& emitter : system.Emitters )
+                            ResetInstance( emitter ); // a new generation: the GPU zeroes its live particles
+                    system.Deactivated = !resumes;
+                    LOG_INFO( "[VFX] entity {} culled ({}): nearest view {:.0f} cm, significance {:.3g} - effect "
+                              "type '{}', live particles {}, {}",
+                              p.UUID, VFXCullReasonName( verdict.Reason ), verdict.NearestCm, verdict.Significance,
+                              *p.TypeName, immediate ? "killed" : "finish",
+                              resumes ? "resumes when back in scalability" : "stays off until Restart" );
+                }
+                else
+                    LOG_INFO( "[VFX] entity {} back in scalability, spawning resumes: nearest view {:.0f} cm "
+                              "(effect type '{}')",
+                              p.UUID, verdict.NearestCm, *p.TypeName );
+            }
+            system.Culled = culled;
+            system.AgeSeconds += tickSeconds;
+            m_CulledSystems += culled ? 1u : 0u;
+            for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+            {
+                EmitterInstance& emitter = system.Emitters[k];
+                if ( !system.Runs[k] || !p.Component->Data.AutoActivate || culled )
+                {
+                    // Not active (UE bAutoActivate false), refused or culled: no births, the instance is kept
+                    // (its live particles finish, or were reset above by an Immediate reaction).
+                    emitter.Steps.clear();
+                    emitter.ChannelSpawns.clear();
+                    continue;
+                }
+                emitter.SpawnCountScale = verdict.SpawnCountScale;
+                PlanEmitterSteps( emitter, system.Plans[k], m_Plan.StepCount, stepSeconds, m_Channels,
+                                  p.EmitterCm );
+            }
+        }
 
         std::erase_if( m_Systems, []( const auto& entry ) { return !entry.second.Seen; } );
         m_Channels.ClearEntries(); // a channel holds one frame of entries (UE: a data channel is cleared per tick)

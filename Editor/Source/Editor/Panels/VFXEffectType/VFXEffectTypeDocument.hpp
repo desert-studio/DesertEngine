@@ -26,9 +26,9 @@ namespace Desert::Editor
      * pairs of numbers, a snapshot with no inverse to get wrong) whose EditedObject is m_Working; a result
      * ValidateVFXEffectTypeData refuses is shown inline and not kept.
      *
-     * WORKING AND SAVED: Dirty is m_Working.Levels != m_Saved.Levels (derived, never a flag); Save writes through
-     * VFXEffectTypeAsset::Save and has the held asset re-read the file, so every VFXWorld culls by the new levels
-     * on its next tick (the same path AssetHotReload takes for an edit made outside the editor).
+     * WORKING AND SAVED: Dirty is the authored fields of m_Working != m_Saved (derived, never a flag); Save writes
+     * through VFXEffectTypeAsset::Save and has the held asset re-read the file, so every VFXWorld culls by the new
+     * levels on its next tick (the same path AssetHotReload takes for an edit made outside the editor).
      *
      * CHANGED ON DISK: the held asset is the file's truth (AssetHotReload re-reads it on an outside edit), so
      * every frame its levels are compared with m_Saved. A clean window adopts them; a window with unsaved edits
@@ -36,6 +36,17 @@ namespace Desert::Editor
      * base so the edits stay dirty - and Save is refused until one is chosen, so a Save never silently overwrites
      * it.
      */
+    /// What the window edits of a type - everything but the header: one undo snapshot, the dirty comparison.
+    struct VFXEffectTypeAuthored
+    {
+        Assets::Serialization::VFXCullReaction CullReaction =
+             Assets::Serialization::VFXCullReaction::DeactivateResume;
+        Assets::Serialization::VFXSignificance Significance = Assets::Serialization::VFXSignificance::Distance;
+        std::vector<Assets::Serialization::VFXEffectTypeLevel> Levels;
+
+        [[nodiscard]] bool operator==( const VFXEffectTypeAuthored& ) const = default;
+    };
+
     class VFXEffectTypeDocument final : public ISubjectDocument
     {
     public:
@@ -68,6 +79,8 @@ namespace Desert::Editor
     private:
         // The drag in flight: the levels before it, pushed as one entry when the item deactivates.
         void TrackDrag( const char* label );
+        void CommitEdit( VFXEffectTypeAuthored before,
+                         const char*           label ); // a one-shot widget's change (combo, checkbox)
 
         // Compares the held asset's levels (the file) with m_Saved: adopts them when clean, else raises
         // m_DiskConflict.
@@ -80,7 +93,7 @@ namespace Desert::Editor
         std::string                                     m_LoadError;
         Assets::Serialization::VFXEffectTypeData        m_Working; // what the window edits (CommandHistory target)
         Assets::Serialization::VFXEffectTypeData        m_Saved;   // what the file holds
-        std::vector<Assets::Serialization::VFXEffectTypeLevel> m_DragBefore;
+        VFXEffectTypeAuthored                           m_DragBefore;
         std::string                                     m_Refusal;
         bool m_DiskConflict = false; // the file changed under unsaved edits
     };

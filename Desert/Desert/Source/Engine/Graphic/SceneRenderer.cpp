@@ -1035,10 +1035,28 @@ namespace Desert::Graphic
             // VFX-11: this view's origin and Effects particle rows go to the world's next scalability decision
             // (VFXWorld::Tick) - the world decides once for all views, not here.
             if ( const auto* cam = GetMainCamera() )
-                scene.GetVFXWorld().SubmitView(
-                     { .Origin          = cam->GetPosition(),
-                       .SpawnCountScale = quality.As<double>( Parameter::EffectsSpawnCountScalePercent ) / 100.0,
-                       .EffectsLevel    = quality.As<int>( Parameter::EffectsQualityLevel ) } );
+            {
+                ::Desert::VFX::VFXViewReport report{
+                     .Origin          = cam->GetPosition(),
+                     .SpawnCountScale = quality.As<double>( Parameter::EffectsSpawnCountScalePercent ) / 100.0,
+                     .EffectsLevel    = quality.As<int>( Parameter::EffectsQualityLevel ) };
+                // The view's frustum (Gribb-Hartmann on clip = P * V, depth 0..1): six inward planes, normalized;
+                // a degenerate plane (an infinite far plane) culls nothing.
+                const glm::mat4 clip = glm::mat4( cam->GetProjectionMatrix() ) * glm::mat4( cam->GetViewMatrix() );
+                const auto      row  = [&clip]( const int r )
+                { return glm::vec4( clip[0][r], clip[1][r], clip[2][r], clip[3][r] ); };
+                const std::array<glm::vec4, 6> planes = {
+                     row( 3 ) + row( 0 ), row( 3 ) - row( 0 ), row( 3 ) + row( 1 ), row( 3 ) - row( 1 ), row( 2 ),
+                     row( 3 ) - row( 2 ) };
+                for ( std::size_t i = 0; i < planes.size(); ++i )
+                {
+                    const float length = glm::length( glm::vec3( planes[i] ) );
+                    report.FrustumPlanes[i] =
+                         length > 1.0e-6f ? planes[i] / length : glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f );
+                }
+                report.HasFrustum = true;
+                scene.GetVFXWorld().SubmitView( report );
+            }
             UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
         }
 

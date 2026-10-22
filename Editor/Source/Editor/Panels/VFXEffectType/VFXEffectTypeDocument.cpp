@@ -23,7 +23,25 @@ namespace Desert::Editor
 {
     namespace
     {
-        using Levels = std::vector<Assets::Serialization::VFXEffectTypeLevel>;
+        using Levels   = std::vector<Assets::Serialization::VFXEffectTypeLevel>;
+        using Authored = VFXEffectTypeAuthored;
+
+        Authored AuthoredOf( const Assets::Serialization::VFXEffectTypeData& data )
+        {
+            return { data.CullReaction, data.Significance, data.Levels };
+        }
+
+        void Assign( Assets::Serialization::VFXEffectTypeData& data, const Authored& authored )
+        {
+            data.CullReaction = authored.CullReaction;
+            data.Significance = authored.Significance;
+            data.Levels       = authored.Levels;
+        }
+
+        // UE ENiagaraCullReaction / the significance handlers, in enum order.
+        constexpr std::array<const char*, 4> kReactionNames = {
+             "Deactivate", "Deactivate Immediate", "Deactivate Resume", "Deactivate Immediate Resume" };
+        constexpr std::array<const char*, 2> kSignificanceNames = { "Distance", "Age" };
 
         // The Effects.QualityLevel names, Low .. Cinematic (Scalability.json's Effects rows).
         constexpr std::array<const char*, Assets::Serialization::kVFXEffectTypeLevelCount> kLevelNames = {
@@ -33,17 +51,19 @@ namespace Desert::Editor
         {
             std::string text;
             for ( const auto& level : levels )
-                text += std::format( "{}{:.0f} cm x{:.2f}", text.empty() ? "" : ", ", level.MaxDistance,
-                                     level.SpawnCountScale );
+                text += std::format( "{}{:.0f} cm x{:.2f} max {}/{}{} {:.1f} s", text.empty() ? "" : ", ",
+                                     level.MaxDistance, level.SpawnCountScale, level.MaxInstances,
+                                     level.MaxSystemInstances, level.CullByViewFrustum ? " frustum" : "",
+                                     level.MaxTimeWithoutRender );
             return text;
         }
 
-        /// One undo step of a type's levels: the whole list before and after.
+        /// One undo step of a type: everything the window edits, before and after.
         class VFXEffectTypeEditCommand final : public ICommand
         {
         public:
-            VFXEffectTypeEditCommand( Assets::Serialization::VFXEffectTypeData* target, Levels before, Levels after,
-                                      std::string label )
+            VFXEffectTypeEditCommand( Assets::Serialization::VFXEffectTypeData* target, Authored before,
+                                      Authored after, std::string label )
                  : m_Target( target ), m_Before( std::move( before ) ), m_After( std::move( after ) ),
                    m_Label( std::move( label ) )
             {
@@ -51,13 +71,13 @@ namespace Desert::Editor
 
             bool Undo() override
             {
-                m_Target->Levels = m_Before;
+                Assign( *m_Target, m_Before );
                 return true;
             }
 
             bool Redo() override
             {
-                m_Target->Levels = m_After;
+                Assign( *m_Target, m_After );
                 return true;
             }
 
@@ -73,8 +93,8 @@ namespace Desert::Editor
 
         private:
             Assets::Serialization::VFXEffectTypeData* m_Target;
-            Levels                                    m_Before;
-            Levels                                    m_After;
+            Authored                                  m_Before;
+            Authored                                  m_After;
             std::string                               m_Label;
         };
     } // namespace
@@ -121,7 +141,7 @@ namespace Desert::Editor
     {
         if ( !m_Loaded )
             return DiskState::Untracked;
-        return m_Working.Levels != m_Saved.Levels ? DiskState::Dirty : DiskState::Clean;
+        return AuthoredOf( m_Working ) != AuthoredOf( m_Saved ) ? DiskState::Dirty : DiskState::Clean;
     }
 
     bool VFXEffectTypeDocument::SaveDocument()
@@ -168,14 +188,14 @@ namespace Desert::Editor
         if ( !asset || !asset->IsReadyForUse() )
             return;
         const auto& disk = asset->GetData();
-        if ( disk.Levels == m_Saved.Levels )
+        if ( AuthoredOf( disk ) == AuthoredOf( m_Saved ) )
         {
             m_DiskConflict = false;
             return;
         }
         const std::string path = asset->GetMetadata().Filepath.generic_string();
         // Clean, or the edits already equal the file: the file is simply the new base.
-        if ( m_Working.Levels == m_Saved.Levels || m_Working.Levels == disk.Levels )
+        if ( AuthoredOf( m_Working ) == AuthoredOf( m_Saved ) || AuthoredOf( m_Working ) == AuthoredOf( disk ) )
         {
             m_Working      = disk;
             m_Saved        = disk;
@@ -223,21 +243,36 @@ namespace Desert::Editor
     void VFXEffectTypeDocument::TrackDrag( const char* label )
     {
         if ( ImGui::IsItemActivated() )
-            m_DragBefore = m_Working.Levels;
+            m_DragBefore = AuthoredOf( m_Working );
         if ( !ImGui::IsItemDeactivatedAfterEdit() )
             return;
         if ( auto valid = Assets::Serialization::ValidateVFXEffectTypeData( m_Working ); !valid )
         {
             m_Refusal        = std::format( "{}: {}", label, valid.GetError() );
-            m_Working.Levels = m_DragBefore;
+            Assign( m_Working, m_DragBefore );
             return;
         }
         m_Refusal.clear();
-        if ( m_Working.Levels == m_DragBefore )
+        if ( AuthoredOf( m_Working ) == m_DragBefore )
             return;
         CommandHistory::Get().PushCommand( std::make_unique<VFXEffectTypeEditCommand>(
-             &m_Working, std::move( m_DragBefore ), m_Working.Levels, label ) );
-        m_DragBefore.clear();
+             &m_Working, std::move( m_DragBefore ), AuthoredOf( m_Working ), label ) );
+        m_DragBefore = {};
+    }
+
+    void VFXEffectTypeDocument::CommitEdit( VFXEffectTypeAuthored before, const char* label )
+    {
+        if ( auto valid = Assets::Serialization::ValidateVFXEffectTypeData( m_Working ); !valid )
+        {
+            m_Refusal = std::format( "{}: {}", label, valid.GetError() );
+            Assign( m_Working, before );
+            return;
+        }
+        m_Refusal.clear();
+        if ( AuthoredOf( m_Working ) == before )
+            return;
+        CommandHistory::Get().PushCommand( std::make_unique<VFXEffectTypeEditCommand>(
+             &m_Working, std::move( before ), AuthoredOf( m_Working ), label ) );
     }
 
     void VFXEffectTypeDocument::OnUIRender()
@@ -257,13 +292,41 @@ namespace Desert::Editor
         if ( !m_Refusal.empty() )
             ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ), "%s", m_Refusal.c_str() );
 
+        // The type: what a culled system does, and how a limit ranks its instances.
+        {
+            const Authored before   = AuthoredOf( m_Working );
+            int            reaction = static_cast<int>( m_Working.CullReaction );
+            ImGui::SetNextItemWidth( 240.0f );
+            if ( ImGui::Combo( "Cull Reaction", &reaction, kReactionNames.data(),
+                               static_cast<int>( kReactionNames.size() ) ) )
+            {
+                m_Working.CullReaction = static_cast<Assets::Serialization::VFXCullReaction>( reaction );
+                CommitEdit( before, "Cull Reaction" );
+            }
+        }
+        {
+            const Authored before       = AuthoredOf( m_Working );
+            int            significance = static_cast<int>( m_Working.Significance );
+            ImGui::SetNextItemWidth( 240.0f );
+            if ( ImGui::Combo( "Significance", &significance, kSignificanceNames.data(),
+                               static_cast<int>( kSignificanceNames.size() ) ) )
+            {
+                m_Working.Significance = static_cast<Assets::Serialization::VFXSignificance>( significance );
+                CommitEdit( before, "Significance" );
+            }
+        }
+
         constexpr ImGuiTableFlags kTable =
              ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp;
-        if ( !ImGui::BeginTable( "##levels", 3, kTable ) )
+        if ( !ImGui::BeginTable( "##levels", 7, kTable ) )
             return;
         ImGui::TableSetupColumn( "Level", ImGuiTableColumnFlags_WidthFixed, 90.0f );
         ImGui::TableSetupColumn( "Max Distance (cm, 0 = never culled)" );
         ImGui::TableSetupColumn( "Spawn Count Scale" );
+        ImGui::TableSetupColumn( "Max Instances (type, 0 = no limit)" );
+        ImGui::TableSetupColumn( "Max System Instances (0 = no limit)" );
+        ImGui::TableSetupColumn( "Cull By View Frustum" );
+        ImGui::TableSetupColumn( "Max Time Without Render (s, 0 = never)" );
         ImGui::TableHeadersRow();
         for ( std::size_t i = 0; i < m_Working.Levels.size() && i < kLevelNames.size(); ++i )
         {
@@ -282,6 +345,27 @@ namespace Desert::Editor
             ImGui::DragFloat( "##scale", &level.SpawnCountScale, 0.005f, 0.0f, 1.0f, "%.3f",
                               ImGuiSliderFlags_AlwaysClamp );
             TrackDrag( "Spawn Count Scale" );
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth( -1.0f );
+            ImGui::DragInt( "##instances", &level.MaxInstances, 0.1f, 0, 100000, "%d",
+                            ImGuiSliderFlags_AlwaysClamp );
+            TrackDrag( "Max Instances" );
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth( -1.0f );
+            ImGui::DragInt( "##systemInstances", &level.MaxSystemInstances, 0.1f, 0, 100000, "%d",
+                            ImGuiSliderFlags_AlwaysClamp );
+            TrackDrag( "Max System Instances" );
+            ImGui::TableNextColumn();
+            {
+                const Authored before = AuthoredOf( m_Working );
+                if ( ImGui::Checkbox( "##frustum", &level.CullByViewFrustum ) )
+                    CommitEdit( before, "Cull By View Frustum" );
+            }
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth( -1.0f );
+            ImGui::DragFloat( "##notRendered", &level.MaxTimeWithoutRender, 0.05f, 0.0f, 3600.0f, "%.2f s",
+                              ImGuiSliderFlags_AlwaysClamp );
+            TrackDrag( "Max Time Without Render" );
             ImGui::PopID();
         }
         ImGui::EndTable();

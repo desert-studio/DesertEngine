@@ -79,17 +79,15 @@ namespace Desert::VFX
         std::vector<bool>                                           Runs; // enabled and its plan compiled
         std::vector<EmitterInstance>                                Emitters;
         bool                                                        Seen = false;
-        // Distance-culled (UE CullReaction DeactivateResume): no births while out of every view's MaxDistance,
-        // live particles finish; spawning resumes, same instance and generation, when a view comes back in range.
-        bool Culled = false;
-    };
-
-    /// What one view of a frame reports to its scene's world (VFX-11; UE FNiagaraWorldManager caches the
-    /// player views the same way): where it looks from and its Effects level's particle rows. The world decides
-    /// from every view of the PREVIOUS frame, never per view, so two viewports cannot disagree.
-       // centimetres
-        double    SpawnCountScale = 1.0; // Effects.SpawnCountScalePercent / 100
-        int       EffectsLevel    = 0;   // Effects.QualityLevel: the level of every effect type this view reads
+        // THE SCALABILITY STATE (VFX-11, UE FNiagaraScalabilityState), decided by VFXScalability each tick:
+        // Culled = no births this tick (live particles finish unless the reaction is Immediate, which resets the
+        // emitters - a new generation, the GPU zeroes them). Deactivated = culled under a non-Resume reaction: it
+        // stays off, no longer a candidate, until the editor's Restart or a reload of the system.
+        bool          Culled        = false;
+        bool          Deactivated   = false;
+        VFXCullReason Reason        = VFXCullReason::None;
+        double        AgeSeconds    = 0.0; // effects time since the instance (re)started (Age significance)
+        double        HiddenSeconds = 0.0; // outside every view's frustum so far (MaxTimeWithoutRender)
     };
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,

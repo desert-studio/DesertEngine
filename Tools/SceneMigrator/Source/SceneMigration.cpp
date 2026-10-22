@@ -3586,8 +3586,11 @@ namespace Desert::Migration
         if ( !v1 )
             return Common::MakeFormattedError<std::string>( "VFXT 1 body does not read: {}", v1.GetError() );
         const S::VFXEffectTypeData& data = v1.GetValue();
-        const auto stated = data.Header ? data.Header->Versions.find( "VFXT" ) : decltype( data.Header->Versions.end() ){};
-        if ( !data.Header || stated == data.Header->Versions.end() || stated->second != 1u )
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises VFXT 1 only" );
+        const auto stated = data.Header->Versions.find( "VFXT" );
+        if ( stated == data.Header->Versions.end() || stated->second != 1u )
             return Common::MakeFormattedError<std::string>( "the file does not state VFXT 1, and this step raises VFXT 1 only" );
         std::string written = S::WriteVFXEffectType( data );
         if ( auto reread = S::ParseVFXEffectType( written ); !reread )
