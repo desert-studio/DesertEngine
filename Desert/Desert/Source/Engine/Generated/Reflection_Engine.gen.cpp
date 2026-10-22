@@ -31,6 +31,7 @@
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/ECS/StaticLightingSettings.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
+#include <Engine/ECS/VFXUserOverride.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WaterBodyComponent.hpp>
@@ -53,6 +54,12 @@
 
 namespace Desert::Reflection
 {
+template <>
+struct ReflectedStruct<::Desert::ECS::VFXUserOverride>
+{
+    static constexpr const char* Name = "VFXUserOverride";
+    static constexpr auto Members = std::tuple{ StructMember{ "Name", &::Desert::ECS::VFXUserOverride::Name }, StructMember{ "Value", &::Desert::ECS::VFXUserOverride::Value }, };
+};
 template <>
 struct ReflectedStruct<::Desert::Libraries::HitResult>
 {
@@ -370,6 +377,7 @@ void RegisterReflection_Engine()
             .ScriptName( "" )
                     .Field( FieldInfo{ .Name = "System", .Type = FieldType::AssetHandle, .Offset = offsetof( T, System ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::System )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "System", .Category = "VFX", .Tooltip = "The .dfx effect this entity plays", .IsAsset = true, .AssetType = "VFXSystemAsset", } } )
                     .Field( FieldInfo{ .Name = "AutoActivate", .Type = FieldType::Bool, .Offset = offsetof( T, AutoActivate ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AutoActivate )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Auto Activate", .Category = "VFX", } } )
+                    .Field( FieldInfo{ .Name = "Overrides", .Type = FieldType::Struct, .Offset = offsetof( T, Overrides ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Overrides )>(), .TypeName = "std::vector<VFXUserOverride>", .Meta = PropertyMetadata{ .DisplayName = "User Parameters", .Category = "VFX", .Tooltip = "This placement's values for the system's User parameters", .Hidden = true, }, .IsContainer = true, .SerializeContainer = ::Desert::Reflection::WriteContainer<decltype( T::Overrides )>, .DeserializeContainer = ::Desert::Reflection::ReadContainer<decltype( T::Overrides )>, .ElementType = FieldType::Struct, .ContainerSize = ::Desert::Reflection::ContainerSize<decltype( T::Overrides )>, .ContainerResize = ::Desert::Reflection::ContainerResize<decltype( T::Overrides )>, .ContainerGet = ::Desert::Reflection::ContainerGet<decltype( T::Overrides )>, .ContainerSet = ::Desert::Reflection::ContainerSet<decltype( T::Overrides )> } )
             .WithDefault<T>()
             .Register();
     }
@@ -711,6 +719,15 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "Month", .Type = FieldType::Int, .Offset = offsetof( T, Month ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Month )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Month", .Category = "Time Of Day", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 12.0f, .EditCondition = "DriveSunFromTimeOfDay", } } )
                     .Field( FieldInfo{ .Name = "Day", .Type = FieldType::Int, .Offset = offsetof( T, Day ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Day )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Day", .Category = "Time Of Day", .Tooltip = "Day of the month; a date the calendar does not have (30 February) stops the clock with an error.", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 31.0f, .EditCondition = "DriveSunFromTimeOfDay", } } )
                     .Field( FieldInfo{ .Name = "NorthOffset", .Type = FieldType::Float, .Offset = offsetof( T, NorthOffset ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::NorthOffset )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "North Offset", .Category = "Time Of Day", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 360.0f, .Units = "deg", .EditCondition = "DriveSunFromTimeOfDay", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::VFXUserOverride;
+        TypeBuilder( "VFXUserOverride", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Name", .Type = FieldType::String, .Offset = offsetof( T, Name ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Name )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Name", .Tooltip = "The system's User parameter, without the \"User.\" prefix", } } )
+                    .Field( FieldInfo{ .Name = "Value", .Type = FieldType::Vec4, .Offset = offsetof( T, Value ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Value )>(), .TypeName = "glm::vec4", .Meta = PropertyMetadata{ .DisplayName = "Value", .Tooltip = "Packed like the parameter's Default: its components first", } } )
             .WithDefault<T>()
             .Register();
     }
