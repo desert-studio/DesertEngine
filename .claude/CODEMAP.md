@@ -47,7 +47,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `GameplayDebugger` — 5 files, 566 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerShape, IGameplayDebuggerCategory
 - `GameplayTags` — 1 files, 113 lines: GameplayTag, GameplayTagContainer, GameplayTagRegistry
 - `Generated` — 31 files, 2,397 lines
-- `Geometry` — 83 files, 17,000 lines: AutoUVSettings, BakeOptions, BakeSurface, BoneBounds, BooleanOutcome, Cell, CutPlane, DeformOutcome, DynamicMesh, ElementHit, ElementSelection, FFDLattice, … (+92)
+- `Geometry` — 83 files, 17,422 lines: AutoUVSettings, BakeOptions, BakeSurface, BoneBounds, BooleanOutcome, Cell, CutPlane, DeformOutcome, DynamicMesh, ElementHit, ElementSelection, FFDLattice, … (+93)
 - `Geometry/Errors` — 1 files, 20 lines
 - `Geometry/MeshCore` — 26 files, 6,410 lines: AxisAlignedBox3, BaseIterator, BaseValueIterator, Block, ConstIterator, DynamicMeshCompactMaps, DynamicMeshEditResult, DynamicMeshEditor, DynamicSubmesh3, DynamicVector, DynamicVectorN, EdgeLoop, … (+35)
 - `Geometry/MeshCore/CompGeom` — 8 files, 1,362 lines: ConstrainedDelaunay2, Delaunay2
@@ -182,7 +182,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Control` — 9 files, 2,827 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, InputChord, InputInjection, … (+14)
 - `Core/GraphCanvas` — 4 files, 901 lines: CanvasPlan, CanvasRect, DeferredFrameAll, ElementIdMap, ElementLedger, FindPopup, PlannedLink, PlannedNode, Resolved
 - `Core/Rigging` — 4 files, 344 lines: Bone, RigBuilder
-- `Core/Selection` — 26 files, 5,571 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BakeNormalMapArgs, BakeNormalMapOutcome, BooleanToolArgs, EntityCommands, FoliagePaint, FoliageToolRow, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, … (+15)
+- `Core/Selection` — 26 files, 5,608 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BakeNormalMapArgs, BakeNormalMapOutcome, BooleanToolArgs, EntityCommands, FoliagePaint, FoliageToolRow, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, … (+15)
 - `Generated` — 1 files, 13 lines
 - `ImGuiIntegration` — 5 files, 480 lines: ImGuiLayer, VulkanImGui
 - `Import` — 47 files, 8,664 lines: AsyncMeshLoader, DdsBlockChain, DdsSourceImage, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedLight, ImportedMaterial, … (+15)
@@ -209,7 +209,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/Logs` — 2 files, 467 lines: LogEntry, LogsPanel
 - `Panels/LuaConsole` — 2 files, 234 lines: Line, LuaConsolePanel
 - `Panels/MaterialEditor` — 5 files, 4,319 lines: DirtyState, DropRefusal, MaterialEditorPanel, MaterialShaderRebuild, ParameterGroup, PushedIdentity
-- `Panels/Modeling` — 4 files, 3,741 lines: CollisionShapeEntry, ModelingPanel, VolumeTypeEntry
+- `Panels/Modeling` — 4 files, 3,795 lines: CollisionShapeEntry, ModelingPanel, VolumeTypeEntry
 - `Panels/NodeGraph` — 8 files, 3,067 lines: NodeGraphPanel, NodeSpec, PinSpec, ShadowRayScope, VolumeParam, VolumeParamOutOfScope
 - `Panels/Photogrammetry` — 2 files, 1,264 lines: PhotogrammetryPanel
 - `Panels/PhysicsAssetEditor` — 5 files, 1,271 lines: PhysicsAssetEditCommand, PhysicsAssetEditorBase, PhysicsAssetEditorDocument, PhysicsAssetPreviewSimulation
@@ -230,7 +230,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/VFXSystem` — 2 files, 1,316 lines: ModuleChoice, VFXSystemDocument
 - `Panels/Validation` — 2 files, 156 lines: Issue, SceneValidationPanel
 - `Panels/ViewportPanel` — 19 files, 6,745 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportCommandKey, ViewportData, ViewportPanel
-- `Panels/ViewportPanel/Tools` — 42 files, 11,935 lines: ActiveToolLabel, CameraFrustumGizmo, CancelOnDrop, CreateShapeTool, CubeGridTool, EditMaterialsTool, ElementSelectTool, FeatureEdge, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFieldPlace, … (+30)
+- `Panels/ViewportPanel/Tools` — 42 files, 11,939 lines: ActiveToolLabel, CameraFrustumGizmo, CancelOnDrop, CreateShapeTool, CubeGridTool, EditMaterialsTool, ElementSelectTool, FeatureEdge, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFieldPlace, … (+30)
 - `Panels/WorldParameters` — 2 files, 315 lines: WorldParametersPanel
 - `Panels/WorldPartition` — 8 files, 2,457 lines: LandscapeHLODBake, LandscapeHLODBakeTile, LandscapeHLODBaked, LegendRow, RegionRequest, View, WorldPartitionPanel
 - `Panels/WorldSettings` — 2 files, 149 lines: WorldSettingsPanel
