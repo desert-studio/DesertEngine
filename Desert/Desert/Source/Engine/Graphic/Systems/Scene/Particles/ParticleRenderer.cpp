@@ -17,6 +17,13 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Assets/Mesh/MeshAsset.hpp>
+#include <Engine/Geometry/Mesh.hpp>
+#include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 
 #include <Engine/Core/Scene.hpp>
 
@@ -81,7 +88,8 @@ namespace Desert::Graphic::System
         // Spawn+Update is the emitter's own stack host program (ParticleWorldGpu::ProgramFor).
         for ( const auto& [name, into] : { std::pair{ "ParticleCompact", &m_CompactPipeline },
                                            std::pair{ "ParticleDispatchArgs", &m_ArgsPipeline },
-                                           std::pair{ "ParticleSort", &m_SortPipeline } } )
+                                           std::pair{ "ParticleSort", &m_SortPipeline },
+                                           std::pair{ "ParticleMeshInstances", &m_MeshPipeline } } )
         {
             auto shader = shaderService->GetByName( name );
             if ( !shader )
@@ -142,15 +150,10 @@ namespace Desert::Graphic::System
                 EmitterMaterial& material = materials[RendererKey{ fe.Emitter, row.Row }];
                 if ( row.Kind == Assets::Serialization::VFXRendererKind::Mesh )
                 {
-                    // A Mesh row needs its own vertex factory (VFX-09 next pass): refused aloud, once per row,
-                    // never skipped silently. Sprite and Ribbon rows draw through their own vertex paths.
-                    if ( !material.KindRefused )
-                    {
-                        LOG_ERROR( "[Particles] emitter {}.{} renderer row {} does not draw: Mesh renderers have "
-                                   "no vertex factory yet",
-                                   fe.EntityId, fe.Emitter, row.Row );
-                        material.KindRefused = true;
-                    }
+                    // A Mesh row draws its static mesh per particle through the mesh renderer's instanced cells
+                    // (AddMeshInstances); a mesh still loading or refused sits the frame out.
+                    if ( row.Mesh != nullptr && ResolveMesh( fe, row, material ) )
+                        ve.Meshes.push_back( { &material.Meshes, row.Mesh->Scale, row.Row } );
                     continue;
                 }
                 ViewDraw draw;
@@ -724,5 +727,182 @@ namespace Desert::Graphic::System
             }
         };
         return pass;
+    }
+
+    bool ParticleRenderer::ResolveMesh( const ParticleFrameEmitter& fe, const ParticleFrameRenderer& row,
+                                        EmitterMaterial& material )
+    {
+        auto* meshes    = Runtime::ResourceRegistry::GetMeshService();
+        auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+        const auto refuse = [&]( const std::string& why )
+        {
+            if ( !material.MeshRefused )
+                LOG_ERROR( "[Particles] emitter {}.{} Mesh renderer row {} ('{}') does not draw: {}", fe.EntityId,
+                           fe.Emitter, row.Row, row.Mesh->Mesh.Path, why );
+            material.MeshRefused = true;
+            return false;
+        };
+        if ( meshes == nullptr || materials == nullptr )
+            return refuse( "the mesh or material service is not running" );
+        const auto guid = Common::Content::AssetGuidFromText( row.Mesh->Mesh.Guid );
+        if ( !guid )
+            return refuse( guid.GetError() );
+        const Assets::AssetHandle handle = Common::Content::HandleForGuid( guid.GetValue() );
+        Desert::Mesh*             mesh   = meshes->Get( handle );
+        const Assets::MeshAsset*  asset  = meshes->GetAsset( handle );
+        if ( mesh == nullptr || asset == nullptr )
+            return false; // still loading, or MeshService said why it failed
+        const auto& submeshes = mesh->GetSubmeshes();
+        if ( submeshes.empty() )
+            return refuse( "the mesh has no submeshes" );
+
+        MeshInstances&     state    = material.Meshes;
+        const uint32_t     capacity = std::max( fe.Gpu->Range.Count, 1u );
+        const auto         count    = static_cast<uint32_t>( std::min<size_t>( submeshes.size(), 64 ) );
+        const uint64_t     all      = count >= 64 ? ~0ull : ( 1ull << count ) - 1ull;
+        if ( state.Mesh != mesh || state.Material != row.Material || state.Version != materials->GetInvalidationVersion() )
+        {
+            state.Mesh     = nullptr;
+            state.Material = row.Material;
+            state.Version  = materials->GetInvalidationVersion();
+            state.Sections.clear();
+            // The row's Material overrides every submesh (UE: the mesh renderer's override materials); without
+            // one each material slot of the mesh draws its own sections, as the mesh component does.
+            if ( row.Material != Common::AssetHandle::Null() )
+            {
+                if ( auto instance = materials->CreateRuntimeInstance( row.Material ) )
+                    state.Sections.push_back( { std::move( instance ), 0 } );
+                else
+                    return refuse( "its override material does not resolve" );
+            }
+            else
+            {
+                const auto& slots = asset->GetMaterialHandles();
+                for ( size_t slot = 0; slot < slots.size(); ++slot )
+                {
+                    uint64_t hidden = 0;
+                    for ( uint32_t si = 0; si < count; ++si )
+                        if ( SectionMaterialSlot( si, slots.size() ) != slot )
+                            hidden |= 1ull << si;
+                    if ( hidden == all )
+                        continue;
+                    auto instance =
+                         materials->CreateRuntimeInstance( materials->GetAssetHandleByExternal( slots[slot] ) );
+                    if ( !instance )
+                        return refuse( std::format( "its material slot {} does not resolve", slot ) );
+                    state.Sections.push_back( { std::move( instance ), hidden } );
+                }
+                if ( state.Sections.empty() )
+                    return refuse( "the mesh has no material slot" );
+            }
+            state.Mesh = mesh;
+        }
+        if ( state.Instances == nullptr || state.Capacity != capacity || state.Submeshes != count )
+        {
+            if ( state.Key == 0 )
+                state.Key = ++m_NextMeshKey;
+            state.Capacity  = capacity;
+            state.Submeshes = count;
+            state.Instances = ShaderResources::StorageBuffer::Create( "ParticleMeshInstances",
+                                                                      capacity * sizeof( glm::mat4 ), 3, true );
+            const auto argBytes = static_cast<uint32_t>( GpuInstanceArgsOffset( count ) );
+            state.Args          = ShaderResources::StorageBuffer::Create( "ParticleMeshArgs", argBytes, 4, true );
+            // The records' static half: each submesh's level-0 index range; instanceCount and firstInstance are
+            // ParticleMeshInstances' (one bucket: the whole range).
+            std::vector<uint32_t> args( argBytes / 4u, 0u );
+            args[0] = 1u;
+            args[1] = capacity;
+            args[2] = count;
+            for ( uint32_t si = 0; si < count; ++si )
+            {
+                const auto& sm     = submeshes[si];
+                uint32_t*   record = &args[GpuInstanceArgsOffset( si ) / 4u];
+                record[0]          = sm.LODs.empty() ? sm.IndexCount : sm.LODs[0].IndexCount;
+                record[2]          = sm.LODs.empty() ? sm.IndexOffset : sm.LODs[0].IndexOffset;
+                record[3]          = sm.VertexOffset;
+            }
+            if ( const auto wrote = state.Args->SetData( args.data(), argBytes ); !wrote.IsSuccess() )
+            {
+                state.Instances = nullptr;
+                return refuse( std::format( "its argument records were not written: {}", wrote.GetError() ) );
+            }
+        }
+        material.MeshRefused = false;
+        return true;
+    }
+
+    void ParticleRenderer::AddMeshInstances( RDG::Builder& graph, MeshRenderer& meshes )
+    {
+        if ( !m_Pool.Declared || !m_MeshPipeline )
+            return;
+        for ( uint32_t i = 0; i < static_cast<uint32_t>( m_ViewEmitters.size() ); ++i )
+        {
+            const ViewEmitter& ve = m_ViewEmitters[i];
+            if ( !ve.Declared )
+                continue;
+            const ParticleEmitterGpu& gpu  = *ve.Frame->Gpu;
+            const uint32_t            half = ve.Frame->StepCount & 1u;
+            for ( const ViewMesh& vm : ve.Meshes )
+            {
+                MeshInstances& state = *vm.State;
+                Common::BoolResultStr imported = Renderer::ImportBuffer( state.Instances, state.InstancesImport );
+                if ( imported )
+                    imported = Renderer::ImportBuffer( state.Args, state.ArgsImport );
+                if ( !imported )
+                {
+                    LOG_ERROR( "[Particles] emitter {} Mesh row {} sits out this frame: {}", i, vm.Row,
+                               imported.GetError() );
+                    continue;
+                }
+                state.Refs.Instances = graph.RegisterExternal( state.InstancesImport,
+                                                               std::format( "ParticleMeshInstances{}.{}", i, vm.Row ) );
+                state.Refs.Args =
+                     graph.RegisterExternal( state.ArgsImport, std::format( "ParticleMeshArgs{}.{}", i, vm.Row ) );
+
+                struct MeshPush
+                {
+                    glm::uvec4 Range;
+                    glm::vec4  Scale;
+                };
+                const MeshPush push{ glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, half,
+                                                 state.Submeshes, state.Capacity ),
+                                     glm::vec4( vm.Scale, 0.0f ) };
+                const uint32_t       groups = ( state.Capacity + 63u ) / 64u;
+                const RDG::BufferRef floats = ve.FloatsRef, layout = ve.DrawLayoutRef, counters = ve.CountersRef;
+                const GpuInstanceRefs refs  = state.Refs;
+                graph.AddPass(
+                     std::format( "Particles: Mesh Instances {}.{}", i, vm.Row ), RDG::PassFlags::Compute,
+                     [this, floats, layout, counters, refs]( RDG::PassBuilder& pass )
+                     {
+                         pass.Bindings( m_MeshLayout.Get( m_MeshPipeline->GetSpecification().Shader ),
+                                        Renderer::GetPipelineRouteFill( *m_MeshPipeline ) )
+                              .Storage( "AttributeFloats", floats, RDG::Access::StorageRead )
+                              .Storage( "DrawLayout", layout, RDG::Access::StorageRead )
+                              .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageRead )
+                              .Storage( "Counters", counters, RDG::Access::StorageRead )
+                              .Storage( "Instances", refs.Instances, RDG::Access::StorageWrite )
+                              .Storage( "Args", refs.Args, RDG::Access::StorageWrite )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshPush ) ) );
+                     },
+                     [this, push, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     {
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                         bindings.PushConstants( &push, sizeof( push ) );
+                         return Renderer::GetInstance().DispatchCompute( bindings, *m_MeshPipeline, groups, 1, 1 );
+                     } );
+
+                // Each material section drawn by the GBuffer and the cascades through its Instanced cell; the
+                // view-variant keys sit above the grass's (Key * 64 + section, kept below 2^31 / kMaxCascades).
+                for ( uint32_t s = 0; s < static_cast<uint32_t>( state.Sections.size() ); ++s )
+                    meshes.SubmitGpuInstanced( { .Mesh            = state.Mesh,
+                                                 .Path            = MeshVertexPath::Instanced,
+                                                 .Material        = state.Sections[s].Material,
+                                                 .HiddenSubmeshes = state.Sections[s].HiddenSubmeshes,
+                                                 .CastShadows     = true,
+                                                 .Instances       = state.Instances,
+                                                 .Refs            = &state.Refs,
+                                                 .Key             = 0x08000000u + state.Key * 64u + s } );
+            }
+        }
     }
 } // namespace Desert::Graphic::System

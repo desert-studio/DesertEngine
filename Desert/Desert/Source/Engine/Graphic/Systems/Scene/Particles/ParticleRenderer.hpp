@@ -10,6 +10,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/GpuInstances.hpp>
 
 #include "ParticleGpuLayout.hpp"
 #include "ParticleWorldGpu.hpp"
@@ -35,6 +36,16 @@ namespace Desert::Graphic::RDG
 namespace Desert::Graphic
 {
     class DataDrivenMaterial;
+}
+
+namespace Desert
+{
+    class Mesh;
+}
+
+namespace Desert::Graphic::System
+{
+    class MeshRenderer;
 }
 
 namespace Desert::Graphic::System
@@ -120,6 +131,14 @@ namespace Desert::Graphic::System
         // key is the view depth), whether or not it claimed the simulation. Call after ImportFrameBuffers.
         void AddSortPasses( RDG::Builder& graph );
 
+        // VFX-09: every Mesh renderer row of a declared emitter as GPU instances (GpuInstances.hpp, UE
+        // FNiagaraRendererMeshes): one "Particles: Mesh Instances {emitter}.{row}" Compute node writes a transform
+        // per particle the last compact found alive and the instance count of every submesh record, then each
+        // material section is submitted to @p meshes (SubmitGpuInstanced) - drawn by the GBuffer and the shadow
+        // cascades like the grass, lit and shadowed. Every view adds its own (after ImportFrameBuffers, before the
+        // mesh renderer's passes are built).
+        void AddMeshInstances( RDG::Builder& graph, MeshRenderer& meshes );
+
     private:
         // One sprite draw per material cell shader in this view: the cell's own DataDrivenMaterial (its descriptor
         // sets from the cell's reflection; the camera block and the Materials rows are written once per frame,
@@ -134,6 +153,31 @@ namespace Desert::Graphic::System
             std::vector<glm::vec4>              Rows; // this frame's Materials rows, one per drawn emitter
         };
 
+        // One Mesh row's GPU instances in this view (GpuInstances.hpp): the mesh, its material sections (the row's
+        // Material over every submesh, or the mesh's own slot materials), the transforms (one mat4 per particle of
+        // the emitter's range) and the argument records, kept across frames and rebuilt when the mesh, the range,
+        // the material or the material service's invalidation version changes.
+        struct MeshInstances
+        {
+            struct Section
+            {
+                MaterialInstancePtr Material;
+                uint64_t            HiddenSubmeshes = 0;
+            };
+            Desert::Mesh*                                   Mesh     = nullptr;
+            uint32_t                                        Capacity = 0;
+            uint32_t                                        Submeshes = 0;
+            Common::AssetHandle                             Material;
+            uint64_t                                        Version = ~uint64_t{ 0 };
+            uint32_t                                        Key     = 0; // stable view-variant key base
+            std::vector<Section>                            Sections;
+            std::shared_ptr<ShaderResources::StorageBuffer> Instances;
+            std::shared_ptr<ShaderResources::StorageBuffer> Args;
+            RDG::ExternalBuffer                             InstancesImport;
+            RDG::ExternalBuffer                             ArgsImport;
+            GpuInstanceRefs                                 Refs;
+        };
+
         // One emitter's material in this view: the asset its instance was built from, the runtime instance of
         // that asset's ParticleSprite cell (null = the cell's defaults), and the asset last refused (the refusal
         // is said once per (emitter, material)).
@@ -143,7 +187,8 @@ namespace Desert::Graphic::System
             MaterialInstancePtr Instance;
             Common::AssetHandle Refused;
             bool                HasRefused  = false;
-            bool                KindRefused = false; // a Mesh row this view cannot draw yet, said once
+            bool                MeshRefused = false; // a Mesh row whose mesh or materials do not resolve, said once
+            MeshInstances       Meshes;              // a Mesh row's GPU instances
         };
         // One renderer row's material: (the emitter's index in its system, the row's index in its Renderers).
         using RendererKey      = std::pair<uint32_t, uint32_t>;
@@ -155,6 +200,14 @@ namespace Desert::Graphic::System
             SpriteDraw*       Sprite   = nullptr;
             MaterialInstance* Instance = nullptr; // the row's own (null = the cell's defaults)
             uint32_t          Row      = 0;       // the draw's row in Sprite->Rows this frame
+        };
+
+        // One Mesh row of an emitter this frame: its GPU instances and the row's Scale.
+        struct ViewMesh
+        {
+            MeshInstances* State = nullptr;
+            glm::vec3      Scale = glm::vec3( 1.0f );
+            uint32_t       Row   = 0;
         };
 
         // This view's imports of the scene's pool.
@@ -175,6 +228,7 @@ namespace Desert::Graphic::System
         {
             const ParticleFrameEmitter* Frame    = nullptr;
             std::vector<ViewDraw>       Draws; // one per drawn renderer row, in `.dfx` order
+            std::vector<ViewMesh>       Meshes; // one per Mesh renderer row whose mesh resolved
             RDG::ExternalBuffer         StepsImport;
             RDG::ExternalBuffer         CountersImport;
             RDG::ExternalBuffer         ArgsImport;
@@ -214,10 +268,17 @@ namespace Desert::Graphic::System
         // default cell with the refusal logged once; its runtime instance kept in @p material.
         SpriteDraw* ResolveSprite( const ParticleFrameEmitter& fe, const ParticleFrameRenderer& row,
                                    EmitterMaterial& material );
+        // The Mesh row's mesh and material sections, and its instance / argument buffers sized to the emitter's
+        // range; false = the row sits the frame out (still loading, or refused once aloud by name).
+        bool ResolveMesh( const ParticleFrameEmitter& fe, const ParticleFrameRenderer& row,
+                          EmitterMaterial& material );
 
         std::shared_ptr<ComputePipeline> m_CompactPipeline;
         std::shared_ptr<ComputePipeline> m_ArgsPipeline;
         std::shared_ptr<ComputePipeline> m_SortPipeline;
+        std::shared_ptr<ComputePipeline> m_MeshPipeline; // ParticleMeshInstances
+        mutable ShaderBindingLayoutCache m_MeshLayout;
+        uint32_t                         m_NextMeshKey = 0;
         mutable ShaderBindingLayoutCache m_SortLayout;
         RDG::BufferRef                   m_SortKeysRef;
         RDG::BufferRef                   m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
