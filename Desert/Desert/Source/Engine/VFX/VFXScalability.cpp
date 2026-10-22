@@ -25,9 +25,9 @@ namespace Desert::VFX
             for ( const glm::vec4& p : view.FrustumPlanes )
             {
                 // The box corner furthest along the plane's normal: outside if even it is behind the plane.
-                const glm::vec3 far( p.x >= 0.0f ? mx.x : mn.x, p.y >= 0.0f ? mx.y : mn.y,
+                const glm::vec3 farCorner( p.x >= 0.0f ? mx.x : mn.x, p.y >= 0.0f ? mx.y : mn.y,
                                      p.z >= 0.0f ? mx.z : mn.z );
-                if ( glm::dot( glm::vec3( p ), far ) + p.w < 0.0f )
+                if ( glm::dot( glm::vec3( p ), farCorner ) + p.w < 0.0f )
                     return false;
             }
             return true;
