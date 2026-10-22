@@ -63,7 +63,7 @@ namespace Desert::Editor::Tools
 
         // The brush on the surface: a ring of the brush radius in the plane of the hit (UE draws its brush
         // indicator the same way), and the inner ring where the falloff begins.
-        void DrawBrush( ImDrawList* dl, const Geometry::SculptStamp& hit,
+        void DrawBrush( ImDrawList* dl, const Geometry::SurfaceSculptStamp& hit,
                         const Geometry::SculptBrushSettings& brush, const glm::mat4& viewProj,
                         const glm::vec2& viewportPos, const glm::vec2& viewportSize )
         {
@@ -163,7 +163,7 @@ namespace Desert::Editor::Tools
         if ( io.KeyCtrl )
             brush.Invert = !brush.Invert;
 
-        Geometry::SculptStamp hit;
+        Geometry::SurfaceSculptStamp hit;
         const bool onMesh = Geometry::RaycastMesh( *target->Target.Mesh, target->World, glm::dvec3( ray.Origin ),
                                                    glm::normalize( glm::dvec3( ray.Direction ) ), hit );
 
@@ -201,7 +201,7 @@ namespace Desert::Editor::Tools
                      glm::length( hit.Center - *m_LastStamp ) > 0.0 )
                 {
                     auto                  next  = std::make_shared<Geometry::DynamicMesh3>( *target->Target.Mesh );
-                    Geometry::SculptStamp stamp = hit;
+                    Geometry::SurfaceSculptStamp stamp = hit;
                     stamp.PrevCenter            = *m_LastStamp;
                     const auto&                     ms = Core::ModelingState::Get();
                     const Geometry::RemeshSettings* topology =
@@ -244,7 +244,7 @@ namespace Desert::Editor::Tools
                 const Geometry::RemeshSettings* topology = ms.SculptDynamic ? &ms.DynamicSculptTopology : nullptr;
                 for ( const glm::dvec3& c : centres )
                 {
-                    Geometry::SculptStamp stamp = hit;
+                    Geometry::SurfaceSculptStamp stamp = hit;
                     stamp.Center                = c;
                     Geometry::ApplySculptStamp( *next, target->World, stamp, brush, topology );
                 }

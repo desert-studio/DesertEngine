@@ -47,12 +47,12 @@ namespace Desert::Geometry
     };
 
     // UE BaseBrushTool falloff: 1 inside (1 - Falloff) of the radius, then (1 - t^2)^3 to zero at the rim.
-    [[nodiscard]] double SculptFalloff( double distance, double radius, double falloff );
+    [[nodiscard]] double SurfaceSculptFalloff( double distance, double radius, double falloff );
 
     // One stamp in world space: the hit point and the surface normal there. Move also reads PrevCenter, where
     // the brush was at the previous stamp of the stroke (UE FSculptBrushStamp's PrevStamp): it weighs the
     // vertices by their distance to it and carries them by Center - PrevCenter.
-    struct SculptStamp
+    struct SurfaceSculptStamp
     {
         glm::dvec3 Center{ 0.0 };
         glm::dvec3 Normal{ 0.0, 1.0, 0.0 };
@@ -65,12 +65,12 @@ namespace Desert::Geometry
     // refined / collapsed toward topology->TargetEdgeLength (DynamicMeshRemesh RemeshRegion), so the stamp
     // moves a surface fine enough to carry it; without it the mesh keeps its triangles (Vertex Sculpt).
     std::vector<int> ApplySculptStamp( DynamicMesh3& mesh, const glm::dmat4& localToWorld,
-                                       const SculptStamp& stamp, const SculptBrushSettings& settings,
+                                       const SurfaceSculptStamp& stamp, const SculptBrushSettings& settings,
                                        const RemeshSettings* topology = nullptr );
 
     // The nearest triangle the world ray hits on `mesh` placed by `localToWorld`: the hit point (world) and the
     // triangle's world normal. False on a miss.
     [[nodiscard]] bool RaycastMesh( const DynamicMesh3& mesh, const glm::dmat4& localToWorld,
                                     const glm::dvec3& rayOrigin, const glm::dvec3& rayDirection,
-                                    SculptStamp& hitOut );
+                                    SurfaceSculptStamp& hitOut );
 } // namespace Desert::Geometry

@@ -73,7 +73,7 @@ namespace Desert::Geometry
         return "?";
     }
 
-    double SculptFalloff( double distance, double radius, double falloff )
+    double SurfaceSculptFalloff( double distance, double radius, double falloff )
     {
         if ( radius <= 0.0 || distance >= radius )
             return 0.0;
@@ -87,7 +87,7 @@ namespace Desert::Geometry
     }
 
     std::vector<int> ApplySculptStamp( DynamicMesh3& mesh, const glm::dmat4& localToWorld,
-                                       const SculptStamp& stamp, const SculptBrushSettings& settings,
+                                       const SurfaceSculptStamp& stamp, const SculptBrushSettings& settings,
                                        const RemeshSettings* topology )
     {
         std::vector<int> moved;
@@ -116,7 +116,7 @@ namespace Desert::Geometry
         for ( const int v : mesh.VertexIndicesItr() )
         {
             const glm::dvec3 w = Transform( localToWorld, mesh.GetVertex( v ) );
-            const double     f = SculptFalloff( glm::length( w - centre ), radius, settings.Falloff );
+            const double     f = SurfaceSculptFalloff( glm::length( w - centre ), radius, settings.Falloff );
             if ( f > 0.0 )
                 roi.push_back( { v, w, f } );
         }
@@ -202,7 +202,7 @@ namespace Desert::Geometry
     }
 
     bool RaycastMesh( const DynamicMesh3& mesh, const glm::dmat4& localToWorld, const glm::dvec3& rayOrigin,
-                      const glm::dvec3& rayDirection, SculptStamp& hitOut )
+                      const glm::dvec3& rayDirection, SurfaceSculptStamp& hitOut )
     {
         // Möller-Trumbore against every triangle, in world space (the brush and the ray both live there).
         double     best = std::numeric_limits<double>::max();
