@@ -24,7 +24,7 @@ struct ParticleDrawLayout
     uvec4 Columns0;   // first float column of x = Position, y = SpriteSize, z = Color, w = SpriteRotation
     uvec4 Columns1;   // first float column of x = Age, y = Lifetime, z = RibbonWidth, w = RibbonLinkOrder
     vec4  EmitterPos; // xyz = the emitter's world position (cm): a Local emitter's Position is relative to it
-    uvec4 Columns2;   // first float column of x = the Ribbon row's RibbonIdBinding (an Int); yzw unused
+    uvec4 Columns2;   // x = the Ribbon row's RibbonIdBinding (an Int column), y = Scale, z = MeshOrientation; w unused
     vec4  Ribbon;     // the emitter's Ribbon row: x = Width (cm), y = UV mode (0 Stretch, 1 TileByDistance),
                       // z = UVTileDistance (cm); zero when the emitter has no Ribbon row
 };

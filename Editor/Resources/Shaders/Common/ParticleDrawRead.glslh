@@ -71,4 +71,19 @@ float ParticleRibbonLinkOrder( uint n )
                                                         : ParticleFloat( n, u_DrawLayout.Columns1.w, 0u, 0.0 );
 }
 
+// UE Particles.Scale: the Mesh row's per-particle scale, on top of the row's own Scale. Unbound = 1.
+vec3 ParticleMeshScale( uint n )
+{
+    const uint c = u_DrawLayout.Columns2.y;
+    return vec3( ParticleFloat( n, c, 0u, 1.0 ), ParticleFloat( n, c, 1u, 1.0 ), ParticleFloat( n, c, 2u, 1.0 ) );
+}
+
+// UE Particles.MeshOrientation: a unit quaternion (xyz, w). Unbound = identity.
+vec4 ParticleMeshOrientation( uint n )
+{
+    const uint c = u_DrawLayout.Columns2.z;
+    return vec4( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 0.0 ),
+                 ParticleFloat( n, c, 3u, 1.0 ) );
+}
+
 #endif // PARTICLE_DRAW_READ_GLSLH

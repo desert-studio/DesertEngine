@@ -97,7 +97,7 @@ namespace Desert::Graphic::System
         glm::uvec4 Columns0   = glm::uvec4( kParticleAttrNone ); // Position, SpriteSize, Color, SpriteRotation
         glm::uvec4 Columns1   = glm::uvec4( kParticleAttrNone ); // Age, Lifetime, RibbonWidth, RibbonLinkOrder
         glm::vec4  EmitterPos = glm::vec4( 0.0f );               // xyz = emitter world position (cm)
-        // x = the Ribbon row's RibbonIdBinding attribute (an Int; none = the emitter is one ribbon); yzw unused.
+        // x = the Ribbon row's RibbonIdBinding attribute (an Int; none = one ribbon), y = Scale, z = MeshOrientation.
         glm::uvec4 Columns2 = glm::uvec4( kParticleAttrNone );
         // The emitter's Ribbon row (Vertex_ParticleRibbon.glslh): x = Width (cm), y = UV mode (0 Stretch,
         // 1 TileByDistance), z = UVTileDistance (cm); zero without a Ribbon row.
