@@ -34,7 +34,8 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         5; // 5: LODs reduced over position-welded topology (seams no longer stall the reduction); 4: LODs
+         6; // 6: LODs reduced by meshoptimizer 1.3 Permissive + Prune (seams crossed natively, small parts
+            // pruned); 5: LODs reduced over position-welded topology; 4: LODs
             // reduced to the ratio with normal/UV attributes, no error cap; 3: vertex colour and UV1 streams;
             // 2: sections named by slot
 

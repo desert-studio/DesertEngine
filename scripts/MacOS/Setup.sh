@@ -240,11 +240,18 @@ clone_dep "$ROOT/ThirdParty/optick/src/optick.h" \
     "$ROOT/ThirdParty/optick" \
     https://github.com/bombomby/optick.git
 
-# meshoptimizer (mesh simplification / LOD generation).
+# meshoptimizer (mesh simplification / LOD generation), pinned to v1.3 - the version
+# BuildScripts/ThirdParty/MeshOptimizer.lua checks. A tree holding another version is re-fetched.
+MESHOPT_DIR="$ROOT/ThirdParty/meshoptimizer"
+if [ -f "$MESHOPT_DIR/src/meshoptimizer.h" ] &&
+    ! grep -q "define MESHOPTIMIZER_VERSION 1030" "$MESHOPT_DIR/src/meshoptimizer.h"; then
+    echo "--- ThirdParty/meshoptimizer: not v1.3, re-fetching"
+    rm -rf "$MESHOPT_DIR"
+fi
 clone_dep "$ROOT/ThirdParty/meshoptimizer/src/meshoptimizer.h" \
     "$ROOT/ThirdParty/meshoptimizer" \
     https://github.com/zeux/meshoptimizer.git \
-    v0.20
+    v1.3
 
 # ---------------------------------------------------------------------------
 # 4. reflect-cpp compiled sources. The vendored include/ headers are reflect-cpp

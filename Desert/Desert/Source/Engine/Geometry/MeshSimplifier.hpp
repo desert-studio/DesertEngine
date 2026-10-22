@@ -21,9 +21,9 @@ namespace Desert::Geometry
 
     // Per-vertex attributes the reduction weighs next to position (UE's QEM attribute-aware metric):
     // normal xyz + UV0 uv, tightly packed. Seams (same position, different wedge) are NOT barriers: the
-    // reduction runs over POSITION-WELDED topology (UE's QEM collapses positions; wedges ride along), then
-    // every surviving corner is given back the original wedge of its triangle's own chart, so a hard
-    // normal or UV split stays split and the welded geometry has no cracks.
+    // reduction collapses across them (meshopt Permissive, UE's QEM collapses positions and wedges ride
+    // along) and every surviving corner keeps a wedge of its own side, so a hard normal or UV split stays
+    // split. Disconnected parts are pruned whole when they are the cheapest reduction left.
     constexpr std::size_t kSimplifyAttributeCount = 5;
 
     // positions: tightly-packed xyz per vertex (vertexCount * 3 floats). attributes: null, or
