@@ -186,6 +186,18 @@ namespace Desert::Editor
                        return Explorer()->CreateNewVFXDataChannel();
                    } ) )
             commands.push_back( std::move( command ) );
+        // One entry per engine VFX system template — the template list is the folder's, so a new template file
+        // is a new entry with no code.
+        for ( const std::filesystem::path& templateFile : NewAssetMenu::VFXSystemTemplates() )
+            commands.push_back(
+                 { "Assets", std::format( "{}: {}", kNewVFXSystemFromTemplateLabel, templateFile.stem().string() ),
+                   [this, templateFile]
+                   {
+                       if ( Explorer() == nullptr )
+                           return Common::MakeError(
+                                "New VFX System from Template: the Assets window does not exist" );
+                       return Explorer()->CreateVFXSystemFromTemplate( templateFile );
+                   } } );
     }
 
     void AssetCommands::AppendImportCommands( std::vector<PaletteCommand>& commands )

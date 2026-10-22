@@ -298,6 +298,12 @@ namespace Desert::Editor
         return m_NewAssetMenu.CreateNewVFXDataChannel( m_CurrentDir );
     }
 
+    Common::BoolResultStr
+    FileExplorerPanel::CreateVFXSystemFromTemplate( const std::filesystem::path& templateFile )
+    {
+        return m_NewAssetMenu.CreateVFXSystemFromTemplate( m_CurrentDir, templateFile );
+    }
+
     ImVec2 GetAspectCorrectedSize( const ImVec2& originalSize, float maxSize )
     {
         const float aspect = originalSize.x / originalSize.y;
