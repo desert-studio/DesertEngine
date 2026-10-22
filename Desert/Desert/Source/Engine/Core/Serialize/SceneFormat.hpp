@@ -109,8 +109,21 @@ namespace Desert::Core
     // every grid (Tools/SceneMigrator, MigrateGridHLODLayerV67ToV68). v69 (PATH1): every asset reference is a
     // content key - the assets-relative and project-relative spellings are restated (Tools/SceneMigrator,
     // MigrateAssetKeysV68ToV69). v70 (WP17): a ROOT record of an external-entities scene states no siblingIndex -
-    // a streamed world persists no root order, as UE's OFPA (Tools/SceneMigrator, MigrateRootSiblingIndexV69ToV70).
+    // a streamed world persists no root order, as UE's OFPA (Tools/SceneMigrator,
+    // MigrateRootSiblingIndexV69ToV70).
+    //
+    // A SUBSYSTEM THAT OWNS PART OF THE FORMAT COUNTS ITS OWN CHANGES (MIGRATE-SUBSYS, owner 2026-10-22; UE
+    // FCustomVersion). This number is no longer raised for World Partition: its block and its streamed records are
+    // versioned by kWorldPartitionVersion under Assets::kWorldPartitionSchemaTag, and Tools/SceneMigrator runs
+    // that subsystem's steps by the number the file states under that tag. The World Partition steps already taken
+    // (v50, v66, v68, v70) stay where they were written - a file below v70 still climbs them by this number.
     inline constexpr int kSceneVersion = 70;
+
+    // World Partition's own format generation, stated under Assets::kWorldPartitionSchemaTag. v1 (MIGRATE-SUBSYS):
+    // the counter exists - the block is exactly what scene schema v70 states; the step (Tools/SceneMigrator,
+    // kWorldPartitionVersionTagged) states the tag and changes nothing else. The next World Partition change is
+    // v2 HERE, with its step in SceneMigrator's World Partition chain, never a kSceneVersion bump.
+    inline constexpr int kWorldPartitionVersion = 1;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator
@@ -265,15 +278,18 @@ namespace Desert::Core
     [[nodiscard]] inline bool SceneIsAtCurrentVersion( const SceneSerialized& scene )
     {
         return Assets::StatedVersion( scene.Header, Assets::kSceneSchemaTag ) == kSceneVersion &&
-               Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ) == kUnitVersion;
+               Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ) == kUnitVersion &&
+               Assets::StatedVersion( scene.Header, Assets::kWorldPartitionSchemaTag ) == kWorldPartitionVersion;
     }
 
     // The subsystem versions a .desce / .deprefab of this build states, and the reading context built on them.
     [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> SceneTextSubsystems()
     {
-        static const std::array<Common::Content::SubsystemVersion, 2> versions = {
+        static const std::array<Common::Content::SubsystemVersion, 3> versions = {
              Common::Content::SubsystemVersion{ Assets::kSceneSchemaTag, static_cast<uint32_t>( kSceneVersion ) },
-             Common::Content::SubsystemVersion{ Assets::kUnitSchemaTag, static_cast<uint32_t>( kUnitVersion ) } };
+             Common::Content::SubsystemVersion{ Assets::kUnitSchemaTag, static_cast<uint32_t>( kUnitVersion ) },
+             Common::Content::SubsystemVersion{ Assets::kWorldPartitionSchemaTag,
+                                                static_cast<uint32_t>( kWorldPartitionVersion ) } };
         return versions;
     }
 
@@ -285,7 +301,7 @@ namespace Desert::Core
     // end for whoever hits it: the file is usually somebody's autosave or a scene saved outside the
     // repository, and they have one action to take.
     [[nodiscard]] std::string RefuseSceneVersion( std::string_view source, int foundSceneVersion,
-                                                  int foundUnitVersion );
+                                                  int foundUnitVersion, int foundWorldPartitionVersion );
 
     // Same, read straight off the parsed tree (absent integers become 0 - see SceneIsAtCurrentVersion).
     [[nodiscard]] std::string RefuseSceneVersion( std::string_view source, const SceneSerialized& scene );

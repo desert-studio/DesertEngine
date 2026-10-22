@@ -15,6 +15,12 @@ namespace Desert::Assets
     // Core::kUnitVersion). The same two numbers for both, because a prefab's payload IS the scene's records.
     inline constexpr uint32_t kSceneSchemaTag = Common::Content::FourCC( "SCNE" );
     inline constexpr uint32_t kUnitSchemaTag  = Common::Content::FourCC( "UNIT" );
+    // The World Partition block's own format generation (Core::kWorldPartitionVersion), counted apart from the
+    // scene schema as UE counts a subsystem's changes under its own FCustomVersion GUID: a World Partition change
+    // raises THIS number and its step in Tools/SceneMigrator is keyed by it, so it never takes a scene number
+    // another branch is also taking (MIGRATE-SUBSYS; WP17 had to renumber v69 -> v70). Stated by every .desce and
+    // .deprefab, as the other two - a prefab's records are a scene's.
+    inline constexpr uint32_t kWorldPartitionSchemaTag = Common::Content::FourCC( "WPAR" );
     // A .demat: the material schema, numbered for the first time by AF6f (v1). v2 (AF7c): the payload's
     // MaterialId is gone - the header GUID is the one identity - and an instance names its parent by that
     // GUID (`Parent`), stated again as the header's Dependency. v3 (T6c): every texture and cloud-asset

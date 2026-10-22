@@ -26,21 +26,24 @@ namespace Desert::Assets
 #endif
     } // namespace
 
-    std::string RefusePrefabVersion( std::string_view source, int foundSceneVersion, int foundUnitVersion )
+    std::string RefusePrefabVersion( std::string_view source, int foundSceneVersion, int foundUnitVersion,
+                                     int foundWorldPartitionVersion )
     {
         return fmt::format(
-             "[PrefabAsset] '{0}' is at scene schema v{1} / world units v{2}, and this engine loads "
-             "scene schema v{3} / world units v{4} only. NOTHING WAS LOADED - no entity was taken from "
-             "this file, and the scene is exactly as it was. A prefab carries the same entity payloads a "
-             "scene does, so it moves through the same generations; Tools/SceneMigrator converts it, "
-             "once, and writes the file back. Run:  {5} \"{0}\"",
-             source, foundSceneVersion, foundUnitVersion, Core::kSceneVersion, Core::kUnitVersion, kMigratorPath );
+             "[PrefabAsset] '{0}' is at scene schema v{1} / world units v{2} / world partition v{3}, and this "
+             "engine loads scene schema v{4} / world units v{5} / world partition v{6} only. NOTHING WAS LOADED - "
+             "no entity was taken from this file, and the scene is exactly as it was. A prefab carries the same "
+             "entity payloads a scene does, so it moves through the same generations; Tools/SceneMigrator "
+             "converts it, once, and writes the file back. Run:  {7} \"{0}\"",
+             source, foundSceneVersion, foundUnitVersion, foundWorldPartitionVersion, Core::kSceneVersion,
+             Core::kUnitVersion, Core::kWorldPartitionVersion, kMigratorPath );
     }
 
     std::string RefusePrefabVersion( std::string_view source, const PrefabData& prefab )
     {
         return RefusePrefabVersion( source, StatedVersion( prefab.Header, kSceneSchemaTag ),
-                                    StatedVersion( prefab.Header, kUnitSchemaTag ) );
+                                    StatedVersion( prefab.Header, kUnitSchemaTag ),
+                                    StatedVersion( prefab.Header, kWorldPartitionSchemaTag ) );
     }
 
     Common::ResultStr<PrefabData> ParseLoadablePrefab( std::string_view source, const std::string& json )
