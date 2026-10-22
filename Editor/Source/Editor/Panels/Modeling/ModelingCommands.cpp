@@ -77,6 +77,26 @@ namespace Desert::Editor
     void AppendModelingCommands( std::vector<PaletteCommand>&                  commands,
                                  const std::shared_ptr<::Desert::Core::Scene>& scene )
     {
+        // LOD MANAGER (Modeling -> LODs): open / leave the tab, and its preview radio buttons. The level entries
+        // run the panel's own PreviewLOD, so an out-of-chain level is refused with the chain's length.
+        commands.push_back( { "Modeling", "LOD Manager: open", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  Core::ModelingState::Get().ReqLODManager = true;
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Modeling", "LOD Manager: close", []
+                              {
+                                  Core::ModelingState::Get().ReqLODManager = false;
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Modeling", "LOD Manager: preview Auto",
+                              [&scene] { return Editor::ModelingPanel::PreviewLOD( scene, -1 ); } } );
+        // Entries for more levels than a generated chain holds; one past the selection's chain is refused.
+        constexpr int kPreviewEntries = 8;
+        for ( int level = 0; level < kPreviewEntries; ++level )
+            commands.push_back( { "Modeling", std::format( "LOD Manager: preview LOD {}", level ),
+                                  [&scene, level] { return Editor::ModelingPanel::PreviewLOD( scene, level ); } } );
         for ( const Geometry::ElementMode mode :
               { Geometry::ElementMode::Vertex, Geometry::ElementMode::Edge, Geometry::ElementMode::Triangle,
                 Geometry::ElementMode::PolyGroup } )
