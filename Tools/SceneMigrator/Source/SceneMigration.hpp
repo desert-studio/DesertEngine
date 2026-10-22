@@ -64,6 +64,8 @@ namespace Desert::Migration
     {
         std::vector<Core::WorldPartitionGridSerialized>       Grids;
         std::optional<std::vector<Core::HLODLayerSerialized>> HLODLayers;
+        // Core::WorldPartitionSerialized::ChunkRegionSize, carried through untouched (no step reads it).
+        std::optional<float> ChunkRegionSize;
         // v50..v66 files only.
         std::optional<std::string> DefaultHLODLayer;
     };

@@ -1,0 +1,6 @@
+# DEV-BUILD: dev after LAND-REST (6 branches merged unbuilt, scene format v70) builds on Mac and renders Starter.
+# The sky may be black: that is SKY-SCOPE-FIX (ActiveViewScope in SceneRenderer.cpp), not this card.
+# [migrate] is checked outside the editor: scripts/Dev/migrate.sh --check reports every scene/prefab at v70.
+Дано state
+Когда run View "View mode: Lit"
+Тогда 0_starter Starter в Lit: геометрия и освещение на месте (небо может быть чёрным — SKY-SCOPE-FIX), без падения и без диалога ошибки; в editor.log нет отказа SceneSerializer
