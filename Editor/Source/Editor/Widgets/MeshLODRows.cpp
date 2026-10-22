@@ -59,30 +59,40 @@ namespace Desert::Editor::MeshLODRows
     {
         const std::size_t        levels = LevelCount( mesh );
         const std::vector<float> sizes  = mesh.GetLODScreenSizes();
-        if ( !ImGui::BeginTable( "##lodlevels", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp ) )
+        // Sized for a ~190 px palette column: the level index and the screen size are fixed to their widest
+        // text, the triangle count takes the rest, and the drawn level is the highlighted row (UE's LOD
+        // Manager marks the previewed level the same way), so no column carries a word that gets clipped.
+        if ( !ImGui::BeginTable( "##lodlevels", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit ) )
             return;
-        ImGui::TableSetupColumn( "LOD" );
-        ImGui::TableSetupColumn( "Triangles" );
-        ImGui::TableSetupColumn( "Screen Size" );
-        ImGui::TableSetupColumn( "" );
+        ImGui::TableSetupColumn( "LOD", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize( "LOD" ).x );
+        ImGui::TableSetupColumn( "Triangles", ImGuiTableColumnFlags_WidthStretch );
+        ImGui::TableSetupColumn( "Screen Size", ImGuiTableColumnFlags_WidthFixed,
+                                 ImGui::CalcTextSize( "Screen Size" ).x );
         ImGui::TableHeadersRow();
+        const ImU32 markColor = ImGui::GetColorU32( ImGuiCol_HeaderActive );
         for ( std::size_t l = 0; l < levels; ++l )
         {
             ImGui::TableNextRow();
+            const bool isMarked = marked && *marked == l;
+            if ( isMarked )
+                ImGui::TableSetBgColor( ImGuiTableBgTarget_RowBg1, markColor );
             ImGui::TableNextColumn();
-            ImGui::Text( "LOD %zu", l );
+            ImGui::Text( "%zu", l );
             ImGui::TableNextColumn();
-            ImGui::Text( "%u", Triangles( mesh, l ) );
+            const std::string tris = std::format( "{}", Triangles( mesh, l ) );
+            // Right-aligned so the digits of every level line up.
+            ImGui::SetCursorPosX( ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x -
+                                  ImGui::CalcTextSize( tris.c_str() ).x );
+            ImGui::TextUnformatted( tris.c_str() );
             ImGui::TableNextColumn();
             if ( l < sizes.size() )
                 ImGui::Text( "%.4f", sizes[l] );
             else
                 ImGui::TextDisabled( "-" );
-            ImGui::TableNextColumn();
-            if ( marked && *marked == l )
-                ImGui::TextUnformatted( markLabel );
         }
         ImGui::EndTable();
+        if ( marked )
+            ImGui::TextDisabled( "Highlighted: %s LOD %zu", markLabel, *marked );
     }
 
     void DrawScreenSizes( const Assets::AssetHandle& meshHandle, ::Desert::Mesh& mesh )

@@ -1458,10 +1458,16 @@ namespace Desert::Editor
         int choice = ms.LODPreviewLevel;
         if ( ImGui::RadioButton( "Auto", choice < 0 ) )
             choice = -1;
+        // The buttons wrap to the next line when the palette column is too narrow for all of them.
+        const ImGuiStyle& style  = ImGui::GetStyle();
+        const float       right  = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
         for ( int l = 0; l < static_cast<int>( t.Levels ); ++l )
         {
-            ImGui::SameLine();
-            const std::string label = std::format( "LOD {}", l );
+            const std::string label = std::format( "LOD{}", l );
+            const float       width =
+                 ImGui::GetFrameHeight() + style.ItemInnerSpacing.x + ImGui::CalcTextSize( label.c_str() ).x;
+            if ( ImGui::GetItemRectMax().x + style.ItemSpacing.x + width <= right )
+                ImGui::SameLine();
             if ( ImGui::RadioButton( label.c_str(), choice == l ) )
                 choice = l;
         }
