@@ -167,7 +167,8 @@ namespace Desert::Editor
                 Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
                 Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean,
                 Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror, Core::MeshOperation::PlaneCut,
-                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Simplify } )
+                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Simplify,
+                Core::MeshOperation::Disconnect } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ),
                                   [&scene, op]
@@ -756,6 +757,17 @@ namespace Desert::Editor
                                   Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                   return PaletteCommandDone();
                               } } );
+        // UE's MeshOps palette: Weld Edges (UWeldMeshEdgesTool) and its two options.
+        commands.push_back( { "Modeling", "Mesh tool: Weld Edges", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::WeldEdges;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        modelingOnOff( "Modeling", "Weld Edges: Only Unique Pairs",
+                       []( MS& ms, bool on ) { ms.MeshWeldEdges.OnlyUniquePairs = on; } );
+        modelingOnOff( "Modeling", "Weld Edges: Weld Attributes",
+                       []( MS& ms, bool on ) { ms.MeshWeldEdges.WeldAttributes = on; } );
         for ( const Geometry::JacketOcclusionMode mode :
               { Geometry::JacketOcclusionMode::WindingNumber, Geometry::JacketOcclusionMode::RaycastOcclusionSamples } )
             commands.push_back( { "Modeling", std::string( "Jacket occlusion mode: " ) + Geometry::ToString( mode ),

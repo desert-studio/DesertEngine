@@ -2,6 +2,7 @@
 
 #include <Engine/Geometry/MeshJacketOperation.hpp>
 #include <Engine/Geometry/MeshProjectOperation.hpp>
+#include <Engine/Geometry/MeshWeldEdgesOperation.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 
 #include <Common/Core/UUID.hpp>
@@ -67,6 +68,16 @@ namespace Desert::Editor::Tools
         // left click within a few pixels of a hole's edge toggles that hole in ModelingState::HoleFillSelected.
         void DrawHoleFillControls( ::Desert::Core::Scene& scene, const glm::mat4& viewProj,
                                    const glm::vec2& viewportPos, const glm::vec2& viewportSize, bool hovered );
+        // Weld Edges is open with a preview: the viewport draws the open edges the weld leaves.
+        [[nodiscard]] bool HasWeldEdgesSession() const
+        {
+            return m_Session.has_value() && m_Session->Tool == Core::ModelingState::Tool::WeldEdges &&
+                   m_Session->Preview != nullptr;
+        }
+        // UE UWeldMeshEdgesTool::UpdateVisualization: every boundary edge of the preview as a red line (none
+        // once everything coincident is welded).
+        void DrawWeldEdgesOpenEdges( ::Desert::Core::Scene& scene, const glm::mat4& viewProj,
+                                     const glm::vec2& viewportPos, const glm::vec2& viewportSize ) const;
         void DrawTangentsVisualization( ::Desert::Core::Scene& scene, const Core::ModelingState& ms,
                                         const glm::mat4& viewProj, const glm::vec2& viewportPos,
                                         const glm::vec2& viewportSize ) const;
@@ -121,6 +132,7 @@ namespace Desert::Editor::Tools
         std::vector<int32_t>       m_HoleFillSelected;
         Geometry::JacketSettings   m_Jacket;
         Geometry::ProjectSettings  m_Project;
+        Geometry::WeldEdgesSettings m_WeldEdges;
         Geometry::WarpSettings   m_Warp;
         glm::mat4                m_WarpGizmo{ 1.0f };
         Geometry::LatticeSettings m_Lattice;

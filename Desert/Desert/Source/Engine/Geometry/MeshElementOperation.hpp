@@ -38,6 +38,13 @@ namespace Desert::Geometry
     [[nodiscard]] Common::ResultStr<RegionOutcome> DeleteSelection( const DynamicMesh3&     mesh,
                                                                     const ElementSelection& selection );
 
+    // DISCONNECT, UE's PolyEdit ApplyDisconnect (EditMeshPolygonsTool.cpp, EEditMeshPolygonsToolActions::
+    // Disconnect): the region's triangles are cut loose from the rest along their boundary loops
+    // (FDynamicMeshEditor::DisconnectTriangles), so the region and the rest each get open edges at the same
+    // positions. Nothing moves. The result keeps the region selected; the report names the open edge count.
+    [[nodiscard]] Common::ResultStr<RegionOutcome> DisconnectSelection( const DynamicMesh3&     mesh,
+                                                                        const ElementSelection& selection );
+
     // OFFSET (ours, no UE counterpart): the region's vertices move along their area- and angle-weighted vertex
     // normals (MeshNormals::ComputeVertexNormal) by a signed distance; no new geometry, the triangles around the
     // region stretch, the normals of every triangle touching a moved vertex are recomputed. Topology and IDs are

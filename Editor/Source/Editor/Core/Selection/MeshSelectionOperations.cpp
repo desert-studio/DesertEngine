@@ -77,6 +77,8 @@ namespace Desert::Editor::Core
                 return "Weld Edges";
             case MeshOperation::Simplify:
                 return "Simplify";
+            case MeshOperation::Disconnect:
+                return "Disconnect";
         }
         return "Unknown";
     }
@@ -158,6 +160,7 @@ namespace Desert::Editor::Core
             case MeshOperation::FillHole:
             case MeshOperation::WeldEdges:
             case MeshOperation::Simplify:
+            case MeshOperation::Disconnect:
                 return false;
             case MeshOperation::Extrude:
             case MeshOperation::PushPull:
@@ -295,6 +298,8 @@ namespace Desert::Editor::Core
                 {
                     case MeshOperation::Delete:
                         return Geometry::DeleteSelection( *before, selection );
+                    case MeshOperation::Disconnect:
+                        return Geometry::DisconnectSelection( *before, selection );
                     case MeshOperation::Offset:
                         return Geometry::OffsetSelection( *before, selection, distance );
                     case MeshOperation::Bevel:

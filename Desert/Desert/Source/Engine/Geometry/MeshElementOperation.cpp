@@ -113,6 +113,33 @@ namespace Desert::Geometry
         return Finish( std::move( mesh ), "Delete", ElementSelection( selection.Mode() ) );
     }
 
+    // ── Disconnect ─────────────────────────────────────────────────────────────────────────────────────
+
+    Common::ResultStr<RegionOutcome> DisconnectSelection( const DynamicMesh3&     before,
+                                                          const ElementSelection& selection )
+    {
+        const GroupTopology topology( &before, true );
+        auto                region = RegionTriangles( before, topology, selection, "Disconnect" );
+        if ( !region.IsSuccess() )
+            return Common::MakeError<RegionOutcome>( region.GetError() );
+        if ( static_cast<int32_t>( region.GetValue().size() ) == before.TriangleCount() )
+            return Common::MakeFormattedError<RegionOutcome>(
+                 "Mesh Disconnect: all {} triangles are selected - nothing is left to disconnect them from",
+                 before.TriangleCount() );
+        auto                     mesh = std::make_shared<DynamicMesh3>( before );
+        std::vector<DynamicMeshEditor::LoopPairSet> loops;
+        std::string              failure;
+        if ( !DynamicMeshEditor( mesh.get() ).DisconnectTriangles( region.GetValue(), loops, true, failure ) )
+            return Common::MakeFormattedError<RegionOutcome>( "Mesh Disconnect: {}", failure );
+        int32_t openEdges = 0;
+        for ( const int32_t e : mesh->EdgeIndicesItr() )
+            if ( mesh->IsBoundaryEdge( e ) )
+                ++openEdges;
+        return Finish( std::move( mesh ), "Disconnect", selection,
+                       fmt::format( "{} triangles disconnected, {} open edges", region.GetValue().size(),
+                                    openEdges ) );
+    }
+
     // ── Offset ─────────────────────────────────────────────────────────────────────────────────────────
 
     Common::ResultStr<RegionOutcome> OffsetSelection( const DynamicMesh3&     before,

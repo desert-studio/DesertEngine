@@ -69,6 +69,9 @@ namespace Desert::Editor::Tools
             // UE's Project previews the remeshed, projected source until Accept; Cancel puts it back.
             case T::Project:
                 return { ICON_MDI_VECTOR_COMBINE, "Project", true };
+            // UE's Weld Edges previews the merge (the open edges left in red) until Accept; Cancel undoes it.
+            case T::WeldEdges:
+                return { ICON_MDI_VECTOR_LINK, "Weld Edges", true };
         }
         return {};
     }

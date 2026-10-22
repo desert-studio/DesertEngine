@@ -153,7 +153,7 @@ namespace Desert::Editor
                       ms.ActiveTool == MS::Tool::EditMaterials || ms.ActiveTool == MS::Tool::PaintGroups )
                 m_Category = static_cast<int>( Palette::Attributes );
             else if ( ms.ActiveTool == MS::Tool::HoleFill || ms.ActiveTool == MS::Tool::Jacket ||
-                      ms.ActiveTool == MS::Tool::Project )
+                      ms.ActiveTool == MS::Tool::Project || ms.ActiveTool == MS::Tool::WeldEdges )
                 m_Category = static_cast<int>( Palette::MeshOps );
         }
 
@@ -864,12 +864,28 @@ namespace Desert::Editor
         toolButton( MS::Tool::HoleFill, ICON_MDI_VECTOR_SQUARE_CLOSE, "Hole Fill" );
         toolButton( MS::Tool::Jacket, ICON_MDI_LAYERS_MINUS, "Jacket" );
         toolButton( MS::Tool::Project, ICON_MDI_VECTOR_COMBINE, "Project" );
+        toolButton( MS::Tool::WeldEdges, ICON_MDI_VECTOR_LINK, "Weld Edges" );
         // The label above its control: the palette column is too narrow for UE's label-beside-value rows.
         const auto row = []( const char* label )
         {
             ImGui::TextUnformatted( label );
             ImGui::SetNextItemWidth( -1.0f );
         };
+        if ( ms.ActiveTool == MS::Tool::WeldEdges )
+        {
+            // UE UWeldMeshEdgesToolProperties: Tolerance, Only Unique Pairs; the open edges before and after
+            // (UE InitialEdges / RemainingEdges) are in the status. The open edges left are drawn in red.
+            ImGui::Separator();
+            Geometry::WeldEdgesSettings& w = ms.MeshWeldEdges;
+            row( "Tolerance (cm)" );
+            ImGui::DragFloat( "##WeldTolerance", &w.Tolerance, 0.0001f, 1e-8f, 1000.0f, "%.6f",
+                              ImGuiSliderFlags_Logarithmic );
+            ImGui::Checkbox( "Only Unique Pairs", &w.OnlyUniquePairs );
+            ImGui::Checkbox( "Weld Attributes", &w.WeldAttributes );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+            return;
+        }
         if ( ms.ActiveTool == MS::Tool::Project )
         {
             // UE UProjectToTargetTool (URemeshMeshToolProperties): the first selected mesh is remeshed and
@@ -1860,6 +1876,9 @@ namespace Desert::Editor
             if ( ImGui::Button( Core::ToString( row[1] ), ImVec2( half, 0.0f ) ) )
                 operate( row[1] );
         }
+        // UE PolyEdit's Faces > Disconnect.
+        if ( ImGui::Button( Core::ToString( MO::Disconnect ), ImVec2( -1.0f, 0.0f ) ) )
+            operate( MO::Disconnect );
         ImGui::SetNextItemWidth( -1.0f );
         ImGui::SliderFloat( "##ElementLoopPosition", &ms.ElementLoopPosition, 0.01f, 0.99f, "Loop at %.2f" );
         ImGui::SetNextItemWidth( half );

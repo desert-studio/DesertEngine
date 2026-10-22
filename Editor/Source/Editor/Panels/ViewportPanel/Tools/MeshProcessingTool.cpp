@@ -55,6 +55,8 @@ namespace Desert::Editor::Tools
                     return "Jacket";
                 case MS::Tool::Project:
                     return "Project";
+                case MS::Tool::WeldEdges:
+                    return "Weld Edges";
                 default:
                     return "?";
             }
@@ -124,7 +126,7 @@ namespace Desert::Editor::Tools
         return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
                tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents ||
                tool == MS::Tool::HoleFill || tool == MS::Tool::Jacket ||
-               tool == MS::Tool::Project;
+               tool == MS::Tool::Project || tool == MS::Tool::WeldEdges;
     }
 
     void MeshProcessingTool::Update( ::Desert::Core::Scene& scene )
@@ -307,6 +309,7 @@ namespace Desert::Editor::Tools
         m_HoleFillSelected = ms.HoleFillSelected;
         m_Jacket           = ms.MeshJacket;
         m_Project          = ms.MeshProject;
+        m_WeldEdges        = ms.MeshWeldEdges;
         m_Warp                                               = ms.DeformWarp;
         m_WarpGizmo                                          = ms.WarpGizmo;
         m_Lattice                                            = ms.DeformLattice;
@@ -328,6 +331,8 @@ namespace Desert::Editor::Tools
                     return Geometry::HoleFill( input, ms.HoleFillSelected, ms.MeshHoleFill );
                 case MS::Tool::Jacket:
                     return Geometry::Jacket( input, ms.MeshJacket );
+                case MS::Tool::WeldEdges:
+                    return Geometry::WeldMeshEdges( input, ms.MeshWeldEdges );
                 case MS::Tool::Project:
                     return Geometry::ProjectToTarget( input, *m_Session->TargetMesh, m_Session->TargetToInput,
                                                       ms.MeshProject );
@@ -621,6 +626,36 @@ namespace Desert::Editor::Tools
             ms.HoleFillSelected.push_back( hit );
     }
 
+    void MeshProcessingTool::DrawWeldEdgesOpenEdges( ::Desert::Core::Scene& scene, const glm::mat4& viewProj,
+                                                     const glm::vec2& viewportPos,
+                                                     const glm::vec2& viewportSize ) const
+    {
+        if ( !HasWeldEdgesSession() )
+            return;
+        const Geometry::DynamicMesh3& mesh = *m_Session->Preview;
+        const glm::dmat4              world( WorldOf( scene, m_Session->Entity ) );
+        const auto                    project = [&]( int v, ImVec2& out )
+        {
+            const glm::vec4 clip =
+                 viewProj * glm::vec4( glm::vec3( world * glm::dvec4( mesh.GetVertex( v ), 1.0 ) ), 1.0f );
+            if ( clip.w <= 0.0001f )
+                return false;
+            out = ImVec2( viewportPos.x + ( clip.x / clip.w * 0.5f + 0.5f ) * viewportSize.x,
+                          viewportPos.y + ( 0.5f - clip.y / clip.w * 0.5f ) * viewportSize.y );
+            return true;
+        };
+        ImDrawList* dl = ::ImGui::GetWindowDrawList();
+        for ( const int e : mesh.EdgeIndicesItr() )
+        {
+            if ( !mesh.IsBoundaryEdge( e ) )
+                continue;
+            const Geometry::Index2i ev = mesh.GetEdgeV( e );
+            ImVec2                  a{}, b{};
+            if ( project( ev.A, a ) && project( ev.B, b ) )
+                dl->AddLine( a, b, IM_COL32( 240, 15, 15, 255 ), 3.0f ); // UE's boundary edge colour
+        }
+    }
+
     bool MeshProcessingTool::SettingsChanged( const MS& ms ) const
     {
         switch ( m_Session->Tool )
@@ -639,6 +674,8 @@ namespace Desert::Editor::Tools
                 return !( ms.MeshJacket == m_Jacket );
             case MS::Tool::Project:
                 return !( ms.MeshProject == m_Project );
+            case MS::Tool::WeldEdges:
+                return !( ms.MeshWeldEdges == m_WeldEdges );
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

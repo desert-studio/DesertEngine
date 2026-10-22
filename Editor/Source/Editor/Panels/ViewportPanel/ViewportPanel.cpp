@@ -2105,6 +2105,10 @@ namespace Desert::Editor
                 if ( m_MeshProcessingTool.HasHoleFillSession() )
                     m_MeshProcessingTool.DrawHoleFillControls( *m_Scene, viewProj, m_ViewportData.ViewportPos,
                                                                m_ViewportData.Size, m_ViewportData.IsHovered );
+                // Weld Edges: the preview's open edges left (UE UWeldMeshEdgesTool's boundary line set).
+                if ( m_MeshProcessingTool.HasWeldEdgesSession() )
+                    m_MeshProcessingTool.DrawWeldEdgesOpenEdges( *m_Scene, viewProj, m_ViewportData.ViewportPos,
+                                                                 m_ViewportData.Size );
                 // Tangents: the previewed frames as lines (UE UMeshTangentsTool PreviewGeometry line sets).
                 if ( m_MeshProcessingTool.HasTangentsSession() )
                     m_MeshProcessingTool.DrawTangentsVisualization( *m_Scene, Core::ModelingState::Get(), viewProj,
@@ -2630,6 +2634,7 @@ namespace Desert::Editor
             case T::HoleFill: // picks a hole by its drawn edge, no cursor of its own
             case T::Jacket:
             case T::Project:
+            case T::WeldEdges:
             case T::VertexSculpt: // draws its own brush ring (VertexSculptTool)
             case T::PaintGroups:  // draws its own brush ring (PaintGroupsTool)
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click
