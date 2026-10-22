@@ -1,7 +1,7 @@
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Private/GroupTopology.cpp:12-770, 1019-1177,
 // adapted: UE Core as std/glm, namespace Desert::Geometry, TBitArray is TArray<bool>; the boundary walk's
-// failure is kept as FailureReason; the extra-corner hook is not ported (see the header).
+// failure is kept as FailureReason; RebuildTopologyWithSpecificExtraCorners is not ported (see the header).
 #include "Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp"
 #include "Engine/Geometry/MeshCore/MapLookup.hpp"
 
@@ -25,6 +25,32 @@ GroupTopology::GroupTopology( const DynamicMesh3* MeshIn, bool bAutoBuild ) : m_
     {
         RebuildTopology();
     }
+}
+
+GroupTopology::GroupTopology( const DynamicMesh3* MeshIn, ExtraCornerRule Rule )
+     : ShouldAddExtraCornerAtVert( std::move( Rule ) ), m_Mesh( MeshIn )
+{
+    RebuildTopology();
+}
+
+bool GroupTopology::IsEdgeAngleSharp( const DynamicMesh3& Mesh, int32_t SharedVertexID,
+                                      const Index2i& AttachedEdgeIDs, double DotThreshold )
+{
+    const Index2i    EdgeVids1        = Mesh.GetEdgeV( AttachedEdgeIDs.A );
+    const Index2i    EdgeVids2        = Mesh.GetEdgeV( AttachedEdgeIDs.B );
+    const int32_t    Other1           = ( EdgeVids1.A == SharedVertexID ) ? EdgeVids1.B : EdgeVids1.A;
+    const int32_t    Other2           = ( EdgeVids2.A == SharedVertexID ) ? EdgeVids2.B : EdgeVids2.A;
+    const auto       Shared           = Mesh.GetVertex( SharedVertexID );
+    auto             Vec1             = Mesh.GetVertex( Other1 ) - Shared;
+    auto             Vec2             = Mesh.GetVertex( Other2 ) - Shared;
+    const double     Len1             = glm::length( Vec1 );
+    const double     Len2             = glm::length( Vec2 );
+    constexpr double KindaSmallNumber = 1e-4; // UE KINDA_SMALL_NUMBER, Normalize's tolerance
+    if ( Len1 <= KindaSmallNumber || Len2 <= KindaSmallNumber )
+    {
+        return false;
+    }
+    return glm::dot( Vec1, Vec2 ) / ( Len1 * Len2 ) >= DotThreshold;
 }
 
 bool GroupTopology::RebuildTopology()
@@ -103,7 +129,8 @@ bool GroupTopology::RebuildTopology()
 
 bool GroupTopology::ShouldVertBeCorner( int VertexID ) const
 {
-    int NumGroupEdges = 0;
+    int     NumGroupEdges = 0;
+    Index2i AttachedGroupBoundaryEdgeIDs( IndexConstants::InvalidID, IndexConstants::InvalidID );
     for ( int32_t const Eid : m_Mesh->VtxEdgesItr( VertexID ) )
     {
         const Index2i EdgeTris = m_Mesh->GetEdgeT( Eid );
@@ -113,9 +140,12 @@ bool GroupTopology::ShouldVertBeCorner( int VertexID ) const
             {
                 return true;
             }
+            ( NumGroupEdges == 1 ? AttachedGroupBoundaryEdgeIDs.A : AttachedGroupBoundaryEdgeIDs.B ) = Eid;
         }
     }
-    return false;
+    // Two group-boundary edges: a vertex in the middle of a group edge, which the hook may still split there.
+    return NumGroupEdges == 2 && ShouldAddExtraCornerAtVert &&
+           ShouldAddExtraCornerAtVert( *this, VertexID, AttachedGroupBoundaryEdgeIDs );
 }
 
 bool GroupTopology::GenerateBoundaryAndGroupEdges(

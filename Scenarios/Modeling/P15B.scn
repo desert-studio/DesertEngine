@@ -1,0 +1,28 @@
+# P15B PolyEdit extra corners (UE FGroupTopology::ShouldAddExtraCornerAtVert + IsEdgeAngleSharp, PolyEdit's
+# 135 degree threshold): a Rectangle 100 x 100 cm, 4 x 4 subdivisions, ONE polygroup - its open border has no
+# 3-edge corner, so without the hook it is a single closed group edge. Moved +50 cm in X after the focus so its
+# -X side runs through the viewport centre; Edge mode, PolyEdit level, pick at the centre -> only that straight
+# side is selected (the 90 degree turns split the border into four group edges). Then Insert Edge Loop from that
+# side (it needs the side's two corners; a corner-free loop is refused) -> Undo.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Wireframe"
+Дано --subject viewport set Camera.Direction 0.3,-0.9,0.3
+Дано --subject modeling set CreateShape.Rectangle.Width 100
+Дано --subject modeling set CreateShape.Rectangle.Depth 100
+Дано --subject modeling set CreateShape.Rectangle.WidthSubdivisions 4
+Дано --subject modeling set CreateShape.Rectangle.DepthSubdivisions 4
+Дано run Modeling "Create shape tool: Rectangle"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Дано run Entity Rectangle
+Дано run "Level Viewport" "Focus Selected"
+Дано --subject selection set Translation 50,0,0
+Дано run Modeling "Select Elements tool"
+Дано run Modeling "Mesh selection mode: Edge"
+Дано run Modeling "Mesh selection level: PolyEdit"
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Тогда 0_edges only the rectangle's one straight side through the viewport centre is highlighted, from corner to corner (4 mesh segments); the other three sides are not - the sharp corners split the border
+Когда run Modeling "Mesh operation: Insert Edge Loop"
+Тогда 1_loop a new edge loop runs across the rectangle from the selected side to the opposite one
+Когда run Action Undo
+Тогда-вид 1_undo after Undo the rectangle is back to its original 4 x 4 grid with no inserted loop

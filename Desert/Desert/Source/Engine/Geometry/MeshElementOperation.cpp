@@ -52,7 +52,7 @@ namespace Desert::Geometry
                                                                              name, t, added.GetError() );
             if ( mode == ElementMode::Triangle )
                 return Common::MakeSuccess( std::move( result ) );
-            const GroupTopology topology( &mesh, true );
+            const GroupTopology topology = PolyEditTopology( mesh );
             return Common::MakeSuccess( ConvertSelection( mesh, topology, result, mode ) );
         }
 
@@ -99,7 +99,7 @@ namespace Desert::Geometry
     Common::ResultStr<RegionOutcome> DeleteSelection( const DynamicMesh3&     before,
                                                       const ElementSelection& selection )
     {
-        const GroupTopology topology( &before, true );
+        const GroupTopology topology = PolyEditTopology( before );
         auto                region = RegionTriangles( before, topology, selection, "Delete" );
         if ( !region.IsSuccess() )
             return Common::MakeError<RegionOutcome>( region.GetError() );
@@ -118,7 +118,7 @@ namespace Desert::Geometry
     Common::ResultStr<RegionOutcome> DisconnectSelection( const DynamicMesh3&     before,
                                                           const ElementSelection& selection )
     {
-        const GroupTopology topology( &before, true );
+        const GroupTopology topology = PolyEditTopology( before );
         auto                region = RegionTriangles( before, topology, selection, "Disconnect" );
         if ( !region.IsSuccess() )
             return Common::MakeError<RegionOutcome>( region.GetError() );
@@ -148,7 +148,7 @@ namespace Desert::Geometry
         if ( distance == 0.0f || !std::isfinite( distance ) )
             return Common::MakeFormattedError<RegionOutcome>( "Mesh Offset: distance {} cm changes nothing",
                                                               distance );
-        const GroupTopology topology( &before, true );
+        const GroupTopology topology = PolyEditTopology( before );
         auto                region = RegionTriangles( before, topology, selection, "Offset" );
         if ( !region.IsSuccess() )
             return Common::MakeError<RegionOutcome>( region.GetError() );
@@ -190,7 +190,7 @@ namespace Desert::Geometry
                                                               width );
         if ( selection.Empty() )
             return Common::MakeError<RegionOutcome>( "Mesh Bevel: nothing is selected" );
-        const GroupTopology  topology( &before, true );
+        const GroupTopology  topology = PolyEditTopology( before );
         std::vector<int32_t> groupEdges;
         if ( selection.Mode() == ElementMode::Edge )
         {
@@ -247,7 +247,7 @@ namespace Desert::Geometry
             return Common::MakeError<RegionOutcome>( "Mesh Cut: the mesh has no polygroups to cut" );
         if ( !( glm::length( plane.Normal ) > 0.0f ) )
             return Common::MakeError<RegionOutcome>( "Mesh Cut: the plane has no normal" );
-        const GroupTopology topology( &before, true );
+        const GroupTopology topology = PolyEditTopology( before );
         auto                region = RegionTriangles( before, topology, selection, "Cut" );
         if ( !region.IsSuccess() )
             return Common::MakeError<RegionOutcome>( region.GetError() );

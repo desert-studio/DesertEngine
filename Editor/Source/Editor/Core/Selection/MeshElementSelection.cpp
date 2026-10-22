@@ -74,7 +74,9 @@ namespace Desert::Editor::Core
         {
             m_Entity   = entity;
             m_Mesh     = std::move( mesh );
-            m_Topology = m_Mesh ? std::make_unique<const Geometry::GroupTopology>( m_Mesh.get(), true ) : nullptr;
+            m_Topology =
+                 m_Mesh ? std::make_unique<const Geometry::GroupTopology>( Geometry::PolyEditTopology( *m_Mesh ) )
+                        : nullptr;
             m_Selection.Clear();
             m_LastDropped  = {};
             m_TotalDropped = 0;
@@ -89,7 +91,7 @@ namespace Desert::Editor::Core
             m_Selection.Clear();
             return;
         }
-        m_Topology = std::make_unique<const Geometry::GroupTopology>( m_Mesh.get(), true );
+        m_Topology = std::make_unique<const Geometry::GroupTopology>( Geometry::PolyEditTopology( *m_Mesh ) );
         const Geometry::PruneReport dropped = m_Selection.Prune( *m_Mesh );
         if ( dropped.Total() > 0 )
         {
