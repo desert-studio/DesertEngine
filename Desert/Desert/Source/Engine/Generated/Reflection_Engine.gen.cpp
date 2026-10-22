@@ -26,6 +26,7 @@
 #include <Engine/ECS/ReflectionCaptureComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
+#include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WaterBodyComponent.hpp>
 #include <Engine/ECS/WaterZoneComponent.hpp>
@@ -588,6 +589,16 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "Month", .Type = FieldType::Int, .Offset = offsetof( T, Month ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Month )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Month", .Category = "Time Of Day", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 12.0f, .EditCondition = "DriveSunFromTimeOfDay", } } )
                     .Field( FieldInfo{ .Name = "Day", .Type = FieldType::Int, .Offset = offsetof( T, Day ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Day )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Day", .Category = "Time Of Day", .Tooltip = "Day of the month; a date the calendar does not have (30 February) stops the clock with an error.", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 31.0f, .EditCondition = "DriveSunFromTimeOfDay", } } )
                     .Field( FieldInfo{ .Name = "NorthOffset", .Type = FieldType::Float, .Offset = offsetof( T, NorthOffset ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::NorthOffset )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "North Offset", .Category = "Time Of Day", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 360.0f, .Units = "deg", .EditCondition = "DriveSunFromTimeOfDay", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::VolumeData;
+        TypeBuilder( "VolumeData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Type", .Type = FieldType::Enum, .Offset = offsetof( T, Type ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Type )>(), .TypeName = "VolumeType", .Meta = PropertyMetadata{ .DisplayName = "Volume Type", .Category = "Volume", .Tooltip = "What the volume is for (UE: the AVolume class). Trigger reports overlaps and blocks nothing; Blocking is an invisible wall.", .Summary = true, }, .EnumValues = { EnumValue{ "Trigger", 0 }, EnumValue{ "Blocking", 1 }, } } )
+                    .Field( FieldInfo{ .Name = "HullPoints", .Type = FieldType::Struct, .Offset = offsetof( T, HullPoints ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::HullPoints )>(), .TypeName = "std::vector<glm::vec3>", .Meta = PropertyMetadata{ .DisplayName = "Hull Points", .Category = "Volume", .Tooltip = "Body-local points (cm) whose convex hull is the volume.", .IsLength = true, .Advanced = true, } } )
+                    .Field( FieldInfo{ .Name = "HullIndices", .Type = FieldType::Struct, .Offset = offsetof( T, HullIndices ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::HullIndices )>(), .TypeName = "std::vector<uint32_t>", .Meta = PropertyMetadata{ .DisplayName = "Hull Triangles", .Category = "Volume", .Tooltip = "Three Hull Points indices per triangle: the outline the editor draws.", .Advanced = true, }, .IsContainer = true, .SerializeContainer = ::Desert::Reflection::WriteContainer<decltype( T::HullIndices )>, .DeserializeContainer = ::Desert::Reflection::ReadContainer<decltype( T::HullIndices )>, .ElementType = FieldType::UInt, .ContainerSize = ::Desert::Reflection::ContainerSize<decltype( T::HullIndices )>, .ContainerResize = ::Desert::Reflection::ContainerResize<decltype( T::HullIndices )>, .ContainerGet = ::Desert::Reflection::ContainerGet<decltype( T::HullIndices )>, .ContainerSet = ::Desert::Reflection::ContainerSet<decltype( T::HullIndices )> } )
             .WithDefault<T>()
             .Register();
     }
