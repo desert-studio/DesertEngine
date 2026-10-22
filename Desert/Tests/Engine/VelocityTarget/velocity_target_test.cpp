@@ -275,30 +275,45 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             continue;
         ++files;
         const std::string text = ReadFile( entry.path() );
+        std::vector<std::pair<uint32_t, std::string>> declared;
         for ( std::sregex_iterator it( text.begin(), text.end(), declaration ), end; it != end; ++it )
         {
-            const auto&    m       = *it;
-            const uint32_t binding = static_cast<uint32_t>( std::stoul( m[1].matched ? m[1].str() : m[3].str() ) );
-            const std::string name = m[2].matched ? m[2].str() : m[4].str();
-            const bool        sceneReadHeader = entry.path().filename() == "ObjectMotion.glslh" ||
+            const auto& m = *it;
+            declared.emplace_back( static_cast<uint32_t>( std::stoul( m[1].matched ? m[1].str() : m[3].str() ) ),
+                                   m[2].matched ? m[2].str() : m[4].str() );
+        }
+        // The view's light grid and local shadows: the forward cell declares their five resources at their numbers
+        // of the range. Judged PER PASS LAYOUT (lead decision RT-LOCAL-SHADOWS-8): a file that declares one of them
+        // at its reserved number is a view-pass layout and holds the range; a file that declares them elsewhere
+        // (the deferred composite at set-0 slots 13/14, 22/23 and 32, the grid build shader's compute layout from
+        // 0) is a program of its own that reads no view-pass cell's reservation, so its number is its pass's own
+        // slot and not an exception granted by name.
+        const std::map<std::string, uint32_t> forwardSceneRead{
+             { "LightGridParamsUB", Desert::Core::kLightGridParamsBinding },
+             { "LightGridCellsUB", Desert::Core::kLightGridCellsBinding },
+             { "u_LocalShadowAtlas", Desert::Core::kLocalShadowAtlasBinding },
+             { "LocalShadowViewsUB", Desert::Core::kLocalShadowViewsBinding },
+             { "u_LocalShadowMasks", Desert::Core::kLocalShadowMasksBinding } };
+        const bool viewPassLayout = std::any_of(
+             declared.begin(), declared.end(),
+             [&forwardSceneRead]( const std::pair<uint32_t, std::string>& d )
+             {
+                 const auto forward = forwardSceneRead.find( d.second );
+                 return forward != forwardSceneRead.end() && forward->second == d.first;
+             } );
+        for ( const auto& [binding, name] : declared )
+        {
+            const bool sceneReadHeader = entry.path().filename() == "ObjectMotion.glslh" ||
                                          ( entry.path().filename() == "SurfaceTypes.glslh" &&
                                            ( name == "u_SceneDepth" || name == "u_SceneShadingWord" ) ) ||
                                          entry.path().filename() == "MegaLightsVolume.glslh";
-            // The view's light grid and local shadows: the forward cell declares their four resources at their
-            // numbers of the range (the deferred composite at set-0 slots 13/14 and 22/23 and the grid build
-            // shader's compute layout from 0, all outside it).
-            const std::map<std::string, uint32_t> forwardSceneRead{
-                 { "LightGridParamsUB", Desert::Core::kLightGridParamsBinding },
-                 { "LightGridCellsUB", Desert::Core::kLightGridCellsBinding },
-                 { "u_LocalShadowAtlas", Desert::Core::kLocalShadowAtlasBinding },
-                 { "LocalShadowViewsUB", Desert::Core::kLocalShadowViewsBinding },
-                 { "u_LocalShadowMasks", Desert::Core::kLocalShadowMasksBinding } };
             if ( const auto forward = forwardSceneRead.find( name ); forward != forwardSceneRead.end() )
             {
-                if ( Desert::Core::IsSceneReadBinding( binding ) )
+                if ( viewPassLayout )
                 {
                     EXPECT_EQ( binding, forward->second )
-                         << entry.path().string() << " declares '" << name << "' at binding " << binding;
+                         << entry.path().string() << " declares '" << name << "' at binding " << binding
+                         << " beside the view-pass reservation of the light grid / local shadows";
                     sceneRead[name] = binding;
                 }
             }

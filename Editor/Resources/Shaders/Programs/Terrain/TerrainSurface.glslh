@@ -76,7 +76,7 @@
         // sampler state `<name>Sampler`, as every bound texture property (VulkanMaterialBackend::ApplyTexture2D).
         // The four arrays sit on the slots below the scene-read range (Core::kSceneReadBindingFirst) that neither
         // program including this header spends: Terrain.shader holds 0/1/4-12/14/16-22 (its lit-pass blocks and
-        // environment), TerrainGBuffer.shader a subset; 40 and up is the shader-graph window
+        // environment), TerrainGBuffer.shader a subset; 46 and up is the shader-graph window
         // (Core::kGraphOwnedBindingFirst), which no shipped program may enter. Their sampler states are bound by
         // name (`<texture>Sampler`, VulkanMaterialBackend::ApplyTexture2D), so they take no number here: the shared
         // sampler rule numbers them after the program's last binding (Core::kAutoSamplerBinding).
