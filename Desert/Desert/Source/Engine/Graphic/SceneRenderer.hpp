@@ -1179,10 +1179,12 @@ namespace Desert::Graphic
         // into FrameTransients before any node is added; what is absent stays invalid (SceneViewInputsOf).
         void ImportSceneViewTextures( RDG::Builder& graph, FrameTextures& textures );
         // The sun's cascade array (or the far-plane stand-in) and the local lights' atlas, imported once per frame
-        // AFTER the frame's sun-shadow path is decided and the cascade budget follows it (RebudgetShadowsFor).
+        // AFTER the frame's sun-shadow path is decided; the cascade budget was taken at the head of the frame
+        // (RebudgetShadowsFor).
         void ImportViewShadowMaps( RDG::Builder& graph, FrameTextures& textures );
-        // Re-budgets the sun's cascades when the quality generation or the sun path the budget was taken for moved
-        // (ShadowReallocation): a ray-traced sun keeps only the low-detail cascades, CascadedMaps the full ones.
+        // Re-budgets the sun's cascades when the quality generation or the view's RESOLVED sun path the budget was
+        // taken for moved (ShadowReallocation): a screen-mask sun keeps only the low-detail cascades, CascadedMaps
+        // the full ones. Called at the head of OnUpdate, before any shadow view of the frame is planned.
         void RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality, bool sunRayTraced );
         void AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures );
         // The sky light, at the head of the graph: the atmosphere nodes that depend on the sky alone (the cached

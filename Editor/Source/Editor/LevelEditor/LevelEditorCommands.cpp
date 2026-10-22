@@ -26,6 +26,7 @@
 #include "Editor/Panels/Localization/LanguageCommands.hpp"
 #include "Editor/Panels/Modeling/ModelingCommands.hpp"
 #include "Editor/Panels/Scalability/AntiAliasingPaletteCommands.hpp"
+#include "Editor/Panels/Scalability/QualityLevelPaletteCommands.hpp"
 #include "Editor/Panels/SceneHierarchy/SceneHierarchyPanel.hpp"
 #include "Editor/Panels/UI/UICommands.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
@@ -84,6 +85,13 @@ namespace Desert::Editor
                                  {
                                      out.push_back( std::move( command ) );
                                  }
+                             } );
+        // Quality group levels: the Scalability panel's level combos, reachable from the control channel.
+        m_Commands.Register( "Quality",
+                             []( Out& out )
+                             {
+                                 for ( PaletteCommand& command : QualityLevelPaletteCommands() )
+                                     out.push_back( std::move( command ) );
                              } );
         m_Commands.Register( "Clouds",
                              [&workspace]( Out& out ) { AppendCloudCommands( out, workspace.ActiveScene() ); } );

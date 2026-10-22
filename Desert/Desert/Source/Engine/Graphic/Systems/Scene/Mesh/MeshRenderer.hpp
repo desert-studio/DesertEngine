@@ -919,9 +919,10 @@ namespace Desert::Graphic::System
             return m_Shadow;
         }
         // RE-ALLOCATE THE CASCADE MAPS TO A NEW BUDGET — the Shadows quality level changed (SceneRenderer, on a
-        // QualityState generation change, never per frame). Waits for the device to go idle, releases the
-        // cascade framebuffers, caster materials, caster pipelines and the attachment lease, then runs
-        // SetupShadowPass again on the new budget. False when the new shadow pass could not be set up (logged).
+        // QualityState generation change, never per frame, at the head of its frame). Waits for the device to go
+        // idle, releases the cascade framebuffers and maps, the local views' rows and the attachment lease, then
+        // runs SetupShadowPass again on the new budget. The caster materials and pipelines are KEPT (they do not
+        // depend on the map size). False when the new shadow pass could not be set up (logged).
         [[nodiscard]] bool RebudgetShadows( const ShadowQuality& budget );
 
         void SetShadows( const ViewShadowSettings& shadows, int debugMode )

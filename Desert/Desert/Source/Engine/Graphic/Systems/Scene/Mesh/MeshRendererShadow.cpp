@@ -63,20 +63,22 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::RebudgetShadows( const ShadowQuality& budget )
     {
-        // The maps, the caster materials (their light-matrix UBOs) and the pipelines (built against cascade
-        // 0's framebuffer) may all be referenced by a frame still in flight; a quality change is rare and
-        // user-driven, so the whole device is drained rather than each object's release deferred.
+        // ONLY WHAT THE BUDGET SIZES IS MADE AGAIN (UE re-creates its shadow depth targets on r.Shadow.*, not its
+        // shadow-depth shaders): the cascade maps, their static caches, the lease that accounts for them and the
+        // local views' rows over the atlas. The caster materials (one light-matrix UBO per shadow view) and the
+        // three caster pipelines depend on the depth FORMAT, never on the map size or the cascade count, so they
+        // stay - the rain-occlusion view, the local views and the VSM pages keep the materials their own planning
+        // made (EnsureShadowViewMaterials), and a renderer that re-budgets can never hand a view a null material
+        // (SHADOW-CINE-ABORT). The caller takes the re-budget at the frame boundary, before any shadow view of the
+        // frame is planned (SceneRenderer::OnUpdate, RebudgetShadowsFor).
+        //
+        // The maps may still be referenced by a frame in flight; a quality change is rare and user-driven, so the
+        // whole device is drained rather than each object's release deferred.
         Renderer::GetInstance().WaitDeviceIdle();
         for ( uint32_t i = 0; i < kMaxCascades; ++i )
         {
             m_CascadeStaticFB[i].reset();
             m_CascadeCache[i] = CascadeCacheState{};
-        }
-        for ( uint32_t i = 0; i < kMaxShadowViews; ++i )
-        {
-            m_ShadowMaterial[i].reset();
-            m_ShadowInstancedMaterial[i].reset();
-            m_ShadowSkinnedMaterial[i].reset();
         }
         // The local lights' atlas is the scene's (Graphic/LocalShadowCache.hpp): it follows the viewports' new
         // budget (LocalShadowAtlasSize) at the next frame boundary. This view's table goes.
@@ -86,9 +88,6 @@ namespace Desert::Graphic::System
         m_LocalShadowRows.clear();
         m_LocalRedraws.clear();
         m_LocalCachePlans.clear();
-        m_ShadowPipeline.reset();
-        m_ShadowInstancedPipeline.reset();
-        m_ShadowSkinnedPipeline.reset();
         m_ShadowAttachments = ShadowAttachmentLease{};
         m_FittedCascades    = 0;
 
@@ -137,8 +136,11 @@ namespace Desert::Graphic::System
             cacheSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kShadowDepth );
             m_CascadeStaticFB[i] = Graphic::Framebuffer::Create( cacheSpec );
             m_CascadeStaticFB[i]->Resize( m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize );
-            m_CascadeCache[i]   = CascadeCacheState{};
-            m_ShadowMaterial[i] = std::make_unique<MaterialShadow>( MeshPass::ShadowDepth );
+            m_CascadeCache[i] = CascadeCacheState{};
+            // A re-budget keeps the cascade's caster material (RebudgetShadows); a cascade the old budget did
+            // not have gets its own.
+            if ( !m_ShadowMaterial[i] )
+                m_ShadowMaterial[i] = std::make_unique<MaterialShadow>( MeshPass::ShadowDepth );
         }
         const double allocMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - allocStart ).count();
@@ -147,6 +149,28 @@ namespace Desert::Graphic::System
         // Initialize so that it is created and destroyed with the framebuffers it accounts for.
         m_ShadowAttachments = ShadowAttachmentLease{ m_Shadow };
         LogShadowBudget( allocMs );
+
+        // THE CASCADES' INSTANCED AND SKINNED CASTER MATERIALS, one per cascade of the budget, for each optional
+        // pipeline that was built; a re-budget keeps the ones it has (RebudgetShadows) and adds what a larger
+        // cascade count needs.
+        const auto ensureCascadeCasterMaterials = [this]
+        {
+            for ( uint32_t i = 0; i < m_Shadow.CascadeCount; ++i )
+            {
+                if ( m_ShadowInstancedPipeline && !m_ShadowInstancedMaterial[i] )
+                    m_ShadowInstancedMaterial[i] =
+                         std::make_unique<MaterialShadowInstanced>( MeshPass::ShadowDepth );
+                if ( m_ShadowSkinnedPipeline && !m_ShadowSkinnedMaterial[i] )
+                    m_ShadowSkinnedMaterial[i] = std::make_unique<MaterialShadowSkinned>( MeshPass::ShadowDepth );
+            }
+        };
+        // The caster pipelines are built once: they are render-pass compatible with every cascade framebuffer of
+        // any size (one depth format), so a re-budget keeps them.
+        if ( m_ShadowPipeline )
+        {
+            ensureCascadeCasterMaterials();
+            return true;
+        }
 
         GraphicsPipelineSpecification spec;
         spec.DebugName         = "ShadowPipeline";
@@ -190,10 +214,6 @@ namespace Desert::Graphic::System
             if ( const auto instanced = GraphicsPipeline::Create( ispec ) )
             {
                 m_ShadowInstancedPipeline = instanced.GetValue();
-
-                for ( uint32_t i = 0; i < m_Shadow.CascadeCount; ++i )
-                    m_ShadowInstancedMaterial[i] =
-                         std::make_unique<MaterialShadowInstanced>( MeshPass::ShadowDepth );
             }
             else
             {
@@ -215,9 +235,6 @@ namespace Desert::Graphic::System
             if ( const auto skinnedShadow = GraphicsPipeline::Create( sspec ) )
             {
                 m_ShadowSkinnedPipeline = skinnedShadow.GetValue();
-
-                for ( uint32_t i = 0; i < m_Shadow.CascadeCount; ++i )
-                    m_ShadowSkinnedMaterial[i] = std::make_unique<MaterialShadowSkinned>( MeshPass::ShadowDepth );
             }
             else
             {
@@ -229,6 +246,7 @@ namespace Desert::Graphic::System
             LOG_WARN( "[MeshRenderer] Skinned shadow-depth cell missing — skinned meshes will cast no shadow." );
         }
 
+        ensureCascadeCasterMaterials();
         return true;
     }
 
