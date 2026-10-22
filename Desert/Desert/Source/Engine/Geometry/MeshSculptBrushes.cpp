@@ -142,8 +142,8 @@ namespace Desert::Geometry
                                                       ++count;
                                                   } );
                     if ( count > 0 )
-                        moves.emplace_back(
-                             vid, glm::mix( p, sum / static_cast<double>( count ), std::clamp( w * strength, 0.0, 1.0 ) ) );
+                        moves.emplace_back( vid, glm::mix( p, sum / static_cast<double>( count ),
+                                                           std::clamp( w * strength, 0.0, 1.0 ) ) );
                     break;
                 }
                 case SculptBrush::Inflate:
@@ -156,7 +156,8 @@ namespace Desert::Geometry
                 case SculptBrush::Flatten:
                 {
                     const glm::dvec3 onPlane = p - glm::dot( p - planePoint, planeNormal ) * planeNormal;
-                    moves.emplace_back( vid, glm::mix( p, onPlane, std::clamp( w * strength * kSculptPlaneRate, 0.0, 1.0 ) ) );
+                    moves.emplace_back(
+                         vid, glm::mix( p, onPlane, std::clamp( w * strength * kSculptPlaneRate, 0.0, 1.0 ) ) );
                     break;
                 }
                 case SculptBrush::Pinch:

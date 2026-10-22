@@ -787,8 +787,8 @@ namespace Desert::Editor
                           {
                               *out = Geometry::ToString( Geometry::kSculptBrushes[i] );
                               return true;
-                          }, nullptr,
-                          static_cast<int>( std::size( Geometry::kSculptBrushes ) ) ) )
+                          },
+                          nullptr, static_cast<int>( std::size( Geometry::kSculptBrushes ) ) ) )
                     s.Brush = Geometry::kSculptBrushes[brush];
                 row( "Brush Radius" );
                 ImGui::DragFloat( "##SculptRadius", &s.Radius, 0.5f, Geometry::kSculptMinRadius,
