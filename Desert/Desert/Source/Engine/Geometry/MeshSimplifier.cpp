@@ -81,8 +81,9 @@ namespace Desert::Geometry
 
         // Normal seams (same position and UV, different normal) are not barriers: Permissive lets a collapse
         // cross them and keeps each surviving corner on a wedge of its own side, as UE's QEM collapses
-        // positions and lets the wedges ride along. UV chart borders stay protected (ProtectUVSeams). Prune removes a disconnected part whole once it
-        // is the cheapest thing left, so a mesh of many small shells still reaches its triangle target.
+        // positions and lets the wedges ride along. UV chart borders stay protected (ProtectUVSeams). Prune
+        // removes a disconnected part whole once it is the cheapest thing left, so a mesh of many small shells
+        // still reaches its triangle target.
         static constexpr unsigned kOptions = meshopt_SimplifyPermissive | meshopt_SimplifyPrune;
 
         std::vector<uint32_t> lod( indices.size() );
@@ -94,11 +95,10 @@ namespace Desert::Geometry
             // normals weigh a little more - a lit silhouette shows a bent normal before a slid UV.
             static constexpr float kWeights[kSimplifyAttributeCount] = { 0.08f, 0.08f, 0.08f, 0.04f, 0.04f };
             const std::vector<unsigned char> protect = ProtectUVSeams( positions, vertexCount, attributes );
-            count = meshopt_simplifyWithAttributes( lod.data(), indices.data(), indices.size(), positions,
-                                                    vertexCount, sizeof( float ) * 3, attributes,
-                                                    sizeof( float ) * kSimplifyAttributeCount, kWeights,
-                                                    kSimplifyAttributeCount, protect.data(),
-                                                    targetIndexCount, targetError, kOptions, &error );
+            count                                    = meshopt_simplifyWithAttributes(
+                 lod.data(), indices.data(), indices.size(), positions, vertexCount, sizeof( float ) * 3,
+                 attributes, sizeof( float ) * kSimplifyAttributeCount, kWeights, kSimplifyAttributeCount,
+                 protect.data(), targetIndexCount, targetError, kOptions, &error );
         }
         else
         {
