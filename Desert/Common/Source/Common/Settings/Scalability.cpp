@@ -274,6 +274,8 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> SpawnState::Step (rate and burst counts)" },
              { P::EffectsQualityLevel, G::Effects, "Effects.QualityLevel", 0, 4, CL::None,
                "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> VFXWorld::Tick (effect type level)" },
+             { P::EffectsMaxWorldParticles, G::Effects, "Effects.MaxWorldParticles", 0, 4194304, CL::None,
+               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> EvaluateVFXScalability (world pool budget)" },
         } };
     } // namespace
 

@@ -194,31 +194,36 @@
                 "Effects.CloudQuality": 0,
                 "Effects.SkinCache": 0,
                 "Effects.SpawnCountScalePercent": 25,
-                "Effects.QualityLevel": 0
+                "Effects.QualityLevel": 0,
+                "Effects.MaxWorldParticles": 16384
             },
             "Medium": {
                 "Effects.CloudQuality": 1,
                 "Effects.SkinCache": 1,
                 "Effects.SpawnCountScalePercent": 50,
-                "Effects.QualityLevel": 1
+                "Effects.QualityLevel": 1,
+                "Effects.MaxWorldParticles": 32768
             },
             "High": {
                 "Effects.CloudQuality": 2,
                 "Effects.SkinCache": 1,
                 "Effects.SpawnCountScalePercent": 75,
-                "Effects.QualityLevel": 2
+                "Effects.QualityLevel": 2,
+                "Effects.MaxWorldParticles": 65536
             },
             "Epic": {
                 "Effects.CloudQuality": 2,
                 "Effects.SkinCache": 1,
                 "Effects.SpawnCountScalePercent": 100,
-                "Effects.QualityLevel": 3
+                "Effects.QualityLevel": 3,
+                "Effects.MaxWorldParticles": 131072
             },
             "Cinematic": {
                 "Effects.CloudQuality": 2,
                 "Effects.SkinCache": 1,
                 "Effects.SpawnCountScalePercent": 100,
-                "Effects.QualityLevel": 4
+                "Effects.QualityLevel": 4,
+                "Effects.MaxWorldParticles": 0
             }
         },
         "Textures": {

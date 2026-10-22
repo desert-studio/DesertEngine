@@ -59,6 +59,7 @@ namespace Desert::VFX
             case VFXCullReason::NotRendered: return "MaxTimeWithoutRender";
             case VFXCullReason::SystemInstanceCount: return "MaxSystemInstances";
             case VFXCullReason::InstanceCount: return "MaxInstances";
+            case VFXCullReason::WorldBudget: return "Effects.MaxWorldParticles budget";
         }
         return "?";
     }
@@ -137,6 +138,41 @@ namespace Desert::VFX
                     &Level::MaxSystemInstances, VFXCullReason::SystemInstanceCount );
         applyLimit( []( const VFXScalabilityCandidate& c ) { return std::pair<const void*, const void*>{ c.Type, nullptr }; },
                     &Level::MaxInstances, VFXCullReason::InstanceCount );
+
+        // THE WORLD BUDGET (UE Niagara's global budget; the pool is one per world, so the most generous view's
+        // budget holds - 0 at any view = none): the survivors in falling significance take their pool slots; the
+        // first that would pass the budget and every less significant one after it are refused. Strict order: a
+        // smaller, less significant system never takes the slots a more significant one was refused.
+        std::uint64_t budget = 0;
+        for ( const VFXViewReport& view : views )
+        {
+            if ( view.MaxWorldParticles == 0 )
+            {
+                budget = 0;
+                break;
+            }
+            budget = std::max<std::uint64_t>( budget, view.MaxWorldParticles );
+        }
+        if ( budget == 0 )
+            return out;
+        std::vector<std::size_t> order;
+        for ( std::size_t i = 0; i < candidates.size(); ++i )
+            if ( candidates[i].Type && out[i].Reason == VFXCullReason::None )
+                order.push_back( i );
+        std::stable_sort( order.begin(), order.end(),
+                          [&]( std::size_t a, std::size_t b ) { return out[a].Significance > out[b].Significance; } );
+        std::uint64_t taken = 0;
+        bool          over  = false;
+        for ( const std::size_t i : order )
+        {
+            out[i].BudgetParticles   = budget;
+            out[i].BudgetTakenBefore = taken;
+            over                     = over || taken + candidates[i].PoolParticles > budget;
+            if ( over )
+                out[i].Reason = VFXCullReason::WorldBudget;
+            else
+                taken += candidates[i].PoolParticles;
+        }
         return out;
     }
 } // namespace Desert::VFX

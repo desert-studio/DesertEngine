@@ -1039,7 +1039,9 @@ namespace Desert::Graphic
                 ::Desert::VFX::VFXViewReport report{
                      .Origin          = cam->GetPosition(),
                      .SpawnCountScale = quality.As<double>( Parameter::EffectsSpawnCountScalePercent ) / 100.0,
-                     .EffectsLevel    = quality.As<int>( Parameter::EffectsQualityLevel ) };
+                     .EffectsLevel    = quality.As<int>( Parameter::EffectsQualityLevel ),
+                     .MaxWorldParticles =
+                          static_cast<std::uint32_t>( quality.As<int>( Parameter::EffectsMaxWorldParticles ) ) };
                 // The view's frustum (Gribb-Hartmann on clip = P * V, depth 0..1): six inward planes, normalized;
                 // a degenerate plane (an infinite far plane) culls nothing.
                 const glm::mat4 clip = glm::mat4( cam->GetProjectionMatrix() ) * glm::mat4( cam->GetViewMatrix() );

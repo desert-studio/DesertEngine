@@ -207,13 +207,19 @@ namespace Desert::VFX
                  std::size_t candidate = kNoCandidate;
                  if ( !system.Deactivated )
                  {
+                     // The pool slots it holds while playing: the running emitters' Capacity (the world budget).
+                     std::uint32_t poolParticles = 0;
+                     if ( vfx.Data.AutoActivate )
+                         for ( std::size_t k = 0; k < system.Runs.size(); ++k )
+                             poolParticles += system.Runs[k] ? data->Emitters[k].Capacity : 0u;
                      candidate = candidates.size();
                      candidates.push_back( { .Type          = type,
                                              .System        = data.get(),
                                              .BoundsMinCm   = minCm,
                                              .BoundsMaxCm   = maxCm,
                                              .AgeSeconds    = system.AgeSeconds,
-                                             .HiddenSeconds = system.HiddenSeconds } );
+                                             .HiddenSeconds = system.HiddenSeconds,
+                                             .PoolParticles = poolParticles } );
                  }
                  placed.push_back( { &system, &vfx, uuid, emitterCm, type, &typeName, candidate } );
              } );
@@ -250,6 +256,11 @@ namespace Desert::VFX
                               p.UUID, VFXCullReasonName( verdict.Reason ), verdict.NearestCm, verdict.Significance,
                               *p.TypeName, immediate ? "killed" : "finish",
                               resumes ? "resumes when back in scalability" : "stays off until Restart" );
+                    if ( verdict.Reason == VFXCullReason::WorldBudget )
+                        LOG_INFO( "[VFX] entity {} refused by the world particle budget: {} pool particles over the "
+                                  "{} the more significant systems already hold of Effects.MaxWorldParticles {}",
+                                  p.UUID, candidates[p.Candidate].PoolParticles, verdict.BudgetTakenBefore,
+                                  verdict.BudgetParticles );
                 }
                 else
                     LOG_INFO( "[VFX] entity {} back in scalability, spawning resumes: nearest view {:.0f} cm "

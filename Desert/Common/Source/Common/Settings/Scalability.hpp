@@ -301,6 +301,10 @@ namespace Common::Scalability
         // UE fx.Niagara.QualityLevel: which level of every VFX effect type (.dfxtype) this view reads - the
         // type, not this table, states MaxDistance and its own SpawnCountScale per level (VFXWorld::Tick).
         EffectsQualityLevel, // 0..4 = Low .. Cinematic
+        // VFX-11e: the world's particle pool budget (UE Niagara's global budget, FNiagaraScalabilityManager): the
+        // pool slots (emitter Capacity) every playing system of a world may hold together; over it, the least
+        // significant systems are refused (their effect type's CullReaction). 0 = no budget.
+        EffectsMaxWorldParticles, // 0..4194304
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
