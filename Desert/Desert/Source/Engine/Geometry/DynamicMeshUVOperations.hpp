@@ -6,6 +6,7 @@
 
 #include <glm/vec2.hpp>
 #include <glm/mat3x3.hpp>
+#include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 
 #include <cstdint>
@@ -54,8 +55,10 @@ namespace Desert::Geometry
     };
     [[nodiscard]] const char* ToString( UVProjectionType type );
 
-    // The projection frame is the mesh's bounds centre plus CenterOffset, turned by RotationDeg (XYZ Euler,
-    // degrees); its Z axis is the mesh's +Y (up), so Plane projects from above and Cylinder stands upright.
+    // The projection frame is the placed mesh's world bounds centre plus CenterOffset, turned by RotationDeg
+    // (XYZ Euler, degrees); its Z axis is world +Y (up), so Plane projects from above and Cylinder stands
+    // upright. World space, as UE's FUVProjectionOp maps the mesh through the target's transform: an entity
+    // scaled non-uniformly still gets a square checker and a box-shaped (not sheared) volume.
     // UV = position in the frame / Dimensions, then the UV transform (UE UVRotation / UVScale / UVTranslate).
     struct UVProjectSettings
     {
@@ -71,11 +74,12 @@ namespace Desert::Geometry
 
         bool operator==( const UVProjectSettings& ) const = default;
     };
-    [[nodiscard]] Common::ResultStr<UVOutcome> ProjectUVs( const DynamicMesh3&      mesh,
+    // @p meshToWorld: where the mesh stands (its entity's world transform).
+    [[nodiscard]] Common::ResultStr<UVOutcome> ProjectUVs( const DynamicMesh3& mesh, const glm::dmat4& meshToWorld,
                                                            const UVProjectSettings& settings );
 
     // The projection volume ProjectUVs maps through (UE UUVProjectionTool's projection box, which its gizmo
-    // moves): mesh space, unit axes, Dimensions in cm along AxisX / AxisY / AxisZ. The tool draws it and turns
+    // moves): world space, unit axes, Dimensions in cm along AxisX / AxisY / AxisZ. The tool draws it and turns
     // its gizmo back into the settings with UVProjectionRotationDeg, so the volume has one definition.
     struct UVProjectionVolume
     {
@@ -87,8 +91,9 @@ namespace Desert::Geometry
     };
     // Refused for a mesh with no vertex.
     [[nodiscard]] Common::ResultStr<UVProjectionVolume>
-    ResolveUVProjectionVolume( const DynamicMesh3& mesh, const UVProjectSettings& settings );
-    // The RotationDeg whose volume has these axes (columns X, Y, Z of a rotation, mesh space).
+    ResolveUVProjectionVolume( const DynamicMesh3& mesh, const glm::dmat4& meshToWorld,
+                               const UVProjectSettings& settings );
+    // The RotationDeg whose volume has these axes (columns X, Y, Z of a rotation, world space).
     [[nodiscard]] glm::vec3 UVProjectionRotationDeg( const glm::dmat3& axes );
 
     // ---- Unwrap (UE URecomputeUVsTool) ----

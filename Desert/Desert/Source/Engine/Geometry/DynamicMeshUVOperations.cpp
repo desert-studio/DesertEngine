@@ -263,22 +263,24 @@ namespace Desert::Geometry
 
     namespace
     {
-        // The volume's axes before RotationDeg: Z along the mesh's +Y (up), X along +X, Y along -Z
+        // The volume's axes before RotationDeg: Z along world +Y (up), X along +X, Y along -Z
         // (right-handed).
         const glm::dmat3 kProjectionBaseAxes( glm::dvec3( 1.0, 0.0, 0.0 ), glm::dvec3( 0.0, 0.0, -1.0 ),
                                               glm::dvec3( 0.0, 1.0, 0.0 ) );
     } // namespace
 
     Common::ResultStr<UVProjectionVolume> ResolveUVProjectionVolume( const DynamicMesh3&      mesh,
+                                                                     const glm::dmat4&        meshToWorld,
                                                                      const UVProjectSettings& settings )
     {
         if ( mesh.VertexCount() == 0 )
             return Common::MakeError<UVProjectionVolume>( "UV Project: the mesh has no vertex" );
+        const auto toWorld = [&]( int vid ) { return glm::dvec3( meshToWorld * glm::dvec4( mesh.GetVertex( vid ), 1.0 ) ); };
         glm::dvec3 lo( std::numeric_limits<double>::max() ), hi( -std::numeric_limits<double>::max() );
         for ( const int vid : mesh.VertexIndicesItr() )
         {
-            lo = glm::min( lo, mesh.GetVertex( vid ) );
-            hi = glm::max( hi, mesh.GetVertex( vid ) );
+            lo = glm::min( lo, toWorld( vid ) );
+            hi = glm::max( hi, toWorld( vid ) );
         }
         UVProjectionVolume volume;
         const glm::dquat   turn( glm::radians( glm::dvec3( settings.RotationDeg ) ) );
@@ -294,7 +296,7 @@ namespace Desert::Geometry
             glm::dvec3 flo( std::numeric_limits<double>::max() ), fhi( -std::numeric_limits<double>::max() );
             for ( const int vid : mesh.VertexIndicesItr() )
             {
-                const glm::dvec3 d = mesh.GetVertex( vid ) - volume.Origin;
+                const glm::dvec3 d = toWorld( vid ) - volume.Origin;
                 const glm::dvec3 p( glm::dot( d, volume.AxisX ), glm::dot( d, volume.AxisY ),
                                     glm::dot( d, volume.AxisZ ) );
                 flo = glm::min( flo, p );
@@ -316,11 +318,12 @@ namespace Desert::Geometry
         return glm::vec3( glm::degrees( glm::eulerAngles( turn ) ) );
     }
 
-    Common::ResultStr<UVOutcome> ProjectUVs( const DynamicMesh3& mesh, const UVProjectSettings& settings )
+    Common::ResultStr<UVOutcome> ProjectUVs( const DynamicMesh3& mesh, const glm::dmat4& meshToWorld,
+                                             const UVProjectSettings& settings )
     {
         if ( mesh.TriangleCount() == 0 )
             return Common::MakeError<UVOutcome>( "UV Project: the mesh has no triangle" );
-        auto resolved = ResolveUVProjectionVolume( mesh, settings );
+        auto resolved = ResolveUVProjectionVolume( mesh, meshToWorld, settings );
         if ( !resolved.IsSuccess() )
             return Common::MakeError<UVOutcome>( resolved.GetError() );
         const UVProjectionVolume& volume = resolved.GetValue();
@@ -330,19 +333,19 @@ namespace Desert::Geometry
         DynamicMesh3          out = mesh;
         DynamicMeshUVOverlay& uvs = PrepareUVLayer( out );
         DynamicMeshUVEditor   editor( &out, &uvs );
-        const auto            identity  = []( const glm::dvec3& p ) { return p; };
+        const auto            toWorld   = [&]( const glm::dvec3& p ) { return glm::dvec3( meshToWorld * glm::dvec4( p, 1.0 ) ); };
         const auto            triangles = AllTriangles( out );
         switch ( settings.Type )
         {
             case UVProjectionType::Plane:
-                editor.SetTriangleUVsFromPlanarProjection( triangles, identity, frame,
+                editor.SetTriangleUVsFromPlanarProjection( triangles, toWorld, frame,
                                                            glm::dvec2( dims.x, dims.y ) );
                 break;
             case UVProjectionType::Box:
-                editor.SetTriangleUVsFromBoxProjection( triangles, identity, frame, dims );
+                editor.SetTriangleUVsFromBoxProjection( triangles, toWorld, frame, dims );
                 break;
             case UVProjectionType::Cylinder:
-                editor.SetTriangleUVsFromCylinderProjection( triangles, identity, frame, dims,
+                editor.SetTriangleUVsFromCylinderProjection( triangles, toWorld, frame, dims,
                                                              settings.CylinderSplitAngle );
                 break;
         }

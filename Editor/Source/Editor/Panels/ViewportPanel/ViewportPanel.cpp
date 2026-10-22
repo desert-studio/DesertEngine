@@ -2052,7 +2052,7 @@ namespace Desert::Editor
                 {
                     if ( m_Gizmo.RenderFrame( "UVProjectVolume", *volume, ViewCamera(), m_ViewportData.ViewportPos,
                                               m_ViewportData.Size,
-                                              Tools::GizmoController::kFrameTranslateRotate ) )
+                                              Tools::GizmoController::kFrameTranslateRotateScale ) )
                         m_UVTool.ApplyProjectionGizmo( *m_Scene, *volume );
                 }
                 m_MeshProcessingTool.Update( *m_Scene );

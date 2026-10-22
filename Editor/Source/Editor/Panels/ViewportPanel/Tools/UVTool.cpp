@@ -121,7 +121,7 @@ namespace Desert::Editor::Tools
         // checker can show (thousands of cells inside one triangle read as grey anyway).
         constexpr double kMaxCellsPerTriangle = 4096.0;
 
-        // ---- UV Project's volume, as edges (mesh space) ----
+        // ---- UV Project's volume, as edges (world space) ----
         void VolumeEdges( const Geometry::UVProjectionVolume& v, Geometry::UVProjectionType type,
                           std::vector<std::pair<glm::dvec3, glm::dvec3>>& out )
         {
@@ -258,7 +258,7 @@ namespace Desert::Editor::Tools
                 out = Geometry::AutoUV( input, ms.UVAuto );
                 break;
             case MS::Tool::UVProject:
-                out = Geometry::ProjectUVs( input, ms.UVProject );
+                out = Geometry::ProjectUVs( input, WorldOf( scene, m_Session->Entity ), ms.UVProject );
                 break;
             case MS::Tool::UVUnwrap:
                 out = Geometry::UnwrapUVs( input, ms.UVUnwrap );
@@ -291,7 +291,8 @@ namespace Desert::Editor::Tools
         ms.UVStatus        = out.GetValue().Report;
         m_Session->Volume.reset();
         if ( m_Session->Tool == MS::Tool::UVProject )
-            if ( auto volume = Geometry::ResolveUVProjectionVolume( input, ms.UVProject ); volume.IsSuccess() )
+            if ( auto volume = Geometry::ResolveUVProjectionVolume( input, WorldOf( scene, m_Session->Entity ), ms.UVProject );
+                 volume.IsSuccess() )
                 m_Session->Volume = volume.GetValue();
     }
 
@@ -429,7 +430,7 @@ namespace Desert::Editor::Tools
             const glm::vec4 colour( 1.0f, 0.55f, 0.1f, 1.0f );
             for ( const auto& [from, to] : edges )
             {
-                const glm::dvec3 p = toWorld( from ), q = toWorld( to );
+                const glm::dvec3 p = from, q = to; // the volume is world space
                 preview.Edges.push_back( Vertex{ glm::vec4( glm::vec3( p ), 1.0f ), colour } );
                 preview.Edges.push_back( Vertex{ glm::vec4( glm::vec3( q ), 1.0f ), colour } );
                 // No surface under a volume edge: the one facing the eye (the pass's smallest lift).
@@ -444,34 +445,50 @@ namespace Desert::Editor::Tools
             Render::ToolPreview::Show( scene, std::move( preview ) );
     }
 
-    std::optional<glm::mat4> UVTool::ProjectionGizmo( ::Desert::Core::Scene& scene ) const
+    std::optional<glm::mat4> UVTool::ProjectionGizmo( ::Desert::Core::Scene& ) const
     {
         if ( !m_Session || !m_Session->Volume )
             return std::nullopt;
-        const Geometry::UVProjectionVolume& v     = *m_Session->Volume;
-        const glm::dmat4                    world = WorldOf( scene, m_Session->Entity );
-        const glm::dmat3                    basis( world );
-        const auto                          axis = [&]( const glm::dvec3& a )
-        { return glm::vec4( glm::vec3( glm::normalize( basis * a ) ), 0.0f ); };
-        return glm::mat4( axis( v.AxisX ), axis( v.AxisY ), axis( v.AxisZ ),
-                          glm::vec4( glm::vec3( world * glm::dvec4( v.Origin, 1.0 ) ), 1.0f ) );
+        // World space and orthonormal (ResolveUVProjectionVolume), so no entity scale shears it; the column
+        // lengths are the Dimensions, which the gizmo's scale handles change (UE's projection TransformProxy).
+        const Geometry::UVProjectionVolume& v    = *m_Session->Volume;
+        const auto                          axis = [&]( const glm::dvec3& a, double length )
+        { return glm::vec4( glm::vec3( a * length ), 0.0f ); };
+        return glm::mat4( axis( v.AxisX, v.Dimensions.x ), axis( v.AxisY, v.Dimensions.y ),
+                          axis( v.AxisZ, v.Dimensions.z ), glm::vec4( glm::vec3( v.Origin ), 1.0f ) );
     }
 
-    void UVTool::ApplyProjectionGizmo( ::Desert::Core::Scene& scene, const glm::mat4& frame )
+    void UVTool::ApplyProjectionGizmo( ::Desert::Core::Scene&, const glm::mat4& frame )
     {
         if ( !m_Session || !m_Session->Volume )
             return;
-        MS&              ms      = MS::Get();
-        const glm::dmat4 toLocal = glm::inverse( WorldOf( scene, m_Session->Entity ) );
-        const glm::dmat3 basis( toLocal );
-        const glm::dvec3 origin = glm::dvec3( toLocal * glm::dvec4( glm::dvec3( frame[3] ), 1.0 ) );
+        MS&                                 ms = MS::Get();
+        const Geometry::UVProjectionVolume& v  = *m_Session->Volume;
         // The bounds centre the volume was placed from: its origin less the offset it was computed with.
-        const glm::dvec3 centre = m_Session->Volume->Origin - glm::dvec3( m_Project.CenterOffset );
+        const glm::dvec3 centre = v.Origin - glm::dvec3( m_Project.CenterOffset );
+        glm::dvec3       dims;
         glm::dmat3       axes;
         for ( int c = 0; c < 3; ++c )
-            axes[c] = glm::normalize( basis * glm::dvec3( frame[c] ) );
-        ms.UVProject.CenterOffset = glm::vec3( origin - centre );
+        {
+            const glm::dvec3 column( frame[c] );
+            dims[c] = glm::length( column );
+            if ( !( dims[c] > 1e-6 ) )
+                return; // a collapsed axis: keep the last volume
+            axes[c] = column / dims[c];
+        }
+        // Gram-Schmidt: float round-off of the gizmo's matrix must not skew the rotation read back.
+        axes[0] = glm::normalize( axes[0] );
+        axes[1] = glm::normalize( axes[1] - axes[0] * glm::dot( axes[0], axes[1] ) );
+        axes[2] = glm::cross( axes[0], axes[1] );
+        ms.UVProject.CenterOffset = glm::vec3( glm::dvec3( frame[3] ) - centre );
         ms.UVProject.RotationDeg  = Geometry::UVProjectionRotationDeg( axes );
+        // A scale drag sets the Dimensions; fitted ones stop following the bounds (UE: the gizmo's scale is
+        // the projection's size, whatever initialised it).
+        if ( glm::any( glm::greaterThan( glm::abs( dims - v.Dimensions ), glm::dvec3( 1e-3 ) ) ) )
+        {
+            ms.UVProject.FitToBounds = false;
+            ms.UVProject.Dimensions  = glm::vec3( dims );
+        }
     }
 
     bool UVTool::SettingsChanged( const MS& ms ) const

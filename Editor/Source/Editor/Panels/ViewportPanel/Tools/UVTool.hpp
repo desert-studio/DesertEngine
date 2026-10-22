@@ -29,7 +29,7 @@ namespace Desert::Editor::Tools
     //   - Cancel, or another tool / another selection: the entity goes back to what it held.
     //   - the preview is drawn with a checker of its UVs (UE's Checkerboard material mode), by the scene render
     //     (Render::ToolPreview); UV Project also draws its projection volume, and the viewport puts UE's
-    //     transform gizmo on it (ProjectionGizmo / ApplyProjectionGizmo), which edits CenterOffset / RotationDeg.
+    //     transform gizmo on it (ProjectionGizmo / ApplyProjectionGizmo), which edits CenterOffset / RotationDeg / Dimensions.
     // Accept and Cancel are the viewport tool bar's (ActiveToolBar) and the palette's; this tool consumes them
     // while a UV tool is active, before CubeGrid would read them.
     class UVTool
@@ -38,10 +38,10 @@ namespace Desert::Editor::Tools
         // @p eyeWorld: this viewport's camera position (the checker's far-to-near order and shading).
         void Update( ::Desert::Core::Scene& scene, const glm::dvec3& eyeWorld );
 
-        // UV Project's volume, for the viewport's gizmo: world space, unit axes (no scale handle - the
-        // Dimensions are the panel's). Nothing while no Project session has a volume.
+        // UV Project's volume, for the viewport's gizmo: world space, axes scaled by the Dimensions (the
+        // gizmo's scale handles). Nothing while no Project session has a volume.
         [[nodiscard]] std::optional<glm::mat4> ProjectionGizmo( ::Desert::Core::Scene& scene ) const;
-        // The gizmo moved the volume to @p frame (world): CenterOffset / RotationDeg follow it.
+        // The gizmo moved the volume to @p frame (world): CenterOffset / RotationDeg / Dimensions follow it.
         void ApplyProjectionGizmo( ::Desert::Core::Scene& scene, const glm::mat4& frame );
 
         [[nodiscard]] static bool IsUVTool( Core::ModelingState::Tool tool );
