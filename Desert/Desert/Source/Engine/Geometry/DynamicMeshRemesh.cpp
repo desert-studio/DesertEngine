@@ -109,13 +109,24 @@ namespace Desert::Geometry
             if ( after >= before || a <= 3 || b <= 3 )
                 return false;
             const Index2i              et = mesh.GetEdgeT( eid );
-            const glm::dvec3           n0 = mesh.GetTriNormal( et.A ), n1 = mesh.GetTriNormal( et.B );
+            const glm::dvec3 n0 = mesh.GetTriNormal( et.A ), n1 = mesh.GetTriNormal( et.B );
+            // A pair that is already folded (or degenerate) has no side to keep: normalising n0 + n1 there gives
+            // NaN, every comparison with it is false, and the flip went through unchecked (M27 p9: 1..12
+            // inward triangles per stroke). UE CheckIfFlipInvertsNormals refuses it; so does this.
+            const double pairLen = glm::length( n0 + n1 );
+            if ( !( pairLen > 1e-12 ) )
+                return false;
+            const glm::dvec3           avg = ( n0 + n1 ) / pairLen;
             DynamicMesh3::EdgeFlipInfo info;
             if ( mesh.FlipEdge( eid, info ) != MeshResult::Ok )
                 return false;
-            const glm::dvec3 avg = glm::normalize( n0 + n1 );
-            if ( glm::dot( mesh.GetTriNormal( info.Triangles.A ), avg ) < kMinNormalDot ||
-                 glm::dot( mesh.GetTriNormal( info.Triangles.B ), avg ) < kMinNormalDot )
+            // Each new triangle must keep the side of BOTH old ones, not only of their average.
+            const auto keepsSide = [&]( int t )
+            {
+                const glm::dvec3 n = mesh.GetTriNormal( t );
+                return glm::dot( n, avg ) >= kMinNormalDot && glm::dot( n, n0 ) > 0.0 && glm::dot( n, n1 ) > 0.0;
+            };
+            if ( !keepsSide( info.Triangles.A ) || !keepsSide( info.Triangles.B ) )
             {
                 DynamicMesh3::EdgeFlipInfo back;
                 mesh.FlipEdge( info.EdgeID, back ); // folds: undo it
