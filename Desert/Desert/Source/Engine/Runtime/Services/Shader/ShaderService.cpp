@@ -246,6 +246,8 @@ namespace Desert::Runtime
 
         const std::string key =
              std::format( "{}#{:016x}", name, static_cast<unsigned long long>( variant.Hash() ) );
+        if ( variant.ShippedByCook )
+            m_ShippedByCookRequests.try_emplace( key, Core::CookedProgramVariant{ name, variant } );
 
         if ( const auto it = m_Variants.find( key ); it != m_Variants.end() )
         {
@@ -309,6 +311,15 @@ namespace Desert::Runtime
 
         m_Variants[key] = VariantEntry{ handleIt->second, program };
         return program;
+    }
+
+    std::vector<Core::CookedProgramVariant> ShaderService::ShippedByCookRequests() const
+    {
+        std::vector<Core::CookedProgramVariant> requests;
+        requests.reserve( m_ShippedByCookRequests.size() );
+        for ( const auto& [key, request] : m_ShippedByCookRequests )
+            requests.push_back( request );
+        return requests;
     }
 
     std::string ShaderService::MediumSourceOf( const Assets::AssetHandle& handle )

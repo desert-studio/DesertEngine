@@ -261,6 +261,27 @@ namespace Desert::Editor
                     append( GI::ScreenProbeGather::ProgramVariants( downsample, tracedTexels ) );
             }
 
+            // THE CENSUS: every ShippedByCook permutation this session ACQUIRED (ShaderService::ShippedByCookRequests)
+            // must be in the cooked set, or the package refuses it by name at runtime. Named and failed here instead.
+            if ( const auto shaders = Runtime::ResourceRegistry::GetShaderService() )
+            {
+                std::set<std::pair<std::string, uint64_t>> cookedKeys;
+                for ( const auto& entry : cooked )
+                    cookedKeys.emplace( entry.Program, entry.Variant.Hash() );
+                for ( const auto& request : shaders->ShippedByCookRequests() )
+                {
+                    if ( cookedKeys.contains( { request.Program, request.Variant.Hash() } ) )
+                        continue;
+                    std::string defines;
+                    for ( const std::string& define : request.Variant.Defines )
+                        defines += ( defines.empty() ? "" : " " ) + define;
+                    LOG_ERROR( "[PackageCook] {} [{:016x}] ({}) was acquired as ShippedByCook but no cook list names "
+                               "it - the package would refuse it; add it to the acquiring system's ProgramVariants",
+                               request.Program, request.Variant.Hash(), defines );
+                    ++stats.Failures;
+                }
+            }
+
             const std::vector<fs::path> programs = PackagedShaderPrograms( developerInstruments );
             for ( const ::Desert::Core::CookedProgramVariant& entry : cooked )
                 CookVariant( entry, programs, spirvDebugInfo, stats );
