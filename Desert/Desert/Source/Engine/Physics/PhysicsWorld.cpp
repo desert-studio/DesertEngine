@@ -9,6 +9,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Geometry/ConvexHullBuilder.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
@@ -906,6 +907,60 @@ namespace Desert::Physics
             }
         }
     };
+
+    Common::ResultStr<ConvexHullGeometry> BuildConvexHull( std::span<const glm::vec3> points )
+    {
+        if ( points.size() < 4 )
+            return Common::MakeFormattedError<ConvexHullGeometry>( "{} points cannot bound a convex hull",
+                                                                   points.size() );
+        // The builder allocates through JPH::Allocate; an editor tool can run before any world exists.
+        if ( s_GlobalRefCount == 0 )
+            JPH::RegisterDefaultAllocator();
+
+        JPH::ConvexHullBuilder::Positions positions;
+        positions.reserve( points.size() );
+        for ( const glm::vec3& p : points )
+            positions.push_back( JPH::Vec3( p.x, p.y, p.z ) );
+
+        JPH::ConvexHullBuilder builder( positions );
+        const char*            why    = nullptr;
+        const auto             result = builder.Initialize( JPH::ConvexHullShape::cMaxPointsInHull, 0.1f, why );
+        if ( result != JPH::ConvexHullBuilder::EResult::Success &&
+             result != JPH::ConvexHullBuilder::EResult::MaxVerticesReached )
+            return Common::MakeFormattedError<ConvexHullGeometry>( "Jolt cannot build the hull: {}",
+                                                                   why ? why : "unknown" );
+
+        // Each face is a convex polygon (its edge loop, counter-clockwise seen from outside): fan it into
+        // triangles, and keep only the corners the faces use, renumbered.
+        ConvexHullGeometry   hull;
+        std::vector<int32_t> remap( positions.size(), -1 );
+        const auto           corner = [&]( int source )
+        {
+            if ( remap[source] < 0 )
+            {
+                remap[source] = static_cast<int32_t>( hull.Points.size() );
+                hull.Points.push_back( points[source] );
+            }
+            return static_cast<uint32_t>( remap[source] );
+        };
+        for ( const JPH::ConvexHullBuilder::Face* face : builder.GetFaces() )
+        {
+            if ( face->mRemoved || !face->mFirstEdge )
+                continue;
+            const uint32_t                      first = corner( face->mFirstEdge->mStartIdx );
+            const JPH::ConvexHullBuilder::Edge* edge  = face->mFirstEdge->mNextEdge;
+            while ( edge != face->mFirstEdge && edge->mNextEdge != face->mFirstEdge )
+            {
+                hull.Indices.push_back( first );
+                hull.Indices.push_back( corner( edge->mStartIdx ) );
+                hull.Indices.push_back( corner( edge->mNextEdge->mStartIdx ) );
+                edge = edge->mNextEdge;
+            }
+        }
+        if ( hull.Indices.empty() )
+            return Common::MakeError<ConvexHullGeometry>( "the points are flat: their hull has no volume" );
+        return Common::MakeSuccess( std::move( hull ) );
+    }
 
     PhysicsWorld::PhysicsWorld()  = default;
     PhysicsWorld::~PhysicsWorld() { Shutdown(); }

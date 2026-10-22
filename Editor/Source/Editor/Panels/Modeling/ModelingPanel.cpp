@@ -16,6 +16,7 @@
 #include <Editor/Core/ThemeManager.hpp>
 #include <Common/Core/Units.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/ECS/System/SystemRules.hpp>
 #include <Common/Core/Logger.hpp>
 #include <ImGui/imgui.h>
 
@@ -1195,37 +1196,39 @@ namespace Desert::Editor
         if ( entity.HasComponent<ECS::VolumeComponent>() )
             return Common::MakeFormattedError<bool>( "entity {} is already a volume", static_cast<uint64_t>( id ) );
 
-        // The mesh's points at the entity's scale, body-local: the volume keeps the pose and carries the scale
-        // in its points, as UE's tool bakes the actor's scale into the new brush.
-        const glm::mat3 world( entity.GetWorldTransform() );
-        const glm::vec3 scale( glm::length( world[0] ), glm::length( world[1] ), glm::length( world[2] ) );
-        auto gathered = ECS::PhysicsECSSystem::GatherColliderMesh( *entity.GetRegistry(), entity.GetHandle(), scale );
+        // The mesh's points at the entity's WORLD scale, body-local: the volume takes the source's world pose
+        // (it is created at the scene root, the source may be a child) and carries the scale in its points, as
+        // UE's tool bakes the actor's scale into the new brush.
+        const auto world    = ECS::Rules::DecomposeTransform( entity.GetWorldTransform() );
+        auto       gathered = ECS::PhysicsECSSystem::GatherColliderMesh( *entity.GetRegistry(), entity.GetHandle(),
+                                                                         world.Scale );
         if ( !gathered.IsSuccess() )
             return Common::MakeFormattedError<bool>( "entity {}: {}", static_cast<uint64_t>( id ),
                                                      gathered.GetError() );
         if ( !gathered.GetValue().has_value() )
             return Common::MakeFormattedError<bool>( "entity {}: its mesh is still loading",
                                                      static_cast<uint64_t>( id ) );
-        ECS::ColliderMesh mesh = std::move( *gathered.GetValue() );
-        if ( mesh.Points.size() < 4 )
-            return Common::MakeFormattedError<bool>( "entity {}: {} points cannot bound a volume",
-                                                     static_cast<uint64_t>( id ), mesh.Points.size() );
+        // UE's AVolume brush is the CONVEX HULL of the mesh (UMeshToVolumeTool, ConvexHull), not its triangles:
+        // the outline drawn is the region Jolt simulates.
+        auto hull = Physics::BuildConvexHull( gathered.GetValue()->Points );
+        if ( !hull.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "entity {}: {}", static_cast<uint64_t>( id ), hull.GetError() );
+        Physics::ConvexHullGeometry shape = std::move( hull.GetValue() );
 
-        const ECS::TransformComponent pose = entity.GetComponent<ECS::TransformComponent>();
         const std::string name = std::string( type.Name ) + "Volume";
         const auto replaced    = Commands::ReplaceWithNewEntity(
              id, name,
              [&]( ECS::Entity& volume )
              {
                  auto& transform       = volume.GetComponent<ECS::TransformComponent>();
-                 transform.Translation = pose.Translation;
-                 transform.Rotation    = pose.Rotation;
+                 transform.Translation = world.Translation;
+                 transform.Rotation    = world.Rotation;
                  transform.Scale       = glm::vec3( 1.0f );
 
                  ECS::VolumeComponent component;
                  component.Data.Type        = type.Type;
-                 component.Data.HullPoints  = std::move( mesh.Points );
-                 component.Data.HullIndices = std::move( mesh.Indices );
+                 component.Data.HullPoints  = std::move( shape.Points );
+                 component.Data.HullIndices = std::move( shape.Indices );
                  volume.AddComponent<ECS::VolumeComponent>( std::move( component ) );
 
                  ECS::RigidBodyComponent body;
