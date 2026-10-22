@@ -2100,10 +2100,12 @@ namespace Desert::Editor
                     float&     offset  = spiral ? s.Spiral.DegreesOffset : s.Revolve.DegreesOffset;
                     if ( spiral )
                     {
-                        cm( "Spiral Radius", &s.Spiral.SpiralRadius, "From the axis to the middle of the profile." );
+                        cm( "Spiral Radius", &s.Spiral.SpiralRadius,
+                            "From the axis to the middle of the profile." );
                         cm( "Profile Radius", &s.Spiral.ProfileRadius, "Radius of the round profile." );
                         count( "Profile Slices", &s.Spiral.ProfileSlices, 3, 128, 3, 500 );
-                        cm( "Rise Per Revolution", &s.Spiral.RisePerFullRevolution, "Height gained per full turn." );
+                        cm( "Rise Per Revolution", &s.Spiral.RisePerFullRevolution,
+                            "Height gained per full turn." );
                     }
                     else
                     {
@@ -2112,7 +2114,8 @@ namespace Desert::Editor
                         cm( "Height", &s.Revolve.Height, "Height of the rectangle profile." );
                     }
                     ImGui::SetNextItemWidth( 110.0f );
-                    if ( ImGui::DragFloat( "Degrees", &degrees, 1.0f, 0.0f, spiral ? 3600.0f : 360.0f, "%.1f deg" ) )
+                    if ( ImGui::DragFloat( "Degrees", &degrees, 1.0f, 0.0f, spiral ? 3600.0f : 360.0f,
+                                           "%.1f deg" ) )
                         degrees = std::clamp( degrees, spiral ? 0.01f : 0.1f, spiral ? 360000.0f : 360.0f );
                     if ( ImGui::IsItemHovered() )
                         ImGui::SetTooltip( "How far the profile turns; less than a full turn caps both ends." );
@@ -2120,10 +2123,13 @@ namespace Desert::Editor
                     if ( ImGui::DragFloat( "Degrees Offset", &offset, 1.0f, -360.0f, 360.0f, "%.1f deg" ) )
                         offset = std::clamp( offset, -36000.0f, 36000.0f );
                     count( "Steps", spiral ? &s.Spiral.Steps : &s.Revolve.Steps, 1, 100, 1, 500 );
-                    ImGui::Checkbox( "Reverse Direction", spiral ? &s.Spiral.ReverseDirection : &s.Revolve.ReverseDirection );
-                    ImGui::Checkbox( "Profile At Midpoint", spiral ? &s.Spiral.ProfileAtMidpoint : &s.Revolve.ProfileAtMidpoint );
+                    ImGui::Checkbox( "Reverse Direction",
+                                     spiral ? &s.Spiral.ReverseDirection : &s.Revolve.ReverseDirection );
+                    ImGui::Checkbox( "Profile At Midpoint",
+                                     spiral ? &s.Spiral.ProfileAtMidpoint : &s.Revolve.ProfileAtMidpoint );
                     if ( ImGui::IsItemHovered() )
-                        ImGui::SetTooltip( "The profile sits half a step into the turn, so the steps straddle it." );
+                        ImGui::SetTooltip(
+                             "The profile sits half a step into the turn, so the steps straddle it." );
                     break;
                 }
                 case Shape::Rectangle:

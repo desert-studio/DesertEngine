@@ -76,8 +76,9 @@ namespace Desert::Editor::Core
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid, and UE's
-        // revolve generators (FRevolvePlanarPolygonGenerator, FSpiralRevolvePlanarPolygonGenerator) as Revolve, Spiral. Plane
-        // is not here: it is an upright card for the scene's Add menu; the palette's flat card is Rectangle.
+        // revolve generators (FRevolvePlanarPolygonGenerator, FSpiralRevolvePlanarPolygonGenerator) as Revolve,
+        // Spiral. Plane is not here: it is an upright card for the scene's Add menu; the palette's flat card is
+        // Rectangle.
         enum class Shape
         {
             Box,
@@ -94,8 +95,8 @@ namespace Desert::Editor::Core
             Revolve,
             Spiral,
         };
-        static constexpr Shape kShapes[] = { Shape::Box,     Shape::Sphere,  Shape::Cylinder, Shape::Cone,
-                                             Shape::Capsule, Shape::Pyramid, Shape::Stairs,   Shape::Torus,
+        static constexpr Shape kShapes[] = { Shape::Box,     Shape::Sphere,  Shape::Cylinder,  Shape::Cone,
+                                             Shape::Capsule, Shape::Pyramid, Shape::Stairs,    Shape::Torus,
                                              Shape::Arrow,   Shape::Disc,    Shape::Rectangle, Shape::Revolve,
                                              Shape::Spiral };
 

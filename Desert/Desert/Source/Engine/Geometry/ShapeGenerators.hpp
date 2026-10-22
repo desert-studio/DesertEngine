@@ -1686,12 +1686,12 @@ namespace Desert::Geometry
 
     struct RevolveShape // FRevolvePlanarPolygonGenerator over a rectangle profile
     {
-        float InnerRadius     = 25.0f;  // from the +Y axis to the profile's inner side
-        float Width           = 25.0f;  // the profile's radial extent
-        float Height          = 50.0f;  // the profile's vertical extent
-        float RevolveDegrees  = 360.0f; // 0.1..360 (UE clamps a planar revolve to one turn)
-        float DegreesOffset   = 0.0f;
-        int   Steps           = 24;     // 1..500
+        float InnerRadius       = 25.0f;  // from the +Y axis to the profile's inner side
+        float Width             = 25.0f;  // the profile's radial extent
+        float Height            = 50.0f;  // the profile's vertical extent
+        float RevolveDegrees    = 360.0f; // 0.1..360 (UE clamps a planar revolve to one turn)
+        float DegreesOffset     = 0.0f;
+        int   Steps             = 24; // 1..500
         bool  ReverseDirection  = false;
         bool  ProfileAtMidpoint = false;
 
@@ -1700,13 +1700,13 @@ namespace Desert::Geometry
 
     struct SpiralShape // FSpiralRevolvePlanarPolygonGenerator over a circle profile
     {
-        float SpiralRadius          = 40.0f;  // from the +Y axis to the profile's centre
+        float SpiralRadius          = 40.0f; // from the +Y axis to the profile's centre
         float ProfileRadius         = 10.0f;
         int   ProfileSlices         = 16;     // 3..500
         float RevolveDegrees        = 720.0f; // 0.01.. (any number of turns)
         float RisePerFullRevolution = 50.0f;  // UE's default
         float DegreesOffset         = 0.0f;
-        int   Steps                 = 48;     // 1..500
+        int   Steps                 = 48; // 1..500
         bool  ReverseDirection      = false;
         bool  ProfileAtMidpoint     = false;
 
@@ -1745,7 +1745,10 @@ namespace Desert::Geometry
             glm::dvec3 Origin{ 0.0 };
             glm::dquat Rotation{ 1.0, 0.0, 0.0, 0.0 };
 
-            [[nodiscard]] glm::dvec3 FromFramePoint( const glm::dvec3& p ) const { return Rotation * p + Origin; }
+            [[nodiscard]] glm::dvec3 FromFramePoint( const glm::dvec3& p ) const
+            {
+                return Rotation * p + Origin;
+            }
         };
 
         // Ported from UE 5.8 GeometryCore/Private/Util/RevolveUtil.cpp:7-22 (GenerateSweepCurve), axis +Z
@@ -1791,17 +1794,18 @@ namespace Desert::Geometry
                                                                      const std::vector<glm::dvec3>& profile,
                                                                      const std::vector<SweepFrame>& sweep,
                                                                      bool profileClosed, bool sweepClosed,
-                                                                     ProfileSweepGrouping           grouping )
+                                                                     ProfileSweepGrouping grouping )
         {
             std::array<std::vector<int>, 2> endProfiles;
-            const int numProfilePoints   = static_cast<int>( profile.size() );
-            const int numSweepPoints     = static_cast<int>( sweep.size() );
-            const int numSweepSegments   = sweepClosed ? numSweepPoints : numSweepPoints - 1;
+            const int                       numProfilePoints = static_cast<int>( profile.size() );
+            const int                       numSweepPoints   = static_cast<int>( sweep.size() );
+            const int                       numSweepSegments = sweepClosed ? numSweepPoints : numSweepPoints - 1;
             const int numProfileSegments = profileClosed ? numProfilePoints : numProfilePoints - 1;
             const int numVerts           = numProfilePoints * numSweepPoints;
             const int numTriangles       = 2 * numProfileSegments * numSweepSegments;
 
-            const auto vert = [&]( int sweepIndex, int profileIndex ) { return sweepIndex * numProfilePoints + profileIndex; };
+            const auto vert = [&]( int sweepIndex, int profileIndex )
+            { return sweepIndex * numProfilePoints + profileIndex; };
 
             // UVs (InitializeUvBuffer): V along the profile, U along the sweep, each weighted by distance and
             // scaled to 0..1; closed curves get an extra row / column so nothing wraps back to 0.
@@ -1868,7 +1872,7 @@ namespace Desert::Geometry
 
             // Angle-weighted triangle normals per corner (AdjustNormalsForTriangle), summed per vertex.
             std::vector<glm::dvec3> normalSums( static_cast<size_t>( numVerts ), glm::dvec3( 0.0 ) );
-            const auto angle = []( const glm::dvec3& a, const glm::dvec3& b )
+            const auto              angle = []( const glm::dvec3& a, const glm::dvec3& b )
             { return std::acos( std::clamp( glm::dot( a, b ), -1.0, 1.0 ) ); };
             const auto safeNormal = []( const glm::dvec3& v )
             {
@@ -1894,13 +1898,13 @@ namespace Desert::Geometry
                 const int nextS = ( s + 1 ) % numSweepPoints;
                 for ( int p = 0; p < numProfileSegments; ++p )
                 {
-                    const int nextP       = ( p + 1 ) % numProfilePoints;
-                    const int current     = vert( s, p );
-                    const int bottom      = vert( nextS, p );
-                    const int bottomRight = vert( nextS, nextP );
-                    const int right       = vert( s, nextP );
-                    const glm::dvec3 diagonalDown =
-                         safeNormal( g.Vertices[static_cast<size_t>( bottomRight )] - g.Vertices[static_cast<size_t>( current )] );
+                    const int        nextP        = ( p + 1 ) % numProfilePoints;
+                    const int        current      = vert( s, p );
+                    const int        bottom       = vert( nextS, p );
+                    const int        bottomRight  = vert( nextS, nextP );
+                    const int        right        = vert( s, nextP );
+                    const glm::dvec3 diagonalDown = safeNormal( g.Vertices[static_cast<size_t>( bottomRight )] -
+                                                                g.Vertices[static_cast<size_t>( current )] );
                     g.SetTriangle( tri, current, bottomRight, right );
                     g.SetTriangleNormals( tri, current, bottomRight, right );
                     adjustNormals( current, bottomRight, right, diagonalDown );
@@ -1959,8 +1963,9 @@ namespace Desert::Geometry
                 std::vector<glm::dvec3> sums( loop.size(), glm::dvec3( 0.0 ) );
                 for ( const Index3i& t : triangles )
                 {
-                    const glm::dvec3 n = glm::cross( positions[static_cast<size_t>( t.C )] - positions[static_cast<size_t>( t.A )],
-                                                     positions[static_cast<size_t>( t.B )] - positions[static_cast<size_t>( t.A )] );
+                    const glm::dvec3 n = glm::cross(
+                         positions[static_cast<size_t>( t.C )] - positions[static_cast<size_t>( t.A )],
+                         positions[static_cast<size_t>( t.B )] - positions[static_cast<size_t>( t.A )] );
                     sums[static_cast<size_t>( t.A )] += n;
                     sums[static_cast<size_t>( t.B )] += n;
                     sums[static_cast<size_t>( t.C )] += n;
@@ -1983,8 +1988,8 @@ namespace Desert::Geometry
                 else if ( d < 0.999999 )
                     rotation = glm::angleAxis( std::acos( std::clamp( d, -1.0, 1.0 ) ),
                                                glm::normalize( glm::cross( z, planeNormal ) ) );
-                const glm::dvec3 axisX = rotation * glm::dvec3( 1.0, 0.0, 0.0 );
-                const glm::dvec3 axisY = rotation * glm::dvec3( 0.0, 1.0, 0.0 );
+                const glm::dvec3        axisX = rotation * glm::dvec3( 1.0, 0.0, 0.0 );
+                const glm::dvec3        axisY = rotation * glm::dvec3( 0.0, 1.0, 0.0 );
                 std::vector<glm::dvec2> uvs;
                 glm::dvec2              lo( 1e300 ), hi( -1e300 );
                 for ( const glm::dvec3& p : positions )
@@ -1994,7 +1999,7 @@ namespace Desert::Geometry
                     hi = glm::max( hi, uvp );
                     uvs.push_back( uvp );
                 }
-                const glm::dvec2 size  = hi - lo;
+                const glm::dvec2 size = hi - lo;
                 const glm::dvec2 scale( size.x > 0.0 ? 1.0 / size.x : 0.0, size.y > 0.0 ? 1.0 / size.y : 0.0 );
                 const int        firstUV = static_cast<int>( g.UVs.size() );
                 for ( size_t i = 0; i < loop.size(); ++i )
@@ -2020,17 +2025,19 @@ namespace Desert::Geometry
         // to 0.1..360 degrees and closes at 360, a spiral never closes and rises RisePerFullRevolution per turn.
         inline void GenerateRevolvePlanarPolygon( UEShapeBuffers& g, const std::vector<glm::dvec2>& polygon,
                                                   double revolveDegrees, double degreesOffset, int steps,
-                                                  bool reverseDirection, bool profileAtMidpoint, double risePerRevolution,
-                                                  bool spiral, ProfileSweepGrouping grouping )
+                                                  bool reverseDirection, bool profileAtMidpoint,
+                                                  double risePerRevolution, bool spiral,
+                                                  ProfileSweepGrouping grouping )
         {
             std::vector<glm::dvec3> profile;
             for ( const glm::dvec2& p : polygon )
                 profile.emplace_back( p.x, 0.0, p.y );
             std::reverse( profile.begin(), profile.end() );
 
-            const double total = spiral ? std::max( 0.01, revolveDegrees ) : std::clamp( revolveDegrees, 0.1, 360.0 );
-            double       degreesPerStep = total / static_cast<double>( steps );
-            double       offset         = degreesOffset;
+            const double total =
+                 spiral ? std::max( 0.01, revolveDegrees ) : std::clamp( revolveDegrees, 0.1, 360.0 );
+            double degreesPerStep = total / static_cast<double>( steps );
+            double offset         = degreesOffset;
             if ( reverseDirection )
             {
                 degreesPerStep *= -1.0;
@@ -2040,8 +2047,8 @@ namespace Desert::Geometry
             if ( profileAtMidpoint && degreesPerStep != 0.0 && std::abs( degreesPerStep ) < 180.0 )
                 MakeProfileCurveMidpointOfFirstStep( profile, degreesPerStep );
 
-            const bool sweepClosed = !spiral && total == 360.0;
-            const int  numFrames   = sweepClosed ? steps : steps + 1;
+            const bool                    sweepClosed = !spiral && total == 360.0;
+            const int                     numFrames   = sweepClosed ? steps : steps + 1;
             const std::vector<SweepFrame> sweep =
                  GenerateRevolveSweepCurve( offset, degreesPerStep, downAxisOffsetPerStep, numFrames );
             const auto ends = GenerateProfileSweep( g, profile, sweep, true, sweepClosed, grouping );
@@ -2054,15 +2061,14 @@ namespace Desert::Geometry
     // about +Y by FRevolvePlanarPolygonGenerator. 360 degrees is a closed genus-1 ring; less, a capped arc.
     inline ShapeMesh MakeRevolve( const RevolveShape& revolve, const ShapeOptions& options = {} )
     {
-        const double inner  = std::max( 0.0, static_cast<double>( revolve.InnerRadius ) );
-        const double outer  = inner + Detail::Extent( revolve.Width );
-        const double height = Detail::Extent( revolve.Height );
+        const double           inner  = std::max( 0.0, static_cast<double>( revolve.InnerRadius ) );
+        const double           outer  = inner + Detail::Extent( revolve.Width );
+        const double           height = Detail::Extent( revolve.Height );
         Detail::UEShapeBuffers g;
-        Detail::GenerateRevolvePlanarPolygon( g, { { inner, 0.0 }, { outer, 0.0 }, { outer, height }, { inner, height } },
-                                              revolve.RevolveDegrees, revolve.DegreesOffset,
-                                              Detail::Count( revolve.Steps, 1 ), revolve.ReverseDirection,
-                                              revolve.ProfileAtMidpoint, 0.0, false,
-                                              Detail::SweepGroupingFor( options.Groups ) );
+        Detail::GenerateRevolvePlanarPolygon(
+             g, { { inner, 0.0 }, { outer, 0.0 }, { outer, height }, { inner, height } }, revolve.RevolveDegrees,
+             revolve.DegreesOffset, Detail::Count( revolve.Steps, 1 ), revolve.ReverseDirection,
+             revolve.ProfileAtMidpoint, 0.0, false, Detail::SweepGroupingFor( options.Groups ) );
         return Detail::Finish( g, options );
     }
 
@@ -2070,9 +2076,9 @@ namespace Desert::Geometry
     // FSpiralRevolvePlanarPolygonGenerator; both ends capped. The profile is kept off the axis.
     inline ShapeMesh MakeSpiral( const SpiralShape& spiral, const ShapeOptions& options = {} )
     {
-        const double radius  = Detail::Extent( spiral.ProfileRadius );
-        const double centre  = std::max( static_cast<double>( spiral.SpiralRadius ), radius + Detail::kMinExtent );
-        const int    slices  = Detail::Count( spiral.ProfileSlices, 3 );
+        const double radius = Detail::Extent( spiral.ProfileRadius );
+        const double centre = std::max( static_cast<double>( spiral.SpiralRadius ), radius + Detail::kMinExtent );
+        const int    slices = Detail::Count( spiral.ProfileSlices, 3 );
         std::vector<glm::dvec2> polygon;
         for ( int i = 0; i < slices; ++i )
         {
