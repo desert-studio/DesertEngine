@@ -231,9 +231,11 @@ namespace Common::Settings
                 out.Unread.set( g );
             };
 
-            if ( const auto* array = std::get_if<Json::Value::Array>( &levels.Raw().variant() ) )
+            if ( levels.GetKind() == Json::Kind::Array )
             {
-                if ( array->size() > Scalability::kGroupCount )
+                std::size_t elements = 0;
+                levels.ForEachElement( [&]( std::size_t, const Json::Node& ) { ++elements; } );
+                if ( elements > Scalability::kGroupCount )
                     return levels.Raw();
                 out.Migrated = true;
                 levels.ForEachElement( readLevel );
@@ -288,17 +290,19 @@ namespace Common::Settings
             recommended.ForEachMember(
                  [&]( std::string_view name, const Json::Node& member )
                  {
-                     const auto* array = std::get_if<Json::Value::Array>( &member.Raw().variant() );
-                     if ( name != "Levels" || array == nullptr || array->size() > Scalability::kGroupCount )
+                     std::size_t elements = 0;
+                     member.ForEachElement( [&]( std::size_t, const Json::Node& ) { ++elements; } );
+                     if ( name != "Levels" || member.GetKind() != Json::Kind::Array ||
+                          elements > Scalability::kGroupCount )
                      {
                          rebuilt.Set( name, member.Raw() );
                          return;
                      }
                      migrated = true;
                      Json::ObjectBuilder levels;
-                     for ( std::size_t g = 0; g < array->size(); ++g )
-                         levels.Set( Scalability::GroupKey( static_cast<Scalability::Group>( g ) ),
-                                     ( *array )[g] );
+                     member.ForEachElement(
+                          [&]( std::size_t g, const Json::Node& entry )
+                          { levels.Set( Scalability::GroupKey( static_cast<Scalability::Group>( g ) ), entry.Raw() ); } );
                      rebuilt.Set( name, Json::Value( levels.Build() ) );
                  } );
             return Json::Value( rebuilt.Build() );
