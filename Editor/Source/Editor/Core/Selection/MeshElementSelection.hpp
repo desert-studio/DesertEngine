@@ -112,6 +112,8 @@ namespace Desert::Editor::Core
         // One-shot for the command palette / control channel: pick at the viewport's centre on the next
         // frame, as if clicked there (no modifier). The viewport owns the camera, so only the tool can.
         bool ReqPickCentre = false;
+        // With ReqPickCentre: the pick adds to the selection, as a Shift-click does.
+        bool ReqPickCentreAdd = false;
 
     private:
         Common::UUID                              m_Entity = Common::UUID::Null();

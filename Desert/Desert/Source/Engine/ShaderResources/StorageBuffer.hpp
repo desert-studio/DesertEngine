@@ -64,6 +64,13 @@ namespace Desert::ShaderResources
 
     private:
         Graphic::ResourceOwnership m_Accounting;
+
+    protected:
+        /// The backend names the ledger row after the buffer's debug name, once it has one.
+        void NameLedgerRow( std::string name )
+        {
+            m_Accounting.Name( std::move( name ) );
+        }
     };
 
 } // namespace Desert::ShaderResources

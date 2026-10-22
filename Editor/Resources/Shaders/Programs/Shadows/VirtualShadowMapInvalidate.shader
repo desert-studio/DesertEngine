@@ -17,21 +17,21 @@ Shader "VirtualShadowMapInvalidate"
 
         ReadBuffer(0) VsmFrameData
         {
-            VsmFrame u_Frame;
-            VsmLevel u_Levels[];
+            VsmFrame Frame;
+            VsmLevel Levels[];
         };
         Buffer(1) VsmPageTable
         {
-            VsmPageEntry u_Entries[];
+            VsmPageEntry Entries[];
         };
         Buffer(2) VsmPhysicalOwners
         {
-            uint u_Owners[]; // per physical page: the page-table entry it holds, VSM_INVALID = free
+            uint Owners[]; // per physical page: the page-table entry it holds, VSM_INVALID = free
         };
 
         PushConstant PushConstants
         {
-            uvec4 u_Params; // x = 1: the whole map is reset this frame
+            uvec4 Params; // x = 1: the whole map is reset this frame
         };
 
         void main()
@@ -41,7 +41,7 @@ Shader "VirtualShadowMapInvalidate"
             if ( local >= VSM_PAGES_PER_LEVEL )
                 return;
             const uint         index = level * VSM_PAGES_PER_LEVEL + local;
-            const VsmPageEntry entry = u_Entries[index];
+            const VsmPageEntry entry = Entries[index];
             uint               flags = entry.Flags;
 
             const uint drawn = VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
@@ -51,16 +51,16 @@ Shader "VirtualShadowMapInvalidate"
 
             if ( ( flags & VSM_FLAG_ALLOCATED ) != 0u )
             {
-                const ivec2 expected = VsmWorldPageOfSlot( u_Levels[level].Window.xy, local );
-                const bool  stale    = u_Params.x != 0u || u_Levels[level].Window.w != 0 || entry.TagX != expected.x ||
+                const ivec2 expected = VsmWorldPageOfSlot( Levels[level].Window.xy, local );
+                const bool  stale    = Params.x != 0u || Levels[level].Window.w != 0 || entry.TagX != expected.x ||
                                    entry.TagY != expected.y;
                 if ( stale )
                 {
-                    u_Owners[entry.Physical] = VSM_INVALID;
+                    Owners[entry.Physical] = VSM_INVALID;
                     flags                    = 0u;
                 }
             }
-            u_Entries[index].Flags = flags;
+            Entries[index].Flags = flags;
         }
     }
 }

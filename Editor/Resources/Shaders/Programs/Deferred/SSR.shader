@@ -68,8 +68,8 @@ Shader "SSR"
 
         	// --- Classify: this tile spans [floor(t * scale), ceil((t + 1) * scale)) texels, up to 9, hence up
         	// to 2x2 texels per thread; the verdict is reduced in shared memory. ---
-        	ivec2 full  = textureSize(u_GBufferNormal, 0);
-        	ivec2 grid  = imageSize(u_TileMask);
+        	ivec2 full  = textureSize(GBufferNormalTexture, 0);
+        	ivec2 grid  = imageSize(TileMaskTexture);
         	ivec2 tile  = ivec2(gl_WorkGroupID.xy);
         	vec2  scale = vec2(full) / vec2(grid);
         	ivec2 p0    = ivec2(floor(vec2(tile) * scale));
@@ -89,7 +89,7 @@ Shader "SSR"
 
         	const bool tileReflects = s_TileReflects != 0u;
         	if (gl_LocalInvocationIndex == 0u)
-        		imageStore(u_TileMask, tile, vec4(tileReflects ? 1.0 : 0.0));
+        		imageStore(TileMaskTexture, tile, vec4(tileReflects ? 1.0 : 0.0));
         #if defined( DESERT_REFLECTIONS_HIT_LIGHTING )
         	// Hit lighting: the "HitLighting" ray generation traces every texel after this classify.
         	return;
@@ -101,9 +101,9 @@ Shader "SSR"
         	// (scale <= 8), starting at `first` (p0, or p0 + 1 when p0 is the previous tile's); 8 texels per axis
         	// from (first - (factor - 1)) / factor reach all of them at either factor (factor 1: first .. first + 7;
         	// factor 2: source pixels from below first to at least first + 13, the rotation included). ---
-        	ivec2 traceSize = imageSize(u_Trace);
-        	int   frame     = int(u_CameraPos.w);
-        	int   factor    = int(u_SSRParams3.x + 0.5);
+        	ivec2 traceSize = imageSize(SsrTraceTexture);
+        	int   frame     = int(CameraPosition.w);
+        	int   factor    = int(SsrParams3.x + 0.5);
         	ivec2 first     = p0 + ivec2(notEqual(ivec2(floor((vec2(p0) + 0.5) / scale)), tile));
         	ivec2 q         = max((first - (factor - 1)) / factor, ivec2(0)) + ivec2(gl_LocalInvocationID.xy);
         	ivec2 src       = SSRTraceSourcePixel(q, factor, frame, full);
@@ -113,8 +113,8 @@ Shader "SSR"
         		return;
         	vec4 ray   = vec4(0.0, 0.0, 0.0, -126.0);
         	vec4 trace = tileReflects ? TraceFrom(src, full, ray) : vec4(0.0);
-        	imageStore(u_Trace, q, trace);
-        	imageStore(u_TraceRay, q, ray);
+        	imageStore(SsrTraceTexture, q, trace);
+        	imageStore(TraceRayTexture, q, ray);
         }
     }
 
@@ -132,19 +132,19 @@ Shader "SSR"
             void main()
             {
             	const ivec2 q         = ivec2(gl_LaunchIDEXT.xy);
-            	const ivec2 traceSize = imageSize(u_Trace);
+            	const ivec2 traceSize = imageSize(SsrTraceTexture);
             	if (q.x >= traceSize.x || q.y >= traceSize.y)
             		return;
-            	const ivec2 full  = textureSize(u_GBufferNormal, 0);
-            	const ivec2 grid  = imageSize(u_TileMask);
+            	const ivec2 full  = textureSize(GBufferNormalTexture, 0);
+            	const ivec2 grid  = imageSize(TileMaskTexture);
             	const vec2  scale = vec2(full) / vec2(grid);
-            	const int   frame = int(u_CameraPos.w);
-            	const ivec2 src   = SSRTraceSourcePixel(q, int(u_SSRParams3.x + 0.5), frame, full);
+            	const int   frame = int(CameraPosition.w);
+            	const ivec2 src   = SSRTraceSourcePixel(q, int(SsrParams3.x + 0.5), frame, full);
             	const ivec2 tile  = min(ivec2(floor((vec2(src) + 0.5) / scale)), grid - 1);
             	vec4 ray   = vec4(0.0, 0.0, 0.0, -126.0);
-            	vec4 trace = imageLoad(u_TileMask, tile).r > 0.5 ? TraceFrom(src, full, ray) : vec4(0.0);
-            	imageStore(u_Trace, q, trace);
-            	imageStore(u_TraceRay, q, ray);
+            	vec4 trace = imageLoad(TileMaskTexture, tile).r > 0.5 ? TraceFrom(src, full, ray) : vec4(0.0);
+            	imageStore(SsrTraceTexture, q, trace);
+            	imageStore(TraceRayTexture, q, ray);
             }
         }
 

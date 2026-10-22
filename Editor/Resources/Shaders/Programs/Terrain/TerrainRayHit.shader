@@ -44,7 +44,7 @@ Shader "TerrainRayHit"
                 LandscapeRayHitConeLod( Ng );
 
                 const TerrainSurface s = EvaluateLandscapeSurface(
-                     tile, row.Material, position, Ng, distance( position, row.ViewOrigin.xyz ), w0, w1 );
+                     tile, row.MaterialValues, position, Ng, distance( position, row.ViewOrigin.xyz ), w0, w1 );
 
                 payload.HitT      = gl_HitTEXT;
                 payload.BaseColor = s.Albedo * row.Tint.rgb;
@@ -63,7 +63,7 @@ Shader "TerrainRayHit"
 
             void main()
             {
-                LandscapeRayHitRowRef       row  = LandscapeRayHitRowRef( u_RayHitRecord.MaterialRow );
+                LandscapeRayHitRowRef       row  = LandscapeRayHitRowRef( RayHitRecord.MaterialRow );
                 const TerrainInstance       tile = row.Tile;
                 vec4                        w0;
                 vec4                        w1;

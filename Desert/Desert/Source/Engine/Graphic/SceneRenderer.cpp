@@ -725,9 +725,10 @@ namespace Desert::Graphic
                        ResourceOwnerInstanceName( Instance ), left.Live, left.Bytes );
             // Each by name (where its creator recorded one), kind, claiming owner and size: these find its holder.
             for ( const ResourceRowSummary& row : ResourceLedger::RowsOf( Instance ) )
-                LOG_ERROR( "[Resources]   row #{}: '{}' {} claimed by {}, {}", row.Id,
-                           row.Name.empty() ? std::string_view( "<unnamed>" ) : std::string_view( row.Name ),
-                           ResourceKindName( row.Kind ), ResourceOwnerName( row.Owner ),
+                LOG_ERROR( "[Resources]   row #{}: {} '{}' claimed by {}, {}", row.Id,
+                           ResourceKindName( row.Kind ),
+                           row.Name.empty() ? std::string_view( "unnamed" ) : std::string_view( row.Name ),
+                           ResourceOwnerName( row.Owner ),
                            row.BytesKnown ? std::format( "{} bytes", row.Bytes ) : std::string( "size unknown" ) );
         }
     }
@@ -1040,7 +1041,36 @@ namespace Desert::Graphic
         // before the render graph, and the billboard pass draws in AddFrameTranslucency.
         // A reflection capture's face view neither draws nor simulates them (AddFrameParticlesSimulate).
         if ( !m_ViewProfile.SceneCapture )
+        {
+            // VFX-11: this view's origin and Effects particle rows go to the world's next scalability decision
+            // (VFXWorld::Tick) - the world decides once for all views, not here.
+            if ( const auto* cam = GetMainCamera() )
+            {
+                ::Desert::VFX::VFXViewReport report{
+                     .Origin          = cam->GetPosition(),
+                     .SpawnCountScale = quality.As<double>( Parameter::EffectsSpawnCountScalePercent ) / 100.0,
+                     .EffectsLevel    = quality.As<int>( Parameter::EffectsQualityLevel ),
+                     .MaxWorldParticles =
+                          static_cast<std::uint32_t>( quality.As<int>( Parameter::EffectsMaxWorldParticles ) ) };
+                // The view's frustum (Gribb-Hartmann on clip = P * V, depth 0..1): six inward planes, normalized;
+                // a degenerate plane (an infinite far plane) culls nothing.
+                const glm::mat4 clip = glm::mat4( cam->GetProjectionMatrix() ) * glm::mat4( cam->GetViewMatrix() );
+                const auto      row  = [&clip]( const int r )
+                { return glm::vec4( clip[0][r], clip[1][r], clip[2][r], clip[3][r] ); };
+                const std::array<glm::vec4, 6> planes = {
+                     row( 3 ) + row( 0 ), row( 3 ) - row( 0 ), row( 3 ) + row( 1 ), row( 3 ) - row( 1 ), row( 2 ),
+                     row( 3 ) - row( 2 ) };
+                for ( std::size_t i = 0; i < planes.size(); ++i )
+                {
+                    const float length = glm::length( glm::vec3( planes[i] ) );
+                    report.FrustumPlanes[i] =
+                         length > 1.0e-6f ? planes[i] / length : glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f );
+                }
+                report.HasFrustum = true;
+                scene.GetVFXWorld().SubmitView( report );
+            }
             UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
+        }
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
         // here: the material Time uniform and the eye adaptation step.
@@ -1266,7 +1296,13 @@ namespace Desert::Graphic
         // nothing: its Declare and record only read the matrices).
         {
             DESERT_PROFILE_PASS( "Shadow: UpdateCascades" );
-            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
+            auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            // The particles' Mesh rows submit their casters from the render graph, after this plan (VFX-09).
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+            meshes->ExpectGpuInstancedCasters( !m_ViewProfile.SceneCapture && particles != nullptr &&
+                                               particles->HasMeshRows() );
+            meshes->UpdateCascades();
         }
         // The rain occlusion's box, and whether its map is redrawn this frame (the same boundary: its pass only
         // reads the matrix).
@@ -1434,13 +1470,11 @@ namespace Desert::Graphic
             // type
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
             // With the scene's lit-material state (the forward terrain receives the point and spot lights the
-            // meshes do) and this frame's shadowed point/spot lights (UpdateLocalShadows ran above): their views
-            // draw the terrain at the LOD the light asks for, not the camera's, so a cached local shadow survives
-            // a camera move.
+            // meshes do). The shadowed point/spot lights' draws follow UpdateLocalShadows below
+            // (PrepareLocalShadowViews): their views do not exist yet here.
             const auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-                 ->PrepareFrame( frame, meshes->CaptureFrameState( &frame ),
-                                 meshes->GetLocalShadowCasterLights() );
+                 ->PrepareFrame( frame, meshes->CaptureFrameState( &frame ) );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
         if ( const Common::BoolResultStr physical =
@@ -1725,6 +1759,14 @@ namespace Desert::Graphic
                      m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights, m_SpotLightShadows,
                      !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) &&
                           ( !LocalShadowsAreRayTraced() || LocalShadowMapsRead() ) );
+                // The terrain's draws into those views, at the LOD each light asks for (not the camera's, so a
+                // cached local shadow survives a camera move), and its cache key, before LocalShadowPasses asks
+                // for it (PlanLocalShadowCache). Before this ran, GetLocalShadowCasterLights was empty and every
+                // light's key failed - TERRAIN-LOCAL-SHADOW-LOG.
+                // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
+                     ->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights() );
+                // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                 AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
                 // The per-light denoisers' histories: a frame off HardwareTraced parks every one (a method that
                 // comes back starts new histories), and the retire queue is drained EVERY frame - a parked history

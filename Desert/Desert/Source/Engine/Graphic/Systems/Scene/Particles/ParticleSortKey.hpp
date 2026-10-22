@@ -37,7 +37,7 @@ namespace Desert::Graphic::System
 
     // THE VIEW DEPTH the key is taken of, in cm: along the camera's forward axis from its position. The view basis
     // looks down its own -Z (the engine's camera, as glm::lookAt), so forward is -InvView[2]; ParticleSort.shader
-    // computes dot( position - u_ViewOrigin, u_ViewForward ) from exactly these two vectors (ParticleRenderer
+    // computes dot( position - ViewOrigin, ViewForward ) from exactly these two vectors (ParticleRenderer
     // pushes them), and the test holds that a farther particle gets the smaller key under a real view matrix.
     struct ParticleSortView
     {
@@ -62,7 +62,7 @@ namespace Desert::Graphic::System
     }
 
     // THE STAGES of one emitter's sort, in order — one graph node each (Programs/Particles/ParticleSort.shader
-    // states what each stage does; the values are its u_Step.x). The network runs every k <= 1024 inside one
+    // states what each stage does; the values are its Step.x). The network runs every k <= 1024 inside one
     // workgroup's shared memory (Local), and each larger k as the global exchanges with j >= 1024 followed by one
     // Merge that finishes j < 1024 in shared memory.
     enum class ParticleSortStageKind : std::uint32_t
@@ -71,7 +71,12 @@ namespace Desert::Graphic::System
         Local  = 1,
         Global = 2,
         Merge  = 3,
-        Write  = 4
+        Write  = 4,
+        // A ribbon emitter in place of Write: the parallel segmented scan of its sorted (RibbonId, link order)
+        // keys into RibbonOrder - Init, one Scan per power of two below the network's length, Final.
+        RibbonInit  = 5,
+        RibbonScan  = 6, // K = the source (0 RibbonOrder, 1 SortKeys), J = the distance d
+        RibbonFinal = 7  // K = the last scan's destination
     };
 
     inline constexpr std::uint32_t kParticleSortBlock     = 1024; // keys a workgroup sorts in shared memory
@@ -85,7 +90,9 @@ namespace Desert::Graphic::System
         std::uint32_t         Groups = 1; // workgroups the stage dispatches
     };
 
-    [[nodiscard]] inline std::vector<ParticleSortStage> ParticleSortStages( const std::uint32_t length )
+    // @p ribbon: the ribbon order (ParticleSort key 1 = (RibbonId, RibbonLinkOrder)), finished by the scan.
+    [[nodiscard]] inline std::vector<ParticleSortStage> ParticleSortStages( const std::uint32_t length,
+                                                                            const bool          ribbon = false )
     {
         const std::uint32_t block     = length < kParticleSortBlock ? length : kParticleSortBlock;
         const std::uint32_t perThread = ( length + kParticleSortLocalSize - 1 ) / kParticleSortLocalSize;
@@ -99,7 +106,16 @@ namespace Desert::Graphic::System
                 stages.push_back( { ParticleSortStageKind::Global, k, j, perPair } );
             stages.push_back( { ParticleSortStageKind::Merge, k, 0, length / block } );
         }
-        stages.push_back( { ParticleSortStageKind::Write, 0, 0, perThread } );
+        if ( ribbon )
+        {
+            stages.push_back( { ParticleSortStageKind::RibbonInit, 0, 0, perThread } );
+            std::uint32_t source = 0;
+            for ( std::uint32_t d = 1; d < length; d *= 2, source ^= 1u )
+                stages.push_back( { ParticleSortStageKind::RibbonScan, source, d, perThread } );
+            stages.push_back( { ParticleSortStageKind::RibbonFinal, source, 0, perThread } );
+        }
+        else
+            stages.push_back( { ParticleSortStageKind::Write, 0, 0, perThread } );
         return stages;
     }
 } // namespace Desert::Graphic::System

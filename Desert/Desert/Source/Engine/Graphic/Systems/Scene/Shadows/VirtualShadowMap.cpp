@@ -17,6 +17,54 @@
 #include <format>
 #include <vector>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct VirtualShadowMapPagesShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmFrameData );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmPageTable );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmPhysicalOwners );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmInvalidations );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmAllocator );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmLists );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmDirtyMask );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct VirtualShadowMapPoolShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmPageTable );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmLists );
+        DESERT_SHADER_PARAMETER( StorageTexture, PhysicalPoolTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct VirtualShadowMapCullShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmFrameData );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmDirtyMask );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmCullInstances );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmCullDraws );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmCasterArguments );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmInstanceRemap );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct VirtualShadowMapProjectShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmFrameData );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmPageTable );
+        DESERT_SHADER_PARAMETER( StorageTexture, PhysicalPoolTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, ShadowMaskTexture );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -326,9 +374,9 @@ namespace Desert::Graphic::System
              Invalidate,
              [&]( RDG::BindingBlockBuilder& block )
              {
-                 block.Storage( "VsmFrameData", frameData, kR )
-                      .Storage( "VsmPageTable", pageTable, kW )
-                      .Storage( "VsmPhysicalOwners", owners, kW );
+                 block.Storage( VirtualShadowMapPagesShaderParameters::VsmFrameData, frameData, kR )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kW )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmPhysicalOwners, owners, kW );
              },
              glm::uvec4( resetAll, 0u, 0u, 0u ), glm::uvec3( entryGroups, kVsmClipmapLevelCount, 1u ) );
 
@@ -349,9 +397,9 @@ namespace Desert::Graphic::System
                  InvalidateCasters,
                  [&]( RDG::BindingBlockBuilder& block )
                  {
-                     block.Storage( "VsmFrameData", frameData, kR )
-                          .Storage( "VsmPageTable", pageTable, kW )
-                          .Storage( "VsmInvalidations", boxBuffer, kR );
+                     block.Storage( VirtualShadowMapPagesShaderParameters::VsmFrameData, frameData, kR )
+                          .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kW )
+                          .Storage( VirtualShadowMapPagesShaderParameters::VsmInvalidations, boxBuffer, kR );
                  },
                  std::nullopt,
                  glm::uvec3( static_cast<uint32_t>( invalidations.size() ), kVsmClipmapLevelCount, 1u ) );
@@ -361,11 +409,12 @@ namespace Desert::Graphic::System
              Mark,
              [&]( RDG::BindingBlockBuilder& block )
              {
-                 block.Storage( "VsmFrameData", frameData, kR )
-                      .Storage( "VsmPageTable", pageTable, kW )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "u_GBufferDepth", view.Depth, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() );
+                 block.Storage( VirtualShadowMapPagesShaderParameters::VsmFrameData, frameData, kR )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kW )
+                      .Sampler( VirtualShadowMapPagesShaderParameters::PointClampSampler,
+                                RDG::SamplerDesc::PointClamp() )
+                      .Texture( VirtualShadowMapPagesShaderParameters::GBufferDepthTexture, view.Depth,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
              },
              glm::uvec4( view.Width, view.Height, 0u, 0u ),
              glm::uvec3( Groups( view.Width, kScreenTile ), Groups( view.Height, kScreenTile ), 1u ) );
@@ -374,10 +423,10 @@ namespace Desert::Graphic::System
              Gather,
              [&]( RDG::BindingBlockBuilder& block )
              {
-                 block.Storage( "VsmPageTable", pageTable, kR )
-                      .Storage( "VsmPhysicalOwners", owners, kR )
-                      .Storage( "VsmAllocator", allocator, kW )
-                      .Storage( "VsmLists", lists, kW );
+                 block.Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kR )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmPhysicalOwners, owners, kR )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmAllocator, allocator, kW )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmLists, lists, kW );
              },
              glm::uvec4( pages, 0u, 0u, 0u ), glm::uvec3( Groups( pages, kGroup64 ), 1u, 1u ) );
 
@@ -385,11 +434,11 @@ namespace Desert::Graphic::System
              Allocate,
              [&]( RDG::BindingBlockBuilder& block )
              {
-                 block.Storage( "VsmFrameData", frameData, kR )
-                      .Storage( "VsmPageTable", pageTable, kW )
-                      .Storage( "VsmPhysicalOwners", owners, kW )
-                      .Storage( "VsmAllocator", allocator, kW )
-                      .Storage( "VsmLists", lists, kW );
+                 block.Storage( VirtualShadowMapPagesShaderParameters::VsmFrameData, frameData, kR )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kW )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmPhysicalOwners, owners, kW )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmAllocator, allocator, kW )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmLists, lists, kW );
              },
              glm::uvec4( pages, 0u, 0u, 0u ), glm::uvec3( entryGroups, kVsmClipmapLevelCount, 1u ) );
 
@@ -405,14 +454,15 @@ namespace Desert::Graphic::System
              DirtyMask,
              [&]( RDG::BindingBlockBuilder& block )
              {
-                 block.Storage( "VsmFrameData", frameData, kR )
-                      .Storage( "VsmPageTable", pageTable, kR )
-                      .Storage( "VsmDirtyMask", dirtyMask, kW );
+                 block.Storage( VirtualShadowMapPagesShaderParameters::VsmFrameData, frameData, kR )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kR )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmDirtyMask, dirtyMask, kW );
              },
              std::nullopt, glm::uvec3( entryGroups, kVsmClipmapLevelCount, 1u ) );
 
         dispatch(
-             ClearArgs, [&]( RDG::BindingBlockBuilder& block ) { block.Storage( "VsmAllocator", allocator, kW ); },
+             ClearArgs, [&]( RDG::BindingBlockBuilder& block )
+             { block.Storage( VirtualShadowMapPagesShaderParameters::VsmAllocator, allocator, kW ); },
              std::nullopt, glm::uvec3( 1u ) );
 
         // "VSM: Clear Pages": one group per dirty page, sized on the GPU.
@@ -426,9 +476,9 @@ namespace Desert::Graphic::System
                      pass.Read( allocator, RDG::Access::IndirectArgs );
                      pass.Bindings( kernel.Layout.Get( kernel.Program ),
                                     Renderer::GetPipelineRouteFill( *kernel.Pipeline ) )
-                          .Storage( "VsmPageTable", pageTable, kR )
-                          .Storage( "VsmLists", lists, kR )
-                          .Storage( "u_PhysicalPool", pool, kW )
+                          .Storage( VirtualShadowMapPoolShaderParameters::VsmPageTable, pageTable, kR )
+                          .Storage( VirtualShadowMapPoolShaderParameters::VsmLists, lists, kR )
+                          .Storage( VirtualShadowMapPoolShaderParameters::PhysicalPoolTexture, pool, kW )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
                  },
                  [pipeline = kernel.Pipeline, push,
@@ -487,12 +537,18 @@ namespace Desert::Graphic::System
              {
                  pass.Bindings( kernel.Layout.Get( kernel.Program ),
                                 Renderer::GetPipelineRouteFill( *kernel.Pipeline ) )
-                      .Storage( "VsmFrameData", frame.FrameData, RDG::Access::StorageRead )
-                      .Storage( "VsmDirtyMask", frame.DirtyMask, RDG::Access::StorageRead )
-                      .Storage( "VsmCullInstances", boxes, RDG::Access::StorageRead )
-                      .Storage( "VsmCullDraws", draws, RDG::Access::StorageRead )
-                      .Storage( "VsmCasterArguments", culled.Arguments, RDG::Access::StorageWrite )
-                      .Storage( "VsmInstanceRemap", culled.InstanceRemap, RDG::Access::StorageWrite )
+                      .Storage( VirtualShadowMapCullShaderParameters::VsmFrameData, frame.FrameData,
+                                RDG::Access::StorageRead )
+                      .Storage( VirtualShadowMapCullShaderParameters::VsmDirtyMask, frame.DirtyMask,
+                                RDG::Access::StorageRead )
+                      .Storage( VirtualShadowMapCullShaderParameters::VsmCullInstances, boxes,
+                                RDG::Access::StorageRead )
+                      .Storage( VirtualShadowMapCullShaderParameters::VsmCullDraws, draws,
+                                RDG::Access::StorageRead )
+                      .Storage( VirtualShadowMapCullShaderParameters::VsmCasterArguments, culled.Arguments,
+                                RDG::Access::StorageWrite )
+                      .Storage( VirtualShadowMapCullShaderParameters::VsmInstanceRemap, culled.InstanceRemap,
+                                RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
              },
              [pipeline = kernel.Pipeline, push, grid]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -526,15 +582,20 @@ namespace Desert::Graphic::System
              {
                  pass.Bindings( kernel.Layout.Get( kernel.Program ),
                                 Renderer::GetPipelineRouteFill( *kernel.Pipeline ) )
-                      .Storage( "VsmFrameData", frame.FrameData, RDG::Access::StorageRead )
-                      .Storage( "VsmPageTable", frame.PageTable, RDG::Access::StorageRead )
-                      .Storage( "u_PhysicalPool", frame.PhysicalPool, RDG::Access::StorageRead )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "u_GBufferDepth", view.Depth, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "u_GBufferNormal", view.Normal, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Storage( "u_ShadowMask", mask, RDG::Access::StorageWrite );
+                      .Storage( VirtualShadowMapProjectShaderParameters::VsmFrameData, frame.FrameData,
+                                RDG::Access::StorageRead )
+                      .Storage( VirtualShadowMapProjectShaderParameters::VsmPageTable, frame.PageTable,
+                                RDG::Access::StorageRead )
+                      .Storage( VirtualShadowMapProjectShaderParameters::PhysicalPoolTexture, frame.PhysicalPool,
+                                RDG::Access::StorageRead )
+                      .Sampler( VirtualShadowMapProjectShaderParameters::PointClampSampler,
+                                RDG::SamplerDesc::PointClamp() )
+                      .Texture( VirtualShadowMapProjectShaderParameters::GBufferDepthTexture, view.Depth,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( VirtualShadowMapProjectShaderParameters::GBufferNormalTexture, view.Normal,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Storage( VirtualShadowMapProjectShaderParameters::ShadowMaskTexture, mask,
+                                RDG::Access::StorageWrite );
              },
              [pipeline = kernel.Pipeline, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

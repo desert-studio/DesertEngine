@@ -3,7 +3,9 @@
 #include <Engine/VFX/VFXClock.hpp>
 #include <Engine/VFX/VFXDataChannel.hpp>
 #include <Engine/VFX/VFXEmitterSpawn.hpp>
+#include <Engine/VFX/VFXScalability.hpp>
 
+#include <Engine/Assets/Serialization/VFXEffectType.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 
 #include <glm/glm.hpp>
@@ -15,6 +17,11 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+namespace Desert::Assets
+{
+    class VFXEffectTypeAsset;
+}
 
 namespace Desert::VFX
 {
@@ -45,6 +52,7 @@ namespace Desert::VFX
 
         std::uint32_t NextId = 0; // particle ids handed out since the last reset
         SpawnState    Spawn;      // the births of each step (VFXEmitterSpawn): lifecycle, rate, bursts
+        double        SpawnCountScale = 1.0; // this tick's Effects spawn-count scale (VFXWorld::Tick sets it)
 
         // This tick's steps, in order; empty when the clock ran none or the emitter is disabled.
         std::vector<EmitterStep> Steps;
@@ -74,6 +82,16 @@ namespace Desert::VFX
         entt::entity Entity    = entt::null;
         glm::mat4    Transform = glm::mat4( 1.0f );
         bool         Seen      = false;
+        bool                                                        Seen = false;
+        // THE SCALABILITY STATE (VFX-11, UE FNiagaraScalabilityState), decided by VFXScalability each tick:
+        // Culled = no births this tick (live particles finish unless the reaction is Immediate, which resets the
+        // emitters - a new generation, the GPU zeroes them). Deactivated = culled under a non-Resume reaction: it
+        // stays off, no longer a candidate, until the editor's Restart or a reload of the system.
+        bool          Culled        = false;
+        bool          Deactivated   = false;
+        VFXCullReason Reason        = VFXCullReason::None;
+        double        AgeSeconds    = 0.0; // effects time since the instance (re)started (Age significance)
+        double        HiddenSeconds = 0.0; // outside every view's frustum so far (MaxTimeWithoutRender)
     };
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,
@@ -210,6 +228,25 @@ namespace Desert::VFX
             return m_Channels;
         }
 
+        // A view of this frame reports itself; the next Tick decides from every report (then forgets them). Const
+        // for the same reason as SetGpuState: the renderer is handed a const scene. No report (no view rendered)
+        // = nothing is culled and spawning runs at full scale (a headless world simulates as authored).
+        void SubmitView( const VFXViewReport& view ) const
+        {
+            m_PendingViews.push_back( view );
+        }
+        [[nodiscard]] std::size_t GetCulledSystemCount() const
+        {
+            return m_CulledSystems;
+        }
+
+        /// The effect type NAMED @p name (a `.dfxtype` stem under the project's VFX folder; UE
+        /// UNiagaraEffectType), resolved once per world through VFXSystemService and read LIVE from the held asset
+        /// every tick, so a hot reload or an editor Save reaches the next frame; nullptr when it is missing or
+        /// unreadable (logged once, naming why) - a system of that type then spawns nothing: no type is no
+        /// scalability, and a missing one is an error, not a default.
+        const Assets::Serialization::VFXEffectTypeData* EffectType( const std::string& name );
+
         // Counts Tick calls: a renderer runs one tick's simulation once, in the first view that sees its serial.
         [[nodiscard]] std::uint64_t GetTickSerial() const
         {
@@ -239,5 +276,9 @@ namespace Desert::VFX
         mutable std::unique_ptr<WorldGpuState>             m_GpuState;
         VFXDebugSettings                                   m_DebugSettings;
         std::uint32_t                                      m_FrozenSteps = 0;
+        mutable std::vector<VFXViewReport>                 m_PendingViews; // this frame's views (SubmitView)
+        std::size_t                                        m_CulledSystems = 0;
+        // Resolved effect types by name; a null entry is a type that failed to resolve (logged once).
+        std::unordered_map<std::string, std::shared_ptr<Assets::VFXEffectTypeAsset>> m_EffectTypes;
     };
 } // namespace Desert::VFX

@@ -37,7 +37,7 @@ namespace Desert::Graphic
      *
      * Neither slot was garbage, which is why nothing ever crashed or warned:
      * VulkanMaterialBackend::WriteFallbacks seeds every declared binding before anything real
-     * reaches it. `ShadowUB` therefore held the zero-filled dummy buffer — `u_ShadowParams.y == 0`, so
+     * reaches it. `ShadowUB` therefore held the zero-filled dummy buffer — `ShadowParams.y == 0`, so
      * ShadowFactor() returned 1.0 and the cascades were silently OFF — and the environment trio held
      * its fallback images, which sample BLACK (the fallback cube is created with white pixels, but
      * VulkanImageCube::UploadData is an empty function, so nothing is ever put in it), leaving the

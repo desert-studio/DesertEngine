@@ -10,11 +10,13 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/GpuInstances.hpp>
 
 #include "ParticleGpuLayout.hpp"
 #include "ParticleWorldGpu.hpp"
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -34,6 +36,16 @@ namespace Desert::Graphic::RDG
 namespace Desert::Graphic
 {
     class DataDrivenMaterial;
+}
+
+namespace Desert
+{
+    class Mesh;
+}
+
+namespace Desert::Graphic::System
+{
+    class MeshRenderer;
 }
 
 namespace Desert::Graphic::System
@@ -132,6 +144,16 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr DebugReadback( const RDG::PassContext& context );
         void                                DeclareDebugReadbackBindings( RDG::PassBuilder& pass ) const;
 
+        // VFX-09: every Mesh renderer row of a declared emitter as GPU instances (GpuInstances.hpp, UE
+        // FNiagaraRendererMeshes): one "Particles: Mesh Instances {emitter}.{row}" Compute node writes a transform
+        // per particle the last compact found alive and the instance count of every submesh record, then each
+        // material section is submitted to @p meshes (SubmitGpuInstanced) - drawn by the GBuffer and the shadow
+        // cascades like the grass, lit and shadowed. Every view adds its own (after ImportFrameBuffers, before the
+        // mesh renderer's passes are built).
+        void AddMeshInstances( RDG::Builder& graph, MeshRenderer& meshes );
+        // Whether this frame's view has a Mesh row (PrepareFrame): its instances cast into the cascades.
+        NO_DISCARD bool HasMeshRows() const;
+
     private:
         // One sprite draw per material cell shader in this view: the cell's own DataDrivenMaterial (its descriptor
         // sets from the cell's reflection; the camera block and the Materials rows are written once per frame,
@@ -146,6 +168,46 @@ namespace Desert::Graphic::System
             std::vector<glm::vec4>              Rows; // this frame's Materials rows, one per drawn emitter
         };
 
+        // One Mesh row's GPU instances in this view (GpuInstances.hpp): the mesh, its material sections (the row's
+        // Material over every submesh, or the mesh's own slot materials), the transforms (one mat4 per particle of
+        // the emitter's range) and the argument records, kept across frames and rebuilt when the mesh, the range,
+        // the material or the material service's invalidation version changes.
+        struct MeshInstances
+        {
+            struct Section
+            {
+                MaterialInstancePtr Material;
+                uint64_t            HiddenSubmeshes = 0;
+            };
+            Desert::Mesh*                                   Mesh     = nullptr;
+            uint32_t                                        Capacity = 0;
+            uint32_t                                        Submeshes = 0;
+            Common::AssetHandle                             Material;
+            uint64_t                                        Version = ~uint64_t{ 0 };
+            uint32_t                                        Key     = 0; // stable view-variant key base
+            std::vector<Section>                            Sections;
+            // The mesh whose level table Args holds, its level count (1 = no LOD chain) and the table's first
+            // word in Args (after the records: per level, per submesh {IndexCount, IndexOffset}; then each
+            // level's screen size as float bits; then the level the instances pass reduced this frame).
+            const Desert::Mesh* ArgsMesh = nullptr;
+            uint32_t            Levels   = 1;
+            uint32_t            LodTable = 0;
+            glm::vec4           LocalSphere{ 0.0f }; // the mesh's local bounds: xyz centre, w radius (cm)
+            // 2 x Capacity transforms: [0, Capacity) this frame's, [Capacity, 2 Capacity) the same instances' last
+            // frame's (the view pass's previous world, Vertex_Instanced.glslh through the push's previous-instance
+            // offset; UE NiagaraMeshVertexFactory's PrevPosition / PrevScale / PrevRotation).
+            std::shared_ptr<ShaderResources::StorageBuffer> Instances;
+            std::shared_ptr<ShaderResources::StorageBuffer> Args;
+            // One row per particle of the range (ParticleMeshHistory in ParticleMeshInstances.shader): the
+            // transform the particle was last drawn with, the view frame (m_MeshFrame) and its pool slot's Id
+            // then.
+            std::shared_ptr<ShaderResources::StorageBuffer> History;
+            RDG::ExternalBuffer                             InstancesImport;
+            RDG::ExternalBuffer                             ArgsImport;
+            RDG::ExternalBuffer                             HistoryImport;
+            GpuInstanceRefs                                 Refs;
+        };
+
         // One emitter's material in this view: the asset its instance was built from, the runtime instance of
         // that asset's ParticleSprite cell (null = the cell's defaults), and the asset last refused (the refusal
         // is said once per (emitter, material)).
@@ -154,7 +216,28 @@ namespace Desert::Graphic::System
             Common::AssetHandle Handle;
             MaterialInstancePtr Instance;
             Common::AssetHandle Refused;
-            bool                HasRefused = false;
+            bool                HasRefused  = false;
+            bool                MeshRefused = false; // a Mesh row whose mesh or materials do not resolve, said once
+            MeshInstances       Meshes;              // a Mesh row's GPU instances
+        };
+        // One renderer row's material: (the emitter's index in its system, the row's index in its Renderers).
+        using RendererKey      = std::pair<uint32_t, uint32_t>;
+        using EmitterMaterials = std::map<RendererKey, EmitterMaterial>;
+
+        // One draw of a renderer row in this view (UE: one FNiagaraRenderer of the emitter).
+        struct ViewDraw
+        {
+            SpriteDraw*       Sprite   = nullptr;
+            MaterialInstance* Instance = nullptr; // the row's own (null = the cell's defaults)
+            uint32_t          Row      = 0;       // the draw's row in Sprite->Rows this frame
+        };
+
+        // One Mesh row of an emitter this frame: its GPU instances and the row's Scale.
+        struct ViewMesh
+        {
+            MeshInstances* State = nullptr;
+            glm::vec3      Scale = glm::vec3( 1.0f );
+            uint32_t       Row   = 0;
         };
 
         // This view's imports of the scene's pool.
@@ -174,9 +257,8 @@ namespace Desert::Graphic::System
         struct ViewEmitter
         {
             const ParticleFrameEmitter* Frame    = nullptr;
-            SpriteDraw*                 Sprite   = nullptr;
-            MaterialInstance*           Instance = nullptr; // the emitter's own (null = the cell's defaults)
-            uint32_t                    Row      = 0;       // the emitter's row in Sprite->Rows this frame
+            std::vector<ViewDraw>       Draws; // one per drawn renderer row, in `.dfx` order
+            std::vector<ViewMesh>       Meshes; // one per Mesh renderer row whose mesh resolved
             RDG::ExternalBuffer         StepsImport;
             RDG::ExternalBuffer         CountersImport;
             RDG::ExternalBuffer         ArgsImport;
@@ -201,6 +283,7 @@ namespace Desert::Graphic::System
             bool                        Debugged = false;
             bool                        Declared = false;
             bool                        Sorted   = false; // the draw reads m_SortedRef, not AliveList
+            bool                        Ribboned = false; // its ribbon link order is in m_RibbonRef
         };
 
         bool CreatePipelines();
@@ -215,18 +298,29 @@ namespace Desert::Graphic::System
         bool RunsDebug( const ViewEmitter& ve ) const;
         // The sprite draw of @p cellShader in this view, built on first use (null = refused, said once by name).
         SpriteDraw* SpriteDrawFor( const std::string& cellShader );
-        // The sprite draw emitter @p entityId draws with this frame (its material @p handle's ParticleSprite cell,
-        // or the default cell with the refusal logged once), its runtime instance kept in @p material.
-        SpriteDraw* ResolveSprite( uint32_t entityId, const Common::AssetHandle& handle,
+        // The draw renderer row @p row of @p fe draws with this frame: the row's material's cell of the row's
+        // vertex path (Sprite: ParticleSprite.Forward, Ribbon: ParticleRibbon.Forward), or that path's engine
+        // default cell with the refusal logged once; its runtime instance kept in @p material.
+        SpriteDraw* ResolveSprite( const ParticleFrameEmitter& fe, const ParticleFrameRenderer& row,
                                    EmitterMaterial& material );
+        // The Mesh row's mesh and material sections, and its instance / argument buffers sized to the emitter's
+        // range; false = the row sits the frame out (still loading, or refused once aloud by name).
+        bool ResolveMesh( const ParticleFrameEmitter& fe, const ParticleFrameRenderer& row,
+                          EmitterMaterial& material );
 
         std::shared_ptr<ComputePipeline> m_CompactPipeline;
         std::shared_ptr<ComputePipeline> m_ArgsPipeline;
         std::shared_ptr<ComputePipeline> m_DebugPipeline;
         std::shared_ptr<ComputePipeline> m_SortPipeline;
+        std::shared_ptr<ComputePipeline> m_MeshPipeline; // ParticleMeshInstances
+        mutable ShaderBindingLayoutCache m_MeshLayout;
+        uint32_t                         m_NextMeshKey = 0;
+        uint32_t m_MeshFrame = 1; // AddMeshInstances calls + 1: the history's frame stamp (the
+        // first frame is 2, so a zeroed history row - stamp 0 - is never "the previous frame")
         mutable ShaderBindingLayoutCache m_SortLayout;
         RDG::BufferRef                   m_SortKeysRef;
         RDG::BufferRef                   m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
+        RDG::BufferRef                   m_RibbonRef; // this view's RibbonOrder, valid while any ve.Ribboned
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
         // Per stack host program (ParticleWorldGpu's, alive with the scene's GPU state).
         mutable std::unordered_map<const ComputePipeline*, ShaderBindingLayoutCache> m_SimLayouts;
@@ -236,11 +330,14 @@ namespace Desert::Graphic::System
 
         // The ParticleSpriteDefault template's ParticleSprite.Forward cell (Initialize refuses without it).
         std::string m_DefaultCell;
+        // The ParticleRibbonDefault template's ParticleRibbon.Forward cell (UE DefaultRibbonMaterial; Initialize
+        // refuses without it).
+        std::string m_DefaultRibbonCell;
         // Per cell shader, per view (a draw's camera block is the view's). Null = that cell was refused.
         std::unordered_map<std::string, std::unique_ptr<SpriteDraw>> m_Sprites;
-        // Per emitter (raw entt entity value), per view.
-        std::unordered_map<uint32_t, EmitterMaterial> m_Materials;
-        const ParticleWorldGpu*                       m_World     = nullptr;
+        // Per entity (raw entt entity value), per (emitter, renderer row), per view.
+        std::unordered_map<uint32_t, EmitterMaterials> m_Materials;
+        const ParticleWorldGpu*                        m_World     = nullptr;
         bool                                          m_Simulates = false;
         std::vector<ViewEmitter>                      m_ViewEmitters;
         ViewPool                                      m_Pool;

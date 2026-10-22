@@ -274,9 +274,9 @@ namespace Desert::Graphic::GlobalIllumination
     struct ScreenProbeGatherFrame
     {
         RDG::TextureRef
-             Diffuse; // rgb = irradiance / pi, a = distance to the camera — "u_GIDiffuse" in the composite
-        RDG::TextureRef Specular; // rgb = radiance in the reflection direction — "u_GISpecular" in the composite
-        RDG::TextureRef Backface; // rgb = irradiance / pi from -N (a two-sided leaf's) — "u_GIBackface"
+             Diffuse; // rgb = irradiance / pi, a = distance to the camera — "GiDiffuseTexture" in the composite
+        RDG::TextureRef Specular; // rgb = radiance in the reflection direction — "GiSpecularTexture" in the composite
+        RDG::TextureRef Backface; // rgb = irradiance / pi from -N (a two-sided leaf's) — "GiBackfaceTexture"
         bool ShortRangeAO = false; // Diffuse and Specular carry the short-range AO: the composite applies no SSAO
     };
 

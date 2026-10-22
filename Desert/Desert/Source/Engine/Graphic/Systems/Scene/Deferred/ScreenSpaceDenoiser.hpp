@@ -25,6 +25,51 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ScreenSpaceDenoiserReconstructShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, SsrTraceTexture );
+        DESERT_SHADER_PARAMETER( Texture, TraceRayTexture );
+        DESERT_SHADER_PARAMETER( Texture, TileMaskTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, ReconstructedSignalTexture );
+        DESERT_SHADER_PARAMETER( UniformBuffer, DenoiserViewUB );
+        DESERT_SHADER_PARAMETER( Texture, RawSignalTexture );
+        DESERT_SHADER_PARAMETER( Texture, ClosestOccluderTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ScreenSpaceDenoiserTemporalShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, ReconstructedSignalTexture );
+        DESERT_SHADER_PARAMETER( Texture, SsrTraceTexture );
+        DESERT_SHADER_PARAMETER( Texture, TraceRayTexture );
+        DESERT_SHADER_PARAMETER( Texture, AccumulatedSignalTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, HistoryCountTexture );
+        DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, NewHistoryCountTexture );
+        DESERT_SHADER_PARAMETER( UniformBuffer, DenoiserViewUB );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ScreenSpaceDenoiserConvolutionShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, AccumulatedSignalTexture );
+        DESERT_SHADER_PARAMETER( Texture, HistoryCountTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DenoisedSignalTexture );
+        DESERT_SHADER_PARAMETER( UniformBuffer, DenoiserViewUB );
+    };
+
     // Which signal a denoiser instance serves (the shaders' kSSDSignal*, Common/ScreenSpaceDenoise.glslh).
     enum class DenoiserSignal : uint8_t
     {
@@ -186,23 +231,26 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_ReconstructLayout.Get( m_ReconstructShader ),
                                     Renderer::GetPipelineRouteFill( *m_ReconstructPipeline ) )
-                          .Texture( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
+                          .Texture( ScreenSpaceDenoiserReconstructShaderParameters::GBufferNormalTexture,
+                                    scene.GBufferNormal, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Texture( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Texture( "u_Trace", in.Trace, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( 0 ) )
-                          .Texture( "u_TraceRay", in.TraceRay, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( 0 ) )
-                          .Texture( "u_TileMask", in.TileMask, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( 0 ) )
-                          .Storage( "u_Signal", signal, RDG::Access::StorageWrite )
-                          .Uniform( "DenoiserViewUB", uniforms )
+                          .Sampler( ScreenSpaceDenoiserReconstructShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Texture( ScreenSpaceDenoiserReconstructShaderParameters::GBufferDepthTexture,
+                                    scene.GBufferDepth, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Texture( ScreenSpaceDenoiserReconstructShaderParameters::SsrTraceTexture, in.Trace,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( 0 ) )
+                          .Texture( ScreenSpaceDenoiserReconstructShaderParameters::TraceRayTexture, in.TraceRay,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( 0 ) )
+                          .Texture( ScreenSpaceDenoiserReconstructShaderParameters::TileMaskTexture, in.TileMask,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( 0 ) )
+                          .Storage( ScreenSpaceDenoiserReconstructShaderParameters::ReconstructedSignalTexture,
+                                    signal, RDG::Access::StorageWrite )
+                          .Uniform( ScreenSpaceDenoiserReconstructShaderParameters::DenoiserViewUB, uniforms )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
                  },
-                 [this, seed = in.TraceSeed, radius = in.ReconstructionRadius, factor = in.DownsampleFactor,
-                  width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, seed = in.TraceSeed, radius = in.ReconstructionRadius, factor = in.DownsampleFactor, width,
+                  height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Denoise: Reflections Reconstruction" );
                      const glm::vec4 push( static_cast<float>( seed ), static_cast<float>( radius ),
@@ -267,14 +315,18 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_ReconstructLayout.Get( m_ReconstructShader ),
                                     Renderer::GetPipelineRouteFill( *m_ReconstructPipeline ) )
-                          .Texture( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
+                          .Texture( ScreenSpaceDenoiserReconstructShaderParameters::GBufferNormalTexture,
+                                    scene.GBufferNormal, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Texture( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Texture( "u_Input", input, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                          .Storage( "u_Signal", signal, RDG::Access::StorageWrite )
-                          .Uniform( "DenoiserViewUB", uniforms )
+                          .Sampler( ScreenSpaceDenoiserReconstructShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Texture( ScreenSpaceDenoiserReconstructShaderParameters::GBufferDepthTexture,
+                                    scene.GBufferDepth, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Texture( ScreenSpaceDenoiserReconstructShaderParameters::RawSignalTexture, input,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Storage( ScreenSpaceDenoiserReconstructShaderParameters::ReconstructedSignalTexture,
+                                    signal, RDG::Access::StorageWrite )
+                          .Uniform( ScreenSpaceDenoiserReconstructShaderParameters::DenoiserViewUB, uniforms )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -320,16 +372,20 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_ReconstructLayout.Get( m_ReconstructShader ),
                                     Renderer::GetPipelineRouteFill( *m_ReconstructPipeline ) )
-                          .Texture( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
+                          .Texture( ScreenSpaceDenoiserReconstructShaderParameters::GBufferNormalTexture,
+                                    scene.GBufferNormal, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Texture( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Texture( "u_Mask", in.Mask, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                          .Texture( "u_ClosestOccluder", in.ClosestOccluder, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Storage( "u_Signal", signal, RDG::Access::StorageWrite )
-                          .Uniform( "DenoiserViewUB", uniforms )
+                          .Sampler( ScreenSpaceDenoiserReconstructShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Texture( ScreenSpaceDenoiserReconstructShaderParameters::GBufferDepthTexture,
+                                    scene.GBufferDepth, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Texture( ScreenSpaceDenoiserReconstructShaderParameters::RawSignalTexture, in.Mask,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Texture( ScreenSpaceDenoiserReconstructShaderParameters::ClosestOccluderTexture,
+                                    in.ClosestOccluder, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Storage( ScreenSpaceDenoiserReconstructShaderParameters::ReconstructedSignalTexture,
+                                    signal, RDG::Access::StorageWrite )
+                          .Uniform( ScreenSpaceDenoiserReconstructShaderParameters::DenoiserViewUB, uniforms )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -509,26 +565,32 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_TemporalLayout.Get( m_TemporalShader ),
                                     Renderer::GetPipelineRouteFill( *m_TemporalPipeline ) )
-                          .Texture( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
+                          .Texture( ScreenSpaceDenoiserTemporalShaderParameters::GBufferNormalTexture,
+                                    scene.GBufferNormal, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Texture( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Texture( "u_Signal", signal, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                          .Texture( "u_Trace", trace, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( 0 ) )
-                          .Texture( "u_TraceRay", traceRay, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( 0 ) )
-                          .Texture( "u_History", history[0], RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                          .Texture( "u_HistoryCount", history[1], RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Texture( "u_Velocity", scene.Velocity, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Storage( "u_NewHistory", written[0], RDG::Access::StorageWrite )
-                          .Storage( "u_NewHistoryCount", written[1], RDG::Access::StorageWrite )
-                          .Uniform( "DenoiserViewUB", uniforms )
+                          .Sampler( ScreenSpaceDenoiserTemporalShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Texture( ScreenSpaceDenoiserTemporalShaderParameters::GBufferDepthTexture,
+                                    scene.GBufferDepth, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Texture( ScreenSpaceDenoiserTemporalShaderParameters::ReconstructedSignalTexture,
+                                    signal, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Texture( ScreenSpaceDenoiserTemporalShaderParameters::SsrTraceTexture, trace,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( 0 ) )
+                          .Texture( ScreenSpaceDenoiserTemporalShaderParameters::TraceRayTexture, traceRay,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( 0 ) )
+                          .Texture( ScreenSpaceDenoiserTemporalShaderParameters::AccumulatedSignalTexture,
+                                    history[0], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Sampler( ScreenSpaceDenoiserTemporalShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Texture( ScreenSpaceDenoiserTemporalShaderParameters::HistoryCountTexture, history[1],
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Texture( ScreenSpaceDenoiserTemporalShaderParameters::VelocityTexture, scene.Velocity,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Storage( ScreenSpaceDenoiserTemporalShaderParameters::NewHistoryTexture, written[0],
+                                    RDG::Access::StorageWrite )
+                          .Storage( ScreenSpaceDenoiserTemporalShaderParameters::NewHistoryCountTexture,
+                                    written[1], RDG::Access::StorageWrite )
+                          .Uniform( ScreenSpaceDenoiserTemporalShaderParameters::DenoiserViewUB, uniforms )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
                  },
                  [this, temporalPush, stamped, index = frame.FrameIndex, width,
@@ -554,17 +616,20 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_ConvolutionLayout.Get( m_ConvolutionShader ),
                                     Renderer::GetPipelineRouteFill( *m_ConvolutionPipeline ) )
-                          .Texture( "u_GBufferNormal", scene.GBufferNormal, RDG::Access::SampledCompute,
+                          .Texture( ScreenSpaceDenoiserConvolutionShaderParameters::GBufferNormalTexture,
+                                    scene.GBufferNormal, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Texture( "u_GBufferDepth", scene.GBufferDepth, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Texture( "u_History", written[0], RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Texture( "u_HistoryCount", written[1], RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Storage( "u_Output", output, RDG::Access::StorageWrite )
-                          .Uniform( "DenoiserViewUB", uniforms )
+                          .Sampler( ScreenSpaceDenoiserConvolutionShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Texture( ScreenSpaceDenoiserConvolutionShaderParameters::GBufferDepthTexture,
+                                    scene.GBufferDepth, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Texture( ScreenSpaceDenoiserConvolutionShaderParameters::AccumulatedSignalTexture,
+                                    written[0], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Texture( ScreenSpaceDenoiserConvolutionShaderParameters::HistoryCountTexture,
+                                    written[1], RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Storage( ScreenSpaceDenoiserConvolutionShaderParameters::DenoisedSignalTexture, output,
+                                    RDG::Access::StorageWrite )
+                          .Uniform( ScreenSpaceDenoiserConvolutionShaderParameters::DenoiserViewUB, uniforms )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
                  },
                  [this, convolutionPush, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr

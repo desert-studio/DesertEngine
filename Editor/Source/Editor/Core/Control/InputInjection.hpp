@@ -75,6 +75,9 @@ namespace Desert::Editor::Control
         return lower;
     }
 
+    /// "shift+ctrl" -> kModShift | kModControl: the modifiers a pointer drag holds. Empty = none.
+    [[nodiscard]] inline Common::ResultStr<int32_t> ParseInputModifiers( std::string_view text );
+
     [[nodiscard]] inline Common::ResultStr<InputChord> ParseInputChord( std::string_view text )
     {
         InputChord  chord;
@@ -116,6 +119,30 @@ namespace Desert::Editor::Control
             break;
         }
         return Common::MakeSuccess( std::move( chord ) );
+    }
+
+    [[nodiscard]] inline Common::ResultStr<int32_t> ParseInputModifiers( std::string_view text )
+    {
+        int32_t     mods  = 0;
+        std::size_t start = 0;
+        while ( start < text.size() )
+        {
+            const std::size_t plus = text.find( '+', start );
+            const std::string part = LowerInputName(
+                 text.substr( start, plus == std::string_view::npos ? std::string_view::npos : plus - start ) );
+            const InputKeyName* modifier = nullptr;
+            for ( const InputKeyName& candidate : kInputModifiers )
+                if ( candidate.Name == part )
+                    modifier = &candidate;
+            if ( modifier == nullptr )
+                return Common::MakeFormattedError<int32_t>(
+                     "'{}' in '{}' is not a modifier: shift, ctrl, alt, super (cmd).", part, text );
+            mods |= modifier->ModBit;
+            if ( plus == std::string_view::npos )
+                break;
+            start = plus + 1;
+        }
+        return Common::MakeSuccess( mods );
     }
 
     [[nodiscard]] inline InputStep MakeInputStep( InputAction action, float x, float y, int32_t code = 0,

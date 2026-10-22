@@ -12,6 +12,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 #include <Editor/Core/Selection/FoliagePaint.hpp>
+#include <Editor/Core/Selection/FoliageToolProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Panels/Foliage/FoliagePalette.hpp>
@@ -21,6 +22,8 @@
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -58,16 +61,21 @@ namespace Desert::Editor::Tools
             return pressed;
         }
 
-        // The mesh's LOD 0 triangles (what one instance submits at full detail).
-        uint64_t TrianglesOf( const Assets::AssetManager* manager, const Assets::AssetHandle& mesh )
+        // The mesh's LOD 0 triangles (what one instance submits at full detail), read from the mesh the field's
+        // ISM DRAWS - MeshService's built mesh for the handle. Asking the AssetManager instead answered 0 for a
+        // type whose mesh the paint tool only discovered (FoliagePaintTool::AddField -> DiscoverMesh: the
+        // shell lives in MeshService, never in the manager), so a drawn field read "0 tri" (FB_TreeB). Get
+        // never reads a file: a mesh still in flight answers 0 until it lands, like the draw.
+        uint64_t TrianglesOf( const Assets::AssetHandle& mesh )
         {
-            if ( !manager || !mesh )
+            auto* service = Runtime::ResourceRegistry::GetMeshService();
+            if ( !service || !mesh )
                 return 0;
-            const auto asset = manager->FindByHandle<Assets::MeshAsset>( mesh );
-            if ( !asset || !asset->IsReadyForUse() )
+            const auto* built = service->Get( mesh );
+            if ( !built )
                 return 0;
             uint64_t triangles = 0;
-            for ( const auto& submesh : asset->GetSubmeshes() )
+            for ( const auto& submesh : built->GetSubmeshes() )
                 triangles += submesh.IndexCount / 3u;
             return triangles;
         }
@@ -300,7 +308,8 @@ namespace Desert::Editor::Tools
         {
             Row::BeginPropertyRow( "Brush Size", "The brush radius, cm" );
             ImGui::SetNextItemWidth( -1 );
-            ImGui::SliderFloat( "##BrushSize", &Core::FoliagePaint::BrushRadius(), 50.0f, 6000.0f, "%.0f cm" );
+            ImGui::SliderFloat( "##BrushSize", &Core::FoliagePaint::BrushRadius(), Core::kFoliageBrushSizeMin,
+                                Core::kFoliageBrushSizeMax, "%.0f cm" );
             Row::EndPropertyRow();
             Row::BeginPropertyRow( "Paint Density",
                                    "Share of each type's Density one dab tops up to (UE PaintDensity)" );
@@ -535,7 +544,7 @@ namespace Desert::Editor::Tools
                     const auto cost      = Foliage::MeasureFoliageTypeCost(
                          instances,
                          type ? type->GetData().CullDistance : Assets::Serialization::FoliageFloatInterval{},
-                         Core::FoliagePaint::ViewPosition(), TrianglesOf( assetManager, ism.MeshHandle ), hidden );
+                         Core::FoliagePaint::ViewPosition(), TrianglesOf( ism.MeshHandle ), hidden );
 
                     ImGui::PushID( static_cast<int>( static_cast<uint64_t>( uuid ) ) );
                     ImGui::TableNextRow();
@@ -643,6 +652,12 @@ namespace Desert::Editor::Tools
             ImGui::SameLine();
             if ( ImGui::Button( ICON_MDI_CONTENT_SAVE_ALL " Save Preset", ImVec2( -1, 0 ) ) && manager )
                 Report( SavePreset( scene, *manager, Core::FoliagePaint::PresetName() ) );
+            // WP22-REST: every field of every type filed again by the cell of its own grid (one undo step) -
+            // after a grid's CellSize changed, the fields still carry the old cut. Only a partitioned world has
+            // cells to file by.
+            if ( scene.GetWorldPartition().has_value() &&
+                 ImGui::Button( ICON_MDI_GRID " Repartition foliage", ImVec2( -1, 0 ) ) )
+                Report( RepartitionFoliage( scene ) );
         }
 
         // ----- Details of the type being edited (UE: the palette's details panel) ---------------------------

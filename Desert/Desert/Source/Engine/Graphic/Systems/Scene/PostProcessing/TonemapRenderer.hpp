@@ -11,6 +11,19 @@
 
 namespace Desert::Graphic::System
 {
+    // The shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct TonemapShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, GeometryTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Texture, AverageLuminanceTexture );
+        DESERT_SHADER_PARAMETER( Texture, BloomTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, LightShaftTexture );
+        DESERT_SHADER_PARAMETER( Texture, LensFlareTexture );
+        static constexpr std::array kAll{ RDG::Erase( GeometryTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( AverageLuminanceTexture ), RDG::Erase( BloomTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( LightShaftTexture ), RDG::Erase( LensFlareTexture ) };
+    };
+
     class TonemapRenderer final : public RenderSystem
     {
     public:
@@ -46,8 +59,8 @@ namespace Desert::Graphic::System
         // their nodes ran this frame, otherwise System.Black with that effect's intensity 0 for this draw.
         struct GraphInputs
         {
-            RDG::TextureRef Source;       // the scene colour (u_GeometryTexture), imported
-            RDG::TextureRef AvgLuminance; // the adapted luminance (u_AvgLuminance); System.White without one
+            RDG::TextureRef Source;       // the scene colour (GeometryTexture), imported
+            RDG::TextureRef AvgLuminance; // the adapted luminance (AverageLuminanceTexture); System.White without one
             RDG::TextureRef Bloom;
             bool            BloomProduced = false;
             RDG::TextureRef LightShafts;

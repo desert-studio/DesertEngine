@@ -69,7 +69,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>             DefaultSurfaceProgram( MeshVertexPath path, MeshPass pass );
         std::shared_ptr<DataDrivenMaterial> CreateCellMaterial( MeshVertexPath path,
                                                                 MeshPass       pass = MeshPass::Forward );
-        std::string                         MeshPathOwnBufferName( MeshVertexPath path );
+        std::optional<RDG::StorageBufferParameter> MeshPathOwnBuffer( MeshVertexPath path );
         // Defined in MeshRendererForward.cpp. A Shader Override draw's material: the texture half of its identity
         // (two draws share a material only with the same textures), and its overrides written into it. @p
         // logRefused: false for a program that declares only what it reads (the deferred depth-normal slice),
@@ -95,7 +95,7 @@ namespace Desert::Graphic::System
     using MeshRendererDetail::EffectiveRow;
     using MeshRendererDetail::GenericTextureKey;
     using MeshRendererDetail::IsTranslucent;
-    using MeshRendererDetail::MeshPathOwnBufferName;
+    using MeshRendererDetail::MeshPathOwnBuffer;
     using MeshRendererDetail::SectionSurface;
     using MeshRendererDetail::SurfaceSlot;
 

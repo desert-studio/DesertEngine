@@ -4,7 +4,7 @@ Shader "AEHistogram"
     Compute
     {
         // Auto-exposure histogram build: one thread per scene texel computes log2 luminance, maps it into one of
-        // 256 bins over [u_MinLogLum, u_MinLogLum + 1/u_InvLogLumRange], and increments that bin. The full-frame
+        // 256 bins over [MinLogLuminance, MinLogLuminance + 1/InverseLogLuminanceRange], and increments that bin. The full-frame
         // histogram lets AEAverage meter with percentile clipping (robust to bright/dark outliers).
         //
         // TWO-LEVEL accumulation (the classic exposure-histogram pattern): threads first accumulate into a
@@ -16,19 +16,19 @@ Shader "AEHistogram"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform sampler u_PointClampSampler;
-        Uniform(0) texture2D u_Scene;
-        #define u_Scene sampler2D(u_Scene, u_PointClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(0) texture2D SceneColorTexture;
+        #define SceneColorTexture sampler2D(SceneColorTexture, PointClampSampler)
         Buffer(1) Histogram
         {
-            uint u_Bins[256];
+            uint Bins[256];
         };
 
         PushConstant PushConstants
         {
-            float u_MinLogLum;      // log2 of the darkest metered luminance
-            float u_InvLogLumRange; // 1 / (log2 range)
-            float u_InvPreExposure; // 1 / ViewFrame::PreExposure: the scene colour is stored pre-exposed
+            float MinLogLuminance;      // log2 of the darkest metered luminance
+            float InverseLogLuminanceRange; // 1 / (log2 range)
+            float InversePreExposure; // 1 / ViewFrame::PreExposure: the scene colour is stored pre-exposed
         };
 
         shared uint s_Bins[256];
@@ -44,11 +44,11 @@ Shader "AEHistogram"
             s_Bins[local]    = 0u;
             barrier();
 
-            ivec2 size  = textureSize( u_Scene, 0 );
+            ivec2 size  = textureSize( SceneColorTexture, 0 );
             ivec2 coord = ivec2( gl_GlobalInvocationID.xy );
             if ( coord.x < size.x && coord.y < size.y )
             {
-                float l = Luminance( texelFetch( u_Scene, coord, 0 ).rgb ) * u_InvPreExposure;
+                float l = Luminance( texelFetch( SceneColorTexture, coord, 0 ).rgb ) * InversePreExposure;
 
                 uint bin;
                 if ( l < 1e-5 )
@@ -57,7 +57,7 @@ Shader "AEHistogram"
                 }
                 else
                 {
-                    float t = clamp( ( log2( l ) - u_MinLogLum ) * u_InvLogLumRange, 0.0, 1.0 );
+                    float t = clamp( ( log2( l ) - MinLogLuminance ) * InverseLogLuminanceRange, 0.0, 1.0 );
                     bin     = uint( t * 255.0 + 0.5 );
                 }
 
@@ -67,7 +67,7 @@ Shader "AEHistogram"
 
             const uint count = s_Bins[local];
             if ( count > 0u )
-                atomicAdd( u_Bins[local], count );
+                atomicAdd( Bins[local], count );
         }
     }
 }

@@ -4,6 +4,7 @@
 #include "Editor/Core/Commands/CommandRegistry.hpp"
 #include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
+#include "Editor/Core/Commands/WorldPartitionEditCommand.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp"
 #include "Editor/Core/Control/InputInjection.hpp"
 #include "Editor/Core/Control/PointerDrag.hpp"
@@ -13,6 +14,8 @@
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/Selection/ModelingState.hpp"
 #include "Editor/Core/Selection/ModelingStateProperties.hpp"
+#include "Editor/Core/Selection/FoliageToolProperties.hpp"
+#include "Editor/Core/Selection/ViewportMode.hpp"
 #include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
 #include "Editor/Core/SubjectOpenRequest.hpp"
@@ -38,6 +41,8 @@
 #include <ImGui/imgui_internal.h>
 
 #include <charconv>
+#include <Common/Json/Json.hpp>
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <format>
 
 namespace Desert::Editor
@@ -58,6 +63,17 @@ namespace Desert::Editor
             return Common::MakeSuccess( ECS::Entity( ref->get() ) );
         }
 
+        // Subject::Tool — the tool settings of the active editor mode; only Foliage carries them as rows
+        // (Landscape's are palette entries, group 'Landscape'; Modeling's are subject 'modeling').
+        Common::BoolResultStr ToolSubjectAvailable()
+        {
+            if ( Core::ViewportMode::IsFoliage() )
+                return Common::MakeSuccess( true );
+            return Common::MakeError<bool>(
+                 "subject 'tool' is the active mode's tool settings and Foliage mode is not on; run 'Foliage "
+                 "mode' first (Modeling's values are subject 'modeling', Landscape's are palette entries)" );
+        }
+
         Common::Json::Object ReflectedRowsToJson( const std::string&                    subject,
                                                   const std::vector<ReflectedFieldRow>& rows )
         {
@@ -74,6 +90,83 @@ namespace Desert::Editor
             payload["subject"]    = Control::StateDetail::Str( subject );
             payload["properties"] = Common::Json::Value( entries );
             return payload;
+        }
+
+        // THE WORLD'S PARTITION AS ROWS: the whole block as JSON, then each grid's fields by the grid's name.
+        void AppendWorldPartitionRows( const ::Desert::Core::Scene& scene, std::vector<ReflectedFieldRow>& rows )
+        {
+            const auto& partition = scene.GetWorldPartition();
+            if ( !partition )
+                return;
+            rows.push_back( { "WorldPartition", "json", Common::Json::Write( *partition ) } );
+            for ( const ::Desert::Core::WorldPartitionGridSerialized& grid : partition->Grids )
+            {
+                const std::string at = "WorldPartition.Grids." + grid.Name + ".";
+                rows.push_back( { at + "Name", "string", grid.Name } );
+                rows.push_back( { at + "CellSize", "float", std::format( "{}", grid.CellSize ) } );
+                rows.push_back( { at + "LoadingRange", "float", std::format( "{}", grid.LoadingRange ) } );
+                rows.push_back( { at + "Priority", "int", std::format( "{}", grid.Priority ) } );
+                rows.push_back( { at + "HLODLayer", "string", grid.HLODLayer.value_or( "" ) } );
+            }
+        }
+
+        // `set world WorldPartition <json>` (the whole block) or `set world WorldPartition.Grids.<Name>.<Field>
+        // <text>`: the block after the edit, committed through the panel's own EditWorldPartition (one undo step).
+        Common::BoolResultStr SetWorldPartitionProperty( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                         const std::string& property, const std::string& text )
+        {
+            ::Desert::Core::WorldPartitionSerialized after;
+            if ( property == "WorldPartition" )
+            {
+                auto parsed = Common::Json::Read<::Desert::Core::WorldPartitionSerialized>( text );
+                if ( !parsed )
+                    return Common::MakeError<bool>( "WorldPartition: " + parsed.GetError() );
+                after = std::move( parsed.GetValue() );
+            }
+            else
+            {
+                constexpr std::string_view kGrids  = "WorldPartition.Grids.";
+                const auto&                current = scene->GetWorldPartition();
+                if ( !current )
+                    return Common::MakeError<bool>( std::string(
+                         "the world is not partitioned; set 'WorldPartition' to the whole block first" ) );
+                const std::size_t dot = property.rfind( '.' );
+                if ( !property.starts_with( kGrids ) || dot < kGrids.size() )
+                    return Common::MakeError<bool>( std::format(
+                         "'{}' is not WorldPartition or WorldPartition.Grids.<Name>.<Field>", property ) );
+                const std::string name  = property.substr( kGrids.size(), dot - kGrids.size() );
+                const std::string field = property.substr( dot + 1 );
+                after                   = *current;
+                const auto index = ::Desert::Core::Rules::GridIndexOf( after, std::optional<std::string>( name ) );
+                if ( !index )
+                    return Common::MakeError<bool>( std::format( "the world states no grid '{}'", name ) );
+                ::Desert::Core::WorldPartitionGridSerialized& grid = after.Grids[*index];
+                try
+                {
+                    std::size_t used = 0;
+                    if ( field == "Name" )
+                        grid.Name = text;
+                    else if ( field == "HLODLayer" )
+                        grid.HLODLayer = text.empty() ? std::nullopt : std::optional<std::string>( text );
+                    else if ( field == "CellSize" )
+                        grid.CellSize = std::stof( text, &used );
+                    else if ( field == "LoadingRange" )
+                        grid.LoadingRange = std::stof( text, &used );
+                    else if ( field == "Priority" )
+                        grid.Priority = std::stoi( text, &used );
+                    else
+                        return Common::MakeError<bool>( std::format(
+                             "a grid's fields are Name, CellSize, LoadingRange, Priority, HLODLayer; not '{}'",
+                             field ) );
+                    if ( used != 0 && used != text.size() )
+                        throw std::invalid_argument( text );
+                }
+                catch ( const std::exception& )
+                {
+                    return Common::MakeError<bool>( std::format( "'{}' is not a value for {}", text, property ) );
+                }
+            }
+            return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
         }
     } // namespace
     // =============================================================================================
@@ -378,6 +471,11 @@ namespace Desert::Editor
                 // Named on the wire so a report cannot quote a viewport capture as a picture of the
                 // editor. The two are different subjects and only one of them contains an interface.
                 payload["subject"] = rfl::Generic( std::string( window ? "window" : "viewport" ) );
+                // The unit a caller must divide by to aim `drag` / `input` from this picture: the window
+                // capture is the swapchain, in framebuffer pixels; the viewport capture is drawn at the
+                // viewport's size in points, so it is already in the channel's one unit.
+                payload["pixelsPerPoint"] = rfl::Generic(
+                     window ? static_cast<double>( ::ImGui::GetIO().DisplayFramebufferScale.x ) : 1.0 );
                 reply              = Control::Response::Success( m_ControlInFlight->Id, std::move( payload ) );
             }
             else
@@ -479,16 +577,28 @@ namespace Desert::Editor
                                                       camera->GetFOV() ) ) );
                 }
 
+                if ( request.Whose == Control::Subject::Tool )
+                {
+                    if ( const auto on = ToolSubjectAvailable(); !on )
+                        return Control::Response::Failure( request.Id, on.GetError() );
+                    std::vector<ReflectedFieldRow> rows;
+                    for ( const Core::FoliageToolRow& row : Core::kFoliageToolRows )
+                        rows.push_back( { std::string( row.Name ), Core::FoliageToolRowType( row ),
+                                          Core::FoliageToolRowText( row ) } );
+                    return Control::Response::Success( request.Id, ReflectedRowsToJson( "tool", rows ) );
+                }
                 if ( request.Whose == Control::Subject::Entity || request.Whose == Control::Subject::World )
                 {
                     auto scene = m_Workspace.ActiveScene();
                     if ( !scene )
                         return Control::Response::Failure( request.Id, "no scene is open" );
                     if ( request.Whose == Control::Subject::World )
-                        return Control::Response::Success(
-                             request.Id,
-                             ReflectedRowsToJson(
-                                  "world", DescribeReflectedFields( "SceneSettings", &scene->GetSettings() ) ) );
+                    {
+                        std::vector<ReflectedFieldRow> rows =
+                             DescribeReflectedFields( "SceneSettings", &scene->GetSettings() );
+                        AppendWorldPartitionRows( *scene, rows );
+                        return Control::Response::Success( request.Id, ReflectedRowsToJson( "world", rows ) );
+                    }
                     auto entity = ControlEntity( *scene, request.Entity );
                     if ( !entity )
                         return Control::Response::Failure( request.Id, entity.GetError() );
@@ -548,6 +658,15 @@ namespace Desert::Editor
                     Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
                     return Control::Response::Success( request.Id );
                 }
+                if ( request.Whose == Control::Subject::Tool )
+                {
+                    if ( const auto on = ToolSubjectAvailable(); !on )
+                        return Control::Response::Failure( request.Id, on.GetError() );
+                    if ( const auto written = Core::SetFoliageToolProperty( request.Property, request.Text );
+                         !written )
+                        return Control::Response::Failure( request.Id, written.GetError() );
+                    return Control::Response::Success( request.Id );
+                }
                 if ( request.Whose == Control::Subject::Modeling )
                 {
                     if ( const auto written = Core::SetModelingStateProperty( Core::ModelingState::Get(),
@@ -565,6 +684,15 @@ namespace Desert::Editor
                     auto scene = m_Workspace.ActiveScene();
                     if ( !scene )
                         return Control::Response::Failure( request.Id, "no scene is open" );
+                    if ( request.Whose == Control::Subject::World &&
+                         request.Property.starts_with( "WorldPartition" ) )
+                    {
+                        if ( const auto edited =
+                                  SetWorldPartitionProperty( scene, request.Property, request.Text );
+                             !edited )
+                            return Control::Response::Failure( request.Id, edited.GetError() );
+                        return Control::Response::Success( request.Id );
+                    }
                     const std::size_t dot = request.Property.find( '.' );
                     if ( dot == std::string::npos )
                         return Control::Response::Failure(
@@ -645,6 +773,30 @@ namespace Desert::Editor
                 return Control::Response::Success( request.Id );
             }
 
+            case Control::Op::AddComponent:
+            {
+                // DETAILS' ADD COMPONENT (UE: the Details panel's +Add): selected first, as a person adding it
+                // has the entity selected, then the menu's own undoable add.
+                auto scene = m_Workspace.ActiveScene();
+                if ( !scene )
+                    return Control::Response::Failure( request.Id, "no scene is open" );
+                auto entity = ControlEntity( *scene, request.Entity );
+                if ( !entity )
+                    return Control::Response::Failure( request.Id, entity.GetError() );
+                ECS::Entity                 en    = entity.GetValue();
+                const ComponentEditorEntry* found = nullptr;
+                for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
+                    if ( entry.Name == request.Component || entry.ReflectedTypeName == request.Component )
+                        found = &entry;
+                if ( found == nullptr )
+                    return Control::Response::Failure(
+                         request.Id,
+                         std::format( "no component '{}' in the Add Component menu", request.Component ) );
+                Core::SelectionManager::SetSelected( Common::UUID( std::stoull( request.Entity ) ) );
+                if ( const auto added = AddComponentUndoable( en, *found ); !added )
+                    return Control::Response::Failure( request.Id, added.GetError() );
+                return Control::Response::Success( request.Id );
+            }
             case Control::Op::SaveAs:
             {
                 // File -> Save's one save path under a new name (SceneFiles::SaveOpenSceneAs); a refusal
@@ -686,11 +838,15 @@ namespace Desert::Editor
                 }
                 const auto plan = Control::PointerDrag::Plan(
                      *target, { request.Value[0], request.Value[1], request.Value[2], request.Value[3] },
-                     request.Steps.value_or( Control::PointerDrag::kDefaultSteps ),
-                     ::ImGui::GetIO().DisplayFramebufferScale.x );
+                     request.Steps.value_or( Control::PointerDrag::kDefaultSteps ) );
                 if ( !plan.IsSuccess() )
                     return Control::Response::Failure( request.Id, plan.GetError() );
-                if ( const auto armed = Control::PointerInjection::Arm( plan.GetValue() ); !armed.IsSuccess() )
+                const auto mods = Control::ParseInputModifiers( request.DragModifiers );
+                if ( !mods.IsSuccess() )
+                    return Control::Response::Failure( request.Id, mods.GetError() );
+                if ( const auto armed =
+                          Control::PointerInjection::Arm( plan.GetValue().WithModifiers( mods.GetValue() ) );
+                     !armed.IsSuccess() )
                     return Control::Response::Failure( request.Id, armed.GetError() );
                 return Control::Response::Success( request.Id );
             }

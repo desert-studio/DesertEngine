@@ -8,7 +8,7 @@
 // RayTraceGlobalDistanceField) from where the near field ended. The global field's 39 cm voxels close a dense crown
 // of leaf cards into one blob; the mesh fields keep the gaps between the cards (FOLIAGE-LOOK-7).
 //
-// Included by Common/GITracer.glslh only, which declares u_GlobalDistanceField0..3, the mesh field buffers
+// Included by Common/GITracer.glslh only, which declares GlobalDistanceField0Texture..3, the mesh field buffers
 // (Common/MeshDistanceField.glslh's inputs) and the object grid, includes both field headers, and defines
 // GI_TRACE_GDF_LEVELS as the expression of this frame's vec4[GDF_NUM_CLIPMAPS] clipmap parameters.
 
@@ -40,12 +40,12 @@ bool GIMeshObjectList( vec3 position, out uvec2 list )
 float GIMeshObjectVoxel( uint objectIndex )
 {
     const uint base       = objectIndex * uint( DF_OBJECT_STRIDE );
-    const uint assetIndex = floatBitsToUint( u_DFObjects[base + 4u].x );
+    const uint assetIndex = floatBitsToUint( DistanceFieldObjects[base + 4u].x );
     const uint numMips    = DFAssetNumMips( assetIndex );
     if ( numMips == 0u )
         return 0.0;
     const DFAssetMip finest = LoadDFAssetMip( assetIndex, numMips - 1u );
-    return u_DFObjects[base + 3u].w /
+    return DistanceFieldObjects[base + 3u].w /
            ( float( DF_UNIQUE_BRICK_SIZE ) * max( finest.VolumeToIndirectionScale.x,
                                                   max( finest.VolumeToIndirectionScale.y, finest.VolumeToIndirectionScale.z ) ) );
 }
@@ -67,12 +67,12 @@ bool GITraceMeshObject( uint objectIndex, vec3 origin, vec3 direction, float tSt
                         bool ditheredTransparency, float tanConeAngle, uint seed, inout vec3 normal )
 {
     const uint base = objectIndex * uint( DF_OBJECT_STRIDE );
-    const vec4 r0          = u_DFObjects[base + 0u];
-    const vec4 r1          = u_DFObjects[base + 1u];
-    const vec4 r2          = u_DFObjects[base + 2u];
-    const vec4 extentScale = u_DFObjects[base + 3u];
-    const uint assetIndex  = floatBitsToUint( u_DFObjects[base + 4u].x );
-    const bool foliage     = ( floatBitsToUint( u_DFObjects[base + uint( DF_OBJECT_ROW_FLAGS )].x ) &
+    const vec4 r0          = DistanceFieldObjects[base + 0u];
+    const vec4 r1          = DistanceFieldObjects[base + 1u];
+    const vec4 r2          = DistanceFieldObjects[base + 2u];
+    const vec4 extentScale = DistanceFieldObjects[base + 3u];
+    const uint assetIndex  = floatBitsToUint( DistanceFieldObjects[base + 4u].x );
+    const bool foliage     = ( floatBitsToUint( DistanceFieldObjects[base + uint( DF_OBJECT_ROW_FLAGS )].x ) &
                            uint( DF_OBJECT_FLAG_MOSTLY_TWO_SIDED ) ) != 0u;
     const uint numMips     = DFAssetNumMips( assetIndex );
     if ( numMips == 0u )
@@ -185,7 +185,7 @@ GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
             // The hit object's instance-table row (DF_OBJECT_ROW_FLAGS .y): GIHitInstanceRows reads its cards first
             // (UE ConeTraceMeshSDFsAndInterpolateFromCards: the hit object's MeshCardsIndex).
             result.surface.instance =
-                 floatBitsToUint( u_DFObjects[hitObject * uint( DF_OBJECT_STRIDE ) + uint( DF_OBJECT_ROW_FLAGS )].y );
+                 floatBitsToUint( DistanceFieldObjects[hitObject * uint( DF_OBJECT_STRIDE ) + uint( DF_OBJECT_ROW_FLAGS )].y );
             result.surface.primitive    = 0u;
             result.surface.barycentrics = vec2( 0.0 );
             result.surface.normal       = normal;
@@ -193,9 +193,9 @@ GITraceResult GITraceNearField( GITraceInput ray, out float farStart )
             // The hit object's world -> previous world rows (UE CalculateMeshSDFDerivedData, bCalculateHitVelocity).
             const uint motionBase = hitObject * uint( DF_OBJECT_STRIDE ) + uint( DF_OBJECT_ROW_TO_PREVIOUS_WORLD );
             const vec4 hitAt      = vec4( result.surface.position, 1.0 );
-            const vec3 previous   = vec3( dot( u_DFObjects[motionBase + 0u], hitAt ),
-                                          dot( u_DFObjects[motionBase + 1u], hitAt ),
-                                          dot( u_DFObjects[motionBase + 2u], hitAt ) );
+            const vec3 previous   = vec3( dot( DistanceFieldObjects[motionBase + 0u], hitAt ),
+                                          dot( DistanceFieldObjects[motionBase + 1u], hitAt ),
+                                          dot( DistanceFieldObjects[motionBase + 2u], hitAt ) );
             result.surface.velocity    = result.surface.position - previous;
             result.surface.motionKnown = true;
             farStart                    = tHit;
@@ -306,8 +306,8 @@ GITraceBias GIRayBias( vec3 position, vec3 normal, vec3 direction )
     {
         const uint object = giTracerMeshSDFGridCells[list.x + i];
         const uint base   = object * uint( DF_OBJECT_STRIDE );
-        const vec3 lo     = u_DFObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MIN )].xyz;
-        const vec3 hi     = u_DFObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MAX )].xyz;
+        const vec3 lo     = DistanceFieldObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MIN )].xyz;
+        const vec3 hi     = DistanceFieldObjects[base + uint( DF_OBJECT_ROW_BOUNDS_MAX )].xyz;
         if ( all( greaterThanEqual( position, lo - near ) ) && all( lessThanEqual( position, hi + near ) ) )
             near = max( near, GIMeshObjectVoxel( object ) );
     }
@@ -355,7 +355,7 @@ uvec4 GIHitObjectGridRows( GIHit hit )
     uvec4 rows;
     for ( int i = 0; i < GDF_OBJECT_GRID_SLOTS; ++i )
     {
-        const uint slot = texelFetch( u_GlobalDistanceFieldObjectGrid, base + ivec3( i, 0, 0 ), 0 ).r;
+        const uint slot = texelFetch( GlobalDistanceFieldObjectGridTexture, base + ivec3( i, 0, 0 ), 0 ).r;
         rows[i]         = slot == GI_NO_INSTANCE ? GI_NO_INSTANCE : ( slot & 0xFFFFFFu );
     }
     return rows;

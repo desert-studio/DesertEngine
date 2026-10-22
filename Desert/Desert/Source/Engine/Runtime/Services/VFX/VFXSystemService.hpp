@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/VFXEffectTypeAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -29,6 +30,12 @@ namespace Desert::Runtime
 
         /// The system @p handle names: null while it is being read; an error once it cannot be read.
         Common::ResultStr<System> Get( const Assets::AssetHandle& handle );
+
+        /// The effect type NAMED @p name (VFXSystemData::EffectType: a `.dfxtype` file stem, anywhere under the
+        /// VFX content root), read on the first ask. The asset is the manager's own (IsProjectScopedAsset), so
+        /// AssetHotReload's re-read is what the caller sees through it. An error names why: no file of that
+        /// name, two of them, or a first read that failed.
+        Common::ResultStr<Assets::Asset<Assets::VFXEffectTypeAsset>> EffectType( const std::string& name );
 
         void Clear();
 

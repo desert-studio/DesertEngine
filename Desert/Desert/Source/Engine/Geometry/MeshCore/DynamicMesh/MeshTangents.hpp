@@ -1,8 +1,9 @@
 // Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/MeshTangents.h:1-259, adapted: the
 // per-corner storage (SetMesh, InitializeTriVertexTangents, SetPerTriangleTangent, GetPerTriangleTangent,
-// CopyToOverlays); the frame is MikkTSpace's (ComputeMikkTTangents, through Engine/Geometry/MikkTangents.hpp,
-// the generator the importer uses too) instead of UE's per-triangle / averaged paths. UE Core as std/glm,
-// namespace Desert::Geometry, instantiated for double only.
+// CopyToOverlays); the engine's frame is MikkTSpace's (ComputeMikkTTangents, through Engine/Geometry/MikkTangents.hpp,
+// the generator the importer uses too); the averaged path (ComputeMikkTStyleTangents, MeshTangents.cpp:395-676) and
+// FComputeTangentsOptions came with M20 for the Tangents tool. UE Core as std/glm, namespace Desert::Geometry,
+// instantiated for double only.
 #pragma once
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
@@ -24,6 +25,7 @@ namespace Desert::Geometry
         std::vector<glm::vec<3, RealType>> m_Tangents;
         /** Set of computed bitangents */
         std::vector<glm::vec<3, RealType>> m_Bitangents;
+        std::vector<int>                   m_DegenerateTris; // UE AllDegenerateTris (zero-UV-area triangles)
 
     public:
         MeshTangents() = default;
@@ -87,6 +89,23 @@ namespace Desert::Geometry
          * @return false when MeshToSet has no attribute set or not exactly three normal layers
          */
         bool CopyToOverlays( DynamicMesh3& MeshToSet ) const;
+
+        // UE FComputeTangentsOptions.
+        struct ComputeTangentsOptions
+        {
+            bool bAngleWeighted = true;
+            bool bAveraged      = true;
+        };
+        // UE ComputeTriVertexTangents: averaged = the MikkTSpace-style wedge average (UE "Fast MikkTSpace"),
+        // otherwise the separate per-triangle path.
+        void ComputeTriVertexTangents( const DynamicMeshNormalOverlay* NormalOverlay,
+                                       const DynamicMeshUVOverlay* UVOverlay, const ComputeTangentsOptions& Options );
+        void ComputeMikkTStyleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
+                                        const DynamicMeshUVOverlay* UVOverlay, const ComputeTangentsOptions& Options );
+        const std::vector<int>& GetDegenerateTris() const
+        {
+            return m_DegenerateTris;
+        }
 
     protected:
         void SetTangentCount( int Count, bool bClearToZero )

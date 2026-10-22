@@ -17,6 +17,38 @@
 #include <format>
 #include <span>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct WorldRadianceCacheShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheParamsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheIndirectionUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheLastUsedUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheProbesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheFreeListUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheScheduleUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferBTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PointLightsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SpotLightsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LightGridParamsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LightGridWorldCellsUB );
+        DESERT_SHADER_PARAMETER( Texture, EnvironmentSpecularTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferEmissiveTexture );
+        DESERT_SHADER_PARAMETER( Texture, RadianceCacheIrradianceTexture );
+        DESERT_SHADER_PARAMETER( Texture, RadianceCacheDepthTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, RadianceCacheRadianceTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, RadianceCacheIrradianceOutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, RadianceCacheDepthOutTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheMarkPointsUB );
+    };
+} // namespace
+
 namespace Desert::Graphic::GlobalIllumination
 {
     namespace
@@ -244,45 +276,65 @@ namespace Desert::Graphic::GlobalIllumination
                  {
                      auto block = builder.Bindings( m_Layouts[pass].Get( m_Shaders[pass] ),
                                                     Renderer::GetPipelineRouteFill( *pipeline ) );
-                     block.Storage( "RadianceCacheParamsUB", params, kR )
-                          .Storage( "RadianceCacheIndirectionUB", indirection, kRW )
-                          .Storage( "RadianceCacheLastUsedUB", lastUsed, kRW )
-                          .Storage( "RadianceCacheProbesUB", probes, kRW )
-                          .Storage( "RadianceCacheFreeListUB", freeList, kRW )
-                          .Storage( "RadianceCacheScheduleUB", schedule, kRW )
+                     block.Storage( WorldRadianceCacheShaderParameters::RadianceCacheParamsUB, params, kR )
+                          .Storage( WorldRadianceCacheShaderParameters::RadianceCacheIndirectionUB, indirection,
+                                    kRW )
+                          .Storage( WorldRadianceCacheShaderParameters::RadianceCacheLastUsedUB, lastUsed, kRW )
+                          .Storage( WorldRadianceCacheShaderParameters::RadianceCacheProbesUB, probes, kRW )
+                          .Storage( WorldRadianceCacheShaderParameters::RadianceCacheFreeListUB, freeList, kRW )
+                          .Storage( WorldRadianceCacheShaderParameters::RadianceCacheScheduleUB, schedule, kRW )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( RadianceCachePush ) ) );
                      if ( pass == Mark || pass == Allocate || pass == Trace )
-                         block.Storage( "GIFrameUB", frame, kR );
+                         block.Storage( WorldRadianceCacheShaderParameters::GIFrameUB, frame, kR );
                      if ( pass == Mark )
-                         block.Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
-                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                              .Texture( "u_GBufferB", inputs.GBufferB, kS, all )
-                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                              .Storage( "RadianceCacheMarkPointsUB", markPointsBuffer, kR );
+                         block.Texture( WorldRadianceCacheShaderParameters::GBufferDepthTexture,
+                                        inputs.GBufferDepth, kS, all )
+                              .Sampler( WorldRadianceCacheShaderParameters::PointClampSampler,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Texture( WorldRadianceCacheShaderParameters::GBufferBTexture, inputs.GBufferB, kS,
+                                        all )
+                              .Sampler( WorldRadianceCacheShaderParameters::PointClampSampler,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Storage( WorldRadianceCacheShaderParameters::RadianceCacheMarkPointsUB,
+                                        markPointsBuffer, kR );
                      if ( pass == Allocate || pass == Trace )
-                         block.Storage( "PointLightsUB", inputs.PointLights, kR )
-                              .Storage( "SpotLightsUB", inputs.SpotLights, kR )
-                              .Storage( "LightGridParamsUB", inputs.WorldGridParams, kR )
-                              .Storage( "LightGridWorldCellsUB", inputs.WorldGridCells, kR );
+                         block.Storage( WorldRadianceCacheShaderParameters::PointLightsUB, inputs.PointLights, kR )
+                              .Storage( WorldRadianceCacheShaderParameters::SpotLightsUB, inputs.SpotLights, kR )
+                              .Storage( WorldRadianceCacheShaderParameters::LightGridParamsUB,
+                                        inputs.WorldGridParams, kR )
+                              .Storage( WorldRadianceCacheShaderParameters::LightGridWorldCellsUB,
+                                        inputs.WorldGridCells, kR );
                      if ( pass == Trace )
                      {
                          DeclareTracerReads( block, inputs.Tracer );
                          if ( readsCards )
                              DeclareSurfaceCacheReads( block, inputs.SurfaceCache );
-                         block.Texture( "u_EnvSpecularTex", inputs.EnvSpecular, kS, all )
-                              .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                              .Texture( "u_GBufferDepth", inputs.GBufferDepth, kS, all )
-                              .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                              .Texture( "u_GBufferA", inputs.GBufferA, kS, all )
-                              .Texture( "u_GBufferEmissive", inputs.GBufferEmissive, kS, all )
-                              .Texture( "u_RadianceCacheIrradiance", irradiance, kS, all )
-                              .Texture( "u_RadianceCacheDepth", depth, kS, all )
-                              .Storage( "u_RadianceCacheRadiance", radiance, kRW );
+                         block.Texture( WorldRadianceCacheShaderParameters::EnvironmentSpecularTexture,
+                                        inputs.EnvSpecular, kS, all )
+                              .Sampler( WorldRadianceCacheShaderParameters::LinearClampSampler,
+                                        RDG::SamplerDesc::LinearClamp() )
+                              .Texture( WorldRadianceCacheShaderParameters::GBufferDepthTexture,
+                                        inputs.GBufferDepth, kS, all )
+                              .Sampler( WorldRadianceCacheShaderParameters::PointClampSampler,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Texture( WorldRadianceCacheShaderParameters::GBufferATexture, inputs.GBufferA, kS,
+                                        all )
+                              .Texture( WorldRadianceCacheShaderParameters::GBufferEmissiveTexture,
+                                        inputs.GBufferEmissive, kS, all )
+                              .Texture( WorldRadianceCacheShaderParameters::RadianceCacheIrradianceTexture,
+                                        irradiance, kS, all )
+                              .Texture( WorldRadianceCacheShaderParameters::RadianceCacheDepthTexture, depth, kS,
+                                        all )
+                              .Storage( WorldRadianceCacheShaderParameters::RadianceCacheRadianceTexture, radiance,
+                                        kRW );
                      }
                      if ( pass == Filter )
-                         block.Storage( "u_RadianceCacheRadiance", radiance, kRW )
-                              .Storage( "u_RadianceCacheIrradianceOut", irradiance, kRW )
-                              .Storage( "u_RadianceCacheDepthOut", depth, kRW );
+                         block.Storage( WorldRadianceCacheShaderParameters::RadianceCacheRadianceTexture, radiance,
+                                        kRW )
+                              .Storage( WorldRadianceCacheShaderParameters::RadianceCacheIrradianceOutTexture,
+                                        irradiance, kRW )
+                              .Storage( WorldRadianceCacheShaderParameters::RadianceCacheDepthOutTexture, depth,
+                                        kRW );
                  },
                  [pipeline, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {

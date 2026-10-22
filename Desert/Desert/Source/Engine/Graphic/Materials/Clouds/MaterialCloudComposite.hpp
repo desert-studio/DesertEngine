@@ -17,7 +17,7 @@ namespace Desert::Graphic
     // two images the pass reads -- the RGBA16F scatter image (premultiplied radiance + transmittance) and the
     // depth guide beside it (cloud front distance and scene distance, kilometres), which the shader upsamples the
     // first through -- are the reconstruction CloudTemporalResolve wrote this frame, imported into the frame graph
-    // and bound by shader name (u_CloudScatter / u_CloudGuide) through RDG::PassBindings in the composite pass
+    // and bound by shader name (CloudScatterTexture / CloudGuideTexture) through RDG::PassBindings in the composite pass
     // (VolumetricCloudRenderer::CompositePass). The pipeline's blend state does the rest.
     class MaterialCloudComposite final : public Material
     {
@@ -26,6 +26,6 @@ namespace Desert::Graphic
 
         // x = ViewFrame::PreExposure: the composite writes the cloud radiance into the scene colour multiplied by
         // it (CloudCompositeUB, set per frame by VolumetricCloudRenderer::DeclareFrameNodes); yzw unused.
-        MPROPERTY( glm::vec4, Exposure, "u_Exposure", ( glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) ) )
+        MPROPERTY( glm::vec4, Exposure, "Exposure", ( glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) ) )
     };
 } // namespace Desert::Graphic

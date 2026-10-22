@@ -56,6 +56,14 @@ namespace Desert::Graphic
 namespace Desert::Graphic::DistanceField
 {
     inline constexpr int kGlobalDistanceFieldClipmaps = 4;
+    // The clipmaps' slots, one named texture per level (Common/GITracer.glslh,
+    // Debug/GlobalDistanceFieldView.shader declare GlobalDistanceField<level>Texture): every reader binds level i
+    // through element i.
+    inline constexpr std::array<RDG::TextureParameter, kGlobalDistanceFieldClipmaps>
+         kGlobalDistanceFieldClipmapTextures{ RDG::TextureParameter( "GlobalDistanceField0Texture" ),
+                                              RDG::TextureParameter( "GlobalDistanceField1Texture" ),
+                                              RDG::TextureParameter( "GlobalDistanceField2Texture" ),
+                                              RDG::TextureParameter( "GlobalDistanceField3Texture" ) };
 
     // THE OBJECT GRID (UE GlobalDistanceFieldPageObjectGridBuffer, GlobalDistanceFieldObjectGrid.ush): per clipmap
     // a toroidal grid of cells of two voxels, each listing up to four instance-table rows whose mesh distance
@@ -105,6 +113,23 @@ namespace Desert::Graphic::DistanceField
     // later one for another camera or object set is refused - the object, brick and brick-list buffers are
     // per-frame copies written by the CPU, and a second write in the frame would change what the frame's earlier
     // graph reads. What a view does with the field (its near-field grid, its debug view) is GlobalDistanceFieldView.
+    // The Composite shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct GlobalDistanceFieldCompositeShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, DistanceFieldBrickAtlasTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, ClipmapTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, ObjectGridTexture );
+        static constexpr std::array kAll{ RDG::Erase( DistanceFieldBrickAtlasTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( ClipmapTexture ), RDG::Erase( ObjectGridTexture ) };
+    };
+
+    // The View shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct GlobalDistanceFieldViewShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        static constexpr std::array kAll{ RDG::Erase( LinearRepeatSampler ) };
+    };
+
     class GlobalDistanceField
     {
     public:

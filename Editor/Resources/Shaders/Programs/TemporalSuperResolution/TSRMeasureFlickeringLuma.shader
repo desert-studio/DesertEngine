@@ -17,21 +17,21 @@ Shader "TSRMeasureFlickeringLuma"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(4) sampler u_PointClampSampler;
-        Uniform(1) texture2D u_SceneColor; // linear HDR, RenderExtent, jittered: the opaque scene
-        #define u_SceneColor sampler2D(u_SceneColor, u_PointClampSampler)
-        Uniform(2) texture2D u_Exposure;   // 1x1 previous adapted luminance
-        layout(binding = 3, r32f) restrict writeonly uniform image2D u_FlickeringLuma;
+        Uniform(4) sampler PointClampSampler;
+        Uniform(1) texture2D SceneColorTexture; // linear HDR, RenderExtent, jittered: the opaque scene
+        #define SceneColorTexture sampler2D(SceneColorTexture, PointClampSampler)
+        Uniform(2) texture2D ExposureTexture;   // 1x1 previous adapted luminance
+        layout(binding = 3, r32f) restrict writeonly uniform image2D FlickeringLumaTexture;
 
         void main()
         {
             const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-            if (any(greaterThanEqual(pixel, ivec2(u_RenderSize))))
+            if (any(greaterThanEqual(pixel, ivec2(RenderSize))))
                 return;
-            const vec3  linearColor = max(texelFetch(u_SceneColor, pixel, 0).rgb, vec3(0.0)) * TsrExposure(u_Exposure, u_PointClampSampler);
+            const vec3  linearColor = max(texelFetch(SceneColorTexture, pixel, 0).rgb, vec3(0.0)) * TsrExposure(ExposureTexture, PointClampSampler);
             const vec3  smColor     = GCSToSMCS(LinearToGCS(linearColor));
             const float smLuma      = dot(smColor, vec3(1.0 / kMoireLumaToChannel));
-            imageStore(u_FlickeringLuma, pixel, vec4(sqrt(smLuma)));
+            imageStore(FlickeringLumaTexture, pixel, vec4(sqrt(smLuma)));
         }
     }
 }

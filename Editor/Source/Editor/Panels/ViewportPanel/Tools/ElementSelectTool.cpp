@@ -180,7 +180,9 @@ namespace Desert::Editor::Tools
     {
         auto& state = Core::MeshElementSelection::Get();
         m_Cursor    = ToolCursor::None;
-        if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect )
+        // Edit Materials picks its triangles with this selection too (UE UEditMeshMaterialsTool's selection).
+        if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect &&
+             Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::EditMaterials )
             return;
 
         const auto&        selected = Core::SelectionManager::GetSelected();
@@ -189,7 +191,8 @@ namespace Desert::Editor::Tools
         state.Track( entity, target.Source );
         if ( !target.Source )
         {
-            state.ReqPickCentre = false;
+            state.ReqPickCentre    = false;
+            state.ReqPickCentreAdd = false;
             m_Cursor            = ToolCursor::Unavailable; // no mesh selected to pick elements of
             return;
         }
@@ -204,8 +207,10 @@ namespace Desert::Editor::Tools
         view.ViewportSize    = viewportSize;
         view.TolerancePixels = kTolerancePixels;
 
-        const bool pickCentre = state.ReqPickCentre;
-        state.ReqPickCentre   = false;
+        const bool pickCentre    = state.ReqPickCentre;
+        const bool pickCentreAdd = pickCentre && state.ReqPickCentreAdd;
+        state.ReqPickCentre      = false;
+        state.ReqPickCentreAdd   = false;
         const bool clicked =
              interactive && !::ImGui::IsAnyItemActive() && ::ImGui::IsMouseClicked( ImGuiMouseButton_Left );
 
@@ -279,7 +284,7 @@ namespace Desert::Editor::Tools
         if ( pickCentre || selectClick )
         {
             const ImGuiIO& io       = ::ImGui::GetIO();
-            const bool     modifies = !pickCentre && ( io.KeyShift || io.KeyCtrl );
+            const bool     modifies = pickCentre ? pickCentreAdd : ( io.KeyShift || io.KeyCtrl );
             // A plain click starts over (a click on empty space clears); Shift / Ctrl edit what is there.
             Geometry::ElementSelection next =
                  modifies ? state.Selection() : Geometry::ElementSelection( state.Mode() );
@@ -302,7 +307,7 @@ namespace Desert::Editor::Tools
                             // PickElement returned it from this very mesh; a refusal here is a defect worth
                             // seeing.
                             LOG_ERROR( "[Mesh Selection] {0}", added.GetError() );
-                    if ( !pickCentre && io.KeyShift )
+                    if ( pickCentre ? pickCentreAdd : io.KeyShift )
                         label = "Mesh Selection: Add";
                 }
             }

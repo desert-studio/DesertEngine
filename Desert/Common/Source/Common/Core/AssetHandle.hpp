@@ -258,7 +258,7 @@ namespace Common
         // such a file) and comes back normalised. A BARE relative string ("Textures/T.png") is none of
         // them: it used to be handed back verbatim, i.e. resolved against the process's working directory,
         // which is a root the reader guesses. It is REFUSED, naming it, and the answer is an empty path —
-        // "names no file". SCNE v68 (MigrateAssetKeysV67ToV68) restated every stored bare path as its key.
+        // "names no file". SCNE v69 (MigrateAssetKeysV68ToV69) restated every stored bare path as its key.
         static std::filesystem::path PathForStableKey( std::string_view key )
         {
             for ( const PathRoot& candidate : ContentRoots() )

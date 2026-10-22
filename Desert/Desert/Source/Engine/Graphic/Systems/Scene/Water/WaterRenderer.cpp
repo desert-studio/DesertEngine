@@ -13,6 +13,16 @@
 #include <cstddef>
 #include <string>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct WaterShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( UniformBuffer, WaterUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, WaterTiles );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -122,10 +132,10 @@ namespace Desert::Graphic::System
 
         // Uploaded up front at final size, before any draw records (the terrain's reason: growing a storage buffer
         // reallocates it under a draw already recorded against the old one).
-        if ( auto* block = m_Material->Get<UniformBufferProperty>( "WaterUB" ) )
+        if ( auto* block = m_Material->Get<UniformBufferProperty>( WaterShaderParameters::WaterUB ) )
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as bytes
             block->SetRawData( reinterpret_cast<const std::byte*>( &ub ), sizeof( ub ) );
-        if ( auto* tiles = m_Material->Get<StorageBufferProperty>( "WaterTiles" ) )
+        if ( auto* tiles = m_Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
             tiles->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( WaterTileRow ) ) );
     }
 

@@ -33,7 +33,7 @@ namespace Desert::Graphic::System
     class MeshRenderer;
 
     // One landscape root's heights and grass-layer weights on ONE sample grid over all its tiles (tiles share
-    // their edge samples), packed as the generator reads it (Programs/Grass/GrassGenerate.shader, u_Field):
+    // their edge samples), packed as the generator reads it (Programs/Grass/GrassGenerate.shader, FieldData):
     //   [0] samples X, [1] samples Z, [2] grass layer count, [3] 0, [4] origin X (float bits), [5] origin Z,
     //   [6] spacing cm, [7] 0, then one float world height per sample (kGrassNoHeight where no tile is loaded),
     //   then per grass layer one byte of weight per sample, four to a word.

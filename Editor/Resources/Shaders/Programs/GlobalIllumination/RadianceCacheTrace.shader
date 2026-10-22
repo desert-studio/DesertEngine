@@ -41,21 +41,21 @@ Shader "RadianceCacheTrace"
         #include <Mesh/LightGrid.glslh>
 
         // 32..42: the tracer's own resources (Common/GITracer.glslh, GI_TRACER_BINDING below).
-        Uniform sampler u_LinearClampSampler;
-        Uniform(16) textureCube u_EnvSpecularTex;
-        #define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
-        Uniform sampler u_PointClampSampler;
-        Uniform(17) texture2D u_GBufferDepth;
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-        Uniform(18) texture2D u_GBufferA;
-        #define u_GBufferA sampler2D(u_GBufferA, u_PointClampSampler)
-        Uniform(19) texture2D u_GBufferEmissive;
-        #define u_GBufferEmissive sampler2D(u_GBufferEmissive, u_PointClampSampler)
-        Uniform(20) texture2D u_RadianceCacheIrradiance;
-        #define u_RadianceCacheIrradiance sampler2D(u_RadianceCacheIrradiance, u_LinearClampSampler)
-        Uniform(21) texture2D u_RadianceCacheDepth;
-        #define u_RadianceCacheDepth sampler2D(u_RadianceCacheDepth, u_LinearClampSampler)
-        layout(binding = 22, rgba16f) restrict uniform image2D u_RadianceCacheRadiance;
+        Uniform sampler LinearClampSampler;
+        Uniform(16) textureCube EnvironmentSpecularTexture;
+        #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(17) texture2D GBufferDepthTexture;
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(18) texture2D GBufferATexture;
+        #define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
+        Uniform(19) texture2D GBufferEmissiveTexture;
+        #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
+        Uniform(20) texture2D RadianceCacheIrradianceTexture;
+        #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
+        Uniform(21) texture2D RadianceCacheDepthTexture;
+        #define RadianceCacheDepthTexture sampler2D(RadianceCacheDepthTexture, LinearClampSampler)
+        layout(binding = 22, rgba16f) restrict uniform image2D RadianceCacheRadianceTexture;
 
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
@@ -104,13 +104,13 @@ Shader "RadianceCacheTrace"
             const uint  res     = radianceCache.shape.z;
             const ivec2 origin  = RadianceCacheProbeAtlasOrigin( radianceCache, probe, radianceCache.shape.w ) + 1;
             const bool  fresh   = state.frames.y == 0u;
-            const float history = fresh ? 0.0 : ( state.frames.w != state.frames.z ? u_DirtyHistory : u_History );
+            const float history = fresh ? 0.0 : ( state.frames.w != state.frames.z ? DirtyHistory : HistoryWeight );
             // The cone of one texel: its solid angle 4 pi / res^2 as a cone's half angle.
             const float cone    = sqrt( 4.0 / float( res * res ) );
             for ( uint texel = gl_LocalInvocationIndex; texel < res * res; texel += 64u )
             {
                 const ivec2 t = ivec2( texel % res, texel / res );
-                const vec2  o = ( vec2( t ) + TexelJitter( probe, texel, u_FrameIndex ) ) / float( res ) * 2.0 - 1.0;
+                const vec2  o = ( vec2( t ) + TexelJitter( probe, texel, FrameIndex ) ) / float( res ) * 2.0 - 1.0;
                 GITraceInput ray;
                 ray.origin    = s_Position;
                 ray.tMin      = RadianceCacheProbeTMin( radianceCache, clipmap );
@@ -123,8 +123,8 @@ Shader "RadianceCacheTrace"
                 const vec3 radiance = GIRayRadiance( ray, hitDistance );
                 vec4       value    = vec4( radiance, hitDistance );
                 if ( !fresh )
-                    value = mix( value, imageLoad( u_RadianceCacheRadiance, origin + t ), history );
-                imageStore( u_RadianceCacheRadiance, origin + t, value );
+                    value = mix( value, imageLoad( RadianceCacheRadianceTexture, origin + t ), history );
+                imageStore( RadianceCacheRadianceTexture, origin + t, value );
             }
         }
     }

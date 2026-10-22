@@ -479,7 +479,7 @@ namespace Desert::Graphic
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderOverdrawAccumManual( context ); },
              [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareOverdrawDraws( pass ); } );
-        // The accumulation is read through the resolve's block (its u_Overdraw entry is the node's read).
+        // The accumulation is read through the resolve's block (its OverdrawTexture entry is the node's read).
         AddRaster(
              graph, "Debug: Overdraw Resolve", *scene, textures.ColorLoads( *scene, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr

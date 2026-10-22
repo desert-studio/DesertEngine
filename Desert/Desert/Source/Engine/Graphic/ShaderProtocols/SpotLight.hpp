@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -50,7 +52,9 @@ namespace Desert::Graphic::ShaderProtocols
     struct SpotLight
     {
         // Block name of the storage buffer in the shader — keys the material property lookup.
-        inline const static std::string Name = "SpotLightsUB";
+        // The block as a binding parameter (RDGShaderParameters.hpp) - the one spelling; Name is its string form.
+        static constexpr RDG::StorageBufferParameter Parameter{ "SpotLightsUB" };
+        inline const static std::string              Name = std::string( Parameter.Name );
 
         std::vector<SpotLightPayload> SpotLights;
     };

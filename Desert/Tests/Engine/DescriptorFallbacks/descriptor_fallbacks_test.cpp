@@ -62,7 +62,7 @@ namespace
     const char* kEveryImageKind = R"(#version 450
 layout(binding = 0) uniform sampler2D   u_Weather;
 layout(binding = 1) uniform sampler3D   u_ShapeNoise;
-layout(binding = 2) uniform samplerCube u_Radiance;
+layout(binding = 2) uniform samplerCube RadianceTexture;
 layout(binding = 3, rgba8) writeonly uniform image2D u_OutSlice;
 layout(binding = 4, rgba8) writeonly uniform image3D u_OutVolume;
 
@@ -71,7 +71,7 @@ void main()
 {
     vec4 c = texture(u_Weather, vec2(0.5))
            + texture(u_ShapeNoise, vec3(0.5))
-           + texture(u_Radiance, vec3(0.0, 1.0, 0.0));
+           + texture(RadianceTexture, vec3(0.0, 1.0, 0.0));
     imageStore(u_OutSlice,  ivec2(gl_GlobalInvocationID.xy), c);
     imageStore(u_OutVolume, ivec3(gl_GlobalInvocationID),    c);
 }
@@ -131,9 +131,9 @@ TEST( DescriptorFallbacks, BufferBindingsAreNotImageBindings )
 {
     const char* kBuffersOnly = R"(#version 450
 layout(binding = 0) uniform Params { vec4 u_Bounds; };
-layout(std430, binding = 1) buffer Counters { uint u_Counts[]; };
+layout(std430, binding = 1) buffer Counters { uint Counts[]; };
 layout(local_size_x = 1) in;
-void main() { u_Counts[0] = uint(u_Bounds.x); }
+void main() { Counts[0] = uint(u_Bounds.x); }
 )";
 
     const auto set0     = ReflectSetZero( kBuffersOnly, shaderc_glsl_compute_shader, ShaderStage::Compute );

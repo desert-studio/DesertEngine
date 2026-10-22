@@ -6,7 +6,7 @@ Shader "Sharpen"
         // SCAL-SPATIAL1. The post sharpen after the resolve (TAA, TAAU or the spatial upscale), reading
         // Resolution.Sharpness: a port of AMD FidelityFX FSR1 RCAS (Robust Contrast Adaptive Sharpening). Run by
         // Graphic::Sharpen (View/SpatialUpscale.hpp). A '+' of 5 taps; the negative lobe is the largest that keeps
-        // the result inside the neighbourhood's min/max (no clipping, no ringing), scaled by u_Amount
+        // the result inside the neighbourhood's min/max (no clipping, no ringing), scaled by Amount
         // (Sharpness / 100; 1 is RCAS at 0 stops, its maximum). Linear HDR goes through the reversible tonemap
         // c / (1 + max(c)) and back, as RCAS needs a [0, 1] input.
         //
@@ -27,18 +27,18 @@ Shader "Sharpen"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(2) sampler u_PointClampSampler;
-        Uniform(0) texture2D u_Source;
-        #define u_Source sampler2D(u_Source, u_PointClampSampler)
-        layout(binding = 1, rgba16f) restrict writeonly uniform image2D u_Destination;
+        Uniform(2) sampler PointClampSampler;
+        Uniform(0) texture2D SourceColorTexture;
+        #define SourceColorTexture sampler2D(SourceColorTexture, PointClampSampler)
+        layout(binding = 1, rgba16f) restrict writeonly uniform image2D DestinationColorTexture;
 
         // The C++ side is Graphic::SharpenPush (View/SpatialUpscale.hpp).
         PushConstant PushConstants
         {
-            int   u_Width;
-            int   u_Height;
-            float u_Amount;
-            int   u_Pad0;
+            int   Width;
+            int   Height;
+            float Amount;
+            int   Pad0;
         };
 
         // FSR_RCAS_LIMIT: the largest negative lobe RCAS allows.
@@ -46,7 +46,7 @@ Shader "Sharpen"
 
         vec3 Tap(ivec2 p)
         {
-            const vec3 c = max(texelFetch(u_Source, clamp(p, ivec2(0), ivec2(u_Width, u_Height) - 1), 0).rgb,
+            const vec3 c = max(texelFetch(SourceColorTexture, clamp(p, ivec2(0), ivec2(Width, Height) - 1), 0).rgb,
                                vec3(0.0));
             return c / (1.0 + max(c.r, max(c.g, c.b)));
         }
@@ -54,7 +54,7 @@ Shader "Sharpen"
         void main()
         {
             const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-            if (pixel.x >= u_Width || pixel.y >= u_Height)
+            if (pixel.x >= Width || pixel.y >= Height)
                 return;
 
             //    b
@@ -73,11 +73,11 @@ Shader "Sharpen"
             const vec3 hitMax = (vec3(1.0) - mx4) / min(4.0 * mn4 - 4.0, vec3(-1.0 / 65504.0));
             const vec3 lobeRGB = max(-hitMin, hitMax);
             const float lobe =
-                 max(-kRcasLimit, min(max(lobeRGB.r, max(lobeRGB.g, lobeRGB.b)), 0.0)) * u_Amount;
+                 max(-kRcasLimit, min(max(lobeRGB.r, max(lobeRGB.g, lobeRGB.b)), 0.0)) * Amount;
 
             const vec3 t = clamp((lobe * (b + d + f + h) + e) / (4.0 * lobe + 1.0), vec3(0.0), vec3(65503.0 / 65504.0));
             const vec3 linearColor = t / max(1.0 - max(t.r, max(t.g, t.b)), 1.0 / 65504.0);
-            imageStore(u_Destination, pixel, vec4(linearColor, 1.0));
+            imageStore(DestinationColorTexture, pixel, vec4(linearColor, 1.0));
         }
     }
 }

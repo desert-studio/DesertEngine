@@ -17,7 +17,7 @@
 // (Common/BindlessTextures.glslh); VulkanShader substitutes this layout for that set index.
 namespace Desert::Graphic::API::Vulkan
 {
-    // The set index every pipeline layout that reflects u_BindlessTextures uses for the table (one constant shared
+    // The set index every pipeline layout that reflects BindlessTextures uses for the table (one constant shared
     // with the DESERT_BINDLESS_SET define, Core/ShaderCompiler/BindlessSetIndex.hpp). A gap below it in a pipeline
     // layout is filled with an empty layout (VulkanShader).
     using ::Desert::Core::kBindlessSetIndex;

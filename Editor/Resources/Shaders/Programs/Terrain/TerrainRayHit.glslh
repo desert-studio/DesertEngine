@@ -19,7 +19,7 @@ layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer 
     vec4              Tint;         // the terrain material's Tint the raster drew the tile with
     uvec4             Weightmap;    // x = bindless slot of the weightmap (0 = none), y = its sampler slot,
                                     // z = the layer maps' sampler slot
-    LandscapeMaterial Material;     // the material's values the raster drew the tile with (u_Material's)
+    LandscapeMaterial MaterialValues; // the material's values the raster drew the tile with (the Material block's)
     uvec4             LayerMaps[8]; // input k's maps' bindless slots: x albedo, y normal, z ARM, w height (0 = none)
     vec4              ViewOrigin;   // xyz = the camera the raster drew the tile for (cm): the far tiling's distance
 };

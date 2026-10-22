@@ -18,8 +18,8 @@ Shader "PathTracerResolve"
 
     Fragment
     {
-        Uniform(1) sampler u_PointClampSampler;
-        Uniform(0) texture2D u_Accumulation;
+        Uniform(1) sampler PointClampSampler;
+        Uniform(0) texture2D AccumulationTexture;
 
         Out(0) vec4 o_Color;
 
@@ -27,7 +27,7 @@ Shader "PathTracerResolve"
         {
             // The accumulation is the scene colour's size (the path tracer runs at native scale), so the fragment's
             // own texel is the one its paths were summed into.
-            const vec4 sum = texelFetch(sampler2D(u_Accumulation, u_PointClampSampler), ivec2(gl_FragCoord.xy), 0);
+            const vec4 sum = texelFetch(sampler2D(AccumulationTexture, PointClampSampler), ivec2(gl_FragCoord.xy), 0);
             o_Color        = vec4(sum.rgb / max(sum.a, 1.0), 1.0);
         }
     }

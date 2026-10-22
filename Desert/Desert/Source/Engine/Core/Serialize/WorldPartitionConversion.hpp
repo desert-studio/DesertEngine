@@ -50,7 +50,10 @@ namespace Desert::Core::Rules
         if ( !partition.HLODLayers.has_value() )
             partition.HLODLayers.emplace();
         partition.HLODLayers->push_back( std::move( layer ) );
-        partition.DefaultHLODLayer = std::string( kInstancingHLODLayerName );
+        // Every grid the world has builds its cells' HLOD with it (the layer is a grid's choice, UE
+        // FRuntimePartitionDesc::HLODSetups); state the grids first.
+        for ( WorldPartitionGridSerialized& grid : partition.Grids )
+            grid.HLODLayer = std::string( kInstancingHLODLayerName );
     }
 
     [[nodiscard]] inline WorldPartitionSerialized DefaultWorldPartition()

@@ -46,9 +46,9 @@ Shader "PathTracer"
             #include <Common/RayTracingPayload.glslh>
             #include <Common/EmissiveLights.glslh>
 
-            layout(binding = 1) uniform accelerationStructureEXT u_SceneTLAS;
+            layout(binding = 1) uniform accelerationStructureEXT SceneTlas;
             // The view's running sum (rgb) of every path since the last reset; a = the paths summed.
-            layout(binding = 2, rgba32f) uniform image2D u_Accumulation;
+            layout(binding = 2, rgba32f) uniform image2D AccumulationTexture;
             layout(std430, binding = 3) readonly buffer GIFrameUB
             {
                 GIFrame giFrame;
@@ -61,14 +61,14 @@ Shader "PathTracer"
             {
                 SpotLight spotLights[];
             };
-            layout(binding = 6, rgba32f) readonly uniform image2D u_SkyRadiance;
+            layout(binding = 6, rgba32f) readonly uniform image2D SkyRadianceTexture;
             layout(std430, binding = 7) readonly buffer PathTracingSkyPdfUB
             {
                 float skyPdf[];
             };
-            Uniform sampler u_LinearClampSampler;
-            Uniform(8) textureCube u_EnvSpecularTex;
-            #define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
+            Uniform sampler LinearClampSampler;
+            Uniform(8) textureCube EnvironmentSpecularTexture;
+            #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
 
             // The cloud layer's shadow map (VolumetricCloudRenderer, CloudShadowMapOrWhite) and its block
             // (CloudShadowPackUniforms): the sun's transmittance through the clouds, the receiver text every lit
@@ -114,7 +114,7 @@ Shader "PathTracer"
             };
             #include <Common/EmissiveLightsSampling.glslh>
 
-            #define PATH_TRACING_SKY_RADIANCE u_SkyRadiance
+            #define PATH_TRACING_SKY_RADIANCE SkyRadianceTexture
             #define PATH_TRACING_SKY_PDF      skyPdf
             #include <Common/PathTracingSky.glslh>
 
@@ -122,11 +122,11 @@ Shader "PathTracer"
 
             PushConstant PushConstants
             {
-                uvec4 u_Counts; // x = point lights, y = spot lights, z = paths already summed (0: overwrite), w = max bounces
-                uvec4 u_Sky;    // x = sky side S (0: no sky light), y = its pyramid levels, z = frame seed, w = paths this frame (>= 1)
-                vec4  u_Sun;    // x = sin of half the sun's source angle (0: a delta direction), y = pixel spread angle
-                uvec4 u_Emissive;        // the static part: x = triangles, y = power tree leaves, z = its levels, w = TLAS instances of the lookup
-                uvec4 u_EmissiveDynamic; // the dynamic part: x = triangles, y = power tree leaves, z = its levels
+                uvec4 Counts; // x = point lights, y = spot lights, z = paths already summed (0: overwrite), w = max bounces
+                uvec4 SkyParams;    // x = sky side S (0: no sky light), y = its pyramid levels, z = frame seed, w = paths this frame (>= 1)
+                vec4  SunParams;    // x = sin of half the sun's source angle (0: a delta direction), y = pixel spread angle
+                uvec4 EmissiveCounts;        // the static part: x = triangles, y = power tree leaves, z = its levels, w = TLAS instances of the lookup
+                uvec4 EmissiveDynamicCounts; // the dynamic part: x = triangles, y = power tree leaves, z = its levels
             };
 
             // ---- Random numbers: a PCG hash chain per pixel and path (UE: FRandomSequence). ----
@@ -362,13 +362,13 @@ Shader "PathTracer"
             // source: its mean weight is 0, and every pdf of it would divide by that mean.
             bool PathTracingHasSky()
             {
-                return u_Sky.x > 0u && PathTracingSkyMean(u_Sky.x, u_Sky.y) > 0.0;
+                return SkyParams.x > 0u && PathTracingSkyMean(SkyParams.x, SkyParams.y) > 0.0;
             }
 
             // The sun's cone: 1 - cos(theta max) and its solid angle (UE DirectionalLight_TraceLight).
             float PathTracingSunOneMinusCos()
             {
-                const float s2 = u_Sun.x * u_Sun.x;
+                const float s2 = SunParams.x * SunParams.x;
                 return s2 < 0.01 ? s2 * (0.5 + 0.125 * s2) : 1.0 - sqrt(1.0 - s2);
             }
 
@@ -378,17 +378,17 @@ Shader "PathTracer"
                 if (light == 0u)
                     return PathTracingHasSun() ? PathTracingLuminance(giFrame.sunRadiance.rgb) : 0.0;
                 if (light == 1u)
-                    return PathTracingHasSky() ? PathTracingSkyEstimate(u_Sky.x, u_Sky.y) : 0.0;
+                    return PathTracingHasSky() ? PathTracingSkyEstimate(SkyParams.x, SkyParams.y) : 0.0;
                 const uint i = light - 2u;
-                if (i < u_Counts.x)
+                if (i < Counts.x)
                     return PathTracingLuminance(DesertPointLightAt(pointLights[i], P).Radiance);
-                return PathTracingLuminance(DesertSpotLightAt(spotLights[i - u_Counts.x], P).Radiance);
+                return PathTracingLuminance(DesertSpotLightAt(spotLights[i - Counts.x], P).Radiance);
             }
 
             float PathTracingEstimateTotal(vec3 P)
             {
                 float total = 0.0;
-                const uint lights = 2u + u_Counts.x + u_Counts.y;
+                const uint lights = 2u + Counts.x + Counts.y;
                 for (uint l = 0u; l < lights; ++l)
                     total += PathTracingEstimate(l, P);
                 return total;
@@ -401,7 +401,7 @@ Shader "PathTracer"
             {
                 if (total <= 0.0)
                     return vec3(0.0);
-                const uint lights = 2u + u_Counts.x + u_Counts.y;
+                const uint lights = 2u + Counts.x + Counts.y;
                 float      pick   = PathTracingRandom(rng) * total;
                 uint       chosen = lights - 1u;
                 float      share  = 0.0;
@@ -424,7 +424,7 @@ Shader "PathTracer"
                     const vec3 toSun = -normalize(giFrame.sunTravel.xyz);
                     vec3       L     = toSun;
                     float      lightPdf = 0.0; // 0: a delta direction, no MIS
-                    if (u_Sun.x > 0.0)
+                    if (SunParams.x > 0.0)
                     {
                         // UE UniformSampleConeRobust over the source angle.
                         const float oneMinusCos = PathTracingSunOneMinusCos();
@@ -464,15 +464,15 @@ Shader "PathTracer"
                 const uint  i = chosen - 2u;
                 DesertLight light;
                 vec3        position;
-                if (i < u_Counts.x)
+                if (i < Counts.x)
                 {
                     light    = DesertPointLightAt(pointLights[i], P);
                     position = pointLights[i].position;
                 }
                 else
                 {
-                    light    = DesertSpotLightAt(spotLights[i - u_Counts.x], P);
-                    position = spotLights[i - u_Counts.x].position;
+                    light    = DesertSpotLightAt(spotLights[i - Counts.x], P);
+                    position = spotLights[i - Counts.x].position;
                 }
                 if (dot(N, light.L) <= 0.0)
                     return vec3(0.0);
@@ -484,15 +484,15 @@ Shader "PathTracer"
             // ---- The emissive triangles. ----
             bool PathTracingHasEmissive()
             {
-                return EmissiveLightsTriangleCount(u_Emissive, u_EmissiveDynamic) > 0u &&
-                       EmissiveLightsTotal(u_Emissive, u_EmissiveDynamic) > 0.0;
+                return EmissiveLightsTriangleCount(EmissiveCounts, EmissiveDynamicCounts) > 0u &&
+                       EmissiveLightsTotal(EmissiveCounts, EmissiveDynamicCounts) > 0.0;
             }
 
             // The list's row of the triangle the last material ray met (kEmissiveNone: not in the list).
             uint PathTracingEmissiveTriangleOfHit()
             {
                 return EmissiveLightsTriangleOfHit(payload.InstanceIndex, payload.GeometryIndex, payload.PrimitiveIndex,
-                                                   u_Emissive);
+                                                   EmissiveCounts);
             }
 
             // Next event estimation over the emissive triangles from @p origin (the vertex's offset origin, @p coneWidth
@@ -504,10 +504,10 @@ Shader "PathTracer"
                 const vec2  u    = PathTracingRandom2(rng);
                 if (!PathTracingHasEmissive())
                     return vec3(0.0);
-                const uint triangle = EmissiveLightsPick(pick, u_Emissive, u_EmissiveDynamic);
-                if (triangle >= EmissiveLightsTriangleCount(u_Emissive, u_EmissiveDynamic))
+                const uint triangle = EmissiveLightsPick(pick, EmissiveCounts, EmissiveDynamicCounts);
+                if (triangle >= EmissiveLightsTriangleCount(EmissiveCounts, EmissiveDynamicCounts))
                     return vec3(0.0);
-                const EmissiveTriangle t       = EmissiveLightsTriangle(triangle, u_Emissive);
+                const EmissiveTriangle t       = EmissiveLightsTriangle(triangle, EmissiveCounts);
                 const vec3             toPoint = EmissiveLightsSamplePoint(t, u) - origin;
                 const float            dist    = length(toPoint);
                 if (dist <= 0.0)
@@ -516,7 +516,7 @@ Shader "PathTracer"
                 if (dot(N, L) <= 0.0)
                     return vec3(0.0);
                 const float lightPdf = EmissiveLightsSolidAnglePdf(
-                    t, EmissiveLightsPickPdf(triangle, u_Emissive, u_EmissiveDynamic), dist, dot(EmissiveLightsNormal(t), L));
+                    t, EmissiveLightsPickPdf(triangle, EmissiveCounts, EmissiveDynamicCounts), dist, dot(EmissiveLightsNormal(t), L));
                 if (lightPdf <= 0.0)
                     return vec3(0.0);
                 // Past the point by a margin, so the closest hit can land on the sampled triangle itself; anything
@@ -536,11 +536,11 @@ Shader "PathTracer"
                 if (bsdfPdf < 0.0 || !PathTracingHasEmissive())
                     return 1.0;
                 const uint triangle = PathTracingEmissiveTriangleOfHit();
-                if (triangle >= EmissiveLightsTriangleCount(u_Emissive, u_EmissiveDynamic))
+                if (triangle >= EmissiveLightsTriangleCount(EmissiveCounts, EmissiveDynamicCounts))
                     return 1.0;
-                const EmissiveTriangle t        = EmissiveLightsTriangle(triangle, u_Emissive);
+                const EmissiveTriangle t        = EmissiveLightsTriangle(triangle, EmissiveCounts);
                 const float            lightPdf = EmissiveLightsSolidAnglePdf(
-                    t, EmissiveLightsPickPdf(triangle, u_Emissive, u_EmissiveDynamic), payload.HitT,
+                    t, EmissiveLightsPickPdf(triangle, EmissiveCounts, EmissiveDynamicCounts), payload.HitT,
                     dot(EmissiveLightsNormal(t), dir));
                 return PathTracingMISWeightPower(bsdfPdf, lightPdf);
             }
@@ -553,15 +553,15 @@ Shader "PathTracer"
             {
                 vec3 radiance = vec3(0.0);
                 if (bsdfPdf < 0.0)
-                    radiance += ApplySkyGain(textureLod(u_EnvSpecularTex,
+                    radiance += ApplySkyGain(textureLod(EnvironmentSpecularTexture,
                                                         SkyLookDirection(direction, giFrame.skyYawCosSin.xy), 0.0).rgb,
                                              giFrame.skyGain.rgb);
                 else if (PathTracingHasSky())
                 {
-                    const vec4 sky = PathTracingSkyEval(direction, u_Sky.x, u_Sky.y);
+                    const vec4 sky = PathTracingSkyEval(direction, SkyParams.x, SkyParams.y);
                     radiance += sky.rgb * PathTracingMISWeightPower(bsdfPdf, lightPickSky * sky.w);
                 }
-                if (PathTracingHasSun() && u_Sun.x > 0.0)
+                if (PathTracingHasSun() && SunParams.x > 0.0)
                 {
                     const float oneMinusCos = PathTracingSunOneMinusCos();
                     if (1.0 - dot(direction, -normalize(giFrame.sunTravel.xyz)) < oneMinusCos)
@@ -575,12 +575,12 @@ Shader "PathTracer"
                 return radiance;
             }
 
-            // One path of the pixel: the camera ray, then up to u_Counts.w bounces. @p sampleIndex is the path's index
+            // One path of the pixel: the camera ray, then up to Counts.w bounces. @p sampleIndex is the path's index
             // in the pixel's accumulation (paths summed before it + its place in this frame), so every path of the
             // pixel since the restart draws its own random sequence.
             vec3 PathTracingTracePath(ivec2 pixel, ivec2 size, uint sampleIndex)
             {
-                uint rng = PathTracingHash(uint(pixel.x) + PathTracingHash(uint(pixel.y) + PathTracingHash(sampleIndex + PathTracingHash(u_Sky.z))));
+                uint rng = PathTracingHash(uint(pixel.x) + PathTracingHash(uint(pixel.y) + PathTracingHash(sampleIndex + PathTracingHash(SkyParams.z))));
 
                 // The camera ray through a uniformly chosen point of the pixel (a box filter).
                 const vec2 uv     = (vec2(pixel) + PathTracingRandom2(rng)) / vec2(size);
@@ -657,7 +657,7 @@ Shader "PathTracer"
                     const float total = PathTracingEstimateTotal(P);
                     radiance += throughput * PathTracingSampleLights(m, P, N, V, next, total, rng);
                     radiance += throughput * PathTracingSampleEmissive(m, N, V, next, coneWidth, rng);
-                    if (bounce >= u_Counts.w)
+                    if (bounce >= Counts.w)
                         break;
 
                     lightPickSky = total > 0.0 ? PathTracingEstimate(1u, P) / total : 0.0;
@@ -687,19 +687,19 @@ Shader "PathTracer"
                 return radiance;
             }
 
-            // This frame's u_Sky.w paths of the pixel (PathTracing.PathsPerFrame, cut to what the total
+            // This frame's SkyParams.w paths of the pixel (PathTracing.PathsPerFrame, cut to what the total
             // PathTracing.SamplesPerPixel leaves), added to the running sum in one read and one write.
             void main()
             {
                 const ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
-                const ivec2 size  = imageSize(u_Accumulation);
+                const ivec2 size  = imageSize(AccumulationTexture);
                 if (pixel.x >= size.x || pixel.y >= size.y)
                     return;
                 vec3 sum = vec3(0.0);
-                for (uint s = 0u; s < u_Sky.w; ++s)
-                    sum += PathTracingTracePath(pixel, size, u_Counts.z + s);
-                const vec4 previous = u_Counts.z == 0u ? vec4(0.0) : imageLoad(u_Accumulation, pixel);
-                imageStore(u_Accumulation, pixel, vec4(previous.rgb + sum, previous.a + float(u_Sky.w)));
+                for (uint s = 0u; s < SkyParams.w; ++s)
+                    sum += PathTracingTracePath(pixel, size, Counts.z + s);
+                const vec4 previous = Counts.z == 0u ? vec4(0.0) : imageLoad(AccumulationTexture, pixel);
+                imageStore(AccumulationTexture, pixel, vec4(previous.rgb + sum, previous.a + float(SkyParams.w)));
             }
         }
 

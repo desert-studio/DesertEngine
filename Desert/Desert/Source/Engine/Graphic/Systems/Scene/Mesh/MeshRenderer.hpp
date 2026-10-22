@@ -212,6 +212,9 @@ namespace Desert::Graphic::System
     class MeshRenderer final : public RenderSystem
     {
     public:
+        // Releases this view's GPU-instanced material copies (MaterialService::ReleaseViewVariants).
+        ~MeshRenderer() override;
+
         struct StaticMeshRenderData
         {
             // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
@@ -327,6 +330,10 @@ namespace Desert::Graphic::System
             // GrassBlade only: the shared BLAS of each strip level (GrassBladeRayTracing.hpp), indexed by submesh;
             // empty when the view has no TLAS. Owned by the grass renderer, this frame.
             std::span<const RayTracing::RayTracingGeometryResource* const> BladeGeometry;
+            // Where Instances holds each instance's LAST frame transform: instance i's previous world sits at
+            // i + PrevInstanceOffset (a producer whose instances move, e.g. particle Mesh rows). 0 = the instances
+            // do not move (grass: only the wind moves them), the previous world is the world.
+            uint32_t PrevInstanceOffset = 0;
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:
@@ -725,12 +732,12 @@ namespace Desert::Graphic::System
         // DeclareGlassBindings built in the node's setup. Nothing to draw is success; a refused draw is the error.
         [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context ) const;
         // SETUP of the "Deferred: Glass" node: the frame's translucent draw list, one binding block per cell (its
-        // shader's reflected layout, its dedicated material as the other route), each carrying u_SceneColor =
+        // shader's reflected layout, its dedicated material as the other route), each carrying SceneColorTexture =
         // @p sceneCopy (this frame's snapshot of the opaque scene, FrameTransients::SceneColorCopy, sampled for
         // refraction) and the scene/view inputs of @p view the cell's shader has a slot for. Declares nothing
         // (and the node draws nothing) when no translucent object is visible.
         // @p frontLayer: this frame's front layer reflection and depth (Reflections.TranslucentFrontLayer), bound as
-        // u_FrontLayerReflection / u_FrontLayerDepth wherever the cell's shader has the slots - the graph's black
+        // FrontLayerReflectionTexture / FrontLayerDepthTexture wherever the cell's shader has the slots - the graph's black
         // texture for both when the frame has no front layer.
         struct GlassFrontLayer
         {
@@ -792,7 +799,7 @@ namespace Desert::Graphic::System
         void                                DeclareOverdrawDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderOverdrawAccumManual( const RDG::PassContext& context ) const;
         // node "Debug: Overdraw Resolve" (the scene target): its setup declares the resolve's block, which samples
-        // @p overdraw - the accumulation the node "Debug: Overdraw" wrote - as u_Overdraw; the exec draws through
+        // @p overdraw - the accumulation the node "Debug: Overdraw" wrote - as OverdrawTexture; the exec draws through
         // it.
         void DeclareOverdrawResolve( RDG::PassBuilder& pass, RDG::TextureRef overdraw );
         [[nodiscard]] Common::BoolResultStr RecordOverdrawResolve( const RDG::PassContext& context ) const;
@@ -823,6 +830,10 @@ namespace Desert::Graphic::System
         void SubmitGenericMesh( const GenericMeshRenderData& data );
         void SubmitInstancedMesh( const InstancedMeshRenderData& data );
         void SubmitGpuInstanced( const GpuInstancedRenderData& data );
+        // A producer that submits its GPU-instanced casters after UpdateCascades (the particles' Mesh rows, from
+        // the render graph) says so before it: the cascade plan then keeps the movable layer for them.
+        void ExpectGpuInstancedCasters( const bool expected ) { m_GpuInstancedCastersExpected = expected; }
+        bool m_GpuInstancedCastersExpected = false;
 
         /// ISM instances the last geometry pass drew, after the frustum and the cull distance: what a
         /// foliage type's CullDistance is measured by (FO-5). The shadow cascades are not counted.
@@ -1635,7 +1646,11 @@ namespace Desert::Graphic::System
         // cell) and into a cascade's movable list (their own masked caster, or the shared instanced caster).
         void BuildGpuInstancedDraws( MeshRendererDetail::MeshDrawList& list, GraphicsPipeline* instancedPipeline,
                                      MeshPass pass, const SceneFrameBinding& frameState );
-        void BuildGpuInstancedShadowDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list );
+        // `cascade` keys the caster cell (one per section x cascade); `shadowView` is the view drawn (the cascade
+        // itself, or its movable layer kCascadeMovableViewBase + cascade over the cache) and names its light
+        // camera.
+        void BuildGpuInstancedShadowDraws( uint32_t cascade, uint32_t shadowView,
+                                           MeshRendererDetail::MeshDrawList& list );
 
     private:
         // m_StaticMaterialFallback and m_SkinnedMaterialFallback stood here. The first was constructed

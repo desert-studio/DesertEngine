@@ -17,29 +17,29 @@ Shader "SSDReconstructShadowVisibility"
         // Shared sampler state (UE shared samplers): each input below is a separate texture read through it, bound
         // once by the pass by name and numbered by the program build (ShaderMapBuild.cpp AssignSharedSamplerBindings).
         // Declared before Common/ScreenSpaceDenoise.glslh, whose SSDLoadSceneInfo reads the G-buffer through it.
-        Uniform sampler u_PointClampSampler;
+        Uniform sampler PointClampSampler;
         #include <Common/ScreenSpaceDenoise.glslh>
 
         // The G-buffer stays a bare texture2D: SSDLoadSceneInfo takes the textures and constructs at the lookup.
-        Uniform(1) texture2D u_GBufferNormal;   // rgb = world normal, a = roughness
-        Uniform(2) texture2D u_GBufferDepth;    // device depth (nearest)
-        Uniform(3) texture2D u_Mask;            // r = visibility estimate, 0 = shadowed, 1 = lit
-        #define u_Mask sampler2D(u_Mask, u_PointClampSampler)
-        Uniform(4) texture2D u_ClosestOccluder; // r = distance to the closest occluder hit, cm; <= 0 = no hit
-        #define u_ClosestOccluder sampler2D(u_ClosestOccluder, u_PointClampSampler)
-        layout(binding = 6, rgba16f) writeonly uniform image2D u_Signal; // premultiplied (v, v, v, 1)
+        Uniform(1) texture2D GBufferNormalTexture;   // rgb = world normal, a = roughness
+        Uniform(2) texture2D GBufferDepthTexture;    // device depth (nearest)
+        Uniform(3) texture2D RawSignalTexture;            // r = visibility estimate, 0 = shadowed, 1 = lit
+        #define RawSignalTexture sampler2D(RawSignalTexture, PointClampSampler)
+        Uniform(4) texture2D ClosestOccluderTexture; // r = distance to the closest occluder hit, cm; <= 0 = no hit
+        #define ClosestOccluderTexture sampler2D(ClosestOccluderTexture, PointClampSampler)
+        layout(binding = 6, rgba16f) writeonly uniform image2D ReconstructedSignalTexture; // premultiplied (v, v, v, 1)
 
         // ScreenSpaceDenoiser::ViewUniforms (std140).
         Uniform(0) DenoiserViewUB
         {
-        	mat4 u_ViewProjection;
-        	mat4 u_PrevViewProjection;
-        	mat4 u_InvJitteredViewProjection;
+        	mat4 ViewProjection;
+        	mat4 PreviousViewProjection;
+        	mat4 InverseJitteredViewProjection;
         };
 
         PushConstant PushConstants
         {
-        	vec4 u_Params; // x = tan(light source angle / 2), y = kernel radius in taps per side (Scalability
+        	vec4 Params; // x = tan(light source angle / 2), y = kernel radius in taps per side (Scalability
         	               // Shadows.RayTracedDenoiserRadius: 2 = 5x5), zw unused
         	vec4 u_LocalLight; // a local light's emitter sphere: xyz = position cm, w = source radius cm (0 = the
         	                   // angle in u_Params.x sizes the penumbra)
@@ -53,21 +53,21 @@ Shader "SSDReconstructShadowVisibility"
 
         void main()
         {
-        	const ivec2 viewSize = textureSize(sampler2D(u_GBufferNormal, u_PointClampSampler), 0);
+        	const ivec2 viewSize = textureSize(sampler2D(GBufferNormalTexture, PointClampSampler), 0);
         	const ivec2 pixel    = ivec2(gl_GlobalInvocationID.xy);
         	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
         		return;
-        	if (!SSDPixelHasSignal(kSSDSignalShadowVisibility, texelFetch(sampler2D(u_GBufferNormal, u_PointClampSampler), pixel, 0)))
+        	if (!SSDPixelHasSignal(kSSDSignalShadowVisibility, texelFetch(sampler2D(GBufferNormalTexture, PointClampSampler), pixel, 0)))
         	{
-        		imageStore(u_Signal, pixel, vec4(0.0));
+        		imageStore(ReconstructedSignalTexture, pixel, vec4(0.0));
         		return;
         	}
         	const vec2         size = vec2(viewSize);
         	const vec2         uv   = (vec2(pixel) + 0.5) / size;
-        	const SSDSceneInfo ref  = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth, u_InvJitteredViewProjection,
+        	const SSDSceneInfo ref  = SSDLoadSceneInfo(GBufferNormalTexture, GBufferDepthTexture, InverseJitteredViewProjection,
         	                                           pixel, size);
-        	const float pixelRadius = max(SSDPixelWorldRadius(uv, texelFetch(sampler2D(u_GBufferDepth, u_PointClampSampler), pixel, 0).r,
-        	                                                  ref.Position, 1.0 / size, u_InvJitteredViewProjection),
+        	const float pixelRadius = max(SSDPixelWorldRadius(uv, texelFetch(sampler2D(GBufferDepthTexture, PointClampSampler), pixel, 0).r,
+        	                                                  ref.Position, 1.0 / size, InverseJitteredViewProjection),
         	                              1e-4);
 
         	// The closest occluder around the pixel: a lit pixel next to a penumbra has no hit of its own but lies
@@ -76,7 +76,7 @@ Shader "SSDReconstructShadowVisibility"
         	for (int y = -1; y <= 1; ++y)
         		for (int x = -1; x <= 1; ++x)
         		{
-        			const float d = texelFetch(u_ClosestOccluder, clamp(pixel + ivec2(x, y), ivec2(0), viewSize - 1), 0).r;
+        			const float d = texelFetch(ClosestOccluderTexture, clamp(pixel + ivec2(x, y), ivec2(0), viewSize - 1), 0).r;
         			if (d > 0.0)
         				occluder = occluder > 0.0 ? min(occluder, d) : d;
         		}
@@ -88,14 +88,14 @@ Shader "SSDReconstructShadowVisibility"
         	const float kernelPixels = clamp(penumbra / pixelRadius, 0.0, kMaxKernelPixels);
         	if (kernelPixels < 0.5)
         	{
-        		const float v = texelFetch(u_Mask, pixel, 0).r;
-        		imageStore(u_Signal, pixel, vec4(v, v, v, 1.0));
+        		const float v = texelFetch(RawSignalTexture, pixel, 0).r;
+        		imageStore(ReconstructedSignalTexture, pixel, vec4(v, v, v, 1.0));
         		return;
         	}
 
         	const float maxPlaneDistance = max(pixelRadius * kernelPixels * 2.0, 1e-3);
         	// The (2R+1)^2 taps span +-R strides = the penumbra's radius; a tent weight of R+1-|offset|.
-        	const int   radius           = int(u_Params.y + 0.5);
+        	const int   radius           = int(Params.y + 0.5);
         	const float tent             = float(radius + 1);
         	const float stride           = kernelPixels / float(radius);
         	float       sum              = 0.0;
@@ -104,18 +104,18 @@ Shader "SSDReconstructShadowVisibility"
         		for (int x = -radius; x <= radius; ++x)
         		{
         			const ivec2 p = clamp(pixel + ivec2(round(vec2(x, y) * stride)), ivec2(0), viewSize - 1);
-        			const SSDSceneInfo other = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth,
-        			                                            u_InvJitteredViewProjection, p, size);
+        			const SSDSceneInfo other = SSDLoadSceneInfo(GBufferNormalTexture, GBufferDepthTexture,
+        			                                            InverseJitteredViewProjection, p, size);
         			if (dot(other.Normal, other.Normal) <= 0.0)
         				continue; // sky
         			const float w = (tent - abs(float(x))) * (tent - abs(float(y))) *
         			                SSDPlaneWeight(ref, other.Position, maxPlaneDistance) *
         			                SSDNormalWeight(ref.Normal, other.Normal);
-        			sum       += texelFetch(u_Mask, p, 0).r * w;
+        			sum       += texelFetch(RawSignalTexture, p, 0).r * w;
         			weightSum += w;
         		}
-        	const float v = weightSum > 0.0 ? sum / weightSum : texelFetch(u_Mask, pixel, 0).r;
-        	imageStore(u_Signal, pixel, vec4(v, v, v, 1.0));
+        	const float v = weightSum > 0.0 ? sum / weightSum : texelFetch(RawSignalTexture, pixel, 0).r;
+        	imageStore(ReconstructedSignalTexture, pixel, vec4(v, v, v, 1.0));
         }
     }
 }

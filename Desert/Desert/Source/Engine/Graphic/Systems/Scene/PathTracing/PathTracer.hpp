@@ -33,6 +33,54 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PathTracingSkyPrepareShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, EnvironmentSpecularTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, SkyRadianceTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PathTracingSkyPdfUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PathTracingSkyReduceShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, PathTracingSkyPdfUB );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PathTracingTraceShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( UniformBuffer, CameraUB );
+        DESERT_SHADER_PARAMETER( AccelerationStructure, SceneTlas );
+        DESERT_SHADER_PARAMETER( StorageTexture, AccumulationTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PointLightsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SpotLightsUB );
+        DESERT_SHADER_PARAMETER( StorageTexture, SkyRadianceTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PathTracingSkyPdfUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveSegmentsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveLookupUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveTrianglesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissivePowerUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicSegmentsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicTrianglesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicPowerUB );
+        DESERT_SHADER_PARAMETER( Texture, EnvironmentSpecularTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, CloudShadowMapTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( UniformBuffer, CloudShadowUB );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PathTracingResolveShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, AccumulationTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+    };
+
     // THE PATH TRACER (GIMethod / ReflectionMethod PathTraced). UE 5.8
     // Renderer/Private/PathTracing/PathTracing.cpp (FPathTracingState, RenderPathTracing) is the model: the view
     // keeps ONE running sum of paths per pixel and how many were summed; each frame adds
@@ -365,12 +413,16 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_SkyPrepareLayout.Get( m_SkyPrepareShader ),
                                     Renderer::GetPipelineRouteFill( *m_SkyPreparePipeline ) )
-                          .Texture( "u_EnvSpecularTex", inputs.EnvSpecular, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                          .Storage( "u_SkyRadiance", sky.Radiance, RDG::Access::StorageWrite )
-                          .Storage( "PathTracingSkyPdfUB", sky.Pdf, RDG::Access::StorageWrite )
-                          .Storage( "GIFrameUB", inputs.GIFrame, RDG::Access::StorageRead )
+                          .Texture( PathTracingSkyPrepareShaderParameters::EnvironmentSpecularTexture,
+                                    inputs.EnvSpecular, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Sampler( PathTracingSkyPrepareShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Storage( PathTracingSkyPrepareShaderParameters::SkyRadianceTexture, sky.Radiance,
+                                    RDG::Access::StorageWrite )
+                          .Storage( PathTracingSkyPrepareShaderParameters::PathTracingSkyPdfUB, sky.Pdf,
+                                    RDG::Access::StorageWrite )
+                          .Storage( PathTracingSkyPrepareShaderParameters::GIFrameUB, inputs.GIFrame,
+                                    RDG::Access::StorageRead )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( SkyPush ) ) );
                  },
                  [this, prepare]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -391,7 +443,8 @@ namespace Desert::Graphic::System
                      {
                          pass.Bindings( m_SkyReduceLayout.Get( m_SkyReduceShader ),
                                         Renderer::GetPipelineRouteFill( *m_SkyReducePipeline ) )
-                              .Storage( "PathTracingSkyPdfUB", sky.Pdf, RDG::Access::StorageWrite )
+                              .Storage( PathTracingSkyReduceShaderParameters::PathTracingSkyPdfUB, sky.Pdf,
+                                        RDG::Access::StorageWrite )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( SkyPush ) ) );
                      },
                      [this, reduce]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -423,28 +476,39 @@ namespace Desert::Graphic::System
                  {
                      constexpr RDG::Access kR = RDG::Access::StorageRead;
                      pass.Bindings( m_TraceLayout.Get( m_TraceShader ), RDG::OtherRouteFill{} )
-                          .Uniform( "CameraUB", inputs.Camera )
-                          .AccelerationStructure( "u_SceneTLAS", inputs.Tlas )
-                          .Storage( "u_Accumulation", accumulation, RDG::Access::StorageWrite )
-                          .Storage( "GIFrameUB", inputs.GIFrame, kR )
-                          .Storage( "PointLightsUB", inputs.PointLights, kR )
-                          .Storage( "SpotLightsUB", inputs.SpotLights, kR )
-                          .Storage( "u_SkyRadiance", sky.Radiance, kR )
-                          .Storage( "PathTracingSkyPdfUB", sky.Pdf, kR )
-                          .Storage( "EmissiveSegmentsUB", inputs.Emissive.Static.Segments, kR )
-                          .Storage( "EmissiveLookupUB", inputs.Emissive.Lookup, kR )
-                          .Storage( "EmissiveTrianglesUB", inputs.Emissive.Static.Triangles, kR )
-                          .Storage( "EmissivePowerUB", inputs.Emissive.Static.Power, kR )
-                          .Storage( "EmissiveDynamicSegmentsUB", inputs.Emissive.Dynamic.Segments, kR )
-                          .Storage( "EmissiveDynamicTrianglesUB", inputs.Emissive.Dynamic.Triangles, kR )
-                          .Storage( "EmissiveDynamicPowerUB", inputs.Emissive.Dynamic.Power, kR )
-                          .Texture( "u_EnvSpecularTex", inputs.EnvSpecular, RDG::Access::SampledCompute,
+                          .Uniform( PathTracingTraceShaderParameters::CameraUB, inputs.Camera )
+                          .AccelerationStructure( PathTracingTraceShaderParameters::SceneTlas, inputs.Tlas )
+                          .Storage( PathTracingTraceShaderParameters::AccumulationTexture, accumulation,
+                                    RDG::Access::StorageWrite )
+                          .Storage( PathTracingTraceShaderParameters::GIFrameUB, inputs.GIFrame, kR )
+                          .Storage( PathTracingTraceShaderParameters::PointLightsUB, inputs.PointLights, kR )
+                          .Storage( PathTracingTraceShaderParameters::SpotLightsUB, inputs.SpotLights, kR )
+                          .Storage( PathTracingTraceShaderParameters::SkyRadianceTexture, sky.Radiance, kR )
+                          .Storage( PathTracingTraceShaderParameters::PathTracingSkyPdfUB, sky.Pdf, kR )
+                          .Storage( PathTracingTraceShaderParameters::EmissiveSegmentsUB,
+                                    inputs.Emissive.Static.Segments, kR )
+                          .Storage( PathTracingTraceShaderParameters::EmissiveLookupUB, inputs.Emissive.Lookup,
+                                    kR )
+                          .Storage( PathTracingTraceShaderParameters::EmissiveTrianglesUB,
+                                    inputs.Emissive.Static.Triangles, kR )
+                          .Storage( PathTracingTraceShaderParameters::EmissivePowerUB,
+                                    inputs.Emissive.Static.Power, kR )
+                          .Storage( PathTracingTraceShaderParameters::EmissiveDynamicSegmentsUB,
+                                    inputs.Emissive.Dynamic.Segments, kR )
+                          .Storage( PathTracingTraceShaderParameters::EmissiveDynamicTrianglesUB,
+                                    inputs.Emissive.Dynamic.Triangles, kR )
+                          .Storage( PathTracingTraceShaderParameters::EmissiveDynamicPowerUB,
+                                    inputs.Emissive.Dynamic.Power, kR )
+                          .Texture( PathTracingTraceShaderParameters::EnvironmentSpecularTexture,
+                                    inputs.EnvSpecular, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Sampler( PathTracingTraceShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Texture( PathTracingTraceShaderParameters::CloudShadowMapTexture,
+                                    inputs.CloudShadowMap, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                          .Texture( "u_CloudShadowMap", inputs.CloudShadowMap, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                          .Uniform( "CloudShadowUB", inputs.CloudShadow )
+                          .Sampler( PathTracingTraceShaderParameters::LinearRepeatSampler,
+                                    RDG::SamplerDesc::LinearRepeat() )
+                          .Uniform( PathTracingTraceShaderParameters::CloudShadowUB, inputs.CloudShadow )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
                  },
                  [this, push, hits = inputs.HitGroups, width,
@@ -472,9 +536,10 @@ namespace Desert::Graphic::System
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_ResolveLayout.Get( m_ResolveShader ), RDG::OtherRouteFill{} )
-                          .Texture( "u_Accumulation", accumulation, RDG::Access::SampledGraphics,
-                                    RDG::SubresourceRange::All() )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                          .Texture( PathTracingResolveShaderParameters::AccumulationTexture, accumulation,
+                                    RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                          .Sampler( PathTracingResolveShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() );
                      // Every pixel is written: what the scene colour held is not loaded.
                      pass.ColorTarget( 0, sceneColor, RDG::LoadOp::DontCare() );
                  },

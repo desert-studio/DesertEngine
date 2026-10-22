@@ -32,6 +32,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Assets/Serialization/VFXEffectType.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <glm/glm.hpp>
 
@@ -54,13 +55,30 @@ namespace Desert::Migration
     // them when it stamps the header, and rfl omits an empty optional, so the file this tool writes is the
     // file the engine reads. A deliberate second copy of the shape; the static_assert below is what keeps
     // it from forking (a member added to the engine's struct and not here fails to compile).
+    // THE WORLD PARTITION BLOCK THIS TOOL READS: the engine's Core::WorldPartitionSerialized PLUS the v50..v66
+    // world-wide DefaultHLODLayer, frozen here. v67 moved the layer onto each grid (Core::
+    // WorldPartitionGridSerialized::HLODLayer), and the read is strict, so an older file's key needs a member to
+    // land in. Read, never written: MigrateGridHLODLayerV67ToV68 moves it onto the grids and clears it, and rfl
+    // omits an empty optional, so the block this tool writes is the block the engine reads.
+    struct WorldPartitionSerialized
+    {
+        std::vector<Core::WorldPartitionGridSerialized>       Grids;
+        std::optional<std::vector<Core::HLODLayerSerialized>> HLODLayers;
+        // v50..v66 files only.
+        std::optional<std::string> DefaultHLODLayer;
+    };
+    static_assert( rfl::named_tuple_t<WorldPartitionSerialized>::size() ==
+                        rfl::named_tuple_t<Core::WorldPartitionSerialized>::size() + 1,
+                   "Core::WorldPartitionSerialized gained or lost a member: mirror it in "
+                   "Migration::WorldPartitionSerialized, or this tool drops it from every scene it rewrites" );
+
     struct SceneSerialized
     {
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
         std::string                                               SceneName;
         std::vector<Assets::EntityData>                           Entities;
         std::optional<rfl::Generic>                               Settings;
-        std::optional<Core::WorldPartitionSerialized>             WorldPartition;
+        std::optional<WorldPartitionSerialized>                   WorldPartition;
         // Pre-v26 files only; read so a refusal can name the version, never written.
         std::optional<int> UnitVersion;
         std::optional<int> SceneVersion;
@@ -368,17 +386,24 @@ namespace Desert::Migration
     //       only: a landscape tile is a scene's.
     inline constexpr int kSceneVersionLandscapeHeightKeys = 67;
 
-    //  68 - EVERY ASSET REFERENCE IS A CONTENT KEY (PATH1). Sixteen asset types (materials, cloud volumes,
+    //  68 - THE HLOD LAYER IS A GRID'S (WP22c). UE states HLOD setup per runtime partition
+    //       (FRuntimePartitionDesc::HLODSetups), so WorldPartitionGridSerialized gains HLODLayer and the world's
+    //       DefaultHLODLayer is gone. A v67 world built every cell's HLOD with its DefaultHLODLayer, whatever the
+    //       grid, so every grid that states no layer is given that one; a world that stated none gives none
+    //       (its cells had no HLOD and still have none) (MigrateGridHLODLayerV67ToV68). Scenes only.
+    inline constexpr int kSceneVersionGridHLODLayer = 68;
+
+    //  69 - EVERY ASSET REFERENCE IS A CONTENT KEY (PATH1). Sixteen asset types (materials, cloud volumes,
     //       rigs, graphs, themes, retargets, prefabs, foliage types, fractures, waves, input contexts, physics,
     //       sounds, VFX systems, world parameters, weather presets) wrote the path relative to the assets root
     //       ("Materials/M.demat") and the loader joined it to ASSETS_PATH; meshes were also spelled relative to
     //       the project ("Resources/Assets/Meshes/M.skmesh"). The joins are gone - the load refuses a bare
     //       spelling (ComponentRegistry FileForStoredReference) - so every string of a block (records, prefab
     //       overrides, scene settings) that is a relative file path naming a file under the assets root, by
-    //       either spelling, becomes "assets:<relative>" (MigrateAssetKeysV67ToV68). A spelling that names no
+    //       either spelling, becomes "assets:<relative>" (MigrateAssetKeysV68ToV69). A spelling that names no
     //       file is left as stated: it cannot be told from text, and its load refuses it by name. Scenes and
     //       prefabs alike.
-    inline constexpr int kSceneVersionAssetKeys = 68;
+    inline constexpr int kSceneVersionAssetKeys = 69;
 
     static_assert( kSceneVersionAssetKeys == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
@@ -728,7 +753,7 @@ namespace Desert::Migration
     // Names every unnamed grid of a partitioned world (kSceneVersionGridNames); how many it named.
     std::size_t MigrateGridNamesV65ToV66( SceneSerialized& scene );
 
-    // What MigrateAssetKeysV67ToV68 did to one file.
+    // What MigrateAssetKeysV68ToV69 did to one file.
     struct AssetKeysReport
     {
         std::size_t              Keyed            = 0; // bare spellings restated as "assets:" keys (all sites)
@@ -739,7 +764,7 @@ namespace Desert::Migration
     // Restates every bare relative file path naming a file under @p assetsRoot as its "assets:" key, in every
     // record (its PrefabPath and its blocks), every prefab override and, when given, the scene settings
     // (kSceneVersionAssetKeys). A bare PrefabPath that names no file under the root is refused by name.
-    AssetKeysReport MigrateAssetKeysV67ToV68( std::vector<Assets::EntityData>& entities,
+    AssetKeysReport MigrateAssetKeysV68ToV69( std::vector<Assets::EntityData>& entities,
                                               std::optional<rfl::Generic>*     settings,
                                               const std::filesystem::path&     assetsRoot );
 
@@ -755,6 +780,10 @@ namespace Desert::Migration
     // AssetsRoot (kSceneVersionLandscapeHeightKeys), in the record and in every prefab override.
     LandscapeHeightKeysReport MigrateLandscapeHeightKeysV66ToV67( std::vector<Assets::EntityData>& entities,
                                                                   const std::filesystem::path&     sourceFile );
+
+    // Moves a partitioned world's DefaultHLODLayer onto every grid that states no HLODLayer and clears it
+    // (kSceneVersionGridHLODLayer); how many grids were given the layer.
+    std::size_t MigrateGridHLODLayerV67ToV68( SceneSerialized& scene );
 
     // What MigrateSceneDependenciesV51ToV52 did to one scene.
     struct SceneDependenciesReport
@@ -929,14 +958,31 @@ namespace Desert::Migration
     // state CLTY 6 is an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateCloudTypeV6ToV7( const std::string& text );
 
-    // A MATL 4 `PatchStrength` s — the slope of the ramp W = saturate(1 - 2 s u) — as the MATL 5 clear share of
-    // the sky that ramp left: max(0, 1 - 1/(2s)), the fraction of the sky with W = 0 (FIELD-GRAIN-b).
-    float MigratePatchStrengthV4ToV5( float strength );
+    // The v6 text of a v5 `.demat`: every texture stored under a shipped schema's GLSL spelling (`u_NormalTexture`)
+    // renamed to the parameter name its shader now declares (`NormalTexture`); everything else and the header's
+    // GUID kept. A file that does not state MATL 5, or a `u_` texture no shipped schema declared, is an error
+    // naming it. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateMaterialV5ToV6( const std::string& text );
 
-    // The v5 text of a v4 `.demat`: every `PatchStrength` parameter (the cloud material's and its instances')
-    // raised by MigratePatchStrengthV4ToV5, everything else and the header's GUID kept. A file that does not
-    // state MATL 4 is an error naming what it states. PURE - no filesystem access.
-    Common::ResultStr<std::string> MigrateMaterialV4ToV5( const std::string& text );
+    // The VFXS 3 text of a v1 or v2 `.dfx`. 1 -> 2 (VFX-09): every v1 value kept, a Ribbon row given the default
+    // ribbon settings (one ribbon per emitter, 10 cm wide, U stretched), no row a Material (v1 drew the engine's
+    // particle material); a v1 Mesh row names no mesh, so it is an error naming the emitter. 2 -> 3 (VFX-11): the
+    // system names the project's `Default` effect type (UE UNiagaraSettings::DefaultEffectType; the project's
+    // VFX/Default.dfxtype must exist for it to play). The header's GUID kept and its Dependencies stamped; a file
+    // that states neither VFXS 1 nor 2 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text );
+
+    // The `Default` effect type the 2 -> 3 step names (VFX-11): the global distance ladder VFXS 2 culled by
+    // (the removed Effects.MaxDistance row, Low .. Cinematic 5000 / 10000 / 20000 / 50000 / 0 cm) with no spawn
+    // scaling, so a raised system plays exactly as it did. The migrator writes it as <VFX root>/Default.dfxtype
+    // beside the first system it raises when the project has none. PURE.
+    Assets::Serialization::VFXEffectTypeData DefaultVFXEffectTypeForV3();
+
+    // The VFXT 2 text of a VFXT 1 `.dfxtype` (VFX-11 p7): every v1 value kept; the type gets CullReaction
+    // DeactivateResume and Significance Distance, every level MaxInstances / MaxSystemInstances 0 (no limit),
+    // CullByViewFrustum false and MaxTimeWithoutRender 0 - what a v1 type did. The header's GUID kept; a file that
+    // does not state VFXT 1 is an error naming what it states. PURE.
+    Common::ResultStr<std::string> MigrateVFXEffectTypeV1ToV2( const std::string& text );
 
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
@@ -1016,6 +1062,9 @@ namespace Desert::Migration
         std::size_t GridsNamed      = 0;     // grids given a name
         bool                      LandscapeHeightKeysRaised = false; // below kSceneVersionLandscapeHeightKeys
         LandscapeHeightKeysReport LandscapeHeightKeys;
+        bool        GridHLODLayerRaised = false; // below kSceneVersionGridHLODLayer
+        std::size_t GridsGivenHLODLayer = 0;     // grids given the world's former DefaultHLODLayer
+
         bool                      AssetKeysRaised = false; // below kSceneVersionAssetKeys
         AssetKeysReport           AssetKeys;
 
@@ -1061,7 +1110,7 @@ namespace Desert::Migration
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
-                   GridNamesRaised || LandscapeHeightKeysRaised || AssetKeysRaised;
+                   GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised;
         }
     };
 

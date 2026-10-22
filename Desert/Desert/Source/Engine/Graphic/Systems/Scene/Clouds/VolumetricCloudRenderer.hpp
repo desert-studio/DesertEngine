@@ -93,6 +93,15 @@ namespace Desert::Graphic::System
      * because the editor builds a SceneRenderer for every asset thumbnail and every mesh preview, and
      * none of them has a sky.
      */
+    // The Composite shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct VolumetricCloudCompositeShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, CloudScatterTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Texture, CloudGuideTexture );
+        static constexpr std::array kAll{ RDG::Erase( CloudScatterTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( CloudGuideTexture ) };
+    };
+
     class VolumetricCloudRenderer final : public RenderSystem
     {
     public:
@@ -392,7 +401,7 @@ namespace Desert::Graphic::System
         /// Build the world weather map for m_ModellingParams if its seed or shortest wave moved; false when
         /// the device refused the image.
         bool EnsureFarWeatherMap();
-        /// The painted layout as the march's two textures (u_CloudLayoutPattern / u_CloudLayoutMask), re-uploaded
+        /// The painted layout as the march's two textures (CloudLayoutPatternTexture / CloudLayoutMaskTexture), re-uploaded
         /// only when the painting's content hash moves; neutral 1x1 stand-ins when nothing is painted.
         bool EnsureLayoutTextures();
 

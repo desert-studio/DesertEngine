@@ -11,6 +11,12 @@
 
 namespace Desert::Graphic
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MaterialDebugLineShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Lines );
+    };
+
     // World-space debug line list (AABB wireframes, gizmos, ...). Endpoints live in a storage buffer the
     // "DebugLine" shader pulls by gl_VertexIndex; drawn via Renderer::SubmitPulled on a Lines-topology
     // pipeline - or a Triangles one, where every three vertices are a flat-coloured triangle (the Create Shape
@@ -35,7 +41,7 @@ namespace Desert::Graphic
             SceneCameraBind( this, view );
 
             if ( !lines.empty() )
-                if ( auto* sb = Get<StorageBufferProperty>( "Lines" ) )
+                if ( auto* sb = Get<StorageBufferProperty>( MaterialDebugLineShaderParameters::Lines ) )
                     sb->SetRawData( const_cast<LineVertex*>( lines.data() ),
                                     static_cast<uint32_t>( lines.size() * sizeof( LineVertex ) ) );
         }

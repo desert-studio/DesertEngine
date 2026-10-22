@@ -55,6 +55,26 @@ namespace Desert::Graphic::System
      * from this frame's view), created only on a fogged frame and published as
      * FrameTransients::HeightFog for the apply.
      */
+    // The Fog shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct HeightFogFogShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, FogApplyTexture );
+        DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, GlobalFilterSampler );
+        DESERT_SHADER_PARAMETER( Texture, AerialPerspectiveTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Texture, DistantSkyLightTexture );
+        static constexpr std::array kAll{ RDG::Erase( FogApplyTexture ), RDG::Erase( SceneDepthTexture ), RDG::Erase( GlobalFilterSampler ), RDG::Erase( AerialPerspectiveTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( DistantSkyLightTexture ) };
+    };
+
+    // The Apply shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct HeightFogApplyShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, FogApplyTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( FogApplyTexture ), RDG::Erase( PointClampSampler ) };
+    };
+
     class HeightFogRenderer final : public RenderSystem
     {
     public:

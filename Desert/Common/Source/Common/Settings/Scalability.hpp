@@ -136,7 +136,7 @@ namespace Common::Scalability
         // Shadow rays per pixel of "Shadows: Ray Traced Sun" inside the SourceAngle cone (UE
         // r.RayTracing.Shadows.SamplesPerPixel); the denoiser's ShadowVisibility signal takes at most 8. 1..8
         ShadowRayTracedSamplesPerPixel,
-        // Under a ray-traced sun, the sun's cascades kept for the blended programs that sample u_ShadowCascades
+        // Under a ray-traced sun, the sun's cascades kept for the blended programs that sample ShadowCascadesTexture
         // (translucency; volumes when one reads them): drawn only on a frame with such a reader
         // (MeshRenderer::SunCascadeReadersQueued). Count 1..4 and texel side 256..2048.
         ShadowRayTracedTranslucencyCascades,
@@ -144,7 +144,7 @@ namespace Common::Scalability
         // THE QUALITY OF EACH IMPLEMENTED METHOD (METHOD-QUALITY; UE sg.ShadowQuality / GlobalIlluminationQuality
         // / ReflectionQuality set the method's own r.* cost cvars per level). Cost knobs only: the look stays
         // authored, Cinematic spends without compromise.
-        // CascadedMaps: the sun's PCSS (Mesh/CascadedShadow.glslh, ShadowUB u_ShadowFilter) - Vogel-disc taps of
+        // CascadedMaps: the sun's PCSS (Mesh/CascadedShadow.glslh, ShadowUB ShadowFilter) - Vogel-disc taps of
         // the percentage-closer filter (UE r.Shadow.FilterMethod / the r.ShadowQuality kernel) and of the blocker
         // search. 4..64 and 4..32.
         ShadowFilterTaps,
@@ -191,7 +191,7 @@ namespace Common::Scalability
         ShadowRainOcclusionExtent,
         ShadowRainOcclusionRefreshPercent,
         // GI ScreenSpace: the one-bounce gather's samples per pixel (DeferredLighting.shader GatherIndirectGI,
-        // u_ScreenSpaceGI.x). 4..64
+        // ScreenSpaceGi.x). 4..64
         ScreenSpaceGISamples,
         // Reflections ScreenSpace: the Reflections denoiser's reconstruction kernel, taps per side from the centre
         // (UE r.Reflections.Denoiser.ReconstructionSamples). 1..3
@@ -293,6 +293,18 @@ namespace Common::Scalability
         ShadingParallaxMinSteps,    // 1..64
         ShadingParallaxMaxSteps,    // 1..128
         ShadingParallaxShadowSteps, // 0..64
+        // Particles (VFX-11; UE FNiagaraEmitterScalabilitySettings::SpawnCountScale and
+        // the effect type's level, UE fx.Niagara.QualityLevel). Each view reports
+        // them with its origin (VFXWorld::SubmitView, SceneRenderer::BeginScene); VFXWorld::Tick decides per
+        // world.
+        EffectsSpawnCountScalePercent, // births per spawn module x this / 100. 1..100
+        // UE fx.Niagara.QualityLevel: which level of every VFX effect type (.dfxtype) this view reads - the
+        // type, not this table, states MaxDistance and its own SpawnCountScale per level (VFXWorld::Tick).
+        EffectsQualityLevel, // 0..4 = Low .. Cinematic
+        // VFX-11e: the world's particle pool budget (UE Niagara's global budget, FNiagaraScalabilityManager): the
+        // pool slots (emitter Capacity) every playing system of a world may hold together; over it, the least
+        // significant systems are refused (their effect type's CullReaction). 0 = no budget.
+        EffectsMaxWorldParticles, // 0..4194304
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
@@ -403,9 +415,26 @@ namespace Common::Scalability
         bool operator==( const ParameterOverride& ) const = default;
     };
 
+    // One level per group, PERSISTED BY GROUP NAME (machine.json: {"Textures": "High", ...}), the way UE keys
+    // sg.TextureQuality & co. and the way ParameterOverride keys its parameter: a group added to or moved in the
+    // enum never shifts what a file says about the others. In memory it is indexed by Group. Its JSON form is
+    // MachineSettings.hpp's rfl::Reflector<GroupLevels>: an unknown group name or a missing group refuses the
+    // read (the machine.json loader screens both first: unknown = ERROR, missing = WARN + the group's start
+    // level; the former positional list is migrated there and the file rewritten).
+    struct GroupLevels : std::array<Level, kGroupCount>
+    {
+        GroupLevels() : std::array<Level, kGroupCount>{}
+        {
+        }
+        GroupLevels( const std::array<Level, kGroupCount>& levels ) // NOLINT(google-explicit-constructor)
+             : std::array<Level, kGroupCount>( levels )
+        {
+        }
+    };
+
     struct QualitySelection
     {
-        std::array<Level, kGroupCount> Levels{}; // per group; the UI's "Custom" is a group with an override
+        GroupLevels                    Levels; // per group; the UI's "Custom" is a group with an override
         std::vector<ParameterOverride> Overrides;
 
         bool operator==( const QualitySelection& ) const = default;

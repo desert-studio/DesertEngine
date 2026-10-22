@@ -349,7 +349,7 @@ namespace Desert::Graphic
         graph.SetFaultDefault( ao, RDG::FaultDefault::White );
         const RDG::TextureRef depth    = textures.Depth( m_GBuffer, "GBuffer" ); // world position reconstructed
         const RDG::TextureRef normal   = gbuffer[1]; // GBufferB
-        textures.Transients.SSAO       = ao;         // -> Deferred: Composite (u_SSAO)
+        textures.Transients.SSAO       = ao;         // -> Deferred: Composite (SsaoTexture)
         graph.AddPass(
              "Deferred: SSAO", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -690,7 +690,7 @@ namespace Desert::Graphic
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const ViewFrame& frame )
     {
-        // w: what u_SSR holds (DeferredLighting.shader REFLECTION_INPUT_*): 0 nothing, 1 the screen trace, 2 the
+        // w: what SsrTexture holds (DeferredLighting.shader REFLECTION_INPUT_*): 0 nothing, 1 the screen trace, 2 the
         // traced reflection, which the composite fades into the traced GI's rough specular past
         // MaxRoughnessToTrace (UE MixSpecularAndRoughReflections).
         constexpr float kReflectionInputNone = 0.0f, kReflectionInputScreen = 1.0f, kReflectionInputTraced = 2.0f;
@@ -801,7 +801,7 @@ namespace Desert::Graphic
                  brdf && brdf->GetImageHandle().IsValid() )
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
-        // The composite's GI branch (DeferredLighting.shader u_Params.w): 0 none, 1 the screen-space gather inside
+        // The composite's GI branch (DeferredLighting.shader Params.w): 0 none, 1 the screen-space gather inside
         // this pass, 2 the traced final gather's diffuse and specular in place of the sky's (SSAO occludes it), 3
         // the same gather occluded by its own short-range AO (the material AO alone left to apply). Spelled here,
         // not cast from the enum, whose numbering is the method ladder's (Common/Settings/RenderMethods.hpp).
@@ -1109,7 +1109,7 @@ namespace Desert::Graphic
         const RDG::TextureRef sceneCopy    = into.IsValid() ? into : graph.CreateTexture( copyDesc, "SceneCopy" );
         const RDG::TextureRef source       = sceneColor.front();
         // -> Deferred: Glass, Water; and, as the view's scene colour history, next frame's screen traces
-        // (Deferred: SSR's u_SceneColor, ScreenProbes: Trace's u_SceneColorHistory).
+        // (Deferred: SSR's SceneColorTexture, ScreenProbes: Trace's SceneColorHistoryTexture).
         textures.Transients.SceneColorCopy = sceneCopy;
         graph.AddPass(
              "Deferred: SceneCopy", RDG::PassFlags::Raster,

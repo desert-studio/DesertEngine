@@ -160,8 +160,19 @@ namespace Desert::Runtime
         // as GetVariant's sibling is (same parameters, same textures), owned here beside it: an edit reaches
         // it through GetBuiltVariants and Invalidate retires it with the rest. Null on the same terms as
         // GetVariant.
+        //
+        // `owner` scopes the copy to its asker: a renderer that binds ITS OWN buffers into the copy (a view's
+        // GPU-instanced sections, MeshRendererGpuInstanced.cpp) passes itself, so two views never share a copy
+        // and the copy dies with the view through ReleaseViewVariants. nullptr = shared by every asker.
         Graphic::DataDrivenMaterial* GetViewVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
-                                                     Graphic::MeshPass pass, uint32_t view ) const;
+                                                     Graphic::MeshPass pass, uint32_t view,
+                                                     const void* owner = nullptr ) const;
+
+        // Destroys, NOW, every view copy GetViewVariant built for `owner` (never nullptr): the owner's teardown.
+        // Not through the graveyard, because the owner is a view member and the view's ledger check runs as
+        // the view closes — the caller guarantees the device is idle (a SceneRenderer is destroyed after
+        // WaitDeviceIdle), which is what makes the immediate destruction safe.
+        void ReleaseViewVariants( const void* owner );
 
         // The same cell as GetVariant, in a PERMUTATION of its program: the third axis of a sibling, keyed by
         // (path, pass, defines). A renderer picks the permutation per frame (the ray-traced sun shadow reads a
@@ -378,12 +389,14 @@ namespace Desert::Runtime
             size_t                                       Slot = 0;
             uint32_t                                     View = kEveryView;
             std::vector<std::string>                     Defines;
+            const void*                                  Owner = nullptr; // GetViewVariant's owner
             std::shared_ptr<Graphic::DataDrivenMaterial> Material;
         };
         // The one find-or-build behind GetViewVariant and the permutation GetVariant.
         Graphic::DataDrivenMaterial* SiblingOf( const Graphic::Material* built, Graphic::MeshVertexPath path,
                                                 Graphic::MeshPass pass, uint32_t view,
-                                                const Core::ShaderVariant& permutation ) const;
+                                                const Core::ShaderVariant& permutation,
+                                                const void*                owner = nullptr ) const;
         mutable std::unordered_map<Assets::AssetHandle, std::vector<ViewVariant>> m_ViewMaterials;
         // Mutable: discovery on a miss fills these from const lookups (Get, ShaderHandleOf, ...), which is a
         // cache fill, not a change of what the service answers.

@@ -13,29 +13,29 @@ Shader "SurfaceCacheCardCopy"
     {
         LocalSize(8, 8, 1);
 
-        Uniform sampler u_PointClampSampler;
-        Uniform(0) texture2D u_CaptureAlbedo;
-        #define u_CaptureAlbedo sampler2D(u_CaptureAlbedo, u_PointClampSampler)
-        Uniform(1) texture2D u_CaptureNormal;
-        #define u_CaptureNormal sampler2D(u_CaptureNormal, u_PointClampSampler)
-        Uniform(2) texture2D u_CaptureEmissive;
-        #define u_CaptureEmissive sampler2D(u_CaptureEmissive, u_PointClampSampler)
-        Uniform(3) texture2D u_CaptureDepth;
-        #define u_CaptureDepth sampler2D(u_CaptureDepth, u_PointClampSampler)
-        Uniform(10) utexture2D u_CaptureShadingWord;
-        #define u_CaptureShadingWord usampler2D(u_CaptureShadingWord, u_PointClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(0) texture2D CaptureAlbedoTexture;
+        #define CaptureAlbedoTexture sampler2D(CaptureAlbedoTexture, PointClampSampler)
+        Uniform(1) texture2D CaptureNormalTexture;
+        #define CaptureNormalTexture sampler2D(CaptureNormalTexture, PointClampSampler)
+        Uniform(2) texture2D CaptureEmissiveTexture;
+        #define CaptureEmissiveTexture sampler2D(CaptureEmissiveTexture, PointClampSampler)
+        Uniform(3) texture2D CaptureDepthTexture;
+        #define CaptureDepthTexture sampler2D(CaptureDepthTexture, PointClampSampler)
+        Uniform(10) utexture2D CaptureShadingWordTexture;
+        #define CaptureShadingWordTexture usampler2D(CaptureShadingWordTexture, PointClampSampler)
         // Two uvec4 per page copy (SurfaceCache::CardPageCopy): (capture origin xy, card resolution zw),
         // (atlas origin xy, page size x | y << 16, card texel offset x | y << 16).
         ReadBuffer(4) SurfaceCardPageCopies
         {
-            uvec4 u_Copies[];
+            uvec4 Copies[];
         };
-        layout(binding = 5, r16) restrict writeonly uniform image2D u_AtlasDepth;
-        layout(binding = 6, rgba8) restrict writeonly uniform image2D u_AtlasAlbedo;
-        layout(binding = 7, r8) restrict writeonly uniform image2D u_AtlasOpacity;
-        layout(binding = 8, rg8) restrict writeonly uniform image2D u_AtlasNormal;
-        layout(binding = 9, r11f_g11f_b10f) restrict writeonly uniform image2D u_AtlasEmissive;
-        layout(binding = 11, rgba8) restrict writeonly uniform image2D u_AtlasSubsurface;
+        layout(binding = 5, r16) restrict writeonly uniform image2D AtlasDepthTexture;
+        layout(binding = 6, rgba8) restrict writeonly uniform image2D AtlasAlbedoTexture;
+        layout(binding = 7, r8) restrict writeonly uniform image2D AtlasOpacityTexture;
+        layout(binding = 8, rg8) restrict writeonly uniform image2D AtlasNormalTexture;
+        layout(binding = 9, r11f_g11f_b10f) restrict writeonly uniform image2D AtlasEmissiveTexture;
+        layout(binding = 11, rgba8) restrict writeonly uniform image2D AtlasSubsurfaceTexture;
 
         #include <Generated/ShadingModels.glslh>
 
@@ -51,8 +51,8 @@ Shader "SurfaceCacheCardCopy"
         void main()
         {
             const uint  copyIndex = gl_WorkGroupID.z;
-            const uvec4 capture   = u_Copies[copyIndex * 2u];
-            const uvec4 physical  = u_Copies[copyIndex * 2u + 1u];
+            const uvec4 capture   = Copies[copyIndex * 2u];
+            const uvec4 physical  = Copies[copyIndex * 2u + 1u];
             const uvec2 size      = uvec2(physical.z & 0xFFFFu, physical.z >> 16u);
             const uvec2 texel     = gl_GlobalInvocationID.xy;
             if (any(greaterThanEqual(texel, size)))
@@ -64,25 +64,25 @@ Shader "SurfaceCacheCardCopy"
             const ivec2 source    = ivec2(capture.xy + cardTexel);
             const ivec2 target    = ivec2(physical.xy + texel);
 
-            const float depth   = texelFetch(u_CaptureDepth, source, 0).r;
+            const float depth   = texelFetch(CaptureDepthTexture, source, 0).r;
             const bool  covered = depth > 0.0; // reversed-Z, cleared to 0
-            const vec3  normal  = texelFetch(u_CaptureNormal, source, 0).xyz;
-            imageStore(u_AtlasDepth, target, vec4(covered ? 1.0 - depth : 1.0));
-            imageStore(u_AtlasAlbedo, target, vec4(texelFetch(u_CaptureAlbedo, source, 0).rgb, 1.0));
-            imageStore(u_AtlasOpacity, target, vec4(covered ? 1.0 : 0.0));
-            imageStore(u_AtlasNormal, target,
+            const vec3  normal  = texelFetch(CaptureNormalTexture, source, 0).xyz;
+            imageStore(AtlasDepthTexture, target, vec4(covered ? 1.0 - depth : 1.0));
+            imageStore(AtlasAlbedoTexture, target, vec4(texelFetch(CaptureAlbedoTexture, source, 0).rgb, 1.0));
+            imageStore(AtlasOpacityTexture, target, vec4(covered ? 1.0 : 0.0));
+            imageStore(AtlasNormalTexture, target,
                        vec4(covered ? UnitVectorToOctahedron(normal) * 0.5 + 0.5 : vec2(0.5), 0.0, 0.0));
-            imageStore(u_AtlasEmissive, target, vec4(texelFetch(u_CaptureEmissive, source, 0).rgb, 0.0));
+            imageStore(AtlasEmissiveTexture, target, vec4(texelFetch(CaptureEmissiveTexture, source, 0).rgb, 0.0));
             vec4 subsurface = vec4(0.0);
             if (covered)
             {
-                const uvec2         word    = texelFetch(u_CaptureShadingWord, source, 0).rg;
+                const uvec2         word    = texelFetch(CaptureShadingWordTexture, source, 0).rg;
                 const int           model   = DesertShadingModelIndex(word);
                 const DesertPayload payload = DesertUnpackPayload(word);
                 subsurface = vec4(DesertSubsurfaceColor(model, payload),
                                   max(DesertSubsurfaceOpacity(model, payload), 0.0));
             }
-            imageStore(u_AtlasSubsurface, target, subsurface);
+            imageStore(AtlasSubsurfaceTexture, target, subsurface);
         }
     }
 }

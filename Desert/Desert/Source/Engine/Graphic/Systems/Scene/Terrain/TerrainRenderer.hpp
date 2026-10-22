@@ -78,12 +78,15 @@ namespace Desert::Graphic::System
         // Before the render graph records, inside the view's frame (after SceneViewState::BeginFrame accepted
         // it): resolves every queued terrain's material, packs the rows and uploads them, with @p frame's
         // matrices — the same view every other pass of the frame draws for — with @p scene's lights, shadow
-        // block and cloud shadow on the forward program (MeshRenderer::CaptureFrameState), and, for each of
-        // @p localLights
-        // (MeshRenderer::GetLocalShadowCasterLights, after UpdateLocalShadows), the tiles in its reach at the LOD
-        // its own position asks for, with their cache key. Nothing may draw a terrain this frame before it ran.
-        void PrepareFrame( const ViewFrame& frame, const SceneFrameBinding& scene,
-                           const std::vector<LocalShadowCasterLight>& localLights );
+        // block and cloud shadow on the forward program (MeshRenderer::CaptureFrameState). The instance rows go
+        // up in PrepareLocalShadowViews, which must follow it: nothing may draw a terrain before both ran.
+        void PrepareFrame( const ViewFrame& frame, const SceneFrameBinding& scene );
+
+        // After PrepareFrame AND MeshRenderer::UpdateLocalShadows (the lights get their views there, later in the
+        // frame than PrepareFrame, whose rows the TLAS and the motion rows read first): for each of @p localLights
+        // (MeshRenderer::GetLocalShadowCasterLights) the tiles in its reach at the LOD its own position asks for,
+        // with their cache key (LocalShadowSignature), then the instance rows of every group are uploaded.
+        void PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights );
 
         // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'. SETUP of
         // that node: one binding block per G-buffer material of the frame's groups (the G-buffer shader samples

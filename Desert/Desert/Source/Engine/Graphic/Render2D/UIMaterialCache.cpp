@@ -333,7 +333,9 @@ namespace Desert::Graphic::Render2D
         const std::shared_ptr<Shader>& shader   = entry.Pipeline->GetSpecification().Shader;
         if ( !shader )
             return "the pipeline has no shader";
-        auto*       rowBuffer = material.Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName );
+        // Find: a UI template with no parameters declares no row block, and RowFault reads that absence as a
+        // complete draw (nothing to fill).
+        auto*       rowBuffer = material.Find<StorageBufferProperty>( kMaterialRowBlock );
         const auto& row       = material.GetParamRow();
         std::string fault =
              UIMaterialFallback::RowFault( rowBuffer != nullptr, RowFields( shader->GetProgramMeta() ),

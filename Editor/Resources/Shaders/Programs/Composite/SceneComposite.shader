@@ -6,32 +6,32 @@ Shader "SceneComposite"
         In(0) vec2 v_TexCoord;
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(1) sampler u_LinearRepeatSampler;
-        Uniform(7) sampler u_LinearClampSampler;
-        Uniform(2) texture2D u_GeometryTexture;
-        #define u_GeometryTexture sampler2D(u_GeometryTexture, u_LinearRepeatSampler)
-        Uniform(3) texture2D u_BloomTexture;
-        #define u_BloomTexture sampler2D(u_BloomTexture, u_LinearClampSampler)
-        Uniform(4) texture2D u_AvgLuminance;      // 1x1 adapted luminance (eye adaptation)
-        #define u_AvgLuminance sampler2D(u_AvgLuminance, u_LinearRepeatSampler)
-        Uniform(5) texture2D u_LightShaftTexture; // radial sun streaks (LightShaftRenderer), half res
-        #define u_LightShaftTexture sampler2D(u_LightShaftTexture, u_LinearClampSampler)
-        Uniform(6) texture2D u_LensFlareTexture;  // ghosts/halo/streak (LensFlareRenderer), quarter res
-        #define u_LensFlareTexture sampler2D(u_LensFlareTexture, u_LinearClampSampler)
+        Uniform(1) sampler LinearRepeatSampler;
+        Uniform(7) sampler LinearClampSampler;
+        Uniform(2) texture2D GeometryTexture;
+        #define GeometryTexture sampler2D(GeometryTexture, LinearRepeatSampler)
+        Uniform(3) texture2D BloomTexture;
+        #define BloomTexture sampler2D(BloomTexture, LinearClampSampler)
+        Uniform(4) texture2D AverageLuminanceTexture;      // 1x1 adapted luminance (eye adaptation)
+        #define AverageLuminanceTexture sampler2D(AverageLuminanceTexture, LinearRepeatSampler)
+        Uniform(5) texture2D LightShaftTexture; // radial sun streaks (LightShaftRenderer), half res
+        #define LightShaftTexture sampler2D(LightShaftTexture, LinearClampSampler)
+        Uniform(6) texture2D LensFlareTexture;  // ghosts/halo/streak (LensFlareRenderer), quarter res
+        #define LensFlareTexture sampler2D(LensFlareTexture, LinearClampSampler)
         Out(0) vec4 oColor;
 
         Uniform(0) TonemapUB
         {
-            float u_Exposure;
-            float u_BloomIntensity;
-            float u_ExposureKey;          // middle-grey target for auto-exposure
-            float u_AutoExposureEnabled;  // > 0.5 -> use measured luminance instead of manual exposure
-            float u_ChromaticBloom;       // lens dispersion strength on the bloom halo (0 = off)
-            float u_WhitePoint;           // REINHARD ONLY: the luminance that maps to pure white (see below)
-            float u_TonemapOperator;      // Core::TonemapOperator: < 0.5 = ACES, otherwise extended Reinhard
-            float u_InvPreExposure;       // 1 / ViewFrame::PreExposure (the std140 slot before the vec4s)
-            vec4  u_LightShaftTintIntensity; // rgb = the sun light's Bloom Tint, a = Bloom Scale x screen fade
-            vec4  u_LensFlareTintIntensity;  // rgb = the lens's Tint, a = Intensity x screen fade
+            float Exposure;
+            float BloomIntensity;
+            float ExposureKey;          // middle-grey target for auto-exposure
+            float AutoExposureEnabled;  // > 0.5 -> use measured luminance instead of manual exposure
+            float ChromaticBloom;       // lens dispersion strength on the bloom halo (0 = off)
+            float WhitePoint;           // REINHARD ONLY: the luminance that maps to pure white (see below)
+            float TonemapOperator;      // Core::TonemapOperator: < 0.5 = ACES, otherwise extended Reinhard
+            float InversePreExposure;       // 1 / ViewFrame::PreExposure (the std140 slot before the vec4s)
+            vec4  LightShaftTintIntensity; // rgb = the sun light's Bloom Tint, a = Bloom Scale x screen fade
+            vec4  LensFlareTintIntensity;  // rgb = the lens's Tint, a = Intensity x screen fade
         };
 
         #include <Common/TonemapACES.glslh>
@@ -69,54 +69,54 @@ Shader "SceneComposite"
         void main()
         {
             // Auto-exposure: scale so the adapted average luminance maps to the key value; else manual exposure.
-            float exposure = u_Exposure;
-            if (u_AutoExposureEnabled > 0.5)
+            float exposure = Exposure;
+            if (AutoExposureEnabled > 0.5)
             {
-                float adaptedLum = texture(u_AvgLuminance, vec2(0.5)).r;
-                exposure = u_ExposureKey / max(adaptedLum, 1e-4);
+                float adaptedLum = texture(AverageLuminanceTexture, vec2(0.5)).r;
+                exposure = ExposureKey / max(adaptedLum, 1e-4);
             }
 
-            vec3 scene = texture(u_GeometryTexture, v_TexCoord).rgb;
+            vec3 scene = texture(GeometryTexture, v_TexCoord).rgb;
 
             // Bloom. With lens dispersion on, sample the bloom per-channel along a radial offset (R pushed outward,
             // B inward), proportional to distance from the screen centre -> a rainbow fringe / glare around bright
             // sources. The global sampler is REPEAT, so clamp the offset UVs to [0,1] (else bright content wraps).
             vec3 bloom;
-            if (u_ChromaticBloom > 0.0001)
+            if (ChromaticBloom > 0.0001)
             {
                 vec2  dir   = v_TexCoord - vec2(0.5);
-                vec2  off   = dir * (0.012 * u_ChromaticBloom);
-                bloom.r = texture(u_BloomTexture, clamp(v_TexCoord + off, 0.0, 1.0)).r;
-                bloom.g = texture(u_BloomTexture, v_TexCoord).g;
-                bloom.b = texture(u_BloomTexture, clamp(v_TexCoord - off, 0.0, 1.0)).b;
+                vec2  off   = dir * (0.012 * ChromaticBloom);
+                bloom.r = texture(BloomTexture, clamp(v_TexCoord + off, 0.0, 1.0)).r;
+                bloom.g = texture(BloomTexture, v_TexCoord).g;
+                bloom.b = texture(BloomTexture, clamp(v_TexCoord - off, 0.0, 1.0)).b;
             }
             else
             {
-                bloom = texture(u_BloomTexture, v_TexCoord).rgb;
+                bloom = texture(BloomTexture, v_TexCoord).rgb;
             }
-            bloom *= u_BloomIntensity;
+            bloom *= BloomIntensity;
 
             // Light shafts: additive HDR streaks toward the sun, BEFORE the tonemap so a strong shaft
             // rolls off through the same operator everything else does instead of clipping. The
             // intensity carries the screen-edge fade, so a sun leaving the view takes its streaks with
             // it; when the effect is off the intensity is exactly zero and the (stale) texture is inert.
-            vec3 shafts = texture(u_LightShaftTexture, v_TexCoord).rgb *
-                          (u_LightShaftTintIntensity.rgb * u_LightShaftTintIntensity.a);
+            vec3 shafts = texture(LightShaftTexture, v_TexCoord).rgb *
+                          (LightShaftTintIntensity.rgb * LightShaftTintIntensity.a);
 
             // Lens flare: added in HDR alongside bloom and the shafts, before the tonemap, so a bright
             // ghost rolls off through the same operator instead of clipping to a flat disc. The intensity
             // carries the sun's screen-edge fade and is exactly zero whenever the flare pass did not run,
             // which is what makes the (stale) texture inert — the bloom image's contract.
-            vec3 flare = texture(u_LensFlareTexture, v_TexCoord).rgb *
-                         (u_LensFlareTintIntensity.rgb * u_LensFlareTintIntensity.a);
+            vec3 flare = texture(LensFlareTexture, v_TexCoord).rgb *
+                         (LensFlareTintIntensity.rgb * LensFlareTintIntensity.a);
 
             // Scene, bloom, shafts and flare are all made from the pre-exposed scene colour: one division undoes it.
-            vec3 color = (scene + bloom + shafts + flare) * (exposure * u_InvPreExposure);
+            vec3 color = (scene + bloom + shafts + flare) * (exposure * InversePreExposure);
 
         	// The scene's chosen operator. Both branches return LINEAR colour — the display encode below is
         	// the display transfer function and belongs to neither of them.
-        	vec3 mappedColor = (u_TonemapOperator < 0.5) ? TonemapACES(color)
-        	                                             : TonemapReinhard(color, u_WhitePoint);
+        	vec3 mappedColor = (TonemapOperator < 0.5) ? TonemapACES(color)
+        	                                             : TonemapReinhard(color, WhitePoint);
 
         	vec3 mapped = LinearToSrgb(mappedColor);
 

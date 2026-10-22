@@ -44,15 +44,15 @@
         #include <Common/TerrainInstance.glslh>
         ReadBuffer(8) TerrainInstances
         {
-            TerrainInstance u_Terrains[];
+            TerrainInstance Terrains[];
         };
         // m_PushConstants is already declared here: the generated Materials[] transport injects
         // MaterialTransport.glslh at the top of the fragment stage, and its include guard makes this
         // stage's declaration one with the other stages' explicit includes.
-        #define u_T u_Terrains[m_PushConstants.MaterialIndex]
+        #define CurrentTerrain Terrains[m_PushConstants.MaterialIndex]
 
         // Data-driven material params (binding 1) are generated from the Properties block above and read
-        // through `u_Material`; nothing is declared here.
+        // through `Material`; nothing is declared here.
 
         // The tile's painted weight layers, one per RGBA8 channel, four to a page and the pages stacked along
         // the image's height (LandscapeECSSystem's copy of the tile's LandscapeWeightLayer weights, one texel
@@ -60,9 +60,9 @@
         // (Params2.y > 0); otherwise the binding holds the backend's white fallback.
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
         // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
-        Uniform(10) texture2D u_Weightmap;
-        Uniform(12) sampler u_WeightmapSampler;
-        #define u_Weightmap sampler2D(u_Weightmap, u_WeightmapSampler)
+        Uniform(10) texture2D WeightmapTexture;
+        Uniform(12) sampler WeightmapTextureSampler;
+        #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapTextureSampler)
 
         #include <Common/LandscapeSurface.glslh>
 
@@ -80,18 +80,18 @@
         // (Core::kGraphOwnedBindingFirst), which no shipped program may enter. Their sampler states are bound by
         // name (`<texture>Sampler`, VulkanMaterialBackend::ApplyTexture2D), so they take no number here: the shared
         // sampler rule numbers them after the program's last binding (Core::kAutoSamplerBinding).
-        Uniform(2) texture2DArray u_LayerAlbedo;
-        Uniform(3) texture2DArray u_LayerNormal;
-        Uniform(13) texture2DArray u_LayerARM;
-        Uniform(15) texture2DArray u_LayerHeight;
-        Uniform sampler u_LayerAlbedoSampler;
-        Uniform sampler u_LayerNormalSampler;
-        Uniform sampler u_LayerARMSampler;
-        Uniform sampler u_LayerHeightSampler;
-        #define u_LayerAlbedo sampler2DArray(u_LayerAlbedo, u_LayerAlbedoSampler)
-        #define u_LayerNormal sampler2DArray(u_LayerNormal, u_LayerNormalSampler)
-        #define u_LayerARM sampler2DArray(u_LayerARM, u_LayerARMSampler)
-        #define u_LayerHeight sampler2DArray(u_LayerHeight, u_LayerHeightSampler)
+        Uniform(2) texture2DArray LayerAlbedoTexture;
+        Uniform(3) texture2DArray LayerNormalTexture;
+        Uniform(13) texture2DArray LayerArmTexture;
+        Uniform(15) texture2DArray LayerHeightTexture;
+        Uniform sampler LayerAlbedoTextureSampler;
+        Uniform sampler LayerNormalTextureSampler;
+        Uniform sampler LayerArmTextureSampler;
+        Uniform sampler LayerHeightTextureSampler;
+        #define LayerAlbedoTexture sampler2DArray(LayerAlbedoTexture, LayerAlbedoTextureSampler)
+        #define LayerNormalTexture sampler2DArray(LayerNormalTexture, LayerNormalTextureSampler)
+        #define LayerArmTexture sampler2DArray(LayerArmTexture, LayerArmTextureSampler)
+        #define LayerHeightTexture sampler2DArray(LayerHeightTexture, LayerHeightTextureSampler)
 
         // The raster's layer map fetch (LandscapeSurface.glslh): slice @p slice of map kind @p kind's bound array, at
         // the fragment's implicit level (its screen derivatives are the footprint, so @p uvPerCm is not needed).

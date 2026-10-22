@@ -63,6 +63,7 @@ project "SceneMigrator"
         -- THE VFX SYSTEM FORMAT, for the v42 -> v43 step (VFX-08): the `.dfx` it writes from a ParticleEmitter is
         -- the engine's own WriteVFXSystem output, not a second statement of the format.
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/VFXSystem.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/Serialization/VFXEffectType.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/World/Landscape/LandscapeData.cpp", -- the v22 -> v23 step bakes tiles
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/ReflectionSerializer.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Reflection/FieldValue.cpp", -- RefusalOf: the serializer's one admission rule for enum values

@@ -53,7 +53,7 @@ namespace Desert::Graphic
 
     /// The shadow map reads the SAME instance buffer through the SAME slot — an alias rather than a copy, so
     /// the two passes cannot drift apart. The sculpted bodies' atlas is a binding-block entry
-    /// (u_CloudAuthoredAtlas), named rather than numbered.
+    /// (CloudAuthoredAtlasTexture), named rather than numbered.
     inline constexpr uint32_t kCloudShadowAuthoredBinding = kCloudAuthoredBinding;
 
     // One hero cloud as the ECS collected it: the component, where the entity puts it, and what to call

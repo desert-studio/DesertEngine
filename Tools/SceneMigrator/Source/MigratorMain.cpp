@@ -47,6 +47,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 #include <Engine/Assets/CloudTypeData.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Assets/CloudNoiseVolume.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/CloudLayout.hpp>
@@ -84,6 +85,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <set>
 #include <fstream>
 #include <format>
 #include <map>
@@ -127,9 +129,10 @@ namespace
     // diffs only in what the save changed. `.dclayout` is not here: it is binary, and has its own pass
     // (IsCloudLayout).
     // `.defoliage` rides with them: its one content step (FOLT 1 -> 2, FO-3) runs in the same loop.
-    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph",   ".decloudtype",
-                                                ".destrings",  ".detheme",  ".derig",
-                                                ".retarget",   ".skeleton", ".defoliage" };
+    // `.dfx` too: its content step (VFXS 1 -> 2, VFX-09) runs in the same loop.
+    constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
+                                                ".detheme",    ".derig",  ".retarget",    ".skeleton",
+                                                ".defoliage",  ".dfx",    ".dfxtype" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -360,6 +363,8 @@ namespace
          TextHeaderGate{ ".danimgraph", "ANGR", Desert::Assets::kAnimGraphSchemaVersion },
          TextHeaderGate{ ".skeleton", "SKEL", Desert::Assets::kSkeletonSchemaVersion },
          TextHeaderGate{ ".anim", "ANIM", Desert::Assets::kAnimationSchemaVersion },
+         TextHeaderGate{ ".dfx", "VFXS", Desert::Assets::kVFXSystemSchemaVersion },
+         TextHeaderGate{ ".dfxtype", "VFXT", Desert::Assets::kVFXEffectTypeSchemaVersion },
     };
 
     const TextHeaderGate* TextHeaderGateFor( const std::filesystem::path& path )
@@ -681,7 +686,7 @@ namespace Desert::Migration
         }
 
         int changed = 0;
-        // Materials raised MATL 4 -> 5: a --check with any is pending work.
+        // Materials raised MATL 5 -> 6: a --check with any is pending work.
         int materialsRaised = 0;
         // Mesh files raised (MeshBinary 3/4 -> 5, mesh Source 2 -> 3): a --check with any is pending work.
         int meshesRaised = 0;
@@ -1117,8 +1122,8 @@ namespace Desert::Migration
             ++changed;
         }
 
-        // THE MATERIALS. MATL v4 is raised to v5 (FIELD-GRAIN-b: PatchStrength becomes the clear share of the
-        // sky); anything older is no longer raised (the legacy steps, their material-number register and the
+        // THE MATERIALS. MATL v5 is raised to v6 (SHADER-NAMING: a texture is stored under its parameter name,
+        // not its GLSL spelling); anything older is no longer raised (the legacy steps, their material-number register and the
         // path-derived asset table were retired with LEG1): an older or newer generation FAILS by its number, a
         // current one is only re-laid-out if its text layout is not canonical.
         const auto engineShaders = EngineShaderLocatorsByGuid();
@@ -1138,16 +1143,16 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( stated.GetValue() == 4u )
+            if ( stated.GetValue() == 5u )
             {
-                const auto raised = Desert::Migration::MigrateMaterialV4ToV5( source );
+                const auto raised = Desert::Migration::MigrateMaterialV5ToV6( source );
                 if ( !raised )
                 {
-                    err << "FAIL   " << path.string() << " — MATL 4 -> 5: " << raised.GetError() << "\n";
+                    err << "FAIL   " << path.string() << " — MATL 5 -> 6: " << raised.GetError() << "\n";
                     ++failed;
                     continue;
                 }
-                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL 4 -> "
+                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL 5 -> "
                     << Desert::Assets::kMaterialSchemaVersion << "\n";
                 if ( !check && !WriteText( path, raised.GetValue(), err ) )
                 {
@@ -1448,6 +1453,9 @@ namespace Desert::Migration
 
         int foliageRaised    = 0;
         int cloudTypesRaised = 0;
+        int vfxSystemsRaised = 0;
+        // Default effect types this pass created (or, under --check, would create): one per VFX root.
+        std::set<std::string> createdEffectTypes;
         int animGraphsRaised = 0;
 
         // ANIM-SKELREF: what the TargetSkeleton step matches a graph, rig or retarget against - every rig's bones,
@@ -1609,6 +1617,91 @@ namespace Desert::Migration
                     continue;
                 }
             }
+            // VFXS 1 -> 2 (VFX-09): renderer rows state their Material / Ribbon / Mesh; 2 -> 3 (VFX-11): the
+            // system names the Default effect type.
+            if ( path.extension() == Desert::Assets::Serialization::kVFXSystemExtension )
+            {
+                const auto stated = ReadStatedVersion( path, text, "VFXS" );
+                if ( stated && stated.GetValue() < Desert::Assets::kVFXSystemSchemaVersion )
+                {
+                    const auto raised = Desert::Migration::MigrateVFXSystemToV3( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — VFXS " << stated.GetValue() << " -> "
+                            << Desert::Assets::kVFXSystemSchemaVersion << ": " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXS " << stated.GetValue()
+                        << " -> " << Desert::Assets::kVFXSystemSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    // The step names `Default`: the project's VFX root must hold it (UE DefaultEffectType). Created
+                    // once, beside the first system raised, when the project has none; an existing one is kept.
+                    const auto vfxRoot = Common::Constants::Path::RootForContentPath(
+                         Common::Constants::Path::ContentDir::VFX, path );
+                    if ( !vfxRoot )
+                    {
+                        err << "FAIL   " << path.string()
+                            << " — VFXS 3 names the Default effect type, and this file is not under a VFX "
+                               "content folder to create it in\n";
+                        ++failed;
+                        continue;
+                    }
+                    const std::filesystem::path defaultType =
+                         *vfxRoot /
+                         Common::Constants::Path::CONTENT_DIRS[static_cast<std::size_t>(
+                                                                    Common::Constants::Path::ContentDir::VFX )]
+                              .Rel /
+                         ( std::string( "Default" ) + Desert::Assets::Serialization::kVFXEffectTypeExtension );
+                    std::error_code typeEc;
+                    if ( !std::filesystem::exists( defaultType, typeEc ) &&
+                         !createdEffectTypes.contains( defaultType.lexically_normal().generic_string() ) )
+                    {
+                        createdEffectTypes.insert( defaultType.lexically_normal().generic_string() );
+                        out << ( check ? "would create " : "created " ) << defaultType.string()
+                            << " (the Default effect type VFXS 3 names)\n";
+                        if ( !check )
+                            if ( auto saved = Desert::Assets::Serialization::SaveVFXEffectTypeFile(
+                                      defaultType, Desert::Migration::DefaultVFXEffectTypeForV3() );
+                                 !saved )
+                            {
+                                err << "FAIL   " << defaultType.string() << ": " << saved.GetError() << "\n";
+                                ++failed;
+                                continue;
+                            }
+                    }
+                    ++vfxSystemsRaised;
+                    continue;
+                }
+            }
+            // VFXT 1 -> 2 (VFX-11 p7): the type's CullReaction / Significance and the levels' limits and culls.
+            if ( path.extension() == Desert::Assets::Serialization::kVFXEffectTypeExtension )
+            {
+                const auto stated = ReadStatedVersion( path, text, "VFXT" );
+                if ( stated && stated.GetValue() == 1u )
+                {
+                    const auto raised = Desert::Migration::MigrateVFXEffectTypeV1ToV2( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — VFXT 1 -> 2: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXT 1 -> "
+                        << Desert::Assets::kVFXEffectTypeSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++vfxSystemsRaised;
+                    continue;
+                }
+            }
             if ( path.extension() == Desert::Assets::Serialization::kFoliageTypeExtension )
             {
                 const auto stated = ReadStatedVersion( path, text, "FOLT" );
@@ -1750,7 +1843,8 @@ namespace Desert::Migration
             << texts.size() << " other text asset(s), " << relaid
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
             << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << cloudTypesRaised
-            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << animGraphsRaised
+            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << vfxSystemsRaised
+            << ( check ? " VFX system(s) would be raised, " : " VFX system(s) raised, " ) << animGraphsRaised
             << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " ) << meshesRaised
             << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << texturesRaised
@@ -1762,9 +1856,10 @@ namespace Desert::Migration
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check && ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 ||
-                            foliageRaised > 0 || cloudTypesRaised > 0 || animGraphsRaised > 0 ||
-                            meshesRaised > 0 || recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
+        return ( check &&
+                 ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
+                   cloudTypesRaised > 0 || vfxSystemsRaised > 0 || animGraphsRaised > 0 || meshesRaised > 0 ||
+                   recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
                     ? 1
                     : 0;
     }

@@ -20,10 +20,10 @@ Shader "SkyCaptureIrradiance"
 
         const float PI = 3.141592653589793;
 
-        Uniform(0, 2) sampler u_PointClampSampler; // ComputeImages' kComputeImagesSamplerBinding
-        Uniform(0) textureCube u_Radiance; // the radiance cube's coarse mip only (a single-mip view)
-        #define u_Radiance samplerCube(u_Radiance, u_PointClampSampler)
-        layout(binding = 1, rgba32f) writeonly uniform imageCube u_Output;
+        Uniform(0, 2) sampler PointClampSampler; // ComputeImages' kComputeImagesSamplerBinding
+        Uniform(0) textureCube RadianceTexture; // the radiance cube's coarse mip only (a single-mip view)
+        #define RadianceTexture samplerCube(RadianceTexture, PointClampSampler)
+        layout(binding = 1, rgba32f) writeonly uniform imageCube DestinationCubeTexture;
 
         // The direction of the face texel at (st in [0,1]^2), the convention PanoramaToCubemap writes the cube in.
         vec3 CubeDirection(vec2 st, uint face)
@@ -53,12 +53,12 @@ Shader "SkyCaptureIrradiance"
         LocalSize(8, 8, 1);
         void main()
         {
-        	const ivec2 size = imageSize(u_Output);
+        	const ivec2 size = imageSize(DestinationCubeTexture);
         	if (gl_GlobalInvocationID.x >= uint(size.x) || gl_GlobalInvocationID.y >= uint(size.y))
         		return;
         	const vec3 N = CubeDirection((vec2(gl_GlobalInvocationID.xy) + 0.5) / vec2(size), gl_GlobalInvocationID.z);
 
-        	const int  source = textureSize(u_Radiance, 0).x;
+        	const int  source = textureSize(RadianceTexture, 0).x;
         	const float texel = 2.0 / float(source);
         	vec3 sum = vec3(0.0);
         	for (uint face = 0u; face < 6u; ++face)
@@ -72,9 +72,9 @@ Shader "SkyCaptureIrradiance"
         					continue;
         				const vec2  lo    = vec2(-1.0) + vec2(x, y) * texel;
         				const float omega = TexelSolidAngle(lo, lo + vec2(texel));
-        				sum += textureLod(u_Radiance, L, 0.0).rgb * (cosine * omega);
+        				sum += textureLod(RadianceTexture, L, 0.0).rgb * (cosine * omega);
         			}
-        	imageStore(u_Output, ivec3(gl_GlobalInvocationID), vec4(sum / PI, 1.0));
+        	imageStore(DestinationCubeTexture, ivec3(gl_GlobalInvocationID), vec4(sum / PI, 1.0));
         }
     }
 }

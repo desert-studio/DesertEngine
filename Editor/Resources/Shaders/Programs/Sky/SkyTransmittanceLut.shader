@@ -16,14 +16,14 @@ Shader "SkyTransmittanceLut"
         #include <Common/Atmosphere.glslh>
         #include <Common/SkyMedium.glslh>
 
-        layout(binding = 0, rgba16f) restrict writeonly uniform image2D u_TransmittanceLut;
+        layout(binding = 0, rgba16f) restrict writeonly uniform image2D TransmittanceLutTexture;
 
         // The SAME sky parameter buffer every other sky consumer reads (Graphic::kSkyPayloadBinding);
         // the medium block is vec4s 7-12. The binding is bound explicitly from C++
         // (ComputePipeline::SetStorageBuffer), so this number and that constant must stay equal.
         ReadBuffer(1) SkyBuffer
         {
-            vec4 u_SkyPacked[SKY_PACKED_VEC4_COUNT];
+            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
         };
 
         // The step budget is SKY_TRANSMITTANCE_SAMPLE_COUNT, declared in Common/SkyMedium.glslh next to
@@ -34,14 +34,14 @@ Shader "SkyTransmittanceLut"
         LocalSize(8, 8, 1);
         void main()
         {
-            ivec2 size  = imageSize(u_TransmittanceLut);
+            ivec2 size  = imageSize(TransmittanceLutTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
             SkyPacked s;
             for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = u_SkyPacked[i];
+                s.v[i] = SkyPackedData[i];
 
             SkyAtmParams atm = SkyMakeAtmParams(UnpackMediumRayleigh(s), UnpackMediumMie(s),
                                                 UnpackMediumMieAbsorption(s), UnpackMediumOzone(s),
@@ -72,7 +72,7 @@ Shader "SkyTransmittanceLut"
             vec3 transmittance =
                  SkyTransmittanceToTop(atm, c.ViewHeightKm, c.ViewZenithCos, SKY_TRANSMITTANCE_SAMPLE_COUNT);
 
-            imageStore(u_TransmittanceLut, coord, vec4(transmittance, 1.0f));
+            imageStore(TransmittanceLutTexture, coord, vec4(transmittance, 1.0f));
         }
     }
 }

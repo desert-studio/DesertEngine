@@ -9,12 +9,12 @@
 //
 // THE INCLUDER DECLARES THE TWO BINDINGS (the slots are its layout's), before including this file:
 //   #include <Common/ReflectionCaptureGpu.glslh>
-//   ReadBuffer(n) ReflectionCapturesUB { uvec4 u_ReflectionCaptureHeader; ReflectionCaptureGpu u_ReflectionCaptures[]; };
-//   Uniform(m) samplerCubeArray u_ReflectionCaptureCubes;
+//   ReadBuffer(n) ReflectionCapturesUB { uvec4 ReflectionCaptureHeader; ReflectionCaptureGpu ReflectionCaptures[]; };
+//   Uniform(m) samplerCubeArray ReflectionCaptureCubesTexture;
 // The CPU side of both is
 // Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp (ReflectionCaptureGpu, the same layout, std430).
 //
-// u_ReflectionCaptureHeader.x = capture count. The captures are sorted SMALLEST INFLUENCE FIRST: the loop
+// ReflectionCaptureHeader.x = capture count. The captures are sorted SMALLEST INFLUENCE FIRST: the loop
 // composites front to back with UE's under-operator, so the most local capture wins where several overlap.
 
 #include <Common/ReflectionCaptureGpu.glslh>
@@ -94,12 +94,12 @@ vec3 ReflectionCaptureBoxLookup(vec3 R, vec3 P, ReflectionCaptureGpu capture, ve
 // how much of the reflection they cover (1 - what is left for the sky).
 vec4 GatherReflectionCaptures(vec3 P, vec3 R, vec3 N, float roughness, float indirectIrradiance)
 {
-	const uint count = u_ReflectionCaptureHeader.x;
+	const uint count = ReflectionCaptureHeader.x;
 	if (count == 0u)
 		return vec4(0.0);
 
 	// The engine's one ramp (Common/ReflectionCaptureMip.glslh), the inverse of the one ReflectionCaptureFilter wrote.
-	const float lastMip = float(textureQueryLevels(u_ReflectionCaptureCubes) - 1);
+	const float lastMip = float(textureQueryLevels(ReflectionCaptureCubesTexture) - 1);
 	const float lod     = ComputeReflectionCaptureMipFromRoughness(roughness, lastMip);
 
 	vec3  radiance          = vec3(0.0);
@@ -107,7 +107,7 @@ vec4 GatherReflectionCaptures(vec3 P, vec3 R, vec3 N, float roughness, float ind
 	float brightness        = 0.0;
 	for (uint i = 0u; i < count && remaining > 0.001; ++i)
 	{
-		const ReflectionCaptureGpu capture = u_ReflectionCaptures[i];
+		const ReflectionCaptureGpu capture = ReflectionCaptures[i];
 		float distanceAlpha = 0.0;
 		vec3  lookup;
 		if (capture.ShapeCube.x == 0u)
@@ -133,14 +133,14 @@ vec4 GatherReflectionCaptures(vec3 P, vec3 R, vec3 N, float roughness, float ind
 		if (distanceAlpha <= 0.0)
 			continue;
 
-		const vec4  s      = textureLod(u_ReflectionCaptureCubes, vec4(lookup, float(capture.ShapeCube.y)), lod);
+		const vec4  s      = textureLod(ReflectionCaptureCubesTexture, vec4(lookup, float(capture.ShapeCube.y)), lod);
 		const float weight = distanceAlpha * remaining;
 		radiance   += s.rgb * capture.CaptureOffsetBrightness.w * weight;
 		// The stored diffuse is the lighting's, not the cube's: the capture's Brightness multiplier scales the
 		// radiance only, so it still brightens a rough reflection (scaling both would cancel in the ratio). It is
 		// read about the pixel's normal from the last mip, where each face is one texel - the capture point's ambient
 		// cube (ReflectionCaptureFilter.shader), the irradiance a surface facing N would have had there.
-		const float stored = textureLod(u_ReflectionCaptureCubes, vec4(N, float(capture.ShapeCube.y)), lastMip).a;
+		const float stored = textureLod(ReflectionCaptureCubesTexture, vec4(N, float(capture.ShapeCube.y)), lastMip).a;
 		brightness += stored * weight;
 		remaining  *= 1.0 - distanceAlpha;
 	}

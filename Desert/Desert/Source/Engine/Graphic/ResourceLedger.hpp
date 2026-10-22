@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Desert::Graphic
@@ -328,9 +329,10 @@ namespace Desert::Graphic
         /// allocator answers). Silently ignored on an unaccounted token.
         void RecordBytes( std::size_t bytes );
 
-        /// Name the object the row stands for (its debug name), so a holder that closes with rows left can say
-        /// WHICH objects they are (ResourceLedger::RowsOf). Silently ignored on an unaccounted token.
-        void RecordName( std::string_view name );
+        /// Give the row the object's own name (a buffer's debug name, its creation site), so a row left behind
+        /// by a closing holder names WHICH object it is rather than only its kind. Ignored on an unaccounted
+        /// token.
+        void Name( std::string name );
 
         [[nodiscard]] ResourceOwner       GetOwner() const;
         [[nodiscard]] Common::AssetHandle GetAsset() const;
@@ -412,8 +414,8 @@ namespace Desert::Graphic
         ResourceOwner Owner      = ResourceOwner::Unclaimed;
         std::size_t   Bytes      = 0;
         bool          BytesKnown = false;
-        /// The object's debug name where its creator stated one (ResourceOwnership::RecordName); empty otherwise.
-        std::string   Name;
+        /// What the object calls itself (ResourceOwnership::Name), empty when nobody named it.
+        std::string Name;
     };
 
     /// A whole-ledger answer, taken in ONE pass under ONE lock. A caller that asked for the total and then
@@ -529,7 +531,7 @@ namespace Desert::Graphic
         static void     Attribute( uint64_t row, ResourceOwner owner, Common::AssetHandle asset,
                                    ResourceOwnerInstance instance );
         static void     SetBytes( uint64_t row, std::size_t bytes );
-        static void     SetName( uint64_t row, std::string_view name );
+        static void     SetName( uint64_t row, std::string name );
         static bool     Read( uint64_t row, ResourceOwner& owner, Common::AssetHandle& asset,
                               ResourceOwnerInstance& instance );
         /// The census body; the caller holds the lock. @p perInstance (may be null) receives one entry per
@@ -552,7 +554,7 @@ namespace Desert::Graphic
             ResourceOwnerInstance Instance;
             std::size_t         Bytes      = 0;
             bool                BytesKnown = false;
-            std::string         Name;
+            std::string           Name;
         };
 
         /// The rows, and the id that indexes them.
@@ -699,10 +701,10 @@ namespace Desert::Graphic
             ResourceLedger::SetBytes( m_Row, bytes );
     }
 
-    inline void ResourceOwnership::RecordName( const std::string_view name )
+    inline void ResourceOwnership::Name( std::string name )
     {
         if ( m_Row != 0 )
-            ResourceLedger::SetName( m_Row, name );
+            ResourceLedger::SetName( m_Row, std::move( name ) );
     }
 
     inline ResourceOwner ResourceOwnership::GetOwner() const
@@ -792,11 +794,11 @@ namespace Desert::Graphic
         }
     }
 
-    inline void ResourceLedger::SetName( const uint64_t row, const std::string_view name )
+    inline void ResourceLedger::SetName( const uint64_t row, std::string name )
     {
         std::lock_guard<std::mutex> guard( LedgerDetail::Lock() );
         if ( const auto it = LedgerDetail::Rows().find( row ); it != LedgerDetail::Rows().end() )
-            it->second.Name.assign( name );
+            it->second.Name = std::move( name );
     }
 
     inline bool ResourceLedger::Read( const uint64_t row, ResourceOwner& owner, Common::AssetHandle& asset,

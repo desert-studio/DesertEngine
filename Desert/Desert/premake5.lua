@@ -16,6 +16,10 @@ local kVendoredSources = {
     ImageCore = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp" },
     TextCore  = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp" },
     Audio     = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp" },
+    -- MikkTSpace (Morten S. Mikkelsen, zlib licence, ThirdParty/mikktspace/mikktspace.h): mikktspace.c, unaltered,
+    -- compiled as C++ - the engine's one tangent generator (Engine/Geometry/MikkTangents.cpp, the mesh build) and UE's
+    -- Modeling Tangents tool "MikkTSpace" method (DynamicMeshMikkTWrapper).
+    GeometryCore = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/mikktspace/mikktspace.cpp" },
 }
 for name in pairs(kVendoredSources) do
     if not DesertModuleLibs.LegacyFiles()[name] then
@@ -89,6 +93,7 @@ local function EngineModuleLibrary(module, legacyFiles)
 
     includedirs {
         "Source/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/mikktspace",
         "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
@@ -103,8 +108,6 @@ local function EngineModuleLibrary(module, legacyFiles)
     externalincludedirs {
         -- voro++ 0.4.6 (BuildScripts/ThirdParty/Voro.lua): the fracture bake's Voronoi cells.
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/voro++/src",
-        -- MikkTSpace (BuildScripts/ThirdParty/MikkTSpace.lua): the tangent generator, Engine/Geometry/MikkTangents.cpp.
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/mikktspace",
         -- Engine/Media: AV1 (dav1d) and Opus, both compiled from their submodules
         -- (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua).
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/dav1d/include",
@@ -147,7 +150,6 @@ end
         "Optick",
         "MeshOptimizer",
         "Voro",
-        "MikkTSpace",
         "OpenSubdiv",
         "Dav1d",
         "Opus",

@@ -95,30 +95,30 @@ Shader "ScreenProbeTrace"
         // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
         // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
         // AssignSharedSamplerBindings).
-        Uniform sampler u_LinearClampSampler;
-        Uniform sampler u_PointClampSampler;
-        Uniform(16) textureCube u_EnvSpecularTex;
-        #define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
-        Uniform(17) texture2D u_GBufferDepth;
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-        Uniform(18) texture2D u_GBufferA;
-        #define u_GBufferA sampler2D(u_GBufferA, u_PointClampSampler)
-        Uniform(19) texture2D u_GBufferEmissive;
-        #define u_GBufferEmissive sampler2D(u_GBufferEmissive, u_PointClampSampler)
-        Uniform(20) texture2D u_RadianceCacheIrradiance;
-        #define u_RadianceCacheIrradiance sampler2D(u_RadianceCacheIrradiance, u_LinearClampSampler)
-        Uniform(21) texture2D u_RadianceCacheDepth;
-        #define u_RadianceCacheDepth sampler2D(u_RadianceCacheDepth, u_LinearClampSampler)
-        Uniform(22) texture2D u_RadianceCacheRadianceAtlas;
-        #define u_RadianceCacheRadianceAtlas sampler2D(u_RadianceCacheRadianceAtlas, u_LinearClampSampler)
-        layout(binding = 23, rgba16f) restrict writeonly uniform image2D u_ScreenProbeTraced;
+        Uniform sampler LinearClampSampler;
+        Uniform sampler PointClampSampler;
+        Uniform(16) textureCube EnvironmentSpecularTexture;
+        #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+        Uniform(17) texture2D GBufferDepthTexture;
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(18) texture2D GBufferATexture;
+        #define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
+        Uniform(19) texture2D GBufferEmissiveTexture;
+        #define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
+        Uniform(20) texture2D RadianceCacheIrradianceTexture;
+        #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
+        Uniform(21) texture2D RadianceCacheDepthTexture;
+        #define RadianceCacheDepthTexture sampler2D(RadianceCacheDepthTexture, LinearClampSampler)
+        Uniform(22) texture2D RadianceCacheRadianceAtlasTexture;
+        #define RadianceCacheRadianceAtlasTexture sampler2D(RadianceCacheRadianceAtlasTexture, LinearClampSampler)
+        layout(binding = 23, rgba16f) restrict writeonly uniform image2D ScreenProbeTracedTexture;
 
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
         #include <Common/ScreenProbeTracing.glslh>
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
-        #define RADIANCE_CACHE_RADIANCE_ATLAS u_RadianceCacheRadianceAtlas
+        #define RADIANCE_CACHE_RADIANCE_ATLAS RadianceCacheRadianceAtlasTexture
         #include <Common/RadianceCache.glslh>
         #define GI_TRACER_BINDING 32
         #include <Common/GITracer.glslh>
@@ -165,7 +165,7 @@ Shader "ScreenProbeTrace"
             const GITraceResult near = GITraceNearField( ray, farStart );
             if ( near.hit )
             {
-                imageStore( u_ScreenProbeTraced, at, vec4( GIHitRadiance( near.surface, dir ), near.surface.distance ) );
+                imageStore( ScreenProbeTracedTexture, at, vec4( GIHitRadiance( near.surface, dir ), near.surface.distance ) );
                 screenProbeTraceHit[slot] =
                      SPEncodeTraceHit( near.surface.distance, true, SPTraceHitMoving( probe, texel, near.surface ), false );
             }
@@ -201,7 +201,7 @@ Shader "ScreenProbeTrace"
                     moving = rest.hit && SPTraceHitMoving( probe, texel, rest.surface );
                 }
             }
-            imageStore( u_ScreenProbeTraced, at, result );
+            imageStore( ScreenProbeTracedTexture, at, result );
             // The ray's final state (UE TraceVoxels and the far-field ray tracing pass write theirs): the filter
             // reads its moving bit.
             screenProbeTraceHit[slot] = SPEncodeTraceHit( result.a, hit, moving, false );

@@ -13,22 +13,22 @@ Shader "SupersampleResolve"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(2) sampler u_PointClampSampler;
-        Uniform(0) texture2D u_Source;
-        #define u_Source sampler2D(u_Source, u_PointClampSampler)
-        layout(binding = 1, rgba16f) restrict writeonly uniform image2D u_Destination;
+        Uniform(2) sampler PointClampSampler;
+        Uniform(0) texture2D SourceColorTexture;
+        #define SourceColorTexture sampler2D(SourceColorTexture, PointClampSampler)
+        layout(binding = 1, rgba16f) restrict writeonly uniform image2D DestinationColorTexture;
 
         // The C++ side is Graphic::SupersampleResolvePush (View/TemporalAA.hpp).
         PushConstant PushConstants
         {
-            int u_SourceWidth;
-            int u_SourceHeight;
-            int u_DestinationWidth;
-            int u_DestinationHeight;
-            int u_Axis; // 0 horizontal, 1 vertical
-            int u_Pad0;
-            int u_Pad1;
-            int u_Pad2;
+            int SourceWidth;
+            int SourceHeight;
+            int DestinationWidth;
+            int DestinationHeight;
+            int Axis; // 0 horizontal, 1 vertical
+            int Pad0;
+            int Pad1;
+            int Pad2;
         };
 
         float CatmullRom(float x)
@@ -44,12 +44,12 @@ Shader "SupersampleResolve"
         void main()
         {
             const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-            if (pixel.x >= u_DestinationWidth || pixel.y >= u_DestinationHeight)
+            if (pixel.x >= DestinationWidth || pixel.y >= DestinationHeight)
                 return;
 
-            const bool  horizontal  = u_Axis == 0;
-            const int   sourceSize  = horizontal ? u_SourceWidth : u_SourceHeight;
-            const int   destination = horizontal ? u_DestinationWidth : u_DestinationHeight;
+            const bool  horizontal  = Axis == 0;
+            const int   sourceSize  = horizontal ? SourceWidth : SourceHeight;
+            const int   destination = horizontal ? DestinationWidth : DestinationHeight;
             const float scale       = max(float(sourceSize) / float(destination), 1.0);
             const float coordinate  = float(horizontal ? pixel.x : pixel.y);
             const float center      = (coordinate + 0.5) * scale - 0.5;
@@ -63,10 +63,10 @@ Shader "SupersampleResolve"
                 const float w = CatmullRom((float(i) - center) / scale);
                 const int   s = clamp(i, 0, sourceSize - 1);
                 const ivec2 p = horizontal ? ivec2(s, pixel.y) : ivec2(pixel.x, s);
-                sum += texelFetch(u_Source, p, 0).rgb * w;
+                sum += texelFetch(SourceColorTexture, p, 0).rgb * w;
                 weight += w;
             }
-            imageStore(u_Destination, pixel, vec4(max(sum / weight, vec3(0.0)), 1.0));
+            imageStore(DestinationColorTexture, pixel, vec4(max(sum / weight, vec3(0.0)), 1.0));
         }
     }
 }

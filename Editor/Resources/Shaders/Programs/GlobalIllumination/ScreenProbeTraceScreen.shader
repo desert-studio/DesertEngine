@@ -44,19 +44,19 @@ Shader "ScreenProbeTraceScreen"
         {
             uint screenProbeTraceHit[];
         };
-        layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_ScreenProbeTraced;
-        Uniform sampler u_PointClampSampler;
-        Uniform(7) texture2D u_HZB;               // this frame's closest-depth hierarchy (all mips, point)
-        #define u_HZB sampler2D(u_HZB, u_PointClampSampler)
-        Uniform sampler u_LinearClampSampler;
-        Uniform(8) texture2D u_SceneColorHistory; // last frame's lit opaque scene (SceneColorHistoryRenderer)
-        #define u_SceneColorHistory sampler2D(u_SceneColorHistory, u_LinearClampSampler)
+        layout(binding = 6, rgba16f) restrict writeonly uniform image2D ScreenProbeTracedTexture;
+        Uniform sampler PointClampSampler;
+        Uniform(7) texture2D HzbTexture;               // this frame's closest-depth hierarchy (all mips, point)
+        #define HzbTexture sampler2D(HzbTexture, PointClampSampler)
+        Uniform sampler LinearClampSampler;
+        Uniform(8) texture2D SceneColorHistoryTexture; // last frame's lit opaque scene (SceneColorHistoryRenderer)
+        #define SceneColorHistoryTexture sampler2D(SceneColorHistoryTexture, LinearClampSampler)
         ReadBuffer(9) ScreenProbeSpeedUB
         {
             float screenProbeSpeed[]; // per probe, world cm per frame (ScreenProbePlace)
         };
         Uniform(10) texture2D Velocity; // NDC.xyz current - previous (View/Velocity.hpp): a hit's world motion
-        #define Velocity sampler2D(Velocity, u_PointClampSampler)
+        #define Velocity sampler2D(Velocity, PointClampSampler)
 
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
@@ -136,8 +136,8 @@ Shader "ScreenProbeTraceScreen"
                 return result;
             }
             // The stop's thickness (UE TraceHZB: the ray's view depth behind the surface's, relative to it).
-            const float surfaceZ  = texelFetch( u_HZB, clamp( ivec2( walk.Position.xy * vec2( textureSize( u_HZB, 0 ) ) ),
-                                                              ivec2( 0 ), textureSize( u_HZB, 0 ) - 1 ), 0 ).r;
+            const float surfaceZ  = texelFetch( HzbTexture, clamp( ivec2( walk.Position.xy * vec2( textureSize( HzbTexture, 0 ) ) ),
+                                                              ivec2( 0 ), textureSize( HzbTexture, 0 ) - 1 ), 0 ).r;
             const vec3  rayAt     = ReconstructWorldPosition( walk.Position.xy, walk.Position.z, giFrame.invViewProjection );
             const vec3  surface   = ReconstructWorldPosition( walk.Position.xy, surfaceZ, giFrame.invViewProjection );
             const float rayDepth  = ( giFrame.viewProjection * vec4( rayAt, 1.0 ) ).w;
@@ -174,7 +174,7 @@ Shader "ScreenProbeTraceScreen"
             }
             result.hit      = true;
             // Stored pre-exposed by last frame's P (ViewFrame::PrevPreExposure): undone, the probes stay absolute.
-            result.radiance = textureLod( u_SceneColorHistory, prevUV, 0.0 ).rgb * screenProbeParams.prevCamera.w;
+            result.radiance = textureLod( SceneColorHistoryTexture, prevUV, 0.0 ).rgb * screenProbeParams.prevCamera.w;
             result.distance = hitDistance;
             // UE: the hit's position minus where its velocity says it was last frame (GetHistoryScreenPosition at
             // the hit; TAA jitter included, as UE notes). Only the moving test reads it.
@@ -202,7 +202,7 @@ Shader "ScreenProbeTraceScreen"
                      SPTraceScreen( ray.position + ray.normal * SP_SCREEN_BIAS, ray.direction, ray.tMax, ray.noise.z );
                 if ( screen.hit )
                 {
-                    imageStore( u_ScreenProbeTraced, SPAtlasOrigin( probe, SP_RES ) + ray.texel,
+                    imageStore( ScreenProbeTracedTexture, SPAtlasOrigin( probe, SP_RES ) + ray.texel,
                                 vec4( screen.radiance, screen.distance ) );
                     const float probeDepth = ( giFrame.viewProjection * vec4( ray.position, 1.0 ) ).w;
                     const bool  moving = SPIsTraceMoving( screenProbeSpeed[probe], probeDepth, screen.velocity );

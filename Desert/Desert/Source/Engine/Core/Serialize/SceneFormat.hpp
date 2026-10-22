@@ -104,10 +104,12 @@ namespace Desert::Core
     // PostProcessSettings lost Gamma (Tools/SceneMigrator, MigrateDisplayTransferV64ToV65). v66 (WP22): a World
     // Partition grid states its Name (what a RuntimeGrid block names) and Priority (Tools/SceneMigrator,
     // MigrateGridNamesV65ToV66). v67 (WP-FAR-6B): a landscape tile's HeightFile is a content key ("assets:...")
-    // (Tools/SceneMigrator, MigrateLandscapeHeightKeysV66ToV67). v68 (PATH1): every asset reference is a content
-    // key - the assets-relative and project-relative spellings are restated (Tools/SceneMigrator,
-    // MigrateAssetKeysV67ToV68).
-    inline constexpr int kSceneVersion = 68;
+    // (Tools/SceneMigrator, MigrateLandscapeHeightKeysV66ToV67). v68 (WP22c): the HLOD layer is stated per GRID
+    // (UE FRuntimePartitionDesc::HLODSetups), not once for the world - the world's DefaultHLODLayer moved onto
+    // every grid (Tools/SceneMigrator, MigrateGridHLODLayerV67ToV68). v69 (PATH1): every asset reference is a
+    // content key - the assets-relative and project-relative spellings are restated (Tools/SceneMigrator,
+    // MigrateAssetKeysV68ToV69).
+    inline constexpr int kSceneVersion = 69;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator
@@ -170,6 +172,13 @@ namespace Desert::Core
         // this grid's load first when higher. It never changes WHICH cells are wanted (QueryStreamingCells).
         int Priority = 0;
 
+        // The layer this grid's cells' HLOD is built with (UE FRuntimePartitionDesc::HLODSetups: HLOD setup
+        // belongs to the runtime partition, so two grids of one world can stand in for their cells
+        // differently). Must name a layer of WorldPartitionSerialized::HLODLayers (Rules::ValidateHLODLayers).
+        // ABSENT = this grid's cells have no HLOD and a far cell draws nothing; optional so a grid with no
+        // HLOD writes no key and an empty string is not a second spelling of "none".
+        std::optional<std::string> HLODLayer;
+
         // Compared, not just written: the editor's World Partition panel keeps the plan it painted and
         // the partition that plan was made from, and a plan is remade when the two stop matching. Without
         // an equality the panel would have to rebuild every frame (a whole serialisation of the world) or
@@ -215,13 +224,11 @@ namespace Desert::Core
     struct WorldPartitionSerialized
     {
         std::vector<WorldPartitionGridSerialized> Grids;
-        // The world's HLOD layers (UE: the UHLODLayer assets a world's actors name) and the one every cell's
-        // HLOD is built with (UE AWorldSettings::DefaultHLODLayer). ABSENT DefaultHLODLayer = cells have no
-        // HLOD and a far cell draws nothing - UE's state for a world with no default layer. Optional, so a
-        // world with no layers writes no key (reflect-cpp omits a nullopt) and an empty list is not a second
+        // The world's HLOD layers (UE: the UHLODLayer assets a world's grids name). Which layer a cell's HLOD
+        // is built with is its GRID's choice (WorldPartitionGridSerialized::HLODLayer). Optional, so a world
+        // with no layers writes no key (reflect-cpp omits a nullopt) and an empty list is not a second
         // spelling of "none".
         std::optional<std::vector<HLODLayerSerialized>> HLODLayers;
-        std::optional<std::string>                      DefaultHLODLayer;
 
         bool operator==( const WorldPartitionSerialized& ) const = default;
     };

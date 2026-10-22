@@ -41,12 +41,12 @@ Shader "SSAO"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(3) sampler u_PointClampSampler;
-        Uniform(4) sampler u_LinearRepeatSampler;
-        Uniform(1) texture2D u_GBufferDepth;  // r = device depth (nearest sampler: DEPTH32F is not filtered)
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-        Uniform(2) texture2D u_GBufferNormal; // rgb = world normal
-        #define u_GBufferNormal sampler2D(u_GBufferNormal, u_LinearRepeatSampler)
+        Uniform(3) sampler PointClampSampler;
+        Uniform(4) sampler LinearRepeatSampler;
+        Uniform(1) texture2D GBufferDepthTexture;  // r = device depth (nearest sampler: DEPTH32F is not filtered)
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(2) texture2D GBufferNormalTexture; // rgb = world normal
+        #define GBufferNormalTexture sampler2D(GBufferNormalTexture, LinearRepeatSampler)
 
         Out(0) vec4 oAO;
 
@@ -75,7 +75,7 @@ Shader "SSAO"
         // UE ScreenToViewPos through our depth: the texel's world position, in UE's view space. false = sky.
         bool ViewPosAt(vec2 uv, out vec3 viewPos)
         {
-        	const float deviceZ = texture(u_GBufferDepth, uv).r;
+        	const float deviceZ = texture(GBufferDepthTexture, uv).r;
         	if (deviceZ <= 0.0)
         	{
         		viewPos = vec3(0.0);
@@ -170,7 +170,7 @@ Shader "SSAO"
 
         void main()
         {
-        	const vec3 worldNormal = texture(u_GBufferNormal, v_TexCoord).rgb;
+        	const vec3 worldNormal = texture(GBufferNormalTexture, v_TexCoord).rgb;
         	vec3       viewSpacePos;
         	// No geometry (the G-buffer cleared to 0, or the sky's depth): unoccluded.
         	if (dot(worldNormal, worldNormal) <= 0.001 || !ViewPosAt(v_TexCoord, viewSpacePos))

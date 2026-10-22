@@ -11,6 +11,12 @@
 
 namespace Desert::Graphic
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MaterialSSAOShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( UniformBuffer, SSAOUB );
+    };
+
     // Fullscreen SSAO material: reads the G-buffer depth + normal and writes the ground-truth ambient occlusion
     // (GTAO, SSAO.shader). Header-only (no new .cpp -> no premake regen).
     class MaterialSSAO final : public Material
@@ -46,7 +52,7 @@ namespace Desert::Graphic
             int        Angles           = 0; // UE r.GTAO.NumAngles
         };
 
-        // The SSAOUB values only: u_GBufferDepth / u_GBufferNormal are graph resources, bound by name through
+        // The SSAOUB values only: GBufferDepthTexture / GBufferNormalTexture are graph resources, bound by name through
         // RDG::PassBindings (SSAORenderer::Record). Ported from UE 5.8
         // Renderer/Private/CompositionLighting/PostProcessAmbientOcclusion.cpp GetGTAOShaderParameters (440-481):
         // the six-step slice rotation, the step offset that advances once per six frames, the thickness remap 1 -
@@ -74,7 +80,7 @@ namespace Desert::Graphic
                             kOffsets[( in.FrameIndex / kRotationsDegrees.size() ) % kOffsets.size()] * 0.25f,
                             static_cast<float>( glm::max( in.Angles, 1 ) ) );
 
-            if ( auto* ub = Get<UniformBufferProperty>( "SSAOUB" ) )
+            if ( auto* ub = Get<UniformBufferProperty>( MaterialSSAOShaderParameters::SSAOUB ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
     };

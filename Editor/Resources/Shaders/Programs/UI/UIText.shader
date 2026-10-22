@@ -13,7 +13,7 @@ Shader "UIText"
     // The glyph / icon atlas is this material's own texture (Render2D caches one executor per atlas).
     Properties
     {
-        Texture2D   u_SDFAtlas ("SDF Atlas")
+        Texture2D   SdfAtlasTexture ("SDF Atlas")
     }
 
     Vertex
@@ -45,9 +45,9 @@ Shader "UIText"
 
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
         // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
-        Uniform(0) texture2D u_SDFAtlas;
-        Uniform(1) sampler u_SDFAtlasSampler;
-        #define u_SDFAtlas sampler2D(u_SDFAtlas, u_SDFAtlasSampler)
+        Uniform(0) texture2D SdfAtlasTexture;
+        Uniform(1) sampler SdfAtlasTextureSampler;
+        #define SdfAtlasTexture sampler2D(SdfAtlasTexture, SdfAtlasTextureSampler)
 
         Out(0) vec4 o_Color;
 
@@ -55,8 +55,8 @@ Shader "UIText"
 
         void main()
         {
-            vec3  msd         = texture(u_SDFAtlas, v_TexCoord).rgb;
-            float pxRange     = SdfTextScreenPxRange(fwidth(v_TexCoord), vec2(textureSize(u_SDFAtlas, 0)));
+            vec3  msd         = texture(SdfAtlasTexture, v_TexCoord).rgb;
+            float pxRange     = SdfTextScreenPxRange(fwidth(v_TexCoord), vec2(textureSize(SdfAtlasTexture, 0)));
             float alpha       = SdfTextAlpha(msd, pxRange);
 
             if (alpha <= 0.0)

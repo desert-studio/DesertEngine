@@ -23,39 +23,39 @@ Shader "ParticleDispatchArgs"
 
         ReadBuffer(0) StepTable
         {
-            VFXStep u_Steps[];
+            VFXStep Steps[];
         };
 
         Buffer(1) Counters
         {
-            ParticleDrawSlot u_Slots[];
+            ParticleDrawSlot Slots[];
         };
 
         Buffer(2) DispatchArgs
         {
-            uvec4 u_Args[]; // xyz = VkDispatchIndirectCommand, w unused; [0] Spawn+Update, [1] the next compact
+            uvec4 Arguments[]; // xyz = VkDispatchIndirectCommand, w unused; [0] Spawn+Update, [1] the next compact
         };
 
         PushConstant PushConstants
         {
-            uvec4 u_Step; // x = the step
+            uvec4 Step; // x = the step
         };
 
         void main()
         {
-            uint step      = u_Step.x;
+            uint step      = Step.x;
             uint slot      = step & 1u;
-            uint alive     = u_Slots[slot].VertexCount / 6u;
-            uint freeCount = u_Slots[slot].FreeCount;
-            uint spawned   = min( u_Steps[step].Budget, freeCount );
+            uint alive     = Slots[slot].VertexCount / 6u;
+            uint freeCount = Slots[slot].FreeCount;
+            uint spawned   = min( Steps[step].Budget, freeCount );
             uint touched   = alive + spawned;
 
-            u_Args[0] = uvec4( ( max( alive, spawned ) + PARTICLE_GROUP_SIZE - 1u ) / PARTICLE_GROUP_SIZE, 1u, 1u, 0u );
-            u_Args[1] = uvec4( ( touched + PARTICLE_GROUP_SIZE - 1u ) / PARTICLE_GROUP_SIZE, 1u, 1u, 0u );
+            Arguments[0] = uvec4( ( max( alive, spawned ) + PARTICLE_GROUP_SIZE - 1u ) / PARTICLE_GROUP_SIZE, 1u, 1u, 0u );
+            Arguments[1] = uvec4( ( touched + PARTICLE_GROUP_SIZE - 1u ) / PARTICLE_GROUP_SIZE, 1u, 1u, 0u );
 
             uint next = 1u - slot;
-            u_Slots[next] =
-                 ParticleDrawSlot( 0u, 1u, u_Slots[next].FirstVertex, 0u, freeCount - spawned, touched, 0u, 0u );
+            Slots[next] =
+                 ParticleDrawSlot( 0u, 1u, Slots[next].FirstVertex, 0u, freeCount - spawned, touched, 0u, 0u );
         }
     }
 }

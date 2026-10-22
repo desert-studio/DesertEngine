@@ -20,16 +20,16 @@
 // the same guard before this include (SurfaceCacheDirectLighting.shader): one sampler is one declaration.
 #ifndef DESERT_SHARED_LINEAR_REPEAT_SAMPLER
 #define DESERT_SHARED_LINEAR_REPEAT_SAMPLER
-Uniform sampler u_LinearRepeatSampler;
+Uniform sampler LinearRepeatSampler;
 #endif
-layout( binding = GI_TRACER_BINDING + 0 ) uniform texture3D u_GlobalDistanceField0;
-#define u_GlobalDistanceField0 sampler3D(u_GlobalDistanceField0, u_LinearRepeatSampler)
-layout( binding = GI_TRACER_BINDING + 1 ) uniform texture3D u_GlobalDistanceField1;
-#define u_GlobalDistanceField1 sampler3D(u_GlobalDistanceField1, u_LinearRepeatSampler)
-layout( binding = GI_TRACER_BINDING + 2 ) uniform texture3D u_GlobalDistanceField2;
-#define u_GlobalDistanceField2 sampler3D(u_GlobalDistanceField2, u_LinearRepeatSampler)
-layout( binding = GI_TRACER_BINDING + 3 ) uniform texture3D u_GlobalDistanceField3;
-#define u_GlobalDistanceField3 sampler3D(u_GlobalDistanceField3, u_LinearRepeatSampler)
+layout( binding = GI_TRACER_BINDING + 0 ) uniform texture3D GlobalDistanceField0Texture;
+#define GlobalDistanceField0Texture sampler3D(GlobalDistanceField0Texture, LinearRepeatSampler)
+layout( binding = GI_TRACER_BINDING + 1 ) uniform texture3D GlobalDistanceField1Texture;
+#define GlobalDistanceField1Texture sampler3D(GlobalDistanceField1Texture, LinearRepeatSampler)
+layout( binding = GI_TRACER_BINDING + 2 ) uniform texture3D GlobalDistanceField2Texture;
+#define GlobalDistanceField2Texture sampler3D(GlobalDistanceField2Texture, LinearRepeatSampler)
+layout( binding = GI_TRACER_BINDING + 3 ) uniform texture3D GlobalDistanceField3Texture;
+#define GlobalDistanceField3Texture sampler3D(GlobalDistanceField3Texture, LinearRepeatSampler)
 // The clipmaps' placement (centre.xyz cm, voxel cm; DistanceField::GlobalDistanceField::FrameField::Levels) and
 // the near field's froxel grid (Common/MeshSDFGrid.glslh): the software walk's own record, not the neutral GI
 // frame's (GlobalIllumination::TracerSoftwarePayload).
@@ -44,19 +44,19 @@ layout( std430, binding = GI_TRACER_BINDING + 4 ) readonly buffer GITracerSoftwa
 // then the compacted lists.
 layout( std430, binding = GI_TRACER_BINDING + 5 ) readonly buffer GITracerDFAssetsUB
 {
-    vec4 u_DFAssetData[];
+    vec4 DistanceFieldAssetData[];
 };
 layout( std430, binding = GI_TRACER_BINDING + 6 ) readonly buffer GITracerDFIndirectionUB
 {
-    uint u_DFIndirection[];
+    uint DistanceFieldIndirection[];
 };
 layout( std430, binding = GI_TRACER_BINDING + 7 ) readonly buffer GITracerDFObjectsUB
 {
-    vec4 u_DFObjects[];
+    vec4 DistanceFieldObjects[];
 };
 // The brick atlas is a separate texture read through the same shared repeat state as the clipmaps.
-layout( binding = GI_TRACER_BINDING + 8 ) uniform texture3D u_DFBrickAtlas;
-#define u_DFBrickAtlas sampler3D(u_DFBrickAtlas, u_LinearRepeatSampler)
+layout( binding = GI_TRACER_BINDING + 8 ) uniform texture3D DistanceFieldBrickAtlasTexture;
+#define DistanceFieldBrickAtlasTexture sampler3D(DistanceFieldBrickAtlasTexture, LinearRepeatSampler)
 layout( std430, binding = GI_TRACER_BINDING + 9 ) readonly buffer GITracerMeshSDFGridCellsUB
 {
     uint giTracerMeshSDFGridCells[];
@@ -64,10 +64,10 @@ layout( std430, binding = GI_TRACER_BINDING + 9 ) readonly buffer GITracerMeshSD
 #include <Common/MeshDistanceField.glslh>
 // The field's object grid: per cell, the instance-table rows a hit there may belong to (GIHitInstanceRows;
 // DistanceField::GlobalDistanceField, THE OBJECT GRID). Fetched texel by texel through the includer's point-clamped
-// shared state: the includer declares u_PointClampSampler (every tracer program does, for its G-buffer reads) and
+// shared state: the includer declares PointClampSampler (every tracer program does, for its G-buffer reads) and
 // DeclareTracerReads binds it with the grid.
-layout( binding = GI_TRACER_BINDING + 10 ) uniform utexture3D u_GlobalDistanceFieldObjectGrid;
-#define u_GlobalDistanceFieldObjectGrid usampler3D(u_GlobalDistanceFieldObjectGrid, u_PointClampSampler)
+layout( binding = GI_TRACER_BINDING + 10 ) uniform utexture3D GlobalDistanceFieldObjectGridTexture;
+#define GlobalDistanceFieldObjectGridTexture usampler3D(GlobalDistanceFieldObjectGridTexture, PointClampSampler)
 #include <Common/GlobalDistanceField.glslh>
 #define GI_TRACE_GDF_LEVELS giTracerGdfLevels
 #include <Common/GITraceDistanceField.glslh>
@@ -82,7 +82,7 @@ layout( binding = GI_TRACER_BINDING + 10 ) uniform utexture3D u_GlobalDistanceFi
 #include <Common/RayQueryVisibility.glslh>
 layout( std430, binding = GI_TRACER_BINDING + 3 ) readonly buffer GIInstanceSurfaceCacheRows
 {
-    uint u_GIInstanceSurfaceCacheRows[];
+    uint GiInstanceSurfaceCacheRows[];
 };
 #include <Common/GITraceRayQuery.glslh>
 #endif

@@ -20,8 +20,8 @@
 // makes its cost follow the distance the caller asked about rather than the distance to the screen's edge.
 //
 // THE INCLUDER DECLARES the hierarchy before including this file:
-//   Uniform(n) texture2D u_HZB; // all mips, point sampled (texelFetch only)
-//   #define u_HZB sampler2D(u_HZB, u_PointClampSampler) // through a shared sampler state of the pass
+//   Uniform(n) texture2D HzbTexture; // all mips, point sampled (texelFetch only)
+//   #define HzbTexture sampler2D(HzbTexture, PointClampSampler) // through a shared sampler state of the pass
 //
 // Screen space here is (uv, deviceZ): uv (0,0) top-left (Common/ScreenUV.glslh), deviceZ the reversed-Z depth. A
 // straight world ray is a straight line in that space (z/w is affine in the screen), so the segment is
@@ -64,7 +64,7 @@ HZBTraceResult HZBTraceScreen(vec3 start, vec3 end, int maxIterations)
 	result.End     = start + (end - start) * exitT;
 	result.Clipped = exitT < 1.0;
 
-	const int  mipCount     = textureQueryLevels(u_HZB);
+	const int  mipCount     = textureQueryLevels(HzbTexture);
 	const vec3 direction    = result.End - start;
 	const vec3 invDirection = vec3(direction.x != 0.0 ? 1.0 / direction.x : 3.4e38,
 	                               direction.y != 0.0 ? 1.0 / direction.y : 3.4e38,
@@ -76,7 +76,7 @@ HZBTraceResult HZBTraceScreen(vec3 start, vec3 end, int maxIterations)
 	// Out of the start's own texel without a test (UE bStepOutOfCurrentTile): no self-intersection. A crossing lands
 	// exactly ON a plane; the offset puts the position inside the next texel.
 	int   mip = 0;
-	vec2  mipResolution = vec2(textureSize(u_HZB, 0));
+	vec2  mipResolution = vec2(textureSize(HzbTexture, 0));
 	vec2  xyPlane = (floor(start.xy * mipResolution) + floorOffset) / mipResolution + offsetSign * 0.005 / mipResolution;
 	vec2  tPlane  = (xyPlane - start.xy) * invDirection.xy;
 	float t       = min(tPlane.x, tPlane.y);
@@ -86,11 +86,11 @@ HZBTraceResult HZBTraceScreen(vec3 start, vec3 end, int maxIterations)
 	int i = 0;
 	while (mip >= 0 && i < maxIterations && t < 1.0)
 	{
-		mipResolution         = vec2(textureSize(u_HZB, mip));
+		mipResolution         = vec2(textureSize(HzbTexture, mip));
 		xyPlane               = (floor(position.xy * mipResolution) + floorOffset) / mipResolution +
 		                        offsetSign * 0.005 / mipResolution;
 		const ivec2 texel     = clamp(ivec2(position.xy * mipResolution), ivec2(0), ivec2(mipResolution) - 1);
-		const float tileZ     = texelFetch(u_HZB, texel, mip).r;
+		const float tileZ     = texelFetch(HzbTexture, texel, mip).r;
 		vec3        planes    = (vec3(xyPlane, tileZ) - start) * invDirection;
 		// Reversed-Z: only a ray going away from the camera (deviceZ decreasing) can reach the texel's depth plane.
 		planes.z              = direction.z < 0.0 ? planes.z : 1.0;
@@ -118,7 +118,7 @@ HZBTraceResult HZBTraceScreen(vec3 start, vec3 end, int maxIterations)
 // cards) and the stop is uncertain.
 bool HZBThinSurfaceAhead(HZBTraceResult walk, vec3 start, int numSteps)
 {
-	const vec2  texelSize = 1.0 / vec2(textureSize(u_HZB, 0));
+	const vec2  texelSize = 1.0 / vec2(textureSize(HzbTexture, 0));
 	const float remaining = length(walk.End.xy - walk.Position.xy);
 	if (numSteps <= 0 || remaining <= 0.0)
 		return false;
@@ -129,8 +129,8 @@ bool HZBThinSurfaceAhead(HZBTraceResult walk, vec3 start, int numSteps)
 		const vec3 sampleAt = walk.Position + (float(i) / float(numSteps)) * endTime * (walk.End - walk.Position);
 		if (all(greaterThan(sampleAt.xy, vec2(0.0))) && all(lessThan(sampleAt.xy, vec2(1.0))))
 		{
-			const ivec2 texel = clamp(ivec2(sampleAt.xy / texelSize), ivec2(0), textureSize(u_HZB, 0) - 1);
-			if (sampleAt.z > texelFetch(u_HZB, texel, 0).r)
+			const ivec2 texel = clamp(ivec2(sampleAt.xy / texelSize), ivec2(0), textureSize(HzbTexture, 0) - 1);
+			if (sampleAt.z > texelFetch(HzbTexture, texel, 0).r)
 				return true;
 		}
 	}

@@ -13,6 +13,7 @@
 #include <Common/Json/Json.hpp>
 
 #include <algorithm>
+#include <format>
 #include <set>
 #include <chrono>
 #include <cmath>
@@ -131,7 +132,7 @@ namespace Desert::Core
             if ( auto layers = Rules::ValidateHLODLayers( *partition ); !layers )
                 return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
                                                   "': " + layers.GetError() );
-            if ( Rules::CellHLODLayer( *partition ) != nullptr )
+            if ( Rules::AnyGridHLODLayer( *partition ) )
             {
                 auto stored = scenePath.empty()
                                    ? Common::MakeError<WorldCells::StoredHLODs>(
@@ -284,6 +285,7 @@ namespace Desert::Core
             source.Facing                = -glm::vec3( world[2] );
             source.Priority              = data.Priority;
             source.UseVelocityForSorting = data.UseVelocityForSorting;
+            source.TargetGrids           = data.TargetGrids;
             // One shape, always (UE's FStreamingSourceShape on the component): with the defaults it is exactly
             // the circle of the range a source with no shapes loads in.
             Rules::StreamingSourceShape shape;
@@ -405,7 +407,7 @@ namespace Desert::Core
         m_LastTick.LoadsInFlight         = m_Loader->InFlight();
         m_MostResident                   = std::max( m_MostResident, m_LastTick.LiveRecords );
         m_LastTick.Streaming =
-             Rules::AssessStreaming( Executor().Plan(), m_Settings, Executor().State(), sources );
+             Rules::AssessStreaming( Executor().Plan(), m_Partition, m_Settings, Executor().State(), sources );
         const bool wasWaiting = m_FramesWaiting > 0;
         m_FramesWaiting       = m_LastTick.Streaming.Blocks() ? m_FramesWaiting + 1 : 0;
         if ( m_FramesWaiting == 1 )
@@ -551,6 +553,8 @@ namespace Desert::Core
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
         if ( auto synced = m_HLODs->Sync( Executor().State(), *this ); !synced )
             return Common::MakeError( "world streaming of '" + m_SceneName + "': " + synced.GetError() );
+        // From here on every switch is an event a flight reads (WP22c): the first Sync above set them all.
+        m_HLODSwitchesSaid = true;
         // THE HOLES: a drawing record the builder could not batch has no stand-in (WorldPartitionHLODSwitch.hpp).
         const std::string holesText =
              holes.empty() ? std::string( "every drawing record has its stand-in" )
@@ -581,6 +585,18 @@ namespace Desert::Core
             if ( entity.has_value() )
                 m_Scene->SetVisibleRecursive( entity->get(), visible );
         }
+        if ( !m_HLODSwitchesSaid || !m_HLODs.has_value() )
+            return;
+        // A grid's stand-in replaces only that grid's cells (UE UWorldPartitionRuntimeHashSet: each runtime
+        // partition owns its HLOD setup), so the switch is said with the grid it belongs to.
+        const Rules::WorldPartitionPlan& plan = Executor().Plan();
+        const std::size_t                unit = m_HLODs->UnitOf( hlod );
+        const std::size_t                grid =
+             unit < plan.AlwaysLoaded.size() ? 0 : plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Grid;
+        const std::string gridName =
+             grid < m_Partition.Grids.size() ? m_Partition.Grids[grid].Name : std::string( "?" );
+        LOG_INFO( "[WorldPartition] '{0}': grid '{1}' HLOD of {2} {3}.", m_SceneName, gridName,
+                  Rules::DescribeResidencyUnit( plan, unit ), visible ? "shown" : "hidden" );
     }
 
     WorldStreamer::~WorldStreamer()

@@ -1,14 +1,20 @@
 #pragma once
 
 #include <string>
+#include <vector>
+
+#include <glm/mat4x4.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Engine/Geometry/DynamicMeshUVOperations.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
+#include <Engine/Geometry/MeshDeformOperations.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
+#include <Engine/Geometry/MeshAttributeOperations.hpp>
+#include <Engine/Geometry/MeshSculptBrushes.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <glm/glm.hpp>
@@ -34,6 +40,19 @@ namespace Desert::Editor::Core
             UVProject,
             UVUnwrap,
             UVLayout,
+            UVTransform, // UE's UV Editor Transform tool (UUVEditorTransformTool)
+            // UE's Deform palette (MeshProcessingTool): previews on the selected mesh and commits on Accept.
+            Smooth,
+            Offset,
+            Warp,         // UE's UMeshSpaceDeformerTool: Bend / Twist / Flare in the frame of its gizmo
+            Lattice,      // UE's ULatticeDeformerTool: a control-point lattice over the mesh's bounds (FFD)
+            VertexSculpt, // UE's UMeshVertexSculptTool: brush strokes on the mesh's vertices (Move, Smooth)
+            // UE's Attributes palette (same preview/Accept session as Deform, MeshProcessingTool).
+            Tangents,      // UE's UMeshTangentsTool: MikkTSpace / Fast tangent frames, previewed as lines
+            Normals,       // UE's UEditNormalsTool: recompute / split / invert the normal overlay
+            EditMaterials, // UE's UEditMeshMaterialsTool: selected triangles -> a material slot
+                           // (EditMaterialsTool)
+            PaintGroups, // UE's UMeshGroupPaintTool: a brush / flood fill paints triangle groups (PaintGroupsTool)
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -296,8 +315,64 @@ namespace Desert::Editor::Core
         Geometry::UVProjectSettings UVProject;
         Geometry::UVUnwrapSettings  UVUnwrap;
         Geometry::UVLayoutSettings  UVLayout;
+        Geometry::UVTransformSettings UVTransform;
         // What the active UV tool's preview did (its report), or why there is none - the panel shows it.
         std::string UVStatus;
+        // UE's UV tools' material mode Checkerboard (UExistingMeshMaterialProperties): the previewed mesh drawn
+        // with a checker of its new UVs, CheckerDensity cells per UV unit (UE default 20).
+        bool  UVShowChecker    = true;
+        float UVCheckerDensity = 20.0f;
+
+        // Deform palette (MeshProcessingTool, Geometry/MeshDeformOperations.hpp): UE's Smooth and Offset tools' property
+        // sets; the tool previews the selected mesh with them and recomputes whenever they change.
+        Geometry::SmoothSettings DeformSmooth;
+        Geometry::OffsetSettings DeformOffset;
+        // Warp (UE UMeshSpaceDeformerTool): its operation settings and its gizmo - a rigid world frame whose Z is
+        // the deformation axis and whose origin the bounds are measured from. The tool places it on the mesh's
+        // bounds centre with Z along the longest side when it starts (UE Setup), then the viewport gizmo moves it.
+        Geometry::WarpSettings DeformWarp;
+        glm::mat4              WarpGizmo{ 1.0f };
+        // Lattice (UE ULatticeDeformerTool): resolution + interpolation, the control points (object space of the
+        // edited mesh, numbered as Geometry::FFDLattice::Index; the tool fills them at start and whenever the
+        // resolution changes, which resets the lattice as in UE), the selected points (UE
+        // ULatticeControlPointsMechanic selection) and the gizmo on them: a world frame placed on the
+        // selection's centroid; moving or turning it carries the selected points along.
+        Geometry::LatticeSettings DeformLattice;
+        std::vector<glm::dvec3>   LatticePoints;
+        std::vector<int32_t>      LatticeSelection;
+        glm::mat4                 LatticeGizmo{ 1.0f };
+        // Vertex Sculpt (UE UMeshVertexSculptTool / USculptBrushProperties): the brush, its radius, strength and
+        // falloff. Each stroke edits a copy of the mesh and is committed at its end as ONE undo step.
+        Geometry::SculptSettings DeformSculpt;
+        // Attributes palette -> Normals (UE UEditNormalsProperties, Geometry/MeshAttributeOperations.hpp);
+        // previewed by MeshProcessingTool like the Deform tools, its report in DeformStatus.
+        Geometry::NormalsSettings AttribNormals;
+        // Attributes palette -> Tangents (UE UMeshTangentsToolProperties), the same session.
+        Geometry::TangentsSettings AttribTangents;
+        // Attributes palette -> Edit Materials (UE UEditMeshMaterialsTool, EditMaterialsTool): the slot Assign
+        // writes, the tool's one-shot requests, and what it reports for the panel (its slots, its status).
+        int                      EditMaterialsActiveSlot    = 0;
+        bool                     EditMaterialsReqAssign     = false;
+        bool                     EditMaterialsReqAddSlot    = false;
+        bool                     EditMaterialsReqRemoveSlot = false;
+        std::string              EditMaterialsReqSlotMaterial; // a material asset path for the active slot
+        std::vector<std::string> EditMaterialsSlotNames;
+        std::string              EditMaterialsStatus;
+        // Attributes palette -> Paint PolyGroups (UE UMeshGroupPaintTool / UGroupPaintBrushFilterProperties,
+        // PaintGroupsTool): Brush paints the triangles under the brush, Fill floods the clicked group's connected
+        // region; the group they write, the brush radius (world cm), New Group, and the tool's report.
+        enum class PaintGroupsModeKind
+        {
+            Brush,
+            Fill,
+        };
+        PaintGroupsModeKind PaintGroupsMode        = PaintGroupsModeKind::Brush;
+        int                 PaintGroupsCurrent     = 0;
+        float               PaintGroupsRadius      = 25.0f;
+        bool                PaintGroupsReqNewGroup = false;
+        std::string         PaintGroupsStatus;
+        // What the active Deform tool's preview did (its report), or why there is none - the panel shows it.
+        std::string DeformStatus;
 
         // Create tool: the shape a click places (the palette places it at the viewport centre directly,
         // ViewportPanel::PlaceShapeInActiveViewport, so its refusal reaches the command's result).

@@ -24,6 +24,8 @@
 
 #include <Engine/Core/Glfw.hpp>
 
+#include <utility>
+
 namespace
 {
     template <typename Callback>
@@ -74,6 +76,27 @@ namespace
                     break;
             }
         }
+    }
+
+    /// Presses/releases ImGui's modifier keys so the held set is @p wanted. Straight into io and not through
+    /// the GLFW key callback: the backend's callbacks re-read the modifiers from the PHYSICAL keyboard
+    /// (glfwGetKey), so a synthetic Shift sent there is overwritten by "not held" on the same event.
+    void HoldDragModifiers( ImGuiIO& io, const int32_t wanted )
+    {
+        namespace Ctl       = ::Desert::Editor::Control;
+        static int32_t held = 0;
+        if ( held == wanted )
+            return;
+        constexpr std::pair<int32_t, ImGuiKey> kKeys[] = {
+             { Ctl::kModShift, ImGuiKey_ModShift },
+             { Ctl::kModControl, ImGuiKey_ModCtrl },
+             { Ctl::kModAlt, ImGuiKey_ModAlt },
+             { Ctl::kModSuper, ImGuiKey_ModSuper },
+        };
+        for ( const auto& [bit, key] : kKeys )
+            if ( ( held & bit ) != ( wanted & bit ) )
+                io.AddKeyEvent( key, ( wanted & bit ) != 0 );
+        held = wanted;
     }
 } // namespace
 
@@ -248,7 +271,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( auto frame = ::Desert::Editor::Control::InputInjection::NextFrame() )
             PlayThroughGlfw( *frame );
         // A control-channel drag: after the backend's own cursor event, so it is this frame's last word.
-        if ( const auto step = ::Desert::Editor::Control::PointerInjection::NextStep() )
+        const auto step = ::Desert::Editor::Control::PointerInjection::NextStep();
+        // Before the pointer events, so the press is seen with them held; released the frame the drag ends.
+        HoldDragModifiers( ::ImGui::GetIO(), step ? step->Mods : 0 );
+        if ( step )
         {
             ImGuiIO& io = ::ImGui::GetIO();
             if ( ( io.BackendFlags & ImGuiBackendFlags_HasMouseHoveredViewport ) != 0 )

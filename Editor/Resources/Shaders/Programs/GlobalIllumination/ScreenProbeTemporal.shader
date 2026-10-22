@@ -33,19 +33,19 @@ Shader "ScreenProbeTemporal"
         {
             GIFrame giFrame;
         };
-        Uniform sampler u_PointClampSampler;
-        Uniform(2) texture2D u_GBufferDepth;
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-        Uniform(3) texture2D u_GBufferB;
-        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(2) texture2D GBufferDepthTexture;
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(3) texture2D GBufferBTexture;
+        #define GBufferBTexture sampler2D(GBufferBTexture, PointClampSampler)
         Uniform(4) texture2D Velocity;                 // NDC.xyz current - previous (View/Velocity.hpp)
-        #define Velocity sampler2D(Velocity, u_PointClampSampler)
+        #define Velocity sampler2D(Velocity, PointClampSampler)
         Uniform(5) texture2D DiffuseIndirect;          // this frame's integrate
-        #define DiffuseIndirect sampler2D(DiffuseIndirect, u_PointClampSampler)
+        #define DiffuseIndirect sampler2D(DiffuseIndirect, PointClampSampler)
         Uniform(6) texture2D RoughSpecularIndirect;    // .a = LightIsMoving (ScreenProbeIntegrate)
-        #define RoughSpecularIndirect sampler2D(RoughSpecularIndirect, u_PointClampSampler)
+        #define RoughSpecularIndirect sampler2D(RoughSpecularIndirect, PointClampSampler)
         Uniform(7) texture2D BackfaceDiffuseIndirect;
-        #define BackfaceDiffuseIndirect sampler2D(BackfaceDiffuseIndirect, u_PointClampSampler)
+        #define BackfaceDiffuseIndirect sampler2D(BackfaceDiffuseIndirect, PointClampSampler)
         Uniform(8) texture2D DiffuseIndirectHistory;   // the view's previous set
         Uniform(9) texture2D RoughSpecularIndirectHistory; // .a = the fast-update amount
         Uniform(10) texture2D BackfaceDiffuseIndirectHistory;
@@ -55,7 +55,7 @@ Shader "ScreenProbeTemporal"
         layout(binding = 14, rgba16f) restrict writeonly uniform image2D NewHistoryBackfaceDiffuseIndirect;
         layout(binding = 15, rgba16f) restrict writeonly uniform image2D NewHistoryGuide;
         Uniform(16) utexture2D GBufferShadingWord;     // the foliage flag (DesertHasBackfaceDiffuse)
-        #define GBufferShadingWord usampler2D(GBufferShadingWord, u_PointClampSampler)
+        #define GBufferShadingWord usampler2D(GBufferShadingWord, PointClampSampler)
 
         #include <Generated/ShadingModels.glslh>
         #define SCREEN_PROBE_HISTORY_DECLARED
@@ -76,7 +76,7 @@ Shader "ScreenProbeTemporal"
             const ivec2 pixel  = ivec2( gl_GlobalInvocationID.xy );
             if ( any( greaterThanEqual( pixel, ivec2( giFrame.screen.xy ) ) ) )
                 return;
-            const vec4 gb = texelFetch( u_GBufferB, pixel, 0 );
+            const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
             if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
             {
                 imageStore( NewHistoryDiffuseIndirect, pixel, vec4( 0.0 ) );
@@ -86,7 +86,7 @@ Shader "ScreenProbeTemporal"
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-            const float depth    = texelFetch( u_GBufferDepth, pixel, 0 ).r;
+            const float depth    = texelFetch( GBufferDepthTexture, pixel, 0 ).r;
             const vec3  p        = ReconstructWorldPosition( uv, depth, giFrame.invViewProjection );
             const vec3  n        = normalize( gb.xyz );
             const float distance = max( length( p - giFrame.camera.xyz ), 1e-3 );

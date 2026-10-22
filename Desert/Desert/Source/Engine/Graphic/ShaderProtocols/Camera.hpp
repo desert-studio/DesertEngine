@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
+
 #include <Engine/Graphic/View/ViewFrame.hpp>
 
 #include <glm/glm.hpp>
@@ -19,7 +21,9 @@ namespace Desert::Graphic::ShaderProtocols
     // moves geometry to JitteredViewProjection).
     struct Camera
     {
-        inline const static std::string Name = "CameraUB";
+        // The block as a binding parameter (RDGShaderParameters.hpp) - the one spelling; Name is its string form.
+        static constexpr RDG::UniformBufferParameter Parameter{ "CameraUB" };
+        inline const static std::string              Name = std::string( Parameter.Name );
 
         glm::mat4 Projection{ 1.0f };                // offset   0
         glm::mat4 View{ 1.0f };                      // offset  64

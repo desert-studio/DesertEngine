@@ -19,6 +19,26 @@ namespace Desert::Graphic::System
     // upsample back to mip 0. The chain is a transient of each frame's graph (FrameTextures::Transients.Bloom),
     // whose mip 0 the tonemap adds in. Every dispatch is its own compute node (SceneRendererFramePostFX.cpp
     // "PostFX: Bloom*"), which declares the mip it samples and the mip it writes and places every barrier.
+    // The Downsample shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct BloomDownsampleShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceMipTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, AdaptedLuminanceTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationMipTexture );
+        static constexpr std::array kAll{ RDG::Erase( SourceMipTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( PointClampSampler ), RDG::Erase( AdaptedLuminanceTexture ), RDG::Erase( DestinationMipTexture ) };
+    };
+
+    // The Upsample shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct BloomUpsampleShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceMipTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationMipTexture );
+        static constexpr std::array kAll{ RDG::Erase( SourceMipTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( DestinationMipTexture ) };
+    };
+
     class BloomRenderer final : public RenderSystem
     {
     public:

@@ -12,8 +12,8 @@ Shader "TerrainVirtualShadow"
     // TerrainVertex.glslh's and this file's own.
     Properties
     {
-        Texture2D   u_Heightmap ("Heightmap", EngineSet)
-        Texture2D   u_Weightmap ("Weightmap", EngineSet)
+        Texture2D   HeightmapTexture ("Heightmap", EngineSet)
+        Texture2D   WeightmapTexture ("Weightmap", EngineSet)
     }
 
     State
@@ -40,17 +40,17 @@ Shader "TerrainVirtualShadow"
         #include <Common/TerrainInstance.glslh>
         ReadBuffer(8) TerrainInstances
         {
-            TerrainInstance u_Terrains[];
+            TerrainInstance Terrains[];
         };
-        #define u_T u_Terrains[m_PushConstants.MaterialIndex]
+        #define CurrentTerrain Terrains[m_PushConstants.MaterialIndex]
 
         // The tile's weightmap, as TerrainSurface.glslh reads it; bound only when the tile has layers
         // (Params2.y > 0), the backend's white fallback otherwise.
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
         // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
-        Uniform(10) texture2D u_Weightmap;
-        Uniform(12) sampler u_WeightmapSampler;
-        #define u_Weightmap sampler2D(u_Weightmap, u_WeightmapSampler)
+        Uniform(10) texture2D WeightmapTexture;
+        Uniform(12) sampler WeightmapTextureSampler;
+        #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapTextureSampler)
 
         #include <Common/LandscapeWeights.glslh>
         #include <Programs/Terrain/TerrainCasterHole.glslh>

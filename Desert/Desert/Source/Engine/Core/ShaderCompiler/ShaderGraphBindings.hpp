@@ -44,7 +44,7 @@ namespace Desert::Core
      * THE RESERVED SCENE-READ RANGE: set-0 slots a VIEW-pass surface cell reads per-(frame x view) scene data at,
      * bound by name — the view's per-primitive motion rows (`ObjectMotions`) and the view's bone palettes
      * (`ObjectBones`), both declared by Common/ObjectMotion.glslh and bound by Graphic::SceneFrameBinding::ApplyTo
-     * (TAA1 step 4), and the view's scene depth (`u_SceneDepth`) the particle-sprite cell reads for Depth Fade,
+     * (TAA1 step 4), and the view's scene depth (`SceneDepthTexture`) the particle-sprite cell reads for Depth Fade,
      * declared by Mesh/Surface/SurfaceTypes.glslh and bound by ParticleRenderer. The depth had sat at 26 on its
      * own, i.e. on top of the bone palettes in every sprite cell — a per-view scene read is exactly what this
      * range is for, so it takes the range's third slot rather than a number of its own.
@@ -63,7 +63,7 @@ namespace Desert::Core
     inline constexpr uint32_t kObjectMotionsBinding  = kSceneReadBindingFirst;      // Common/ObjectMotion.glslh
     inline constexpr uint32_t kObjectBonesBinding    = kSceneReadBindingFirst + 1u; // Common/ObjectMotion.glslh
     inline constexpr uint32_t kSceneDepthBinding = kSceneReadBindingFirst + 2u; // Mesh/Surface/SurfaceTypes.glslh
-    // The view's opaque shading word beside its depth (`u_SceneShadingWord`, Forward cells only): the caster bit
+    // The view's opaque shading word beside its depth (`SceneShadingWordTexture`, Forward cells only): the caster bit
     // of the texel a contact-shadow ray hit (Common/ContactShadow.glslh, SceneViewInputs::SceneShadingWord).
     // Declared in Mesh/Surface/SurfaceTypes.glslh.
     inline constexpr uint32_t kSceneShadingWordBinding = kSceneReadBindingFirst + 3u;
@@ -81,14 +81,14 @@ namespace Desert::Core
     // surface reads one (DShaderParser lowers `WorldParameter( "Name" )`), bound by SceneFrameBinding::ApplyTo.
     inline constexpr uint32_t kWorldParametersBinding = kSceneReadBindingFirst + 10u;
     // The view's rain occlusion (Graphic/RainOcclusion.hpp, Common/RainOcclusion.glslh): the top-down depth
-    // of what stands over the camera's surroundings (`u_RainOcclusionMap`) and the block that projects a world
+    // of what stands over the camera's surroundings (`RainOcclusionMapTexture`) and the block that projects a world
     // position into it (`RainOcclusionUB`). Declared only into the cells that wet a surface
     // (DESERT_SURFACE_WEATHER: the Forward and GBuffer mesh cells); the map is bound from the frame graph
     // (BindSceneViewInputs), the block by SceneFrameBinding::ApplyTo.
     inline constexpr uint32_t kRainOcclusionMapBinding   = kSceneReadBindingFirst + 11u;
     inline constexpr uint32_t kRainOcclusionBlockBinding = kSceneReadBindingFirst + 12u;
     // The view's point/spot shadows (Graphic/LocalShadows.hpp), read by the forward cells through the same reader
-    // the deferred composite uses (Mesh/LocalLightShadow.glslh): the atlas (`u_LocalShadowAtlas`), then the table
+    // the deferred composite uses (Mesh/LocalLightShadow.glslh): the atlas (`LocalShadowAtlasTexture`), then the table
     // of its views (`LocalShadowViewsUB`) each light's shadowView names. Bound by name from the frame graph
     // (BindSceneViewInputs); declared in Mesh/ForwardLocalLights.glslh.
     inline constexpr uint32_t kLocalShadowAtlasBinding = kSceneReadBindingFirst + 13u;

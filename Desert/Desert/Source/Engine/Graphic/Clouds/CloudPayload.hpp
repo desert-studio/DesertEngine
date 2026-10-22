@@ -17,7 +17,7 @@
 
 namespace Desert::Graphic
 {
-    /// How many clip levels the block carries (CloudGpuPayload::Level, u_CloudLevel). Pinned equal to
+    /// How many clip levels the block carries (CloudGpuPayload::Level, CloudLevel). Pinned equal to
     /// Assets::kCloudProceduralClipLevels in CloudProceduralClipmap.cpp; a number here because this header
     /// is the GPU layout and does not pull the bake in.
     inline constexpr uint32_t kCloudClipLevelSlots = 3u;
@@ -152,7 +152,7 @@ namespace Desert::Graphic
 
         // THE PAINTED LAYOUT'S PLACE AND STRENGTH (WX-PAINT), Assets::CloudLayoutPlaceUniform /
         // CloudLayoutStrengthUniform: the march multiplies the cover by the painted W per column, as Unreal's
-        // Layout does, reading the u_CloudLayoutPattern / u_CloudLayoutMask block entries through these.
+        // Layout does, reading the CloudLayoutPatternTexture / CloudLayoutMaskTexture block entries through these.
         glm::vec4 LayoutPlace;
         glm::vec4 LayoutStrength;
 
@@ -247,7 +247,7 @@ namespace Desert::Graphic
     /// of which member are actually fetched, and requires every unfetched one to appear here.
     struct CloudUnreadSlot
     {
-        /// The member's GLSL name, exactly as the block declares it (`u_CloudDetail`).
+        /// The member's GLSL name, exactly as the block declares it (`CloudDetail`).
         const char* Member;
         /// Which component, as the single swizzle letter a shader would fetch it by: 'x', 'y', 'z' or 'w'.
         char Component;
@@ -261,10 +261,10 @@ namespace Desert::Graphic
     /// has reached `dev` twice in one day from two censuses that achieved their own goal. A type has to be
     /// able to express its structure's success.
     inline constexpr std::array<CloudUnreadSlot, 2> kCloudUnreadSlots = {
-         { { "u_CloudLayoutStrength", 'z',
+         { { "CloudLayoutStrength", 'z',
              "the layout has two strengths and a grid of vec4s grows by four; the place took its own vec4 "
              "whole, so the two strengths leave two floats nobody has a number for" },
-           { "u_CloudLayoutStrength", 'w', "as z" } } };
+           { "CloudLayoutStrength", 'w', "as z" } } };
 
     /// How many of the block's floats a shader is expected to fetch. DERIVED, so the two halves of the
     /// claim — the layout and the exceptions — cannot be adjusted independently.
@@ -477,7 +477,7 @@ namespace Desert::Graphic
      * also the shipped state: both fields default to zero, so the disabled interval is the one every
      * scene already carries.
      *
-     * The shader's gate (`u_CloudFade.z > 0`) is exactly equivalent to `end > start` under this
+     * The shader's gate (`CloudFadeParams.z > 0`) is exactly equivalent to `end > start` under this
      * guarantee, because the only pair with a zero end this returns is the pair with a zero start.
      */
     struct CloudNearFadeKm
@@ -621,7 +621,7 @@ namespace Desert::Graphic
 
         /// The volume each of the DistinctCount slots holds, in slot order. Entries at or past
         /// DistinctCount repeat Volume[0], so every one of the four descriptors has a valid image
-        /// whatever the layer names — see the note at u_CloudNoise1 in Programs/Clouds/CloudRaymarch.shader.
+        /// whatever the layer names — see the note at CloudNoise1Texture in Programs/Clouds/CloudRaymarch.shader.
         Assets::AssetHandle Volume[kCloudSpeciesSlots] = {};
     };
 

@@ -55,15 +55,15 @@ namespace Desert::Editor
         // The engine's StandardSurface: the material the baked BaseColor binds to.
         constexpr std::string_view kSurfaceShaderGuid = "4f1cac6af403a010c792d835dd6f7d44";
         constexpr std::string_view kSurfaceShaderPath = "engine:Shaders/Programs/Surface/StandardSurface.shader";
-        constexpr std::string_view kAlbedoSlot        = "u_AlbedoTexture";
+        constexpr std::string_view kAlbedoSlot        = "AlbedoTexture";
         // SurfaceResolveORM (Common/SurfaceInputs.glslh) reads r = AO, g = Roughness, b = Metallic and MULTIPLIES
         // roughness by RoughnessFactor (schema default 0.5): the baked roughness is the terrain's own, so 1.
         // AOStrength (1) and MetallicFactor (0) defaults already take the map as it is.
-        constexpr std::string_view kORMSlot         = "u_ORMTexture";
+        constexpr std::string_view kORMSlot         = "OrmTexture";
         constexpr std::string_view kRoughnessFactor = "RoughnessFactor";
         // StandardSurface's tangent-space normal map (Intent NormalMap; NormalScale defaults to 1, the baked
         // normal is the terrain's own, so no parameter).
-        constexpr std::string_view kNormalSlot = "u_NormalTexture";
+        constexpr std::string_view kNormalSlot = "NormalTexture";
         // The RGBA16F G-buffer targets: 4 half floats per texel, alpha at byte 6.
         constexpr std::size_t kHalfTexelBytes = 8;
         constexpr std::size_t kHalfAlphaByte  = 6;

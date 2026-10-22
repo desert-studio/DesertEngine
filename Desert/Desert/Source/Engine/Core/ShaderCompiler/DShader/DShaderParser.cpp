@@ -1098,7 +1098,7 @@ namespace Desert::Core::Preprocess
         // `uniform MaterialUB` — a block per material, which IS the parameters, so a material could hold
         // exactly one set of values and several objects sharing a shader all rendered the first one's
         // (Core/Formats/MaterialParamRow.hpp names the probe scene and the measurement). Nothing about a
-        // shader's source had to change for the swap: both spellings answer to `u_Material.<Name>`, and
+        // shader's source had to change for the swap: both spellings answer to `Material.<Name>`, and
         // the difference is only whether that name resolves to a block or to a row.
         //
         // The push constant carrying the row index is an INCLUDE and not text emitted here, because it is
@@ -1112,7 +1112,7 @@ namespace Desert::Core::Preprocess
         // A RAY TRACING HIT CELL (kSurfaceRayHitPath) has no draw and so no push constant and no bound row: its
         // row travels in the hit group's shader record (Common/RayTracingHitRecord.glslh), UE's
         // FRayTracingMeshCommand loose parameters. @p rowByShaderRecord declares the same MaterialParams struct
-        // and names `u_Material` through the record's device address instead of a Materials[] binding. Bound
+        // and names `Material` through the record's device address instead of a Materials[] binding. Bound
         // (non-row) textures have no place in a record; the parser gives a template with any no hit cell
         // (SurfaceTemplateInfo::RayHitRefusal).
         std::string BuildAutoDeclarations( const MaterialLayout& layout, const bool rowByShaderRecord = false )
@@ -1141,7 +1141,7 @@ namespace Desert::Core::Preprocess
                     out << "};\n";
                     out << "layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer "
                            "DesertMaterialRowRef\n{\n    MaterialParams Row;\n};\n";
-                    out << "#define u_Material DesertMaterialRowRef( u_RayHitRecord.MaterialRow ).Row\n";
+                    out << "#define Material DesertMaterialRowRef( RayHitRecord.MaterialRow ).Row\n";
                 }
                 return out.str();
             }
@@ -1167,8 +1167,8 @@ namespace Desert::Core::Preprocess
                 }
                 out << "};\n";
                 out << "layout( std430, binding = " << *layout.RowBinding << " ) readonly buffer Materials\n"
-                    << "{\n    MaterialParams u_Materials[];\n};\n";
-                out << "#define u_Material u_Materials[m_PushConstants.MaterialIndex]\n";
+                    << "{\n    MaterialParams MaterialRows[];\n};\n";
+                out << "#define Material MaterialRows[m_PushConstants.MaterialIndex]\n";
             }
 
             // A bound texture is a separate texture plus its own sampler state; the define keeps every read in
@@ -1668,26 +1668,26 @@ namespace Desert::Core::Preprocess
             std::string transform;
             if ( !height.TilingParam.empty() )
             {
-                transform = std::format( "    vec2 tiling = u_Material.{};\n"
+                transform = std::format( "    vec2 tiling = Material.{};\n"
                                          "    if ( tiling.x <= 0.0 ) tiling.x = 1.0;\n"
                                          "    if ( tiling.y <= 0.0 ) tiling.y = 1.0;\n",
                                          height.TilingParam );
-                uv        = std::format( "SurfaceTransformUV( {}, u_Material.{}, tiling, u_Material.{} )", uv,
+                uv        = std::format( "SurfaceTransformUV( {}, Material.{}, tiling, Material.{} )", uv,
                                          height.OffsetParam, height.RotationParam );
             }
             const std::string channel =
                  height.ChannelParam.empty()
                       ? std::to_string( height.Channel )
-                      : std::format( "clamp( int( u_Material.{} ), 0, 3 )", height.ChannelParam );
+                      : std::format( "clamp( int( Material.{} ), 0, 3 )", height.ChannelParam );
             const std::string center =
                  height.CenterParam.empty() ? std::string( "0.0" )
-                                            : std::format( "clamp( u_Material.{}, 0.0, 1.0 )", height.CenterParam );
+                                            : std::format( "clamp( Material.{}, 0.0, 1.0 )", height.CenterParam );
             return std::format( "vec2 DesertSurfaceHeightUV( SurfaceInput i )\n{{\n{}    return {};\n}}\n"
                                 "#ifndef DESERT_RAY_TRACING_STAGE\n"
                                 "float DesertSurfaceHeightGrad( vec2 uv, vec2 dUVdx, vec2 dUVdy )\n{{\n"
-                                "    return SampleBindlessGrad( u_Material.{}, uv, dUVdx, dUVdy )[{}];\n}}\n"
+                                "    return SampleBindlessGrad( Material.{}, uv, dUVdx, dUVdy )[{}];\n}}\n"
                                 "#endif\n"
-                                "float DesertSurfaceHeightScale()\n{{\n    return u_Material.{};\n}}\n"
+                                "float DesertSurfaceHeightScale()\n{{\n    return Material.{};\n}}\n"
                                 "float DesertSurfaceHeightCenter()\n{{\n    return {};\n}}\n",
                                 transform, uv, height.Texture, channel, height.ScaleParam, center );
         }
@@ -1703,19 +1703,19 @@ namespace Desert::Core::Preprocess
             std::string transform;
             if ( !mask.TilingParam.empty() )
             {
-                transform = std::format( "    vec2 tiling = u_Material.{};\n"
+                transform = std::format( "    vec2 tiling = Material.{};\n"
                                          "    if ( tiling.x <= 0.0 ) tiling.x = 1.0;\n"
                                          "    if ( tiling.y <= 0.0 ) tiling.y = 1.0;\n",
                                          mask.TilingParam );
-                uv        = std::format( "SurfaceTransformUV( {}, u_Material.{}, tiling, u_Material.{} )", uv,
+                uv        = std::format( "SurfaceTransformUV( {}, Material.{}, tiling, Material.{} )", uv,
                                          mask.OffsetParam, mask.RotationParam );
             }
             const std::string channel =
                  mask.ChannelParam.empty()
                       ? std::to_string( mask.Channel )
-                      : std::format( "clamp( int( u_Material.{} ), 0, 3 )", mask.ChannelParam );
+                      : std::format( "clamp( int( Material.{} ), 0, 3 )", mask.ChannelParam );
             return std::format( "float DesertSurfaceOpacityMask( SurfaceInput i )\n{{\n{}"
-                                "    return SurfaceSampleMaterial( u_Material.{}, {} )[{}];\n}}\n",
+                                "    return SurfaceSampleMaterial( Material.{}, {} )[{}];\n}}\n",
                                 transform, mask.Texture, uv, channel );
         }
 
@@ -1821,7 +1821,7 @@ namespace Desert::Core::Preprocess
                                               const std::string& heightFunctions, const bool weather )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
-            const bool        particle = path == kSurfaceParticleSpritePath;
+            const bool        particle = path == kSurfaceParticleSpritePath || path == kSurfaceParticleRibbonPath;
             const std::string defines  = std::format(
                  "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}{}#define {} {}\n", pass,
                  // The hit cell's two stages share one pass header; the any-hit stage is told which it is.
@@ -1994,6 +1994,7 @@ namespace Desert::Core::Preprocess
         includes.emplace_back( kSurfaceTranslucentPassInclude );
         includes.emplace_back( kSurfaceFrontLayerPassInclude );
         includes.push_back( SurfaceVertexInclude( kSurfaceParticleSpritePath ) );
+        includes.push_back( SurfaceVertexInclude( kSurfaceParticleRibbonPath ) );
         includes.emplace_back( kSurfaceParticleSpritePassInclude );
         includes.emplace_back( kSurfaceRayHitPassInclude );
         includes.emplace_back( kSurfaceRayHitRecordInclude );
@@ -2286,12 +2287,16 @@ namespace Desert::Core::Preprocess
                 const std::string stated = ReadIdent( c );
                 if ( Lower( stated ) == "particlesprites" )
                     result.Surface.UsedWithParticleSprites = true;
+                else if ( Lower( stated ) == "particleribbons" )
+                    result.Surface.UsedWithParticleRibbons = true;
                 else if ( Lower( stated ) == "grassblades" )
                     result.Surface.UsedWithGrassBlades = true;
                 else
                 {
                     // The author's spelling, not the folded one the comparison used.
-                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites, GrassBlades)", stated ) };
+                    err = { line,
+                            std::format( "unknown Usage '{}' (ParticleSprites, ParticleRibbons, GrassBlades)",
+                                         stated ) };
                     return fail();
                 }
                 surfaceSettingLine                     = surfaceSettingLine != 0 ? surfaceSettingLine : line;
@@ -2929,12 +2934,28 @@ namespace Desert::Core::Preprocess
                 cell.Name  = SurfaceCellName( kSurfaceParticleSpritePath, kSurfaceParticleSpritePass );
                 cell.State = cellState;
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                    cell.Stages.emplace(
-                         stage, AssembleSurfaceCellStage( stage, kSurfaceParticleSpritePath,
-                                                          kSurfaceParticleSpritePass, *surfaceBlock, includeBlock,
-                                                          autoDecls, result.Surface.Blend, shadingModelDefine,
-                                                          result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                          false, heightFunctions, false ) );
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                     stage, kSurfaceParticleSpritePath, kSurfaceParticleSpritePass,
+                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     shadingModelDefine, result.Surface.ResponsiveAA,
+                                                     opacityMaskFunction, false, heightFunctions, false ) );
+                result.Meta.PassNames.push_back( cell.Name );
+                result.Surface.Cells.push_back( cell.Name );
+                result.Passes.push_back( std::move( cell ) );
+            }
+
+            // `Usage ParticleRibbons`: the ribbon cell, after the sprite cell (same pass, same particle header).
+            if ( result.Surface.UsedWithParticleRibbons )
+            {
+                DShaderPass cell;
+                cell.Name  = SurfaceCellName( kSurfaceParticleRibbonPath, kSurfaceParticleSpritePass );
+                cell.State = cellState;
+                for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                     stage, kSurfaceParticleRibbonPath, kSurfaceParticleSpritePass,
+                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     shadingModelDefine, result.Surface.ResponsiveAA,
+                                                     opacityMaskFunction, false, heightFunctions, false ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );

@@ -15,15 +15,15 @@ Shader "UpscalerExposure"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(2) sampler u_PointClampSampler;
-        Uniform(0) texture2D u_AdaptedLuminance;
-        #define u_AdaptedLuminance sampler2D(u_AdaptedLuminance, u_PointClampSampler)
-        layout(binding = 1, r32f) restrict writeonly uniform image2D u_Exposure;
+        Uniform(2) sampler PointClampSampler;
+        Uniform(0) texture2D AdaptedLuminanceTexture;
+        #define AdaptedLuminanceTexture sampler2D(AdaptedLuminanceTexture, PointClampSampler)
+        layout(binding = 1, r32f) restrict writeonly uniform image2D ExposureTexture;
 
         void main()
         {
-            const float adaptedLum = texelFetch(u_AdaptedLuminance, ivec2(0), 0).r;
-            imageStore(u_Exposure, ivec2(0), vec4(1.0 / max(adaptedLum, 1e-4), 0.0, 0.0, 0.0));
+            const float adaptedLum = texelFetch(AdaptedLuminanceTexture, ivec2(0), 0).r;
+            imageStore(ExposureTexture, ivec2(0), vec4(1.0 / max(adaptedLum, 1e-4), 0.0, 0.0, 0.0));
         }
     }
 }

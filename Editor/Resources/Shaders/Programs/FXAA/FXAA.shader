@@ -10,9 +10,9 @@ Shader "FXAA"
         In(0)  vec2 v_TexCoord;
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(0) sampler u_LinearRepeatSampler;
-        Uniform(2) texture2D u_InputTexture;
-        #define u_InputTexture sampler2D(u_InputTexture, u_LinearRepeatSampler)
+        Uniform(0) sampler LinearRepeatSampler;
+        Uniform(2) texture2D LdrSceneColorTexture;
+        #define LdrSceneColorTexture sampler2D(LdrSceneColorTexture, LinearRepeatSampler)
         Out(0) vec4 oColor;
 
         #define FXAA_SPAN_MAX   8.0
@@ -26,13 +26,13 @@ Shader "FXAA"
 
         void main()
         {
-            vec2 inverseVP = 1.0 / vec2( textureSize( u_InputTexture, 0 ) );
+            vec2 inverseVP = 1.0 / vec2( textureSize( LdrSceneColorTexture, 0 ) );
 
-            vec3 rgbM  = texture( u_InputTexture, v_TexCoord ).rgb;
-            vec3 rgbNW = textureOffset( u_InputTexture, v_TexCoord, ivec2( -1, -1 ) ).rgb;
-            vec3 rgbNE = textureOffset( u_InputTexture, v_TexCoord, ivec2(  1, -1 ) ).rgb;
-            vec3 rgbSW = textureOffset( u_InputTexture, v_TexCoord, ivec2( -1,  1 ) ).rgb;
-            vec3 rgbSE = textureOffset( u_InputTexture, v_TexCoord, ivec2(  1,  1 ) ).rgb;
+            vec3 rgbM  = texture( LdrSceneColorTexture, v_TexCoord ).rgb;
+            vec3 rgbNW = textureOffset( LdrSceneColorTexture, v_TexCoord, ivec2( -1, -1 ) ).rgb;
+            vec3 rgbNE = textureOffset( LdrSceneColorTexture, v_TexCoord, ivec2(  1, -1 ) ).rgb;
+            vec3 rgbSW = textureOffset( LdrSceneColorTexture, v_TexCoord, ivec2( -1,  1 ) ).rgb;
+            vec3 rgbSE = textureOffset( LdrSceneColorTexture, v_TexCoord, ivec2(  1,  1 ) ).rgb;
 
             float lumaNW = luma( rgbNW );
             float lumaNE = luma( rgbNE );
@@ -52,10 +52,10 @@ Shader "FXAA"
             float rcpDirMin = 1.0 / ( min( abs( dir.x ), abs( dir.y ) ) + dirReduce );
             dir = clamp( dir * rcpDirMin, vec2( -FXAA_SPAN_MAX ), vec2( FXAA_SPAN_MAX ) ) * inverseVP;
 
-            vec3 rgbA = 0.5 * ( texture( u_InputTexture, v_TexCoord + dir * ( 1.0 / 3.0 - 0.5 ) ).rgb +
-                                texture( u_InputTexture, v_TexCoord + dir * ( 2.0 / 3.0 - 0.5 ) ).rgb );
-            vec3 rgbB = rgbA * 0.5 + 0.25 * ( texture( u_InputTexture, v_TexCoord + dir * -0.5 ).rgb +
-                                              texture( u_InputTexture, v_TexCoord + dir *  0.5 ).rgb );
+            vec3 rgbA = 0.5 * ( texture( LdrSceneColorTexture, v_TexCoord + dir * ( 1.0 / 3.0 - 0.5 ) ).rgb +
+                                texture( LdrSceneColorTexture, v_TexCoord + dir * ( 2.0 / 3.0 - 0.5 ) ).rgb );
+            vec3 rgbB = rgbA * 0.5 + 0.25 * ( texture( LdrSceneColorTexture, v_TexCoord + dir * -0.5 ).rgb +
+                                              texture( LdrSceneColorTexture, v_TexCoord + dir *  0.5 ).rgb );
 
             float lumaB = luma( rgbB );
             if ( lumaB < lumaMin || lumaB > lumaMax )

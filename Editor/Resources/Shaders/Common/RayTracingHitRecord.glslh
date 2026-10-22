@@ -22,7 +22,7 @@ layout( shaderRecordEXT, std430 ) buffer DesertRayHitRecord
     uint  Pad;          // std430: MaterialRow at byte 40
     uvec2 MaterialRow;  // the segment's MaterialParams row (the template's struct), 16-byte aligned
 }
-u_RayHitRecord;
+RayHitRecord;
 
 const uint kDesertRayHitNoOffset      = 0xFFFFFFFFu;
 
@@ -49,25 +49,25 @@ uvec3 DesertRayHitCorners( uint primitive )
     uvec3 corner;
     for ( uint i = 0u; i < 3u; ++i )
     {
-        const uint indexByte = ( u_RayHitRecord.FirstIndex + primitive * 3u + i ) * 4u;
-        corner[i] = DesertRayHitUintRef( DesertRayHitAddressAdd( u_RayHitRecord.IndexAddress, indexByte ) ).Value +
-                    u_RayHitRecord.FirstVertex;
+        const uint indexByte = ( RayHitRecord.FirstIndex + primitive * 3u + i ) * 4u;
+        corner[i] = DesertRayHitUintRef( DesertRayHitAddressAdd( RayHitRecord.IndexAddress, indexByte ) ).Value +
+                    RayHitRecord.FirstVertex;
     }
     return corner;
 }
 
 vec3 DesertRayHitVertexVec3( uint vertex, uint byteOffset )
 {
-    const uvec2 base = DesertRayHitAddressAdd( u_RayHitRecord.VertexAddress,
-                                               vertex * u_RayHitRecord.VertexStride + byteOffset );
+    const uvec2 base = DesertRayHitAddressAdd( RayHitRecord.VertexAddress,
+                                               vertex * RayHitRecord.VertexStride + byteOffset );
     return vec3( DesertRayHitFloat( base ), DesertRayHitFloat( DesertRayHitAddressAdd( base, 4u ) ),
                  DesertRayHitFloat( DesertRayHitAddressAdd( base, 8u ) ) );
 }
 
 vec2 DesertRayHitVertexVec2( uint vertex, uint byteOffset )
 {
-    const uvec2 base = DesertRayHitAddressAdd( u_RayHitRecord.VertexAddress,
-                                               vertex * u_RayHitRecord.VertexStride + byteOffset );
+    const uvec2 base = DesertRayHitAddressAdd( RayHitRecord.VertexAddress,
+                                               vertex * RayHitRecord.VertexStride + byteOffset );
     return vec2( DesertRayHitFloat( base ), DesertRayHitFloat( DesertRayHitAddressAdd( base, 4u ) ) );
 }
 

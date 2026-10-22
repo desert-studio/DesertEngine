@@ -823,7 +823,7 @@ namespace Desert::Assets
     std::vector<float> BakeCloudFarWeatherMap( uint32_t seed, float tileKm );
 
     /// What the march needs to read the world weather W, as the GPU block carries it (CloudGpuPayload::Weather
-    /// / u_CloudWeather): y the PatchStrength the weather map W is drawn at — ZERO when the weather stands
+    /// / CloudWeather): y the PatchStrength the weather map W is drawn at — ZERO when the weather stands
     /// down (no strength, or a painted pattern is the weather, exactly as CloudProceduralLocalWeather
     /// decides), w 1 / kCloudFarWeatherPeriodKm, x CloudFarFieldScale (the far path's own read of the same
     /// map). z is zero and unread (Graphic::kCloudUnreadSlots): the cover's softness is the bake's since
@@ -1028,7 +1028,7 @@ namespace Desert::Assets
     /// The DDC deriver of the modelling volume (UE's FCacheBucket + version). Bump the version whenever
     /// BakeCloudProceduralVolume's bytes change for the same inputs: the key cannot see the algorithm.
     inline constexpr Common::DDC::Deriver kCloudModellingDeriver{
-         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000020ULL } };
+         "CloudModelling", ".cmv", { 0x3c9d1f7a52e06b84ULL, 0x0000000000000021ULL } };
 
     /**
      * @brief Every input the bake reads, serialized in a fixed order — the settings block of the DDC key.

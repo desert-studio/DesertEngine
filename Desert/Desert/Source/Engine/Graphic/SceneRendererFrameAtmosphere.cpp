@@ -1,3 +1,4 @@
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
@@ -66,6 +67,11 @@ namespace Desert::Graphic
         // VFX-08: every view sorts its own translucent / additive emitters back to front (the key is its view
         // depth); the graph orders the sort after the last Compact and before ParticlePass from the buffers.
         particles->AddSortPasses( graph );
+        // VFX-09: Mesh renderer rows as GPU instances of the mesh renderer (lit by the GBuffer, cast into the
+        // cascades) - submitted here, before the cascades and the base pass build their draws.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+            particles->AddMeshInstances( graph, *meshes );
     }
 
     static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer )

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/AssetHandle.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
@@ -140,8 +141,14 @@ namespace Desert::Graphic::System
     {
         glm::uvec4 Range      = glm::uvec4( 0u ); // x = range count (column stride), y = pool base, z = 1 local
         glm::uvec4 Columns0   = glm::uvec4( kParticleAttrNone ); // Position, SpriteSize, Color, SpriteRotation
-        glm::uvec4 Columns1   = glm::uvec4( kParticleAttrNone ); // Age, Lifetime, -, -
+        glm::uvec4 Columns1   = glm::uvec4( kParticleAttrNone ); // Age, Lifetime, RibbonWidth, RibbonLinkOrder
         glm::vec4  EmitterPos = glm::vec4( 0.0f );               // xyz = emitter world position (cm)
+        // x = the Ribbon row's RibbonIdBinding attribute (an Int; none = one ribbon), y = Scale, z =
+        // MeshOrientation.
+        glm::uvec4 Columns2 = glm::uvec4( kParticleAttrNone );
+        // The emitter's Ribbon row (Vertex_ParticleRibbon.glslh): x = Width (cm), y = UV mode (0 Stretch,
+        // 1 TileByDistance), z = UVTileDistance (cm); zero without a Ribbon row.
+        glm::vec4 Ribbon = glm::vec4( 0.0f );
     };
     static_assert( sizeof( ParticleDrawLayoutGpu ) == kParticleDrawLayoutSize );
 
@@ -188,16 +195,32 @@ namespace Desert::Graphic::System
         uint32_t                                        DebugEmitter = 0;
     };
 
+    // One enabled renderer row of an emitter this tick (UE: the FNiagaraRenderer made per
+    // UNiagaraRendererProperties): the drawing view builds one draw of the emitter's particles from each.
+    // Material is ParticleRendererMaterial's answer for the row (ParticleWorldGpu.cpp): null = the engine's
+    // particle material for Kind (Sprite: ParticleSpriteDefault; Ribbon: the engine ribbon material; Mesh: the
+    // mesh's own materials). Ribbon/Mesh point into the system's data (ParticleSystemGpu::System holds it) and
+    // are set exactly for their Kind.
+    struct ParticleFrameRenderer
+    {
+        Assets::Serialization::VFXRendererKind              Kind = Assets::Serialization::VFXRendererKind::Sprite;
+        uint32_t                                            Row  = 0; // the row's index in the emitter's Renderers
+        Common::AssetHandle                                 Material;
+        const Assets::Serialization::VFXRibbonRendererData* Ribbon = nullptr;
+        const Assets::Serialization::VFXMeshRendererData*   Mesh   = nullptr;
+    };
+
     // One emitter active in this scene update.
     struct ParticleFrameEmitter
     {
         uint32_t            EntityId = 0;
+        uint32_t            Emitter  = 0; // the emitter's index in its system (VFXSystemData::Emitters)
         ParticleEmitterGpu* Gpu      = nullptr;
         ParticleSimPush     Push;
         ComputePipeline*    Pipeline = nullptr; // the emitter's stack host program (Gpu->Pipeline)
-        // The sprite renderer's material (null = the default sprite template; a `.dfx` sprite row names none yet,
-        // VFXS 1); the drawing view resolves its ParticleSprite.Forward cell and reads the blend mode off it.
-        Common::AssetHandle Material;
+        // The emitter's enabled renderer rows in `.dfx` order (VFXS 2); none = the emitter simulates and draws
+        // nothing (UE: an emitter without renderers).
+        std::vector<ParticleFrameRenderer> Renderers;
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
     };
 
@@ -284,7 +307,8 @@ namespace Desert::Graphic::System
         bool EnsurePoolCapacity( uint32_t particles );
         // Uploads emitter @p emitter's tick into @p gpu and adds its frame emitter; false = it sits out this tick.
         bool PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
-                             const ParticlePoolRange& range, uint32_t entityId, const glm::vec3& worldPos,
+                             const Assets::Serialization::VFXEmitterData& data, const ParticlePoolRange& range,
+                             uint32_t entityId, uint32_t emitterIndex, const glm::vec3& worldPos,
                              float stepSeconds, uint32_t stepSerial );
         // Makes @p gpu's per-tick buffers (step table, counters, dispatch args, channel spawns); false = it sits
         // out.

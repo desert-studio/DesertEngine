@@ -74,6 +74,15 @@ namespace Desert::Graphic::System
     {
         if ( !CreateResources() )
             return Common::MakeError( "AutoExposureRenderer: failed to create compute resources" );
+        if ( const auto valid = m_ClearLayout.Validate( m_ClearPipeline->GetSpecification().Shader, AutoExposureClearShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_HistogramLayout.Validate( m_HistogramPipeline->GetSpecification().Shader, AutoExposureHistogramShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_AverageLayout.Validate( m_AveragePipeline->GetSpecification().Shader, AutoExposureAverageShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -135,7 +144,7 @@ namespace Desert::Graphic::System
             return;
         pass.Bindings( m_ClearLayout.Get( m_ClearPipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_ClearPipeline ) )
-             .Storage( "Histogram", histogram, RDG::Access::StorageWrite );
+             .Storage( AutoExposureClearShaderParameters::Histogram, histogram, RDG::Access::StorageWrite );
     }
 
     Common::BoolResultStr AutoExposureRenderer::RecordClear( const RDG::PassContext& context )
@@ -155,9 +164,9 @@ namespace Desert::Graphic::System
         // The shader reads texels with texelFetch: no filtering or addressing applies, PointClamp states that.
         pass.Bindings( m_HistogramLayout.Get( m_HistogramPipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_HistogramPipeline ) )
-             .Texture( "u_Scene", scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-             .Storage( "Histogram", histogram, RDG::Access::StorageWrite )
+             .Texture( AutoExposureHistogramShaderParameters::SceneColorTexture, scene, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( AutoExposureHistogramShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+             .Storage( AutoExposureHistogramShaderParameters::Histogram, histogram, RDG::Access::StorageWrite )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( HistogramPush ) ) );
     }
 
@@ -179,14 +188,14 @@ namespace Desert::Graphic::System
     {
         if ( !m_AveragePipeline )
             return;
-        // u_PrevLum is 1x1 and sampled at its centre: PointClamp returns exactly the stored luminance.
+        // PreviousLuminanceTexture is 1x1 and sampled at its centre: PointClamp returns exactly the stored luminance.
         pass.Bindings( m_AverageLayout.Get( m_AveragePipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_AveragePipeline ) )
-             .Storage( "Histogram", histogram, RDG::Access::StorageRead )
-             .Texture( "u_PrevLum", previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-             .Storage( "u_OutLum", adapted, RDG::Access::StorageWrite, 0 )
-             .Storage( "Readback", readback, RDG::Access::StorageWrite )
+             .Storage( AutoExposureAverageShaderParameters::Histogram, histogram, RDG::Access::StorageRead )
+             .Texture( AutoExposureAverageShaderParameters::PreviousLuminanceTexture, previous, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( AutoExposureAverageShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+             .Storage( AutoExposureAverageShaderParameters::OutLuminanceTexture, adapted, RDG::Access::StorageWrite, 0 )
+             .Storage( AutoExposureAverageShaderParameters::Readback, readback, RDG::Access::StorageWrite )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( AveragePush ) ) );
     }
 

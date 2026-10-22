@@ -1,5 +1,6 @@
 #include "VFXSystemService.hpp"
 
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -63,6 +64,47 @@ namespace Desert::Runtime
         if ( found == m_Ready.end() )
             return Common::MakeSuccess( System{} );
         return Common::MakeSuccess( found->second );
+    }
+
+    Common::ResultStr<Assets::Asset<Assets::VFXEffectTypeAsset>>
+    VFXSystemService::EffectType( const std::string& name )
+    {
+        using Result         = Assets::Asset<Assets::VFXEffectTypeAsset>;
+        const auto assetsPtr = m_Assets.lock();
+        if ( !assetsPtr )
+            return Common::MakeFormattedError<Result>( "effect type '{}': no asset manager is bound", name );
+
+        Result named;
+        for ( const auto& [handle, held] : assetsPtr->FindAllByType<Assets::VFXEffectTypeAsset>() )
+            if ( held && held->TypeName() == name )
+                named = held;
+        if ( !named )
+        {
+            // Not held yet: the content registry has a row for every `.dfxtype` under the VFX root.
+            std::filesystem::path file;
+            for ( const std::filesystem::path& row :
+                  Assets::ContentRegistry::FilesOfKind( Common::Content::ContentKind::VFXEffectType ) )
+            {
+                if ( row.stem().string() != name )
+                    continue;
+                if ( !file.empty() )
+                    return Common::MakeFormattedError<Result>( "two effect types are named '{}' ({} and {})", name,
+                                                               file.generic_string(), row.generic_string() );
+                file = row;
+            }
+            if ( file.empty() )
+                return Common::MakeFormattedError<Result>(
+                     "no effect type is named '{}' (no {} file of that stem in the content registry)", name,
+                     Assets::Serialization::kVFXEffectTypeExtension );
+            named = assetsPtr->CreateAsset<Assets::VFXEffectTypeAsset>( file );
+            if ( !named )
+                return Common::MakeFormattedError<Result>( "effect type '{}' ({}) could not be registered", name,
+                                                           file.generic_string() );
+        }
+        if ( !named->IsReadyForUse() )
+            if ( auto loaded = named->LoadFromFile(); !loaded )
+                return Common::MakeFormattedError<Result>( "{}", loaded.GetError() );
+        return Common::MakeSuccess( named );
     }
 
     void VFXSystemService::Clear()

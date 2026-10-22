@@ -14,6 +14,12 @@
 #include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
 
+#include <rflcpp/rfl/Object.hpp>
+#include <rflcpp/rfl/internal/has_reflector.hpp>
+
+#include <format>
+#include <stdexcept>
+
 #include <optional>
 
 namespace Common::Settings
@@ -177,6 +183,11 @@ namespace Common::Settings
         // The Quality.Levels groups whose element the last Load() refused (not a level name), each reported by
         // an ERROR naming the group. Empty after a clean Load, without one, or when Quality was refused whole.
         [[nodiscard]] static const LevelGroups& UnreadLevels();
+
+        // True when the last Load() read Quality.Levels in a form this build migrates (the former positional
+        // list, or a group the file does not name): the host writes the selection it starts on back at once
+        // (QualityBoot), so the file holds every group by name from the first session of this build on.
+        [[nodiscard]] static bool LevelsMigrated();
     };
     DESERT_JSON_STRUCT( MachineSettings, "MachineSettings", 1 )
 
@@ -195,3 +206,46 @@ namespace Common::Settings
     // `.deproj` and lands in a path.
     std::filesystem::path GameUserDirectory( const std::string& product );
 } // namespace Common::Settings
+
+// THE JSON FORM OF A LEVEL PER GROUP: an object keyed by Scalability::GroupKey, in Group order. Strict on read —
+// an unknown group name or a missing group refuses the value naming it; machine.json's loader (ScreenLevels)
+// handles both before this runs (unknown = ERROR and dropped, missing = WARN and the group's start level).
+template <>
+struct rfl::Reflector<Common::Scalability::GroupLevels>
+{
+    using ReflType = rfl::Object<Common::Scalability::Level>;
+
+    static Common::Scalability::GroupLevels to( const ReflType& object )
+    {
+        namespace SC = Common::Scalability;
+        SC::GroupLevels              levels;
+        std::bitset<SC::kGroupCount> seen;
+        for ( const auto& [name, level] : object )
+        {
+            std::size_t g = 0;
+            while ( g < SC::kGroupCount && SC::GroupKey( static_cast<SC::Group>( g ) ) != name )
+                ++g;
+            if ( g == SC::kGroupCount )
+                throw std::runtime_error( std::format( "'{}' is not a quality group", name ) );
+            if ( seen.test( g ) )
+                throw std::runtime_error( std::format( "the {} group is given twice", name ) );
+            seen.set( g );
+            levels[g] = level;
+        }
+        for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
+            if ( !seen.test( g ) )
+                throw std::runtime_error(
+                     std::format( "the {} group has no level", SC::GroupKey( static_cast<SC::Group>( g ) ) ) );
+        return levels;
+    }
+
+    static ReflType from( const Common::Scalability::GroupLevels& levels )
+    {
+        namespace SC = Common::Scalability;
+        ReflType object;
+        for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
+            object.insert(
+                 std::make_pair( std::string( SC::GroupKey( static_cast<SC::Group>( g ) ) ), levels[g] ) );
+        return object;
+    }
+};

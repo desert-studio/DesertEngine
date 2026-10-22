@@ -10,7 +10,8 @@ set -u
 [ $# -ge 2 ] || { sed -n 2,8p "$0"; exit 2; }
 TREE="$1"; shift
 cd "$TREE" || exit 2
-git diff --quiet HEAD -- . ':!.cache' || { echo "land_dev: $TREE has modified tracked files"; exit 2; }
+# Agent trees carry symlinked submodules (new_tree.sh): a typechange (T) is the tree's layout, not a change.
+[ -z "$(git diff --name-status HEAD -- . ':!.cache' | grep -v '^T')" ] || { echo "land_dev: $TREE has modified tracked files"; exit 2; }
 git fetch -q origin || { echo "land_dev: fetch failed"; exit 2; }
 base=$(git rev-parse origin/dev)
 tmp="land/$(date +%Y%m%d-%H%M%S)"

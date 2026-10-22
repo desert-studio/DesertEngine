@@ -21,29 +21,29 @@ Shader "SkyViewLut"
         #include <Common/Atmosphere.glslh>
         #include <Common/SkyMedium.glslh>
 
-        layout(binding = 0, rgba16f) restrict writeonly uniform image2D u_SkyViewLut;
+        layout(binding = 0, rgba16f) restrict writeonly uniform image2D SkyViewLutTexture;
 
         // The SAME sky parameter buffer every other sky consumer reads (Graphic::kSkyPayloadBinding).
         ReadBuffer(1) SkyBuffer
         {
-            vec4 u_SkyPacked[SKY_PACKED_VEC4_COUNT];
+            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
         };
 
         // The cached pair, valid whenever this pass runs — SkyboxRenderer dispatches them first.
         // Bindings = Graphic::kSkyTransmittanceLutBinding / kSkyMultiScatterLutBinding.
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform sampler u_GlobalFilterSampler;
-        Uniform(2) texture2D u_TransmittanceLut;
-        #define u_TransmittanceLut sampler2D(u_TransmittanceLut, u_GlobalFilterSampler)
-        Uniform(3) texture2D u_MultiScatterLut;
-        #define u_MultiScatterLut sampler2D(u_MultiScatterLut, u_GlobalFilterSampler)
+        Uniform sampler GlobalFilterSampler;
+        Uniform(2) texture2D TransmittanceLutTexture;
+        #define TransmittanceLutTexture sampler2D(TransmittanceLutTexture, GlobalFilterSampler)
+        Uniform(3) texture2D MultiScatterLutTexture;
+        #define MultiScatterLutTexture sampler2D(MultiScatterLutTexture, GlobalFilterSampler)
 
         // The one per-frame, per-view quantity the shared payload deliberately does not carry.
         // Mirrored by Graphic::SkyViewLutPush.
         PushConstant SkyViewPush
         {
-            vec4 u_CameraPosWorld; // xyz = camera position in WORLD UNITS (centimetres)
+            vec4 CameraPositionWorld; // xyz = camera position in WORLD UNITS (centimetres)
         };
 
         // The transmittance LUT is addressed straight from its distance parameterisation: no
@@ -56,7 +56,7 @@ Shader "SkyViewLut"
         {
             vec2 uv = SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm, atm.TopRadiusKm, radiusKm,
                                                       sunZenithCos);
-            return texture(u_TransmittanceLut, uv).rgb;
+            return texture(TransmittanceLutTexture, uv).rgb;
         }
 
         vec3 SkySampleMultiScatterLut(SkyAtmParams atm, float radiusKm, float sunZenithCos)
@@ -64,7 +64,7 @@ Shader "SkyViewLut"
             vec2 unit = SkyMultiScatterUnitFromParams(atm.BottomRadiusKm, atm.TopRadiusKm, radiusKm,
                                                       sunZenithCos);
             vec2 uv   = vec2(SkyUnitToTexelUv(unit.x, 32.0f), SkyUnitToTexelUv(unit.y, 32.0f));
-            return texture(u_MultiScatterLut, uv).rgb;
+            return texture(MultiScatterLutTexture, uv).rgb;
         }
 
         #define SKY_SCATTERING_SUN_TRANSMITTANCE(atm, radiusKm, sunZenithCos) SkySampleSunTransmittanceLut(atm, radiusKm, sunZenithCos)
@@ -83,14 +83,14 @@ Shader "SkyViewLut"
         LocalSize(8, 8, 1);
         void main()
         {
-            ivec2 size  = imageSize(u_SkyViewLut);
+            ivec2 size  = imageSize(SkyViewLutTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
             SkyPacked s;
             for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = u_SkyPacked[i];
+                s.v[i] = SkyPackedData[i];
 
             SkyAtmParams atm = SkyMakeAtmParams(UnpackMediumRayleigh(s), UnpackMediumMie(s),
                                                 UnpackMediumMieAbsorption(s), UnpackMediumOzone(s),
@@ -105,7 +105,7 @@ Shader "SkyViewLut"
             // The camera's height above the planet centre, clamped inside the shell: below the 10 m
             // lift the horizon-warp's ground half degenerates, above the top the parameterisation is
             // not defined (a space view is out of scope for a ground-level engine).
-            vec3  cameraKm   = u_CameraPosWorld.xyz / SKY_WORLD_UNITS_PER_KM;
+            vec3  cameraKm   = CameraPositionWorld.xyz / SKY_WORLD_UNITS_PER_KM;
             float viewHeight = clamp(SkyViewHeightKm(cameraKm, atm.BottomRadiusKm),
                                      atm.BottomRadiusKm + SKY_PLANET_RADIUS_OFFSET_KM,
                                      atm.TopRadiusKm - 0.01f);
@@ -137,7 +137,7 @@ Shader "SkyViewLut"
             float meanTransmittance =
                  (result.Transmittance.r + result.Transmittance.g + result.Transmittance.b) / 3.0f;
 
-            imageStore(u_SkyViewLut, coord, vec4(luminance, meanTransmittance));
+            imageStore(SkyViewLutTexture, coord, vec4(luminance, meanTransmittance));
         }
     }
 }

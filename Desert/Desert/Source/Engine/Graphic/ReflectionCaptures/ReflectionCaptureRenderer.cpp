@@ -22,13 +22,55 @@
 #include <format>
 #include <span>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ReflectionCaptureAssembleShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ReflectionCaptureFacesUB );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationCubeTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ReflectionCaptureDownsampleShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceCubeTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationCubeTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ReflectionCaptureFilterShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, RadianceTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationCubeTexture );
+    };
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ReflectionCaptureBlendShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, CubesTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ReflectionCaptureDiffuseShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, EnvironmentIrradianceTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ReflectionCaptureDiffusePointsUB );
+        DESERT_SHADER_PARAMETER( StorageTexture, CubesTexture );
+    };
+
+} // namespace
+
 namespace Desert::Graphic
 {
     namespace
     {
         constexpr uint32_t kGroupSize = 8u;
 
-        // THE SIX FACE VIEWS, in the order the assemble shader names them (u_FacePosX .. u_FaceNegZ). The up
+        // THE SIX FACE VIEWS, in the order the assemble shader names them (FacePositiveXTexture .. FaceNegativeZTexture). The up
         // vectors are any that are not parallel to the axis: the assemble projects through each view's own matrix,
         // so no cube-face convention is encoded here.
         constexpr std::array<glm::vec3, 6>        kFaceForward = { glm::vec3( 1, 0, 0 ), glm::vec3( -1, 0, 0 ),
@@ -37,8 +79,9 @@ namespace Desert::Graphic
         constexpr std::array<glm::vec3, 6>        kFaceUp      = { glm::vec3( 0, 1, 0 ), glm::vec3( 0, 1, 0 ),
                                                                    glm::vec3( 0, 0, 1 ), glm::vec3( 0, 0, -1 ),
                                                                    glm::vec3( 0, 1, 0 ), glm::vec3( 0, 1, 0 ) };
-        constexpr std::array<std::string_view, 6> kFaceNames   = { "u_FacePosX", "u_FaceNegX", "u_FacePosY",
-                                                                   "u_FaceNegY", "u_FacePosZ", "u_FaceNegZ" };
+        constexpr std::array<std::string_view, 6> kFaceNames   = { "FacePositiveXTexture", "FaceNegativeXTexture", "FacePositiveYTexture",
+                                                                   "FaceNegativeYTexture", "FacePositiveZTexture", "FaceNegativeZTexture" };
+        constexpr auto kFaceTextures = RDG::ParametersOf<RDG::ShaderResourceKind::Texture>( kFaceNames );
 
         // A face view has settled once it held one sky environment for this many consecutive renders of its own
         // after its first. The sky is the scene's (lent, never baked by the face), so what is left to converge is
@@ -610,11 +653,15 @@ namespace Desert::Graphic
                                                 Renderer::GetPipelineRouteFill( *m_Assemble ) );
                  for ( size_t f = 0; f < faces.size(); ++f )
                      bindings
-                          .Texture( kFaceNames[f], faces[f], RDG::Access::SampledCompute,
+                          .Texture( kFaceTextures[f], faces[f], RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
-                 bindings.Storage( "ReflectionCaptureFacesUB", facesBuffer, RDG::Access::StorageRead )
-                      .Storage( "u_Output", radiance, RDG::Access::StorageWrite, 0 );
+                          .Sampler( ReflectionCaptureAssembleShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() );
+                 bindings
+                      .Storage( ReflectionCaptureAssembleShaderParameters::ReflectionCaptureFacesUB, facesBuffer,
+                                RDG::Access::StorageRead )
+                      .Storage( ReflectionCaptureAssembleShaderParameters::DestinationCubeTexture, radiance,
+                                RDG::Access::StorageWrite, 0 );
              },
              [pipeline = m_Assemble, faceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -630,10 +677,12 @@ namespace Desert::Graphic
                  {
                      pass.Bindings( m_DownsampleLayout.Get( m_Downsample->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Downsample ) )
-                          .Texture( "u_Source", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( mip - 1 ) )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                          .Storage( "u_Output", radiance, RDG::Access::StorageWrite, mip );
+                          .Texture( ReflectionCaptureDownsampleShaderParameters::SourceCubeTexture, radiance,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) )
+                          .Sampler( ReflectionCaptureDownsampleShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Storage( ReflectionCaptureDownsampleShaderParameters::DestinationCubeTexture, radiance,
+                                    RDG::Access::StorageWrite, mip );
                  },
                  [pipeline = m_Downsample, mip, faceSize]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -650,10 +699,12 @@ namespace Desert::Graphic
                  {
                      pass.Bindings( m_FilterLayout.Get( m_Filter->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Filter ) )
-                          .Texture( "u_Radiance", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                          .Storage( "u_Output", array, RDG::Access::StorageWrite, mip )
+                          .Texture( ReflectionCaptureFilterShaderParameters::RadianceTexture, radiance,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Sampler( ReflectionCaptureFilterShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Storage( ReflectionCaptureFilterShaderParameters::DestinationCubeTexture, array,
+                                    RDG::Access::StorageWrite, mip )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( FilterPush ) ) );
                  },
                  [pipeline = m_Filter, mip, mips, cube,
@@ -783,7 +834,8 @@ namespace Desert::Graphic
                      // Read-modify-write of this mip: the staging layers are read, the live ones written.
                      pass.Bindings( m_BlendLayout.Get( m_Blend->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Blend ) )
-                          .Storage( "u_Cubes", array, RDG::Access::StorageWrite, mip )
+                          .Storage( ReflectionCaptureBlendShaderParameters::CubesTexture, array,
+                                    RDG::Access::StorageWrite, mip )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( BlendPush ) ) );
                  },
                  [pipeline = m_Blend, push, mip,
@@ -857,11 +909,15 @@ namespace Desert::Graphic
                  const auto            all = RDG::SubresourceRange::All();
                  pass.Bindings( m_DiffuseLayout.Get( m_Diffuse->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *m_Diffuse ) )
-                      .Texture( "u_EnvIrradianceTex", sky, kS, all )
-                      .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                      .Storage( "ReflectionCaptureDiffusePointsUB", pointsBuffer, kR )
+                      .Texture( ReflectionCaptureDiffuseShaderParameters::EnvironmentIrradianceTexture, sky, kS,
+                                all )
+                      .Sampler( ReflectionCaptureDiffuseShaderParameters::LinearClampSampler,
+                                RDG::SamplerDesc::LinearClamp() )
+                      .Storage( ReflectionCaptureDiffuseShaderParameters::ReflectionCaptureDiffusePointsUB,
+                                pointsBuffer, kR )
                       // Read-modify-write of the last mip: its rgb is the roughest radiance and stays.
-                      .Storage( "u_Cubes", array, RDG::Access::StorageWrite, lastMip )
+                      .Storage( ReflectionCaptureDiffuseShaderParameters::CubesTexture, array,
+                                RDG::Access::StorageWrite, lastMip )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( DiffusePush ) ) );
              },
              [pipeline = m_Diffuse, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
