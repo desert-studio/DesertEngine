@@ -1,0 +1,16 @@
+# P16 UE's revolve generators in Modeling > Shapes: Revolve (FRevolvePlanarPolygonGenerator, a rectangle
+# profile turned 270 degrees about +Y, ends capped) and Spiral (FSpiralRevolvePlanarPolygonGenerator, a round
+# profile on a rising 720-degree helix, ends capped), default parameters, side by side; Undo of the last one.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Direction 0.5,-0.55,0.65
+Когда run Modeling "Create shape tool: Revolve"
+Когда run Modeling "Create shape: place at the viewport centre"
+Когда --subject selection set Translation -90,0,0
+Когда run Modeling "Create shape tool: Spiral"
+Когда run Modeling "Create shape: place at the viewport centre"
+Когда --subject selection set Translation 90,0,0
+Тогда-вид 0_shapes left a thick ring (rectangular cross-section) open by a quarter with both cut ends capped flat; right a round-section coil spring of two turns rising upward, both ends capped; both closed, lit from outside, no black or inside-out faces
+Когда run Action Undo
+Когда run Action Undo
+Тогда-вид 1_undo the spring is gone, the capped ring on the left stays
