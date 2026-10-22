@@ -173,7 +173,7 @@ namespace Desert::Geometry
                                                                   added.GetError() );
         if ( selection.Mode() != ElementMode::Triangle )
         {
-            const GroupTopology afterTopology( mesh.get(), true );
+            const GroupTopology afterTopology = PolyEditTopology( *mesh );
             result = ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
         }
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ), {} } );
@@ -193,7 +193,7 @@ namespace Desert::Geometry
         auto mesh = std::make_shared<DynamicMesh3>( before );
         if ( !mesh->HasTriangleGroups() )
             return Common::MakeError<RegionOutcome>( "Mesh Insert Edge Loop: the mesh has no polygroups" );
-        GroupTopology  topology( mesh.get(), true );
+        GroupTopology  topology  = PolyEditTopology( *mesh );
         int            groupEdge = IndexConstants::InvalidID;
         for ( const int e : selection.Ids() )
         {
@@ -275,7 +275,7 @@ namespace Desert::Geometry
                  operation == RegionOperation::Extrude ? "Push/Pull takes a signed distance"
                  : operation == RegionOperation::Inset ? "use Outset"
                                                        : "use Inset" );
-        const GroupTopology    topology( &before, true );
+        const GroupTopology    topology  = PolyEditTopology( before );
         const ElementSelection triangles = ConvertSelection( before, topology, selection, ElementMode::Triangle );
         if ( triangles.Empty() )
             return Common::MakeFormattedError<RegionOutcome>(
@@ -340,7 +340,7 @@ namespace Desert::Geometry
                                                                   added.GetError() );
         if ( selection.Mode() != ElementMode::Triangle )
         {
-            const GroupTopology afterTopology( mesh.get(), true );
+            const GroupTopology afterTopology = PolyEditTopology( *mesh );
             result = ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
         }
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ), {} } );
