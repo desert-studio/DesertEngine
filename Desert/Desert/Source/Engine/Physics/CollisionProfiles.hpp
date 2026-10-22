@@ -86,6 +86,29 @@ namespace Desert::Physics
         inline constexpr std::string_view kRagdoll         = "Ragdoll"; ///< physics asset bodies (UE preset)
     } // namespace EngineProfiles
 
+    /**
+     * TRACE CHANNELS (DEPENDENCY DECLARED BY THE AI-STATETREE CONTRACT, lead decision 10-22 Q8; implemented by
+     * the CHANNELS card). UE ECollisionChannel has two kinds of rows: OBJECT channels (what a body IS -
+     * CollisionChannelConfig above) and TRACE channels (what a QUERY asks about, bTraceType=True: Visibility,
+     * Camera, user rows such as Sight). Both live in the one channel space (kMaxChannels) and every profile
+     * states a response to both. CHANNELS adds the kind to CollisionChannelConfig in
+     * Config/CollisionProfiles.json, refuses a profile whose ObjectChannel is a trace channel, and makes
+     * PhysicsWorld::CastRay take the channel: a ray stops at the first body whose profile BLOCKS that channel,
+     * as UE LineTraceSingleByChannel. Sight: the translucent glass profile Ignores it (sight passes, the body
+     * still blocks Visibility and physics); a foliage type blocks it only with FoliageType BlocksSight (default
+     * false, dense hedges true). AI sight traces go through PhysicsWorld, never Scene::Raycast (mesh-AABB
+     * picking). Until CHANNELS lands nothing links a call to the declarations below.
+     */
+    namespace EngineTraceChannels
+    {
+        inline constexpr std::string_view kVisibility = "Visibility"; ///< UE ECC_Visibility: line of sight, picking
+        inline constexpr std::string_view kCamera     = "Camera";     ///< UE ECC_Camera: spring arm, camera blocking
+        inline constexpr std::string_view kSight      = "Sight";      ///< AI perception sight traces (Q8)
+    } // namespace EngineTraceChannels
+
+    /// Index of a channel (object or trace) in a CollisionProfiles register, < kMaxChannels.
+    using CollisionChannelId = uint8_t;
+
     /// Index of a profile in a CollisionProfiles register.
     using CollisionProfileId                         = uint16_t;
     inline constexpr CollisionProfileId kNoProfile   = 0xFFFFu;
@@ -113,6 +136,15 @@ namespace Desert::Physics
         /// The pair's response: the lesser of a's response to b's channel and b's response to a's channel.
         /// Ignore when either profile does not take part in physics.
         [[nodiscard]] CollisionResponse PhysicsResponse( CollisionProfileId a, CollisionProfileId b ) const;
+
+        /// The channel named @p name (object or trace); an error naming it and the register's channels otherwise.
+        /// Declared by AI-STATETREE, implemented by CHANNELS.
+        [[nodiscard]] Common::ResultStr<CollisionChannelId> ResolveChannel( std::string_view name ) const;
+
+        /// What a body of @p profile does with a query on @p traceChannel (UE GetResponseToChannel): Ignore when
+        /// the profile takes no part in queries. Declared by AI-STATETREE, implemented by CHANNELS.
+        [[nodiscard]] CollisionResponse QueryResponse( CollisionProfileId profile,
+                                                       CollisionChannelId traceChannel ) const;
 
         /// A ray cast may find a body of this profile.
         [[nodiscard]] bool IsQueryable( CollisionProfileId id ) const;

@@ -12,6 +12,13 @@
 // UE registers EVERY pawn as a sight source by default (bAutoRegisterAllPawnsAsSources); here only an entity
 // with AIPerceptionStimuliSourceComponent can be perceived - no hidden global rule, and a crowd of props costs
 // the sight query nothing.
+//
+// ON THE AI CONTROLLER (lead decision 10-22 Q4, UE UAIPerceptionComponent on AAIController): this component sits
+// on the controller entity (Engine/AI/AIController.hpp), next to StateTreeComponent. The senses are the
+// controller's, the body is the pawn's: the sight origin is the possessed pawn's origin + SightConfig::EyeHeight
+// and its forward is the pawn's (UE GetActorEyesViewPoint), hearing and damage distances are measured from the
+// pawn. A controller with no pawn (Pawn = entt::null) senses nothing and keeps its Known memory ageing.
+// AIPerceptionStimuliSourceComponent sits on the PAWN (what is seen is a body, not a brain).
 
 #include <Engine/AI/Perception/PerceptionTypes.hpp>
 

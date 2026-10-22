@@ -72,7 +72,8 @@ namespace Desert::AI::Perception
         float MaxAgeSeconds = 5.0f;
 
         PROPERTY( DisplayName( "Eye Height" ), Category( "Sight" ), Length,
-                  Tooltip( "Height of the eye above the entity origin (UE GetActorEyesViewPoint)." ) )
+                  Tooltip( "Height of the eye above the POSSESSED PAWN's origin (UE APawn::GetActorEyesViewPoint "
+                           "via AAIController): the perceiver is the controller, the eyes are its pawn's." ) )
         float EyeHeight = 160.0f;
 
         PROPERTY( DisplayName( "Detect" ), Category( "Sight" ) )

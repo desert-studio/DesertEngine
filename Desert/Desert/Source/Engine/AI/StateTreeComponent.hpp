@@ -14,7 +14,7 @@
 // pawn dies or is unpossessed the tree keeps running with Pawn = entt::null (UE: the controller outlives it)
 // and gets the event "AI.Controller.Unpossessed"; possession of a new pawn sends "AI.Controller.Possessed".
 
-// AI-CONTROLLER adds #include <Engine/AI/AIController.hpp> (AIControllerComponent); the header is not on disk yet
+#include <Engine/AI/AIController.hpp>
 #include <Engine/AI/StateTree/StateTreeExecution.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 

@@ -19,6 +19,11 @@ Card: Notion "Задачи" AI-STATETREE. Analysis: Notion "Вики" AI-STATETR
 | `Engine/AI/AIPerceptionComponent.hpp` | `AIPerceptionComponent` (senses, team, transient known stimuli), `AIPerceptionStimuliSourceComponent` | `UAIPerceptionComponent` (AIPerceptionComponent.h:208), `UAIPerceptionStimuliSourceComponent` (AIPerceptionStimuliSourceComponent.h:15) |
 | `Engine/AI/AISystem.hpp` | `AISystem` (perception, then decisions), `ReportNoiseEvent`, `ReportDamageEvent`, `SendEvent`, `StartTree`/`StopTree`/`StopAll`, `AISystemSettings::MaxSightTracesPerFrame` | `UAIPerceptionSystem` (Tick, MaxTracesPerTick), `UAISense_Hearing::ReportNoiseEvent` (AISense_Hearing.h:64), `UAISense_Damage::ReportDamageEvent`, `UStateTreeComponent::SendStateTreeEvent` |
 
+Dependency headers declared by this contract (declarations only; the named card implements them, nothing links a call before it lands):
+- `Engine/GameplayTags/GameplayTag.hpp` - GameplayTag / GameplayTagContainer / registry (TAGS card, Q5).
+- `Engine/AI/AIController.hpp` - AIControllerComponent (controller entity, transient Pawn), AIPawnComponent (on the pawn: controller prefab + AutoPossessAI), `AI::Possess` / `Unpossess` / `ControllerOf` (AI-CONTROLLER card, Q4). `StateTreeComponent.hpp` includes it.
+- `Engine/Physics/CollisionProfiles.hpp` - trace channels `EngineTraceChannels::kVisibility / kCamera / kSight`, `CollisionChannelId`, `CollisionProfiles::ResolveChannel` / `QueryResponse`; `Engine/Physics/PhysicsWorld.hpp` - `CastRay(origin, direction, maxDistance, traceChannel)` (CHANNELS card, Q8; it removes the channel-less CastRay).
+
 ## 2. What it is built on (existing code)
 
 - Luau: `Scripting/Luau/LuauRuntime.hpp` (one VM, one sandbox per slot, compile-once cache, watchdog,
@@ -102,21 +107,15 @@ EDITOR) → (MOVE ∥ SIGHT) → HEAR → DEBUG.
 - SmartObjects (open question 3).
 - Behavior Tree (open question 1).
 
-## 7. Open questions for the owner
+## 7. Lead decisions 10-22 (owner: "the decision is yours, what matters is that the architecture is right")
 
-1. Behavior Tree is not built, only StateTree, as new UE projects do. Proposed: yes.
-2. What is the target number of concurrent NPCs per server (100? 500?)? It sets the default for
-   `MaxSightTracesPerFrame` and the tick budget.
-3. Are SmartObjects (bench, ATM, NPC jobs) a separate card or part of this one?
-4. Until Controller/Pawn exists, the tree and perception live on the NPC entity, and move to the
-   controller when that line lands. Is that acceptable, or does AI wait for the Controller line?
-5. Should tree events use dotted strings now and switch to GameplayTag when TAGS lands, or should AI wait
-   for TAGS?
-6. One Luau sandbox per node instance per NPC (globals = instance state, the same rule as ScriptSlot) costs
-   memory per NPC × Luau node. The alternative is one sandbox per script, with instance state passed as a
-   table. Proposed: per instance, which is simpler and matches entity scripts. Revisit once the NPC target
-   is known.
-7. Is "server only" enforced now (by not registering AISystem in a client world) or when ENG-SERVER
-   exists? Today there is no client world.
-8. Sight traces use `Scene::Raycast`, and occlusion is "anything hit before the target". Should foliage or
-   glass let sight through? That needs collision channels, which the engine does not have.
+- **Q1** Only StateTree; no Behavior Tree (two homes for one logic).
+- **Q2** The architecture does not depend on the number: tick LOD (rate by distance / significance, `AISystemSettings::LodBands`) + batched processing; the budget for measurements is 1000 NPC per server (`BudgetNpcs`).
+- **Q3** SmartObjects are a separate system; StateTree only queries and claims slots (UE).
+- **Q4** The tree lives on the AI controller (UE UStateTreeAIComponent), not on the NPC body: `StateTreeComponent` and `AIPerceptionComponent` sit on the controller entity (`AIController.hpp`), the eye point is the possessed pawn's. Controller and navigation come first.
+- **Q5** Real GameplayTags first (hierarchical, registered, interned); events, transitions and perception tags use `GameplayTag`, never strings.
+- **Q6** One Luau environment per task script class; per-NPC state is instance data (`StateTreeNodeSet` shared per compiled tree + `INodeInstanceData` per NPC, UE instanced data).
+- **Q7** Server only, enforced at registration; a client sees only the replicated result.
+- **Q8** A separate trace channel Sight: glass lets sight through; foliage blocks it only with a flag on the foliage type (`BlocksSight`, default false, dense = true).
+
+Module: Engine/AI is in module Engine today (catch-all row of BuildScripts/DesertModules.lua). A separate AI module (UE AIModule / StateTreeModule) is the correct layering and is done in AI-ST-ASSET together with its build.
