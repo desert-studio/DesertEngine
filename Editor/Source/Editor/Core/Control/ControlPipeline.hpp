@@ -52,6 +52,7 @@ namespace Desert::Editor::Control
         OpenRefusal,    ///< an open was refused and its dialog has not been raised yet
         ControlNudge,   ///< a control-rig nudge is queued, or has been applied but not yet drawn
         PointerDrag,    ///< a `drag` is still feeding ImGui, or its release has not been drawn yet
+        GameTime,       ///< an `advance` is waiting for Play's simulated clock to reach its mark
         Count
     };
 
@@ -68,6 +69,7 @@ namespace Desert::Editor::Control
          "a refused open has not shown its dialog yet",
          "a control-rig nudge has not reached a drawn frame yet",
          "a pointer drag is still playing",
+         "Play's simulated time has not yet advanced as far as asked",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),

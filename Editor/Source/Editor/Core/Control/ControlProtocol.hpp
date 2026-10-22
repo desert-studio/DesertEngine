@@ -73,6 +73,7 @@ namespace Desert::Editor::Control
         SaveAs, ///< save the open scene under a NEW name, through File -> Save's one save path (UE "Save Current
                 ///< Level As")
         AddComponent, ///< add a component to an entity through Details' Add Component (one undo step)
+        Advance,      ///< answered once Play's simulated time has moved on by the asked seconds (no client sleep)
     };
 
     /**
@@ -128,7 +129,13 @@ namespace Desert::Editor::Control
          { "input", Op::Input, RequiresReady::Yes },
          { "save-as", Op::SaveAs, RequiresReady::Yes },
          { "add-component", Op::AddComponent, RequiresReady::Yes },
+         { "advance", Op::Advance, RequiresReady::Yes },
     };
+
+    /// The longest `advance`. Its reply waits behind the settle gate (ControlPipeline.hpp kMaxSettleFrames,
+    /// 240 frames), and physics takes one 1/60 s step per frame at 60 fps or more (PhysicsWorld kFixedStepSeconds):
+    /// 2 s fits 240 frames up to 120 fps; a longer wait is several `advance` steps.
+    inline constexpr float kMaxAdvanceSeconds = 2.0f;
 
     /// The table's answer for one operation. Yes for anything not in the table at all — an operation this
     /// build has never heard of is the last thing that should be run against a half-built editor.
@@ -640,6 +647,19 @@ namespace Desert::Editor::Control
             case Op::State:
                 request.Sections = ReadStringArray( fields, "sections" );
                 break;
+            case Op::Advance:
+            {
+                if ( ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
+                     request.Value.size() != 1 || !( request.Value[0] > 0.0f ) ||
+                     request.Value[0] > kMaxAdvanceSeconds )
+                {
+                    return Common::MakeFormattedError<Request>(
+                         "'advance' needs 'value' as one number: the seconds of Play's simulated time to wait "
+                         "for, above 0 and at most {}.",
+                         kMaxAdvanceSeconds );
+                }
+                break;
+            }
             case Op::Quit:
             {
                 const auto code = ReadRequiredInt( fields, "code", opName );

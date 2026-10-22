@@ -77,6 +77,8 @@ namespace
                       "                                x,y in POINTS inside the named panel (else the editor\n"
                       "                                window) -- a shot-window pixel / pixelsPerPoint,\n"
                       "                                minus the panel's corner\n"
+                      "  advance <seconds>             during Play: answered once the simulated clock has\n"
+                      "                                moved on that far (0 < seconds <= 2)\n"
                       "  quit [code]                   end the session with that exit status\n"
                       "  add-component <uuid|selected> <Type>\n"
                       "                                add a component as Details' Add Component does (one\n"
@@ -505,6 +507,20 @@ static int RunTool( int argc, char** argv )
         request =
              std::format( R"({{"id":1,"op":"input","kind":"{}","panel":"{}","value":{},"key":"{}","paths":[{}]}})",
                           Escape( rest[1] ), Escape( panel ), point, Escape( key ), paths );
+    }
+    else if ( operation == "advance" )
+    {
+        // One number: the editor answers once Play's simulated clock has moved on that far -- the scenario's
+        // wait for a fall or a timer, without a sleep on this side.
+        std::string seconds;
+        if ( rest.size() != 2 || rest[1].find( ',' ) != std::string::npos )
+        {
+            std::fprintf( stderr, "desertctl: advance needs <seconds>.\n" );
+            return kNoEditor;
+        }
+        if ( !NumberArray( rest[1], seconds ) )
+            return kNoEditor;
+        request = R"({"id":1,"op":"advance","value":)" + seconds + "}";
     }
     else if ( operation == "quit" )
     {

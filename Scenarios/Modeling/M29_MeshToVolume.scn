@@ -18,11 +18,6 @@
 Тогда 3_undo объёма нет, Sphere снова меш на своём месте, в Outliner Sphere
 Когда run Action Redo
 Когда run Action Play
-Когда state
-Когда state
-Когда state
-Когда state
-Когда state
-Когда state
+Когда advance 1.5
 Тогда 2_overlap Cube пролетел сквозь контур объёма (лежит ниже сферы или падает под ней); в логе editor.log строки [Volume] 'TriggerVolume' entered by / left by
 Когда run Action Stop
