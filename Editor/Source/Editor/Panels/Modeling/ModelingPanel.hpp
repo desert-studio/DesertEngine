@@ -19,16 +19,22 @@ namespace Desert::Core
     class Scene;
 }
 
+namespace Desert::Assets
+{
+    class AssetManager;
+}
+
 namespace Desert::Editor
 {
     // UE5-style Modeling Mode palette: a left rail of the palettes something of ours lives in (Selection,
-    // Shapes, Create, PolyModel, TriModel, Transform, UVs, Collision, in UE's order), each palette's tool buttons,
+    // Shapes, Create, PolyModel, TriModel, Transform, UVs, Bake, Collision, in UE's order), each palette's tool buttons,
     // and a Tool Properties section for the active tool. A tool picked here switches the viewport into
     // Modeling mode; the geometry editing itself happens in the viewport, driven through Core::ModelingState.
     class ModelingPanel final : public IPanel
     {
     public:
-        explicit ModelingPanel( const std::shared_ptr<Desert::Core::Scene>& scene );
+        ModelingPanel( const std::shared_ptr<Desert::Core::Scene>&   scene,
+                       const std::shared_ptr<Assets::AssetManager>& assets );
 
         void OnUIRender() override;
 
@@ -84,6 +90,12 @@ namespace Desert::Editor
         // control channel's "LOD Manager: preview" commands both run this; a refusal carries its reason.
         static Common::ResultStr<bool> PreviewLOD( const std::shared_ptr<Desert::Core::Scene>& scene, int level );
 
+        // UE's Bake Normal Map (Bake palette, BakeTx) on the two selected entities, target first, with the
+        // palette's settings (Core::BakeNormalMapSettings). The panel's button and the palette command both run
+        // this; a refusal carries its reason.
+        static Common::ResultStr<bool> BakeNormalMap( const std::shared_ptr<Desert::Core::Scene>&   scene,
+                                                      const std::shared_ptr<Assets::AssetManager>& assets );
+
     private:
         // The Select Elements tool's properties: mode, counts, and the selection operations.
         void DrawCreateShape();
@@ -101,6 +113,7 @@ namespace Desert::Editor
         void DrawMeshOpsPalette();
         void DrawAttributesPalette();
         void DrawUVsPalette();
+        void DrawBakePalette();
         void DrawCollisionPalette();
         void DrawLODsPalette();
         void DrawCubeGrid();
@@ -112,6 +125,7 @@ namespace Desert::Editor
         static void DrawBooleanOutput();
 
         std::shared_ptr<Desert::Core::Scene> m_Scene;
+        std::shared_ptr<Assets::AssetManager> m_Assets;
         int                                  m_Category  = 0; // index into the rail (Palette in the .cpp)
         int                                  m_ShownTool = 0; // the ModelingState::Tool the rail last followed
         int m_VolumeType     = 0; // Mesh To Volume's New Volume Type: index into kVolumeTypes

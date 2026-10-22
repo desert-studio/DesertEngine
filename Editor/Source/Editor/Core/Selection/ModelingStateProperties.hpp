@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Editor/Core/EditableProperty.hpp>
+#include <Editor/Core/Selection/MeshBakeNormalTool.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -37,10 +38,14 @@ namespace Desert::Editor::Core
         float            Max;
         float* ( *Float )( ModelingState& ); ///< the field, when it is a float (or a float3's first component)
         int* ( *Int )( ModelingState& );     ///< the field, when it is an int
+        // A field that is neither a float nor an int - a closed choice (an enum, as its index) or a double - is
+        // read and written through these instead, and Set refuses a value the widget's list does not hold.
+        double ( *Get )( ModelingState& )                            = nullptr;
+        Common::BoolResultStr ( *Set )( ModelingState&, double )     = nullptr;
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 137> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 144> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -162,6 +167,14 @@ namespace Desert::Editor::Core
          { "Element.SubdivideLevels",   "Levels",             "Select Elements", 1, true, 1.0f,
            static_cast<float>( Geometry::kMaxSubdivisionLevel ), nullptr,
            []( ModelingState& s ) { return &s.ElementSubdivide.Level; } },
+         { "Element.SubdivideScheme",   "Scheme",             "Select Elements", 1, true,
+           0.0f, 2.0f, nullptr, nullptr,
+           []( ModelingState& s ) { return static_cast<double>( s.ElementSubdivide.Scheme ); },
+           []( ModelingState& s, double v ) -> Common::BoolResultStr
+           {
+               s.ElementSubdivide.Scheme = static_cast<Geometry::SubdivisionScheme>( static_cast<int>( v ) );
+               return Common::MakeSuccess( true );
+           } },
          { "Element.SimplifyPercentage", "Percentage",        "Select Elements", 1, false, 1.0f, 100.0f,
            []( ModelingState& s ) { return &s.ElementSimplify.Percentage; }, nullptr },
          { "Element.SimplifyVertexCount", "Vertex Count",     "Select Elements", 1, true, 3.0f, 1.0e6f, nullptr,
@@ -324,6 +337,49 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.VoxBlend.VoxelCount; } },
          { "VoxBlend.SurfaceSearchSteps", "Surface Search Steps", "VoxBlend", 1, true, 0.0f, 10.0f, nullptr,
            []( ModelingState& s ) { return &s.VoxBlend.SurfaceSearchSteps; } },
+         // The Bake palette (ModelingPanel::DrawBakePalette): its settings are Core::BakeNormalMapSettings(),
+         // shared with the Modeling / Bake Normal Map command, not a ModelingState field.
+         { "Bake.Resolution",           "Resolution",         "Bake", 1, true, 256.0f, 4096.0f, nullptr, nullptr,
+           []( ModelingState& ) { return static_cast<double>( BakeNormalMapSettings().Settings.Resolution ); },
+           []( ModelingState&, double v ) -> Common::BoolResultStr
+           {
+               const int resolution = static_cast<int>( v );
+               if ( resolution != 256 && resolution != 512 && resolution != 1024 && resolution != 2048 &&
+                    resolution != 4096 )
+                   return Common::MakeFormattedError<bool>(
+                        "'Bake.Resolution' = {} is not on the panel's list (256, 512, 1024, 2048, 4096)", resolution );
+               BakeNormalMapSettings().Settings.Resolution = resolution;
+               return Common::MakeSuccess( true );
+           } },
+         { "Bake.ProjectionDistance",   "Projection Distance", "Bake", 1, false, 0.001f, 1.0e6f, nullptr, nullptr,
+           []( ModelingState& ) { return BakeNormalMapSettings().Settings.ProjectionDistance; },
+           []( ModelingState&, double v ) -> Common::BoolResultStr
+           {
+               BakeNormalMapSettings().Settings.ProjectionDistance = v;
+               return Common::MakeSuccess( true );
+           } },
+         { "Bake.Gutter",               "Gutter",             "Bake", 1, true, 0.0f, 64.0f, nullptr,
+           []( ModelingState& ) { return &BakeNormalMapSettings().Settings.GutterTexels; } },
+         { "Bake.AmbientOcclusion",     "Ambient Occlusion",  "Bake", 1, true, 0.0f, 1.0f, nullptr, nullptr,
+           []( ModelingState& ) { return BakeNormalMapSettings().Settings.Occlusion ? 1.0 : 0.0; },
+           []( ModelingState&, double v ) -> Common::BoolResultStr
+           {
+               if ( v != 0.0 && v != 1.0 )
+                   return Common::MakeFormattedError<bool>( "Bake.AmbientOcclusion is 0 or 1, not {}", v );
+               BakeNormalMapSettings().Settings.Occlusion = v == 1.0;
+               return Common::MakeSuccess( true );
+           } },
+         { "Bake.OcclusionRays",        "Occlusion Rays",     "Bake", 1, true, 1.0f, 1024.0f, nullptr,
+           []( ModelingState& ) { return &BakeNormalMapSettings().Settings.OcclusionRays; } },
+         { "Bake.Curvature",            "Curvature",          "Bake", 1, true, 0.0f, 1.0f, nullptr, nullptr,
+           []( ModelingState& ) { return BakeNormalMapSettings().Settings.Curvature ? 1.0 : 0.0; },
+           []( ModelingState&, double v ) -> Common::BoolResultStr
+           {
+               if ( v != 0.0 && v != 1.0 )
+                   return Common::MakeFormattedError<bool>( "Bake.Curvature is 0 or 1, not {}", v );
+               BakeNormalMapSettings().Settings.Curvature = v == 1.0;
+               return Common::MakeSuccess( true );
+           } },
     } };
     // clang-format on
 
@@ -340,7 +396,9 @@ namespace Desert::Editor::Core
             property.Components = row.Components;
             property.Min        = row.Min;
             property.Max        = row.Max;
-            if ( row.Integer )
+            if ( row.Get )
+                property.Value[0] = static_cast<float>( row.Get( state ) );
+            else if ( row.Integer )
                 property.Value[0] = static_cast<float>( *row.Int( state ) );
             else
                 for ( int i = 0; i < row.Components; ++i )
@@ -365,13 +423,13 @@ namespace Desert::Editor::Core
                     return Common::MakeFormattedError<bool>(
                          "'{}' = {} is outside the panel's range [{}, {}]; the widget cannot hold it either",
                          property, v, row.Min, row.Max );
+            if ( row.Integer && value[0] != std::floor( value[0] ) )
+                return Common::MakeFormattedError<bool>( "'{}' is a whole number and was given {}", property,
+                                                         value[0] );
+            if ( row.Set )
+                return row.Set( state, static_cast<double>( value[0] ) );
             if ( row.Integer )
-            {
-                if ( value[0] != std::floor( value[0] ) )
-                    return Common::MakeFormattedError<bool>( "'{}' is a whole number and was given {}", property,
-                                                             value[0] );
                 *row.Int( state ) = static_cast<int>( value[0] );
-            }
             else
                 for ( int i = 0; i < row.Components; ++i )
                     row.Float( state )[i] = value[static_cast<std::size_t>( i )];

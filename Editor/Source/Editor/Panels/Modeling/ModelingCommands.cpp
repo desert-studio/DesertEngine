@@ -44,6 +44,16 @@ namespace Desert::Editor
                                   { return Editor::ModelingPanel::MeshToVolume( scene, type ); } } );
     }
 
+    void AppendBakeCommands( std::vector<PaletteCommand>&                  commands,
+                             const std::shared_ptr<::Desert::Core::Scene>& scene,
+                             const std::shared_ptr<Assets::AssetManager>&  assets )
+    {
+        // UE's Bake Normal Map (Modeling panel, Bake palette): the button's own path on the selection, target
+        // first, with the palette's settings.
+        commands.push_back( { "Modeling", "Bake Normal Map",
+                              [&scene, &assets] { return Editor::ModelingPanel::BakeNormalMap( scene, assets ); } } );
+    }
+
     void AppendSelectElementsCommand( std::vector<PaletteCommand>& commands )
     {
         // MESH ELEMENT SELECTION (Modeling Mode). Palette entries for the same reason as the modes above: the
