@@ -56,6 +56,7 @@ namespace Desert::Editor::Tools
             std::shared_ptr<const Geometry::DynamicMesh3> Committed; // what the component held: the "before"
             std::shared_ptr<const Geometry::DynamicMesh3> Preview;   // null while the settings are refused
             std::optional<Geometry::UVProjectionVolume>   Volume;    // UV Project: the volume Preview used
+            glm::dmat4 MeshToWorld{ 1.0 }; // UV Project: the entity transform Preview was projected through
         };
 
         void               Begin( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
@@ -64,6 +65,8 @@ namespace Desert::Editor::Tools
         void               DrawPreview( ::Desert::Core::Scene& scene, const glm::dvec3& eyeWorld ) const;
         [[nodiscard]] bool Accept( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         [[nodiscard]] bool SettingsChanged( const Core::ModelingState& ms ) const;
+        // UV Project projects in world space: moving the entity mid-session moves the mesh through the volume.
+        [[nodiscard]] bool TransformChanged( ::Desert::Core::Scene& scene ) const;
         void               RememberSettings( const Core::ModelingState& ms );
 
         std::optional<Session> m_Session;

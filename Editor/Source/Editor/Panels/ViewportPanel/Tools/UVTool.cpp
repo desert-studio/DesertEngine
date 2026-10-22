@@ -202,7 +202,7 @@ namespace Desert::Editor::Tools
 
         if ( !m_Session )
             Begin( scene, ms );
-        if ( m_Session && SettingsChanged( ms ) )
+        if ( m_Session && ( SettingsChanged( ms ) || TransformChanged( scene ) ) )
             Recompute( scene, ms );
         if ( m_Session )
             DrawPreview( scene, eyeWorld );
@@ -258,7 +258,8 @@ namespace Desert::Editor::Tools
                 out = Geometry::AutoUV( input, ms.UVAuto );
                 break;
             case MS::Tool::UVProject:
-                out = Geometry::ProjectUVs( input, WorldOf( scene, m_Session->Entity ), ms.UVProject );
+                m_Session->MeshToWorld = WorldOf( scene, m_Session->Entity );
+                out = Geometry::ProjectUVs( input, m_Session->MeshToWorld, ms.UVProject );
                 break;
             case MS::Tool::UVUnwrap:
                 out = Geometry::UnwrapUVs( input, ms.UVUnwrap );
@@ -507,6 +508,11 @@ namespace Desert::Editor::Tools
             default:
                 return false;
         }
+    }
+
+    bool UVTool::TransformChanged( ::Desert::Core::Scene& scene ) const
+    {
+        return m_Session->Tool == MS::Tool::UVProject && WorldOf( scene, m_Session->Entity ) != m_Session->MeshToWorld;
     }
 
     void UVTool::RememberSettings( const MS& ms )
