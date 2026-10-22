@@ -9,11 +9,14 @@
 
 #include "TriangleBvh.hpp"
 
+#include <Common/Core/JobSystem.hpp>
+
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <map>
 
 namespace Desert::Geometry
 {
@@ -157,17 +160,114 @@ namespace Desert::Geometry
         return Common::MakeSuccess( std::move( out ) );
     }
 
-    Common::ResultStr<NormalMapBakeResult> BakeTangentNormalMap( const BakeSurface&           target,
-                                                                 const BakeSurface&           detail,
-                                                                 const NormalMapBakeSettings& settings )
+    namespace
     {
-        using Out = NormalMapBakeResult;
+        void WriteGrey( uint8_t* texel, const double v )
+        {
+            const uint8_t g = static_cast<uint8_t>( std::lround( std::clamp( v, 0.0, 1.0 ) * 255.0 ) );
+            texel[0] = texel[1] = texel[2] = g;
+            texel[3]                       = 255;
+        }
+
+        // UE FMeshOcclusionMapEvaluator's ray set, in the frame of the normal (z up): spherical-Fibonacci points
+        // over the part of the hemisphere the spread admits and the bias does not drop (z >= sin(bias)), uniform
+        // in area; each ray then weighs its cosine.
+        std::vector<glm::dvec3> OcclusionDirections( const MeshMapBakeSettings& s )
+        {
+            const double            minZ    = std::max( std::cos( glm::radians( s.OcclusionSpreadAngle * 0.5 ) ),
+                                                        std::sin( glm::radians( s.OcclusionBiasAngle ) ) );
+            constexpr double        kGolden = 2.39996322972865332; // pi * (3 - sqrt 5)
+            std::vector<glm::dvec3> dirs;
+            for ( int i = 0; i < s.OcclusionRays; ++i )
+            {
+                const double z   = 1.0 - ( i + 0.5 ) / s.OcclusionRays * ( 1.0 - minZ );
+                const double r   = std::sqrt( std::max( 0.0, 1.0 - z * z ) );
+                const double phi = i * kGolden;
+                dirs.push_back( { r * std::cos( phi ), r * std::sin( phi ), z } );
+            }
+            return dirs;
+        }
+
+        // Per-vertex mean curvature H (convex > 0) of @p mesh welded by position, as UE's
+        // FMeshVertexCurvatureCache reads the topology: the cotangent Laplacian of the position,
+        // L p_i = (1 / 2A_i) sum_j (cot a_ij + cot b_ij)(p_j - p_i) = -2 H n_i, with A_i a third of the incident
+        // triangle areas and n_i the vertex normal the mesh carries (averaged over the render copies of the
+        // vertex). Returned per RENDER vertex (every copy of a welded vertex gets its value).
+        std::vector<double> VertexMeanCurvature( const BakeSurface& mesh )
+        {
+            std::map<std::array<double, 3>, uint32_t> ids;
+            std::vector<uint32_t>                     weld( mesh.Positions.size() );
+            std::vector<glm::dvec3>                   pos;
+            for ( size_t i = 0; i < mesh.Positions.size(); ++i )
+            {
+                const glm::dvec3& p    = mesh.Positions[i];
+                const auto [it, added] = ids.try_emplace( { p.x, p.y, p.z }, static_cast<uint32_t>( pos.size() ) );
+                if ( added )
+                    pos.push_back( p );
+                weld[i] = it->second;
+            }
+            const size_t            n = pos.size();
+            std::vector<glm::dvec3> lap( n, glm::dvec3( 0.0 ) ), nrm( n, glm::dvec3( 0.0 ) );
+            std::vector<double>     area( n, 0.0 );
+            for ( size_t i = 0; i < mesh.Positions.size(); ++i )
+                nrm[weld[i]] += mesh.Normals[i];
+            for ( const glm::uvec3& tri : mesh.Triangles )
+            {
+                const std::array<uint32_t, 3> v = { weld[tri[0]], weld[tri[1]], weld[tri[2]] };
+                if ( v[0] == v[1] || v[1] == v[2] || v[0] == v[2] )
+                    continue;
+                const double a = 0.5 * glm::length( glm::cross( pos[v[1]] - pos[v[0]], pos[v[2]] - pos[v[0]] ) );
+                if ( a < 1e-12 )
+                    continue;
+                for ( int c = 0; c < 3; ++c )
+                {
+                    // The cotangent at corner c weighs the opposite edge (e0, e1).
+                    const uint32_t   o = v[c], e0 = v[( c + 1 ) % 3], e1 = v[( c + 2 ) % 3];
+                    const glm::dvec3 u = pos[e0] - pos[o], w = pos[e1] - pos[o];
+                    const double     cot =
+                         std::clamp( glm::dot( u, w ) / glm::length( glm::cross( u, w ) ), -1e3, 1e3 );
+                    lap[e0] += cot * ( pos[e1] - pos[e0] );
+                    lap[e1] += cot * ( pos[e0] - pos[e1] );
+                    area[o] += a / 3.0;
+                }
+            }
+            std::vector<double> welded( n, 0.0 );
+            for ( size_t i = 0; i < n; ++i )
+                if ( area[i] > 0.0 && glm::length( nrm[i] ) > 1e-12 )
+                    welded[i] = -0.5 * glm::dot( lap[i] / ( 2.0 * area[i] ), glm::normalize( nrm[i] ) );
+            std::vector<double> out( mesh.Positions.size() );
+            for ( size_t i = 0; i < out.size(); ++i )
+                out[i] = welded[weld[i]];
+            return out;
+        }
+
+        // Which target triangle a texel's centre lies in, and where (UE FMeshMapBaker's rasterised occupancy).
+        struct TexelSample
+        {
+            int        Triangle = -1;
+            glm::dvec3 Bary{ 0.0 };
+        };
+    } // namespace
+
+    Common::ResultStr<MeshMapBakeResult> BakeMeshMaps( const BakeSurface& target, const BakeSurface& detail,
+                                                       const MeshMapBakeSettings& settings )
+    {
+        using Out = MeshMapBakeResult;
         if ( settings.Resolution < kMinResolution || settings.Resolution > kMaxResolution )
             return Common::MakeFormattedError<Out>( "resolution {} is outside [{}, {}]", settings.Resolution,
                                                     kMinResolution, kMaxResolution );
         if ( !( settings.ProjectionDistance > 0.0 ) )
             return Common::MakeFormattedError<Out>( "projection distance {} cm is not positive",
                                                     settings.ProjectionDistance );
+        if ( settings.Occlusion &&
+             ( settings.OcclusionRays < 1 || settings.OcclusionRays > 1024 ||
+               !( settings.OcclusionSpreadAngle > 0.0 && settings.OcclusionSpreadAngle <= 180.0 ) ||
+               !( settings.OcclusionBiasAngle >= 0.0 && settings.OcclusionBiasAngle < 90.0 ) ||
+               settings.OcclusionMaxDistance < 0.0 ) )
+            return Common::MakeFormattedError<Out>(
+                 "occlusion: {} rays (1..1024), spread {} (0..180], bias {} [0..90), max distance {} cm (>= 0)",
+                 settings.OcclusionRays, settings.OcclusionSpreadAngle, settings.OcclusionBiasAngle,
+                 settings.OcclusionMaxDistance );
         if ( target.Triangles.empty() || target.UVs.size() != target.Positions.size() )
             return Common::MakeFormattedError<Out>( "the target has {} triangles and {} UVs for {} vertices",
                                                     target.Triangles.size(), target.UVs.size(),
@@ -179,7 +279,7 @@ namespace Desert::Geometry
         // bake several surface points into one texel and the map is garbage. Refuse with the reason instead.
         if ( const UvOverlap uvo = MeasureUvOverlap( target, settings.Resolution, settings.Resolution );
              uvo.Overlapped * 100 > uvo.Covered )
-            return Common::MakeFormattedError<NormalMapBakeResult>(
+            return Common::MakeFormattedError<MeshMapBakeResult>(
                  "the target's UVs overlap: {} of {} covered texels lie inside more than one triangle - unwrap "
                  "the "
                  "target (non-overlapping UVs, e.g. a Lat Long sphere or AutoUV) before baking",
@@ -190,14 +290,20 @@ namespace Desert::Geometry
         Out out;
         out.Width   = settings.Resolution;
         out.Height  = settings.Resolution;
-        const int W = out.Width, H = out.Height;
-        out.Rgba.assign( static_cast<size_t>( W ) * H * 4, 0 );
-        // 0 = not covered, 1 = covered (sampled), 2 = gutter-filled
-        std::vector<uint8_t> state( static_cast<size_t>( W ) * H, 0 );
+        const int    W = out.Width, H = out.Height;
+        const size_t texels = static_cast<size_t>( W ) * H;
+        out.Rgba.assign( texels * 4, 0 );
+        if ( settings.Occlusion )
+            out.OcclusionRgba.assign( texels * 4, 0 );
+        if ( settings.Curvature )
+            out.CurvatureRgba.assign( texels * 4, 0 );
 
-        const double D = settings.ProjectionDistance;
-        for ( const glm::uvec3& tri : target.Triangles )
+        // Pass 1 (UE FMeshMapBaker's occupancy): the target triangle each texel centre lies in. A texel on an
+        // edge two triangles share is taken by the last, as in UE; it is counted once.
+        std::vector<TexelSample> samples( texels );
+        for ( size_t t = 0; t < target.Triangles.size(); ++t )
         {
+            const glm::uvec3& tri = target.Triangles[t];
             // The triangle in texel space: x = u * W, y = (1 - v) * H (the shader samples (u, 1 - v)).
             std::array<glm::dvec2, 3> px;
             for ( int c = 0; c < 3; ++c )
@@ -222,58 +328,72 @@ namespace Desert::Geometry
                     constexpr double kEdge = -1e-9;
                     if ( bc.x < kEdge || bc.y < kEdge || bc.z < kEdge )
                         continue;
-                    const size_t texel = static_cast<size_t>( y ) * W + x;
-                    // A texel on an edge two triangles share is rasterised by both: count it once, as covered
-                    // (state 1) and as hit (state 4), whichever triangle reaches it first.
-                    if ( state[texel] == 0 )
+                    TexelSample& s = samples[static_cast<size_t>( y ) * W + x];
+                    if ( s.Triangle < 0 )
                         ++out.CoveredTexels;
-                    const bool alreadyHit = state[texel] == 4;
-                    if ( !alreadyHit )
-                        state[texel] = 1;
+                    s = { static_cast<int>( t ), bc };
+                }
+        }
 
-                    const auto lerp = [&]( const std::vector<glm::dvec3>& a )
-                    { return a[tri[0]] * bc.x + a[tri[1]] * bc.y + a[tri[2]] * bc.z; };
-                    const glm::dvec3 P    = lerp( target.Positions );
-                    const glm::dvec3 T    = lerp( target.Tangents );
-                    const glm::dvec3 B    = lerp( target.Bitangents );
-                    const glm::dvec3 N    = lerp( target.Normals );
-                    uint8_t*         rgba = &out.Rgba[texel * 4];
-                    const double     nl   = glm::length( N );
-                    if ( nl < 1e-12 )
-                    {
-                        WriteFlat( rgba );
-                        continue;
-                    }
-                    const glm::dvec3 dir    = -N / nl;
-                    const glm::dvec3 origin = P - dir * D;
-                    const double     o[3]   = { origin.x, origin.y, origin.z };
-                    const double     d[3]   = { dir.x, dir.y, dir.z };
-                    const auto       hit    = bvh.ClosestHit( o, d, 0.0, 2.0 * D );
-                    if ( hit.Triangle < 0 )
-                    {
-                        WriteFlat( rgba );
-                        continue;
-                    }
-                    const glm::uvec3& dt  = detail.Triangles[static_cast<size_t>( hit.Triangle )];
-                    const glm::dvec3  hp  = origin + dir * hit.T;
-                    const glm::dvec3  dbc = Barycentric3D( hp, bvh.A[static_cast<size_t>( hit.Triangle )],
-                                                           bvh.E1[static_cast<size_t>( hit.Triangle )],
-                                                           bvh.E2[static_cast<size_t>( hit.Triangle )] );
-                    glm::dvec3        dn  = detail.Normals[dt[0]] * dbc.x + detail.Normals[dt[1]] * dbc.y +
-                                    detail.Normals[dt[2]] * dbc.z;
-                    if ( glm::length( dn ) < 1e-12 )
-                    {
-                        WriteFlat( rgba );
-                        continue;
-                    }
-                    dn = glm::normalize( dn );
-                    // The shader shades with TBN * decoded: store solve(TBN, n).
-                    const glm::dmat3 tbn( T, B, N );
-                    if ( std::abs( glm::determinant( tbn ) ) < 1e-12 )
-                    {
-                        WriteFlat( rgba );
-                        continue;
-                    }
+        const std::vector<glm::dvec3> occlusionDirs =
+             settings.Occlusion ? OcclusionDirections( settings ) : std::vector<glm::dvec3>{};
+        const std::vector<double> detailH =
+             settings.Curvature ? VertexMeanCurvature( detail ) : std::vector<double>{};
+        const std::vector<double> targetH =
+             settings.Curvature ? VertexMeanCurvature( target ) : std::vector<double>{};
+        std::vector<double> curvature( settings.Curvature ? texels : 0, 0.0 );
+        // 0 = not covered, 1 = covered (sampled), 4 = covered and hit; the gutter uses 2 and 3
+        std::vector<uint8_t> state( texels, 0 );
+
+        // Pass 2 (UE's tile-parallel evaluation): every covered texel finds its detail point and evaluates each
+        // map there. Rows are independent - each texel is written by exactly one job.
+        const double D              = settings.ProjectionDistance;
+        const double occlusionReach = settings.OcclusionMaxDistance > 0.0 ? settings.OcclusionMaxDistance : 1e12;
+        const auto   evaluateRow    = [&]( const size_t row )
+        {
+            for ( int x = 0; x < W; ++x )
+            {
+                const size_t       texel  = row * W + x;
+                const TexelSample& sample = samples[texel];
+                if ( sample.Triangle < 0 )
+                    continue;
+                state[texel]           = 1;
+                const glm::uvec3& tri  = target.Triangles[static_cast<size_t>( sample.Triangle )];
+                const glm::dvec3& bc   = sample.Bary;
+                uint8_t*          rgba = &out.Rgba[texel * 4];
+                WriteFlat( rgba );
+                if ( settings.Occlusion )
+                    WriteGrey( &out.OcclusionRgba[texel * 4], 1.0 ); // UE's default: unoccluded
+
+                const auto lerp = [&]( const std::vector<glm::dvec3>& a )
+                { return a[tri[0]] * bc.x + a[tri[1]] * bc.y + a[tri[2]] * bc.z; };
+                const glm::dvec3 P  = lerp( target.Positions );
+                const glm::dvec3 N  = lerp( target.Normals );
+                const double     nl = glm::length( N );
+                if ( nl < 1e-12 )
+                    continue;
+                const glm::dvec3 dir    = -N / nl;
+                const glm::dvec3 origin = P - dir * D;
+                const double     o[3]   = { origin.x, origin.y, origin.z };
+                const double     d[3]   = { dir.x, dir.y, dir.z };
+                const auto       hit    = bvh.ClosestHit( o, d, 0.0, 2.0 * D );
+                if ( hit.Triangle < 0 )
+                    continue;
+                const size_t      ht  = static_cast<size_t>( hit.Triangle );
+                const glm::uvec3& dt  = detail.Triangles[ht];
+                const glm::dvec3  hp  = origin + dir * hit.T;
+                const glm::dvec3  dbc = Barycentric3D( hp, bvh.A[ht], bvh.E1[ht], bvh.E2[ht] );
+                glm::dvec3        dn =
+                     detail.Normals[dt[0]] * dbc.x + detail.Normals[dt[1]] * dbc.y + detail.Normals[dt[2]] * dbc.z;
+                if ( glm::length( dn ) < 1e-12 )
+                    continue;
+                dn           = glm::normalize( dn );
+                state[texel] = 4;
+
+                // Normal: the shader shades with TBN * decoded, so store solve(TBN, n).
+                const glm::dmat3 tbn( lerp( target.Tangents ), lerp( target.Bitangents ), N );
+                if ( std::abs( glm::determinant( tbn ) ) >= 1e-12 )
+                {
                     glm::dvec3 ts = glm::inverse( tbn ) * dn;
                     ts.z          = std::max( ts.z, 0.0 );
                     ts            = glm::length( ts ) < 1e-12 ? glm::dvec3( 0, 0, 1 ) : glm::normalize( ts );
@@ -281,18 +401,73 @@ namespace Desert::Geometry
                     rgba[1]       = Encode( ts.y );
                     rgba[2]       = Encode( ts.z );
                     rgba[3]       = 255;
-                    if ( !alreadyHit )
-                        ++out.HitTexels;
-                    state[texel] = 4;
                 }
-        }
+
+                if ( settings.Occlusion )
+                {
+                    // Frisvad's branchless frame around the detail normal.
+                    const double     sgn = dn.z >= 0.0 ? 1.0 : -1.0;
+                    const double     a   = -1.0 / ( sgn + dn.z );
+                    const double     b   = dn.x * dn.y * a;
+                    const glm::dvec3 tx( 1.0 + sgn * dn.x * dn.x * a, sgn * b, -sgn * dn.x );
+                    const glm::dvec3 ty( b, sgn + dn.y * dn.y * a, -dn.y );
+                    const glm::dvec3 start = hp + dn * 1e-3; // off the surface, UE's normal offset
+                    const double     so[3] = { start.x, start.y, start.z };
+                    double           total = 0.0, blocked = 0.0;
+                    for ( const glm::dvec3& l : occlusionDirs )
+                    {
+                        const glm::dvec3 w     = tx * l.x + ty * l.y + dn * l.z;
+                        const double     wd[3] = { w.x, w.y, w.z };
+                        total += l.z;
+                        if ( bvh.ClosestHit( so, wd, 0.0, occlusionReach, hit.Triangle ).Triangle >= 0 )
+                            blocked += l.z;
+                    }
+                    WriteGrey( &out.OcclusionRgba[texel * 4], total > 0.0 ? 1.0 - blocked / total : 1.0 );
+                }
+                if ( settings.Curvature )
+                    curvature[texel] =
+                         detailH[dt[0]] * dbc.x + detailH[dt[1]] * dbc.y + detailH[dt[2]] * dbc.z -
+                         ( targetH[tri[0]] * bc.x + targetH[tri[1]] * bc.y + targetH[tri[2]] * bc.z );
+            }
+        };
+        Common::JobSystem::Get().ParallelFor( static_cast<size_t>( H ), evaluateRow );
+
+        for ( size_t texel = 0; texel < texels; ++texel )
+            if ( state[texel] == 4 )
+                ++out.HitTexels;
         if ( out.HitTexels == 0 )
             return Common::MakeFormattedError<Out>(
                  "none of the {} covered texels found the detail surface within {} cm - the meshes do not overlap "
                  "within the projection distance",
                  out.CoveredTexels, D );
 
-        // Gutter: each ring takes the average of its filled 8-neighbours.
+        if ( settings.Curvature )
+        {
+            // Full scale at RangeMultiplier * (mean + standard deviation) of |H| over the hit texels.
+            double sum = 0.0, sumSq = 0.0;
+            for ( size_t texel = 0; texel < texels; ++texel )
+                if ( state[texel] == 4 )
+                {
+                    const double c = std::abs( curvature[texel] );
+                    sum += c;
+                    sumSq += c * c;
+                }
+            const double n     = static_cast<double>( out.HitTexels );
+            const double mean  = sum / n;
+            const double sd    = std::sqrt( std::max( 0.0, sumSq / n - mean * mean ) );
+            const double range = settings.CurvatureRangeMultiplier * ( mean + sd );
+            for ( size_t texel = 0; texel < texels; ++texel )
+                if ( state[texel] != 0 )
+                    WriteGrey( &out.CurvatureRgba[texel * 4],
+                               range > 0.0 ? 0.5 + 0.5 * std::clamp( curvature[texel] / range, -1.0, 1.0 ) : 0.5 );
+        }
+
+        // Gutter: each ring takes the average of its filled 8-neighbours, in every map.
+        std::vector<std::vector<uint8_t>*> maps = { &out.Rgba };
+        if ( settings.Occlusion )
+            maps.push_back( &out.OcclusionRgba );
+        if ( settings.Curvature )
+            maps.push_back( &out.CurvatureRgba );
         for ( int ring = 0; ring < settings.GutterTexels; ++ring )
         {
             std::vector<size_t> filled;
@@ -302,7 +477,8 @@ namespace Desert::Geometry
                     const size_t texel = static_cast<size_t>( y ) * W + x;
                     if ( state[texel] != 0 )
                         continue;
-                    int sum[3] = { 0, 0, 0 }, n = 0;
+                    std::array<size_t, 8> from{};
+                    int                   n = 0;
                     for ( int dy = -1; dy <= 1; ++dy )
                         for ( int dx = -1; dx <= 1; ++dx )
                         {
@@ -310,27 +486,38 @@ namespace Desert::Geometry
                             if ( nx < 0 || ny < 0 || nx >= W || ny >= H )
                                 continue;
                             const size_t nt = static_cast<size_t>( ny ) * W + nx;
-                            if ( state[nt] == 0 || state[nt] == 3 )
-                                continue;
-                            for ( int c = 0; c < 3; ++c )
-                                sum[c] += out.Rgba[nt * 4 + c];
-                            ++n;
+                            if ( state[nt] != 0 && state[nt] != 3 )
+                                from[static_cast<size_t>( n++ )] = nt;
                         }
                     if ( n == 0 )
                         continue;
-                    for ( int c = 0; c < 3; ++c )
-                        out.Rgba[texel * 4 + c] = static_cast<uint8_t>( ( sum[c] + n / 2 ) / n );
-                    out.Rgba[texel * 4 + 3] = 255;
-                    state[texel]            = 3; // this ring: not a source for its own ring
+                    for ( std::vector<uint8_t>* map : maps )
+                    {
+                        for ( int c = 0; c < 3; ++c )
+                        {
+                            int sum = 0;
+                            for ( int k = 0; k < n; ++k )
+                                sum += ( *map )[from[static_cast<size_t>( k )] * 4 + c];
+                            ( *map )[texel * 4 + c] = static_cast<uint8_t>( ( sum + n / 2 ) / n );
+                        }
+                        ( *map )[texel * 4 + 3] = 255;
+                    }
+                    state[texel] = 3; // this ring: not a source for its own ring
                     filled.push_back( texel );
                 }
             for ( const size_t texel : filled )
                 state[texel] = 2;
             out.GutterTexels += filled.size();
         }
-        for ( size_t texel = 0; texel < state.size(); ++texel )
+        for ( size_t texel = 0; texel < texels; ++texel )
             if ( state[texel] == 0 )
+            {
                 WriteFlat( &out.Rgba[texel * 4] );
+                if ( settings.Occlusion )
+                    WriteGrey( &out.OcclusionRgba[texel * 4], 1.0 );
+                if ( settings.Curvature )
+                    WriteGrey( &out.CurvatureRgba[texel * 4], 0.5 );
+            }
         return Common::MakeSuccess( std::move( out ) );
     }
 } // namespace Desert::Geometry

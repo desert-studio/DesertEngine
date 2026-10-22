@@ -29,6 +29,13 @@ namespace Desert::Editor
 {
     namespace
     {
+        // What the last Bake wrote, shown under the Bake palette's button.
+        Core::BakeNormalMapOutcome& LastBake()
+        {
+            static Core::BakeNormalMapOutcome s_Last;
+            return s_Last;
+        }
+
         const char* ShapeIcon( Core::ModelingState::Shape shape )
         {
             using S = Core::ModelingState::Shape;
@@ -766,11 +773,42 @@ namespace Desert::Editor
         s.ProjectionDistance = std::max( s.ProjectionDistance, 0.001 );
         row( "Gutter" );
         ImGui::DragInt( "##BakeGutter", &s.GutterTexels, 0.25f, 0, 64, "%d texels", ImGuiSliderFlags_AlwaysClamp );
+        // UE's Bake Mesh Attribute Maps: the normal map always, Ambient Occlusion and Curvature on request.
+        row( "Ambient Occlusion" );
+        ImGui::Checkbox( "##BakeOcclusion", &s.Occlusion );
+        if ( s.Occlusion )
+        {
+            row( "Occlusion Rays" );
+            ImGui::DragInt( "##BakeOcclusionRays", &s.OcclusionRays, 0.25f, 1, 1024, "%d",
+                            ImGuiSliderFlags_AlwaysClamp );
+        }
+        row( "Curvature" );
+        ImGui::Checkbox( "##BakeCurvature", &s.Curvature );
         ImGui::TextDisabled( "Select the target (low) first, then the detail (high)." );
         if ( ImGui::Button( "Bake Normal Map", ImVec2( -1.0f, 0.0f ) ) )
         {
             // BakeNormalMap logs its own refusal (the palette and DesertCtl reach it too).
             (void)BakeNormalMap( m_Scene, m_Assets );
+        }
+        // The maps the last bake wrote (whichever door ran it).
+        const Core::BakeNormalMapOutcome& last = LastBake();
+        if ( !last.TextureAsset.empty() )
+        {
+            ImGui::SeparatorText( "Baked Maps" );
+            const auto map = [&]( const char* label, const std::filesystem::path& asset )
+            {
+                if ( asset.empty() )
+                    return;
+                row( label );
+                ImGui::TextUnformatted( asset.filename().generic_string().c_str() );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "%s", asset.generic_string().c_str() );
+            };
+            map( "Normal", last.TextureAsset );
+            map( "Ambient Occlusion", last.OcclusionAsset );
+            map( "Curvature", last.CurvatureAsset );
+            map( "Material", last.Material );
+            ImGui::TextDisabled( "%zu of %zu texels hit the detail", last.HitTexels, last.CoveredTexels );
         }
     }
 
@@ -788,6 +826,7 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "{}", baked.GetError() );
         }
         const auto& out = baked.GetValue();
+        LastBake()      = out;
         LOG_INFO( "Bake Normal Map: {} -> {} ({} of {} texels hit)", out.TextureAsset.generic_string(),
                   out.Material.generic_string(), out.HitTexels, out.CoveredTexels );
         return Common::MakeSuccess( true );

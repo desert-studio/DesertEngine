@@ -41,6 +41,7 @@
 #include <array>
 #include <cctype>
 #include <memory>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -96,10 +97,12 @@ namespace Desert::Editor::Core
             return out.empty() ? std::string( "Mesh" ) : out;
         }
 
-        // The template's normal-map slot: the one texture property whose authored intent is NormalMap (the same
-        // word the material import binds a source normal map by, MaterialImportContract.cpp ReadImportTemplate).
-        Common::ResultStr<std::string> NormalMapSlot( const Assets::AssetManager& assets,
-                                                      const Common::AssetHandle   shader )
+        // The template's slot for a map: the one texture property whose authored intent is @p intent (the same
+        // word the material import binds a source map by, MaterialImportContract.cpp ReadImportTemplate) -
+        // NormalMap for the normal map, PackedMasks for the ORM map the baked occlusion goes into.
+        Common::ResultStr<std::string> TemplateSlot( const Assets::AssetManager& assets,
+                                                     const Common::AssetHandle   shader,
+                                                     const Fmt::TextureIntent intent, const char* intentName )
         {
             const Assets::AssetMetadata* meta = assets.FindMetadataByHandle( shader );
             if ( meta == nullptr )
@@ -115,12 +118,12 @@ namespace Desert::Editor::Core
                                                                 parsed.GetError() );
             std::vector<std::string> slots;
             for ( const auto& param : parsed.GetValue().Meta.Params )
-                if ( param.IsTexture && param.SlotIntent == Fmt::TextureIntent::NormalMap )
+                if ( param.IsTexture && param.SlotIntent == intent )
                     slots.push_back( param.Name );
             if ( slots.size() != 1 )
                 return Common::MakeFormattedError<std::string>(
-                     "template '{}' declares {} texture properties with Intent(NormalMap), not one",
-                     meta->Filepath.generic_string(), slots.size() );
+                     "template '{}' declares {} texture properties with Intent({}), not one",
+                     meta->Filepath.generic_string(), slots.size(), intentName );
             return Common::MakeSuccess( slots.front() );
         }
 
@@ -134,9 +137,9 @@ namespace Desert::Editor::Core
             fs::path                   Asset;
         };
 
-        Common::ResultStr<BakedTexture> WriteTexture( Assets::AssetManager&                assets,
-                                                      const Geometry::NormalMapBakeResult& map,
-                                                      const std::string&                   stem )
+        Common::ResultStr<BakedTexture> WriteTexture( Assets::AssetManager& assets, const int width,
+                                                      const int height, const std::vector<uint8_t>& rgba,
+                                                      const std::string& name, const Fmt::TextureIntent intent )
         {
             using Out           = BakedTexture;
             const fs::path  dir = Common::Constants::Path::TEXTUREDIR_PATH / "Baked";
@@ -145,12 +148,11 @@ namespace Desert::Editor::Core
             if ( ec )
                 return Common::MakeFormattedError<Out>( "'{}' was not created: {}", dir.generic_string(),
                                                         ec.message() );
-            const fs::path png = dir / ( stem + "_Normal.png" );
-            if ( stbi_write_png( png.string().c_str(), map.Width, map.Height, 4, map.Rgba.data(),
-                                 map.Width * 4 ) == 0 )
+            const fs::path png = dir / ( name + ".png" );
+            if ( stbi_write_png( png.string().c_str(), width, height, 4, rgba.data(), width * 4 ) == 0 )
                 return Common::MakeFormattedError<Out>( "'{}' was not written", png.generic_string() );
 
-            auto asset = TextureImporter::ImportSourceAsset( png, Fmt::TextureIntent::NormalMap );
+            auto asset = TextureImporter::ImportSourceAsset( png, intent );
             if ( !asset.IsSuccess() )
                 return Common::MakeFormattedError<Out>( "'{}': {}", png.generic_string(), asset.GetError() );
             const auto key = Assets::ReadTextureAssetKey( asset.GetValue() );
@@ -172,10 +174,9 @@ namespace Desert::Editor::Core
         // The material that binds the map: an instance of the target's slot-0 material, or a new material on the
         // Default Surface template. A file already at the name that binds THIS texture is reused (a rebake keeps
         // the texture's identity); any other file there is never overwritten - the next free name is taken.
-        Common::ResultStr<std::pair<Common::AssetHandle, fs::path>> WriteMaterial( Assets::AssetManager& assets,
-                                                                                   const Common::AssetHandle slot0,
-                                                                                   const BakedTexture& texture,
-                                                                                   const std::string&  stem )
+        Common::ResultStr<std::pair<Common::AssetHandle, fs::path>>
+        WriteMaterial( Assets::AssetManager& assets, const Common::AssetHandle slot0, const BakedTexture& texture,
+                       const BakedTexture* orm, const std::string& stem )
         {
             using Out = std::pair<Common::AssetHandle, fs::path>;
             Assets::MaterialData data;
@@ -198,12 +199,34 @@ namespace Desert::Editor::Core
                     return Common::MakeError<Out>( stated.GetError() );
                 shader = Assets::MaterialData::HandleOf( data.ShaderGuid() );
             }
-            const auto slot = NormalMapSlot( assets, shader );
+            const auto slot = TemplateSlot( assets, shader, Fmt::TextureIntent::NormalMap, "NormalMap" );
             if ( !slot.IsSuccess() )
                 return Common::MakeError<Out>( slot.GetError() );
             data.SetTexture(
                  slot.GetValue(), texture.Guid,
                  fs::relative( texture.Asset, Common::Constants::Path::ASSETS_PATH ).generic_string() );
+            // The baked occlusion enters the template's ORM map (R = occlusion, G and B white so roughness and
+            // metallic keep their factors). A parent that already binds an ORM map is refused: the baked one would
+            // replace its roughness and metallic.
+            std::string ormSlot;
+            if ( orm != nullptr )
+            {
+                const auto packed = TemplateSlot( assets, shader, Fmt::TextureIntent::PackedMasks, "PackedMasks" );
+                if ( !packed.IsSuccess() )
+                    return Common::MakeError<Out>( packed.GetError() );
+                ormSlot = packed.GetValue();
+                if ( instance )
+                    if ( const auto parent = assets.FindByHandle<Assets::SurfaceMaterialAsset>( slot0 );
+                         parent && parent->Data().GetTexture( ormSlot ) != 0 )
+                        return Common::MakeFormattedError<Out>(
+                             "the target's material already binds an ORM map in '{}' - the baked occlusion would "
+                             "replace its roughness and metallic; bake without Ambient Occlusion or clear that "
+                             "map",
+                             ormSlot );
+                data.SetTexture(
+                     ormSlot, orm->Guid,
+                     fs::relative( orm->Asset, Common::Constants::Path::ASSETS_PATH ).generic_string() );
+            }
 
             const std::string ext( Common::Constants::Extensions::MATERIAL_EXTENSION );
             const fs::path    dir = Common::Constants::Path::MATERIAL_PATH;
@@ -221,6 +244,10 @@ namespace Desert::Editor::Core
                     if ( existing &&
                          existing->Data().GetTexture( slot.GetValue() ) ==
                               static_cast<uint64_t>( Common::Content::HandleForGuid( texture.Guid ) ) &&
+                         ( orm == nullptr
+                                ? true
+                                : existing->Data().GetTexture( ormSlot ) ==
+                                       static_cast<uint64_t>( Common::Content::HandleForGuid( orm->Guid ) ) ) &&
                          ( existing->Data().ParentText() != nullptr ) == instance )
                         return Common::MakeSuccess( Out{ existing->GetMetadata().Handle, path } );
                     continue;
@@ -265,19 +292,53 @@ namespace Desert::Editor::Core
             return Common::MakeFormattedError<Out>( "Bake Normal Map: {}", detail.GetError() );
 
         const auto map =
-             Geometry::BakeTangentNormalMap( target.GetValue().Surface, detail.GetValue().Surface, args.Settings );
+             Geometry::BakeMeshMaps( target.GetValue().Surface, detail.GetValue().Surface, args.Settings );
         if ( !map.IsSuccess() )
             return Common::MakeFormattedError<Out>( "Bake Normal Map: '{}' from '{}': {}", target.GetValue().Name,
                                                     detail.GetValue().Name, map.GetError() );
 
-        const std::string stem    = FileStem( target.GetValue().Name );
-        const auto        texture = WriteTexture( assets, map.GetValue(), stem );
+        const Geometry::MeshMapBakeResult& maps = map.GetValue();
+        const std::string                  stem = FileStem( target.GetValue().Name );
+        const auto texture = WriteTexture( assets, maps.Width, maps.Height, maps.Rgba, stem + "_Normal",
+                                           Fmt::TextureIntent::NormalMap );
         if ( !texture.IsSuccess() )
             return Common::MakeFormattedError<Out>( "Bake Normal Map: {}", texture.GetError() );
+        // UE writes each map as its own texture: AO and Curvature are one-channel masks (BC4). The occlusion is
+        // also packed into an ORM map (R = AO, G = B = 1) the material binds.
+        std::optional<BakedTexture> occlusion, curvature, orm;
+        if ( args.Settings.Occlusion )
+        {
+            auto ao = WriteTexture( assets, maps.Width, maps.Height, maps.OcclusionRgba, stem + "_AO",
+                                    Fmt::TextureIntent::Mask );
+            if ( !ao.IsSuccess() )
+                return Common::MakeFormattedError<Out>( "Bake Normal Map: {}", ao.GetError() );
+            occlusion = ao.ExtractValue();
+            std::vector<uint8_t> packed( maps.OcclusionRgba.size() );
+            for ( size_t i = 0; i < packed.size(); i += 4 )
+            {
+                packed[i]     = maps.OcclusionRgba[i];
+                packed[i + 1] = 255;
+                packed[i + 2] = 255;
+                packed[i + 3] = 255;
+            }
+            auto packedOrm = WriteTexture( assets, maps.Width, maps.Height, packed, stem + "_ORM",
+                                           Fmt::TextureIntent::PackedMasks );
+            if ( !packedOrm.IsSuccess() )
+                return Common::MakeFormattedError<Out>( "Bake Normal Map: {}", packedOrm.GetError() );
+            orm = packedOrm.ExtractValue();
+        }
+        if ( args.Settings.Curvature )
+        {
+            auto c = WriteTexture( assets, maps.Width, maps.Height, maps.CurvatureRgba, stem + "_Curvature",
+                                   Fmt::TextureIntent::Mask );
+            if ( !c.IsSuccess() )
+                return Common::MakeFormattedError<Out>( "Bake Normal Map: {}", c.GetError() );
+            curvature = c.ExtractValue();
+        }
 
         const auto& slots    = target.GetValue().Entity.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
         const auto  material = WriteMaterial( assets, slots.empty() ? Common::AssetHandle{} : slots.front(),
-                                              texture.GetValue(), stem );
+                                              texture.GetValue(), orm ? &*orm : nullptr, stem );
         if ( !material.IsSuccess() )
             return Common::MakeFormattedError<Out>( "Bake Normal Map: {}", material.GetError() );
 
@@ -304,11 +365,19 @@ namespace Desert::Editor::Core
         out.Material      = material.GetValue().second;
         out.CoveredTexels = map.GetValue().CoveredTexels;
         out.HitTexels     = map.GetValue().HitTexels;
+        if ( occlusion )
+            out.OcclusionAsset = occlusion->Asset;
+        if ( curvature )
+            out.CurvatureAsset = curvature->Asset;
         LOG_INFO( "[Modeling] Bake Normal Map: '{}' from '{}' at {}x{}, {} of {} covered texels hit the detail "
                   "within {} cm, {} gutter texels -> '{}', material '{}'",
                   target.GetValue().Name, detail.GetValue().Name, map.GetValue().Width, map.GetValue().Height,
                   out.HitTexels, out.CoveredTexels, args.Settings.ProjectionDistance, map.GetValue().GutterTexels,
                   out.TextureAsset.generic_string(), out.Material.generic_string() );
+        if ( occlusion || curvature )
+            LOG_INFO( "[Modeling] Bake: ambient occlusion '{}' ({} rays), curvature '{}'",
+                      out.OcclusionAsset.generic_string(), args.Settings.OcclusionRays,
+                      out.CurvatureAsset.generic_string() );
         return Common::MakeSuccess( std::move( out ) );
     }
 } // namespace Desert::Editor::Core

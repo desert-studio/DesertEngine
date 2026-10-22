@@ -45,7 +45,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 90> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 93> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -252,6 +252,26 @@ namespace Desert::Editor::Core
            } },
          { "Bake.Gutter",               "Gutter",             "Bake", 1, true, 0.0f, 64.0f, nullptr,
            []( ModelingState& ) { return &BakeNormalMapSettings().Settings.GutterTexels; } },
+         { "Bake.AmbientOcclusion",     "Ambient Occlusion",  "Bake", 1, true, 0.0f, 1.0f, nullptr, nullptr,
+           []( ModelingState& ) { return BakeNormalMapSettings().Settings.Occlusion ? 1.0 : 0.0; },
+           []( ModelingState&, double v ) -> Common::BoolResultStr
+           {
+               if ( v != 0.0 && v != 1.0 )
+                   return Common::MakeFormattedError<bool>( "Bake.AmbientOcclusion is 0 or 1, not {}", v );
+               BakeNormalMapSettings().Settings.Occlusion = v == 1.0;
+               return Common::MakeSuccess( true );
+           } },
+         { "Bake.OcclusionRays",        "Occlusion Rays",     "Bake", 1, true, 1.0f, 1024.0f, nullptr,
+           []( ModelingState& ) { return &BakeNormalMapSettings().Settings.OcclusionRays; } },
+         { "Bake.Curvature",            "Curvature",          "Bake", 1, true, 0.0f, 1.0f, nullptr, nullptr,
+           []( ModelingState& ) { return BakeNormalMapSettings().Settings.Curvature ? 1.0 : 0.0; },
+           []( ModelingState&, double v ) -> Common::BoolResultStr
+           {
+               if ( v != 0.0 && v != 1.0 )
+                   return Common::MakeFormattedError<bool>( "Bake.Curvature is 0 or 1, not {}", v );
+               BakeNormalMapSettings().Settings.Curvature = v == 1.0;
+               return Common::MakeSuccess( true );
+           } },
     } };
     // clang-format on
 
