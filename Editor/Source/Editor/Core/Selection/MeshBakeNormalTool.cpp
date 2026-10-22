@@ -219,9 +219,9 @@ namespace Desert::Editor::Core
                     if ( !existing )
                         existing = assets.CreateAsset<Assets::SurfaceMaterialAsset>( path.generic_string() );
                     if ( existing &&
-                         existing->Data().FindTextureGuid( slot.GetValue() ) ==
-                              Common::Content::AssetGuidToText( texture.Guid ) &&
-                         existing->Data().ParentText() != nullptr == instance )
+                         existing->Data().GetTexture( slot.GetValue() ) ==
+                              static_cast<uint64_t>( Common::Content::HandleForGuid( texture.Guid ) ) &&
+                         ( existing->Data().ParentText() != nullptr ) == instance )
                         return Common::MakeSuccess( Out{ existing->GetMetadata().Handle, path } );
                     continue;
                 }
