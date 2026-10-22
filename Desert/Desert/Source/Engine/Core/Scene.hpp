@@ -355,6 +355,8 @@ namespace Desert::Core
                 m_WorldTime.Reset();
             }
             m_State = state;
+            if ( state == SceneState::Edit )
+                m_Simulating = false; // a simulation ends with the session it ran in
             m_Subsystems.SetPlaying( state != SceneState::Edit );
             if ( state != SceneState::Paused )
             {
@@ -468,6 +470,16 @@ namespace Desert::Core
         [[nodiscard]] bool IsPlayFromHere() const
         {
             return m_PlayFromHere;
+        }
+        // UE's GEditor->bIsSimulatingInEditor: the world runs (Play/Paused) with no player, seen through the
+        // editor camera with the editor's overlays (BeginPlay with PlayRequest::Simulate). Cleared with the world.
+        void SetSimulating( bool simulating )
+        {
+            m_Simulating = simulating;
+        }
+        [[nodiscard]] bool IsSimulating() const
+        {
+            return m_Simulating;
         }
 
         // Resolves and records the Play view target, UE's order: (1) a camera on the player's pawn (its
@@ -808,6 +820,7 @@ namespace Desert::Core
         entt::entity                  m_ViewTarget     = entt::null; // see ResolveViewTarget
         uint64_t                      m_Generation         = NextSceneGeneration(); // see GetGeneration
         bool                          m_PlayFromHere   = false;
+        bool                          m_Simulating         = false; // see SetSimulating
 
         // One command buffer PER system (index-matched to m_Systems): parallel systems record without
         // sharing the arena; buffers are executed in registration order, so the frame's draw order is
