@@ -82,7 +82,6 @@ namespace Desert::VFX
         entt::entity Entity    = entt::null;
         glm::mat4    Transform = glm::mat4( 1.0f );
         bool         Seen      = false;
-        bool                                                        Seen = false;
         // THE SCALABILITY STATE (VFX-11, UE FNiagaraScalabilityState), decided by VFXScalability each tick:
         // Culled = no births this tick (live particles finish unless the reaction is Immediate, which resets the
         // emitters - a new generation, the GPU zeroes them). Deactivated = culled under a non-Resume reaction: it

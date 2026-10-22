@@ -169,6 +169,12 @@ namespace Desert::Geometry
             const double L = glm::length( V );
             return L > 0 ? V / L : glm::dvec3( 0.0 );
         }
+
+        // UE VectorUtil / FVector::PlaneProjection, normalised: @p V without its component along unit @p N.
+        glm::dvec3 PlaneProjectionNormalized( const glm::dvec3& V, const glm::dvec3& N )
+        {
+            return SafeNormalized( V - glm::dot( V, N ) * N );
+        }
     } // namespace
 
     template <typename RealType>
