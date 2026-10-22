@@ -61,7 +61,13 @@ namespace Desert::UI::Walk
         // HoverColor (eased), press snaps to PressedColor, Disabled overrides everything.
         const glm::vec3 rest = selected ? st.Color( StyleSlot::ButtonSelected, b.SelectedColor )
                                         : st.Color( StyleSlot::ButtonNormal, b.NormalColor );
-        const float     ht   = HoverEase( ctx, e, hover && !down );
+        // `focused` is the HOST's, and it survives between frames -- gated by `interactive` so a control that
+        // held focus while reachable is inert once an ancestor turns Blocking (no activation, ring, caret).
+        const bool isFocused = interactive && focused != nullptr && *focused == e;
+        // The plate answers HIGHLIGHT, not only the pointer: a focused row wears the hovered style, as UE's
+        // UCommonButtonBase does (NativeOnFocusReceived -> hovered state), so keyboard/gamepad navigation shows
+        // the same row the pointer would. Disabled was already folded into `hover`; it gates focus here.
+        const float     ht   = HoverEase( ctx, e, ( hover || ( isFocused && !b.Disabled ) ) && !down );
         glm::vec3       c    = glm::mix( rest, st.Color( StyleSlot::ButtonHover, b.HoverColor ), ht );
         if ( down )
             c = st.Color( StyleSlot::ButtonPressed, b.PressedColor );
@@ -87,11 +93,6 @@ namespace Desert::UI::Walk
                               barW * 0.5f );
         }
 
-        // `focused` is the HOST's, and it survives between frames — so a control that held focus
-        // while it was reachable keeps holding it after an ancestor turns Blocking. Gating the
-        // question itself (rather than the Enter below) is what makes that stale focus inert in
-        // every direction at once: no activation, no focus ring, no caret.
-        const bool isFocused = interactive && focused != nullptr && *focused == e;
         // HIGHLIGHTED = the row the player is on, by pointer or by keyboard/gamepad focus. Recorded before the
         // children draw, so their WhileHighlighted tweens (UITweenArgs.hpp) answer this frame, not the last.
         if ( !b.Disabled && ( hover || isFocused ) )
