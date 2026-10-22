@@ -249,7 +249,7 @@ Shader "ParticleSort"
             if ( stage == 4u )
             {
                 if ( t < alive )
-                    u_Sorted[u_Range.x + t] = u_Keys[keyBase + t].y;
+                    u_Sorted[u_Range.x + t] = u_Keys[keyBase + t].z; // z = the alive index (x major, y key)
                 return;
             }
 
