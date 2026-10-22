@@ -204,6 +204,9 @@ namespace Desert::Graphic::System
     class MeshRenderer final : public RenderSystem
     {
     public:
+        // Releases this view's GPU-instanced material copies (MaterialService::ReleaseViewVariants).
+        ~MeshRenderer() override;
+
         struct StaticMeshRenderData
         {
             // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.

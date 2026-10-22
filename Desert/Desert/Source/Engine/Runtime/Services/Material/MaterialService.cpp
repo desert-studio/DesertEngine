@@ -627,9 +627,18 @@ namespace Desert::Runtime
 
     Graphic::DataDrivenMaterial* MaterialService::GetViewVariant( const Graphic::Material* built,
                                                                   Graphic::MeshVertexPath  path,
-                                                                  Graphic::MeshPass pass, uint32_t view ) const
+                                                                  Graphic::MeshPass pass, uint32_t view,
+                                                                  const void* owner ) const
     {
-        return SiblingOf( built, path, pass, view, Core::ShaderVariant{} );
+        return SiblingOf( built, path, pass, view, Core::ShaderVariant{}, owner );
+    }
+
+    void MaterialService::ReleaseViewVariants( const void* owner )
+    {
+        if ( owner == nullptr )
+            return;
+        for ( auto& [handle, views] : m_ViewMaterials )
+            std::erase_if( views, [owner]( const ViewVariant& v ) { return v.Owner == owner; } );
     }
 
     Graphic::DataDrivenMaterial* MaterialService::GetVariant( const Graphic::Material* built,
@@ -644,7 +653,8 @@ namespace Desert::Runtime
     Graphic::DataDrivenMaterial* MaterialService::SiblingOf( const Graphic::Material* built,
                                                              Graphic::MeshVertexPath path, Graphic::MeshPass pass,
                                                              uint32_t                   view,
-                                                             const Core::ShaderVariant& permutation ) const
+                                                             const Core::ShaderVariant& permutation,
+                                                             const void*                owner ) const
     {
         // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a
         // view variant exists only where the plain one does.
@@ -658,7 +668,7 @@ namespace Desert::Runtime
         const size_t slot  = VariantSlot( path, pass );
         auto&        views = m_ViewMaterials[owner->second];
         for ( const auto& v : views )
-            if ( v.Slot == slot && v.View == view && v.Defines == permutation.Defines )
+            if ( v.Slot == slot && v.View == view && v.Owner == owner && v.Defines == permutation.Defines )
                 return v.Material.get();
 
         const auto ait = m_MaterialAssets.find( owner->second );
@@ -669,7 +679,7 @@ namespace Desert::Runtime
             return nullptr; // CreateSurfaceMaterial named the material and the cell it refused
         auto* raw = material.get();
         raw->ClaimOwnership( Graphic::ResourceOwner::AssetService, owner->second );
-        views.push_back( ViewVariant{ slot, view, permutation.Defines, std::move( material ) } );
+        views.push_back( ViewVariant{ slot, view, permutation.Defines, owner, std::move( material ) } );
         return raw;
     }
 

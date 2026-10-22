@@ -9,7 +9,7 @@
 // GPU-INSTANCED SECTIONS (GpuInstances.hpp): the landscape grass. The transforms and the instance count are the
 // producer's compute output, so nothing here culls, sorts or uploads instances: each section is one indirect draw
 // through its material's (Instanced x pass) cell. The cell is a COPY of the material (MaterialService::
-// GetViewVariant, keyed per section) because a material owns one InstanceTransforms binding per frame and the
+// GetViewVariant, keyed per section and owned by this renderer, so it dies with the view) because a material owns one InstanceTransforms binding per frame and the
 // CPU-batched ISMs of the same material fill the shared one.
 
 namespace Desert::Graphic::System
@@ -37,6 +37,16 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
+    MeshRenderer::~MeshRenderer()
+    {
+        // The section copies hold this view's buffers (the producers' instances, the Materials rows written
+        // under the view): their instances first, then the copies, before the view's ledger check.
+        m_GpuInstancedInstances.clear();
+        m_GpuInstancedQueue.clear();
+        if ( auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
+            materials->ReleaseViewVariants( this );
+    }
+
     void MeshRenderer::BuildGpuInstancedDraws( MeshDrawList& list, GraphicsPipeline* instancedPipeline,
                                                const MeshPass pass, const SceneFrameBinding& frameState )
     {
@@ -56,7 +66,7 @@ namespace Desert::Graphic::System
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
             const uint32_t            view = kGpuInstancedViewBase + gpu.Key * 2u + ( pass == MeshPass::GBuffer );
             DataDrivenMaterial*       cell = parent != nullptr && materials->Owns( parent )
-                                                  ? materials->GetViewVariant( parent, gpu.Path, pass, view )
+                                                  ? materials->GetViewVariant( parent, gpu.Path, pass, view, this )
                                                   : nullptr;
             if ( cell == nullptr )
             {
@@ -116,7 +126,7 @@ namespace Desert::Graphic::System
             // the CPU-batched ISMs'.
             DataDrivenMaterial* caster =
                  parent != nullptr && materials->Owns( parent )
-                      ? materials->GetViewVariant( parent, gpu.Path, MeshPass::ShadowDepth, view )
+                      ? materials->GetViewVariant( parent, gpu.Path, MeshPass::ShadowDepth, view, this )
                       : nullptr;
             if ( caster == nullptr )
             {
