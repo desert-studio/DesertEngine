@@ -550,6 +550,9 @@ namespace
                 << Desert::Migration::kSceneVersionAssetKeys << " (" << report.AssetKeys.Keyed
                 << " bare asset reference(s) restated as content keys, " << report.AssetKeys.PrefabPathsKeyed
                 << " of them PrefabPath)";
+        if ( report.WorldPartitionTagRaised )
+            out << " world partition v" << report.StatedWorldPartitionVersion << "->v"
+                << Desert::Migration::kWorldPartitionVersionTagged << " (the WPAR tag is stated)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

@@ -19,21 +19,24 @@ namespace Desert::Core
 #endif
     } // namespace
 
-    std::string RefuseSceneVersion( std::string_view source, int foundSceneVersion, int foundUnitVersion )
+    std::string RefuseSceneVersion( std::string_view source, int foundSceneVersion, int foundUnitVersion,
+                                    int foundWorldPartitionVersion )
     {
         return fmt::format(
-             "[SceneSerializer] '{0}' is at scene schema v{1} / world units v{2}, and this engine loads "
-             "scene schema v{3} / world units v{4} only. NOTHING WAS LOADED - no entity, no setting and no "
-             "scene name was taken from this file, and the scene is exactly as it was. The engine does not "
-             "convert old scenes any more; Tools/SceneMigrator does, once, and writes the file back. Run:  "
-             "{5} \"{0}\"",
-             source, foundSceneVersion, foundUnitVersion, kSceneVersion, kUnitVersion, kMigratorPath );
+             "[SceneSerializer] '{0}' is at scene schema v{1} / world units v{2} / world partition v{3}, and "
+             "this engine loads scene schema v{4} / world units v{5} / world partition v{6} only. NOTHING WAS "
+             "LOADED - no entity, no setting and no scene name was taken from this file, and the scene is exactly "
+             "as it was. The engine does not convert old scenes any more; Tools/SceneMigrator does, once, and "
+             "writes the file back. Run:  {7} \"{0}\"",
+             source, foundSceneVersion, foundUnitVersion, foundWorldPartitionVersion, kSceneVersion, kUnitVersion,
+             kWorldPartitionVersion, kMigratorPath );
     }
 
     std::string RefuseSceneVersion( std::string_view source, const SceneSerialized& scene )
     {
         return RefuseSceneVersion( source, Assets::StatedVersion( scene.Header, Assets::kSceneSchemaTag ),
-                                   Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ) );
+                                   Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ),
+                                   Assets::StatedVersion( scene.Header, Assets::kWorldPartitionSchemaTag ) );
     }
 
     Common::ResultStr<LoadableScene> ParseLoadableScene( std::string_view source, const std::string& json )

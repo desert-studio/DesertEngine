@@ -4,7 +4,8 @@
         "Guid": "b0bebbde89250a77ffa1825ef8e56946",
         "Versions": {
             "SCNE": 70,
-            "UNIT": 1
+            "UNIT": 1,
+            "WPAR": 1
         },
         "Dependencies": []
     },

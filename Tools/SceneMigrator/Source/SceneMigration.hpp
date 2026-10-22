@@ -418,6 +418,22 @@ namespace Desert::Migration
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
+    // WORLD PARTITION'S OWN CHAIN (MIGRATE-SUBSYS, owner 2026-10-22; UE FCustomVersion). The steps below are keyed
+    // by the number a file states under Assets::kWorldPartitionSchemaTag, not by the scene schema number, and run
+    // after the scene chain (MigrateScene / MigratePrefab, RunWorldPartitionSteps): a World Partition change takes
+    // the next number HERE, so it cannot collide with a scene step another branch is adding at the same time.
+    //
+    //   1 - THE COUNTER EXISTS (MIGRATE-SUBSYS). World Partition's block and streamed records are exactly what
+    //       scene schema v70 states; v1 is that format under its own tag. Nothing in a file changes but the
+    //       header, which states WPAR 1 (the stamp, MigrationHeader). Scenes and prefabs alike - a prefab's
+    //       records are a scene's, so it states the same three tags.
+    inline constexpr int kWorldPartitionVersionTagged = 1;
+
+    static_assert(
+         kWorldPartitionVersionTagged == Core::kWorldPartitionVersion,
+         "the last World Partition step and the engine's required World Partition version must be the "
+         "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
+
     // What MigratePathOnlyMeshGuidsV31ToV32 did to one file (also the shape of the v27->28 step this tool
     // no longer carries: kept as one struct name so a future step over the same MeshGuid slot need not
     // invent a second report shape for the same three fields).
@@ -1078,6 +1094,9 @@ namespace Desert::Migration
         bool        GridHLODLayerRaised = false; // below kSceneVersionGridHLODLayer
         std::size_t GridsGivenHLODLayer = 0;     // grids given the world's former DefaultHLODLayer
         bool        RootSiblingIndexRaised  = false; // below kSceneVersionRootSiblingIndex
+        // World Partition's chain (keyed by the WPAR number the file states, not the scene number).
+        int         StatedWorldPartitionVersion = 0; // what the file stated under kWorldPartitionSchemaTag
+        bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
         std::size_t RootSiblingIndexDropped = 0;     // root records that lost their siblingIndex
 
         bool                      AssetKeysRaised = false; // below kSceneVersionAssetKeys
@@ -1126,7 +1145,7 @@ namespace Desert::Migration
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
-                   RootSiblingIndexRaised;
+                   RootSiblingIndexRaised || WorldPartitionTagRaised;
         }
     };
 
