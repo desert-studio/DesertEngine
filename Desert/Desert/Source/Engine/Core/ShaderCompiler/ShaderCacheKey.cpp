@@ -7,6 +7,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderTarget.hpp>
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
+#include <Engine/Graphic/ShaderProtocols/GeneratedProtocolIncludes.hpp>
 
 #include <chrono>
 #include <format>
@@ -185,6 +186,15 @@ namespace Desert::Core
                         WalkIncludes( *substituted, full, variant, visited, out, depth + 1 );
                         continue;
                     }
+                    // A GENERATED PROTOCOL BLOCK (Common/CameraUB.glslh) has no file: its text comes from the C++
+                    // struct, and is walked from that text like any header's.
+                    if ( const std::string* generated =
+                              Graphic::ShaderProtocols::FindGeneratedProtocolInclude( requested ) )
+                    {
+                        out.push_back( full );
+                        WalkIncludes( *generated, full, variant, visited, out, depth + 1 );
+                        continue;
+                    }
                     // THE GENERATED SHADING-MODEL DISPATCH IS VIRTUAL (UE /Engine/Generated/): the loaded set's
                     // text, served by the includer and never written to disk. Its own includes (the contract, the
                     // models' code) are walked from that text, so editing them is a change like any header's.
@@ -279,6 +289,24 @@ namespace Desert::Core
         }
     } // namespace
 
+    namespace
+    {
+        // THE GENERATED PROTOCOL TEXT (GeneratedProtocolIncludes.hpp): the include is virtual, so the file loops
+        // below have no bytes of it to hash — a C++ layout change must still move every key that includes it.
+        void MixGeneratedProtocol( uint64_t& key, const std::filesystem::path& include )
+        {
+            const std::string relative =
+                 include.lexically_normal()
+                      .lexically_relative( Common::Constants::Path::SHADERDIR_PATH.lexically_normal() )
+                      .generic_string();
+            if ( const std::string* generated = Graphic::ShaderProtocols::FindGeneratedProtocolInclude( relative ) )
+            {
+                FnvMix( key, "|protocol:" );
+                FnvMix( key, *generated );
+            }
+        }
+    } // namespace
+
     uint64_t ComputeShaderCacheKey( Formats::ShaderStage stage, const std::string& source,
                                     const std::filesystem::path& requestingFile, const ShaderVariant& variant )
     {
@@ -322,6 +350,7 @@ namespace Desert::Core
         {
             FnvMix( key, include.generic_string() );
             MixShadingModelLayout( key, include );
+            MixGeneratedProtocol( key, include );
             // A read that fails mixes nothing — byte-identical to the empty string the old untyped
             // read produced here, so existing cache keys stay valid.
             if ( const auto file = ReadShaderFileCached( include ); file->Readable )
@@ -365,6 +394,7 @@ namespace Desert::Core
         {
             FnvMix( key, include.generic_string() );
             MixShadingModelLayout( key, include );
+            MixGeneratedProtocol( key, include );
             const auto     file = ReadShaderFileCached( include );
             const uint64_t hash = file->Readable ? file->ContentHash : 0;
             FnvMix( key, std::string_view( reinterpret_cast<const char*>( &hash ), sizeof hash ) );

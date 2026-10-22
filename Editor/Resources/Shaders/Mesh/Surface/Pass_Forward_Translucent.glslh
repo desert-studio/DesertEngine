@@ -20,17 +20,9 @@ layout( location = 0 ) out vec4 oColor;
 layout( location = 2 ) out vec4 oResponsiveAA;
 #endif
 
-struct DirectionLight
-{
-    vec4 Direction;      // xyz = normalized direction
-    vec4 ColorIntensity; // rgb = color, a = intensity
-};
-
-layout( binding = 3 ) uniform DirectionLightsUB
-{
-    DirectionLight directionLights;
-}
-directionLights;
+// The scene directional light (struct DirectionLight + DirectionLightsUB, binding 3): GENERATED from
+// Engine/Graphic/ShaderProtocols/DirectionLight.hpp by the shader includer.
+#include <Common/DirectionLightsUB.glslh>
 
 // Shared sampler states (UE's shared samplers): each scene input below is a separate texture read through one of
 // these, bound by the pass with the inputs; 13 and 14, as in Pass_Forward.glslh.

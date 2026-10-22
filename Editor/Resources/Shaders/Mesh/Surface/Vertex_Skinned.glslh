@@ -60,13 +60,10 @@ m_PushConstants;
 // View pass: both palettes come from the view's ObjectBones at the row's two offsets (Common/ObjectMotion.glslh).
 #define DESERT_SKIN_MATRIX( base, i ) objectBones.Palettes[( base ) + ( i )]
 #else
-// Light view (shadow depth / RSM): the pass's own Bones buffer, this draw's slice named by the push block.
-layout( std430, binding = 1 ) readonly buffer Bones
-{
-    mat4 BoneMatrices[];
-}
-bones;
-#define DESERT_SKIN_MATRIX( base, i ) bones.BoneMatrices[( base ) + ( i )]
+// Light view (shadow depth / RSM): the pass's own Bones buffer (generated from ShaderProtocols/SkinnedMaterialUB.hpp,
+// binding 1), this draw's slice named by the push block.
+#include <Mesh/SkinnedBones.glslh>
+#define DESERT_SKIN_MATRIX( base, i ) bones.BoneMatrices[( base ) + ( i )].Matrix
 #endif
 
 void main()
