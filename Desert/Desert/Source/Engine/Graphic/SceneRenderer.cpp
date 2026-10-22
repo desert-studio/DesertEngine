@@ -1700,6 +1700,16 @@ namespace Desert::Graphic
                                                             ( tlas && m_RayTracingScene.GetFrame().Built &&
                                                               EnsurePathTracerResources() ) );
             ReportRenderMethods( m_RenderMethods );
+            // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
+            // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
+            // ray traced. Taken BEFORE the local lights' views are planned: a re-budget drains the device and
+            // drops every caster material, pipeline and local view row of the renderer
+            // (MeshRenderer::RebudgetShadows), so a plan made first - its rows, its redraws, the materials
+            // EnsureShadowViewMaterials just made - was destroyed under the frame that then recorded it
+            // (SHADOW-CINE-ABORT: Shadows Cinematic switched on with GI/Reflections/Effects at High took the
+            // ray-traced sun's budget on the first frame after the local shadows were planned, and the editor
+            // aborted).
+            RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask() );
             // The point and spot lights' shadow views, once the frame's Shadows method is final (and before the
             // maps are imported): tiles of the atlas allocated (and the atlas itself, on the first light that
             // casts), each light's ShadowView written into its payload, and the views whose cached depth is stale
@@ -1723,10 +1733,7 @@ namespace Desert::Graphic
                                ->GetLocalShadowCasterLights() );
                 // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
             }
-            // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
-            // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
-            // ray traced. Then the maps are imported at that budget, before any pass reads them.
-            RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask() );
+            // The maps are imported at the budget taken above, before any pass reads them.
             ImportViewShadowMaps( graph, textures );
             // The sun's cascades this frame: always under CascadedMaps; under a ray-traced sun only when a program
             // of this frame samples them (MeshRenderer::SunCascadeReadersQueued: blended draws whose program
