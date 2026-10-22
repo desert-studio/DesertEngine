@@ -229,7 +229,8 @@ namespace Desert::VFX
                  if ( !system.Deactivated )
                  {
                      // The pool slots it holds while playing: the running emitters' Capacity (the world budget).
-                     const std::uint32_t poolParticles = vfx.Data.AutoActivate ? RunningPoolParticles( system ) : 0u;
+                     const std::uint32_t poolParticles =
+                          vfx.Data.AutoActivate ? RunningPoolParticles( system ) : 0u;
                      candidate = candidates.size();
                      candidates.push_back( { .Type          = type,
                                              .System        = data.get(),
