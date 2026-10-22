@@ -78,12 +78,13 @@ namespace Desert::Graphic::System
         // Before the render graph records, inside the view's frame (after SceneViewState::BeginFrame accepted
         // it): resolves every queued terrain's material, packs the rows and uploads them, with @p frame's
         // matrices — the same view every other pass of the frame draws for — with @p scene's lights, shadow
-        // block and cloud shadow on the forward program (MeshRenderer::CaptureFrameState), and, for each of
-        // @p localLights
-        // (MeshRenderer::GetLocalShadowCasterLights, after UpdateLocalShadows), the tiles in its reach at the LOD
-        // its own position asks for, with their cache key. Nothing may draw a terrain this frame before it ran.
-        void PrepareFrame( const ViewFrame& frame, const SceneFrameBinding& scene,
-                           const std::vector<LocalShadowCasterLight>& localLights );
+        // block and cloud shadow on the forward program (MeshRenderer::CaptureFrameState).
+        void PrepareFrame( const ViewFrame& frame, const SceneFrameBinding& scene );
+        // After PrepareFrame AND MeshRenderer::UpdateLocalShadows (which plans this frame's point/spot lights,
+        // MeshRenderer::GetLocalShadowCasterLights): for each of @p localLights the tiles in its reach at the LOD
+        // its own position asks for, with their cache key, appended after the camera's rows; then every group's
+        // instance rows are uploaded. Nothing may draw a terrain this frame before it ran.
+        void PrepareLocalShadows( const std::vector<LocalShadowCasterLight>& localLights );
 
         // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'. SETUP of
         // that node: one binding block per G-buffer material of the frame's groups (the G-buffer shader samples
@@ -143,6 +144,7 @@ namespace Desert::Graphic::System
             m_FrameGroups.clear();
             m_FrameDraws.clear();
             m_LocalLightDraws.clear();
+            m_CameraRows.clear();
         }
 
     private:
@@ -232,6 +234,7 @@ namespace Desert::Graphic::System
         std::vector<glm::vec4>       m_FrameTints;     // parallel to m_Queue after PrepareFrame
         std::vector<FrameGroup>      m_FrameGroups;
         std::vector<FrameDraw>       m_FrameDraws;
-        std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareFrame
+        std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareLocalShadows
+        std::vector<std::size_t>     m_CameraRows;      // per m_FrameGroups entry: its camera rows (PrepareFrame)
     };
 } // namespace Desert::Graphic::System

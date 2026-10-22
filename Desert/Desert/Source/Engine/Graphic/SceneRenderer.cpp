@@ -1425,13 +1425,11 @@ namespace Desert::Graphic
             // type
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
             // With the scene's lit-material state (the forward terrain receives the point and spot lights the
-            // meshes do) and this frame's shadowed point/spot lights (UpdateLocalShadows ran above): their views
-            // draw the terrain at the LOD the light asks for, not the camera's, so a cached local shadow survives
-            // a camera move.
+            // meshes do). The shadowed point/spot lights are planned later (UpdateLocalShadows, after the TLAS
+            // that reads these rows): the terrain takes them there (PrepareLocalShadows).
             const auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-                 ->PrepareFrame( frame, meshes->CaptureFrameState( &frame ),
-                                 meshes->GetLocalShadowCasterLights() );
+                 ->PrepareFrame( frame, meshes->CaptureFrameState( &frame ) );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
         if ( const Common::BoolResultStr physical =
@@ -1677,6 +1675,12 @@ namespace Desert::Graphic
                      ->UpdateLocalShadows( m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights,
                                            m_SpotLightShadows,
                                            !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) );
+                // This frame's shadowed point/spot lights, now planned: their views draw the terrain at the LOD
+                // the light asks for, not the camera's, so a cached local shadow survives a camera move.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
+                     ->PrepareLocalShadows( UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+                                                 ->GetLocalShadowCasterLights() );
             }
             // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
             // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is

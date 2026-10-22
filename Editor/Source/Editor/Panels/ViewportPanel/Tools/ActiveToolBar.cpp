@@ -54,6 +54,9 @@ namespace Desert::Editor::Tools
                 return { ICON_MDI_ARROW_TOP_RIGHT_THICK, "Normals", true };
             case T::Tangents:
                 return { ICON_MDI_ARROW_TOP_RIGHT_THICK, "Tangents", true };
+            // UE's Voxel Solidify (VoxWrap) previews until Accept; Cancel puts the mesh back (MeshProcessingTool).
+            case T::VoxWrap:
+                return { ICON_MDI_CUBE_OUTLINE, "VoxWrap", true };
             // UE's Edit Materials previews until Accept; Cancel puts mesh and slots back (EditMaterialsTool).
             case T::EditMaterials:
                 return { ICON_MDI_BRUSH, "Edit Materials", true };
