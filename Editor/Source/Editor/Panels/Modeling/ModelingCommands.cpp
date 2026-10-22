@@ -38,6 +38,10 @@ namespace Desert::Editor
         for ( const auto& shape : Editor::ModelingPanel::kCollisionShapes )
             commands.push_back( { "Modeling", std::string( "Mesh To Collision " ) + shape.Name, [&scene, &shape]
                                   { return Editor::ModelingPanel::MeshToCollision( scene, shape ); } } );
+        // UE's Mesh To Volume: the combo's New Volume Type and the button in one entry per type.
+        for ( const auto& type : Editor::ModelingPanel::kVolumeTypes )
+            commands.push_back( { "Modeling", std::string( "Mesh To Volume " ) + type.Name, [&scene, &type]
+                                  { return Editor::ModelingPanel::MeshToVolume( scene, type ); } } );
     }
 
     void AppendSelectElementsCommand( std::vector<PaletteCommand>& commands )

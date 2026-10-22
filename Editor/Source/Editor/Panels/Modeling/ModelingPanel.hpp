@@ -63,6 +63,21 @@ namespace Desert::Editor
         static Common::ResultStr<bool> MeshToCollision( const std::shared_ptr<Desert::Core::Scene>& scene,
                                                         const CollisionShapeEntry&                  shape );
 
+        // UE UMeshToVolumeTool's New Volume Type choices. The panel's combo and the control channel's
+        // "Mesh To Volume <Name>" commands both list this.
+        struct VolumeTypeEntry
+        {
+            const char*     Name;
+            ECS::VolumeType Type;
+        };
+        static constexpr std::array<VolumeTypeEntry, 2> kVolumeTypes = {
+             { { "Trigger", ECS::VolumeType::Trigger }, { "Blocking", ECS::VolumeType::Blocking } } };
+
+        // UE's Mesh To Volume on the selected entity: its mesh's points become a convex volume entity of @p type
+        // (outline only, a Jolt hull body with the type's collision profile) that REPLACES it, one undo step.
+        static Common::ResultStr<bool> MeshToVolume( const std::shared_ptr<Desert::Core::Scene>& scene,
+                                                     const VolumeTypeEntry&                      type );
+
     private:
         // The Select Elements tool's properties: mode, counts, and the selection operations.
         void DrawCreateShape();
@@ -90,6 +105,7 @@ namespace Desert::Editor
         std::shared_ptr<Desert::Core::Scene> m_Scene;
         int                                  m_Category  = 0; // index into the rail (Palette in the .cpp)
         int                                  m_ShownTool = 0; // the ModelingState::Tool the rail last followed
+        int m_VolumeType     = 0; // Mesh To Volume's New Volume Type: index into kVolumeTypes
         int m_CollisionShape = 0; // Mesh To Collision's type: index into kCollisionShapes in the .cpp
     };
 } // namespace Desert::Editor

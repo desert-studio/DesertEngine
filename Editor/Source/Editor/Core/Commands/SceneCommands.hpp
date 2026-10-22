@@ -28,6 +28,11 @@ namespace Desert::Geometry
     class DynamicMesh3;
 }
 
+namespace Desert::ECS
+{
+    class Entity;
+}
+
 namespace Desert::Editor::Commands
 {
     // Undoable structural scene operations. Each helper PERFORMS the action (where there is one) and
@@ -226,6 +231,14 @@ namespace Desert::Editor::Commands
      */
     [[nodiscard]] Common::ResultStr<Common::UUID>
     CollapseIntoInstancedMesh( const std::vector<Common::UUID>& uuids );
+
+    // A tool that turns an entity into a DIFFERENT one (UE's Mesh To Volume: the static mesh actor becomes a
+    // volume actor): @p source is removed with its subtree and a new root entity named @p name is created and
+    // handed to @p build, as ONE undo step - undo brings the source back with its UUID and removes the new
+    // entity. The new entity is selected. Returns its UUID, or why nothing was done.
+    [[nodiscard]] Common::ResultStr<Common::UUID>
+    ReplaceWithNewEntity( const Common::UUID& source, const std::string& name,
+                          const std::function<void( ECS::Entity& )>& build );
 
     // THE ENTITY'S EDITMESH BECOMES A STATIC MESH ASSET (UE: Convert to Static Mesh / Output: New Static Mesh).
     // Writes a NEW .stmesh (StaticMeshOutput.hpp: under the cooked mesh folder, `folder` inside it, named

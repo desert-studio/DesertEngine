@@ -1163,6 +1163,85 @@ namespace Desert::Editor
             if ( !done.IsSuccess() )
                 LOG_WARN( "Mesh To Collision: {}", done.GetError() );
         }
+
+        // UE's Mesh To Volume (the Volumes tools): the mesh becomes a volume of the chosen type.
+        ImGui::Separator();
+        std::array<const char*, kVolumeTypes.size()> volumeNames{};
+        for ( size_t i = 0; i < kVolumeTypes.size(); ++i )
+            volumeNames[i] = kVolumeTypes[i].Name;
+        ImGui::SetNextItemWidth( -1.0f );
+        ImGui::Combo( "##VolumeType", &m_VolumeType, volumeNames.data(), static_cast<int>( volumeNames.size() ) );
+        if ( ImGui::Button( "Mesh To Volume", ImVec2( -1.0f, 0.0f ) ) )
+        {
+            const auto done = MeshToVolume( m_Scene, kVolumeTypes.at( static_cast<size_t>( m_VolumeType ) ) );
+            if ( !done.IsSuccess() )
+                LOG_WARN( "Mesh To Volume: {}", done.GetError() );
+        }
+    }
+
+    Common::ResultStr<bool> ModelingPanel::MeshToVolume( const std::shared_ptr<Desert::Core::Scene>& scene,
+                                                         const VolumeTypeEntry&                      type )
+    {
+        const auto& ids = Core::SelectionManager::GetSelection();
+        if ( !scene || ids.size() != 1 )
+            return Common::MakeFormattedError<bool>( "select one entity with a static mesh ({} selected)",
+                                                     ids.size() );
+        const Common::UUID id  = ids.front();
+        const auto         ref = scene->FindEntityByID( id );
+        if ( !ref )
+            return Common::MakeFormattedError<bool>( "entity {} is not in the scene",
+                                                     static_cast<uint64_t>( id ) );
+        const ECS::Entity entity = ref->get();
+        if ( entity.HasComponent<ECS::VolumeComponent>() )
+            return Common::MakeFormattedError<bool>( "entity {} is already a volume", static_cast<uint64_t>( id ) );
+
+        // The mesh's points at the entity's scale, body-local: the volume keeps the pose and carries the scale
+        // in its points, as UE's tool bakes the actor's scale into the new brush.
+        const glm::mat3 world( entity.GetWorldTransform() );
+        const glm::vec3 scale( glm::length( world[0] ), glm::length( world[1] ), glm::length( world[2] ) );
+        auto gathered = ECS::PhysicsECSSystem::GatherColliderMesh( *entity.GetRegistry(), entity.GetHandle(), scale );
+        if ( !gathered.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "entity {}: {}", static_cast<uint64_t>( id ),
+                                                     gathered.GetError() );
+        if ( !gathered.GetValue().has_value() )
+            return Common::MakeFormattedError<bool>( "entity {}: its mesh is still loading",
+                                                     static_cast<uint64_t>( id ) );
+        ECS::ColliderMesh mesh = std::move( *gathered.GetValue() );
+        if ( mesh.Points.size() < 4 )
+            return Common::MakeFormattedError<bool>( "entity {}: {} points cannot bound a volume",
+                                                     static_cast<uint64_t>( id ), mesh.Points.size() );
+
+        const ECS::TransformComponent pose = entity.GetComponent<ECS::TransformComponent>();
+        const std::string name = std::string( type.Name ) + "Volume";
+        const auto replaced    = Commands::ReplaceWithNewEntity(
+             id, name,
+             [&]( ECS::Entity& volume )
+             {
+                 auto& transform       = volume.GetComponent<ECS::TransformComponent>();
+                 transform.Translation = pose.Translation;
+                 transform.Rotation    = pose.Rotation;
+                 transform.Scale       = glm::vec3( 1.0f );
+
+                 ECS::VolumeComponent component;
+                 component.Data.Type        = type.Type;
+                 component.Data.HullPoints  = std::move( mesh.Points );
+                 component.Data.HullIndices = std::move( mesh.Indices );
+                 volume.AddComponent<ECS::VolumeComponent>( std::move( component ) );
+
+                 ECS::RigidBodyComponent body;
+                 body.Data.Type             = Physics::BodyType::Static;
+                 body.Data.CollisionProfile = ECS::VolumeCollisionProfile( type.Type );
+                 volume.AddComponent<ECS::RigidBodyComponent>( std::move( body ) );
+
+                 ECS::ColliderComponent collider;
+                 collider.Data.Shape = Physics::ShapeType::ConvexHull;
+                 volume.AddComponent<ECS::ColliderComponent>( std::move( collider ) );
+             } );
+        if ( !replaced.IsSuccess() )
+            return Common::MakeError<bool>( replaced.GetError() );
+        LOG_INFO( "[Modeling] Mesh To Volume on entity {}: {} volume {}", static_cast<uint64_t>( id ), type.Name,
+                  static_cast<uint64_t>( replaced.GetValue() ) );
+        return Common::MakeSuccess( true );
     }
 
     Common::ResultStr<bool> ModelingPanel::MeshToCollision( const std::shared_ptr<Desert::Core::Scene>& scene,

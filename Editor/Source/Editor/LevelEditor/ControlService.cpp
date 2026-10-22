@@ -50,14 +50,34 @@ namespace Desert::Editor
     namespace
     {
         // Subject::Entity — the entity named by its decimal UUID, in the open scene.
-        Common::ResultStr<ECS::Entity> ControlEntity( ::Desert::Core::Scene& scene, const std::string& id )
+        // The entity a request names: its decimal UUID, or `selected` - the one selected entity, so a scripted
+        // scenario can address what it just created without knowing the UUID the editor generated.
+        Common::ResultStr<Common::UUID> ControlEntityId( const std::string& id )
         {
+            if ( id == "selected" )
+            {
+                if ( Core::SelectionManager::Count() != 1 )
+                    return Common::MakeError<Common::UUID>( std::format(
+                         "'selected' names the one selected entity, and {} are selected",
+                         Core::SelectionManager::Count() ) );
+                return Common::MakeSuccess( Common::UUID( Core::SelectionManager::GetSelection().front() ) );
+            }
             std::uint64_t value = 0;
             const char*   end   = id.data() + id.size();
             if ( const auto [at, ec] = std::from_chars( id.data(), end, value ); ec != std::errc{} || at != end )
-                return Common::MakeError<ECS::Entity>( std::format(
-                     "'{}' is not an entity UUID (decimal, as 'properties' / the outliner give it)", id ) );
-            const auto ref = scene.FindEntityByID( Common::UUID( value ) );
+                return Common::MakeError<Common::UUID>( std::format(
+                     "'{}' is not an entity UUID (decimal, as 'properties' / the outliner give it) nor "
+                     "'selected'",
+                     id ) );
+            return Common::MakeSuccess( Common::UUID( value ) );
+        }
+
+        Common::ResultStr<ECS::Entity> ControlEntity( ::Desert::Core::Scene& scene, const std::string& id )
+        {
+            const auto uuid = ControlEntityId( id );
+            if ( !uuid )
+                return Common::MakeError<ECS::Entity>( uuid.GetError() );
+            const auto ref = scene.FindEntityByID( uuid.GetValue() );
             if ( !ref )
                 return Common::MakeError<ECS::Entity>( std::format( "no entity {} in the open scene", id ) );
             return Common::MakeSuccess( ECS::Entity( ref->get() ) );
@@ -732,7 +752,7 @@ namespace Desert::Editor
 
                     // Selected first, as a person editing it in Details has it selected: the undo record
                     // and the panel's view of the edit are then the ones a hand edit produces.
-                    const Common::UUID entityId( std::stoull( request.Entity ) );
+                    const Common::UUID entityId = ControlEntityId( request.Entity ).GetValue();
                     Core::SelectionManager::SetSelected( entityId );
                     // Only this entity's file is rewritten by the next save (WP17), as from Details.
                     const CommandHistory::FieldSubject fieldSubject( entityId );
@@ -792,7 +812,7 @@ namespace Desert::Editor
                     return Control::Response::Failure(
                          request.Id,
                          std::format( "no component '{}' in the Add Component menu", request.Component ) );
-                Core::SelectionManager::SetSelected( Common::UUID( std::stoull( request.Entity ) ) );
+                Core::SelectionManager::SetSelected( ControlEntityId( request.Entity ).GetValue() );
                 if ( const auto added = AddComponentUndoable( en, *found ); !added )
                     return Control::Response::Failure( request.Id, added.GetError() );
                 return Control::Response::Success( request.Id );
