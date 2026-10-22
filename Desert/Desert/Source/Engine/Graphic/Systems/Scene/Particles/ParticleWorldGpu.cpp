@@ -54,9 +54,32 @@ namespace Desert::Graphic::System
         // Where the compiled stack put each drawn attribute; an attribute the stack declares with another type is
         // refused by name (drawn at its default), never read as the wrong number of components.
         ParticleDrawLayoutGpu DrawColumnsOf( const VFX::VFXCompiledEmitter& compiled, const uint32_t entityId,
-                                             const std::string& emitter )
+                                             const std::string&                                         emitter,
+                                             const std::vector<Assets::Serialization::VFXRendererData>& renderers )
         {
             ParticleDrawLayoutGpu columns;
+            // The Ribbon row's RibbonIdBinding (UE: the ribbon renderer's RibbonId binding, an int): the int column
+            // ParticleSort splits the emitter's ribbons by. An unbound or mistyped name is refused aloud and the
+            // emitter draws one ribbon, as every drawn attribute falls back to its default.
+            for ( const Assets::Serialization::VFXRendererData& row : renderers )
+            {
+                if ( !row.Enabled || row.Kind != Assets::Serialization::VFXRendererKind::Ribbon || !row.Ribbon )
+                    continue;
+                const std::string& binding = row.Ribbon->RibbonIdBinding;
+                if ( binding.empty() )
+                    break;
+                const std::string  name    = binding.starts_with( Assets::Serialization::kVFXParticlesPrefix )
+                                                  ? binding.substr( Assets::Serialization::kVFXParticlesPrefix.size() )
+                                                  : binding;
+                const auto*        a       = compiled.Layout.Find( name );
+                if ( a == nullptr || a->Type != VFX::VFXValueType::Int )
+                    LOG_ERROR( "[VFX] entity {} emitter '{}' draws one ribbon: its RibbonIdBinding '{}' {}", entityId,
+                               emitter, binding,
+                               a == nullptr ? "names no attribute of the stack" : "is not an Int attribute" );
+                else
+                    columns.Columns2.x = a->IntStart;
+                break;
+            }
             for ( const DrawnAttribute& drawn : kDrawnAttributes )
             {
                 const auto* a = compiled.Layout.Find( drawn.Name );
@@ -197,7 +220,7 @@ namespace Desert::Graphic::System
              "VFXStackParams", static_cast<uint32_t>( gpu.ParamRows.size() * sizeof( glm::vec4 ) ), 8 );
         gpu.Curves = ShaderResources::StorageBuffer::Create(
              "VFXStackCurves", static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ), 9 );
-        gpu.DrawColumns = DrawColumnsOf( compiled.GetValue(), entityId, emitter.Name );
+        gpu.DrawColumns = DrawColumnsOf( compiled.GetValue(), entityId, emitter.Name, emitter.Renderers );
         gpu.DrawLayout =
              ShaderResources::StorageBuffer::Create( "ParticleDrawLayout", kParticleDrawLayoutSize, 11 );
         gpu.NeedsReset = true;
@@ -422,14 +445,13 @@ namespace Desert::Graphic::System
         ParticleDrawLayoutGpu layout = gpu.DrawColumns;
         layout.Range                 = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, 0u );
         layout.EmitterPos            = glm::vec4( worldPos, 0.0f );
-        // The emitter's Ribbon row: its settings ride the layout to the ribbon vertex path. The one ribbon of an
-        // emitter is drawn by the first enabled Ribbon row; another with other settings, or a row splitting the
-        // particles by a RibbonIdBinding, is refused aloud below (one ribbon order per emitter, ParticleSort).
+        // The emitter's Ribbon row: its settings ride the layout to the ribbon vertex path (its RibbonIdBinding's
+        // column is in DrawColumns). The emitter's ribbons are drawn by the first enabled Ribbon row; another with
+        // other settings is refused aloud below (one ribbon order per emitter, ParticleSort).
         const Assets::Serialization::VFXRibbonRendererData* ribbon = nullptr;
         for ( const Assets::Serialization::VFXRendererData& row : data.Renderers )
         {
-            if ( row.Enabled && row.Kind == Assets::Serialization::VFXRendererKind::Ribbon && row.Ribbon &&
-                 row.Ribbon->RibbonIdBinding.empty() )
+            if ( row.Enabled && row.Kind == Assets::Serialization::VFXRendererKind::Ribbon && row.Ribbon )
             {
                 ribbon = &*row.Ribbon;
                 break;
@@ -464,18 +486,10 @@ namespace Desert::Graphic::System
                 continue;
             if ( row.Kind == Assets::Serialization::VFXRendererKind::Ribbon )
             {
-                if ( !row.Ribbon || !row.Ribbon->RibbonIdBinding.empty() )
-                {
-                    LOG_ERROR(
-                         "[Particles] emitter {} renderer row {} does not draw: a RibbonIdBinding splits the "
-                         "emitter into several ribbons, and the ribbon order is one per emitter",
-                         entityId, r );
-                    continue;
-                }
-                if ( *row.Ribbon != *ribbon )
+                if ( !row.Ribbon || *row.Ribbon != *ribbon )
                 {
                     LOG_ERROR( "[Particles] emitter {} renderer row {} does not draw: its Ribbon settings differ "
-                               "from the emitter's first Ribbon row, and an emitter draws one ribbon",
+                               "from the emitter's first Ribbon row, and an emitter draws one ribbon order",
                                entityId, r );
                     continue;
                 }

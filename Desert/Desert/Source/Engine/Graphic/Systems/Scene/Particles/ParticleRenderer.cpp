@@ -361,6 +361,8 @@ namespace Desert::Graphic::System
             Common::BoolResultStr drawn = Renderer::ImportBuffer( gpu.Counters, ve.CountersImport );
             if ( drawn )
                 drawn = Renderer::ImportBuffer( gpu.AttributeFloats, ve.FloatsImport );
+            if ( drawn ) // the ribbon sort reads the RibbonIdBinding's int column
+                drawn = Renderer::ImportBuffer( gpu.AttributeInts, ve.IntsImport );
             if ( drawn )
                 drawn = Renderer::ImportBuffer( gpu.DrawLayout, ve.DrawLayoutImport );
             if ( !drawn )
@@ -376,9 +378,7 @@ namespace Desert::Graphic::System
                 const Common::BoolResultStr steps = Renderer::ImportBuffer( gpu.Steps, ve.StepsImport );
                 const Common::BoolResultStr args  = Renderer::ImportBuffer( gpu.DispatchArgs, ve.ArgsImport );
                 const Common::BoolResultStr chan  = Renderer::ImportBuffer( gpu.ChannelSpawns, ve.ChannelImport );
-                Common::BoolResultStr       stack = Renderer::ImportBuffer( gpu.AttributeInts, ve.IntsImport );
-                if ( stack )
-                    stack = Renderer::ImportBuffer( gpu.Params, ve.ParamsImport );
+                Common::BoolResultStr       stack = Renderer::ImportBuffer( gpu.Params, ve.ParamsImport );
                 if ( stack )
                     stack = Renderer::ImportBuffer( gpu.Curves, ve.CurvesImport );
                 if ( !steps || !args || !chan || !stack )
@@ -395,12 +395,12 @@ namespace Desert::Graphic::System
                      graph.RegisterExternal( ve.ChannelImport, std::format( "ParticleChannelSpawns{}", i ) );
                 ve.StepsRef  = graph.RegisterExternal( ve.StepsImport, std::format( "ParticleSteps{}", i ) );
                 ve.ArgsRef   = graph.RegisterExternal( ve.ArgsImport, std::format( "ParticleDispatchArgs{}", i ) );
-                ve.IntsRef   = graph.RegisterExternal( ve.IntsImport, std::format( "VFXAttributeInts{}", i ) );
                 ve.ParamsRef = graph.RegisterExternal( ve.ParamsImport, std::format( "VFXStackParams{}", i ) );
                 ve.CurvesRef = graph.RegisterExternal( ve.CurvesImport, std::format( "VFXStackCurves{}", i ) );
             }
             ve.CountersRef = graph.RegisterExternal( ve.CountersImport, std::format( "ParticleCounters{}", i ) );
             ve.FloatsRef   = graph.RegisterExternal( ve.FloatsImport, std::format( "VFXAttributeFloats{}", i ) );
+            ve.IntsRef     = graph.RegisterExternal( ve.IntsImport, std::format( "VFXAttributeInts{}", i ) );
             ve.DrawLayoutRef =
                  graph.RegisterExternal( ve.DrawLayoutImport, std::format( "ParticleDrawLayout{}", i ) );
             ve.Declared    = true;
@@ -433,7 +433,7 @@ namespace Desert::Graphic::System
                  blends != ve.Draws.end() ? blends->Sprite->Blend : ve.Draws.front().Sprite->Blend;
             emitters.push_back(
                  { i, blend, gpu.Range.Count, 2u * gpu.Range.Base + half * gpu.Range.Count, half } );
-            // A Ribbon row links the particles in RibbonLinkOrder: its own sort, into RibbonOrder.
+            // A Ribbon row links the particles by (RibbonId, RibbonLinkOrder): its own sort, into RibbonOrder.
             const bool ribbon = std::any_of( ve.Frame->Renderers.begin(), ve.Frame->Renderers.end(),
                                              []( const ParticleFrameRenderer& row ) {
                                                  return row.Kind == Assets::Serialization::VFXRendererKind::Ribbon;
@@ -458,8 +458,9 @@ namespace Desert::Graphic::System
         {
             ViewEmitter& ve = m_ViewEmitters[range.Emitter];
             ( range.Ribbon ? ve.Ribboned : ve.Sorted ) = true;
-            const ParticleSortBuffers buffers{ ve.FloatsRef,  ve.DrawLayoutRef, m_Pool.AliveRef, ve.CountersRef,
-                                               m_SortKeysRef, m_SortedRef,      m_RibbonRef };
+            const ParticleSortBuffers buffers{ ve.FloatsRef,    ve.IntsRef,    ve.DrawLayoutRef,
+                                               m_Pool.AliveRef, ve.CountersRef, m_SortKeysRef,
+                                               m_SortedRef,     m_RibbonRef };
             const std::vector<ParticleSortStage> stages = ParticleSortStages( range.Length, range.Ribbon );
             for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
             {

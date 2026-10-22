@@ -58,7 +58,7 @@ namespace Desert::Graphic::System
     struct ParticleSortPlan
     {
         std::vector<ParticleSortRange> Ranges;
-        std::uint32_t                  KeyCount = 0; // the view's SortKeys length (uvec2 each)
+        std::uint32_t                  KeyCount = 0; // the view's SortKeys length (uvec4 each)
     };
 
     [[nodiscard]] inline ParticleSortPlan PlanParticleSort( const std::vector<ParticleSortEmitter>& emitters )
@@ -88,6 +88,7 @@ namespace Desert::Graphic::System
     struct ParticleSortBuffers
     {
         RDG::BufferRef Floats;
+        RDG::BufferRef Ints; // the RibbonIdBinding's column (a ribbon's Keys stage)
         RDG::BufferRef DrawLayout;
         RDG::BufferRef Alive;
         RDG::BufferRef Counters; // the emitter's draw slots
@@ -96,29 +97,32 @@ namespace Desert::Graphic::System
         RDG::BufferRef Ribbon; // the view's RibbonOrder (uvec4 per alive-list entry)
     };
 
-    // The view's transient sort buffers: SortKeys (one uvec2 per key of every sorted emitter) and SortedAlive
+    // The view's transient sort buffers: SortKeys (one uvec4 per key of every sorted emitter) and SortedAlive
     // (the alive list's size, so a sorted emitter's indices sit at the same offset the draw's FirstVertex names).
     [[nodiscard]] inline std::pair<RDG::BufferRef, RDG::BufferRef>
     CreateParticleSortBuffers( RDG::Builder& graph, const ParticleSortPlan& plan, const std::uint64_t aliveBytes )
     {
         const RDG::BufferRef keys =
-             graph.CreateBuffer( RDG::BufferDesc{ std::uint64_t{ plan.KeyCount } * 2u * sizeof( std::uint32_t ) },
+             graph.CreateBuffer( RDG::BufferDesc{ std::uint64_t{ plan.KeyCount } * 4u * sizeof( std::uint32_t ) },
                                  "ParticleSortKeys" );
         const RDG::BufferRef sorted = graph.CreateBuffer( RDG::BufferDesc{ aliveBytes }, "ParticleSortedAlive" );
         return { keys, sorted };
     }
 
-    // One stage's block. Every stage binds all six slots (one layout); the keys are written by every stage but
-    // the last, which reads them and writes the sorted indices. SortedAlive is declared written by every stage so
-    // the graph never sees a read of a transient nobody produced and keeps the stages in their declared order.
+    // One stage's block. Every stage binds all eight slots (one layout); the keys are written by every stage but
+    // the last, which reads them and writes the sorted indices (a ribbon's Init and Final read them; its Scan
+    // stages ping-pong through them and RibbonOrder). SortedAlive is declared written by every stage so the graph
+    // never sees a read of a transient nobody produced and keeps the stages in their declared order.
     inline void DeclareParticleSortStage( RDG::PassBuilder&                                      pass,
                                           const std::shared_ptr<const RDG::ShaderBindingLayout>& layout,
                                           RDG::OtherRouteFill fill, const ParticleSortBuffers& buffers,
                                           const ParticleSortStageKind kind )
     {
-        const bool writesSorted = kind == ParticleSortStageKind::Write || kind == ParticleSortStageKind::Ribbon;
+        const bool writesSorted = kind == ParticleSortStageKind::Write || kind == ParticleSortStageKind::RibbonInit ||
+                                  kind == ParticleSortStageKind::RibbonFinal;
         pass.Bindings( layout, std::move( fill ) )
              .Storage( "AttributeFloats", buffers.Floats, RDG::Access::StorageRead )
+             .Storage( "AttributeInts", buffers.Ints, RDG::Access::StorageRead )
              .Storage( "DrawLayout", buffers.DrawLayout, RDG::Access::StorageRead )
              .Storage( "AliveList", buffers.Alive, RDG::Access::StorageRead )
              .Storage( "Counters", buffers.Counters, RDG::Access::StorageRead )

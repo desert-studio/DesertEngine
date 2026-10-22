@@ -72,7 +72,11 @@ namespace Desert::Graphic::System
         Global = 2,
         Merge  = 3,
         Write  = 4,
-        Ribbon = 5 // the ribbon link order's walk into RibbonOrder (one thread), in place of Write
+        // A ribbon emitter in place of Write: the parallel segmented scan of its sorted (RibbonId, link order)
+        // keys into RibbonOrder - Init, one Scan per power of two below the network's length, Final.
+        RibbonInit  = 5,
+        RibbonScan  = 6, // K = the source (0 RibbonOrder, 1 SortKeys), J = the distance d
+        RibbonFinal = 7  // K = the last scan's destination
     };
 
     inline constexpr std::uint32_t kParticleSortBlock     = 1024; // keys a workgroup sorts in shared memory
@@ -86,7 +90,7 @@ namespace Desert::Graphic::System
         std::uint32_t         Groups = 1; // workgroups the stage dispatches
     };
 
-    // @p ribbon: the ribbon link order (ParticleSort key 1), finished by the one-thread Ribbon walk.
+    // @p ribbon: the ribbon order (ParticleSort key 1 = (RibbonId, RibbonLinkOrder)), finished by the scan.
     [[nodiscard]] inline std::vector<ParticleSortStage> ParticleSortStages( const std::uint32_t length,
                                                                             const bool          ribbon = false )
     {
@@ -103,7 +107,13 @@ namespace Desert::Graphic::System
             stages.push_back( { ParticleSortStageKind::Merge, k, 0, length / block } );
         }
         if ( ribbon )
-            stages.push_back( { ParticleSortStageKind::Ribbon, 0, 0, 1 } );
+        {
+            stages.push_back( { ParticleSortStageKind::RibbonInit, 0, 0, perThread } );
+            std::uint32_t source = 0;
+            for ( std::uint32_t d = 1; d < length; d *= 2, source ^= 1u )
+                stages.push_back( { ParticleSortStageKind::RibbonScan, source, d, perThread } );
+            stages.push_back( { ParticleSortStageKind::RibbonFinal, source, 0, perThread } );
+        }
         else
             stages.push_back( { ParticleSortStageKind::Write, 0, 0, perThread } );
         return stages;

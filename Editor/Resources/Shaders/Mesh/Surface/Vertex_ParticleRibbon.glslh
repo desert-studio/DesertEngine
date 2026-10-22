@@ -5,11 +5,11 @@
 //
 // Vertexless, on the SAME indirect draw as a sprite row (six vertices per alive particle): the n-th alive particle
 // of the drawn half draws the strip SEGMENT between the n-th and (n+1)-th particle of the ribbon's LINK ORDER. The
-// order is the GPU's (Programs/Particles/ParticleSort.shader, key 1 = ParticleRibbonLinkOrder ascending; UE: the
-// ribbon's sort by RibbonLinkOrder, default the age, so the youngest is the head): RibbonOrder holds, at the alive
-// list's offsets, (pool index, length from the head, t / (alive - 1), 1) and a zero terminator after the last, so
-// the neighbours are the next entries - no search. The whole emitter is one ribbon (a row with a RibbonIdBinding is
-// refused aloud, ParticleWorldGpu). Width = the row's Width x the particle's RibbonWidth (UE RibbonWidth), colour =
+// order is the GPU's (Programs/Particles/ParticleSort.shader, key 1 = (ParticleRibbonId, ParticleRibbonLinkOrder)
+// ascending; UE: the ribbon's sort by RibbonId then RibbonLinkOrder, default the age, so the youngest is the head):
+// RibbonOrder holds, at the alive list's offsets, (pool index, length from its ribbon's head, place / (its ribbon's
+// count - 1), flags 1 | 2 head | 4 tail), so the neighbours are the next entries of the same ribbon - no search; the
+// ribbons of an emitter (the Ribbon row's RibbonIdBinding, UE: one strip per RibbonId) are never joined. Width = the row's Width x the particle's RibbonWidth (UE RibbonWidth), colour =
 // its Color, facing = the view (UE FacingMode Screen), U by the row's UV mode: Stretch = 0..1 head to tail (UE
 // ScaledUniformly), TileByDistance = length from the head / UVTileDistance (UE TiledOverRibbonLength); V = 0 / 1
 // across the width.
@@ -43,16 +43,19 @@ layout( location = 12 ) out flat vec4 v_ParticleColor;
 layout( location = 13 ) out flat vec2 v_ParticleTimeRandom; // x = relative time, y = random
 
 #define RIBBON_NONE 0xFFFFFFFFu
+#define RIBBON_HEAD 2u // RibbonOrder .w flags: 1 = an entry, 2 = its ribbon's head, 4 = its ribbon's tail
+#define RIBBON_TAIL 4u
 
-// The RibbonOrder entry @p delta links away from entry @p e (t = its place in the ribbon), RIBBON_NONE past an end.
-uint RibbonEntry( uint e, uint t, int delta )
+// The RibbonOrder entry after / before entry @p e in the same ribbon, RIBBON_NONE past its tail / head: two ribbons
+// of one emitter sit back to back in the order and are never linked.
+uint RibbonNext( uint e )
 {
-    if ( delta < 0 && t < uint( -delta ) )
-        return RIBBON_NONE;
-    const uint at = uint( int( e ) + delta );
-    if ( t + uint( max( delta, 0 ) ) >= u_DrawLayout.Range.x || u_Ribbon[at].w == 0u )
-        return RIBBON_NONE;
-    return at;
+    return e == RIBBON_NONE || ( u_Ribbon[e].w & RIBBON_TAIL ) != 0u ? RIBBON_NONE : e + 1u;
+}
+
+uint RibbonPrevious( uint e )
+{
+    return e == RIBBON_NONE || ( u_Ribbon[e].w & RIBBON_HEAD ) != 0u ? RIBBON_NONE : e - 1u;
 }
 
 float RibbonRelativeTime( uint n )
@@ -71,11 +74,9 @@ float RibbonU( uint e )
 void main()
 {
     const uint corner = uint( gl_VertexIndex ) % 6u;
-    // The drawn alive half starts at 2 Base + h Count (the draw slot's FirstVertex / 6): t = the place in it.
+    // The drawn alive half starts at 2 Base + h Count (the draw slot's FirstVertex / 6): e = this entry.
     const uint e      = uint( gl_VertexIndex ) / 6u;
-    const uint local  = e - 2u * u_DrawLayout.Range.y;
-    const uint t      = local >= u_DrawLayout.Range.x ? local - u_DrawLayout.Range.x : local;
-    const uint next   = RibbonEntry( e, t, 1 );
+    const uint next   = RibbonNext( e );
 
     // x: -1 = this particle's end of the segment, +1 = the next one's; y: the two edges.
     const vec2 corners[6] = vec2[6]( vec2( -1.0, -1.0 ), vec2( 1.0, -1.0 ), vec2( -1.0, 1.0 ), vec2( 1.0, -1.0 ),
@@ -88,8 +89,8 @@ void main()
     // two segments meeting at a particle share its edge vertices (no cracks at the joints).
     const bool farEnd  = c.x > 0.0 && next != RIBBON_NONE;
     const uint atE     = farEnd ? next : e;
-    const uint beforeE = farEnd ? e : RibbonEntry( e, t, -1 );
-    const uint afterE  = farEnd ? RibbonEntry( e, t, 2 ) : next;
+    const uint beforeE = farEnd ? e : RibbonPrevious( e );
+    const uint afterE  = farEnd ? RibbonNext( next ) : next;
     const uint at      = ParticleLocalIndex( u_Ribbon[atE].x );
 
     const vec3 position = ParticleWorldPosition( at );
