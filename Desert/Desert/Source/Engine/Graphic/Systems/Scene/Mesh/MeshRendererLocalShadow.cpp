@@ -92,7 +92,7 @@ namespace Desert::Graphic::System
                  !CasterInSphere( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ), centre,
                                   radius ) )
                 continue;
-            hash.Add( rd.Mesh );
+            hash.Add( rd.Mesh->GetRenderRevision() );
             hash.Add( rd.Transform );
             // One entry per section material: which submeshes it casts, and through which slot's route.
             hash.Add( rd.HiddenSubmeshes );
@@ -103,7 +103,7 @@ namespace Desert::Graphic::System
             if ( g.Mesh == nullptr || !g.CastShadows ||
                  !CasterInSphere( g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ), centre, radius ) )
                 continue;
-            hash.Add( g.Mesh );
+            hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
         }
         // A posed mesh changes shape every frame without moving: a view it reaches is drawn every frame.
@@ -131,7 +131,7 @@ namespace Desert::Graphic::System
             }
             if ( any )
             {
-                hash.Add( ism.Mesh );
+                hash.Add( ism.Mesh->GetRenderRevision() );
                 hash.Add( ism.HiddenSubmeshes );
             }
         }

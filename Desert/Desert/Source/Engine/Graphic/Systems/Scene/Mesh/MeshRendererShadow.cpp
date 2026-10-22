@@ -307,7 +307,7 @@ namespace Desert::Graphic::System
             if ( rd.Mesh == nullptr || !rd.CastShadows ||
                  !IsVisibleInView( frustum, rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
                 continue;
-            hash.Add( rd.Mesh );
+            hash.Add( rd.Mesh->GetRenderRevision() );
             hash.Add( rd.Transform );
             hash.Add( rd.HiddenSubmeshes );
             hash.Add( rd.ForcedLOD );
@@ -324,7 +324,7 @@ namespace Desert::Graphic::System
             if ( g.Mesh == nullptr || !g.CastShadows ||
                  !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                 continue;
-            hash.Add( g.Mesh );
+            hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
         }
         // A still instanced mesh is keyed by its snapshot (m_CascadeKeySnapshots says why that is sound); a
@@ -338,7 +338,7 @@ namespace Desert::Graphic::System
                 movable = true;
                 continue;
             }
-            hash.Add( ism.Mesh );
+            hash.Add( ism.Mesh->GetRenderRevision() );
             hash.Add( ism.Transforms.get() );
             hash.Add( ism.Transforms->size() );
             hash.Add( ism.Material.get() );

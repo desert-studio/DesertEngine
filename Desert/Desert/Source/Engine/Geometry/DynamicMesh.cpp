@@ -81,6 +81,8 @@ namespace Desert
 
         m_Vertices = vertices;
         m_Indices  = indices;
+        // New content under the same address: every cache keyed by the mesh's render identity redraws it.
+        m_RenderRevision.Bump();
 
         // NOT YET ON THE GPU (never drawn, or no renderer in this process): the edit is CPU data only and the
         // whole mesh goes up in one Invalidate when the renderer first submits it (Mesh::EnsureGpuResources).
