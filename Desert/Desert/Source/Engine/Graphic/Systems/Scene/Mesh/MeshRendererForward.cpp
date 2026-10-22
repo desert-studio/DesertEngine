@@ -539,7 +539,37 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::LocalShadowMapReadersQueued() const
     {
-        return QueuedForwardDrawSamples( kSceneViewLocalShadowAtlasName, false );
+        if ( QueuedForwardDrawSamples( kSceneViewLocalShadowAtlasName, false ) )
+            return true;
+        // The static queue's translucent sections (RenderGlassManual's cells, TranslucentDrawFor) and their front
+        // layer cells (BuildFrontLayerDraws, FrontLayerDrawFor): the same visibility, the same binding answer.
+        const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( camera == nullptr )
+            return false;
+        const Core::Frustum frustum = camera->GetFrustum();
+        auto* const         shaders = Runtime::ResourceRegistry::GetShaderService();
+        const auto          samples = [&]( const std::string& shaderName )
+        {
+            const auto shader = shaders->GetByName( shaderName );
+            return shader && shader->IsCompiled() && shader->SamplesTexture( kSceneViewLocalShadowAtlasName );
+        };
+        for ( const auto& data : m_StaticQueue )
+        {
+            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+                continue;
+            const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
+            if ( surfaceInst == nullptr || mat == nullptr || !IsTranslucent( mat ) )
+                continue;
+            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+                continue;
+            if ( samples( mat->GetShaderName() ) )
+                return true;
+            if ( mat->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Translucent )
+                if ( const std::optional<std::string> cell = FrontLayerShaderFor( mat->GetShaderName() );
+                     cell && samples( *cell ) )
+                    return true;
+        }
+        return false;
     }
 
     bool MeshRenderer::QueuedForwardDrawSamples( const std::string_view textureName, const bool blendedOnly ) const

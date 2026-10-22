@@ -1726,6 +1726,19 @@ namespace Desert::Graphic
                      !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) &&
                           ( !LocalShadowsAreRayTraced() || localShadowMeshes->LocalShadowMapReadersQueued() ) );
                 AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
+                // The per-light denoisers' histories: a frame off HardwareTraced parks every one (a method that
+                // comes back starts new histories), and the retire queue is drained EVERY frame - a parked history
+                // is released once every frame in flight that read it completed, whatever the method is now.
+                const auto&    retireFrames      = Engine::FrameManager::GetInstance();
+                const uint64_t retireFrame = retireFrames.GetAbsoluteFrameCount();
+                if ( !LocalShadowsAreRayTraced() )
+                {
+                    for ( auto& [sourceId, denoiser] : m_LocalShadowDenoisers )
+                        if ( denoiser )
+                            m_RetiredLocalShadowDenoisers.Park( std::move( denoiser ), retireFrame );
+                    m_LocalShadowDenoisers.clear();
+                }
+                m_RetiredLocalShadowDenoisers.Collect( retireFrame, retireFrames.GetMaxFramesInFlight() );
             }
             // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
             // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
@@ -2548,7 +2561,6 @@ namespace Desert::Graphic
         // through the frame-retire path: parked at this frame, released after every frame in flight completed.
         const auto&    frames      = Engine::FrameManager::GetInstance();
         const uint64_t frameNumber = frames.GetAbsoluteFrameCount();
-        m_RetiredLocalShadowDenoisers.Collect( frameNumber, frames.GetMaxFramesInFlight() );
         for ( auto it = m_LocalShadowDenoisers.begin(); it != m_LocalShadowDenoisers.end(); )
         {
             if ( live.contains( it->first ) )
