@@ -45,13 +45,18 @@ namespace Desert::Graphic::System
             uint32_t          Lane;
         };
         constexpr DrawnAttribute kDrawnAttributes[] = {
-             { "Position", VFX::VFXValueType::Vec3, 0 },     { "SpriteSize", VFX::VFXValueType::Vec2, 1 },
-             { "Color", VFX::VFXValueType::Vec4, 2 },        { "SpriteRotation", VFX::VFXValueType::Float, 3 },
-             { "Age", VFX::VFXValueType::Float, 4 },         { "Lifetime", VFX::VFXValueType::Float, 5 },
-             { "RibbonWidth", VFX::VFXValueType::Float, 6 }, { "RibbonLinkOrder", VFX::VFXValueType::Float, 7 },
+             { "Position", VFX::VFXValueType::Vec3, 0 },
+             { "SpriteSize", VFX::VFXValueType::Vec2, 1 },
+             { "Color", VFX::VFXValueType::Vec4, 2 },
+             { "SpriteRotation", VFX::VFXValueType::Float, 3 },
+             { "Age", VFX::VFXValueType::Float, 4 },
+             { "Lifetime", VFX::VFXValueType::Float, 5 },
+             { "RibbonWidth", VFX::VFXValueType::Float, 6 },
+             { "RibbonLinkOrder", VFX::VFXValueType::Float, 7 },
              // The Mesh row's (UE Particles.Scale, Particles.MeshOrientation): Columns2.y/z (Columns2.x is the
              // Ribbon row's RibbonIdBinding, an int column).
-             { "Scale", VFX::VFXValueType::Vec3, 9 },        { "MeshOrientation", VFX::VFXValueType::Vec4, 10 },
+             { "Scale", VFX::VFXValueType::Vec3, 9 },
+             { "MeshOrientation", VFX::VFXValueType::Vec4, 10 },
         };
 
         // Where the compiled stack put each drawn attribute; an attribute the stack declares with another type is
@@ -101,8 +106,9 @@ namespace Desert::Graphic::System
                          VFX::GlslTypeName( drawn.Type ) );
                     continue;
                 }
-                ( drawn.Lane < 4 ? columns.Columns0 : drawn.Lane < 8 ? columns.Columns1 : columns.Columns2 )[drawn.Lane % 4] =
-                     a->FloatStart;
+                ( drawn.Lane < 4   ? columns.Columns0
+                  : drawn.Lane < 8 ? columns.Columns1
+                                   : columns.Columns2 )[drawn.Lane % 4] = a->FloatStart;
             }
             return columns;
         }
