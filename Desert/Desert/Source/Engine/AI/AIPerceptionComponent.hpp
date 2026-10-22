@@ -44,7 +44,8 @@ namespace Desert::ECS
 
     struct AIPerceptionComponent
     {
-        COMPONENT( Key( "AIPerception" ), Block( Data ), Run( ActorsAndUI ) )
+        // GATED until AI-ST-ASSET/AI-ST-EXEC (the header tool skips commented markers; ReflectedComponentBlocks.gen.hpp would include this
+        // header and the transient members need the execution's out-of-line destructor): COMPONENT( Key( "AIPerception" ), Block( Data ), Run( ActorsAndUI ) )
         AIPerceptionData Data;
 
         // ---- transient (not serialized): written by PerceptionSystem only ----
@@ -77,7 +78,8 @@ namespace Desert::ECS
 
     struct AIPerceptionStimuliSourceComponent
     {
-        COMPONENT( Key( "AIPerceptionStimuliSource" ), Block( Data ), Run( ActorsAndUI ) )
+        // GATED until AI-ST-ASSET/AI-ST-EXEC (the header tool skips commented markers; ReflectedComponentBlocks.gen.hpp would include this
+        // header and the transient members need the execution's out-of-line destructor): COMPONENT( Key( "AIPerceptionStimuliSource" ), Block( Data ), Run( ActorsAndUI ) )
         AIPerceptionStimuliSourceData Data;
     };
 } // namespace Desert::ECS

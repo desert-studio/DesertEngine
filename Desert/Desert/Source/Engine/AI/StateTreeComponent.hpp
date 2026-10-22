@@ -45,7 +45,8 @@ namespace Desert::ECS
 
     struct StateTreeComponent
     {
-        COMPONENT( Key( "StateTree" ), Block( Data ), Run( ActorsAndUI ) )
+        // GATED until AI-ST-ASSET/AI-ST-EXEC (the header tool skips commented markers; ReflectedComponentBlocks.gen.hpp would include this
+        // header and the transient members need the execution's out-of-line destructor): COMPONENT( Key( "StateTree" ), Block( Data ), Run( ActorsAndUI ) )
         StateTreeData Data;
 
         /// Overrides of the tree's parameters (UE FStateTreeReference parameters), edited in Details like a
