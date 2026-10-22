@@ -94,6 +94,9 @@ namespace Desert::Editor
         // This frame's capture verdict (ShotDirector::AdmitFrame) from the layer's own state; false outside a
         // headless capture.
         bool AdmitShotFrame();
+        // What was still outstanding when this frame was made, for the control channel's reply gate: the
+        // start-up and content settle, plus what the --shot gate also waits for (ShotFrameConditions).
+        void SampleControlQuiescence();
 
         // Runs one render frame for a scene (outline aid + Begin/RegistryRender/OnUpdate/End). Called for
         // every open document each frame so all viewports stay live.

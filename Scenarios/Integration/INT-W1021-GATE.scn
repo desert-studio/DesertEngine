@@ -1,11 +1,15 @@
 # INT-W1021-GATE: int/w1021 (gate + w1021 + dev) builds, renders Starter and a terrain+grass scene whole, and opens migrated scenes
 # The engine refuses an old scene by design (SceneSerializer names the SceneMigrator command); Projects/Desert/Content was raised
 # to SCNE 69 by scripts/Dev/migrate.sh --write, so every Open Scene below loads a migrated file. Starter has no terrain: the
-# terrain+shadows+grass check is Terrain_Grass. 'input drop' of a .desce does not open a scene, the palette's Open Scene does.
+# terrain+shadows+grass check is Terrain_Grass. A shot is answered only from a frame on which the reflection captures had
+# their first fill and no texture was in flight (the same conditions the --shot gate waits for). 'input drop' of a .desce does not open a scene, the palette's Open Scene does.
 Дано state
 Когда run View "View mode: Lit"
 Тогда 0_starter Starter в Lit: небо голубое (не чёрное), объекты освещены, тени есть, без чёрных/розовых поверхностей; в editor.log нет «Blending is enabled for attachment R32G32_UINT»; в editor.log нет ошибок привязки шейдеров (u_*/missing binding) и нет отказа SceneSerializer
 Когда run Scene "Open Scene Terrain_Grass.desce"
+# Low over the terrain, beside the 1.8 m Scale Post (-350,0,-1500): eye 2 m up, looking along -z past the post, a touch down.
+Когда --subject viewport set Camera.Position -350,200,-900
+Когда --subject viewport set Camera.Direction 0,-0.15,-0.99
 Тогда 1_terrain_grass небо голубое, террейн с тенями и трава нарисованы, без чёрных/розовых поверхностей
 Когда run Scene "Open Scene LocalShadows_Room.desce"
 Тогда 2_v68_loaded сцена LocalShadows_Room (мигрирована migrate.sh до SCNE 69) открылась, объекты комнаты и локальные тени на месте

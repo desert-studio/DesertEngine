@@ -52,6 +52,8 @@ namespace Desert::Editor::Control
         OpenRefusal,    ///< an open was refused and its dialog has not been raised yet
         ControlNudge,   ///< a control-rig nudge is queued, or has been applied but not yet drawn
         PointerDrag,    ///< a `drag` is still feeding ImGui, or its release has not been drawn yet
+        ReflectionCaptures, ///< the active scene's reflection captures are still being written for the first time
+        TexturesStreaming,  ///< texture loads are in flight (the frame shows placeholders where they land)
         Count
     };
 
@@ -68,6 +70,8 @@ namespace Desert::Editor::Control
          "a refused open has not shown its dialog yet",
          "a control-rig nudge has not reached a drawn frame yet",
          "a pointer drag is still playing",
+         "the reflection captures are still being filled for the first time",
+         "textures are still streaming in",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),

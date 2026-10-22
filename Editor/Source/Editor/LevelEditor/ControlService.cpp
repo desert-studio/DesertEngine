@@ -341,7 +341,8 @@ namespace Desert::Editor
         return true;
     }
 
-    void ControlService::SampleFrameQuiescence( const bool startupLoading )
+    void ControlService::SampleFrameQuiescence( const bool startupLoading, const bool reflectionCapturesFilling,
+                                                const bool texturesStreaming )
     {
         Control::EditorQuiescence quiescence;
         // CONTENT SETTLING COUNTS AS STARTUP LOADING FOR THE CHANNEL, and it has to: the channel's whole
@@ -371,6 +372,11 @@ namespace Desert::Editor
                         Control::PointerInjection::Playing() || Control::InputInjection::Playing() );
         // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
         // Create answers "started" at once and a client polls `state` until idle before photographing it.
+        // THE SAME PICTURE THE --shot GATE WAITS FOR (ShotRecordGate): a frame drawn while the reflection
+        // captures are filled for the first time, or while textures are still landing, is not the scene - the
+        // first Starter shot after boot came back with a black sky that the next frame had filled.
+        quiescence.Set( Control::PendingWork::ReflectionCaptures, reflectionCapturesFilling );
+        quiescence.Set( Control::PendingWork::TexturesStreaming, texturesStreaming );
         quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
         m_FrameQuiescence = quiescence;
     }
