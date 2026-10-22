@@ -1,6 +1,7 @@
-# M26 Bake Normal Map: a large extruded patch on a dense Lat Long sphere reads on a coarse Lat Long sphere
-# High: Lat Long 128x128 (32k tris), a ~quarter-hemisphere triangle patch (1 picked + 16 grows) extruded 8 cm.
-# Low: Lat Long 32x32 at the same place. Bake low <- high, then the high is moved aside for the pair frame.
+# M26 Bake Normal Map: a large detail with SLOPED walls on a dense Lat Long sphere reads on a coarse Lat Long sphere
+# High: Lat Long 128x128, a triangle patch (1 picked + 16 grows) extruded 8 cm, then Loop-subdivided twice so the
+# extrusion's walls become ramps the -N rays can see. Low: Lat Long 32x32 at the same place. Bake low <- high.
+# The map is checked as the PNG the bake writes beside the .detex (the BC5 viewer shows RG only).
 Дано run Panel "Open Modeling"
 Дано --subject viewport set Camera.Position 0,250,-400
 Дано --subject viewport set Camera.Direction 0,-0.5,0.866
@@ -33,9 +34,13 @@
 Когда run Modeling "Mesh selection: Grow Selection"
 Когда --subject modeling set Element.Distance 8
 Когда run Modeling "Mesh operation: Extrude"
+Когда run Modeling "Mesh selection: Select All"
+Когда run Modeling "Subdivide scheme: Loop"
+Когда --subject modeling set Element.SubdivideLevels 2
+Когда run Modeling "Mesh operation: Subdivide"
 Когда run Modeling "Accept: write the edit into the static mesh asset"
-Тогда-вид 0_high the high sphere with a large raised plateau facing the camera
 Дано run Modeling "Create shape tool: Sphere"
+Тогда-вид 0_high the high sphere with a large raised bump with sloped walls in the middle of the frame
 Дано run Modeling "Create shape sphere: Lat Long"
 Дано --subject modeling set CreateShape.Sphere.HorizontalSlices 32
 Дано --subject modeling set CreateShape.Sphere.VerticalSlices 32
@@ -50,7 +55,11 @@
 Когда --subject selection set Translation 130,60,0
 Когда --subject viewport set Camera.Position 65,125,-230
 Когда --subject viewport set Camera.Direction 0,-0.1,1
-Тогда-вид 1_pair low (left, 32x32, baked map) shows the plateau rim of the high (right) as shading
-Тогда 1_pair_window the same with the Modeling panel and the log
+Когда run Entity Sphere2
+Когда run Panel "Open Logs"
+Тогда-вид 1_pair low (left, Sphere2 32x32, baked map) shows the outline and slopes of the high's bump (right) as light and shade
+Тогда 1_pair_window the same with Details naming Sphere2 (the low) and the bake line in the log
 Когда run Open "Textures/Baked/Sphere2_Normal.detex"
-Тогда 2_map the baked tangent-space map: flat blue with the plateau's rim as a ring of coloured texels
+Тогда 2_map the baked map in the texture viewer (BC5: RG only)
+Когда run Open "Textures/Baked/Sphere2_Normal.png"
+Тогда 2_map_png the PNG of the map: blue background with a coloured ring/patch where the bump is, not a thin line
