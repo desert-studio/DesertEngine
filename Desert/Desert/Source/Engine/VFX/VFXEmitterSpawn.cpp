@@ -280,7 +280,7 @@ namespace Desert::VFX
         return Common::MakeSuccess( std::move( plan ) );
     }
 
-    std::uint32_t SpawnState::Step( const VFXSpawnPlan& plan, double stepSeconds )
+    std::uint32_t SpawnState::Step( const VFXSpawnPlan& plan, double stepSeconds, double spawnCountScale )
     {
         const double t0 = Age;
         const double t1 = Age + stepSeconds;
@@ -299,7 +299,7 @@ namespace Desert::VFX
         if ( !( hi > lo ) )
             return 0;
 
-        std::uint32_t born = RateCarry.Step( plan.Rate, hi - lo );
+        std::uint32_t born = RateCarry.Step( plan.Rate * spawnCountScale, hi - lo );
 
         // A burst fires in the step whose window [lo, hi) holds k * LoopDuration + Time, for every loop k. The
         // windows of consecutive steps share their bounds exactly, so each firing lands in exactly one step.
@@ -308,7 +308,7 @@ namespace Desert::VFX
             {
                 const double at = k * loop + burst.Time;
                 if ( at >= lo && at < hi )
-                    born += burst.Count;
+                    born += static_cast<std::uint32_t>( static_cast<double>( burst.Count ) * spawnCountScale );
             }
         return born;
     }

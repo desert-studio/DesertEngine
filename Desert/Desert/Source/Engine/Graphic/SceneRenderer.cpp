@@ -1031,7 +1031,16 @@ namespace Desert::Graphic
         // before the render graph, and the billboard pass draws in AddFrameTranslucency.
         // A reflection capture's face view neither draws nor simulates them (AddFrameParticlesSimulate).
         if ( !m_ViewProfile.SceneCapture )
+        {
+            // VFX-11: this view's origin and Effects particle rows go to the world's next scalability decision
+            // (VFXWorld::Tick) - the world decides once for all views, not here.
+            if ( const auto* cam = GetMainCamera() )
+                scene.GetVFXWorld().SubmitView(
+                     { .Origin          = cam->GetPosition(),
+                       .SpawnCountScale = quality.As<double>( Parameter::EffectsSpawnCountScalePercent ) / 100.0,
+                       .MaxDistanceCm   = quality.As<float>( Parameter::EffectsMaxDistance ) } );
             UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
+        }
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
         // here: the material Time uniform and the eye adaptation step.

@@ -44,6 +44,7 @@ namespace Desert::VFX
 
         std::uint32_t NextId = 0; // particle ids handed out since the last reset
         SpawnState    Spawn;      // the births of each step (VFXEmitterSpawn): lifecycle, rate, bursts
+        double        SpawnCountScale = 1.0; // this tick's Effects spawn-count scale (VFXWorld::Tick sets it)
 
         // This tick's steps, in order; empty when the clock ran none or the emitter is disabled.
         std::vector<EmitterStep> Steps;
@@ -70,6 +71,19 @@ namespace Desert::VFX
         std::vector<bool>                                           Runs; // enabled and its plan compiled
         std::vector<EmitterInstance>                                Emitters;
         bool                                                        Seen = false;
+        // Distance-culled (UE CullReaction DeactivateResume): no births while out of every view's MaxDistance,
+        // live particles finish; spawning resumes, same instance and generation, when a view comes back in range.
+        bool Culled = false;
+    };
+
+    /// What one view of a frame reports to its scene's world (VFX-11; UE FNiagaraWorldManager caches the
+    /// player views the same way): where it looks from and its Effects level's particle rows. The world decides
+    /// from every view of the PREVIOUS frame, never per view, so two viewports cannot disagree.
+    struct VFXViewReport
+    {
+        glm::vec3 Origin{ 0.0f };          // centimetres
+        double    SpawnCountScale = 1.0;   // Effects.SpawnCountScalePercent / 100
+        float     MaxDistanceCm   = 0.0f;  // Effects.MaxDistance; 0 = this view culls nothing
     };
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,
@@ -137,6 +151,18 @@ namespace Desert::VFX
             return m_Channels;
         }
 
+        // A view of this frame reports itself; the next Tick decides from every report (then forgets them). Const
+        // for the same reason as SetGpuState: the renderer is handed a const scene. No report (no view rendered)
+        // = nothing is culled and spawning runs at full scale (a headless world simulates as authored).
+        void SubmitView( const VFXViewReport& view ) const
+        {
+            m_PendingViews.push_back( view );
+        }
+        [[nodiscard]] std::size_t GetCulledSystemCount() const
+        {
+            return m_CulledSystems;
+        }
+
         // Counts Tick calls: a renderer runs one tick's simulation once, in the first view that sees its serial.
         [[nodiscard]] std::uint64_t GetTickSerial() const
         {
@@ -164,5 +190,7 @@ namespace Desert::VFX
         std::uint64_t                                      m_TickSerial     = 0;
         VFXDataChannels                                    m_Channels;
         mutable std::unique_ptr<WorldGpuState>             m_GpuState;
+        mutable std::vector<VFXViewReport>                 m_PendingViews; // this frame's views (SubmitView)
+        std::size_t                                        m_CulledSystems = 0;
     };
 } // namespace Desert::VFX

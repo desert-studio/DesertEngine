@@ -192,23 +192,33 @@
         "Effects": {
             "Low": {
                 "Effects.CloudQuality": 0,
-                "Effects.SkinCache": 0
+                "Effects.SkinCache": 0,
+                "Effects.SpawnCountScalePercent": 25,
+                "Effects.MaxDistance": 5000
             },
             "Medium": {
                 "Effects.CloudQuality": 1,
-                "Effects.SkinCache": 1
+                "Effects.SkinCache": 1,
+                "Effects.SpawnCountScalePercent": 50,
+                "Effects.MaxDistance": 10000
             },
             "High": {
                 "Effects.CloudQuality": 2,
-                "Effects.SkinCache": 1
+                "Effects.SkinCache": 1,
+                "Effects.SpawnCountScalePercent": 75,
+                "Effects.MaxDistance": 20000
             },
             "Epic": {
                 "Effects.CloudQuality": 2,
-                "Effects.SkinCache": 1
+                "Effects.SkinCache": 1,
+                "Effects.SpawnCountScalePercent": 100,
+                "Effects.MaxDistance": 50000
             },
             "Cinematic": {
                 "Effects.CloudQuality": 2,
-                "Effects.SkinCache": 1
+                "Effects.SkinCache": 1,
+                "Effects.SpawnCountScalePercent": 100,
+                "Effects.MaxDistance": 0
             }
         },
         "Textures": {

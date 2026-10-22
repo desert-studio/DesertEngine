@@ -79,7 +79,7 @@ namespace
         std::vector<std::uint32_t> born;
         born.reserve( static_cast<std::size_t>( steps ) );
         for ( int s = 0; s < steps; ++s )
-            born.push_back( state.Step( plan, step ) );
+            born.push_back( state.Step( plan, step, 1.0 ) );
         return born;
     }
 

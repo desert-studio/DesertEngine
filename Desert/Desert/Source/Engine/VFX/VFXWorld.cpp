@@ -6,6 +6,9 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <limits>
+
+#include <glm/geometric.hpp>
 #include <unordered_map>
 
 namespace Desert::VFX
@@ -60,7 +63,7 @@ namespace Desert::VFX
         instance.Steps.reserve( stepCount );
         for ( std::uint32_t s = 0; s < stepCount; ++s )
         {
-            EmitterStep step{ instance.NextId, instance.Spawn.Step( plan, stepSeconds ) };
+            EmitterStep step{ instance.NextId, instance.Spawn.Step( plan, stepSeconds, instance.SpawnCountScale ) };
             if ( s == 0 )
             {
                 step.ChannelFirst = 0;
@@ -87,6 +90,28 @@ namespace Desert::VFX
 
         for ( auto& entry : m_Systems )
             entry.second.Seen = false;
+
+        // THE SCALABILITY DECISION (UE FNiagaraScalabilityManager, per world): the views reported since the last
+        // tick. The most demanding view wins the spawn scale; a system is culled only when it is past the
+        // MaxDistance of EVERY view (a view with MaxDistance 0 culls nothing).
+        std::vector<VFXViewReport> views;
+        views.swap( m_PendingViews );
+        double spawnCountScale = views.empty() ? 1.0 : 0.0;
+        for ( const VFXViewReport& v : views )
+            spawnCountScale = std::max( spawnCountScale, v.SpawnCountScale );
+        const auto outOfRange = [&views]( const glm::vec3& at, float& nearestCm )
+        {
+            nearestCm = std::numeric_limits<float>::infinity();
+            bool culled = !views.empty();
+            for ( const VFXViewReport& v : views )
+            {
+                const float d = glm::distance( at, v.Origin );
+                nearestCm     = std::min( nearestCm, d );
+                culled        = culled && v.MaxDistanceCm > 0.0f && d > v.MaxDistanceCm;
+            }
+            return culled;
+        };
+        m_CulledSystems = 0;
 
         Runtime::VFXSystemService* systems = Runtime::ResourceRegistry::GetVFXSystemService();
         auto                       view    = registry.view<ECS::VFXComponent, ECS::UUIDComponent>();
@@ -143,16 +168,25 @@ namespace Desert::VFX
                  const auto*     transform = registry.try_get<ECS::TransformComponent>( entity );
                  const glm::vec3 emitterCm =
                       transform ? glm::vec3( transform->GetTransform()[3] ) : glm::vec3( 0.0f );
+                 float      nearestCm = 0.0f;
+                 const bool culled    = outOfRange( emitterCm, nearestCm );
+                 if ( culled != system.Culled )
+                     LOG_INFO( "[VFX] entity {} {}: nearest view {:.0f} cm (Effects.MaxDistance)", uuid,
+                               culled ? "culled, spawning stops" : "back in range, spawning resumes", nearestCm );
+                 system.Culled = culled;
+                 m_CulledSystems += culled ? 1u : 0u;
                  for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
                  {
                      EmitterInstance& emitter = system.Emitters[k];
-                     if ( !system.Runs[k] || !vfx.Data.AutoActivate )
+                     if ( !system.Runs[k] || !vfx.Data.AutoActivate || system.Culled )
                      {
-                         // Not active (UE bAutoActivate false) or refused: no births, the instance is kept.
+                         // Not active (UE bAutoActivate false), refused or distance-culled: no births, the
+                         // instance is kept (its live particles finish).
                          emitter.Steps.clear();
                          emitter.ChannelSpawns.clear();
                          continue;
                      }
+                     emitter.SpawnCountScale = spawnCountScale;
                      PlanEmitterSteps( emitter, system.Plans[k], m_Plan.StepCount, stepSeconds, m_Channels,
                                        emitterCm );
                  }

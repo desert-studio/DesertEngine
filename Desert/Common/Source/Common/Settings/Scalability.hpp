@@ -293,6 +293,11 @@ namespace Common::Scalability
         ShadingParallaxMinSteps,    // 1..64
         ShadingParallaxMaxSteps,    // 1..128
         ShadingParallaxShadowSteps, // 0..64
+        // Particles (VFX-11; UE FNiagaraEmitterScalabilitySettings::SpawnCountScale and
+        // FNiagaraSystemScalabilitySettings::MaxDistance with CullReaction DeactivateResume). Each view reports
+        // them with its origin (VFXWorld::SubmitView, SceneRenderer::BeginScene); VFXWorld::Tick decides per world.
+        EffectsSpawnCountScalePercent, // births per spawn module x this / 100. 1..100
+        EffectsMaxDistance, // centimetres past which a system spawns nothing (live particles finish); 0 = never
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
