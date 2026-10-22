@@ -52,24 +52,25 @@ split.
 1. **The authored and compiled trees are separate, and only the authored one is stored.** UE serializes
    the compact arrays into the asset and keeps the editor data beside them. Here the compact arrays are
    derived on load and on every edit. One source of truth, so a stale compiled tree cannot ship.
-2. **Node objects are created per instance.** UE nodes are const structs with instance data in
-   `FStateTreeInstanceData`, a layout built for Mass (thousands of agents in one buffer). Here an NPC is an
-   entity with its own `StateTreeExecution`, and its node objects carry their own state. This is simpler,
-   and a Luau sandbox per node instance fits it directly. The crowds and traffic that need the Mass layout
-   are a separate system (CITY-TRAFFIC), not StateTree per agent.
+2. **Nodes are shared, per-NPC state is instance data (Q6).** As in UE, node objects belong to one
+   compiled tree (`StateTreeNodeSet`) and are shared by every NPC running it; each NPC's state lives in
+   `INodeInstanceData` owned by its `StateTreeExecution`. One Luau environment per script class, the
+   per-NPC state is the script's `InstanceData()`. Crowds and traffic are still a separate system
+   (CITY-TRAFFIC).
 3. **Luau instead of Blueprint.** A script declares its kind (`Node = "Task"`), its parameters
    (`Properties`) and its outputs (`Outputs`). A missing required function is a COMPILE error of the tree,
    not a runtime surprise. A script error fails the task and is never treated as Running.
-4. **The tree lives on the NPC entity, not on an AIController**, because there is no Controller or Pawn yet
-   (open question 4). `NodeContext::Actor` is the one field that changes when the Controller exists.
+4. **The tree lives on the AI Controller (Q4).** The controller and the pawn are two entities
+   (`AIController.hpp`); `NodeContext` carries `Controller` and `Pawn`. Perception sits on the controller,
+   the eye point comes from the pawn.
 5. **Senses are fixed members, not an array of config objects.** Sight, Hearing and Damage are
    `AIPerceptionData` members with `Enabled`. This gives a plain reflected block and no instanced-object
    editor. A new sense is a new member together with its system.
 6. **Nothing is perceivable by default.** UE auto-registers every pawn as a sight source. Here only an
    entity with `AIPerceptionStimuliSourceComponent` is a source, so there is no hidden global rule.
-7. **Events are dotted strings until TAGS lands.** `StateTreeEvent::Tag` uses the "A.B.C" form, and
-   prefix matching follows the `FGameplayTag::MatchesTag` semantics. The type is replaced in one place
-   (`StateTreeTypes.hpp`) when GameplayTag exists.
+7. **Events and stimuli are `GameplayTag`s (Q5).** `StateTreeEvent::Tag`, transitions and noise/damage
+   tags use the registered tag type (`Engine/GameplayTags/GameplayTag.hpp`), with `FGameplayTag::MatchesTag`
+   prefix semantics; no strings.
 8. **Perception and decisions run in one system, in a fixed order** (perception, then trees, then
    movement). UE runs these as separate tick groups. Here the order is part of the API: a tree always sees
    this frame's perception.
