@@ -309,6 +309,12 @@ Shader "DeferredLighting"
         {
         	LocalShadowView localShadowViews[];
         };
+        #ifdef DESERT_LOCAL_SHADOW_SCREEN_MASK
+        // "Shadows: Ray Traced Local" (Shadows HardwareTraced): one layer per shadowed light, by its shadowMaskSlot
+        // (Mesh/LocalLightShadow.glslh reads it before the light's shadow view). 32 is MegaLights' only.
+        Uniform(32) texture2DArray u_LocalShadowMasks;
+        #define DesertLocalShadowScreenMask(slot) texelFetch(sampler2DArray(u_LocalShadowMasks, u_PointClampSampler), ivec3(ivec2(gl_FragCoord.xy), slot), 0).r
+        #endif
         #include <Mesh/LocalLightShadow.glslh>
         #else
         // MegaLights' local lighting (System::MegaLightsRenderer: ReSTIR DI over the light grid, ray-query visibility,

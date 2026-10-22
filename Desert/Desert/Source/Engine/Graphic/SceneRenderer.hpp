@@ -40,6 +40,7 @@
 
 #include <Common/Core/Events/WindowEvents.hpp>
 #include <Common/Core/Units.hpp>
+#include <unordered_map>
 #include <functional>
 #include <span>
 #include <Common/Settings/MachineSettings.hpp>
@@ -91,6 +92,7 @@
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/MegaLights.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/MegaLightsVolume.hpp>
+#include <Engine/Graphic/Systems/Scene/Shadows/RayTracedLocalShadow.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedSunShadow.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 #include <Engine/Graphic/Systems/Scene/PathTracing/PathTracer.hpp>
@@ -892,6 +894,18 @@ namespace Desert::Graphic
         // traced): the composite's MegaLights program reads AddFrameMegaLights' lighting in place of the
         // light-grid loop.
         [[nodiscard]] bool LocalLightsAreStochastic() const;
+        // This frame's point/spot shadows are ray traced (Shadows resolved to HardwareTraced, not path traced):
+        // "Shadows: Ray Traced Local" per slot, read by the composite's RayTracedLocal program.
+        [[nodiscard]] bool LocalShadowsAreRayTraced() const;
+        // Every point/spot light that casts in this view gets a ShadowMaskSlot (and a record of
+        // m_LocalShadowMaskLights) when LocalShadowsAreRayTraced, every other -1. After UpdateLocalShadows.
+        void AssignLocalShadowMaskSlots();
+        // Per slot: trace, denoise (history per light, m_LocalShadowDenoisers) and pack into the frame's 2D-array
+        // mask (one White layer when no slot). Invalid (logged) only when the array could not be filled at all;
+        // the composite then draws its sun-mask program (the lights' shadow maps, if drawn, or unshadowed).
+        RDG::TextureRef AddFrameRayTracedLocalShadows( RDG::Builder& graph, FrameTextures& textures,
+                                                       const std::vector<RDG::TextureRef>& gbuffer,
+                                                       const ViewFrame&                    frame );
         // MegaLights (System::MegaLightsRenderer) over the G-buffer and the view's light grid and TLAS: the
         // denoised, demodulated local lighting, diffuse and specular. Both invalid when the view has no local
         // light (nothing to shade), or - logged - when the passes could not be declared; the composite then binds
@@ -1164,7 +1178,8 @@ namespace Desert::Graphic
         void AddFrameReflectionCaptureUpdate( RDG::Builder& graph, FrameTextures& textures, bool tracedGI );
         void AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                 const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
-                                RDG::TextureRef sunShadowMask, const System::MegaLightsLighting& megaLights,
+                                RDG::TextureRef sunShadowMask, RDG::TextureRef localShadowMasks,
+                                const System::MegaLightsLighting& megaLights,
                                 System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                 const glm::vec4& lightColor, const ViewFrame& frame );
         // The scene snapshot (UE: CreateTexture from the scene colour's desc, copied by a raster node): published
@@ -1468,6 +1483,12 @@ namespace Desert::Graphic
         // on the first frame that resolves the sun to HardwareTraced.
         System::RayTracedSunShadowRenderer m_RayTracedSunShadow;
         System::ScreenSpaceDenoiser        m_SunShadowDenoiser{ System::DenoiserSignal::ShadowVisibility };
+        // "Shadows: Ray Traced Local", this frame's slots, and one ShadowVisibility denoiser per light (keyed by
+        // LocalLightShadowSettings::SourceId: slots move between frames, the history follows the light - UE keys
+        // its shadow denoiser history per light too). Pruned each frame to the frame's lights.
+        System::RayTracedLocalShadowRenderer                                     m_RayTracedLocalShadow;
+        std::vector<System::RayTracedLocalShadowLight>                           m_LocalShadowMaskLights;
+        std::unordered_map<uint32_t, std::unique_ptr<System::ScreenSpaceDenoiser>> m_LocalShadowDenoisers;
         bool                               m_RayTracedShadowReady  = false;
         bool                               m_RayTracedShadowFailed = false;
         // MegaLights (per view: its reservoir and denoiser histories are this view's), created on the first frame

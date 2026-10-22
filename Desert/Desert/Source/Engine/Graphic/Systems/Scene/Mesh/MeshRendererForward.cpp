@@ -534,6 +534,16 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::SunCascadeReadersQueued() const
     {
+        return QueuedForwardDrawSamples( kSceneViewShadowCascadesName, true );
+    }
+
+    bool MeshRenderer::LocalShadowMapReadersQueued() const
+    {
+        return QueuedForwardDrawSamples( kSceneViewLocalShadowAtlasName, false );
+    }
+
+    bool MeshRenderer::QueuedForwardDrawSamples( const std::string_view textureName, const bool blendedOnly ) const
+    {
         const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
         if ( camera == nullptr )
             return false;
@@ -557,7 +567,7 @@ namespace Desert::Graphic::System
                 continue;
             const auto& state  = shader->GetProgramMeta().State;
             const bool  opaque = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
-            if ( !opaque && shader->SamplesTexture( kSceneViewShadowCascadesName ) )
+            if ( ( !blendedOnly || !opaque ) && shader->SamplesTexture( textureName ) )
                 return true;
         }
         return false;

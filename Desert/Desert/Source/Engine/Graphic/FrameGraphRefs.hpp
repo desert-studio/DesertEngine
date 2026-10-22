@@ -277,6 +277,9 @@ namespace Desert::Graphic
     // The permutation define of every program that reads kSceneViewSunShadowMaskName in place of the cascades
     // (DeferredLighting.shader, Mesh/Surface/Pass_Forward.glslh): one name for every renderer that acquires it.
     inline constexpr std::string_view kSunShadowScreenMaskDefine = "DESERT_SUN_SHADOW_SCREEN_MASK";
+    // The deferred composite's ray-traced local lights (Shadows HardwareTraced): each light with a ShadowMaskSlot
+    // reads its layer of u_LocalShadowMasks (System::RayTracedLocalShadowRenderer) in place of its shadow map.
+    inline constexpr std::string_view kLocalShadowScreenMaskDefine = "DESERT_LOCAL_SHADOW_SCREEN_MASK";
     // The deferred composite's MegaLights program (Shadows Stochastic): the local lights from MegaLights'
     // u_MegaLightsDiffuse / u_MegaLightsSpecular (System::MegaLightsRenderer) in place of the light-grid loop.
     inline constexpr std::string_view kMegaLightsDefine = "DESERT_MEGALIGHTS";
