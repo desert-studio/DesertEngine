@@ -6,6 +6,7 @@
 #include <cmath>
 #include <limits>
 #include <numeric>
+#include <unordered_map>
 
 namespace Desert::Geometry
 {
@@ -139,6 +140,27 @@ namespace Desert::Geometry
                 std::copy( chosen, chosen + 3, tris.begin() + i );
             }
         }
+        // The topology census a stalled reduction reports: edges used by one triangle (open borders, which
+        // meshopt may only slide along) and by three or more (non-manifold, whose vertices it locks).
+        std::string EdgeCensus( const std::vector<uint32_t>& indices )
+        {
+            std::unordered_map<uint64_t, uint32_t> uses;
+            uses.reserve( indices.size() );
+            for ( std::size_t i = 0; i + 2 < indices.size(); i += 3 )
+                for ( int k = 0; k < 3; ++k )
+                {
+                    const uint32_t a = indices[i + k], b = indices[i + ( k + 1 ) % 3];
+                    ++uses[( uint64_t( std::min( a, b ) ) << 32 ) | std::max( a, b )];
+                }
+            std::size_t border = 0, nonManifold = 0;
+            for ( const auto& [edge, n] : uses )
+            {
+                border += n == 1;
+                nonManifold += n > 2;
+            }
+            return std::to_string( uses.size() ) + " edges, " + std::to_string( border ) + " open, " +
+                   std::to_string( nonManifold ) + " non-manifold";
+        }
     } // namespace
 
     SimplifyResult SimplifyMesh( const float* positions, std::size_t vertexCount,
@@ -185,9 +207,11 @@ namespace Desert::Geometry
 
         if ( count > targetIndexCount )
             out.StopReason = error >= targetError
-                                  ? "error limit reached"
-                                  : "no legal collapse left on the welded topology (open borders and "
-                                    "non-manifold vertices are locked)";
+                                  ? std::string( "error limit reached" )
+                                  : "no legal collapse left (meshopt locks non-manifold vertices and only slides "
+                                    "open borders); welded source: " +
+                                         EdgeCensus( welded ) + "; unwelded source: " + EdgeCensus( indices ) +
+                                         "; result: " + EdgeCensus( lod );
 
         RestoreWedges( lod, BuildWedges( indices, welded, vertexCount ), positions, attributes );
 

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace Desert::Geometry
@@ -13,9 +14,9 @@ namespace Desert::Geometry
     {
         std::vector<uint32_t> Indices;
         float                 Error = 0.0f; // resulting geometric error, relative to the mesh extent
-        // Why the reduction stopped above its target (null when it reached it): the caller logs it - a
+        // Why the reduction stopped above its target (empty when it reached it): the caller logs it - a
         // short LOD is reported, never silently patched with a lower-quality reducer.
-        const char* StopReason = nullptr;
+        std::string StopReason;
     };
 
     // Per-vertex attributes the reduction weighs next to position (UE's QEM attribute-aware metric):

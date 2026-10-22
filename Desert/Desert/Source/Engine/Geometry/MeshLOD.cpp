@@ -36,7 +36,7 @@ namespace Desert::Geometry
             LOG_INFO( "[MeshLOD] ratio {:.2f}: target {} tris, result {} of {} tris, error {:.4f}{}", ratio,
                       static_cast<std::size_t>( flat.size() * ratio ) / 3, lod.Indices.size() / 3, flat.size() / 3,
                       lod.Error, attributes ? "" : " (positions only)" );
-            if ( lod.StopReason )
+            if ( !lod.StopReason.empty() )
                 LOG_WARN( "[MeshLOD] ratio {:.2f} stopped short of its target: {}", ratio, lod.StopReason );
             std::vector<Index> tris;
             if ( lod.Indices.size() >= 3 && lod.Indices.size() < prevCount )
