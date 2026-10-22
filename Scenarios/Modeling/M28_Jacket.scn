@@ -1,5 +1,5 @@
 # M28 Jacket (UE URemoveOccludedTrianglesTool, MeshOps palette "Mesh"): a Box 40 cm (scale 0.4) merged into a Box 100 cm so it sits wholly inside it -> Jacket (Winding Number, Vertices and Centroids) -> Accept -> Undo. Wireframe, seen from above and to the side.
-# Both boxes are named "Box", so the selection is made by clicks: the inner box is placed on the outer one's surface at the viewport centre and clicked there, moved inside, and a Shift-click at the same point adds the outer box (its surface is now hit first).
+# Created shapes get unique labels (Box, Box2), so both are selected by name for the Merge.
 Дано run View "View mode: Wireframe"
 Дано --subject viewport set Camera.Direction 0.3,-0.6,0.5
 Дано run Modeling "Create shape tool: Box"
@@ -10,11 +10,11 @@
 Дано run Modeling "Create shape tool: Box"
 Дано run Modeling "Create shape: place at the viewport centre"
 Дано --subject selection set Scale 0.4,0.4,0.4
-Дано run Modeling "Active tool: Accept"
-Дано --subject viewport drag 718,428 718,428 1
 Дано --subject selection set Rotation 0,0,0
-Дано --subject selection set Translation 0,30,0
-Дано --subject viewport drag 718,428 718,428 1 --shift
+Дано --subject selection set Translation 0,20,0
+Дано run Modeling "Active tool: Accept"
+Дано run Entity Box
+Дано run Entity "Add to selection Box2"
 Дано run Modeling "XForm: Merge"
 Дано run "Level Viewport" "Focus Selected"
 Тогда-вид 0_inner Wireframe: the outer box and, through it, the smaller inner box are both drawn
