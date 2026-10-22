@@ -178,8 +178,8 @@ namespace Desert::Graphic::System
             // offset; UE NiagaraMeshVertexFactory's PrevPosition / PrevScale / PrevRotation).
             std::shared_ptr<ShaderResources::StorageBuffer> Instances;
             std::shared_ptr<ShaderResources::StorageBuffer> Args;
-            // One row per particle of the range (ParticleMeshHistory in ParticleMeshInstances.shader): the transform
-            // the particle was last drawn with, the view frame (m_MeshFrame) and its age then.
+            // One row per particle of the range (ParticleMeshHistory in ParticleMeshInstances.shader): the
+            // transform the particle was last drawn with, the view frame (m_MeshFrame) and its age then.
             std::shared_ptr<ShaderResources::StorageBuffer> History;
             RDG::ExternalBuffer                             InstancesImport;
             RDG::ExternalBuffer                             ArgsImport;

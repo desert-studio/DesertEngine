@@ -803,12 +803,12 @@ namespace Desert::Graphic::System
                 state.Key = ++m_NextMeshKey;
             state.Capacity  = capacity;
             state.Submeshes = count;
-            state.Instances = ShaderResources::StorageBuffer::Create( "ParticleMeshInstances",
-                                                                      2u * capacity * sizeof( glm::mat4 ), 3, true );
+            state.Instances = ShaderResources::StorageBuffer::Create(
+                 "ParticleMeshInstances", 2u * capacity * sizeof( glm::mat4 ), 3, true );
             // Zeroed: frame stamp 0 is no frame's (m_MeshFrame starts at 1), so no particle reads a stale row.
             constexpr uint32_t kHistoryRow = sizeof( glm::mat4 ) + sizeof( glm::uvec4 );
-            state.History = ShaderResources::StorageBuffer::Create( "ParticleMeshHistory", capacity * kHistoryRow, 6,
-                                                                    true );
+            state.History =
+                 ShaderResources::StorageBuffer::Create( "ParticleMeshHistory", capacity * kHistoryRow, 6, true );
             const std::vector<uint8_t> zeros( capacity * kHistoryRow, uint8_t{ 0 } );
             if ( const auto cleared = state.History->SetData( zeros.data(), capacity * kHistoryRow );
                  !cleared.IsSuccess() )
@@ -879,8 +879,8 @@ namespace Desert::Graphic::System
                                                                std::format( "ParticleMeshInstances{}.{}", i, vm.Row ) );
                 state.Refs.Args =
                      graph.RegisterExternal( state.ArgsImport, std::format( "ParticleMeshArgs{}.{}", i, vm.Row ) );
-                const RDG::BufferRef history =
-                     graph.RegisterExternal( state.HistoryImport, std::format( "ParticleMeshHistory{}.{}", i, vm.Row ) );
+                const RDG::BufferRef history = graph.RegisterExternal(
+                     state.HistoryImport, std::format( "ParticleMeshHistory{}.{}", i, vm.Row ) );
 
                 struct MeshPush
                 {
@@ -888,8 +888,8 @@ namespace Desert::Graphic::System
                     glm::vec4  Scale;
                     glm::uvec4 Frame;
                 };
-                const MeshPush push{ glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, half,
-                                                 state.Submeshes, state.Capacity ),
+                const MeshPush        push{ glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, half,
+                                                        state.Submeshes, state.Capacity ),
                                      glm::vec4( vm.Scale, 0.0f ), glm::uvec4( frame, 0u, 0u, 0u ) };
                 const uint32_t       groups = ( state.Capacity + 63u ) / 64u;
                 const RDG::BufferRef floats = ve.FloatsRef, layout = ve.DrawLayoutRef, counters = ve.CountersRef;
@@ -919,13 +919,13 @@ namespace Desert::Graphic::System
                 // Each material section drawn by the GBuffer and the cascades through its Instanced cell; the
                 // view-variant keys sit above the grass's (Key * 64 + section, kept below 2^31 / kMaxCascades).
                 for ( uint32_t s = 0; s < static_cast<uint32_t>( state.Sections.size() ); ++s )
-                    meshes.SubmitGpuInstanced( { .Mesh            = state.Mesh,
-                                                 .Path            = MeshVertexPath::Instanced,
-                                                 .Material        = state.Sections[s].Material,
-                                                 .HiddenSubmeshes = state.Sections[s].HiddenSubmeshes,
-                                                 .CastShadows     = true,
-                                                 .Instances       = state.Instances,
-                                                 .Refs            = &state.Refs,
+                    meshes.SubmitGpuInstanced( { .Mesh               = state.Mesh,
+                                                 .Path               = MeshVertexPath::Instanced,
+                                                 .Material           = state.Sections[s].Material,
+                                                 .HiddenSubmeshes    = state.Sections[s].HiddenSubmeshes,
+                                                 .CastShadows        = true,
+                                                 .Instances          = state.Instances,
+                                                 .Refs               = &state.Refs,
                                                  .Key                = 0x08000000u + state.Key * 64u + s,
                                                  .PrevInstanceOffset = state.Capacity } );
             }

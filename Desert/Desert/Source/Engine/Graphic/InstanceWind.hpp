@@ -118,14 +118,14 @@ namespace Desert::Graphic
      *
      * At kInstancedWindPushOffset, after the shared 68-byte material block (mat4 Transform, uint
      * MaterialIndex) and std430's alignment of the next vec4 to 80. A = (dir.x, dir.z, Strength, Height),
-     * B = (Speed, Seconds, PrevSeconds, PrevInstanceOffset bits). PrevSeconds is the wind clock at the VIEW's previous frame
-     * (ViewFrame::PrevTimeSeconds, wrapped like Seconds): a view pass evaluates the wind at both times for the
-     * instance's velocity (Mesh/Surface/Vertex_Instanced.glslh). It is a view quantity, so the renderer writes it
-     * per view (PackViewInstanceWind); a light view (shadow depth) has no velocity and leaves it 0. Pushed for
-     * EVERY instanced draw, zeros for one that does not sway: a push block keeps its bytes between draws, so
-     * skipping the push would lend the last field's wind to a wall. B.w carries the view pass's previous-instance
-     * offset as uint bits (GpuInstancedRenderData::PrevInstanceOffset; 0.0f = bits 0 = the instance's own transform):
-     * an instance's previous world is transforms[i + offset].
+     * B = (Speed, Seconds, PrevSeconds, PrevInstanceOffset bits). PrevSeconds is the wind clock at the VIEW's
+     * previous frame (ViewFrame::PrevTimeSeconds, wrapped like Seconds): a view pass evaluates the wind at both
+     * times for the instance's velocity (Mesh/Surface/Vertex_Instanced.glslh). It is a view quantity, so the
+     * renderer writes it per view (PackViewInstanceWind); a light view (shadow depth) has no velocity and leaves
+     * it 0. Pushed for EVERY instanced draw, zeros for one that does not sway: a push block keeps its bytes
+     * between draws, so skipping the push would lend the last field's wind to a wall. B.w carries the view pass's
+     * previous-instance offset as uint bits (GpuInstancedRenderData::PrevInstanceOffset; 0.0f = bits 0 = the
+     * instance's own transform): an instance's previous world is transforms[i + offset].
      */
     struct InstanceWindPush
     {

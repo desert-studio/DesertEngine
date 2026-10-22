@@ -100,7 +100,7 @@ namespace Desert::Graphic::System
                         .HiddenSubmeshMask = gpu.HiddenSubmeshes,
                         .IndirectArgs      = gpu.Refs->Args,
                         .IndirectInstances = gpu.Refs->Instances,
-                        .BindState = [cell, inst = instance.get(), row,
+                        .BindState         = [cell, inst = instance.get(), row,
                                       wind = PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset )]
                         {
                             cell->SetMaterialIndex( row );
