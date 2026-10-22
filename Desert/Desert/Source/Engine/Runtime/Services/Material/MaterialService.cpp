@@ -654,7 +654,7 @@ namespace Desert::Runtime
                                                              Graphic::MeshVertexPath path, Graphic::MeshPass pass,
                                                              uint32_t                   view,
                                                              const Core::ShaderVariant& permutation,
-                                                             const void*                owner ) const
+                                                             const void*                asker ) const
     {
         // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a
         // view variant exists only where the plain one does.
@@ -668,7 +668,7 @@ namespace Desert::Runtime
         const size_t slot  = VariantSlot( path, pass );
         auto&        views = m_ViewMaterials[owner->second];
         for ( const auto& v : views )
-            if ( v.Slot == slot && v.View == view && v.Owner == owner && v.Defines == permutation.Defines )
+            if ( v.Slot == slot && v.View == view && v.Owner == asker && v.Defines == permutation.Defines )
                 return v.Material.get();
 
         const auto ait = m_MaterialAssets.find( owner->second );
@@ -679,7 +679,7 @@ namespace Desert::Runtime
             return nullptr; // CreateSurfaceMaterial named the material and the cell it refused
         auto* raw = material.get();
         raw->ClaimOwnership( Graphic::ResourceOwner::AssetService, owner->second );
-        views.push_back( ViewVariant{ slot, view, permutation.Defines, owner, std::move( material ) } );
+        views.push_back( ViewVariant{ slot, view, permutation.Defines, asker, std::move( material ) } );
         return raw;
     }
 
