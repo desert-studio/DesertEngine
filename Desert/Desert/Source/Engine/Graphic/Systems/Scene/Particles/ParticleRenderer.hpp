@@ -173,13 +173,20 @@ namespace Desert::Graphic::System
             uint64_t                                        Version = ~uint64_t{ 0 };
             uint32_t                                        Key     = 0; // stable view-variant key base
             std::vector<Section>                            Sections;
+            // The mesh whose level table Args holds, its level count (1 = no LOD chain) and the table's first
+            // word in Args (after the records: per level, per submesh {IndexCount, IndexOffset}; then each
+            // level's screen size as float bits; then the level the instances pass reduced this frame).
+            const Desert::Mesh* ArgsMesh  = nullptr;
+            uint32_t            Levels    = 1;
+            uint32_t            LodTable  = 0;
+            glm::vec4           LocalSphere{ 0.0f }; // the mesh's local bounds: xyz centre, w radius (cm)
             // 2 x Capacity transforms: [0, Capacity) this frame's, [Capacity, 2 Capacity) the same instances' last
             // frame's (the view pass's previous world, Vertex_Instanced.glslh through the push's previous-instance
             // offset; UE NiagaraMeshVertexFactory's PrevPosition / PrevScale / PrevRotation).
             std::shared_ptr<ShaderResources::StorageBuffer> Instances;
             std::shared_ptr<ShaderResources::StorageBuffer> Args;
             // One row per particle of the range (ParticleMeshHistory in ParticleMeshInstances.shader): the
-            // transform the particle was last drawn with, the view frame (m_MeshFrame) and its age then.
+            // transform the particle was last drawn with, the view frame (m_MeshFrame) and its pool slot's Id then.
             std::shared_ptr<ShaderResources::StorageBuffer> History;
             RDG::ExternalBuffer                             InstancesImport;
             RDG::ExternalBuffer                             ArgsImport;
@@ -288,7 +295,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<ComputePipeline> m_MeshPipeline; // ParticleMeshInstances
         mutable ShaderBindingLayoutCache m_MeshLayout;
         uint32_t                         m_NextMeshKey = 0;
-        uint32_t                         m_MeshFrame   = 0; // AddMeshInstances calls: the history's frame stamp
+        uint32_t                         m_MeshFrame   = 1; // AddMeshInstances calls + 1: the history's frame stamp (the
+        // first frame is 2, so a zeroed history row - stamp 0 - is never "the previous frame")
         mutable ShaderBindingLayoutCache m_SortLayout;
         RDG::BufferRef                   m_SortKeysRef;
         RDG::BufferRef                   m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted

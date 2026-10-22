@@ -20,6 +20,7 @@
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Geometry/Mesh.hpp>
+#include <Engine/Geometry/LODSelection.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
@@ -30,6 +31,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cstdint>
 #include <format>
 #include <tuple>
@@ -797,7 +799,8 @@ namespace Desert::Graphic::System
             }
             state.Mesh = mesh;
         }
-        if ( state.Instances == nullptr || state.Capacity != capacity || state.Submeshes != count )
+        if ( state.Instances == nullptr || state.Capacity != capacity || state.Submeshes != count ||
+             state.ArgsMesh != mesh )
         {
             if ( state.Key == 0 )
                 state.Key = ++m_NextMeshKey;
@@ -805,7 +808,7 @@ namespace Desert::Graphic::System
             state.Submeshes = count;
             state.Instances = ShaderResources::StorageBuffer::Create(
                  "ParticleMeshInstances", 2u * capacity * sizeof( glm::mat4 ), 3, true );
-            // Zeroed: frame stamp 0 is no frame's (m_MeshFrame starts at 1), so no particle reads a stale row.
+            // Zeroed: frame stamp 0 is no frame's (the first frame stamped is 2), so no particle reads a stale row.
             constexpr uint32_t kHistoryRow = sizeof( glm::mat4 ) + sizeof( glm::uvec4 );
             state.History =
                  ShaderResources::StorageBuffer::Create( "ParticleMeshHistory", capacity * kHistoryRow, 6, true );
@@ -816,27 +819,58 @@ namespace Desert::Graphic::System
                 state.Instances = nullptr;
                 return refuse( std::format( "its transform history was not cleared: {}", cleared.GetError() ) );
             }
-            const auto argBytes = static_cast<uint32_t>( GpuInstanceArgsOffset( count ) );
-            state.Args          = ShaderResources::StorageBuffer::Create( "ParticleMeshArgs", argBytes, 4, true );
-            // The records' static half: each submesh's level-0 index range; instanceCount and firstInstance are
-            // ParticleMeshInstances' (one bucket: the whole range).
-            std::vector<uint32_t> args( argBytes / 4u, 0u );
+            // The mesh's levels as the mesh component draws them (Geometry::SelectLODFromBounds): every level a
+            // submesh carries, each with its screen size; a mesh without a LOD chain has one.
+            const std::vector<float>& sizes = mesh->GetLODScreenSizes();
+            state.Levels   = std::max( 1u, std::min( Geometry::MaxAvailableLOD( submeshes ) + 1u,
+                                                     static_cast<uint32_t>( sizes.size() ) ) );
+            state.LodTable = static_cast<uint32_t>( GpuInstanceArgsOffset( count ) / 4u );
+            const auto local  = Geometry::LocalBounds( submeshes );
+            state.LocalSphere = glm::vec4( 0.5f * ( local.Min + local.Max ), 0.5f * glm::length( local.Max - local.Min ) );
+            const uint32_t argWords = state.LodTable + state.Levels * count * 2u + state.Levels + 1u;
+            const uint32_t argBytes = argWords * 4u;
+            state.Args = ShaderResources::StorageBuffer::Create( "ParticleMeshArgs", argBytes, 4, true );
+            // The records' static half: each submesh's level-0 index range (ParticleMeshInstances' LOD pass
+            // rewrites count and first index from the level table each frame); instanceCount and firstInstance
+            // are ParticleMeshInstances' (one bucket: the whole range).
+            std::vector<uint32_t> args( argWords, 0u );
             args[0] = 1u;
             args[1] = capacity;
             args[2] = count;
+            for ( uint32_t level = 0; level < state.Levels; ++level )
+                for ( uint32_t si = 0; si < count; ++si )
+                {
+                    // A submesh with a shorter chain draws its coarsest level; one without a chain its base range.
+                    const auto& sm    = submeshes[si];
+                    uint32_t*   entry = &args[state.LodTable + ( level * count + si ) * 2u];
+                    if ( sm.LODs.empty() )
+                    {
+                        entry[0] = sm.IndexCount;
+                        entry[1] = sm.IndexOffset;
+                    }
+                    else
+                    {
+                        const auto& lod = sm.LODs[std::min<size_t>( level, sm.LODs.size() - 1 )];
+                        entry[0]        = lod.IndexCount;
+                        entry[1]        = lod.IndexOffset;
+                    }
+                }
+            for ( uint32_t level = 0; level < state.Levels; ++level )
+                args[state.LodTable + state.Levels * count * 2u + level] = std::bit_cast<uint32_t>( sizes[level] );
+            args[argWords - 1u] = state.Levels - 1u; // the reduction starts at the coarsest level
             for ( uint32_t si = 0; si < count; ++si )
             {
-                const auto& sm     = submeshes[si];
-                uint32_t*   record = &args[GpuInstanceArgsOffset( si ) / 4u];
-                record[0]          = sm.LODs.empty() ? sm.IndexCount : sm.LODs[0].IndexCount;
-                record[2]          = sm.LODs.empty() ? sm.IndexOffset : sm.LODs[0].IndexOffset;
-                record[3]          = sm.VertexOffset;
+                uint32_t* record = &args[GpuInstanceArgsOffset( si ) / 4u];
+                record[0]        = args[state.LodTable + si * 2u];
+                record[2]        = args[state.LodTable + si * 2u + 1u];
+                record[3]        = submeshes[si].VertexOffset;
             }
             if ( const auto wrote = state.Args->SetData( args.data(), argBytes ); !wrote.IsSuccess() )
             {
                 state.Instances = nullptr;
                 return refuse( std::format( "its argument records were not written: {}", wrote.GetError() ) );
             }
+            state.ArgsMesh = mesh;
         }
         material.MeshRefused = false;
         return true;
@@ -854,6 +888,15 @@ namespace Desert::Graphic::System
             return;
         // One view frame: a history row stamped with the previous value is the particle's last drawn transform.
         const uint32_t frame = ++m_MeshFrame;
+        // The view the level is chosen from (UE ComputeBoundsScreenRadiusSquared through
+        // Geometry::BoundsScreenRadiusSquared): the eye, the lens' focal scale, and whether it is perspective.
+        const auto&      camera = m_SceneRenderer->GetMainCamera();
+        if ( camera == nullptr )
+            return;
+        const glm::mat4& projection = camera->GetProjectionMatrix();
+        const glm::vec4  lens( camera->GetPosition(),
+                               std::max( 0.5f * std::abs( projection[0][0] ), 0.5f * std::abs( projection[1][1] ) ) );
+        const float      perspective = std::abs( projection[2][3] );
         for ( uint32_t i = 0; i < static_cast<uint32_t>( m_ViewEmitters.size() ); ++i )
         {
             const ViewEmitter& ve = m_ViewEmitters[i];
@@ -887,15 +930,49 @@ namespace Desert::Graphic::System
                     glm::uvec4 Range;
                     glm::vec4  Scale;
                     glm::uvec4 Frame;
+                    glm::vec4  Sphere;
+                    glm::vec4  Lens;
+                    glm::uvec4 Lod;
                 };
-                const MeshPush        push{ glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, half,
-                                                        state.Submeshes, state.Capacity ),
-                                     glm::vec4( vm.Scale, 0.0f ), glm::uvec4( frame, 0u, 0u, 0u ) };
+                MeshPush push{ glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, half, state.Submeshes,
+                                           state.Capacity ),
+                               glm::vec4( vm.Scale, 0.0f ),
+                               glm::uvec4( frame, 0u, 0u, 0u ),
+                               state.LocalSphere,
+                               lens,
+                               glm::uvec4( state.Levels, state.LodTable, 0u, std::bit_cast<uint32_t>( perspective ) ) };
                 const uint32_t       groups = ( state.Capacity + 63u ) / 64u;
                 const RDG::BufferRef floats = ve.FloatsRef, layout = ve.DrawLayoutRef, counters = ve.CountersRef;
                 const GpuInstanceRefs refs  = state.Refs;
                 graph.AddPass(
                      std::format( "Particles: Mesh Instances {}.{}", i, vm.Row ), RDG::PassFlags::Compute,
+                     [this, floats, layout, counters, refs, history]( RDG::PassBuilder& pass )
+                     {
+                         // PoolSlots: the slot's Id tells a respawned particle from the one the history row holds.
+                         pass.Bindings( m_MeshLayout.Get( m_MeshPipeline->GetSpecification().Shader ),
+                                        Renderer::GetPipelineRouteFill( *m_MeshPipeline ) )
+                              .Storage( "AttributeFloats", floats, RDG::Access::StorageRead )
+                              .Storage( "DrawLayout", layout, RDG::Access::StorageRead )
+                              .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageRead )
+                              .Storage( "Counters", counters, RDG::Access::StorageRead )
+                              .Storage( "Instances", refs.Instances, RDG::Access::StorageWrite )
+                              .Storage( "Args", refs.Args, RDG::Access::StorageWrite )
+                              .Storage( "History", history, RDG::Access::StorageWrite )
+                              .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageRead )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshPush ) ) );
+                     },
+                     [this, push, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     {
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                         bindings.PushConstants( &push, sizeof( push ) );
+                         return Renderer::GetInstance().DispatchCompute( bindings, *m_MeshPipeline, groups, 1, 1 );
+                     } );
+                // The emitter's level (UE Niagara Mesh Renderer, LOD by screen size): the instances pass reduced
+                // the finest level any particle's bounds asks for; one thread writes that level's index ranges
+                // into every record, so the GBuffer and the cascades draw it, and re-arms the reduction.
+                push.Lod.z = 1u;
+                graph.AddPass(
+                     std::format( "Particles: Mesh LOD {}.{}", i, vm.Row ), RDG::PassFlags::Compute,
                      [this, floats, layout, counters, refs, history]( RDG::PassBuilder& pass )
                      {
                          pass.Bindings( m_MeshLayout.Get( m_MeshPipeline->GetSpecification().Shader ),
@@ -907,13 +984,14 @@ namespace Desert::Graphic::System
                               .Storage( "Instances", refs.Instances, RDG::Access::StorageWrite )
                               .Storage( "Args", refs.Args, RDG::Access::StorageWrite )
                               .Storage( "History", history, RDG::Access::StorageWrite )
+                              .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageRead )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshPush ) ) );
                      },
-                     [this, push, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                          bindings.PushConstants( &push, sizeof( push ) );
-                         return Renderer::GetInstance().DispatchCompute( bindings, *m_MeshPipeline, groups, 1, 1 );
+                         return Renderer::GetInstance().DispatchCompute( bindings, *m_MeshPipeline, 1, 1, 1 );
                      } );
 
                 // Each material section drawn by the GBuffer and the cascades through its Instanced cell; the
