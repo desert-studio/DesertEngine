@@ -627,6 +627,13 @@ namespace Desert::Editor
                                       Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                       return PaletteCommandDone();
                                   } } );
+        // UE's VoxOps palette: VoxWrap (MeshProcessingTool session).
+        commands.push_back( { "Modeling", "VoxOps tool: VoxWrap", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::VoxWrap;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
         // UE's Attributes palette: Normals (MeshProcessingTool session) and its closed choices / toggles.
         commands.push_back( { "Modeling", "Attributes tool: Normals", []
                               {
@@ -842,6 +849,10 @@ namespace Desert::Editor
                        []( MS& ms, bool on ) { ms.DeformSmooth.SmoothBoundary = on; } );
         modelingOnOff( "Modeling", "Smooth: Pin UV Seams",
                        []( MS& ms, bool on ) { ms.DeformSmooth.PinUVSeams = on; } );
+        modelingOnOff( "Modeling", "VoxWrap: Solid At Boundaries",
+                       []( MS& ms, bool on ) { ms.VoxWrap.SolidAtBoundaries = on; } );
+        modelingOnOff( "Modeling", "VoxWrap: Apply Thicken Shells",
+                       []( MS& ms, bool on ) { ms.VoxWrap.ThickenShells = on; } );
         modelingOnOff( "Modeling", "Offset: Offset Boundary",
                        []( MS& ms, bool on ) { ms.DeformOffset.OffsetBoundary = on; } );
         modelingOnOff( "Modeling", "Offset: Pin UV Seams",

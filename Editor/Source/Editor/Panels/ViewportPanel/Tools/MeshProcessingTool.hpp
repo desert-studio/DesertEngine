@@ -98,6 +98,7 @@ namespace Desert::Editor::Tools
         // The settings the preview was computed with.
         Geometry::SmoothSettings m_Smooth;
         Geometry::OffsetSettings m_Offset;
+        Geometry::VoxWrapSettings m_VoxWrap;
         Geometry::NormalsSettings m_Normals;
         Geometry::TangentsSettings m_Tangents;
         Geometry::WarpSettings   m_Warp;

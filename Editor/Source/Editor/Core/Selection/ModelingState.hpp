@@ -11,6 +11,7 @@
 #include <Engine/Geometry/DynamicMeshUVOperations.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 #include <Engine/Geometry/MeshDeformOperations.hpp>
+#include <Engine/Geometry/MeshVoxelOperations.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 #include <Engine/Geometry/MeshAttributeOperations.hpp>
@@ -53,6 +54,8 @@ namespace Desert::Editor::Core
             EditMaterials, // UE's UEditMeshMaterialsTool: selected triangles -> a material slot
                            // (EditMaterialsTool)
             PaintGroups, // UE's UMeshGroupPaintTool: a brush / flood fill paints triangle groups (PaintGroupsTool)
+            // UE's VoxOps palette (same preview/Accept session, MeshProcessingTool).
+            VoxWrap, // UE's UVoxelSolidifyMeshesTool: winding-number solid of the mesh, re-meshed closed
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -327,6 +330,8 @@ namespace Desert::Editor::Core
         // sets; the tool previews the selected mesh with them and recomputes whenever they change.
         Geometry::SmoothSettings DeformSmooth;
         Geometry::OffsetSettings DeformOffset;
+        // VoxOps -> VoxWrap (UE UVoxelSolidifyMeshesTool, Geometry/MeshVoxelOperations.hpp).
+        Geometry::VoxWrapSettings VoxWrap;
         // Warp (UE UMeshSpaceDeformerTool): its operation settings and its gizmo - a rigid world frame whose Z is
         // the deformation axis and whose origin the bounds are measured from. The tool places it on the mesh's
         // bounds centre with Z along the longest side when it starts (UE Setup), then the viewport gizmo moves it.

@@ -14,7 +14,7 @@
 // (pure, input untouched, result is a NEW mesh in the input's object space) so MeshProcessingTool previews it.
 namespace Desert::Geometry
 {
-    // UE UVoxelProperties + UVoxelSolidifyMeshesToolProperties (defaults as UE's), plus Smoothing.
+    // UE UVoxelProperties + UVoxelSolidifyMeshesToolProperties (defaults as UE's).
     struct VoxWrapSettings
     {
         int32_t VoxelCount         = 128;   // UE VoxelCount: cells along the longest side of the bounds
@@ -24,10 +24,6 @@ namespace Desert::Geometry
         bool    SolidAtBoundaries  = true;  // UE bSolidAtBoundaries: the grid's border closes the surface
         bool    ThickenShells      = false; // UE bApplyThickenShells: open shells get a slab before solidify
         float   ShellThickness     = 5.0f;  // UE ThickenShells, cm (at least two cells, as UE)
-        // Not in UE's tool: iterative uniform smoothing of the Marching Cubes result (Geometry::Smooth), which
-        // removes the voxel stair-step UE leaves to bAutoSimplify. 0 steps = off.
-        int32_t SmoothingSteps     = 0;
-        float   SmoothingPerStep   = 0.5f;
 
         bool operator==( const VoxWrapSettings& ) const = default;
     };

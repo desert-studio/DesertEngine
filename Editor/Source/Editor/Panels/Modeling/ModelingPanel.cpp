@@ -87,6 +87,7 @@ namespace Desert::Editor
             TriModel,
             Deform,
             Transform,
+            VoxOps,
             Attributes,
             UVs,
             Collision,
@@ -96,13 +97,14 @@ namespace Desert::Editor
             const char* Icon;
             const char* Name;
         };
-        constexpr std::array<PaletteEntry, 10> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
+        constexpr std::array<PaletteEntry, 11> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
                                                                { ICON_MDI_SHAPE_PLUS, "Shapes" },
                                                                { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
                                                                { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
                                                                { ICON_MDI_VECTOR_TRIANGLE, "TriModel" },
                                                                { ICON_MDI_BLUR, "Deform" },
                                                                { ICON_MDI_ARROW_ALL, "Transform" },
+                                                               { ICON_MDI_CUBE_SCAN, "VoxOps" },
                                                                { ICON_MDI_PALETTE_SWATCH, "Attributes" },
                                                                { ICON_MDI_CHECKERBOARD, "UVs" },
                                                                { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
@@ -150,6 +152,8 @@ namespace Desert::Editor
             else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents ||
                       ms.ActiveTool == MS::Tool::EditMaterials || ms.ActiveTool == MS::Tool::PaintGroups )
                 m_Category = static_cast<int>( Palette::Attributes );
+            else if ( ms.ActiveTool == MS::Tool::VoxWrap )
+                m_Category = static_cast<int>( Palette::VoxOps );
         }
 
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 6.0f ) );
@@ -204,6 +208,9 @@ namespace Desert::Editor
                 break;
             case Palette::Transform:
                 DrawTransformPalette();
+                break;
+            case Palette::VoxOps:
+                DrawVoxOpsPalette();
                 break;
             case Palette::Attributes:
                 DrawAttributesPalette();
@@ -817,6 +824,65 @@ namespace Desert::Editor
             default:
                 ImGui::TextDisabled( "Pick a Deform tool above; it works on the selected mesh." );
                 return;
+        }
+        ImGui::Separator();
+        ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+        ImGui::TextDisabled( "Accept / Cancel: bottom of the viewport" );
+    }
+
+    // UE's VoxOps palette. VoxWrap = UE UVoxelSolidifyMeshesTool (UVoxelProperties +
+    // UVoxelSolidifyMeshesToolProperties, their defaults and ranges): previewed on the selected mesh by
+    // MeshProcessingTool's session, recomputed on every change, committed by the bar's Accept as one undo step.
+    void ModelingPanel::DrawVoxOpsPalette()
+    {
+        using MS          = Core::ModelingState;
+        auto&        ms   = MS::Get();
+        const ImVec4 sel  = ThemeManager::GetSelectedColor();
+        const float  half = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
+        const bool   on   = ms.ActiveTool == MS::Tool::VoxWrap;
+        if ( on )
+            ImGui::PushStyleColor( ImGuiCol_Button, sel );
+        char voxWrapLabel[64];
+        std::snprintf( voxWrapLabel, sizeof( voxWrapLabel ), "%s  %s", ICON_MDI_CUBE_SCAN, "VoxWrap" );
+        if ( ImGui::Button( voxWrapLabel, ImVec2( half, 26.0f ) ) )
+        {
+            ms.ActiveTool = MS::Tool::VoxWrap;
+            Core::ViewportMode::Set( Core::EditorMode::Modeling );
+        }
+        if ( on )
+            ImGui::PopStyleColor();
+        ImGui::Separator();
+        if ( !on )
+        {
+            ImGui::TextDisabled( "Pick a VoxOps tool above; it works on the selected mesh." );
+            return;
+        }
+
+        const auto row = []( const char* label )
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted( label );
+            ImGui::SameLine( 150.0f );
+            ImGui::SetNextItemWidth( -1.0f );
+        };
+        auto& s = ms.VoxWrap;
+        row( "Winding Threshold" ); // UE UI range -10..10
+        ImGui::SliderFloat( "##VoxWrapWinding", &s.WindingThreshold, -10.0f, 10.0f, "%.2f",
+                            ImGuiSliderFlags_AlwaysClamp );
+        row( "Voxel Count" ); // UE UI range 8..1024
+        ImGui::SliderInt( "##VoxWrapVoxels", &s.VoxelCount, 8, 1024, "%d", ImGuiSliderFlags_AlwaysClamp );
+        row( "Extend Bounds" );
+        ImGui::DragFloat( "##VoxWrapExtend", &s.ExtendBounds, 0.1f, 0.0f, 1000.0f, "%.1f cm",
+                          ImGuiSliderFlags_AlwaysClamp );
+        row( "Surface Search Steps" ); // UE UI range 0..10
+        ImGui::SliderInt( "##VoxWrapSearch", &s.SurfaceSearchSteps, 0, 10, "%d", ImGuiSliderFlags_AlwaysClamp );
+        ImGui::Checkbox( "Solid At Boundaries##VoxWrap", &s.SolidAtBoundaries );
+        ImGui::Checkbox( "Apply Thicken Shells##VoxWrap", &s.ThickenShells );
+        if ( s.ThickenShells )
+        {
+            row( "Thicken Shells" );
+            ImGui::DragFloat( "##VoxWrapThickness", &s.ShellThickness, 0.1f, 0.0f, 1000.0f, "%.1f cm",
+                              ImGuiSliderFlags_AlwaysClamp );
         }
         ImGui::Separator();
         ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );

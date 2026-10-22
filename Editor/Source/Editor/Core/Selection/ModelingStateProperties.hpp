@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 123> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 128> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -292,6 +292,17 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.DeformSculpt.FalloffAmount; }, nullptr },
          { "Normals.SharpEdgeAngleThreshold", "Sharp Edge Angle Threshold", "Normals", 1, false, 0.0f, 180.0f,
            []( ModelingState& s ) { return &s.AttribNormals.SharpEdgeAngleThreshold; }, nullptr },
+         // VoxWrap (UE UVoxelProperties + UVoxelSolidifyMeshesToolProperties).
+         { "VoxWrap.WindingThreshold",  "Winding Threshold",  "VoxWrap", 1, false, -10.0f, 10.0f,
+           []( ModelingState& s ) { return &s.VoxWrap.WindingThreshold; }, nullptr },
+         { "VoxWrap.VoxelCount",        "Voxel Count",        "VoxWrap", 1, true, 8.0f, 1024.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxWrap.VoxelCount; } },
+         { "VoxWrap.ExtendBounds",      "Extend Bounds",      "VoxWrap", 1, false, 0.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.VoxWrap.ExtendBounds; }, nullptr },
+         { "VoxWrap.SurfaceSearchSteps", "Surface Search Steps", "VoxWrap", 1, true, 0.0f, 10.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxWrap.SurfaceSearchSteps; } },
+         { "VoxWrap.ThickenShells",     "Thicken Shells",     "VoxWrap", 1, false, 0.0f, 1000.0f,
+           []( ModelingState& s ) { return &s.VoxWrap.ShellThickness; }, nullptr },
     } };
     // clang-format on
 

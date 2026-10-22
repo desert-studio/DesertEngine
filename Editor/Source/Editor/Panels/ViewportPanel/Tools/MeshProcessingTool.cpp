@@ -12,6 +12,7 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/MeshDeformOperations.hpp>
+#include <Engine/Geometry/MeshVoxelOperations.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 
 #include <ImGui/imgui.h>
@@ -45,6 +46,8 @@ namespace Desert::Editor::Tools
                     return "Normals";
                 case MS::Tool::Tangents:
                     return "Tangents";
+                case MS::Tool::VoxWrap:
+                    return "VoxWrap";
                 default:
                     return "?";
             }
@@ -100,7 +103,8 @@ namespace Desert::Editor::Tools
     bool MeshProcessingTool::IsMeshProcessingTool( MS::Tool tool )
     {
         return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
-               tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents;
+               tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents ||
+               tool == MS::Tool::VoxWrap;
     }
 
     void MeshProcessingTool::Update( ::Desert::Core::Scene& scene )
@@ -224,6 +228,7 @@ namespace Desert::Editor::Tools
     {
         m_Smooth                                             = ms.DeformSmooth;
         m_Offset                                             = ms.DeformOffset;
+        m_VoxWrap                                            = ms.VoxWrap;
         m_Normals                                            = ms.AttribNormals;
         m_Tangents = ms.AttribTangents;
         m_Warp                                               = ms.DeformWarp;
@@ -243,6 +248,8 @@ namespace Desert::Editor::Tools
                     return Geometry::EditNormals( input, ms.AttribNormals );
                 case MS::Tool::Tangents:
                     return Geometry::ComputeTangents( input, ms.AttribTangents );
+                case MS::Tool::VoxWrap:
+                    return Geometry::VoxWrap( input, ms.VoxWrap );
                 case MS::Tool::Lattice:
                     return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints,
                                                     ms.DeformLattice );
@@ -489,6 +496,8 @@ namespace Desert::Editor::Tools
                 return !( ms.AttribNormals == m_Normals );
             case MS::Tool::Tangents:
                 return ms.AttribTangents.CalculationMethod != m_Tangents.CalculationMethod;
+            case MS::Tool::VoxWrap:
+                return !( ms.VoxWrap == m_VoxWrap );
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

@@ -92,8 +92,8 @@ namespace Desert::Geometry
             return Common::MakeError<DeformOutcome>( std::format( "Voxel Count {} is outside 8..1024", s.VoxelCount ) );
         if ( s.SurfaceSearchSteps < 0 || s.SurfaceSearchSteps > 10 )
             return Common::MakeError<DeformOutcome>( std::format( "Surface Search Steps {} is outside 0..10", s.SurfaceSearchSteps ) );
-        if ( s.ShellThickness < 0.0f || s.ExtendBounds < 0.0f || s.SmoothingSteps < 0 )
-            return Common::MakeError<DeformOutcome>( "Shell Thickness, Extend Bounds and Smoothing Steps cannot be negative" );
+        if ( s.ShellThickness < 0.0f || s.ExtendBounds < 0.0f )
+            return Common::MakeError<DeformOutcome>( "Shell Thickness and Extend Bounds cannot be negative" );
 
         DynamicMesh3         combined = GeometryOf( mesh, nullptr );
         DynamicMeshAABBTree3 spatial( &combined );
@@ -157,19 +157,6 @@ namespace Desert::Geometry
         DynamicMesh3 result = mc.Generate();
         if ( result.TriangleCount() == 0 )
             return Common::MakeError<DeformOutcome>( "the solid is empty at this Winding Threshold" );
-
-        if ( s.SmoothingSteps > 0 )
-        {
-            SmoothSettings smooth;
-            smooth.Type             = SmoothType::Iterative;
-            smooth.WeightType       = SmoothWeightType::Uniform;
-            smooth.Steps            = s.SmoothingSteps;
-            smooth.SmoothingPerStep = std::clamp( s.SmoothingPerStep, 0.0f, 1.0f );
-            auto smoothed           = Smooth( result, smooth );
-            if ( !smoothed.IsSuccess() )
-                return Common::MakeError<DeformOutcome>( std::format( "smoothing refused: {}", smoothed.GetError() ) );
-            result = std::move( smoothed.ExtractValue().Mesh );
-        }
 
         // Attributes: per-vertex normals (UE PostProcessResult recomputes them) and box-projected UVs, 1 UV unit
         // per metre, so the result draws with the entity's material.
