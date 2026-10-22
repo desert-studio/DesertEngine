@@ -22,7 +22,7 @@ namespace Desert::VFX
         glm::vec3 Origin{ 0.0f };        // centimetres
         double    SpawnCountScale = 1.0; // Effects.SpawnCountScalePercent / 100
         int       EffectsLevel    = 0;   // Effects.QualityLevel: the level of every effect type this view reads
-        std::uint32_t MaxWorldParticles = 0; // Effects.MaxWorldParticles: the world pool budget; 0 = none
+        std::uint32_t MaxWorldParticles = 0;   // Effects.MaxWorldParticles: the world pool budget; 0 = none
         // The view's frustum as six inward planes (xyz normal, w distance; a point p is inside when
         // dot(n, p) + w >= 0 for all six). HasFrustum false = the view culls nothing by frustum.
         std::array<glm::vec4, 6> FrustumPlanes{};
@@ -32,13 +32,13 @@ namespace Desert::VFX
     enum class VFXCullReason : std::uint8_t
     {
         None,
-        Distance,           // past MaxDistance at every view's level
-        ViewFrustum,        // CullByViewFrustum and outside every view's frustum
-        NotRendered,        // outside every view's frustum for longer than MaxTimeWithoutRender
+        Distance,            // past MaxDistance at every view's level
+        ViewFrustum,         // CullByViewFrustum and outside every view's frustum
+        NotRendered,         // outside every view's frustum for longer than MaxTimeWithoutRender
         SystemInstanceCount, // over MaxSystemInstances of its system, and less significant than those kept
-        InstanceCount,      // over MaxInstances of its type, and less significant than those kept
-        WorldBudget,        // its pool slots would take the world past Effects.MaxWorldParticles; less significant
-                            // than every system the budget holds
+        InstanceCount,       // over MaxInstances of its type, and less significant than those kept
+        WorldBudget, // its pool slots would take the world past Effects.MaxWorldParticles; less significant
+                     // than every system the budget holds
     };
 
     struct VFXScalabilityCandidate
@@ -61,7 +61,7 @@ namespace Desert::VFX
         double        HiddenSeconds   = 0.0; // the candidate's HiddenSeconds after this tick (0 when visible)
         // The world budget this tick decided by (0 = none) and the pool slots the more significant systems kept
         // took before this one - the log's "why" for a WorldBudget refusal.
-        std::uint64_t BudgetParticles = 0;
+        std::uint64_t BudgetParticles   = 0;
         std::uint64_t BudgetTakenBefore = 0;
     };
 

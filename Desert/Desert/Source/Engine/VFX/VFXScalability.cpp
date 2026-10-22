@@ -59,7 +59,8 @@ namespace Desert::VFX
             case VFXCullReason::NotRendered: return "MaxTimeWithoutRender";
             case VFXCullReason::SystemInstanceCount: return "MaxSystemInstances";
             case VFXCullReason::InstanceCount: return "MaxInstances";
-            case VFXCullReason::WorldBudget: return "Effects.MaxWorldParticles budget";
+            case VFXCullReason::WorldBudget:
+                return "Effects.MaxWorldParticles budget";
         }
         return "?";
     }
@@ -159,8 +160,8 @@ namespace Desert::VFX
         for ( std::size_t i = 0; i < candidates.size(); ++i )
             if ( candidates[i].Type && out[i].Reason == VFXCullReason::None )
                 order.push_back( i );
-        std::stable_sort( order.begin(), order.end(),
-                          [&]( std::size_t a, std::size_t b ) { return out[a].Significance > out[b].Significance; } );
+        std::stable_sort( order.begin(), order.end(), [&]( std::size_t a, std::size_t b )
+                          { return out[a].Significance > out[b].Significance; } );
         std::uint64_t taken = 0;
         bool          over  = false;
         for ( const std::size_t i : order )

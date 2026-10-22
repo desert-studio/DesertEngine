@@ -257,10 +257,11 @@ namespace Desert::VFX
                               *p.TypeName, immediate ? "killed" : "finish",
                               resumes ? "resumes when back in scalability" : "stays off until Restart" );
                     if ( verdict.Reason == VFXCullReason::WorldBudget )
-                        LOG_INFO( "[VFX] entity {} refused by the world particle budget: {} pool particles over the "
-                                  "{} the more significant systems already hold of Effects.MaxWorldParticles {}",
-                                  p.UUID, candidates[p.Candidate].PoolParticles, verdict.BudgetTakenBefore,
-                                  verdict.BudgetParticles );
+                        LOG_INFO(
+                             "[VFX] entity {} refused by the world particle budget: {} pool particles over the "
+                             "{} the more significant systems already hold of Effects.MaxWorldParticles {}",
+                             p.UUID, candidates[p.Candidate].PoolParticles, verdict.BudgetTakenBefore,
+                             verdict.BudgetParticles );
                 }
                 else
                     LOG_INFO( "[VFX] entity {} back in scalability, spawning resumes: nearest view {:.0f} cm "
