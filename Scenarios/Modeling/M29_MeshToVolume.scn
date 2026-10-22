@@ -3,11 +3,13 @@
 Дано --subject viewport set Camera.Position 0,150,700
 Дано --subject viewport set Camera.Direction 0,-0.1,-1
 Дано run Scene "Add shape: Cube"
+Дано run Entity Cube
 Дано --subject selection set Translation 0,330,0
 Дано --subject selection set Scale 0.2,0.2,0.2
 Дано add-component selected "Rigid Body"
 Дано add-component selected Collider
 Дано run Scene "Add shape: Sphere"
+Дано run Entity Sphere
 Дано --subject selection set Translation 0,100,0
 Когда run Modeling "Mesh To Volume Trigger"
 Тогда 1_volume на месте сферы контур выпуклого объёма без заливки; в Outliner сущность TriggerVolume; в Details компонент Volume (Volume Type Trigger)
