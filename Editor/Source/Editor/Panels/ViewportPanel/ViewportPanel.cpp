@@ -2057,7 +2057,8 @@ namespace Desert::Editor
                     if ( intervalOwns )
                         ImGuizmo::Enable( false );
                     m_Gizmo.RenderFrame( "WarpFrame", ms.WarpGizmo, ViewCamera(), m_ViewportData.ViewportPos,
-                                         m_ViewportData.Size );
+                                         m_ViewportData.Size,
+                                         Tools::GizmoController::kFrameTranslateRotate );
                     if ( intervalOwns )
                         ImGuizmo::Enable( true );
                     Tools::DeformTool::DrawWarpVisualization( ms, viewProj, m_ViewportData.ViewportPos,

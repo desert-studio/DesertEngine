@@ -233,8 +233,7 @@ namespace Desert::Editor::Tools
                 case MS::Tool::Offset:
                     return Geometry::Offset( input, ms.DeformOffset );
                 case MS::Tool::Lattice:
-                    return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints,
-                                                    ms.DeformLattice.Interpolation );
+                    return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints, ms.DeformLattice );
                 default: // Warp: object space -> the gizmo's frame, as UE's FMeshSpaceDeformerOp::ObjectToGizmo
                     return Geometry::Warp( input, ms.DeformWarp,
                                            glm::inverse( glm::dmat4( ms.WarpGizmo ) ) *
@@ -418,7 +417,9 @@ namespace Desert::Editor::Tools
         bool gizmoBusy = false;
         if ( !ms.LatticeSelection.empty() )
         {
-            gizmo.RenderFrame( "LatticeGizmo", ms.LatticeGizmo, camera, viewportPos, viewportSize );
+            // UE ULatticeControlPointsMechanic's gizmo translates, rotates and scales the selected points.
+            gizmo.RenderFrame( "LatticeGizmo", ms.LatticeGizmo, camera, viewportPos, viewportSize,
+                               GizmoController::kFrameTranslateRotateScale );
             gizmoBusy = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
         }
         const ImVec2 mouse = ::ImGui::GetMousePos();

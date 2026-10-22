@@ -765,6 +765,8 @@ namespace Desert::Editor
                 row( "Interpolation Type" );
                 if ( ImGui::Combo( "##LatticeInterp", &interpolation, kInterp, 2 ) )
                     s.Interpolation = static_cast<Geometry::LatticeInterpolation>( interpolation );
+                row( "Soft Deformation" );
+                ImGui::Checkbox( "##LatticeSoft", &s.SoftDeformation );
                 ImGui::Text( "%zu of %zu points selected", ms.LatticeSelection.size(), ms.LatticePoints.size() );
                 ImGui::TextDisabled( "Click a point (Shift adds, Ctrl toggles); the gizmo moves the selection." );
                 break;

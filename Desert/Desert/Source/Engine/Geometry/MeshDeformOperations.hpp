@@ -160,6 +160,9 @@ namespace Desert::Geometry
         int32_t              YResolution   = 5;
         int32_t              ZResolution   = 5;
         LatticeInterpolation Interpolation = LatticeInterpolation::Linear;
+        // UE bSoftDeformation: the lattice's result is a soft target of the constrained (detail-keeping)
+        // Laplacian deformer instead of the final positions, so the mesh bends smoothly between lattice cells.
+        bool SoftDeformation = false;
 
         bool operator==( const LatticeSettings& ) const = default;
     };
@@ -186,9 +189,11 @@ namespace Desert::Geometry
     [[nodiscard]] Common::ResultStr<FFDLattice> MakeFFDLattice( const DynamicMesh3&     mesh,
                                                                 const LatticeSettings& settings );
     // UE FFFDLattice::GetDeformedMeshVertexPositions: every vertex keeps its place in its rest cell and follows
-    // @p points (the lattice's control points, object space, as many as lattice.PointCount()).
+    // @p points (the lattice's control points, object space, as many as lattice.PointCount()), interpolated as
+    // settings.Interpolation. settings.SoftDeformation: UE FLatticeDeformerOp's soft path - those positions are
+    // soft constraints (weight 1) of ConstructSoftMeshDeformer (ClampedCotangent Laplacian of the input kept).
     [[nodiscard]] Common::ResultStr<DeformOutcome> LatticeDeform( const DynamicMesh3&            mesh,
                                                                   const FFDLattice&              lattice,
                                                                   const std::vector<glm::dvec3>& points,
-                                                                  LatticeInterpolation           interpolation );
+                                                                  const LatticeSettings&         settings );
 } // namespace Desert::Geometry

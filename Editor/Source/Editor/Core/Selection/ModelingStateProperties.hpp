@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 109> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 112> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -262,6 +262,13 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.LatticeGizmo[3].y; }, nullptr },
          { "Lattice.GizmoZ",            "Gizmo Z",            "Lattice", 1, false, -1.0e7f, 1.0e7f,
            []( ModelingState& s ) { return &s.LatticeGizmo[3].z; }, nullptr },
+         // The gizmo's axis lengths (its scale handles): the selected points scale about the gizmo by the change.
+         { "Lattice.GizmoScaleX",       "Gizmo Scale X",      "Lattice", 1, false, 0.001f, 1000.0f,
+           []( ModelingState& s ) { return &s.LatticeGizmo[0].x; }, nullptr },
+         { "Lattice.GizmoScaleY",       "Gizmo Scale Y",      "Lattice", 1, false, 0.001f, 1000.0f,
+           []( ModelingState& s ) { return &s.LatticeGizmo[1].y; }, nullptr },
+         { "Lattice.GizmoScaleZ",       "Gizmo Scale Z",      "Lattice", 1, false, 0.001f, 1000.0f,
+           []( ModelingState& s ) { return &s.LatticeGizmo[2].z; }, nullptr },
     } };
     // clang-format on
 

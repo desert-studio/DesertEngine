@@ -73,18 +73,21 @@ namespace Desert::Editor::Tools
 
     bool GizmoController::RenderFrame( const char* site, glm::mat4& frame,
                                        const std::shared_ptr<::Desert::Core::Camera>& camera,
-                                       const glm::vec2& viewportPos, const glm::vec2& viewportSize )
+                                       const glm::vec2& viewportPos, const glm::vec2& viewportSize, int handles )
     {
         if ( !camera )
             return false;
         const Core::GizmoIdScope gizmoId( site );
+        const ImGuizmo::OPERATION operation =
+             handles == kFrameTranslateRotateScale ? ImGuizmo::TRANSLATE | ImGuizmo::ROTATE | ImGuizmo::SCALE
+                                                   : ImGuizmo::TRANSLATE | ImGuizmo::ROTATE;
         ImGuizmo::SetOrthographic( false );
         ImGuizmo::SetDrawlist();
         ImGuizmo::SetRect( viewportPos.x, viewportPos.y, viewportSize.x, viewportSize.y );
         const auto& view        = camera->GetViewMatrix();
         const auto& proj        = camera->GetProjectionMatrix();
         const bool  manipulated = ImGuizmo::Manipulate(
-             &view[0][0], &proj[0][0], ImGuizmo::TRANSLATE | ImGuizmo::ROTATE, ImGuizmo::LOCAL, &frame[0][0] );
+             &view[0][0], &proj[0][0], operation, ImGuizmo::LOCAL, &frame[0][0] );
         if ( ImGuizmo::IsOver() || ImGuizmo::IsUsing() )
             m_Hovered = true;
         return manipulated;

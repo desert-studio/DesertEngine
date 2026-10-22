@@ -662,6 +662,8 @@ namespace Desert::Editor
                                       MS::Get().DeformLattice.Interpolation = interpolation;
                                       return PaletteCommandDone();
                                   } } );
+        modelingOnOff( "Modeling", "Lattice: Soft Deformation",
+                       []( MS& ms, bool on ) { ms.DeformLattice.SoftDeformation = on; } );
         modelingOnOff( "Modeling", "Warp: Lock Bottom", []( MS& ms, bool on ) { ms.DeformWarp.LockBottom = on; } );
         modelingOnOff( "Modeling", "Warp: Lock X and Y Flaring",
                        []( MS& ms, bool on ) { ms.DeformWarp.LockXAndYFlaring = on; } );

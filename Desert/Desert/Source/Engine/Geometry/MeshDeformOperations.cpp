@@ -783,8 +783,9 @@ namespace Desert::Geometry
 
     Common::ResultStr<DeformOutcome> LatticeDeform( const DynamicMesh3& input, const FFDLattice& lattice,
                                                     const std::vector<glm::dvec3>& points,
-                                                    LatticeInterpolation           interpolation )
+                                                    const LatticeSettings&         settings )
     {
+        const LatticeInterpolation interpolation = settings.Interpolation;
         if ( input.TriangleCount() == 0 )
             return Common::MakeError<DeformOutcome>( "Lattice: the mesh has no triangles" );
         if ( lattice.PointCount() <= 0 || static_cast<int32_t>( points.size() ) != lattice.PointCount() )
@@ -851,9 +852,22 @@ namespace Desert::Geometry
                 ++moved;
             v = out;
         }
+        if ( settings.SoftDeformation )
+        {
+            // UE FLatticeDeformerOp, bSoftDeformation: every vertex is softly constrained (weight 1) to its
+            // lattice position by ConstructSoftMeshDeformer - the ClampedCotangent Laplacian of the input kept -
+            // and the deformer's solution replaces the lattice positions.
+            const std::vector<glm::dvec3> targets = p;
+            std::vector<glm::dvec3>       solved  = Positions( input );
+            const std::vector<uint8_t>    movable( static_cast<size_t>( mesh.MaxVertexID() ), 1 );
+            if ( auto fit = LaplacianFit( input, SmoothWeightType::Cotan, movable, true, 1.0, targets, solved );
+                 !fit.IsSuccess() )
+                return Common::MakeError<DeformOutcome>( "Lattice (Soft Deformation): " + fit.GetError() );
+            p = std::move( solved );
+        }
         WritePositions( mesh, p );
-        std::string report = fmt::format( "{} lattice {} x {} x {}", ToString( interpolation ), dims.x, dims.y,
-                                          dims.z );
+        std::string report = fmt::format( "{}{} lattice {} x {} x {}", settings.SoftDeformation ? "soft " : "",
+                                          ToString( interpolation ), dims.x, dims.y, dims.z );
         return Finish( std::move( mesh ), "Lattice", moved, 0, std::move( report ) );
     }
 } // namespace Desert::Geometry
