@@ -685,6 +685,7 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
                                            const RDG::TextureRef             sunShadowMask,
+                                           const RDG::TextureRef             localShadowMasks,
                                            const System::MegaLightsLighting& megaLights,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
                                            const glm::vec4& lightColor, const ViewFrame& frame )
@@ -763,6 +764,11 @@ namespace Desert::Graphic
             // Shadows Stochastic: MegaLights' local lighting (AddFrameMegaLights logged why one is missing; a view
             // without local lights has none to add): black adds no local light, never the unshadowed grid loop.
             shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
+            // Shadows HardwareTraced: the lights with a ShadowMaskSlot read the ray-traced masks
+            // (AddFrameRayTracedLocalShadows logged why they are missing; the sun-mask program then reads the
+            // lights' shadow views - their maps where drawn, otherwise unshadowed).
+            shadow.RayTracedLocalLights = LocalShadowsAreRayTraced() && localShadowMasks.IsValid();
+            inputs.LocalShadowMasks     = localShadowMasks;
         }
         else if ( meshRenderer != nullptr )
             shadow.Sun = DeferredCascadeShadow{ .CascadeVP            = meshRenderer->GetCascadeViewProj(),

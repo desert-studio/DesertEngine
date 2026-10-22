@@ -133,6 +133,11 @@ int PointShadowFace(vec3 fromLight)
 
 float PointLightShadow(PointLight source, vec3 worldPosition, vec3 N)
 {
+#ifdef DESERT_LOCAL_SHADOW_SCREEN_MASK
+    // The deferred composite under Shadows HardwareTraced: the light's ray-traced screen mask.
+    if (source.shadowMaskSlot >= 0)
+        return DesertLocalShadowScreenMask(source.shadowMaskSlot);
+#endif
     if (source.shadowView < 0)
         return 1.0;
     const vec3 fromLight = worldPosition - source.position;
@@ -141,6 +146,10 @@ float PointLightShadow(PointLight source, vec3 worldPosition, vec3 N)
 
 float SpotLightShadow(SpotLight source, vec3 worldPosition, vec3 N)
 {
+#ifdef DESERT_LOCAL_SHADOW_SCREEN_MASK
+    if (source.shadowMaskSlot >= 0)
+        return DesertLocalShadowScreenMask(source.shadowMaskSlot);
+#endif
     if (source.shadowView < 0)
         return 1.0;
     return LocalShadowAt(source.shadowView, worldPosition, N, normalize(source.position - worldPosition));

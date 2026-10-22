@@ -564,6 +564,13 @@ namespace Desert::Graphic::System
         // (the opaque ones read the screen mask through their DESERT_SUN_SHADOW_SCREEN_MASK permutation, the lit
         // queue is shaded by the composite). SceneRenderer::OnUpdate draws the low-detail cascades only when true.
         [[nodiscard]] bool SunCascadeReadersQueued() const;
+        // A visible queued forward draw (blended or opaque) whose program samples the local shadow atlas: under
+        // Shadows HardwareTraced only the deferred composite reads the ray-traced masks, so SceneRenderer keeps
+        // drawing the point/spot maps while this is true (no surface loses its local shadows).
+        [[nodiscard]] bool LocalShadowMapReadersQueued() const;
+        // The visible queued forward draws whose compiled program samples @p textureName (blended ones only when
+        // @p blendedOnly).
+        [[nodiscard]] bool QueuedForwardDrawSamples( std::string_view textureName, bool blendedOnly ) const;
         // Every cascade's static cache marked never drawn: the next ShadowCascadePasses redraws and rebuilds each
         // fitted cascade. For a frame that draws the cascades after frames that did not (nothing kept them
         // current).

@@ -352,6 +352,17 @@ namespace Desert::Graphic::RDG
         return *this;
     }
 
+    BindingBlockBuilder& BindingBlockBuilder::StorageLayer( std::string_view shaderName, TextureRef texture,
+                                                            Access declared, uint32_t mip, uint32_t layer )
+    {
+        m_Pass.DeclareTexture( texture, declared, SubresourceRange::MipLayer( mip, layer ), IsWriteAccess( declared ),
+                               "Bindings.StorageLayer" );
+        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+             { std::string( shaderName ), ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index,
+               declared, SubresourceRange::MipLayer( mip, layer ), std::nullopt } );
+        return *this;
+    }
+
     BindingBlockBuilder& BindingBlockBuilder::Uniform( std::string_view shaderName, BufferRef buffer )
     {
         m_Pass.DeclareBuffer( buffer, Access::UniformRead, false, "Bindings.Uniform" );
