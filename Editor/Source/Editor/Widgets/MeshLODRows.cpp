@@ -38,8 +38,9 @@ namespace Desert::Editor::MeshLODRows
         return tris;
     }
 
-    std::optional<std::size_t> DrawingLevel( const ::Desert::Core::Scene* scene, const ::Desert::ECS::Entity& entity,
-                                             const ::Desert::Mesh& mesh, const int forcedLOD, const int lodBias )
+    std::optional<std::size_t> DrawingLevel( const ::Desert::Core::Scene* scene,
+                                             const ::Desert::ECS::Entity& entity, const ::Desert::Mesh& mesh,
+                                             const int forcedLOD, const int lodBias )
     {
         const std::size_t levels = LevelCount( mesh );
         if ( !scene || levels == 0 )

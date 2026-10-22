@@ -27,8 +27,9 @@ namespace Desert::Editor::MeshLODRows
     std::uint32_t Triangles( const ::Desert::Mesh& mesh, std::size_t level );
     // The level `scene`'s active camera draws `entity` at — the renderer's own policy (Geometry::SelectLOD), so a
     // marker cannot disagree with what is on screen. Empty without a scene or camera.
-    std::optional<std::size_t> DrawingLevel( const ::Desert::Core::Scene* scene, const ::Desert::ECS::Entity& entity,
-                                             const ::Desert::Mesh& mesh, int forcedLOD, int lodBias );
+    std::optional<std::size_t> DrawingLevel( const ::Desert::Core::Scene* scene,
+                                             const ::Desert::ECS::Entity& entity, const ::Desert::Mesh& mesh,
+                                             int forcedLOD, int lodBias );
     // One table row per level: LOD, triangles, screen size; `marked` (the level on screen) carries `markLabel`.
     void DrawLevels( const ::Desert::Mesh& mesh, std::optional<std::size_t> marked, const char* markLabel );
     // THE PER-LOD SCREEN SIZES OF THE MESH (UE Static Mesh editor, LOD Settings: "Auto Compute LOD Distances"
