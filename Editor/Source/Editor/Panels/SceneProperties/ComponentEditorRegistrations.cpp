@@ -25,6 +25,8 @@
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
@@ -665,6 +667,117 @@ namespace Desert::Editor
         return e;
     }
 
+    // UE's "User Parameters" category of a placed Niagara component: one row per User parameter OF THE SYSTEM
+    // (name, type, default from the `.dfx`), a checkbox that turns this placement's override on (starting from
+    // the default) or off (the default plays again), and a widget of the parameter's own type. The override list
+    // on the component is Hidden in the reflected grid because a bare name/value list knows neither the type nor
+    // the default; the rows come from the system, so a name the system lost is shown as stale and can be removed.
+    static void DrawVFXUserParameters( ::Desert::ECS::VFXComponentData& data )
+    {
+        namespace Ser = ::Desert::Assets::Serialization;
+        if ( data.System == ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) )
+            return;
+        auto* service = ::Desert::Runtime::ResourceRegistry::GetVFXSystemService();
+        if ( service == nullptr )
+            return;
+        const auto system = service->Get( data.System );
+
+        ImGui::Spacing();
+        if ( !ImGui::CollapsingHeader( "User Parameters", ImGuiTreeNodeFlags_DefaultOpen ) )
+            return;
+        if ( !system )
+        {
+            ImGui::TextDisabled( "The system cannot be read: %s", system.GetError().c_str() );
+            return;
+        }
+        if ( !system.GetValue() )
+        {
+            ImGui::TextDisabled( "Loading the system..." );
+            return;
+        }
+        const auto& rows = system.GetValue()->UserParams;
+        if ( rows.empty() )
+            ImGui::TextDisabled( "The system has no User parameters." );
+
+        for ( const Ser::VFXUserParam& row : rows )
+        {
+            ImGui::PushID( row.Name.c_str() );
+            const auto it =
+                 std::find_if( data.Overrides.begin(), data.Overrides.end(),
+                               [&]( const ::Desert::ECS::VFXUserOverride& o ) { return o.Name == row.Name; } );
+            bool overridden = it != data.Overrides.end();
+            if ( ImGui::Checkbox( "##on", &overridden ) )
+            {
+                if ( overridden )
+                    data.SetVariable( row.Name, row.Default );
+                else
+                    data.ClearVariable( row.Name );
+            }
+            ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
+                 overridden ? "This placement overrides the parameter; untick to play the system's Default"
+                            : "The system's Default plays; tick to give this placement its own value" );
+            ImGui::SameLine();
+
+            glm::vec4 value = Ser::UserParamValue( row, data.Overrides );
+            ImGui::BeginDisabled( !overridden );
+            ImGui::TextUnformatted( row.Name.c_str() );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( -FLT_MIN );
+            bool changed = false;
+            switch ( row.Type )
+            {
+            case Ser::VFXValueType::Float: changed = ImGui::DragFloat( "##v", &value.x, 0.01f ); break;
+            case Ser::VFXValueType::Vec2: changed = ImGui::DragFloat2( "##v", &value.x, 0.01f ); break;
+            case Ser::VFXValueType::Vec3: changed = ImGui::DragFloat3( "##v", &value.x, 0.01f ); break;
+            case Ser::VFXValueType::Vec4: changed = ImGui::DragFloat4( "##v", &value.x, 0.01f ); break;
+            case Ser::VFXValueType::Int:
+            {
+                int i = static_cast<int>( value.x );
+                if ( ImGui::DragInt( "##v", &i ) )
+                {
+                    value   = glm::vec4( static_cast<float>( i ), 0.0f, 0.0f, 0.0f );
+                    changed = true;
+                }
+                break;
+            }
+            case Ser::VFXValueType::Bool:
+            {
+                bool b = value.x != 0.0f;
+                if ( ImGui::Checkbox( "##v", &b ) )
+                {
+                    value   = glm::vec4( b ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f );
+                    changed = true;
+                }
+                break;
+            }
+            }
+            if ( changed && overridden )
+                data.SetVariable( row.Name, value );
+            ImGui::EndDisabled();
+            ImGui::PopID();
+        }
+
+        // Overrides naming a parameter the system no longer has: they play nothing, so say so and offer removal.
+        for ( size_t i = 0; i < data.Overrides.size(); ++i )
+        {
+            const auto& name = data.Overrides[i].Name;
+            if ( std::any_of( rows.begin(), rows.end(),
+                              [&]( const Ser::VFXUserParam& r ) { return r.Name == name; } ) )
+                continue;
+            ImGui::PushID( static_cast<int>( i ) );
+            ImGui::TextColored( ::Desert::Editor::ThemeManager::GetWarningColor(),
+                                "%s: the system has no such User parameter", name.c_str() );
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( "Remove" ) )
+            {
+                data.ClearVariable( std::string( name ) );
+                ImGui::PopID();
+                break;
+            }
+            ImGui::PopID();
+        }
+    }
+
     // VFX: transport first, then the reflected fields. Deactivate writes AutoActivate (the same field VFXWorld
     // reads, so nothing new can drift out of sync) and Restart raises the component's one-shot flag that VFXWorld
     // consumes next tick.
@@ -700,6 +813,9 @@ namespace Desert::Editor
 
             PropertyEditorBuilder::Draw( &c.Data, "VFXComponentData", ctx.AssetMgr(), ctx.UIHelper,
                                          ctx.FieldFilter );
+
+            if ( !ctx.FieldFilter )
+                DrawVFXUserParameters( c.Data );
         };
         return e;
     }
