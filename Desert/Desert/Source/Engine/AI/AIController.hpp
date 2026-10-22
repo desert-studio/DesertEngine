@@ -29,7 +29,7 @@
 // gated as the other AI components' are (ReflectedComponentBlocks.gen.hpp must not include this header before
 // AIControllerSystem exists).
 
-#include <Common/Core/AssetHandle.hpp>
+#include <Engine/Assets/Common.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <CoreReflection/ReflectionMacros.hpp>
 

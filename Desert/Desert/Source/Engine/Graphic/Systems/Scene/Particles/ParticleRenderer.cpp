@@ -206,13 +206,14 @@ namespace Desert::Graphic::System
     bool ParticleRenderer::ViewEmittersSample( const std::string_view textureName ) const
     {
         for ( const ViewEmitter& emitter : m_ViewEmitters )
-        {
-            if ( emitter.Sprite == nullptr || !emitter.Sprite->Pipeline )
-                continue;
-            const auto& shader = emitter.Sprite->Pipeline->GetSpecification().Shader;
-            if ( shader && shader->SamplesTexture( textureName ) )
-                return true;
-        }
+            for ( const ViewDraw& draw : emitter.Draws )
+            {
+                if ( draw.Sprite == nullptr || !draw.Sprite->Pipeline )
+                    continue;
+                const auto& shader = draw.Sprite->Pipeline->GetSpecification().Shader;
+                if ( shader && shader->SamplesTexture( textureName ) )
+                    return true;
+            }
         return false;
     }
 

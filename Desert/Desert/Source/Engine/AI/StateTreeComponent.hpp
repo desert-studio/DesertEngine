@@ -18,7 +18,7 @@
 #include <Engine/AI/StateTree/StateTreeExecution.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 
-#include <Common/Core/AssetHandle.hpp>
+#include <Engine/Assets/Common.hpp>
 #include <CoreReflection/ReflectionMacros.hpp>
 
 #include <cstdint>

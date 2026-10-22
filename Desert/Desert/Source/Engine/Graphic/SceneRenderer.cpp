@@ -2576,8 +2576,10 @@ namespace Desert::Graphic
                 const Common::ResultStr<System::RayTracedSunShadowOutputs> traced = m_RayTracedLocalShadow.AddTracePass(
                      graph, inputs, light, m_RayTracedShadowSamples, frame.FrameIndex );
                 if ( !traced )
+                {
                     LOG_ERROR( "[SceneRenderer] {}: {}; local light slot {} casts no shadow this frame",
                                m_ViewResources.GetName(), traced.GetError(), slot );
+                }
                 else
                     visibility = traced.GetValue().Mask;
                 // A point emitter (SourceRadius 0) casts a hard shadow from one ray: nothing to denoise. A light
@@ -2585,10 +2587,12 @@ namespace Desert::Graphic
                 if ( traced && light.SourceRadius > 0.0f && light.SourceId != 0 )
                 {
                     if ( !velocity.IsValid() )
+                    {
                         LOG_ERROR( "[SceneRenderer] {}: Shadows: Ray Traced Local: the denoiser reprojects its "
                                    "history through the view's velocity, the frame has none; the undenoised mask "
                                    "is shaded",
                                    m_ViewResources.GetName() );
+                    }
                     else
                     {
                         live.insert( light.SourceId );

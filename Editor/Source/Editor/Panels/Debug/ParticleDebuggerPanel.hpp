@@ -31,16 +31,16 @@ namespace Desert::Editor
     class ParticleDebuggerPanel final : public IPanel
     {
     public:
-        explicit ParticleDebuggerPanel( const std::shared_ptr<Core::Scene>& scene );
+        explicit ParticleDebuggerPanel( const std::shared_ptr<Desert::Core::Scene>& scene );
 
         void OnUIRender() override;
-        void SetScene( const std::shared_ptr<Core::Scene>& scene ) override;
+        void SetScene( const std::shared_ptr<Desert::Core::Scene>& scene ) override;
 
     private:
         // Sends the request (the panel's visibility, the selection, the page) to the scene's particles.
         void SendRequest( bool enabled ) const;
 
-        std::weak_ptr<Core::Scene> m_Scene;
+        std::weak_ptr<Desert::Core::Scene> m_Scene;
         uint32_t                   m_EntityId = 0;
         uint32_t                   m_Emitter  = 0;
         uint32_t                   m_FirstRow = 0;

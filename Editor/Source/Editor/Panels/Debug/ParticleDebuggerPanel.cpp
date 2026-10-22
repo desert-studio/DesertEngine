@@ -16,12 +16,12 @@ namespace Desert::Editor
     using Graphic::System::ParticleEmitterDebug;
     using Graphic::System::ParticleWorldGpu;
 
-    ParticleDebuggerPanel::ParticleDebuggerPanel( const std::shared_ptr<Core::Scene>& scene )
+    ParticleDebuggerPanel::ParticleDebuggerPanel( const std::shared_ptr<Desert::Core::Scene>& scene )
          : IPanel( "Particle Debugger", false ), m_Scene( scene )
     {
     }
 
-    void ParticleDebuggerPanel::SetScene( const std::shared_ptr<Core::Scene>& scene )
+    void ParticleDebuggerPanel::SetScene( const std::shared_ptr<Desert::Core::Scene>& scene )
     {
         SendRequest( false ); // the previous scene stops reading back
         m_Scene    = scene;
@@ -31,7 +31,7 @@ namespace Desert::Editor
 
     void ParticleDebuggerPanel::SendRequest( const bool enabled ) const
     {
-        const std::shared_ptr<Core::Scene> scene = m_Scene.lock();
+        const std::shared_ptr<Desert::Core::Scene> scene = m_Scene.lock();
         if ( !scene )
             return;
         ParticleDebugRequest request;
@@ -53,7 +53,7 @@ namespace Desert::Editor
             ImGui::End();
             return;
         }
-        const std::shared_ptr<Core::Scene> scene = m_Scene.lock();
+        const std::shared_ptr<Desert::Core::Scene> scene = m_Scene.lock();
         if ( !scene )
         {
             ImGui::TextUnformatted( "No scene." );
