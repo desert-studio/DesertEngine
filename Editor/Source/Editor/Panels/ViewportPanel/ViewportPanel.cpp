@@ -211,6 +211,20 @@ namespace Desert::Editor
         return viewport->StrokeFoliageAtCentre();
     }
 
+    Common::BoolResultStr ViewportPanel::PreviewLODInActiveViewport( const uint32_t entity, const int level )
+    {
+        auto* viewport = ActiveViewport();
+        if ( !viewport || !viewport->m_Scene )
+            return Common::MakeError( "LOD preview: no viewport is open" );
+        // The primary viewport has no view renderer of its own: it is the scene's (view 0).
+        auto* renderer =
+             viewport->m_ViewRenderer ? viewport->m_ViewRenderer : viewport->m_Scene->GetSceneRenderer();
+        if ( !renderer )
+            return Common::MakeError( "LOD preview: the active viewport has no renderer yet" );
+        renderer->SetLODPreview( entity, level );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr ViewportPanel::PlaceShapeInActiveViewport()
     {
         auto* viewport = ActiveViewport();

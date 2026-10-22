@@ -830,6 +830,10 @@ namespace Desert::Graphic
         const ActiveViewScope viewScope( m_ViewResources );
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
+        // The LOD preview lease (SetLODPreview) lapses unless the tool renewed it since the last frame.
+        if ( m_LODPreview.FramesLeft > 0 )
+            --m_LODPreview.FramesLeft;
+
         // HANDED IN, NOT READ OFF THE SCENE. This used to be `scene.GetMainCamera()`, which is the same
         // answer for every renderer of that scene — so a second view of one world rendered from the
         // first view's camera, and "several viewports" could only ever mean "several worlds". The scene
@@ -2586,6 +2590,24 @@ namespace Desert::Graphic
                                      transform, Geometry::LocalBounds( mesh->GetSubmeshes() ), maxDrawDistance );
     }
 
+    void SceneRenderer::SetLODPreview( const uint32_t entity, const int level )
+    {
+        if ( level < 0 )
+        {
+            m_LODPreview = {};
+            return;
+        }
+        // Two frames: the renewal and the frame's BeginScene may come in either order within one frame.
+        m_LODPreview = { .Entity = entity, .Level = level, .FramesLeft = 2 };
+    }
+
+    int SceneRenderer::LODPreviewFor( const uint32_t entity, const int authoredForcedLOD ) const
+    {
+        if ( m_LODPreview.FramesLeft > 0 && m_LODPreview.Level >= 0 && m_LODPreview.Entity == entity )
+            return m_LODPreview.Level;
+        return authoredForcedLOD;
+    }
+
     void SceneRenderer::SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,
                                     const glm::mat4& transform, const RenderSubmissionExtra& extra )
     {
@@ -2611,7 +2633,7 @@ namespace Desert::Graphic
                              .MorphRevision            = extra.MorphRevision,
                              .Outlined                 = extra.Outlined,
                              .HiddenSubmeshes          = extra.HiddenSubmeshes,
-                             .ForcedLOD                = extra.ForcedLOD,
+                             .ForcedLOD                = LODPreviewFor( extra.Entity, extra.ForcedLOD ),
                              .LODBias                  = extra.LODBias,
                              .CastShadows              = extra.CastShadows,
                              .ReceiveShadows           = extra.ReceiveShadows,

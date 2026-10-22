@@ -314,6 +314,14 @@ namespace Desert::Graphic
         void SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots, const glm::mat4& transform,
                          const RenderSubmissionExtra& extra );
 
+        // THE VIEW'S LOD PREVIEW (UE LOD Manager / Static Mesh Editor "LOD" preview): draw `entity`'s static mesh
+        // at `level` in THIS view only — every pass (G-buffer, shadows, forward) reads it through the draw's
+        // ForcedLOD, the authored StaticMeshComponent::ForcedLOD is untouched and other views keep their own pick.
+        // It is a LEASE, not a setting: per-frame renderer state that lapses one frame after the caller stops
+        // renewing it (BeginScene), so a closed tool can never leave a view pinned. level < 0 clears it now.
+        void SetLODPreview( uint32_t entity, int level );
+        [[nodiscard]] int LODPreviewFor( uint32_t entity, int authoredForcedLOD ) const;
+
         // Submit one landscape tile for this frame (from LandscapeECSSystem via DrawLandscapeTileCommand):
         // the Terrain pipeline reading the tile's R16 copy, surfaced with its root's material and layers.
         void SubmitLandscapeTile( const std::shared_ptr<Image2D>& heightmap, const System::LandscapeTileDraw& tile,
@@ -748,6 +756,14 @@ namespace Desert::Graphic
         // Set by ResetTemporalHistory (the one cut entry point: ShotDirector, headless capture); consumed by the
         // next BeginFrame that succeeds as ViewInputs::CameraCut.
         bool m_CameraCutPending = false;
+        // SetLODPreview's lease: the entity, its level, and the frames it still holds (renewed by the tool).
+        struct LODPreviewLease
+        {
+            uint32_t Entity     = 0;
+            int      Level      = -1;
+            int      FramesLeft = 0;
+        };
+        LODPreviewLease m_LODPreview;
         // ScenePreExposure's source this frame (ViewInputs::LastExposure); 0 = none known.
         float m_LastExposure = 0.0f;
         // Scene::GetGeneration() of the scene BeginScene was handed (a reload at the same address is a new
