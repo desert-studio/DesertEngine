@@ -107,8 +107,8 @@ Shader "ParticleMeshInstances"
             float screenRadiusSq = r * r / max( 1.0, distSq );
             for ( uint level = u_Lod.x - 1u; level > 0u; --level )
             {
-                float half = 0.5 * uintBitsToFloat( u_Args[LodSizeWord( level )] );
-                if ( half * half > screenRadiusSq )
+                float halfSize = 0.5 * uintBitsToFloat( u_Args[LodSizeWord( level )] );
+                if ( halfSize * halfSize > screenRadiusSq )
                     return level;
             }
             return 0u;
