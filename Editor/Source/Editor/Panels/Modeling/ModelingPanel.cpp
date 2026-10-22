@@ -1459,8 +1459,8 @@ namespace Desert::Editor
         if ( ImGui::RadioButton( "Auto", choice < 0 ) )
             choice = -1;
         // The buttons wrap to the next line when the palette column is too narrow for all of them.
-        const ImGuiStyle& style  = ImGui::GetStyle();
-        const float       right  = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float       right = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
         for ( int l = 0; l < static_cast<int>( t.Levels ); ++l )
         {
             const std::string label = std::format( "LOD{}", l );
