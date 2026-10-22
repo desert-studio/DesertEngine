@@ -264,6 +264,11 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
+    // The Forward program is the only forward terrain program: it draws in "TerrainPass" of AddFrameBasePass, on
+    // the Forward render path only, and the ray-traced screen masks (sun, local lights) are made only on the
+    // Deferred path, from the G-buffer (SceneRenderer::OnUpdate's composite block). No frame offers this pass a
+    // mask, so it has no DESERT_*_SHADOW_SCREEN_MASK permutation: under HardwareTraced it reads the cascades and
+    // the atlas, and answering so here keeps them drawn (SunCascadesRead / LocalShadowMapsRead).
     bool TerrainRenderer::ForwardReadsTexture( const std::string_view textureName ) const
     {
         if ( m_SceneRenderer == nullptr || m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
