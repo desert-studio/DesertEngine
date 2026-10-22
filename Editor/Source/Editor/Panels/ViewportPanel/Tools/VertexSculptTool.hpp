@@ -53,6 +53,7 @@ namespace Desert::Editor::Tools
         std::optional<Stroke> m_Stroke;
         bool                  m_HoverHit = false;
         // The hit query over the mesh the brush is on; rebuilt when that mesh object or its contents change.
+        std::shared_ptr<const Geometry::DynamicMesh3> m_TreeHold; // keeps the address the tree reads alive
         const Geometry::DynamicMesh3*  m_TreeMesh  = nullptr;
         uint64_t                       m_TreeStamp = 0;
         Geometry::DynamicMeshAABBTree3 m_Tree;

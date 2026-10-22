@@ -24,13 +24,13 @@ namespace Desert::Editor::Tools
     {
         using MS = Core::ModelingState;
 
-        ECS::Entity* EntityOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
+        const ECS::Entity* EntityOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
         {
             auto ref = scene.FindEntityByID( id );
             return ref ? &ref->get() : nullptr;
         }
 
-        ECS::StaticMeshComponent* MeshOf( ECS::Entity* e )
+        ECS::StaticMeshComponent* MeshOf( const ECS::Entity* e )
         {
             return e != nullptr && e->HasComponent<ECS::StaticMeshComponent>()
                         ? &e->GetComponent<ECS::StaticMeshComponent>()
@@ -108,7 +108,7 @@ namespace Desert::Editor::Tools
         if ( m_Stroke && static_cast<uint64_t>( m_Stroke->Entity ) != static_cast<uint64_t>( sel ) )
             EndStroke( scene );
 
-        ECS::Entity*              entity    = EntityOf( scene, sel );
+        const ECS::Entity*              entity    = EntityOf( scene, sel );
         ECS::StaticMeshComponent* component = MeshOf( entity );
         if ( component == nullptr )
         {
@@ -124,7 +124,10 @@ namespace Desert::Editor::Tools
         std::shared_ptr<const Geometry::DynamicMesh3> targetHold;
         std::shared_ptr<const Geometry::DynamicMesh3> committed;
         if ( m_Stroke )
-            target = m_Stroke->Working.get();
+        {
+            targetHold = m_Stroke->Working;
+            target     = targetHold.get();
+        }
         else
         {
             auto t = GetToolTargetMesh( *component );
@@ -143,6 +146,7 @@ namespace Desert::Editor::Tools
         {
             m_Tree.SetMesh( target, true );
             m_TreeMesh  = target;
+            m_TreeHold  = targetHold;
             m_TreeStamp = target->GetChangeStamp();
         }
 
