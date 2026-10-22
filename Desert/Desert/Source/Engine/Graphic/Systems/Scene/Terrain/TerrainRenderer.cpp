@@ -417,18 +417,18 @@ namespace Desert::Graphic::System
         // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────
         // (the instance rows go up in PrepareLocalShadowViews, once the lights' rows follow the camera's)
         TerrainUB ub{};
-        ub.View       = frame.View;
-        ub.Projection = frame.Projection;
-        ub.ViewProjection         = frame.ViewProjection;
-        ub.PrevViewProjection     = frame.PrevViewProjection;
-        ub.JitteredViewProjection = frame.JitteredViewProjection;
+        ub.View                      = frame.View;
+        ub.Projection                = frame.Projection;
+        ub.ViewProjection            = frame.ViewProjection;
+        ub.PrevViewProjection        = frame.PrevViewProjection;
+        ub.JitteredViewProjection    = frame.JitteredViewProjection;
         ub.InvJitteredViewProjection = frame.InvJitteredViewProjection;
-        ub.Exposure               = glm::vec4( frame.PreExposure, 0.0f, 0.0f, 0.0f );
+        ub.Exposure                  = glm::vec4( frame.PreExposure, 0.0f, 0.0f, 0.0f );
 
         for ( const auto& group : m_FrameGroups )
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
-            DataDrivenMaterial* surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
+            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
             for ( DataDrivenMaterial* material :
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
             {
@@ -532,8 +532,9 @@ namespace Desert::Graphic::System
         for ( const auto& group : m_FrameGroups )
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
-            DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : materials.Forward.get();
-            for ( DataDrivenMaterial* material : { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
+            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
+            for ( DataDrivenMaterial* material :
+                  { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
                 if ( auto* instances = material->Get<StorageBufferProperty>( "TerrainInstances" ) )
                     instances->SetRawData(
                          group.Instances.data(),
