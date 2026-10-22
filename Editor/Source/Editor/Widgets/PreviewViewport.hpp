@@ -329,6 +329,12 @@ namespace Desert::Editor
         // copy, so an edit shows without an Apply).
         void SetVolumeMaterial( const Assets::AssetHandle& material );
 
+        // A `.dfx` system played by one VFXComponent in the preview scene, on the floor, realtime (an effect moves
+        // every frame, so the change-gated render would freeze it). Zero clears like Clear().
+        void SetVFXSystem( const Assets::AssetHandle& system );
+        // UE Reset Simulation: every emitter of the previewed system starts over (VFXComponent::RequestRestart).
+        void RestartVFX();
+
         void Clear();
 
         // WHAT THE CALLER KNOWS ABOUT ITS SUBJECT that this widget cannot see: the parameter values of the
@@ -503,6 +509,7 @@ namespace Desert::Editor
         // modelling volume of 8 MiB and a sky-occlusion volume of 2 MiB per renderer, which no material
         // preview should pay for by existing.
         ECS::Entity m_CloudLayer;
+        ECS::Entity m_Effect; // SetVFXSystem's VFXComponent, created on first use
 
         Fill                m_Fill       = Fill::Empty;
         bool                m_Inited     = false;

@@ -28,6 +28,7 @@
 #include "Editor/Panels/ControlRig/ControlRigDocument.hpp"
 #include "Editor/Panels/UI/UIEditorPanel.hpp"
 #include "Editor/Panels/VFXDataChannel/VFXDataChannelDocument.hpp"
+#include "Editor/Panels/VFXSystem/VFXSystemDocument.hpp"
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -159,6 +160,21 @@ namespace Desert::Editor
                   {
                       return std::make_unique<Editor::VFXDataChannelDocument>(
                            Assets::AssetHandle( subject.Owner ), assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
+        // THE VFX SYSTEM EDITOR (UE Niagara System editor): System | Preview | Stack. Claims a renderer slot.
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::VFXSystem ) ),
+             Registration{
+                  "VFXSystem", ICON_MDI_FIRE,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      return std::make_unique<Editor::VFXSystemDocument>( Assets::AssetHandle( subject.Owner ),
+                                                                          assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
                       return assetManager &&
@@ -566,6 +582,10 @@ namespace Desert::Editor
              { std::string( Assets::Serialization::kVFXDataChannelExtension ) },
              [&documents, &assetManager]( const std::string& path )
              { return RequestVFXDataChannelDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Assets::Serialization::kVFXSystemExtension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestVFXSystemDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
         documents.SubjectEditors().RegisterPathOpener(
              { std::string( Assets::Serialization::kWorldParametersExtension ) },
              [&documents, &assetManager]( const std::string& path )
