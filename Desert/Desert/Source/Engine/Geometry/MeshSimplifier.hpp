@@ -15,10 +15,18 @@ namespace Desert::Geometry
         float                 Error = 0.0f; // resulting geometric error, relative to the mesh extent
     };
 
-    // positions: tightly-packed xyz per vertex (vertexCount * 3 floats). targetRatio in (0,1]; targetError
-    // is the max allowed relative error (the simplifier stops early if it would exceed it). Returns the
-    // original indices unchanged for degenerate input.
-    SimplifyResult SimplifyMesh( const float* positions, std::size_t vertexCount,
-                                 const std::vector<uint32_t>& indices, float targetRatio,
-                                 float targetError = 0.05f );
+    // Per-vertex attributes the reduction weighs next to position (UE's QEM attribute-aware metric):
+    // normal xyz + UV0 uv, tightly packed. Seams (same position, different wedge) are NOT barriers -
+    // meshopt collapses along them, keeping both wedges.
+    constexpr std::size_t kSimplifyAttributeCount = 5;
+
+    // positions: tightly-packed xyz per vertex (vertexCount * 3 floats). attributes: null, or
+    // kSimplifyAttributeCount floats per vertex (normal xyz, uv). targetRatio in (0,1]; targetError is the
+    // max allowed relative error (the simplifier stops early if it would exceed it); a ratio LOD passes
+    // kNoErrorLimit, as UE reduces to a percent of triangles with no deviation cap. Returns the original
+    // indices unchanged for degenerate input.
+    constexpr float kNoErrorLimit = 3.0e38f;
+    SimplifyResult  SimplifyMesh( const float* positions, std::size_t vertexCount,
+                                  const std::vector<uint32_t>& indices, float targetRatio,
+                                  float targetError = 0.05f, const float* attributes = nullptr );
 } // namespace Desert::Geometry

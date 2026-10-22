@@ -274,7 +274,7 @@ namespace Desert::Graphic::System
                 {
                     if ( si < 64 && ( draw.HiddenSubmeshMask & ( 1ull << si ) ) != 0 )
                         continue;
-                    const Geometry::Submesh& sm      = submeshes[si];
+                    const auto&              sm      = submeshes[si];
                     uint32_t                 indices = sm.IndexCount;
                     if ( !sm.LODs.empty() )
                         indices = sm.LODs[std::min<std::size_t>( draw.LodLevel, sm.LODs.size() - 1 )].IndexCount;
