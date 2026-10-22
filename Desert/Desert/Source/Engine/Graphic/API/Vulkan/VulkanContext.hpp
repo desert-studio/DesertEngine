@@ -2,8 +2,6 @@
 
 #include <vulkan/vulkan.h>
 
-#include <string_view>
-
 #include <Engine/Graphic/RendererContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 
@@ -14,34 +12,6 @@ namespace vkb
 
 namespace Desert::Graphic::API::Vulkan
 {
-    // The vkCreateGraphicsPipelines call running on THIS thread: its pipeline's name and colour blend state, so
-    // the debug callback (VulkanContext.cpp) can tell a driver message ABOUT that create from the create's own
-    // state. MoltenVK 1.4.2 reports "Blending is enabled for attachment with format X, which does not support
-    // it." for every colour attachment whose format cannot blend, WITHOUT reading blendEnable
-    // (MVKPipeline.mm:1990 `else if (mtlPixFmt && !supportsBlend)`; KhronosGroup/MoltenVK#2811, fixed upstream
-    // f92b64c 2026-08-25 by adding `&& pCA->blendEnable`, no release carries it yet). The G-buffer's RG32_UINT
-    // shading word is such a slot, never blended (Pipeline.hpp ColourAttachmentBlends). Held for the duration
-    // of the create only; nests nothing (one create per thread at a time).
-    class PipelineCreateScope
-    {
-    public:
-        PipelineCreateScope( std::string_view name, const VkPipelineColorBlendStateCreateInfo* blend );
-        ~PipelineCreateScope();
-        PipelineCreateScope( const PipelineCreateScope& )            = delete;
-        PipelineCreateScope& operator=( const PipelineCreateScope& ) = delete;
-
-        struct Active
-        {
-            std::string_view                           Name;
-            const VkPipelineColorBlendStateCreateInfo* Blend = nullptr;
-        };
-        // The create running on this thread, nullptr outside one.
-        [[nodiscard]] static const Active* Current();
-
-    private:
-        Active m_Active;
-    };
-
     class VulkanAllocator;
     class VulkanContext final : public RendererContext
     {

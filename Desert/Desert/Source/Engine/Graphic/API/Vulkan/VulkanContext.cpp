@@ -124,32 +124,6 @@ namespace Desert::Graphic::API::Vulkan
             return VK_FALSE;
         }
 
-        // MoltenVK 1.4.2's blend warning is emitted for a non-blendable format whatever blendEnable says
-        // (PipelineCreateScope, VulkanContext.hpp). It is checked against the create it is about: when NO colour
-        // attachment of that pipeline has blendEnable set, the message is provably false and goes to TRACE with
-        // the pipeline's name; a pipeline that does blend somewhere still gets the WARN, named.
-        constexpr std::string_view kMoltenVkBlendWarning = "Blending is enabled for attachment with format ";
-        const PipelineCreateScope::Active* creating      = PipelineCreateScope::Current();
-        if ( pMessage != nullptr &&
-             std::string_view( pMessage ).find( kMoltenVkBlendWarning ) != std::string_view::npos )
-        {
-            bool anyBlend = creating == nullptr || creating->Blend == nullptr;
-            if ( !anyBlend )
-                for ( uint32_t slot = 0; slot < creating->Blend->attachmentCount; ++slot )
-                    anyBlend = anyBlend || creating->Blend->pAttachments[slot].blendEnable == VK_TRUE;
-            if ( !anyBlend )
-            {
-                LOG_TRACE( "[Vulkan] '{}': MoltenVK blend warning with blendEnable off on all {} colour slots "
-                           "(MoltenVK#2811, not a defect): {}",
-                           creating->Name, creating->Blend->attachmentCount, pMessage );
-                return VK_FALSE;
-            }
-            LOG_WARN( "VulkanDebugCallback ('{}' blends a colour slot):\n  Message: {}",
-                      creating != nullptr ? creating->Name : std::string_view( "<no pipeline create>" ),
-                      pMessage );
-            return VK_FALSE;
-        }
-
         LOG_WARN( "VulkanDebugCallback:\n  Object Type: {0}\n  Message: {1}", (int)objectType, pMessage );
         return VK_FALSE;
     }
@@ -356,28 +330,6 @@ namespace Desert::Graphic::API::Vulkan
         // No window is a valid context: the headless host (Desert/Tests/Engine/EngineHost) boots the device,
         // the allocators and the renderer without a surface. Nothing above reads the window; the swapchain
         // is the window's own (Window::SetupSwapChain) and is simply never made there.
-    }
-
-    namespace
-    {
-        thread_local const PipelineCreateScope::Active* t_PipelineCreate = nullptr;
-    } // namespace
-
-    PipelineCreateScope::PipelineCreateScope( const std::string_view                     name,
-                                              const VkPipelineColorBlendStateCreateInfo* blend )
-         : m_Active{ name, blend }
-    {
-        t_PipelineCreate = &m_Active;
-    }
-
-    PipelineCreateScope::~PipelineCreateScope()
-    {
-        t_PipelineCreate = nullptr;
-    }
-
-    const PipelineCreateScope::Active* PipelineCreateScope::Current()
-    {
-        return t_PipelineCreate;
     }
 
 } // namespace Desert::Graphic::API::Vulkan
