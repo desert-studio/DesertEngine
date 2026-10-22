@@ -140,7 +140,7 @@ namespace Desert::Geometry
                         const glm::dvec3 newPos = ( fixedA || fixedB ) ? mesh.GetVertex( keep ) : 0.5 * ( a + b );
                         if ( !turnsOver( keep, newPos, et ) && !turnsOver( remove, newPos, et ) )
                         {
-                            EdgeCollapseInfo info;
+                            DynamicMeshInfo::EdgeCollapseInfo info;
                             if ( mesh.CollapseEdge( keep, remove, 0.0, info ) == MeshResult::Ok )
                             {
                                 mesh.SetVertex( keep, newPos );
@@ -164,7 +164,7 @@ namespace Desert::Geometry
                     {
                         const glm::dvec3 n0 = mesh.GetTriNormal( et.A );
                         const glm::dvec3 n1 = mesh.GetTriNormal( et.B );
-                        EdgeFlipInfo     info;
+                        DynamicMeshInfo::EdgeFlipInfo     info;
                         if ( mesh.FlipEdge( eid, info ) == MeshResult::Ok )
                         {
                             // UE CheckIfFlipInvertsNormals: the new pair must face the way the old pair did.
@@ -173,7 +173,7 @@ namespace Desert::Geometry
                             const glm::dvec3 avg = n0 + n1;
                             if ( glm::dot( m0, avg ) <= 0.0 || glm::dot( m1, avg ) <= 0.0 )
                             {
-                                EdgeFlipInfo back;
+                                DynamicMeshInfo::EdgeFlipInfo back;
                                 (void)mesh.FlipEdge( eid, back );
                             }
                             else
@@ -188,7 +188,7 @@ namespace Desert::Geometry
                 // UE ProcessEdge: split a long edge at its midpoint.
                 if ( settings.Splits && length > maxLength )
                 {
-                    EdgeSplitInfo info;
+                    DynamicMeshInfo::EdgeSplitInfo info;
                     if ( mesh.SplitEdge( eid, info, 0.5 ) == MeshResult::Ok )
                         ++splits;
                 }
