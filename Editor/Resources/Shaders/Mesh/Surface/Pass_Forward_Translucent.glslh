@@ -20,7 +20,7 @@ layout( location = 0 ) out vec4 oColor;
 layout( location = 2 ) out vec4 oResponsiveAA;
 #endif
 
-// The scene directional light (struct DirectionLight + DirectionLightsUB, binding 3): GENERATED from
+// The scene directional light (struct DirectionLight + DirectionLightsUB, binding 14): GENERATED from
 // Engine/Graphic/ShaderProtocols/DirectionLight.hpp by the shader includer.
 #include <Common/DirectionLightsUB.glslh>
 
@@ -28,8 +28,10 @@ layout( location = 2 ) out vec4 oResponsiveAA;
 // these, bound by the pass with the inputs; 13 and 14, as in Pass_Forward.glslh.
 // The repeat state is numbered by the program build (`Uniform sampler`, ShaderMapBuild AssignSharedSamplerBindings):
 // a fixed 13 collided with the grass blade path's GrassBladeShape (Vertex_GrassBlade.glslh) in GrassBlade.Forward.
+// The clamp state too: a fixed 14 collided with the generated DirectionLightsUB (Engine/Graphic/ShaderProtocols/
+// DirectionLight.hpp, kDirectionLightsUBBinding), which every lit program includes (TERRAIN-BIND14).
 Uniform sampler LinearRepeatSampler;
-layout( binding = 14 ) uniform sampler LinearClampSampler;
+Uniform sampler LinearClampSampler;
 // THE MEGALIGHTS TRANSLUCENCY VOLUME (UE MegaLights' translucency volume, Shadows Stochastic): the local lights'
 // highlights on the glass, shadowed by MegaLights' traced samples. Off (any other Shadows method) it reads as no
 // light: the glass has no other local light.
