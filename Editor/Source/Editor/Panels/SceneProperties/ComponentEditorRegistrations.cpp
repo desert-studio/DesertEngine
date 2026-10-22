@@ -726,30 +726,38 @@ namespace Desert::Editor
             bool changed = false;
             switch ( row.Type )
             {
-            case Ser::VFXValueType::Float: changed = ImGui::DragFloat( "##v", &value.x, 0.01f ); break;
-            case Ser::VFXValueType::Vec2: changed = ImGui::DragFloat2( "##v", &value.x, 0.01f ); break;
-            case Ser::VFXValueType::Vec3: changed = ImGui::DragFloat3( "##v", &value.x, 0.01f ); break;
-            case Ser::VFXValueType::Vec4: changed = ImGui::DragFloat4( "##v", &value.x, 0.01f ); break;
-            case Ser::VFXValueType::Int:
-            {
-                int i = static_cast<int>( value.x );
-                if ( ImGui::DragInt( "##v", &i ) )
+                case Ser::VFXValueType::Float:
+                    changed = ImGui::DragFloat( "##v", &value.x, 0.01f );
+                    break;
+                case Ser::VFXValueType::Vec2:
+                    changed = ImGui::DragFloat2( "##v", &value.x, 0.01f );
+                    break;
+                case Ser::VFXValueType::Vec3:
+                    changed = ImGui::DragFloat3( "##v", &value.x, 0.01f );
+                    break;
+                case Ser::VFXValueType::Vec4:
+                    changed = ImGui::DragFloat4( "##v", &value.x, 0.01f );
+                    break;
+                case Ser::VFXValueType::Int:
                 {
-                    value   = glm::vec4( static_cast<float>( i ), 0.0f, 0.0f, 0.0f );
-                    changed = true;
+                    int i = static_cast<int>( value.x );
+                    if ( ImGui::DragInt( "##v", &i ) )
+                    {
+                        value   = glm::vec4( static_cast<float>( i ), 0.0f, 0.0f, 0.0f );
+                        changed = true;
+                    }
+                    break;
                 }
-                break;
-            }
-            case Ser::VFXValueType::Bool:
-            {
-                bool b = value.x != 0.0f;
-                if ( ImGui::Checkbox( "##v", &b ) )
+                case Ser::VFXValueType::Bool:
                 {
-                    value   = glm::vec4( b ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f );
-                    changed = true;
+                    bool b = value.x != 0.0f;
+                    if ( ImGui::Checkbox( "##v", &b ) )
+                    {
+                        value   = glm::vec4( b ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f );
+                        changed = true;
+                    }
+                    break;
                 }
-                break;
-            }
             }
             if ( changed && overridden )
                 data.SetVariable( row.Name, value );

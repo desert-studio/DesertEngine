@@ -57,13 +57,14 @@ namespace Desert::VFX
             return c;
         }
 
-        // @p value packed for a parameter of @p type (the type's components first, the rest 0), or why it does not fit.
+        // @p value packed for a parameter of @p type (the type's components first, the rest 0), or why it does not
+        // fit.
         Common::ResultStr<glm::vec4> PackUserValue( Assets::Serialization::VFXValueType type, const Value& value )
         {
             using T = Assets::Serialization::VFXValueType;
             if ( type == T::Bool )
                 if ( const auto* b = value.Get<bool>() )
-                    return glm::vec4( *b ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f );
+                    return Common::MakeSuccess( glm::vec4( *b ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f ) );
             if ( type == T::Float || type == T::Int || type == T::Bool )
             {
                 const std::optional<double> n = Number( value );
@@ -74,16 +75,16 @@ namespace Desert::VFX
                     x = static_cast<float>( static_cast<std::int32_t>( *n ) );
                 if ( type == T::Bool )
                     x = *n != 0.0 ? 1.0f : 0.0f;
-                return glm::vec4( x, 0.0f, 0.0f, 0.0f );
+                return Common::MakeSuccess( glm::vec4( x, 0.0f, 0.0f, 0.0f ) );
             }
             const std::optional<glm::vec4> c = Components( value );
             if ( !c )
                 return Common::MakeError<glm::vec4>( "needs a vector or a list of numbers" );
-            glm::vec4       packed( 0.0f );
-            const uint32_t  count = Assets::Serialization::ComponentCount( type );
+            glm::vec4      packed( 0.0f );
+            const uint32_t count = Assets::Serialization::ComponentCount( type );
             for ( uint32_t i = 0; i < count; ++i )
                 packed[static_cast<glm::length_t>( i )] = ( *c )[static_cast<glm::length_t>( i )];
-            return packed;
+            return Common::MakeSuccess( std::move( packed ) );
         }
 
         Common::BoolResultStr WriteField( VFXDataChannelWriter& w, std::size_t index,
@@ -176,7 +177,7 @@ namespace Desert::VFX
             LOG_ERROR( "[Script] VFX.setVariable('{}'): the entity has no VFX component", name );
             return false;
         }
-        auto& data = entity.GetComponent<ECS::VFXComponent>().Data;
+        auto& data    = entity.GetComponent<ECS::VFXComponent>().Data;
         auto* service = Runtime::ResourceRegistry::GetVFXSystemService();
         if ( service == nullptr )
             return false;
@@ -188,7 +189,7 @@ namespace Desert::VFX
             return false;
         }
         const auto& rows = system.GetValue()->UserParams;
-        const auto  row  = std::find_if( rows.begin(), rows.end(), [&]( const auto& r ) { return r.Name == name; } );
+        const auto row = std::find_if( rows.begin(), rows.end(), [&]( const auto& r ) { return r.Name == name; } );
         if ( row == rows.end() )
         {
             LOG_ERROR( "[Script] VFX.setVariable: the system has no User parameter '{}'", name );

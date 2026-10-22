@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Serialization/GlmReflection.hpp> // rfl writes the Value of a list element (VFXComponentData::Overrides)
 #include <CoreReflection/ReflectionMacros.hpp>
 
 #include <glm/glm.hpp>
