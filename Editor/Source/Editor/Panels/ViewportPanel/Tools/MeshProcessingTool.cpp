@@ -370,7 +370,7 @@ namespace Desert::Editor::Tools
         ECS::Entity b = ref->get();
         if ( b.HasComponent<ECS::VisibilityComponent>() )
         {
-            m_Session->OtherVisibility                     = b.GetComponent<ECS::VisibilityComponent>().Visible;
+            m_Session->OtherVisibility = b.GetComponent<ECS::VisibilityComponent>().Visible;
             b.GetComponent<ECS::VisibilityComponent>().Visible = false;
         }
         else

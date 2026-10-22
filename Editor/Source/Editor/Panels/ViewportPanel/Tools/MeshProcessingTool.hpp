@@ -120,8 +120,8 @@ namespace Desert::Editor::Tools
             // (A draws the preview) and put back by Restore - on Cancel, on a selection change, and before Accept
             // records its undo step. OtherHidden: B was hidden by the session; OtherVisibility: B's
             // VisibilityComponent before that (nullopt = it had none, so Restore removes the one added).
-            bool                                          OtherHidden = false;
-            std::optional<bool>                           OtherVisibility;
+            bool                OtherHidden = false;
+            std::optional<bool> OtherVisibility;
             // UE UMeshOpPreviewWithBackgroundCompute: the operator runs on a JobSystem worker on copies of the
             // input and the settings; the last preview stays on screen until it lands. A settings change while it
             // runs cancels it (PendingCancel) and starts the next one at once; dropping the session cancels it
