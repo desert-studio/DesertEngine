@@ -11,7 +11,9 @@
 Тогда 0_input the 100 cm Box selected, VoxOps palette
 Когда run Modeling "VoxOps tool: VoxMorph"
 Когда run Modeling "VoxMorph operation: Dilate"
-Тогда 1a_dilate_status the panel status line reports the Dilate 20 cm result
+Тогда 1a_dilate_computing the panel status says VoxMorph is computing (the operator runs ~5 s in Debug; DesertCtl has no wait-for-background step, these window frames cover it)
+Тогда 1a2_dilate_wait still the VoxMorph panel
+Тогда 1a3_dilate_status the panel status line reports the Dilate 20 cm result
 Тогда-вид 1_dilate_preview VoxMorph bar (Accept/Cancel); the Box is visibly thicker with rounded edges; the original Box is not drawn
 Когда run Modeling "Active tool: Accept"
 Тогда-вид 1_dilate a new entity "Box VoxMorph" is drawn (thick, rounded); the source Box is hidden
@@ -21,7 +23,9 @@
 Дано run Entity Box
 Когда run Modeling "VoxOps tool: VoxMorph"
 Когда run Modeling "VoxMorph operation: Contract"
-Тогда 2a_contract_status the panel status line reports the Contract 20 cm result
-Тогда-вид 2_contract_preview the Box is visibly smaller with rounded edges
+Тогда 2a_contract_computing the panel status says VoxMorph is computing
+Тогда 2a2_contract_wait still the VoxMorph panel
+Тогда 2a3_contract_status the panel status line reports the Contract 20 cm result
+Тогда-вид 2_contract_preview the Box is visibly smaller (convex edges of an eroded box stay sharp: a contracted convex solid keeps its corners)
 Когда run Modeling "Active tool: Cancel"
 Тогда-вид 2_cancel the tool ended; the Box is back to its original size and visible
