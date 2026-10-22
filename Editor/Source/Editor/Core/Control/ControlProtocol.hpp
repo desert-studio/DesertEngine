@@ -254,6 +254,9 @@ namespace Desert::Editor::Control
         /// Op::Drag — how many frames the pointer takes from `from` to `to` (Value holds fromX, fromY,
         /// toX, toY in the subject's image pixels). Optional: absent = PointerDrag::kDefaultSteps, said there.
         std::optional<uint32_t> Steps;
+        /// Op::Drag — modifier keys held for the whole drag, "shift+ctrl" spelling (ParseInputModifiers).
+        /// Optional: absent or empty = none, a plain click.
+        std::string DragModifiers;
 
         std::string              InputKind;
         std::string              Panel;
@@ -642,7 +645,8 @@ namespace Desert::Editor::Control
                          "'drag' aims at an image: subject 'document' (the focused document's view) or "
                          "'viewport' (the level viewport)." );
                 }
-                const auto steps = ReadOptionalInt( fields, "steps" );
+                request.DragModifiers = ReadString( fields, "modifiers" );
+                const auto steps      = ReadOptionalInt( fields, "steps" );
                 if ( !steps )
                     return Common::MakeFormattedError<Request>( "'drag': {}", steps.GetError() );
                 if ( const auto& stated = steps.GetValue() )

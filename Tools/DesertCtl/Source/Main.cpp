@@ -61,7 +61,9 @@ namespace
                       "  shot-window <file.png>        capture the WHOLE editor, interface included\n"
                       "  shot-viewport <file.png>      capture the 3D viewport only, no interface\n"
                       "  drag <x,y> <x,y> [steps]      press, move and release the left mouse over the\n"
-                      "                                subject's image (pixels), through ImGui's input\n"
+                      "                                subject's image (pixels), through ImGui's input;\n"
+                      "                                --shift / --ctrl / --alt after it hold that key for\n"
+                      "                                the whole drag (Shift-click adds to a selection)\n"
                       "  quit [code]                   end the session with that exit status\n"
                       "  save-as <name>                save the open scene as a NEW level <name> (File ->\n"
                       "                                Save's path; refused if that file already exists)\n"
@@ -428,7 +430,18 @@ static int RunTool( int argc, char** argv )
     }
     else if ( operation == "drag" )
     {
-        // drag <fromX,fromY> <toX,toY> [steps] — image pixels of --subject (document | viewport).
+        // drag <fromX,fromY> <toX,toY> [steps] [--shift] [--ctrl] [--alt] — image pixels of --subject.
+        std::string modifiers;
+        for ( auto it = rest.begin(); it != rest.end(); )
+        {
+            if ( *it == "--shift" || *it == "--ctrl" || *it == "--alt" )
+            {
+                modifiers += ( modifiers.empty() ? "" : "+" ) + it->substr( 2 );
+                it = rest.erase( it );
+            }
+            else
+                ++it;
+        }
         std::string from;
         std::string to;
         if ( rest.size() < 3 || !NumberArray( rest[1], from ) || !NumberArray( rest[2], to ) )
@@ -437,9 +450,9 @@ static int RunTool( int argc, char** argv )
             return kNoEditor;
         }
         const std::string steps = ( rest.size() > 3 ) ? rest[3] : "8";
-        request                 = std::format( R"({{"id":1,"op":"drag","value":[{},{}],"steps":{}{}}})",
-                                               from.substr( 1, from.size() - 2 ), to.substr( 1, to.size() - 2 ), steps,
-                                               SubjectField( subject ) );
+        request = std::format( R"({{"id":1,"op":"drag","value":[{},{}],"steps":{},"modifiers":"{}"{}}})",
+                               from.substr( 1, from.size() - 2 ), to.substr( 1, to.size() - 2 ), steps, modifiers,
+                               SubjectField( subject ) );
     }
     else if ( operation == "input" )
     {

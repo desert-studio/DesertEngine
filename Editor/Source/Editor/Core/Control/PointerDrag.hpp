@@ -29,6 +29,9 @@ namespace Desert::Editor::Control
         /// The one rising edge of the drag: the frame the layers must also see as a mouse-press event,
         /// because entity/bone picking listens to that event and not to ImGui's button state.
         bool Press = false;
+        /// Modifier keys held on this frame (kModShift | kModControl | kModAlt | kModSuper of InputInjection.hpp):
+        /// held from the hover through the release, as a hand holds Shift across the whole click.
+        int32_t Mods = 0;
     };
 
     /// Where a target's image sits on screen this frame, in ImGui points, and which platform viewport
@@ -97,11 +100,19 @@ namespace Desert::Editor::Control
         [[nodiscard]] PointerStep At( const uint32_t frame ) const noexcept
         {
             if ( frame <= 1 )
-                return { m_FromX, m_FromY, frame == 1, frame == 1 };
+                return { m_FromX, m_FromY, frame == 1, frame == 1, m_Mods };
             if ( frame >= m_Steps + 2 )
-                return { m_ToX, m_ToY, false, false };
+                return { m_ToX, m_ToY, false, false, m_Mods };
             const float t = static_cast<float>( frame - 1 ) / static_cast<float>( m_Steps );
-            return { m_FromX + ( m_ToX - m_FromX ) * t, m_FromY + ( m_ToY - m_FromY ) * t, true, false };
+            return { m_FromX + ( m_ToX - m_FromX ) * t, m_FromY + ( m_ToY - m_FromY ) * t, true, false, m_Mods };
+        }
+
+        /// The same drag with @p mods (a ParseInputModifiers mask) held for its whole length.
+        [[nodiscard]] PointerDrag WithModifiers( const int32_t mods ) const noexcept
+        {
+            PointerDrag held = *this;
+            held.m_Mods      = mods;
+            return held;
         }
 
         [[nodiscard]] uint32_t ViewportId() const noexcept
@@ -113,6 +124,7 @@ namespace Desert::Editor::Control
         float    m_FromX = 0.0f, m_FromY = 0.0f, m_ToX = 0.0f, m_ToY = 0.0f;
         uint32_t m_Steps      = 1;
         uint32_t m_ViewportId = 0;
+        int32_t  m_Mods       = 0;
     };
 
     /**

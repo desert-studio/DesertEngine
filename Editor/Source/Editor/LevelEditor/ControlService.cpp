@@ -690,7 +690,12 @@ namespace Desert::Editor
                      ::ImGui::GetIO().DisplayFramebufferScale.x );
                 if ( !plan.IsSuccess() )
                     return Control::Response::Failure( request.Id, plan.GetError() );
-                if ( const auto armed = Control::PointerInjection::Arm( plan.GetValue() ); !armed.IsSuccess() )
+                const auto mods = Control::ParseInputModifiers( request.DragModifiers );
+                if ( !mods.IsSuccess() )
+                    return Control::Response::Failure( request.Id, mods.GetError() );
+                if ( const auto armed =
+                          Control::PointerInjection::Arm( plan.GetValue().WithModifiers( mods.GetValue() ) );
+                     !armed.IsSuccess() )
                     return Control::Response::Failure( request.Id, armed.GetError() );
                 return Control::Response::Success( request.Id );
             }
