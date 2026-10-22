@@ -292,7 +292,7 @@ namespace Desert::Editor
                                       return PaletteCommandOutcome( false, *refused );
                                   return PaletteCommandDone();
                               } } );
-        for ( const auto brush : { Geometry::SculptBrushType::Standard, Geometry::SculptBrushType::Smooth } )
+        for ( const Geometry::SculptBrushType brush : Geometry::kSculptBrushTypes )
             commands.push_back( { "Sculpt", std::string( "Brush: " ) + Geometry::ToString( brush ), [brush]
                                   {
                                       MS::Get().Sculpt.Brush = brush;
@@ -685,9 +685,11 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         // UE's Deform palette: Smooth, Offset and Warp (MeshProcessingTool), committed the same way as the UV tools.
-        for ( const auto& [name, tool] : std::initializer_list<std::pair<const char*, MS::Tool>>{
-                   { "Smooth", MS::Tool::Smooth }, { "Offset", MS::Tool::Offset }, { "Warp", MS::Tool::Warp }, { "Lattice", MS::Tool::Lattice },
-                   { "Vertex Sculpt", MS::Tool::VertexSculpt } } )
+        for ( const auto& [name, tool] :
+              std::initializer_list<std::pair<const char*, MS::Tool>>{ { "Smooth", MS::Tool::Smooth },
+                                                                       { "Offset", MS::Tool::Offset },
+                                                                       { "Warp", MS::Tool::Warp },
+                                                                       { "Lattice", MS::Tool::Lattice } } )
             commands.push_back( { "Modeling", std::string( "Deform tool: " ) + name, [tool]
                                   {
                                       MS::Get().ActiveTool = tool;
@@ -969,25 +971,6 @@ namespace Desert::Editor
             commands.push_back( { "Modeling", std::format( "Tangents line length: {}", length ), [length]
                                   {
                                       MS::Get().AttribTangents.LineLength = length;
-                                      return PaletteCommandDone();
-                                  } } )
-        ;
-        // Vertex Sculpt's closed choices (UE UMeshVertexSculptTool brush type, USculptBrushProperties falloff).
-        for ( const Geometry::SculptBrush brush : Geometry::kSculptBrushes )
-            commands.push_back( { "Modeling", std::string( "Vertex Sculpt brush: " ) + Geometry::ToString( brush ),
-                                  [brush]
-                                  {
-                                      MS::Get().DeformSculpt.Brush = brush;
-                                      return PaletteCommandDone();
-                                  } } );
-        for ( const Geometry::SculptFalloff falloff :
-              { Geometry::SculptFalloff::Smooth, Geometry::SculptFalloff::Linear, Geometry::SculptFalloff::Inverse,
-                Geometry::SculptFalloff::Round } )
-            commands.push_back( { "Modeling",
-                                  std::string( "Vertex Sculpt falloff: " ) + Geometry::ToString( falloff ),
-                                  [falloff]
-                                  {
-                                      MS::Get().DeformSculpt.FalloffType = falloff;
                                       return PaletteCommandDone();
                                   } } );
         for ( const Geometry::SmoothWeightType type :
