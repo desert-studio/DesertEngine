@@ -167,9 +167,13 @@ namespace Desert::Geometry
                     if ( bc.x < kEdge || bc.y < kEdge || bc.z < kEdge )
                         continue;
                     const size_t texel = static_cast<size_t>( y ) * W + x;
+                    // A texel on an edge two triangles share is rasterised by both: count it once, as covered
+                    // (state 1) and as hit (state 4), whichever triangle reaches it first.
                     if ( state[texel] == 0 )
                         ++out.CoveredTexels;
-                    state[texel] = 1;
+                    const bool alreadyHit = state[texel] == 4;
+                    if ( !alreadyHit )
+                        state[texel] = 1;
 
                     const auto lerp = [&]( const std::vector<glm::dvec3>& a )
                     { return a[tri[0]] * bc.x + a[tri[1]] * bc.y + a[tri[2]] * bc.z; };
@@ -221,7 +225,9 @@ namespace Desert::Geometry
                     rgba[1]       = Encode( ts.y );
                     rgba[2]       = Encode( ts.z );
                     rgba[3]       = 255;
-                    ++out.HitTexels;
+                    if ( !alreadyHit )
+                        ++out.HitTexels;
+                    state[texel] = 4;
                 }
         }
         if ( out.HitTexels == 0 )
