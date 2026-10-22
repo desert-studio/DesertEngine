@@ -1,0 +1,20 @@
+# P14B Plane Cut with Fill across a hollow section: a Torus (major 50, minor 25, pivot at its base) moved so the
+# world plane Y = 0 runs through its middle; Plane Cut axis Y, World, Keep -, Fill on -> the cap is a ring
+# (PlanarComplex nests the outer and inner loops, ConstrainedDelaunay2 fills between them) -> Undo.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Direction 0.3,-0.9,0.3
+Дано run Modeling "Create shape tool: Torus"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,-25,0
+Дано run Entity Torus
+Дано run "Level Viewport" "Focus Selected"
+Дано run Modeling "Select Elements tool"
+Когда run Modeling "Plane Cut axis: Y"
+Когда run Modeling "Plane Cut: World: on"
+Когда run Modeling "Plane Cut: Keep -: on"
+Когда run Modeling "Plane Cut: Fill: on"
+Когда run Modeling "Mesh operation: Plane Cut"
+Тогда 0_cut the torus is cut flat through its middle; the cap is a ring - filled between the outer and the inner circle - and the centre hole stays open (the floor/grid is seen through it, no triangles across it)
+Когда run Action Undo
+Тогда-вид 1_undo after Undo the whole uncut torus is back
