@@ -432,7 +432,7 @@ namespace Desert::Editor::Tools
             // UE ULatticeControlPointsMechanic's gizmo translates, rotates and scales the selected points.
             gizmo.RenderFrame( "LatticeGizmo", ms.LatticeGizmo, camera, viewportPos, viewportSize,
                                GizmoController::kFrameTranslateRotateScale );
-            gizmoBusy = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+            gizmoBusy = ImGuizmo::IsOver() || ImGuizmo::IsUsing() || gizmo.ScaleHandleBusy();
         }
         const ImVec2 mouse = ::ImGui::GetMousePos();
         const bool   overImage = mouse.x >= viewportPos.x && mouse.y >= viewportPos.y &&
