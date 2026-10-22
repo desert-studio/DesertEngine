@@ -1952,9 +1952,13 @@ namespace Desert::Editor
             if ( auto ref = m_Scene->FindEntityByID( *sel ) )
                 selectedIsUI = m_Scene->GetRegistry().has<ECS::UILayoutComponent>( ref->get().GetHandle() );
 
-        // Handle gizmos (Select mode only — Foliage/Modeling use LMB for their own tools, not gizmo/pick).
+        // Handle gizmos (Select mode — Foliage/Landscape use LMB for their own tools, not gizmo/pick). Modeling
+        // mode with NO tool active keeps the object gizmo, as UE's Modeling Mode does (the level editor's
+        // transform gizmo stays on the selected actor until a tool starts and takes the viewport's input).
         m_Gizmo.ResetHovered();
-        if ( !foliageMode && !modelingMode && !landscapeMode )
+        const bool modelingIdle =
+             modelingMode && Core::ModelingState::Get().ActiveTool == Core::ModelingState::Tool::None;
+        if ( !foliageMode && ( !modelingMode || modelingIdle ) && !landscapeMode )
         {
             if ( Core::ActiveAuthoringContext().ShowsBones() )
             {
