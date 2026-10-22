@@ -152,7 +152,8 @@ namespace Desert::Editor
             else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents ||
                       ms.ActiveTool == MS::Tool::EditMaterials || ms.ActiveTool == MS::Tool::PaintGroups )
                 m_Category = static_cast<int>( Palette::Attributes );
-            else if ( ms.ActiveTool == MS::Tool::VoxWrap || ms.ActiveTool == MS::Tool::VoxBoolean )
+            else if ( ms.ActiveTool == MS::Tool::VoxWrap || ms.ActiveTool == MS::Tool::VoxBoolean ||
+                      ms.ActiveTool == MS::Tool::VoxMorph )
                 m_Category = static_cast<int>( Palette::VoxOps );
         }
 
@@ -839,7 +840,8 @@ namespace Desert::Editor
         auto&        ms   = MS::Get();
         const ImVec4 sel  = ThemeManager::GetSelectedColor();
         const float  half = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
-        const bool   on         = ms.ActiveTool == MS::Tool::VoxWrap || ms.ActiveTool == MS::Tool::VoxBoolean;
+        const bool   on   = ms.ActiveTool == MS::Tool::VoxWrap || ms.ActiveTool == MS::Tool::VoxBoolean ||
+                        ms.ActiveTool == MS::Tool::VoxMorph;
         const auto   toolButton = [&]( MS::Tool tool, const char* icon, const char* name )
         {
             const bool active = ms.ActiveTool == tool;
@@ -858,11 +860,13 @@ namespace Desert::Editor
         toolButton( MS::Tool::VoxWrap, ICON_MDI_CUBE_SCAN, "VoxWrap" );
         ImGui::SameLine();
         toolButton( MS::Tool::VoxBoolean, ICON_MDI_CUBE_OUTLINE, "VoxBoolean" );
+        toolButton( MS::Tool::VoxMorph, ICON_MDI_CUBE_SEND, "VoxMorph" );
         ImGui::Separator();
         if ( !on )
         {
-            ImGui::TextDisabled( "Pick a VoxOps tool above; VoxWrap works on the selected mesh, VoxBoolean on the "
-                                 "two selected meshes (A first, then B)." );
+            ImGui::TextDisabled(
+                 "Pick a VoxOps tool above; VoxWrap works on the selected mesh, VoxMorph on the selected mesh, "
+                 "VoxBoolean on the two selected meshes (A first, then B)." );
             return;
         }
 
@@ -895,6 +899,35 @@ namespace Desert::Editor
             if ( ImGui::Combo( "##VoxBooleanInputs", &inputs, kInputs.data(),
                                static_cast<int>( kInputs.size() ) ) )
                 ms.VoxBooleanInputs = static_cast<Core::BooleanInputs>( inputs );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+            ImGui::TextDisabled( "Accept creates the result as a new entity (one undo step)." );
+            return;
+        }
+        if ( ms.ActiveTool == MS::Tool::VoxMorph )
+        {
+            // UE UVoxelMorphologyMeshesToolProperties (Operation, Distance) + UVoxelProperties +
+            // HandleSourcesProperties.
+            auto&                                       m    = ms.VoxMorph;
+            static constexpr std::array<const char*, 4> kOps = { "Dilate", "Contract", "Close", "Open" };
+            int                                         op   = static_cast<int>( m.Operation );
+            row( "Operation" );
+            if ( ImGui::Combo( "##VoxMorphOp", &op, kOps.data(), static_cast<int>( kOps.size() ) ) )
+                m.Operation = static_cast<Geometry::VoxMorphOperation>( op );
+            row( "Distance" ); // UE ClampMin 0.001
+            ImGui::DragFloat( "##VoxMorphDistance", &m.Distance, 0.1f, 0.001f, 1000.0f, "%.1f cm",
+                              ImGuiSliderFlags_AlwaysClamp );
+            row( "Voxel Count" );
+            ImGui::SliderInt( "##VoxMorphVoxels", &m.VoxelCount, 8, 1024, "%d", ImGuiSliderFlags_AlwaysClamp );
+            row( "Surface Search Steps" );
+            ImGui::SliderInt( "##VoxMorphSearch", &m.SurfaceSearchSteps, 0, 10, "%d",
+                              ImGuiSliderFlags_AlwaysClamp );
+            static constexpr std::array<const char*, 3> kInputs = { "Delete Inputs", "Hide Inputs",
+                                                                    "Keep Inputs" };
+            int                                         inputs  = static_cast<int>( ms.VoxMorphInputs );
+            row( "Input Handling" );
+            if ( ImGui::Combo( "##VoxMorphInputs", &inputs, kInputs.data(), static_cast<int>( kInputs.size() ) ) )
+                ms.VoxMorphInputs = static_cast<Core::BooleanInputs>( inputs );
             ImGui::Separator();
             ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
             ImGui::TextDisabled( "Accept creates the result as a new entity (one undo step)." );

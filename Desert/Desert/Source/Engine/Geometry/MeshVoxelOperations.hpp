@@ -70,4 +70,39 @@ namespace Desert::Geometry
     [[nodiscard]] Common::ResultStr<DeformOutcome> VoxBoolean( const DynamicMesh3& a, const DynamicMesh3& b,
                                                                const VoxBooleanSettings& settings,
                                                                const ProgressCancel*     progress = nullptr );
+
+    // Modeling Mode -> VoxOps: UE 5.8 VoxMorph (UVoxelMorphologyMeshesTool, operator FVoxelMorphologyMeshesOp in
+    // ModelingOperators/Private/CompositionOps/VoxelMorphologyMeshesOp.cpp, implicit TImplicitMorphology in
+    // GeometryCore/Public/Implicit/Morphology.h): the input's signed distance field (as VoxBoolean's) offset by
+    // Distance and meshed by Marching Cubes. Dilate grows the solid by Distance, Contract shrinks it; Close is a
+    // Dilate whose result is contracted back (fills gaps and creases narrower than 2 x Distance), Open is a
+    // Contract whose result is dilated back (removes parts thinner than 2 x Distance) - the second pass reads the
+    // first pass's mesh, as UE's re-sampled level set. Convex edges come out rounded with radius Distance.
+    enum class VoxMorphOperation : uint8_t
+    {
+        Dilate, // UE EMorphologyOperation::Dilate
+        Contract,
+        Close,
+        Open,
+    };
+
+    [[nodiscard]] const char* ToString( VoxMorphOperation operation );
+
+    // UE UVoxelMorphologyMeshesToolProperties + UVoxelProperties (defaults as UE's).
+    struct VoxMorphSettings
+    {
+        VoxMorphOperation Operation          = VoxMorphOperation::Dilate;
+        float             Distance           = 1.0f; // UE Distance, cm (> 0)
+        int32_t           VoxelCount         = 128;  // cells along the longest side of the dilated bounds
+        int32_t           SurfaceSearchSteps = 5;    // bisection steps per surface vertex, 0..10
+
+        bool operator==( const VoxMorphSettings& ) const = default;
+    };
+
+    // Refuses an empty mesh, Distance <= 0, VoxelCount outside 8..1024, SurfaceSearchSteps outside 0..10, an empty
+    // result (a Contract or Open thicker than the solid). Polls progress; refuses with kVoxMorphCancelled.
+    inline constexpr const char*                   kVoxMorphCancelled = "VoxMorph was cancelled";
+    [[nodiscard]] Common::ResultStr<DeformOutcome> VoxMorph( const DynamicMesh3&     mesh,
+                                                             const VoxMorphSettings& settings,
+                                                             const ProgressCancel*   progress = nullptr );
 } // namespace Desert::Geometry

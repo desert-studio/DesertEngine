@@ -12,6 +12,7 @@
 #include <cmath>
 #include <format>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace Desert::Geometry
@@ -108,6 +109,27 @@ namespace Desert::Geometry
                                   Index3i( uvOf[size_t( t[0] )], uvOf[size_t( t[1] )], uvOf[size_t( t[2] )] ) );
             }
         }
+        // VoxBoolean / VoxMorph: a mesh's signed distance field. Inside positive (MarchingCubes' convention): the
+        // distance to the nearest triangle, signed by the fast winding number (UE's 0.5 threshold), so open or
+        // self-intersecting inputs still have a side. Build it in place (the trees point at the mesh they index).
+        struct Field
+        {
+            DynamicMesh3         Mesh;
+            DynamicMeshAABBTree3 Spatial;
+            FastWindingTree      Winding;
+
+            explicit Field( DynamicMesh3 mesh ) : Mesh( std::move( mesh ) ), Spatial( &Mesh ), Winding( &Spatial )
+            {
+            }
+
+            double operator()( const glm::dvec3& p ) const
+            {
+                double d2 = 0.0;
+                Spatial.FindNearestTriangle( p, d2 );
+                const double d = std::sqrt( d2 );
+                return Winding.FastWindingNumber( p ) > 0.5 ? d : -d;
+            }
+        };
     } // namespace
 
     Common::ResultStr<DeformOutcome> VoxWrap( const DynamicMesh3& mesh, const VoxWrapSettings& s,
@@ -239,25 +261,6 @@ namespace Desert::Geometry
             return Common::MakeError<DeformOutcome>(
                  std::format( "Surface Search Steps {} is outside 0..10", s.SurfaceSearchSteps ) );
 
-        struct Field
-        {
-            DynamicMesh3         Mesh;
-            DynamicMeshAABBTree3 Spatial;
-            FastWindingTree      Winding;
-
-            explicit Field( DynamicMesh3 mesh ) : Mesh( std::move( mesh ) ), Spatial( &Mesh ), Winding( &Spatial )
-            {
-            }
-
-            // Inside positive: the distance to the surface, signed by the winding number (UE's 0.5 threshold).
-            double operator()( const glm::dvec3& p ) const
-            {
-                double d2 = 0.0;
-                Spatial.FindNearestTriangle( p, d2 );
-                const double d = std::sqrt( d2 );
-                return Winding.FastWindingNumber( p ) > 0.5 ? d : -d;
-            }
-        };
         // Built in place (the trees point at the mesh they index).
         const auto fa = std::make_unique<Field>( GeometryOf( a, nullptr ) );
         if ( cancelled() )
@@ -318,6 +321,101 @@ namespace Desert::Geometry
              mc.RejectedTriangles > 0 ? std::format( " ({} non-manifold triangles dropped)", mc.RejectedTriangles )
                                              : std::string() );
         out.Mesh = std::move( result );
+        return Common::MakeSuccess( std::move( out ) );
+    }
+    const char* ToString( VoxMorphOperation operation )
+    {
+        switch ( operation )
+        {
+            case VoxMorphOperation::Dilate:
+                return "Dilate";
+            case VoxMorphOperation::Contract:
+                return "Contract";
+            case VoxMorphOperation::Close:
+                return "Close";
+            case VoxMorphOperation::Open:
+                return "Open";
+        }
+        return "Unknown";
+    }
+
+    // UE FVoxelMorphologyMeshesOp::CalculateResult + TImplicitMorphology::Generate, adapted as VoxBoolean: UE
+    // samples a narrow-band SDF and meshes its offset level set (Close/Open: a second SDF of the first offset
+    // surface, offset back); here the field is evaluated where Marching Cubes asks, and the second pass of
+    // Close/Open builds its field on the first pass's mesh. Inside-positive field: growing by d meshes f + d = 0.
+    Common::ResultStr<DeformOutcome> VoxMorph( const DynamicMesh3& mesh, const VoxMorphSettings& s,
+                                               const ProgressCancel* progress )
+    {
+        const auto cancelled = [progress] { return progress != nullptr && progress->Cancelled(); };
+        if ( mesh.TriangleCount() == 0 )
+            return Common::MakeError<DeformOutcome>( "the mesh has no triangles" );
+        if ( !( s.Distance > 0.0f ) || !std::isfinite( s.Distance ) )
+            return Common::MakeError<DeformOutcome>( std::format( "Distance {} cm must be above 0", s.Distance ) );
+        if ( s.VoxelCount < 8 || s.VoxelCount > 1024 )
+            return Common::MakeError<DeformOutcome>(
+                 std::format( "Voxel Count {} is outside 8..1024", s.VoxelCount ) );
+        if ( s.SurfaceSearchSteps < 0 || s.SurfaceSearchSteps > 10 )
+            return Common::MakeError<DeformOutcome>(
+                 std::format( "Surface Search Steps {} is outside 0..10", s.SurfaceSearchSteps ) );
+
+        const double           distance = s.Distance;
+        const AxisAlignedBox3d input    = mesh.GetBounds();
+        const glm::dvec3       size     = input.Max - input.Min + glm::dvec3( 2.0 * distance );
+        const double           cell     = std::max( { size.x, size.y, size.z } ) / double( s.VoxelCount );
+        if ( !( cell > 0.0 ) || !std::isfinite( cell ) )
+            return Common::MakeError<DeformOutcome>( "the mesh has no extent" );
+
+        size_t rejected = 0;
+        // One pass: the field of `source` grown by `grow` cm (negative shrinks), meshed on the shared cell size.
+        const auto pass = [&]( DynamicMesh3 source, double grow ) -> std::optional<DynamicMesh3>
+        {
+            const auto field = std::make_unique<Field>( std::move( source ) );
+            if ( cancelled() )
+                return std::nullopt;
+            const AxisAlignedBox3d bounds = field->Mesh.GetBounds();
+            const double           margin = std::max( grow, 0.0 ) + cell * 2.0; // a surface on the bounds closes
+            MarchingCubes          mc;
+            mc.CubeSize = cell;
+            mc.Bounds   = bounds;
+            mc.Bounds.Min -= glm::dvec3( margin );
+            mc.Bounds.Max += glm::dvec3( margin );
+            mc.RootMode      = MarchingCubesRootMode::Bisection;
+            mc.RootModeSteps = s.SurfaceSearchSteps;
+            mc.IsoValue      = 0.0;
+            mc.Cancel        = cancelled;
+            mc.Implicit      = [&]( const glm::dvec3& p ) { return ( *field )( p ) + grow; };
+            DynamicMesh3 out = mc.Generate();
+            if ( mc.Cancelled || cancelled() )
+                return std::nullopt;
+            rejected += static_cast<size_t>( mc.RejectedTriangles );
+            return out;
+        };
+
+        const VoxMorphOperation op = s.Operation;
+        const double            first =
+             op == VoxMorphOperation::Dilate || op == VoxMorphOperation::Close ? distance : -distance;
+        std::optional<DynamicMesh3> result = pass( GeometryOf( mesh, nullptr ), first );
+        if ( !result )
+            return Common::MakeError<DeformOutcome>( kVoxMorphCancelled );
+        if ( result->TriangleCount() > 0 && ( op == VoxMorphOperation::Close || op == VoxMorphOperation::Open ) )
+        {
+            result = pass( std::move( *result ), -first );
+            if ( !result )
+                return Common::MakeError<DeformOutcome>( kVoxMorphCancelled );
+        }
+        if ( result->TriangleCount() == 0 )
+            return Common::MakeError<DeformOutcome>(
+                 std::format( "the {} by {:.1f} cm leaves nothing (the solid is thinner than twice the Distance)",
+                              ToString( op ), distance ) );
+        FinishVoxelMesh( *result );
+
+        DeformOutcome out;
+        out.MovedVertices = result->VertexCount();
+        out.Report        = std::format(
+             "VoxMorph {} {:.1f} cm: {}^3 cells of {:.2f} cm -> {} vertices, {} triangles{}", ToString( op ),
+             distance, s.VoxelCount, cell, result->VertexCount(), result->TriangleCount(),
+             rejected > 0 ? std::format( " ({} non-manifold triangles dropped)", rejected ) : std::string() );
+        out.Mesh = std::move( *result );
         return Common::MakeSuccess( std::move( out ) );
     }
 } // namespace Desert::Geometry

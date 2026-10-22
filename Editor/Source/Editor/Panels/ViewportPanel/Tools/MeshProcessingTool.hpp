@@ -115,7 +115,7 @@ namespace Desert::Editor::Tools
             Common::UUID                                  Other;
             std::shared_ptr<const Geometry::DynamicMesh3> OtherInput;
             std::shared_ptr<const Geometry::DynamicMesh3> OtherCommitted;
-            std::string                                   NameA;
+            std::string NameA; // VoxBoolean's A / VoxMorph's input: names the result
             // UE UBaseCreateFromSelectedTool hides its inputs while the preview shows: B is hidden for the session
             // (A draws the preview) and put back by Restore - on Cancel, on a selection change, and before Accept
             // records its undo step. OtherHidden: B was hidden by the session; OtherVisibility: B's
@@ -140,8 +140,9 @@ namespace Desert::Editor::Tools
         void               HideOther( ::Desert::Core::Scene& scene );
         void               Restore( ::Desert::Core::Scene& scene );
         [[nodiscard]] bool Accept( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
-        // VoxBoolean's Accept (UE UBaseCreateFromSelectedTool::OnShutdown): the preview becomes a NEW entity
-        // (a copy of A carrying the result), the inputs are deleted / hidden / kept - all one undo step.
+        // VoxBoolean's and VoxMorph's Accept (UE UBaseCreateFromSelectedTool::OnShutdown): the preview becomes a
+        // NEW entity (a copy of A carrying the result), the inputs are deleted / hidden / kept - all one undo
+        // step.
         [[nodiscard]] bool AcceptCreateFromSelected( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         // The session's inputs are still what the scene selection is (one entity, or A and B for VoxBoolean).
         [[nodiscard]] bool SelectionStillMatches() const;
@@ -159,6 +160,7 @@ namespace Desert::Editor::Tools
         Geometry::OffsetSettings m_Offset;
         Geometry::VoxWrapSettings m_VoxWrap;
         Geometry::VoxBooleanSettings m_VoxBoolean;
+        Geometry::VoxMorphSettings   m_VoxMorph;
         Geometry::NormalsSettings m_Normals;
         Geometry::TangentsSettings m_Tangents;
         Geometry::WarpSettings   m_Warp;

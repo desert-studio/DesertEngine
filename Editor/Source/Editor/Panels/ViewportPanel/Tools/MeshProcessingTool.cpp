@@ -22,6 +22,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <span>
 #include <chrono>
 
 #include <format>
@@ -53,6 +54,8 @@ namespace Desert::Editor::Tools
                     return "VoxWrap";
                 case MS::Tool::VoxBoolean:
                     return "VoxBoolean";
+                case MS::Tool::VoxMorph:
+                    return "VoxMorph";
                 default:
                     return "?";
             }
@@ -109,7 +112,7 @@ namespace Desert::Editor::Tools
     {
         return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
                tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents ||
-               tool == MS::Tool::VoxWrap || tool == MS::Tool::VoxBoolean;
+               tool == MS::Tool::VoxWrap || tool == MS::Tool::VoxBoolean || tool == MS::Tool::VoxMorph;
     }
 
     bool MeshProcessingTool::SelectionStillMatches() const
@@ -189,8 +192,9 @@ namespace Desert::Editor::Tools
             ms.ReqAccept         = false;
             const bool endTool   = ms.ReqAcceptEndsTool;
             ms.ReqAcceptEndsTool = false;
-            if ( !( m_Session && m_Session->Tool == MS::Tool::VoxBoolean ? AcceptCreateFromSelected( scene, ms )
-                                                                         : Accept( scene, ms ) ) )
+            const bool createsEntity =
+                 m_Session && ( m_Session->Tool == MS::Tool::VoxBoolean || m_Session->Tool == MS::Tool::VoxMorph );
+            if ( !( createsEntity ? AcceptCreateFromSelected( scene, ms ) : Accept( scene, ms ) ) )
                 return; // refused: the tool stays open with its preview, and says why
             if ( endTool )
                 ms.ActiveTool = MS::Tool::None;
@@ -240,6 +244,10 @@ namespace Desert::Editor::Tools
         }
         m_Session =
              Session{ ms.ActiveTool, *selected, target.GetValue().Mesh, target.GetValue().Committed, nullptr };
+        if ( ms.ActiveTool == MS::Tool::VoxMorph ) // names its new entity after the input
+            if ( const auto ref = scene.FindEntityByID( *selected );
+                 ref && ref->get().HasComponent<ECS::TagComponent>() )
+                m_Session->NameA = ref->get().GetComponent<ECS::TagComponent>().Tag;
         if ( ms.ActiveTool == MS::Tool::Warp )
             PlaceWarpGizmo( *m_Session->Input, WorldOf( scene, *selected ), ms );
         if ( ms.ActiveTool == MS::Tool::Lattice && !BuildLattice( ms ) )
@@ -286,6 +294,7 @@ namespace Desert::Editor::Tools
         m_Offset        = ms.DeformOffset;
         m_VoxWrap       = ms.VoxWrap;
         m_VoxBoolean    = ms.VoxBoolean;
+        m_VoxMorph      = ms.VoxMorph;
         m_Normals       = ms.AttribNormals;
         m_Tangents      = ms.AttribTangents;
         m_Warp          = ms.DeformWarp;
@@ -305,9 +314,9 @@ namespace Desert::Editor::Tools
         m_Session->PendingStarted                   = std::chrono::steady_clock::now();
         m_Session->Pending                          = Common::JobSystem::Get().Async(
              [cancel = std::move( cancel ), tool = m_Session->Tool, input = m_Session->Input, smooth = m_Smooth,
-              offset = m_Offset, voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, other = m_Session->OtherInput,
-              normals = m_Normals, tangents = m_Tangents, warp = m_Warp, latticeSettings = m_Lattice,
-              points = m_LatticePoints, lattice = std::move( lattice ),
+              offset = m_Offset, voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, voxMorph = m_VoxMorph,
+              other = m_Session->OtherInput, normals = m_Normals, tangents = m_Tangents, warp = m_Warp,
+              latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ),
               objectToGizmo]() -> Common::ResultStr<Geometry::DeformOutcome>
              {
                  switch ( tool )
@@ -324,6 +333,8 @@ namespace Desert::Editor::Tools
                          return Geometry::VoxWrap( *input, voxWrap, cancel.get() );
                      case MS::Tool::VoxBoolean:
                          return Geometry::VoxBoolean( *input, *other, voxBoolean, cancel.get() );
+                     case MS::Tool::VoxMorph:
+                         return Geometry::VoxMorph( *input, voxMorph, cancel.get() );
                      case MS::Tool::Lattice:
                          return Geometry::LatticeDeform( *input, *lattice, points, latticeSettings );
                      default:
@@ -438,17 +449,21 @@ namespace Desert::Editor::Tools
 
     bool MeshProcessingTool::AcceptCreateFromSelected( ::Desert::Core::Scene& scene, MS& ms )
     {
-        const auto refuse = [&]( const std::string& why )
+        const char* tool   = ToolName( ms.ActiveTool );
+        const auto  refuse = [&]( const std::string& why )
         {
-            LOG_ERROR( "[Modeling] VoxBoolean Accept refused: {0}", why );
-            ToastManager::Push( std::format( "VoxBoolean Accept refused: {}", why ), ToastLevel::Error, 10.0f );
+            LOG_ERROR( "[Modeling] {0} Accept refused: {1}", tool, why );
+            ToastManager::Push( std::format( "{} Accept refused: {}", tool, why ), ToastLevel::Error, 10.0f );
             return false;
         };
         if ( !m_Session || !m_Session->Preview )
-            return refuse( ms.DeformStatus.empty() ? std::string( "select two entities with a mesh" )
+            return refuse( ms.DeformStatus.empty() ? std::string( "select the input entities with a mesh" )
                                                    : ms.DeformStatus );
-        const auto refA = scene.FindEntityByID( m_Session->Entity );
-        const auto refB = scene.FindEntityByID( m_Session->Other );
+        // VoxBoolean has inputs A and B; VoxMorph has one (A).
+        const bool                twoInputs = m_Session->Tool == MS::Tool::VoxBoolean;
+        const Core::BooleanInputs handling  = twoInputs ? ms.VoxBooleanInputs : ms.VoxMorphInputs;
+        const auto                refA      = scene.FindEntityByID( m_Session->Entity );
+        const auto                refB      = twoInputs ? scene.FindEntityByID( m_Session->Other ) : refA;
         if ( !refA || !refB )
             return refuse( "an input is no longer in the scene" );
         // A goes back to what it held; the result lands on a copy of A, in A's frame (the operator ran there).
@@ -458,7 +473,7 @@ namespace Desert::Editor::Tools
                                           tc.Scale,          std::nullopt,       std::nullopt };
         std::vector<Commands::XformEntityState> changes;
         std::vector<Commands::XformNewEntity>   creates{
-               { m_Session->Entity, std::format( "{} VoxBoolean", m_Session->NameA ), std::move( state ) } };
+               { m_Session->Entity, std::format( "{} {}", m_Session->NameA, tool ), std::move( state ) } };
         std::vector<Common::UUID> deletes;
         const struct
         {
@@ -467,19 +482,20 @@ namespace Desert::Editor::Tools
             std::shared_ptr<const Geometry::DynamicMesh3> Committed;
         } inputs[2] = { { m_Session->Entity, refA->get(), m_Session->Committed },
                         { m_Session->Other, refB->get(), m_Session->OtherCommitted } };
-        for ( const auto& in : inputs )
+        for ( const auto& in : std::span( inputs, twoInputs ? 2 : 1 ) )
         {
-            if ( ms.VoxBooleanInputs == Core::BooleanInputs::Delete )
+            if ( handling == Core::BooleanInputs::Delete )
                 deletes.push_back( in.Id );
-            else if ( ms.VoxBooleanInputs == Core::BooleanInputs::Hide )
+            else if ( handling == Core::BooleanInputs::Hide )
             {
                 const auto& itc = in.Entity.GetComponent<ECS::TransformComponent>();
                 changes.push_back(
                      { in.Id, in.Committed, itc.Translation, itc.Rotation, itc.Scale, std::nullopt, false } );
             }
         }
-        const std::string label =
-             std::format( "Modeling: VoxBoolean {}", Geometry::ToString( m_VoxBoolean.Operation ) );
+        const std::string label   = std::format( "Modeling: {} {}", tool,
+                                               twoInputs ? Geometry::ToString( m_VoxBoolean.Operation )
+                                                           : Geometry::ToString( m_VoxMorph.Operation ) );
         auto applied = Commands::ApplyXformEdit( label, changes, creates, deletes );
         if ( !applied.IsSuccess() )
         {
@@ -488,8 +504,8 @@ namespace Desert::Editor::Tools
                 (void)ECS::SetEditableMesh( *component, m_Session->Preview ); // the preview stays on screen
             return refuse( applied.GetError() );
         }
-        LOG_INFO( "[Modeling] {0} accepted as a new entity, inputs: {1}: {2}", label,
-                  Core::ToString( ms.VoxBooleanInputs ), ms.DeformStatus );
+        LOG_INFO( "[Modeling] {0} accepted as a new entity, inputs: {1}: {2}", label, Core::ToString( handling ),
+                  ms.DeformStatus );
         m_Session.reset();
         Core::SelectionManager::SetSelection( applied.GetValue() );
         return true;
@@ -671,6 +687,8 @@ namespace Desert::Editor::Tools
                 return !( ms.VoxWrap == m_VoxWrap );
             case MS::Tool::VoxBoolean:
                 return !( ms.VoxBoolean == m_VoxBoolean );
+            case MS::Tool::VoxMorph:
+                return !( ms.VoxMorph == m_VoxMorph );
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

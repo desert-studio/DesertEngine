@@ -57,6 +57,8 @@ namespace Desert::Editor::Core
             // UE's VoxOps palette (same preview/Accept session, MeshProcessingTool).
             VoxWrap,    // UE's UVoxelSolidifyMeshesTool: winding-number solid of the mesh, re-meshed closed
             VoxBoolean, // UE's UVoxelCSGMeshesTool: CSG of the two selected meshes' fields -> a new entity
+            VoxMorph,   // UE's UVoxelMorphologyMeshesTool: Dilate/Contract/Close/Open of the mesh's field -> a new
+                        // entity
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -338,6 +340,10 @@ namespace Desert::Editor::Core
         // Create-From-Selected).
         Geometry::VoxBooleanSettings VoxBoolean;
         BooleanInputs                VoxBooleanInputs = BooleanInputs::Delete;
+        // VoxOps -> VoxMorph (UE UVoxelMorphologyMeshesTool, also a Create-From-Selected tool): its operation,
+        // distance and voxel settings, and what Accept does with the input.
+        Geometry::VoxMorphSettings VoxMorph;
+        BooleanInputs              VoxMorphInputs = BooleanInputs::Delete;
         // Warp (UE UMeshSpaceDeformerTool): its operation settings and its gizmo - a rigid world frame whose Z is
         // the deformation axis and whose origin the bounds are measured from. The tool places it on the mesh's
         // bounds centre with Z along the longest side when it starts (UE Setup), then the viewport gizmo moves it.

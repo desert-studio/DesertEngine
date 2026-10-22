@@ -2612,6 +2612,7 @@ namespace Desert::Editor
             case T::Tangents:
             case T::VoxWrap:
             case T::VoxBoolean:
+            case T::VoxMorph:
             case T::VertexSculpt: // draws its own brush ring (VertexSculptTool)
             case T::PaintGroups:  // draws its own brush ring (PaintGroupsTool)
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click

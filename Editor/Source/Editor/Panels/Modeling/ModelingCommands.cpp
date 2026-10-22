@@ -658,6 +658,30 @@ namespace Desert::Editor
                                       MS::Get().VoxBooleanInputs = in;
                                       return PaletteCommandDone();
                                   } } );
+        // VoxMorph (UE UVoxelMorphologyMeshesTool): the tool on the selected entity, its operation and what
+        // Accept does with the input.
+        commands.push_back( { "Modeling", "VoxOps tool: VoxMorph", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::VoxMorph;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::VoxMorphOperation op :
+              { Geometry::VoxMorphOperation::Dilate, Geometry::VoxMorphOperation::Contract,
+                Geometry::VoxMorphOperation::Close, Geometry::VoxMorphOperation::Open } )
+            commands.push_back( { "Modeling", std::string( "VoxMorph operation: " ) + Geometry::ToString( op ),
+                                  [op]
+                                  {
+                                      MS::Get().VoxMorph.Operation = op;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Core::BooleanInputs in :
+              { Core::BooleanInputs::Delete, Core::BooleanInputs::Hide, Core::BooleanInputs::Keep } )
+            commands.push_back( { "Modeling", std::string( "VoxMorph inputs: " ) + Core::ToString( in ), [in]
+                                  {
+                                      MS::Get().VoxMorphInputs = in;
+                                      return PaletteCommandDone();
+                                  } } );
         // UE's Attributes palette: Normals (MeshProcessingTool session) and its closed choices / toggles.
         commands.push_back( { "Modeling", "Attributes tool: Normals", []
                               {
