@@ -150,6 +150,39 @@ def unblock_reason(codes):
             "(владелец 10-14: SCR-DETAILS 5 дней в бэклоге после SCR-PORT-2).")
 
 
+PUSH_RE = re.compile(r"\bgit\b[^;&|]*\bpush\b([^;&|]*)")
+STALE_SECONDS = 24 * 3600
+MAX_BEHIND = 40
+
+
+def push_refusal(cmd):
+    """Trunk-based push rule (owner 10-22): refuse creating int/*; refuse a task/* branch older than a day or far behind dev."""
+    m = PUSH_RE.search(cmd)
+    if not m:
+        return None
+    args = m.group(1)
+    if re.search(r"(?:^|[\s:])int/", args):
+        return ("[board_guard] int/* больше не создаём (trunk-based, владелец 10-22): принятая ветка вливается в dev "
+                "сама (land_dev.sh); остаток бисекта — только по слову тимлида.")
+    task = re.search(r"(?:^|[\s:])(task/[\w.\-]+)", args)
+    if not task:
+        return None
+    cwd = re.search(r"\bgit\s+-C\s+(\S+)", cmd)
+    git = ["git"] + (["-C", cwd.group(1).strip("'\"")] if cwd else [])
+    try:
+        base = subprocess.run(git + ["merge-base", "origin/dev", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
+        if not base:
+            return None
+        born = int(subprocess.run(git + ["log", "-1", "--format=%ct", base], capture_output=True, text=True, timeout=10).stdout.strip() or 0)
+        behind = int(subprocess.run(git + ["rev-list", "--count", base + "..origin/dev"], capture_output=True, text=True, timeout=10).stdout.strip() or 0)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if born and time.time() - born > STALE_SECONDS and behind > MAX_BEHIND:
+        return (f"[board_guard] {task.group(1)} отрезана от dev {int((time.time() - born) / 3600)} ч назад и отстала на {behind} "
+                f"коммитов (trunk-based: ветка ≤1 дня). Сначала `git rebase origin/dev` (или влить), потом push.")
+    return None
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -169,8 +202,23 @@ def main():
         save(s)
         sys.exit(0)
 
+    if event == "PreToolUse" and tool == "Bash":
+        # Trunk-based (owner 10-22): no new int/* branches; a task/* push that is stale or far behind dev is warned.
+        reason = push_refusal(str(tin.get("command") or ""))
+        if reason:
+            deny(reason)
+        sys.exit(0)
+
     if data.get("agent_id"):
         sys.exit(0)  # a sub-agent's own calls: the board is the lead's job
+
+    if event == "PreToolUse" and tool.endswith("notion-update-page"):
+        # Owner 10-22: a card reaches «Сделано» only once its commit is named and is in dev.
+        props = tin.get("properties") or {}
+        if props.get("Статус") == "Сделано" and (not str(props.get("Коммит") or "").strip() or props.get("В dev") != "__YES__"):
+            deny("[board_guard] «Сделано» только с «Коммит» (SHA) и «В dev» = __YES__ в том же вызове (trunk-based, владелец 10-22). "
+                 "Не в dev — «На проверке».")
+        sys.exit(0)
 
     if event == "Stop":
         late = unaccepted(s)
