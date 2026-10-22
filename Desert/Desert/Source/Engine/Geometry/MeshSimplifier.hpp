@@ -13,11 +13,16 @@ namespace Desert::Geometry
     {
         std::vector<uint32_t> Indices;
         float                 Error = 0.0f; // resulting geometric error, relative to the mesh extent
+        // Why the reduction stopped above its target (null when it reached it): the caller logs it - a
+        // short LOD is reported, never silently patched with a lower-quality reducer.
+        const char* StopReason = nullptr;
     };
 
     // Per-vertex attributes the reduction weighs next to position (UE's QEM attribute-aware metric):
-    // normal xyz + UV0 uv, tightly packed. Seams (same position, different wedge) are NOT barriers -
-    // meshopt collapses along them, keeping both wedges.
+    // normal xyz + UV0 uv, tightly packed. Seams (same position, different wedge) are NOT barriers: the
+    // reduction runs over POSITION-WELDED topology (UE's QEM collapses positions; wedges ride along), then
+    // every surviving corner is given back the original wedge of its triangle's own chart, so a hard
+    // normal or UV split stays split and the welded geometry has no cracks.
     constexpr std::size_t kSimplifyAttributeCount = 5;
 
     // positions: tightly-packed xyz per vertex (vertexCount * 3 floats). attributes: null, or
