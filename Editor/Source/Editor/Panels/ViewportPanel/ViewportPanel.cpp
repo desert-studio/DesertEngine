@@ -2065,6 +2065,11 @@ namespace Desert::Editor
                     m_Gizmo.RenderInterval( ms.WarpGizmo, ms.DeformWarp.LowerBound, ms.DeformWarp.UpperBound,
                                             ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
                 }
+                // Lattice: its control points and the gizmo on the selected ones (UE ULatticeControlPointsMechanic).
+                if ( m_DeformTool.HasLatticeSession() )
+                    m_DeformTool.DrawLatticeControls( *m_Scene, m_Gizmo, ViewCamera(), viewProj,
+                                                      m_ViewportData.ViewportPos, m_ViewportData.Size,
+                                                      m_ViewportData.IsHovered );
                 m_CubeGridTool.Update( *m_Scene, Core::ModelingState::Get().CubeGridAimCentre ? centreRay : ray,
                                        viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                        m_ViewportData.IsHovered );
@@ -2579,6 +2584,7 @@ namespace Desert::Editor
             case T::Smooth:
             case T::Offset:
             case T::Warp:
+            case T::Lattice:
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click
         }
         return Tools::ToolCursor::None;
@@ -2748,6 +2754,11 @@ namespace Desert::Editor
         const auto&  vp        = m_ViewportData;
         const bool   overImage = mp.x >= vp.ViewportPos.x && mp.y >= vp.ViewportPos.y &&
                                  mp.x < vp.ViewportPos.x + vp.Size.x && mp.y < vp.ViewportPos.y + vp.Size.y;
+
+        // Lattice owns the scene's left clicks (UE: the tool's click behaviour selects control points, an empty
+        // click clears them); the entity selection stays, or the session would end.
+        if ( e.GetMouseButton() == Common::MouseButton::Left && m_DeformTool.HasLatticeSession() && overImage )
+            return false;
 
         if ( e.GetMouseButton() == Common::MouseButton::Left && !m_UIPreview &&
              Core::ViewportMode::Get() == Core::EditorMode::Select && m_ViewportData.IsHovered && overImage )

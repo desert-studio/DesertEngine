@@ -41,6 +41,8 @@ namespace Desert::Editor::Tools
                 return { ICON_MDI_ARROW_EXPAND_ALL, "Offset", true };
             case T::Warp:
                 return { ICON_MDI_ROTATE_ORBIT, "Warp", true };
+            case T::Lattice:
+                return { ICON_MDI_GRID, "Lattice", true };
         }
         return {};
     }

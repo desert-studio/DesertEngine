@@ -4,6 +4,7 @@
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/GizmoController.hpp>
 
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -13,6 +14,10 @@
 #include <Engine/Geometry/MeshDeformOperations.hpp>
 
 #include <ImGui/imgui.h>
+#include <ImGuizmo.h>
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <algorithm>
 
 #include <format>
 #include <string>
@@ -33,6 +38,8 @@ namespace Desert::Editor::Tools
                     return "Offset";
                 case MS::Tool::Warp:
                     return "Warp";
+                case MS::Tool::Lattice:
+                    return "Lattice";
                 default:
                     return "?";
             }
@@ -87,7 +94,8 @@ namespace Desert::Editor::Tools
 
     bool DeformTool::IsDeformTool( MS::Tool tool )
     {
-        return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp;
+        return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
+               tool == MS::Tool::Lattice;
     }
 
     void DeformTool::Update( ::Desert::Core::Scene& scene )
@@ -114,6 +122,19 @@ namespace Desert::Editor::Tools
 
         if ( !m_Session )
             Begin( scene, ms );
+        if ( m_Session && m_Session->Lattice )
+        {
+            // UE: a resolution change rebuilds the lattice and drops its edits.
+            const glm::ivec3 dims( ms.DeformLattice.XResolution, ms.DeformLattice.YResolution,
+                                   ms.DeformLattice.ZResolution );
+            if ( dims != m_Session->Lattice->Dims && !BuildLattice( ms ) )
+            {
+                Restore( scene );
+                m_Session.reset();
+                return;
+            }
+            ApplyLatticeGizmo( scene, ms );
+        }
         if ( m_Session && SettingsChanged( ms ) )
             Recompute( scene, ms );
 
@@ -156,6 +177,11 @@ namespace Desert::Editor::Tools
              Session{ ms.ActiveTool, *selected, target.GetValue().Mesh, target.GetValue().Committed, nullptr };
         if ( ms.ActiveTool == MS::Tool::Warp )
             PlaceWarpGizmo( *m_Session->Input, WorldOf( scene, *selected ), ms );
+        if ( ms.ActiveTool == MS::Tool::Lattice && !BuildLattice( ms ) )
+        {
+            m_Session.reset();
+            return;
+        }
         Recompute( scene, ms );
     }
 
@@ -195,6 +221,8 @@ namespace Desert::Editor::Tools
         m_Offset                                             = ms.DeformOffset;
         m_Warp                                               = ms.DeformWarp;
         m_WarpGizmo                                          = ms.WarpGizmo;
+        m_Lattice                                            = ms.DeformLattice;
+        m_LatticePoints                                      = ms.LatticePoints;
         const Geometry::DynamicMesh3&              input     = *m_Session->Input;
         Common::ResultStr<Geometry::DeformOutcome> out       = [&]
         {
@@ -204,6 +232,9 @@ namespace Desert::Editor::Tools
                     return Geometry::Smooth( input, ms.DeformSmooth );
                 case MS::Tool::Offset:
                     return Geometry::Offset( input, ms.DeformOffset );
+                case MS::Tool::Lattice:
+                    return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints,
+                                                    ms.DeformLattice.Interpolation );
                 default: // Warp: object space -> the gizmo's frame, as UE's FMeshSpaceDeformerOp::ObjectToGizmo
                     return Geometry::Warp( input, ms.DeformWarp,
                                            glm::inverse( glm::dmat4( ms.WarpGizmo ) ) *
@@ -275,6 +306,164 @@ namespace Desert::Editor::Tools
         return true;
     }
 
+    bool DeformTool::BuildLattice( MS& ms )
+    {
+        auto lattice = Geometry::MakeFFDLattice( *m_Session->Input, ms.DeformLattice );
+        if ( !lattice.IsSuccess() )
+        {
+            ms.DeformStatus = lattice.GetError();
+            return false;
+        }
+        m_Session->Lattice = lattice.GetValue();
+        ms.LatticePoints   = m_Session->Lattice->RestPoints();
+        ms.LatticeSelection.clear();
+        m_LatticeGizmo = ms.LatticeGizmo;
+        return true;
+    }
+
+    void DeformTool::ApplyLatticeGizmo( ::Desert::Core::Scene& scene, MS& ms )
+    {
+        if ( ms.LatticeGizmo == m_LatticeGizmo )
+            return;
+        const glm::dmat4 world( WorldOf( scene, m_Session->Entity ) );
+        if ( std::abs( glm::determinant( world ) ) > 1e-12 )
+        {
+            // The gizmo's motion this frame, in world space, applied to each selected point and taken back
+            // into the mesh's object space.
+            const glm::dmat4 motion = glm::inverse( world ) * glm::dmat4( ms.LatticeGizmo ) *
+                                      glm::inverse( glm::dmat4( m_LatticeGizmo ) ) * world;
+            for ( const int32_t index : ms.LatticeSelection )
+                if ( index >= 0 && static_cast<size_t>( index ) < ms.LatticePoints.size() )
+                    ms.LatticePoints[static_cast<size_t>( index )] =
+                         glm::dvec3( motion * glm::dvec4( ms.LatticePoints[static_cast<size_t>( index )], 1.0 ) );
+        }
+        m_LatticeGizmo = ms.LatticeGizmo;
+    }
+
+    void DeformTool::PlaceLatticeGizmo( ::Desert::Core::Scene& scene, MS& ms )
+    {
+        const glm::dmat4 world( WorldOf( scene, m_Session->Entity ) );
+        glm::dvec3       centroid( 0.0 );
+        int32_t          count = 0;
+        for ( const int32_t index : ms.LatticeSelection )
+            if ( index >= 0 && static_cast<size_t>( index ) < ms.LatticePoints.size() )
+            {
+                centroid += glm::dvec3( world * glm::dvec4( ms.LatticePoints[static_cast<size_t>( index )], 1.0 ) );
+                ++count;
+            }
+        if ( count > 0 )
+            centroid /= static_cast<double>( count );
+        ms.LatticeGizmo = glm::translate( glm::mat4( 1.0f ), glm::vec3( centroid ) );
+        m_LatticeGizmo  = ms.LatticeGizmo;
+    }
+
+    void DeformTool::DrawLatticeControls( ::Desert::Core::Scene& scene, GizmoController& gizmo,
+                                          const std::shared_ptr<::Desert::Core::Camera>& camera,
+                                          const glm::mat4& viewProj, const glm::vec2& viewportPos,
+                                          const glm::vec2& viewportSize, bool hovered )
+    {
+        if ( !m_Session || !m_Session->Lattice )
+            return;
+        MS&                     ms      = MS::Get();
+        const Geometry::FFDLattice& lattice = *m_Session->Lattice;
+        if ( static_cast<int32_t>( ms.LatticePoints.size() ) != lattice.PointCount() )
+            return;
+        const glm::dmat4    world( WorldOf( scene, m_Session->Entity ) );
+        std::vector<ImVec2> screen( ms.LatticePoints.size() );
+        std::vector<char>   visible( ms.LatticePoints.size(), 0 );
+        for ( size_t i = 0; i < ms.LatticePoints.size(); ++i )
+        {
+            const glm::vec4 clip =
+                 viewProj * glm::vec4( glm::vec3( world * glm::dvec4( ms.LatticePoints[i], 1.0 ) ), 1.0f );
+            if ( clip.w <= 0.0001f )
+                continue; // behind the camera
+            screen[i]  = ImVec2( viewportPos.x + ( clip.x / clip.w * 0.5f + 0.5f ) * viewportSize.x,
+                                 viewportPos.y + ( 0.5f - clip.y / clip.w * 0.5f ) * viewportSize.y );
+            visible[i] = 1;
+        }
+        std::vector<char> selected( ms.LatticePoints.size(), 0 );
+        for ( const int32_t index : ms.LatticeSelection )
+            if ( index >= 0 && static_cast<size_t>( index ) < selected.size() )
+                selected[static_cast<size_t>( index )] = 1;
+
+        // UE draws the lattice's edges and its points; the selected points in the selection colour.
+        ImDrawList*      dl   = ::ImGui::GetWindowDrawList();
+        const glm::ivec3 dims = lattice.Dims;
+        for ( int32_t k = 0; k < dims.z; ++k )
+            for ( int32_t j = 0; j < dims.y; ++j )
+                for ( int32_t i = 0; i < dims.x; ++i )
+                {
+                    const auto a = static_cast<size_t>( lattice.Index( i, j, k ) );
+                    for ( const glm::ivec3 step : { glm::ivec3( 1, 0, 0 ), glm::ivec3( 0, 1, 0 ),
+                                                   glm::ivec3( 0, 0, 1 ) } )
+                    {
+                        const glm::ivec3 n = glm::ivec3( i, j, k ) + step;
+                        if ( n.x >= dims.x || n.y >= dims.y || n.z >= dims.z )
+                            continue;
+                        const auto b = static_cast<size_t>( lattice.Index( n.x, n.y, n.z ) );
+                        if ( visible[a] && visible[b] )
+                            dl->AddLine( screen[a], screen[b], IM_COL32( 230, 120, 40, 200 ), 1.5f );
+                    }
+                }
+        for ( size_t i = 0; i < screen.size(); ++i )
+        {
+            if ( !visible[i] )
+                continue;
+            const float r = selected[i] ? 5.0f : 4.0f;
+            dl->AddRectFilled( ImVec2( screen[i].x - r, screen[i].y - r ), ImVec2( screen[i].x + r, screen[i].y + r ),
+                               selected[i] ? IM_COL32( 255, 255, 0, 255 ) : IM_COL32( 255, 0, 255, 255 ) );
+        }
+
+        // The gizmo on the selection (UE's mechanic: translate + rotate about the selection's centroid).
+        bool gizmoBusy = false;
+        if ( !ms.LatticeSelection.empty() )
+        {
+            gizmo.RenderFrame( "LatticeGizmo", ms.LatticeGizmo, camera, viewportPos, viewportSize );
+            gizmoBusy = ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+        }
+        const ImVec2 mouse = ::ImGui::GetMousePos();
+        const bool   overImage = mouse.x >= viewportPos.x && mouse.y >= viewportPos.y &&
+                               mouse.x < viewportPos.x + viewportSize.x && mouse.y < viewportPos.y + viewportSize.y;
+        if ( !hovered || !overImage || gizmoBusy || !::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+            return;
+        int32_t hit  = -1;
+        float   best = 81.0f; // 9 px
+        for ( size_t i = 0; i < screen.size(); ++i )
+        {
+            if ( !visible[i] )
+                continue;
+            const float dx = screen[i].x - mouse.x, dy = screen[i].y - mouse.y;
+            if ( dx * dx + dy * dy <= best )
+            {
+                best = dx * dx + dy * dy;
+                hit  = static_cast<int32_t>( i );
+            }
+        }
+        const ImGuiIO& io = ::ImGui::GetIO();
+        auto&          sel = ms.LatticeSelection;
+        const auto     it  = std::find( sel.begin(), sel.end(), hit );
+        if ( hit < 0 )
+        {
+            if ( !io.KeyShift && !io.KeyCtrl )
+                sel.clear();
+        }
+        else if ( io.KeyCtrl )
+        {
+            if ( it != sel.end() )
+                sel.erase( it );
+            else
+                sel.push_back( hit );
+        }
+        else if ( io.KeyShift )
+        {
+            if ( it == sel.end() )
+                sel.push_back( hit );
+        }
+        else
+            sel = { hit };
+        PlaceLatticeGizmo( scene, ms );
+    }
+
     bool DeformTool::SettingsChanged( const MS& ms ) const
     {
         switch ( m_Session->Tool )
@@ -285,6 +474,8 @@ namespace Desert::Editor::Tools
                 return !( ms.DeformOffset == m_Offset );
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
+            case MS::Tool::Lattice:
+                return !( ms.DeformLattice == m_Lattice ) || ms.LatticePoints != m_LatticePoints;
             default:
                 return false;
         }

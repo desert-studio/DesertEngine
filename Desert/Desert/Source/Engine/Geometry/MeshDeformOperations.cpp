@@ -730,4 +730,130 @@ namespace Desert::Geometry
         const glm::dvec3 b = BendYUp( settings, { gizmoPoint.x, gizmoPoint.z, -gizmoPoint.y } );
         return { b.x, -b.z, b.y };
     }
+    const char* ToString( LatticeInterpolation interpolation )
+    {
+        return interpolation == LatticeInterpolation::Cubic ? "Cubic" : "Linear";
+    }
+
+    std::vector<glm::dvec3> FFDLattice::RestPoints() const
+    {
+        std::vector<glm::dvec3> points( static_cast<size_t>( std::max( 0, PointCount() ) ) );
+        for ( int32_t k = 0; k < Dims.z; ++k )
+            for ( int32_t j = 0; j < Dims.y; ++j )
+                for ( int32_t i = 0; i < Dims.x; ++i )
+                    points[static_cast<size_t>( Index( i, j, k ) )] = Min + CellSize * glm::dvec3( i, j, k );
+        return points;
+    }
+
+    Common::ResultStr<FFDLattice> MakeFFDLattice( const DynamicMesh3& mesh, const LatticeSettings& settings )
+    {
+        if ( mesh.VertexCount() == 0 )
+            return Common::MakeError<FFDLattice>( "Lattice: the mesh has no vertices" );
+        const glm::ivec3 dims( settings.XResolution, settings.YResolution, settings.ZResolution );
+        for ( int c = 0; c < 3; ++c )
+            if ( dims[c] < kLatticeMinResolution || dims[c] > kLatticeMaxResolution )
+                return Common::MakeError<FFDLattice>(
+                     fmt::format( "Lattice: resolution {} x {} x {}, {}..{} per axis expected", dims.x, dims.y,
+                                  dims.z, kLatticeMinResolution, kLatticeMaxResolution ) );
+        const auto       box  = mesh.GetBounds();
+        glm::dvec3       lo   = glm::dvec3( box.Min ), hi = glm::dvec3( box.Max );
+        const double     side = std::max( { hi.x - lo.x, hi.y - lo.y, hi.z - lo.z } );
+        // UE FFFDLattice: InitialBounds expanded by Padding * MaxDim on every side (the tool's padding 0.01).
+        const double pad = 0.01 * ( side > 0.0 ? side : 1.0 );
+        lo -= glm::dvec3( pad );
+        hi += glm::dvec3( pad );
+        FFDLattice lattice;
+        lattice.Dims     = dims;
+        lattice.Min      = lo;
+        lattice.CellSize = ( hi - lo ) / glm::dvec3( dims - 1 );
+        return Common::MakeSuccess( lattice );
+    }
+
+    namespace
+    {
+        // Catmull-Rom weights of the points at -1, 0, 1, 2 for t in [0, 1]: interpolating, and exact on a
+        // linear field, so the rest lattice gives back every vertex unmoved.
+        std::array<double, 4> CubicWeights( double t )
+        {
+            const double t2 = t * t, t3 = t2 * t;
+            return { 0.5 * ( -t3 + 2.0 * t2 - t ), 0.5 * ( 3.0 * t3 - 5.0 * t2 + 2.0 ),
+                     0.5 * ( -3.0 * t3 + 4.0 * t2 + t ), 0.5 * ( t3 - t2 ) };
+        }
+    } // namespace
+
+    Common::ResultStr<DeformOutcome> LatticeDeform( const DynamicMesh3& input, const FFDLattice& lattice,
+                                                    const std::vector<glm::dvec3>& points,
+                                                    LatticeInterpolation           interpolation )
+    {
+        if ( input.TriangleCount() == 0 )
+            return Common::MakeError<DeformOutcome>( "Lattice: the mesh has no triangles" );
+        if ( lattice.PointCount() <= 0 || static_cast<int32_t>( points.size() ) != lattice.PointCount() )
+            return Common::MakeError<DeformOutcome>(
+                 fmt::format( "Lattice: {} control points for a {} x {} x {} lattice", points.size(),
+                              lattice.Dims.x, lattice.Dims.y, lattice.Dims.z ) );
+        const glm::ivec3 dims = lattice.Dims;
+        // A control point by grid coordinates; outside the grid (the cubic stencil's ring) it is extrapolated
+        // linearly from the edge, UE's extrapolated lattice positions, so the edge cells stay cubic.
+        const auto at = [&]( int32_t i, int32_t j, int32_t k ) -> glm::dvec3
+        {
+            const glm::ivec3 q( i, j, k );
+            glm::dvec3       offset( 0.0 );
+            const glm::ivec3 c( std::clamp( i, 0, dims.x - 1 ), std::clamp( j, 0, dims.y - 1 ),
+                                std::clamp( k, 0, dims.z - 1 ) );
+            const glm::dvec3 base = points[static_cast<size_t>( lattice.Index( c.x, c.y, c.z ) )];
+            for ( int a = 0; a < 3; ++a )
+            {
+                if ( q[a] == c[a] )
+                    continue;
+                // One step past the edge along a: edge + ( edge - its inner neighbour ).
+                glm::ivec3 n = c;
+                n[a]         = q[a] < 0 ? 1 : dims[a] - 2;
+                offset += base - points[static_cast<size_t>( lattice.Index( n.x, n.y, n.z ) )];
+            }
+            return base + offset;
+        };
+
+        DynamicMesh3            mesh = input;
+        std::vector<glm::dvec3> p    = Positions( mesh );
+        int32_t                 moved = 0;
+        for ( const int vid : mesh.VertexIndicesItr() )
+        {
+            glm::dvec3&      v    = p[static_cast<size_t>( vid )];
+            const glm::dvec3 g    = ( v - lattice.Min ) / lattice.CellSize;
+            glm::ivec3       cell;
+            glm::dvec3       t;
+            for ( int a = 0; a < 3; ++a )
+            {
+                cell[a] = std::clamp( static_cast<int32_t>( std::floor( g[a] ) ), 0, dims[a] - 2 );
+                t[a]    = std::clamp( g[a] - cell[a], 0.0, 1.0 );
+            }
+            glm::dvec3 out( 0.0 );
+            if ( interpolation == LatticeInterpolation::Linear )
+            {
+                for ( int c = 0; c < 8; ++c )
+                {
+                    const glm::ivec3 o( c & 1, ( c >> 1 ) & 1, ( c >> 2 ) & 1 );
+                    const double     w = ( o.x ? t.x : 1.0 - t.x ) * ( o.y ? t.y : 1.0 - t.y ) *
+                                     ( o.z ? t.z : 1.0 - t.z );
+                    out += w * points[static_cast<size_t>(
+                                    lattice.Index( cell.x + o.x, cell.y + o.y, cell.z + o.z ) )];
+                }
+            }
+            else
+            {
+                const auto wx = CubicWeights( t.x ), wy = CubicWeights( t.y ), wz = CubicWeights( t.z );
+                for ( int c = 0; c < 4; ++c )
+                    for ( int b = 0; b < 4; ++b )
+                        for ( int a = 0; a < 4; ++a )
+                            out += wx[a] * wy[b] * wz[c] * at( cell.x - 1 + a, cell.y - 1 + b, cell.z - 1 + c );
+            }
+            if ( glm::length( out - v ) > 1e-9 )
+                ++moved;
+            v = out;
+        }
+        WritePositions( mesh, p );
+        std::string report = fmt::format( "{} lattice {} x {} x {}", ToString( interpolation ), dims.x, dims.y,
+                                          dims.z );
+        return Finish( std::move( mesh ), "Lattice", moved, 0, std::move( report ) );
+    }
 } // namespace Desert::Geometry

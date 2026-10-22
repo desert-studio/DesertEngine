@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 103> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 109> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -250,6 +250,18 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.WarpGizmo[3].y; }, nullptr },
          { "Warp.GizmoZ",               "Gizmo Z",            "Warp", 1, false, -1.0e7f, 1.0e7f,
            []( ModelingState& s ) { return &s.WarpGizmo[3].z; }, nullptr },
+         { "Lattice.XAxisResolution",   "X Axis Resolution",  "Lattice", 1, true, 2.0f, 25.0f, nullptr,
+           []( ModelingState& s ) { return &s.DeformLattice.XResolution; } },
+         { "Lattice.YAxisResolution",   "Y Axis Resolution",  "Lattice", 1, true, 2.0f, 25.0f, nullptr,
+           []( ModelingState& s ) { return &s.DeformLattice.YResolution; } },
+         { "Lattice.ZAxisResolution",   "Z Axis Resolution",  "Lattice", 1, true, 2.0f, 25.0f, nullptr,
+           []( ModelingState& s ) { return &s.DeformLattice.ZResolution; } },
+         { "Lattice.GizmoX",            "Gizmo X",            "Lattice", 1, false, -1.0e7f, 1.0e7f,
+           []( ModelingState& s ) { return &s.LatticeGizmo[3].x; }, nullptr },
+         { "Lattice.GizmoY",            "Gizmo Y",            "Lattice", 1, false, -1.0e7f, 1.0e7f,
+           []( ModelingState& s ) { return &s.LatticeGizmo[3].y; }, nullptr },
+         { "Lattice.GizmoZ",            "Gizmo Z",            "Lattice", 1, false, -1.0e7f, 1.0e7f,
+           []( ModelingState& s ) { return &s.LatticeGizmo[3].z; }, nullptr },
     } };
     // clang-format on
 

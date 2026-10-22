@@ -5,9 +5,11 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace Desert::Geometry
 {
@@ -142,4 +144,51 @@ namespace Desert::Geometry
     // One point of Bend in the deformer's frame (gizmo space, Z = the bend axis): the map Warp applies to every
     // vertex. The viewport traces the bent axis with it, as UE's UMeshSpaceDeformerTool bDrawVisualization.
     [[nodiscard]] glm::dvec3 WarpBendGizmoPoint( const WarpSettings& settings, const glm::dvec3& gizmoPoint );
+    // ---- Lattice (UE ULatticeDeformerTool / ULatticeDeformerToolProperties, operator FFFDLattice) ----
+    // UE ELatticeInterpolation: how a vertex follows the control points of the cell it sits in.
+    enum class LatticeInterpolation : uint8_t
+    {
+        Linear, // trilinear over the cell's 8 corners
+        Cubic,  // tricubic (Catmull-Rom) over the 4x4x4 points around the cell, the lattice's edge extrapolated
+    };
+    [[nodiscard]] const char* ToString( LatticeInterpolation interpolation );
+
+    struct LatticeSettings
+    {
+        // UE XAxisResolution / YAxisResolution / ZAxisResolution: control points along each object axis, 2..25.
+        int32_t              XResolution   = 5;
+        int32_t              YResolution   = 5;
+        int32_t              ZResolution   = 5;
+        LatticeInterpolation Interpolation = LatticeInterpolation::Linear;
+
+        bool operator==( const LatticeSettings& ) const = default;
+    };
+    inline constexpr int32_t kLatticeMinResolution = 2;
+    inline constexpr int32_t kLatticeMaxResolution = 25;
+
+    // UE FFFDLattice: a regular grid of control points over the mesh's object-space bounds, padded by 1% of the
+    // largest side (UE's LatticePadding) so a flat side still has a cell. Points are numbered x fastest:
+    // Index( i, j, k ) = i + Dims.x * ( j + Dims.y * k ).
+    struct FFDLattice
+    {
+        glm::ivec3 Dims{ 0 };
+        glm::dvec3 Min{ 0.0 };
+        glm::dvec3 CellSize{ 0.0 };
+
+        [[nodiscard]] int32_t Index( int32_t i, int32_t j, int32_t k ) const
+        {
+            return i + Dims.x * ( j + Dims.y * k );
+        }
+        [[nodiscard]] int32_t PointCount() const { return Dims.x * Dims.y * Dims.z; }
+        // UE GenerateInitialLatticePositions: the undeformed control points.
+        [[nodiscard]] std::vector<glm::dvec3> RestPoints() const;
+    };
+    [[nodiscard]] Common::ResultStr<FFDLattice> MakeFFDLattice( const DynamicMesh3&     mesh,
+                                                                const LatticeSettings& settings );
+    // UE FFFDLattice::GetDeformedMeshVertexPositions: every vertex keeps its place in its rest cell and follows
+    // @p points (the lattice's control points, object space, as many as lattice.PointCount()).
+    [[nodiscard]] Common::ResultStr<DeformOutcome> LatticeDeform( const DynamicMesh3&            mesh,
+                                                                  const FFDLattice&              lattice,
+                                                                  const std::vector<glm::dvec3>& points,
+                                                                  LatticeInterpolation           interpolation );
 } // namespace Desert::Geometry

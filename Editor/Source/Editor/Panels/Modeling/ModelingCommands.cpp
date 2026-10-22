@@ -599,7 +599,7 @@ namespace Desert::Editor
                                   } } );
         // UE's Deform palette: Smooth, Offset and Warp (DeformTool), committed the same way as the UV tools.
         for ( const auto& [name, tool] : std::initializer_list<std::pair<const char*, MS::Tool>>{
-                   { "Smooth", MS::Tool::Smooth }, { "Offset", MS::Tool::Offset }, { "Warp", MS::Tool::Warp } } )
+                   { "Smooth", MS::Tool::Smooth }, { "Offset", MS::Tool::Offset }, { "Warp", MS::Tool::Warp }, { "Lattice", MS::Tool::Lattice } } )
             commands.push_back( { "Modeling", std::string( "Deform tool: " ) + name, [tool]
                                   {
                                       MS::Get().ActiveTool = tool;
@@ -651,6 +651,15 @@ namespace Desert::Editor
                                   std::string( "Warp flare profile: " ) + Geometry::ToString( profile ), [profile]
                                   {
                                       MS::Get().DeformWarp.Profile = profile;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::LatticeInterpolation interpolation :
+              { Geometry::LatticeInterpolation::Linear, Geometry::LatticeInterpolation::Cubic } )
+            commands.push_back( { "Modeling",
+                                  std::string( "Lattice interpolation: " ) + Geometry::ToString( interpolation ),
+                                  [interpolation]
+                                  {
+                                      MS::Get().DeformLattice.Interpolation = interpolation;
                                       return PaletteCommandDone();
                                   } } );
         modelingOnOff( "Modeling", "Warp: Lock Bottom", []( MS& ms, bool on ) { ms.DeformWarp.LockBottom = on; } );

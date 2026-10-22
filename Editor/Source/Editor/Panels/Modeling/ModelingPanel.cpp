@@ -141,7 +141,7 @@ namespace Desert::Editor
                       ms.ActiveTool == MS::Tool::UVUnwrap || ms.ActiveTool == MS::Tool::UVLayout )
                 m_Category = static_cast<int>( Palette::UVs );
             else if ( ms.ActiveTool == MS::Tool::Smooth || ms.ActiveTool == MS::Tool::Offset ||
-                      ms.ActiveTool == MS::Tool::Warp )
+                      ms.ActiveTool == MS::Tool::Warp || ms.ActiveTool == MS::Tool::Lattice )
                 m_Category = static_cast<int>( Palette::Deform );
         }
 
@@ -595,10 +595,11 @@ namespace Desert::Editor
             const char* Name;
             MS::Tool    Tool;
         };
-        constexpr std::array<DeformToolEntry, 3> kDeformTools = {
+        constexpr std::array<DeformToolEntry, 4> kDeformTools = {
              { { ICON_MDI_BLUR, "Smooth", MS::Tool::Smooth },
                { ICON_MDI_ARROW_EXPAND_ALL, "Offset", MS::Tool::Offset },
-               { ICON_MDI_ROTATE_ORBIT, "Warp", MS::Tool::Warp } } };
+               { ICON_MDI_ROTATE_ORBIT, "Warp", MS::Tool::Warp },
+               { ICON_MDI_GRID, "Lattice", MS::Tool::Lattice } } };
         for ( size_t i = 0; i < kDeformTools.size(); ++i )
         {
             const bool on = ms.ActiveTool == kDeformTools[i].Tool;
@@ -744,6 +745,28 @@ namespace Desert::Editor
                 if ( s.Operation != Geometry::WarpOperation::Flare )
                     ImGui::Checkbox( "Lock Bottom##Warp", &s.LockBottom );
                 ImGui::TextDisabled( "The viewport gizmo is the deformer's frame: Z is the axis." );
+                break;
+            }
+            case MS::Tool::Lattice:
+            {
+                // UE ULatticeDeformerToolProperties: resolution (a change rebuilds the lattice) and interpolation.
+                auto& s = ms.DeformLattice;
+                row( "X Axis Resolution" );
+                ImGui::SliderInt( "##LatticeX", &s.XResolution, Geometry::kLatticeMinResolution,
+                                  Geometry::kLatticeMaxResolution, "%d", ImGuiSliderFlags_AlwaysClamp );
+                row( "Y Axis Resolution" );
+                ImGui::SliderInt( "##LatticeY", &s.YResolution, Geometry::kLatticeMinResolution,
+                                  Geometry::kLatticeMaxResolution, "%d", ImGuiSliderFlags_AlwaysClamp );
+                row( "Z Axis Resolution" );
+                ImGui::SliderInt( "##LatticeZ", &s.ZResolution, Geometry::kLatticeMinResolution,
+                                  Geometry::kLatticeMaxResolution, "%d", ImGuiSliderFlags_AlwaysClamp );
+                int                   interpolation = static_cast<int>( s.Interpolation );
+                constexpr const char* kInterp[]     = { "Linear", "Cubic" };
+                row( "Interpolation Type" );
+                if ( ImGui::Combo( "##LatticeInterp", &interpolation, kInterp, 2 ) )
+                    s.Interpolation = static_cast<Geometry::LatticeInterpolation>( interpolation );
+                ImGui::Text( "%zu of %zu points selected", ms.LatticeSelection.size(), ms.LatticePoints.size() );
+                ImGui::TextDisabled( "Click a point (Shift adds, Ctrl toggles); the gizmo moves the selection." );
                 break;
             }
             default:

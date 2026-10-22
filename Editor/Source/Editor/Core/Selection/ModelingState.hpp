@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <glm/mat4x4.hpp>
 
@@ -41,6 +42,7 @@ namespace Desert::Editor::Core
             Smooth,
             Offset,
             Warp, // UE's UMeshSpaceDeformerTool: Bend / Twist / Flare in the frame of its gizmo
+            Lattice, // UE's ULatticeDeformerTool: a control-point lattice over the mesh's bounds (FFD)
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -315,6 +317,15 @@ namespace Desert::Editor::Core
         // bounds centre with Z along the longest side when it starts (UE Setup), then the viewport gizmo moves it.
         Geometry::WarpSettings DeformWarp;
         glm::mat4              WarpGizmo{ 1.0f };
+        // Lattice (UE ULatticeDeformerTool): resolution + interpolation, the control points (object space of the
+        // edited mesh, numbered as Geometry::FFDLattice::Index; the tool fills them at start and whenever the
+        // resolution changes, which resets the lattice as in UE), the selected points (UE
+        // ULatticeControlPointsMechanic selection) and the gizmo on them: a world frame placed on the
+        // selection's centroid; moving or turning it carries the selected points along.
+        Geometry::LatticeSettings DeformLattice;
+        std::vector<glm::dvec3>   LatticePoints;
+        std::vector<int32_t>      LatticeSelection;
+        glm::mat4                 LatticeGizmo{ 1.0f };
         // What the active Deform tool's preview did (its report), or why there is none - the panel shows it.
         std::string DeformStatus;
 
