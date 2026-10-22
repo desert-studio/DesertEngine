@@ -17,6 +17,11 @@
 #include <unordered_map>
 #include <vector>
 
+namespace Desert::Assets
+{
+    class VFXEffectTypeAsset;
+}
+
 namespace Desert::VFX
 {
     // One fixed step of one emitter, as the simulation will run it.
@@ -165,10 +170,11 @@ namespace Desert::VFX
             return m_CulledSystems;
         }
 
-        /// The effect type NAMED @p name (a `.dfxtype` stem in the project's VFX folder; UE UNiagaraEffectType),
-        /// read once per world; nullptr when it is missing or unreadable (logged once, naming the file) - a system
-        /// of that type then spawns nothing: no type is no scalability, and a missing one is an error, not a
-        /// default.
+        /// The effect type NAMED @p name (a `.dfxtype` stem under the project's VFX folder; UE
+        /// UNiagaraEffectType), resolved once per world through VFXSystemService and read LIVE from the held asset
+        /// every tick, so a hot reload or an editor Save reaches the next frame; nullptr when it is missing or
+        /// unreadable (logged once, naming why) - a system of that type then spawns nothing: no type is no
+        /// scalability, and a missing one is an error, not a default.
         const Assets::Serialization::VFXEffectTypeData* EffectType( const std::string& name );
 
         // Counts Tick calls: a renderer runs one tick's simulation once, in the first view that sees its serial.
@@ -200,8 +206,7 @@ namespace Desert::VFX
         mutable std::unique_ptr<WorldGpuState>             m_GpuState;
         mutable std::vector<VFXViewReport>                 m_PendingViews; // this frame's views (SubmitView)
         std::size_t                                        m_CulledSystems = 0;
-        // Read effect types by name; a null entry is a type that failed to read (logged once).
-        std::unordered_map<std::string, std::shared_ptr<const Assets::Serialization::VFXEffectTypeData>>
-             m_EffectTypes;
+        // Resolved effect types by name; a null entry is a type that failed to resolve (logged once).
+        std::unordered_map<std::string, std::shared_ptr<Assets::VFXEffectTypeAsset>> m_EffectTypes;
     };
 } // namespace Desert::VFX

@@ -3549,6 +3549,14 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( written ) );
     }
 
+    Assets::Serialization::VFXEffectTypeData DefaultVFXEffectTypeForV3()
+    {
+        Assets::Serialization::VFXEffectTypeData type;
+        for ( const float cm : { 5000.0f, 10000.0f, 20000.0f, 50000.0f, 0.0f } )
+            type.Levels.push_back( Assets::Serialization::VFXEffectTypeLevel{ cm, 1.0f } );
+        return type;
+    }
+
     Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text )
     {
         namespace S = Assets::Serialization;
@@ -3594,9 +3602,8 @@ namespace Desert::Migration
         std::string written = S::WriteVFXSystem( data );
         const auto  reread  = Common::Json::Read<S::VFXSystemData>( written );
         if ( !reread )
-            return Common::MakeFormattedError<std::string>( "" the raised file does not read as VFXS 3
-                                                            : {} ",
-                                                              reread.GetError() );
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as VFXS 3: {}",
+                                                            reread.GetError() );
         if ( auto valid = S::ValidateVFXSystemData( reread.GetValue() ); !valid )
             return Common::MakeFormattedError<std::string>( "the raised file is not a valid VFXS 3 system: {}",
                                                             valid.GetError() );

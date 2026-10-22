@@ -3,6 +3,8 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/VFX/VFXRandom.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
+#include <Engine/Assets/VFXEffectTypeAsset.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -222,32 +224,16 @@ namespace Desert::VFX
     const Assets::Serialization::VFXEffectTypeData* VFXWorld::EffectType( const std::string& name )
     {
         if ( const auto found = m_EffectTypes.find( name ); found != m_EffectTypes.end() )
-            return found->second.get();
-        auto& slot = m_EffectTypes[name];
-
-        const std::filesystem::path file = Assets::ContentRegistry::FileToOpen(
-             Common::Constants::Path::VFX_PATH / ( name + Assets::Serialization::kVFXEffectTypeExtension ) );
-        std::string text;
-        if ( const auto packed =
-                  Common::Utils::VFS::Exists( file ) ? Common::Utils::VFS::ReadFile( file ) : std::nullopt;
-             packed.has_value() )
-            text = packed.value();
-        else if ( auto read = Common::Utils::FileSystem::ReadFileContent( file ); read )
-            text = read.ExtractValue();
-        if ( text.empty() )
+            return found->second ? &found->second->GetData() : nullptr;
+        auto& slot     = m_EffectTypes[name];
+        auto  resolved = Runtime::ResourceRegistry::GetVFXSystemService()->EffectType( name );
+        if ( !resolved )
         {
-            LOG_ERROR( "[VFX] effect type '{}': '{}' is missing or empty - its systems spawn nothing", name,
-                       file.string() );
+            LOG_ERROR( "[VFX] effect type '{}' is not usable - its systems spawn nothing: {}", name,
+                       resolved.GetError() );
             return nullptr;
         }
-        auto parsed = Assets::Serialization::ParseVFXEffectType( text );
-        if ( !parsed )
-        {
-            LOG_ERROR( "[VFX] effect type '{}' ('{}') is not usable: {} - its systems spawn nothing", name,
-                       file.string(), parsed.GetError() );
-            return nullptr;
-        }
-        slot = std::make_shared<const Assets::Serialization::VFXEffectTypeData>( parsed.ExtractValue() );
-        return slot.get();
+        slot = resolved.ExtractValue();
+        return &slot->GetData();
     }
 } // namespace Desert::VFX

@@ -32,6 +32,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Assets/Serialization/VFXEffectType.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <glm/glm.hpp>
 
@@ -886,6 +887,12 @@ namespace Desert::Migration
     // VFX/Default.dfxtype must exist for it to play). The header's GUID kept and its Dependencies stamped; a file
     // that states neither VFXS 1 nor 2 is an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text );
+
+    // The `Default` effect type the 2 -> 3 step names (VFX-11): the global distance ladder VFXS 2 culled by
+    // (the removed Effects.MaxDistance row, Low .. Cinematic 5000 / 10000 / 20000 / 50000 / 0 cm) with no spawn
+    // scaling, so a raised system plays exactly as it did. The migrator writes it as <VFX root>/Default.dfxtype
+    // beside the first system it raises when the project has none. PURE.
+    Assets::Serialization::VFXEffectTypeData DefaultVFXEffectTypeForV3();
 
     // A MATL 4 `PatchStrength` s — the slope of the ramp W = saturate(1 - 2 s u) — as the MATL 5 clear share of
     // the sky that ramp left: max(0, 1 - 1/(2s)), the fraction of the sky with W = 0 (FIELD-GRAIN-b).

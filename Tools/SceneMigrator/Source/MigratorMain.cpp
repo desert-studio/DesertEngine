@@ -85,6 +85,7 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <set>
 #include <fstream>
 #include <format>
 #include <map>
@@ -1443,6 +1444,8 @@ namespace Desert::Migration
         int foliageRaised    = 0;
         int cloudTypesRaised = 0;
         int vfxSystemsRaised = 0;
+        // Default effect types this pass created (or, under --check, would create): one per VFX root.
+        std::set<std::string> createdEffectTypes;
         int animGraphsRaised = 0;
 
         // ANIM-SKELREF: what the TargetSkeleton step matches a graph, rig or retarget against - every rig's bones,
@@ -1625,6 +1628,41 @@ namespace Desert::Migration
                     {
                         ++failed;
                         continue;
+                    }
+                    // The step names `Default`: the project's VFX root must hold it (UE DefaultEffectType). Created
+                    // once, beside the first system raised, when the project has none; an existing one is kept.
+                    const auto vfxRoot = Common::Constants::Path::RootForContentPath(
+                         Common::Constants::Path::ContentDir::VFX, path );
+                    if ( !vfxRoot )
+                    {
+                        err << "FAIL   " << path.string()
+                            << " — VFXS 3 names the Default effect type, and this file is not under a VFX "
+                               "content folder to create it in\n";
+                        ++failed;
+                        continue;
+                    }
+                    const std::filesystem::path defaultType =
+                         *vfxRoot /
+                         Common::Constants::Path::CONTENT_DIRS[static_cast<std::size_t>(
+                                                                    Common::Constants::Path::ContentDir::VFX )]
+                              .Rel /
+                         ( std::string( "Default" ) + Desert::Assets::Serialization::kVFXEffectTypeExtension );
+                    std::error_code typeEc;
+                    if ( !std::filesystem::exists( defaultType, typeEc ) &&
+                         !createdEffectTypes.contains( defaultType.lexically_normal().generic_string() ) )
+                    {
+                        createdEffectTypes.insert( defaultType.lexically_normal().generic_string() );
+                        out << ( check ? "would create " : "created " ) << defaultType.string()
+                            << " (the Default effect type VFXS 3 names)\n";
+                        if ( !check )
+                            if ( auto saved = Desert::Assets::Serialization::SaveVFXEffectTypeFile(
+                                      defaultType, Desert::Migration::DefaultVFXEffectTypeForV3() );
+                                 !saved )
+                            {
+                                err << "FAIL   " << defaultType.string() << ": " << saved.GetError() << "\n";
+                                ++failed;
+                                continue;
+                            }
                     }
                     ++vfxSystemsRaised;
                     continue;

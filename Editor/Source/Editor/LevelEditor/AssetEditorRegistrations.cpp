@@ -28,6 +28,7 @@
 #include "Editor/Panels/ControlRig/ControlRigDocument.hpp"
 #include "Editor/Panels/UI/UIEditorPanel.hpp"
 #include "Editor/Panels/VFXDataChannel/VFXDataChannelDocument.hpp"
+#include "Editor/Panels/VFXEffectType/VFXEffectTypeDocument.hpp"
 #include <Common/Content/ContentKinds.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
@@ -43,6 +44,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/Serialization/ShaderGraph.hpp>
 #include <Engine/Assets/Serialization/VFXDataChannel.hpp>
+#include <Engine/Assets/Serialization/VFXEffectType.hpp>
 #include <Engine/Assets/ShaderGraphAsset.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -158,6 +160,21 @@ namespace Desert::Editor
                   [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
                   {
                       return std::make_unique<Editor::VFXDataChannelDocument>(
+                           Assets::AssetHandle( subject.Owner ), assetManager.get() );
+                  },
+                  [&assetManager]( const SubjectId& subject ) {
+                      return assetManager &&
+                             assetManager->FindMetadataByHandle( Assets::AssetHandle( subject.Owner ) ) != nullptr;
+                  } } );
+
+        // THE VFX EFFECT TYPE EDITOR. The `.dfxtype` per-level scalability table; no renderer slot.
+        documents.SubjectEditors().Register(
+             AssetSubjectType( static_cast<uint32_t>( Assets::AssetTypeID::VFXEffectType ) ),
+             Registration{
+                  "VFXEffectType", ICON_MDI_TUNE_VARIANT,
+                  [&assetManager]( const SubjectId& subject ) -> std::unique_ptr<ISubjectDocument>
+                  {
+                      return std::make_unique<Editor::VFXEffectTypeDocument>(
                            Assets::AssetHandle( subject.Owner ), assetManager.get() );
                   },
                   [&assetManager]( const SubjectId& subject ) {
@@ -566,6 +583,10 @@ namespace Desert::Editor
              { std::string( Assets::Serialization::kVFXDataChannelExtension ) },
              [&documents, &assetManager]( const std::string& path )
              { return RequestVFXDataChannelDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
+        documents.SubjectEditors().RegisterPathOpener(
+             { std::string( Assets::Serialization::kVFXEffectTypeExtension ) },
+             [&documents, &assetManager]( const std::string& path )
+             { return RequestVFXEffectTypeDocument( assetManager.get(), path, documents.SubjectEditors() ); } );
         documents.SubjectEditors().RegisterPathOpener(
              { std::string( Assets::Serialization::kWorldParametersExtension ) },
              [&documents, &assetManager]( const std::string& path )
