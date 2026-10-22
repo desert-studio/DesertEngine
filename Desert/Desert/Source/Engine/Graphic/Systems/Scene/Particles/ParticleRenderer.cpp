@@ -71,6 +71,19 @@ namespace
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleMeshInstancesShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DrawLayout );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Instances );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Args );
+        DESERT_SHADER_PARAMETER( StorageBuffer, History );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PoolSlots );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct ParticleShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
@@ -1015,14 +1028,22 @@ namespace Desert::Graphic::System
                          // PoolSlots: the slot's Id tells a respawned particle from the one the history row holds.
                          pass.Bindings( m_MeshLayout.Get( m_MeshPipeline->GetSpecification().Shader ),
                                         Renderer::GetPipelineRouteFill( *m_MeshPipeline ) )
-                              .Storage( "AttributeFloats", floats, RDG::Access::StorageRead )
-                              .Storage( "DrawLayout", layout, RDG::Access::StorageRead )
-                              .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageRead )
-                              .Storage( "Counters", counters, RDG::Access::StorageRead )
-                              .Storage( "Instances", refs.Instances, RDG::Access::StorageWrite )
-                              .Storage( "Args", refs.Args, RDG::Access::StorageWrite )
-                              .Storage( "History", history, RDG::Access::StorageWrite )
-                              .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::AttributeFloats, floats,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::DrawLayout, layout,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::AliveList, m_Pool.AliveRef,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::Counters, counters,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::Instances, refs.Instances,
+                                        RDG::Access::StorageWrite )
+                              .Storage( ParticleMeshInstancesShaderParameters::Args, refs.Args,
+                                        RDG::Access::StorageWrite )
+                              .Storage( ParticleMeshInstancesShaderParameters::History, history,
+                                        RDG::Access::StorageWrite )
+                              .Storage( ParticleMeshInstancesShaderParameters::PoolSlots, m_Pool.SlotsRef,
+                                        RDG::Access::StorageRead )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshPush ) ) );
                      },
                      [this, push, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -1041,14 +1062,22 @@ namespace Desert::Graphic::System
                      {
                          pass.Bindings( m_MeshLayout.Get( m_MeshPipeline->GetSpecification().Shader ),
                                         Renderer::GetPipelineRouteFill( *m_MeshPipeline ) )
-                              .Storage( "AttributeFloats", floats, RDG::Access::StorageRead )
-                              .Storage( "DrawLayout", layout, RDG::Access::StorageRead )
-                              .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageRead )
-                              .Storage( "Counters", counters, RDG::Access::StorageRead )
-                              .Storage( "Instances", refs.Instances, RDG::Access::StorageWrite )
-                              .Storage( "Args", refs.Args, RDG::Access::StorageWrite )
-                              .Storage( "History", history, RDG::Access::StorageWrite )
-                              .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::AttributeFloats, floats,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::DrawLayout, layout,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::AliveList, m_Pool.AliveRef,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::Counters, counters,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::Instances, refs.Instances,
+                                        RDG::Access::StorageWrite )
+                              .Storage( ParticleMeshInstancesShaderParameters::Args, refs.Args,
+                                        RDG::Access::StorageWrite )
+                              .Storage( ParticleMeshInstancesShaderParameters::History, history,
+                                        RDG::Access::StorageWrite )
+                              .Storage( ParticleMeshInstancesShaderParameters::PoolSlots, m_Pool.SlotsRef,
+                                        RDG::Access::StorageRead )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshPush ) ) );
                      },
                      [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
