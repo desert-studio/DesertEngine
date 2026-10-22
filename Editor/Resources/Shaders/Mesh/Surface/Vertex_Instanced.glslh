@@ -32,9 +32,9 @@ layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 // (UE: the per-page draw's instance id list).
 layout( std430, binding = 44 ) restrict readonly buffer VsmInstanceRemap
 {
-    uint u_InstanceRemap[];
+    uint InstanceRemap[];
 };
-#define DESERT_INSTANCE_INDEX u_InstanceRemap[gl_InstanceIndex]
+#define DESERT_INSTANCE_INDEX InstanceRemap[gl_InstanceIndex]
 #else
 #define DESERT_INSTANCE_INDEX gl_InstanceIndex
 #endif

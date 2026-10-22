@@ -111,7 +111,8 @@ namespace Desert::Graphic
             if ( !image )
                 return BindSchemaDefaultTexture( name );
 
-            if ( auto* tex = Get<Texture2DProperty>( name ) )
+            // The name is the asset's (its schema property), so the lookup is by that name, not a parameter.
+            if ( auto* tex = m_MaterialExecutor->GetTexture2DProperty( name ).get() )
             {
                 tex->SetImage( image, RDG::Access::SampledGraphics );
                 return true;
@@ -133,7 +134,7 @@ namespace Desert::Graphic
                 if ( !p.IsTexture )
                     continue;
                 const uint32_t           slot    = p.Offset / Core::Formats::kMaterialParamSlotSize;
-                const Texture2DProperty* texture = Get<Texture2DProperty>( p.Name );
+                const Texture2DProperty* texture = m_MaterialExecutor->GetTexture2DProperty( p.Name ).get();
                 if ( slot >= m_Row.size() || texture == nullptr )
                     continue;
                 const BindlessTextureSlot image = texture->GetBindlessSlot();

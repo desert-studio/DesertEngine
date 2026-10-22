@@ -19,20 +19,20 @@ Shader "IrradianceFieldUpsample"
         {
             GIFrame giFrame;
         };
-        Uniform sampler u_PointClampSampler;
-        Uniform(1) texture2D u_GBufferDepth;
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-        Uniform(2) texture2D u_GBufferB;
-        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
-        Uniform(3) texture2D u_GIHalfDiffuse;
-        #define u_GIHalfDiffuse sampler2D(u_GIHalfDiffuse, u_PointClampSampler)
-        Uniform(4) texture2D u_GIHalfSpecular;
-        #define u_GIHalfSpecular sampler2D(u_GIHalfSpecular, u_PointClampSampler)
-        layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_GIDiffuseOut;
-        layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_GISpecularOut;
-        Uniform(7) texture2D u_GIHalfBackface;
-        #define u_GIHalfBackface sampler2D(u_GIHalfBackface, u_PointClampSampler)
-        layout(binding = 8, rgba16f) restrict writeonly uniform image2D u_GIBackfaceOut;
+        Uniform sampler PointClampSampler;
+        Uniform(1) texture2D GBufferDepthTexture;
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(2) texture2D GBufferBTexture;
+        #define GBufferBTexture sampler2D(GBufferBTexture, PointClampSampler)
+        Uniform(3) texture2D GiHalfDiffuseTexture;
+        #define GiHalfDiffuseTexture sampler2D(GiHalfDiffuseTexture, PointClampSampler)
+        Uniform(4) texture2D GiHalfSpecularTexture;
+        #define GiHalfSpecularTexture sampler2D(GiHalfSpecularTexture, PointClampSampler)
+        layout(binding = 5, rgba16f) restrict writeonly uniform image2D GiDiffuseOutTexture;
+        layout(binding = 6, rgba16f) restrict writeonly uniform image2D GiSpecularOutTexture;
+        Uniform(7) texture2D GiHalfBackfaceTexture;
+        #define GiHalfBackfaceTexture sampler2D(GiHalfBackfaceTexture, PointClampSampler)
+        layout(binding = 8, rgba16f) restrict writeonly uniform image2D GiBackfaceOutTexture;
 
         // The relative distance difference at which a sample's weight has fallen to 1/e (another surface).
         #define IF_DISTANCE_TOLERANCE 0.02
@@ -43,16 +43,16 @@ Shader "IrradianceFieldUpsample"
             const ivec2 extent = ivec2( giFrame.screen.xy );
             if ( any( greaterThanEqual( pixel, extent ) ) )
                 return;
-            const vec4 gb = texelFetch( u_GBufferB, pixel, 0 );
+            const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
             if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
             {
-                imageStore( u_GIDiffuseOut, pixel, vec4( 0.0 ) );
-                imageStore( u_GISpecularOut, pixel, vec4( 0.0 ) );
-                imageStore( u_GIBackfaceOut, pixel, vec4( 0.0 ) );
+                imageStore( GiDiffuseOutTexture, pixel, vec4( 0.0 ) );
+                imageStore( GiSpecularOutTexture, pixel, vec4( 0.0 ) );
+                imageStore( GiBackfaceOutTexture, pixel, vec4( 0.0 ) );
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( u_GBufferDepth, pixel, 0 ).r,
+            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, pixel, 0 ).r,
                                                              giFrame.invViewProjection );
             const vec3  n        = normalize( gb.xyz );
             const float distance = max( length( giFrame.camera.xyz - p ), 1e-3 );
@@ -73,7 +73,7 @@ Shader "IrradianceFieldUpsample"
             {
                 const ivec2 o = ivec2( i & 1, i >> 1 );
                 const ivec2 h = clamp( base + o, ivec2( 0 ), halfExtent - 1 );
-                const vec4  d = texelFetch( u_GIHalfDiffuse, h, 0 );
+                const vec4  d = texelFetch( GiHalfDiffuseTexture, h, 0 );
                 if ( d.a <= 0.0 )
                     continue;
                 const float gap = abs( d.a - distance );
@@ -82,14 +82,14 @@ Shader "IrradianceFieldUpsample"
                     nearest  = gap;
                     nearestH = h;
                 }
-                const vec3  sampleN  = normalize( texelFetch( u_GBufferB, min( h * 2, extent - 1 ), 0 ).xyz );
+                const vec3  sampleN  = normalize( texelFetch( GBufferBTexture, min( h * 2, extent - 1 ), 0 ).xyz );
                 const vec2  bilinear = mix( 1.0 - f, f, vec2( o ) );
                 const float w        = bilinear.x * bilinear.y *
                                        exp( -gap / ( IF_DISTANCE_TOLERANCE * distance ) ) *
                                        max( dot( n, sampleN ), 0.0 );
                 diffuse  += w * d.rgb;
-                specular += w * texelFetch( u_GIHalfSpecular, h, 0 ).rgb;
-                backface += w * texelFetch( u_GIHalfBackface, h, 0 ).rgb;
+                specular += w * texelFetch( GiHalfSpecularTexture, h, 0 ).rgb;
+                backface += w * texelFetch( GiHalfBackfaceTexture, h, 0 ).rgb;
                 total    += w;
             }
             if ( total > 1e-4 )
@@ -100,13 +100,13 @@ Shader "IrradianceFieldUpsample"
             }
             else
             {
-                diffuse  = texelFetch( u_GIHalfDiffuse, nearestH, 0 ).rgb;
-                specular = texelFetch( u_GIHalfSpecular, nearestH, 0 ).rgb;
-                backface = texelFetch( u_GIHalfBackface, nearestH, 0 ).rgb;
+                diffuse  = texelFetch( GiHalfDiffuseTexture, nearestH, 0 ).rgb;
+                specular = texelFetch( GiHalfSpecularTexture, nearestH, 0 ).rgb;
+                backface = texelFetch( GiHalfBackfaceTexture, nearestH, 0 ).rgb;
             }
-            imageStore( u_GIDiffuseOut, pixel, vec4( diffuse, 1.0 ) );
-            imageStore( u_GISpecularOut, pixel, vec4( specular, 1.0 ) );
-            imageStore( u_GIBackfaceOut, pixel, vec4( backface, 1.0 ) );
+            imageStore( GiDiffuseOutTexture, pixel, vec4( diffuse, 1.0 ) );
+            imageStore( GiSpecularOutTexture, pixel, vec4( specular, 1.0 ) );
+            imageStore( GiBackfaceOutTexture, pixel, vec4( backface, 1.0 ) );
         }
     }
 }

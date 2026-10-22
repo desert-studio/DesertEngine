@@ -136,7 +136,7 @@ namespace Common::Scalability
         // Shadow rays per pixel of "Shadows: Ray Traced Sun" inside the SourceAngle cone (UE
         // r.RayTracing.Shadows.SamplesPerPixel); the denoiser's ShadowVisibility signal takes at most 8. 1..8
         ShadowRayTracedSamplesPerPixel,
-        // Under a ray-traced sun, the sun's cascades kept for the blended programs that sample u_ShadowCascades
+        // Under a ray-traced sun, the sun's cascades kept for the blended programs that sample ShadowCascadesTexture
         // (translucency; volumes when one reads them): drawn only on a frame with such a reader
         // (MeshRenderer::SunCascadeReadersQueued). Count 1..4 and texel side 256..2048.
         ShadowRayTracedTranslucencyCascades,
@@ -144,7 +144,7 @@ namespace Common::Scalability
         // THE QUALITY OF EACH IMPLEMENTED METHOD (METHOD-QUALITY; UE sg.ShadowQuality / GlobalIlluminationQuality
         // / ReflectionQuality set the method's own r.* cost cvars per level). Cost knobs only: the look stays
         // authored, Cinematic spends without compromise.
-        // CascadedMaps: the sun's PCSS (Mesh/CascadedShadow.glslh, ShadowUB u_ShadowFilter) - Vogel-disc taps of
+        // CascadedMaps: the sun's PCSS (Mesh/CascadedShadow.glslh, ShadowUB ShadowFilter) - Vogel-disc taps of
         // the percentage-closer filter (UE r.Shadow.FilterMethod / the r.ShadowQuality kernel) and of the blocker
         // search. 4..64 and 4..32.
         ShadowFilterTaps,
@@ -191,7 +191,7 @@ namespace Common::Scalability
         ShadowRainOcclusionExtent,
         ShadowRainOcclusionRefreshPercent,
         // GI ScreenSpace: the one-bounce gather's samples per pixel (DeferredLighting.shader GatherIndirectGI,
-        // u_ScreenSpaceGI.x). 4..64
+        // ScreenSpaceGi.x). 4..64
         ScreenSpaceGISamples,
         // Reflections ScreenSpace: the Reflections denoiser's reconstruction kernel, taps per side from the centre
         // (UE r.Reflections.Denoiser.ReconstructionSamples). 1..3

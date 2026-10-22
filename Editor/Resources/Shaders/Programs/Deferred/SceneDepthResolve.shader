@@ -22,15 +22,15 @@ Shader "SceneDepthResolve"
 
         // A separate multisampled texture read (texelFetch) through the pass's point-clamped shared state.
 
-        Uniform(2) sampler u_PointClampSampler;
+        Uniform(2) sampler PointClampSampler;
 
-        Uniform(1) texture2DMS u_Depth;
+        Uniform(1) texture2DMS SourceDepthTexture;
 
-        #define u_Depth sampler2DMS(u_Depth, u_PointClampSampler)
+        #define SourceDepthTexture sampler2DMS(SourceDepthTexture, PointClampSampler)
 
         void main()
         {
-        	gl_FragDepth = texelFetch(u_Depth, ivec2(gl_FragCoord.xy), 0).r;
+        	gl_FragDepth = texelFetch(SourceDepthTexture, ivec2(gl_FragCoord.xy), 0).r;
         }
     }
 }

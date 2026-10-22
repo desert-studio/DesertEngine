@@ -10,12 +10,12 @@ Shader "AEHistogramClear"
 
         Buffer(1) Histogram
         {
-            uint u_Bins[256];
+            uint Bins[256];
         };
 
         void main()
         {
-            u_Bins[gl_GlobalInvocationID.x] = 0u;
+            Bins[gl_GlobalInvocationID.x] = 0u;
         }
     }
 }

@@ -15,9 +15,9 @@
 namespace Desert::Graphic
 {
     static_assert( kCloudClipLevelSlots == Assets::kCloudProceduralClipLevels,
-                   "the payload carries one u_CloudLevel per clip level" );
+                   "the payload carries one CloudLevel per clip level" );
     static_assert( kCloudFarBandSlots == Assets::kCloudFarBands,
-                   "the payload carries one u_CloudFarPresence / u_CloudFarProfile per far band" );
+                   "the payload carries one CloudFarPresence / CloudFarProfile per far band" );
 
     namespace
     {

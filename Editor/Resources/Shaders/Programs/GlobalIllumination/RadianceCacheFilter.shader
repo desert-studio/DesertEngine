@@ -12,9 +12,9 @@ Shader "RadianceCacheFilter"
 
         #include <Common/RadianceCacheState.glslh>
 
-        layout(binding = 6, rgba16f) restrict uniform image2D u_RadianceCacheRadiance;
-        layout(binding = 7, rgba16f) restrict writeonly uniform image2D u_RadianceCacheIrradianceOut;
-        layout(binding = 8, rg16f) restrict writeonly uniform image2D u_RadianceCacheDepthOut;
+        layout(binding = 6, rgba16f) restrict uniform image2D RadianceCacheRadianceTexture;
+        layout(binding = 7, rgba16f) restrict writeonly uniform image2D RadianceCacheIrradianceOutTexture;
+        layout(binding = 8, rg16f) restrict writeonly uniform image2D RadianceCacheDepthOutTexture;
 
         // Traced resolution up to 32 (Scalability GlobalIllumination.RadianceCacheProbeResolution's range is 8..64:
         // a larger probe loads in slices below).
@@ -54,7 +54,7 @@ Shader "RadianceCacheFilter"
                 for ( uint i = local; i < slice; i += 64u )
                 {
                     const uint k = first + i;
-                    s_Radiance[i] = imageLoad( u_RadianceCacheRadiance, origin + ivec2( k % res, k / res ) );
+                    s_Radiance[i] = imageLoad( RadianceCacheRadianceTexture, origin + ivec2( k % res, k / res ) );
                 }
                 barrier();
                 for ( uint i = 0u; i < slice; ++i )
@@ -92,7 +92,7 @@ Shader "RadianceCacheFilter"
                 const ivec2 b = ivec2( i % uint( finalRes ), i / uint( finalRes ) ) - 1;
                 const ivec2 s = RadianceCacheOctBorderSource( b, int( res ) );
                 if ( s != b )
-                    imageStore( u_RadianceCacheRadiance, origin + b, imageLoad( u_RadianceCacheRadiance, origin + s ) );
+                    imageStore( RadianceCacheRadianceTexture, origin + b, imageLoad( RadianceCacheRadianceTexture, origin + s ) );
             }
             barrier();
 
@@ -102,7 +102,7 @@ Shader "RadianceCacheFilter"
             {
                 const ivec2 b = ivec2( i % uint( irrFinal ), i / uint( irrFinal ) ) - 1;
                 const ivec2 s = RadianceCacheOctBorderSource( b, int( irrRes ) );
-                imageStore( u_RadianceCacheIrradianceOut, irrOrigin + b, vec4( s_Irradiance[s.x + s.y * int( irrRes )], 1.0 ) );
+                imageStore( RadianceCacheIrradianceOutTexture, irrOrigin + b, vec4( s_Irradiance[s.x + s.y * int( irrRes )], 1.0 ) );
             }
             const ivec2 depOrigin = RadianceCacheProbeAtlasOrigin( radianceCache, probe, depRes + 2u ) + 1;
             const int   depFinal  = int( depRes ) + 2;
@@ -110,13 +110,13 @@ Shader "RadianceCacheFilter"
             {
                 const ivec2 b = ivec2( i % uint( depFinal ), i / uint( depFinal ) ) - 1;
                 const ivec2 s = RadianceCacheOctBorderSource( b, int( depRes ) );
-                imageStore( u_RadianceCacheDepthOut, depOrigin + b, vec4( s_Distance[s.x + s.y * int( depRes )], 0.0, 0.0 ) );
+                imageStore( RadianceCacheDepthOutTexture, depOrigin + b, vec4( s_Distance[s.x + s.y * int( depRes )], 0.0, 0.0 ) );
             }
 
             if ( local == 0u )
             {
                 const RadianceCacheProbe state = radianceCacheProbes[probe];
-                radianceCacheProbes[probe].frames = uvec4( state.frames.x, u_FrameIndex, state.frames.w, state.frames.w );
+                radianceCacheProbes[probe].frames = uvec4( state.frames.x, FrameIndex, state.frames.w, state.frames.w );
                 radianceCacheIndirection[RadianceCacheIndirectionIndex( radianceCache, state.cell.xyz, clipmap )] = probe;
             }
         }

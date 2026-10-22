@@ -39,18 +39,18 @@ Shader "ProceduralSky"
         // one as an argument, and when those disagree the buffer quietly lands on another resource's slot.
         ReadBuffer(1) SkyBuffer
         {
-            vec4 u_SkyPacked[SKY_PACKED_VEC4_COUNT];
+            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
         };
 
         // PhysicalAtmosphere only. When the gradient renders, both stay on their fallback descriptors
         // and the branch below never samples them.
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform sampler u_LinearClampSampler;
-        Uniform(2) texture2D u_TransmittanceLut; // cached 256x64 (SkyboxRenderer)
-        #define u_TransmittanceLut sampler2D(u_TransmittanceLut, u_LinearClampSampler)
-        Uniform(3) texture2D u_SkyViewLut;       // per-view 192x104, refilled every frame
-        #define u_SkyViewLut sampler2D(u_SkyViewLut, u_LinearClampSampler)
+        Uniform sampler LinearClampSampler;
+        Uniform(2) texture2D TransmittanceLutTexture; // cached 256x64 (SkyboxRenderer)
+        #define TransmittanceLutTexture sampler2D(TransmittanceLutTexture, LinearClampSampler)
+        Uniform(3) texture2D SkyViewLutTexture;       // per-view 192x104, refilled every frame
+        #define SkyViewLutTexture sampler2D(SkyViewLutTexture, LinearClampSampler)
 
         // The physical path's ON-SCREEN luminance ceiling is UnpackSkyLuminanceCeiling (Graphic::
         // SkyLuminanceCeiling, AutoExposureRules.hpp): the disc's true luminance (illuminance over its
@@ -83,7 +83,7 @@ Shader "ProceduralSky"
 
             // rgb = in-scattered luminance (the SkyAndAP tint is already inside), a = the view path's
             // mean transmittance.
-            vec4 lut = texture(u_SkyViewLut, uv);
+            vec4 lut = texture(SkyViewLutTexture, uv);
             vec3 sky = lut.rgb;
 
             vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
@@ -120,7 +120,7 @@ Shader "ProceduralSky"
                     float centerToEdge = clamp(acos(clamp(vDotSun, -1.0f, 1.0f)) / apex, 0.0f, 1.0f);
                     float solidAngle   = 2.0f * SKY_PI * (1.0f - cosApex);
 
-                    vec3 viewT = texture(u_TransmittanceLut,
+                    vec3 viewT = texture(TransmittanceLutTexture,
                                          SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm,
                                                                          atm.TopRadiusKm, viewHeight,
                                                                          viewZenithCos)).rgb;
@@ -138,7 +138,7 @@ Shader "ProceduralSky"
         {
             SkyPacked s;
             for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = u_SkyPacked[i];
+                s.v[i] = SkyPackedData[i];
 
             vec3 dir = normalize(v_RayDir);
 

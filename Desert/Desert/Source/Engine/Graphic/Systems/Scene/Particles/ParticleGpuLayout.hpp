@@ -52,7 +52,7 @@ namespace Desert::Graphic::System
     constexpr std::uint32_t kParticleDrawSlotStride = 32;
     constexpr std::uint32_t kParticleDrawSlots      = 2;
 
-    // An emitter's DispatchArgs buffer (ParticleDispatchArgs.shader `uvec4 u_Args[]`): two
+    // An emitter's DispatchArgs buffer (ParticleDispatchArgs.shader `uvec4 Arguments[]`): two
     // VkDispatchIndirectCommand padded to 16 bytes - Spawn+Update's at kParticleSimulateArgsOffset, the next
     // compact's at kParticleCompactArgsOffset - written per step from the GPU counts.
     constexpr std::uint32_t kParticleDispatchArgsStride = 16;

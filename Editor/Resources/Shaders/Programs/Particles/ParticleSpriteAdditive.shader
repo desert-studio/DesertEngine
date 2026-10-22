@@ -33,7 +33,7 @@ Shader "ParticleSpriteAdditive"
             // 1 at the centre of the quad, 0 at its inscribed circle, smooth in between.
             const float r       = length( i.UV0 * 2.0 - 1.0 );
             const float disc    = 1.0 - smoothstep( 0.0, 1.0, r );
-            const vec4  colour  = i.Particle.Color * u_Material.Tint;
+            const vec4  colour  = i.Particle.Color * Material.Tint;
             SurfaceOutput s     = DefaultSurfaceOutput();
             s.BaseColor         = vec3( 0.0 );
             s.Emissive          = colour.rgb;

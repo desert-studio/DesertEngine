@@ -43,6 +43,20 @@
 // buffer as soon as the last reference drops (VulkanRdgPool::BeginFrame).
 namespace Desert::Graphic::RayTracing
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct EmissiveLightsBuildShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveSegmentsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveTrianglesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissivePowerUB );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct EmissiveLightsReduceShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, EmissivePowerUB );
+    };
+
     inline constexpr std::string_view kEmissiveSegmentsName          = "EmissiveLights.Segments";
     inline constexpr std::string_view kEmissiveLookupName            = "EmissiveLights.Lookup";
     inline constexpr std::string_view kEmissiveTrianglesName         = "EmissiveLights.Triangles";
@@ -281,9 +295,12 @@ namespace Desert::Graphic::RayTracing
                  {
                      pass.Bindings( m_BuildLayout.Get( m_BuildShader ),
                                     Renderer::GetPipelineRouteFill( *m_BuildPipeline ) )
-                          .Storage( "EmissiveSegmentsUB", part.Segments, RDG::Access::StorageRead )
-                          .Storage( "EmissiveTrianglesUB", part.Triangles, RDG::Access::StorageWrite )
-                          .Storage( "EmissivePowerUB", part.Power, RDG::Access::StorageWrite )
+                          .Storage( EmissiveLightsBuildShaderParameters::EmissiveSegmentsUB, part.Segments,
+                                    RDG::Access::StorageRead )
+                          .Storage( EmissiveLightsBuildShaderParameters::EmissiveTrianglesUB, part.Triangles,
+                                    RDG::Access::StorageWrite )
+                          .Storage( EmissiveLightsBuildShaderParameters::EmissivePowerUB, part.Power,
+                                    RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
                      // Read by device address (EmissiveSegment::VertexAddress), declared for the barrier.
                      for ( const RDG::BufferRef stream : positions )
@@ -310,7 +327,8 @@ namespace Desert::Graphic::RayTracing
                      {
                          pass.Bindings( m_ReduceLayout.Get( m_ReduceShader ),
                                         Renderer::GetPipelineRouteFill( *m_ReducePipeline ) )
-                              .Storage( "EmissivePowerUB", part.Power, RDG::Access::StorageWrite )
+                              .Storage( EmissiveLightsReduceShaderParameters::EmissivePowerUB, part.Power,
+                                        RDG::Access::StorageWrite )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
                      },
                      [this, reduce, reduceName]( RDG::PassContext& context ) -> Common::BoolResultStr

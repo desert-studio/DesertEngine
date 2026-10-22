@@ -39,9 +39,9 @@ Shader "ScreenProbeSpatialFilter"
         {
             float screenProbeDisocclusion[];
         };
-        Uniform sampler u_PointClampSampler;
+        Uniform sampler PointClampSampler;
         Uniform(4) texture2D ScreenProbeRadiance; // rgb = radiance, a = hit distance (cm), SP_RES² per probe
-        #define ScreenProbeRadiance sampler2D(ScreenProbeRadiance, u_PointClampSampler)
+        #define ScreenProbeRadiance sampler2D(ScreenProbeRadiance, PointClampSampler)
         layout(binding = 5, rgba16f) restrict writeonly uniform image2D FilteredScreenProbeRadiance;
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>

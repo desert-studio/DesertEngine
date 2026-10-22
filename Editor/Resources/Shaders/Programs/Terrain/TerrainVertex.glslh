@@ -17,18 +17,18 @@
         #include <Common/TerrainInstance.glslh>
         ReadBuffer(8) TerrainInstances
         {
-            TerrainInstance u_Terrains[];
+            TerrainInstance Terrains[];
         };
-        #define u_T u_Terrains[m_PushConstants.MaterialIndex]
+        #define CurrentTerrain Terrains[m_PushConstants.MaterialIndex]
 
         // A landscape tile's heights: the R16_UNORM copy of its uint16 samples (LandscapeECSSystem). Read
         // ONLY by texelFetch — a filtered read would blend samples the CPU never blends, and the decode
         // recovers the exact integer each texel was uploaded from.
         // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
         // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
-        Uniform(9) texture2D u_Heightmap;
-        Uniform(11) sampler u_HeightmapSampler;
-        #define u_Heightmap sampler2D(u_Heightmap, u_HeightmapSampler)
+        Uniform(9) texture2D HeightmapTexture;
+        Uniform(11) sampler HeightmapTextureSampler;
+        #define HeightmapTexture sampler2D(HeightmapTexture, HeightmapTextureSampler)
 
         #include <Common/LandscapeHeight.glslh>
         #include <Common/LandscapeLod.glslh>
@@ -49,8 +49,8 @@
 
         void main()
         {
-            int   iquads  = int( u_T.LandscapeTile.z + 0.5 );
-            int   gridLod = int( u_T.Params.w + 0.5 );
+            int   iquads  = int( CurrentTerrain.LandscapeTile.z + 0.5 );
+            int   gridLod = int( CurrentTerrain.Params.w + 0.5 );
             int   ix      = LandscapeLodGridCoord( gl_VertexIndex, iquads, gridLod, 0 );
             int   iz      = LandscapeLodGridCoord( gl_VertexIndex, iquads, gridLod, 1 );
 

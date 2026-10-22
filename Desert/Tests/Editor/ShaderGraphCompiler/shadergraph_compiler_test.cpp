@@ -155,7 +155,7 @@ TEST( ShaderGraphCompiler, PostProcessEmitsPostProcessDomainAndFullscreenTriangl
     // Post-process uses the fullscreen-triangle contract and samples the scene color, and has NO
     // mesh vertex contract and NO shadow/depth pass.
     EXPECT_NE( src.find( "FullscreenTriangleNdc()" ), std::string::npos );
-    EXPECT_NE( src.find( "u_SceneTexture" ), std::string::npos );
+    EXPECT_NE( src.find( "SceneColorTexture" ), std::string::npos );
     EXPECT_EQ( src.find( "GraphVertex.glslh" ), std::string::npos );
     EXPECT_FALSE( HasPass( p.Meta.PassNames, "Depth" ) );
 }
@@ -556,7 +556,7 @@ TEST( ShaderGraphCompiler, TwoLinksIntoOneInputAreRejected )
 }
 
 // A node the palette does not offer in this domain would emit GLSL referring to declarations the
-// domain's stage never writes (SceneColor -> u_SceneTexture, absent from a Surface fragment).
+// domain's stage never writes (SceneColor -> SceneColorTexture, absent from a Surface fragment).
 TEST( ShaderGraphCompiler, OutOfDomainNodeIsRejected )
 {
     SG::Document doc = SurfaceDoc();
@@ -587,10 +587,10 @@ namespace
 
 namespace
 {
-    // The variable the emitter declared for a parameter node, read back off `<type> <var> = u_Material.<name>;`.
+    // The variable the emitter declared for a parameter node, read back off `<type> <var> = Material.<name>;`.
     std::string VariableReading( const std::string& src, const std::string& param )
     {
-        const size_t at = src.find( std::format( " = u_Material.{};", param ) );
+        const size_t at = src.find( std::format( " = Material.{};", param ) );
         if ( at == std::string::npos )
             return {};
         const size_t start = src.rfind( ' ', at - 1 ) + 1;
@@ -736,7 +736,7 @@ TEST( ShaderGraphCompiler, TheGraphsOwnTexturesCannotLandOnAnEngineBinding )
 
     SG::Document doc = LitSurfaceDoc();
     auto         tex = SG::MakeNode( doc, "TextureSample" );
-    tex.ParamName    = "u_Mask";
+    tex.ParamName    = "MaskTexture";
     doc.Nodes.push_back( std::move( tex ) );
 
     const auto compiled = SG::CompileToDShader( doc );

@@ -22,6 +22,18 @@
 #include <span>
 #include <vector>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MeshMorphShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, MorphBaseVertices );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MorphDeltas );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MorphWeights );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MorphOutput );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -187,10 +199,14 @@ namespace Desert::Graphic::System
                          [&]( RDG::PassBuilder& pass )
                          {
                              pass.Bindings( layout, fill )
-                                  .Storage( "MorphBaseVertices", baseRef, RDG::Access::StorageRead )
-                                  .Storage( "MorphDeltas", deltasRef, RDG::Access::StorageRead )
-                                  .Storage( "MorphWeights", weightsRef, RDG::Access::StorageRead )
-                                  .Storage( "MorphOutput", outRef, RDG::Access::StorageWrite );
+                                  .Storage( MeshMorphShaderParameters::MorphBaseVertices, baseRef,
+                                            RDG::Access::StorageRead )
+                                  .Storage( MeshMorphShaderParameters::MorphDeltas, deltasRef,
+                                            RDG::Access::StorageRead )
+                                  .Storage( MeshMorphShaderParameters::MorphWeights, weightsRef,
+                                            RDG::Access::StorageRead )
+                                  .Storage( MeshMorphShaderParameters::MorphOutput, outRef,
+                                            RDG::Access::StorageWrite );
                          },
                          [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                          {

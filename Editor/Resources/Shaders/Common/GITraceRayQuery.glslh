@@ -12,7 +12,7 @@
 //
 // Included by Common/GITracer.glslh only, which declares the TLAS and the record blocks (through
 // Common/RayQueryVisibility.glslh, the ONE hardware visibility walk and the ONE vertex fetch by device address) and
-// the u_GIInstanceSurfaceCacheRows table, then includes this file.
+// the GiInstanceSurfaceCacheRows table, then includes this file.
 
 #ifndef DESERT_GI_TRACER_HARDWARE
 #error "GITraceRayQuery.glslh is the hardware tracer: include it only under DESERT_GI_TRACER_HARDWARE"
@@ -30,7 +30,7 @@ const float kGIHardwareNormalBiasCm = 0.1;
 // (SceneRenderer::AddFrameInstanceSurfaceCacheRows); this is the one place the tracer reads it.
 uint GISurfaceCacheRowForInstance( uint customIndex )
 {
-    return customIndex < uint( u_GIInstanceSurfaceCacheRows.length() ) ? u_GIInstanceSurfaceCacheRows[customIndex]
+    return customIndex < uint( GiInstanceSurfaceCacheRows.length() ) ? GiInstanceSurfaceCacheRows[customIndex]
                                                                         : GI_NO_INSTANCE;
 }
 
@@ -63,7 +63,7 @@ vec3 GIHardwareVertexVec3( RayTracingGeometryRecord record, uint vertex, uint by
 // ray query's: weights of vertices 1 and 2). A segment without a normal stream gives the triangle's face normal.
 vec3 GIHardwareObjectNormal( uint recordIndex, uint primitive, vec2 barycentrics )
 {
-    const RayTracingGeometryRecord record = u_RayTracingGeometry[recordIndex];
+    const RayTracingGeometryRecord record = RayTracingGeometry[recordIndex];
     uvec3                          corner;
     for ( uint i = 0u; i < 3u; ++i )
     {
@@ -86,7 +86,7 @@ vec3 GIHardwareObjectNormal( uint recordIndex, uint primitive, vec2 barycentrics
 
 // The walk with the alpha test of masked segments (only they come back as candidates): returns the query, committed.
 #define GI_HARDWARE_WALK( query, flags, cullMask, origin, tMin, direction, tMax )                                     \
-    rayQueryInitializeEXT( query, u_SceneTLAS, flags, ( cullMask ) & 0xFFu, origin, tMin, direction, tMax );         \
+    rayQueryInitializeEXT( query, SceneTlas, flags, ( cullMask ) & 0xFFu, origin, tMin, direction, tMax );         \
     while ( rayQueryProceedEXT( query ) )                                                                              \
     {                                                                                                                  \
         if ( rayQueryGetIntersectionTypeEXT( query, false ) == gl_RayQueryCandidateIntersectionTriangleEXT &&        \

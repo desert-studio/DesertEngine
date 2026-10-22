@@ -26,12 +26,12 @@
 #include <Common/ReflectionCaptureGpu.glslh>
 layout( std430, set = 1, binding = 0 ) readonly buffer ReflectionCapturesUB
 {
-    uvec4                u_ReflectionCaptureHeader; // x = capture count
-    ReflectionCaptureGpu u_ReflectionCaptures[];
+    uvec4                ReflectionCaptureHeader; // x = capture count
+    ReflectionCaptureGpu ReflectionCaptures[];
 };
-// Separate textures read through the includer's shared clamped state (u_LinearClampSampler, declared before this file).
-layout( set = 1, binding = 1 ) uniform textureCubeArray u_ReflectionCaptureCubes;
-#define u_ReflectionCaptureCubes samplerCubeArray(u_ReflectionCaptureCubes, u_LinearClampSampler)
+// Separate textures read through the includer's shared clamped state (LinearClampSampler, declared before this file).
+layout( set = 1, binding = 1 ) uniform textureCubeArray ReflectionCaptureCubesTexture;
+#define ReflectionCaptureCubesTexture samplerCubeArray(ReflectionCaptureCubesTexture, LinearClampSampler)
 
 // The world radiance cache's read (Common/RadianceCache.glslh, the read section).
 #include <Common/RadianceCache.glslh>
@@ -47,10 +47,10 @@ layout( std430, set = 1, binding = 4 ) readonly buffer RadianceCacheProbesUB
 {
     RadianceCacheProbe radianceCacheProbes[];
 };
-layout( set = 1, binding = 5 ) uniform texture2D u_RadianceCacheIrradiance;
-#define u_RadianceCacheIrradiance sampler2D(u_RadianceCacheIrradiance, u_LinearClampSampler)
-layout( set = 1, binding = 6 ) uniform texture2D u_RadianceCacheDepth;
-#define u_RadianceCacheDepth sampler2D(u_RadianceCacheDepth, u_LinearClampSampler)
+layout( set = 1, binding = 5 ) uniform texture2D RadianceCacheIrradianceTexture;
+#define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
+layout( set = 1, binding = 6 ) uniform texture2D RadianceCacheDepthTexture;
+#define RadianceCacheDepthTexture sampler2D(RadianceCacheDepthTexture, LinearClampSampler)
 #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
 #define RADIANCE_CACHE_PROBES radianceCacheProbes
 #include <Common/RadianceCache.glslh>

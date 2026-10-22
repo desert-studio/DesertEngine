@@ -11,7 +11,7 @@ Shader "MegaLightsGenerateSamples"
 
     Compute
     {
-        Uniform sampler u_PointClampSampler;
+        Uniform sampler PointClampSampler;
         #define MEGALIGHTS_SHADING
         #include <Common/MegaLights.glslh>
 
@@ -26,7 +26,7 @@ Shader "MegaLightsGenerateSamples"
         	uint lightGridCells[];
         };
 
-        layout(binding = 11, rgba32f) writeonly uniform image2D u_OutReservoirs; // MegaLightsReservoir, stacked layers
+        layout(binding = 11, rgba32f) writeonly uniform image2D OutReservoirsTexture; // MegaLightsReservoir, stacked layers
 
         LocalSize(8, 8, 1);
 
@@ -82,7 +82,7 @@ Shader "MegaLightsGenerateSamples"
         			r.W         = weightSum / chosenTarget[k];
         			r.M         = 1.0; // one frame's confidence: the whole cell was the candidate set
         		}
-        		imageStore(u_OutReservoirs, MegaLightsReservoirTexel(pixel, k), MegaLightsPackReservoir(r));
+        		imageStore(OutReservoirsTexture, MegaLightsReservoirTexel(pixel, k), MegaLightsPackReservoir(r));
         	}
         }
     }

@@ -96,7 +96,9 @@ namespace Desert::Runtime
                 {
                     continue;
                 }
-                if ( auto* prop = material.Get<Graphic::Texture2DProperty>( param.Name ) )
+                // A schema slot is an authored name (the asset's), so it reaches the executor directly
+                // (Material::Get is for engine code naming a parameter).
+                if ( auto prop = material.GetMaterialExecutor()->GetTexture2DProperty( param.Name ) )
                     prop->SetSamplerState( data.SlotSampler( param.Name, param.Sampler ) );
             }
         }

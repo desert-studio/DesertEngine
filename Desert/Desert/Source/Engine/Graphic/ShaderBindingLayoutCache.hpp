@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/RDG/RDGLayoutCache.hpp>
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 
 #include <memory>
 
@@ -23,6 +24,16 @@ namespace Desert::Graphic
     public:
         [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>&
         Get( const std::shared_ptr<Shader>& shader );
+
+        // The pass's parameter struct against @p shader's layout (RDG::ValidateShaderParameters), called where
+        // the pipeline is created so a renamed or dropped parameter fails at load, by name.
+        [[nodiscard]] Common::BoolResultStr Validate( const std::shared_ptr<Shader>&        shader,
+                                                      std::span<const RDG::ShaderParameter> parameters )
+        {
+            if ( !shader )
+                return Common::MakeError( std::string( "the pass has no shader to check its parameters against" ) );
+            return RDG::ValidateShaderParameters( *Get( shader ), parameters );
+        }
 
     private:
         RDG::LayoutCache m_Cache;

@@ -27,6 +27,57 @@
 #include <format>
 #include <tuple>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleCompactShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, PoolSlots );
+        DESERT_SHADER_PARAMETER( StorageBuffer, FreeList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleDispatchArgsShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, StepTable );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DispatchArgs );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleSimulateShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, PoolSlots );
+        DESERT_SHADER_PARAMETER( StorageBuffer, StepTable );
+        DESERT_SHADER_PARAMETER( StorageBuffer, FreeList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ChannelSpawns );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeInts );
+        DESERT_SHADER_PARAMETER( StorageBuffer, StackParams );
+        DESERT_SHADER_PARAMETER( StorageBuffer, StackCurves );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleSpriteShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DrawLayout );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -193,10 +244,10 @@ namespace Desert::Graphic::System
             if ( !RunsCompact( ve, compact ) )
                 continue; // Compact skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_CompactPipeline ) )
-                 .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageWrite )
-                 .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageWrite )
-                 .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
-                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleCompactShaderParameters::PoolSlots, m_Pool.SlotsRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleCompactShaderParameters::FreeList, m_Pool.FreeRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleCompactShaderParameters::AliveList, m_Pool.AliveRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleCompactShaderParameters::Counters, ve.CountersRef, RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleCompactPush ) ) );
             if ( compact > 0 )
                 pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
@@ -236,9 +287,11 @@ namespace Desert::Graphic::System
             if ( !RunsStep( ve, step ) )
                 continue; // BuildDispatchArgs skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_ArgsPipeline ) )
-                 .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
-                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageWrite )
-                 .Storage( "DispatchArgs", ve.ArgsRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleDispatchArgsShaderParameters::StepTable, ve.StepsRef, RDG::Access::StorageRead )
+                 .Storage( ParticleDispatchArgsShaderParameters::Counters, ve.CountersRef,
+                           RDG::Access::StorageWrite )
+                 .Storage( ParticleDispatchArgsShaderParameters::DispatchArgs, ve.ArgsRef,
+                           RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleArgsPush ) ) );
         }
     }
@@ -272,16 +325,20 @@ namespace Desert::Graphic::System
             const ComputePipeline& program = *ve.Frame->Pipeline;
             const auto&            layout  = m_SimLayouts[&program].Get( program.GetSpecification().Shader );
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( program ) )
-                 .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageWrite )
-                 .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
-                 .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageRead )
-                 .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
-                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead )
-                 .Storage( "ChannelSpawns", ve.ChannelRef, RDG::Access::StorageRead )
-                 .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageWrite )
-                 .Storage( "AttributeInts", ve.IntsRef, RDG::Access::StorageWrite )
-                 .Storage( "StackParams", ve.ParamsRef, RDG::Access::StorageRead )
-                 .Storage( "StackCurves", ve.CurvesRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::PoolSlots, m_Pool.SlotsRef,
+                           RDG::Access::StorageWrite )
+                 .Storage( ParticleSimulateShaderParameters::StepTable, ve.StepsRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::FreeList, m_Pool.FreeRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::AliveList, m_Pool.AliveRef,
+                           RDG::Access::StorageWrite )
+                 .Storage( ParticleSimulateShaderParameters::Counters, ve.CountersRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::ChannelSpawns, ve.ChannelRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::AttributeFloats, ve.FloatsRef,
+                           RDG::Access::StorageWrite )
+                 .Storage( ParticleSimulateShaderParameters::AttributeInts, ve.IntsRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleSimulateShaderParameters::StackParams, ve.ParamsRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::StackCurves, ve.CurvesRef, RDG::Access::StorageRead )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
             pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
         }
@@ -588,7 +645,10 @@ namespace Desert::Graphic::System
             {
                 if ( !sprite || sprite->Rows.empty() )
                     continue;
-                if ( auto* sb = sprite->Material->Get<StorageBufferProperty>( "Materials" ) )
+                // Find: a sprite surface template with no parameters (or every row field dead) declares no row
+                // block.
+                if ( auto* sb =
+                          sprite->Material->Find<StorageBufferProperty>( ParticleShaderParameters::Materials ) )
                     sb->SetRawData( sprite->Rows.data(),
                                     static_cast<uint32_t>( sprite->Rows.size() * sizeof( glm::vec4 ) ) );
                 SceneCameraBind( sprite->Material.get(), *view );
@@ -611,15 +671,18 @@ namespace Desert::Graphic::System
                 // (AddSortPasses), at the same offset; an opaque / masked one reads AliveList unsorted.
                 auto block =
                      declared.Bindings( layout, ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill() )
-                          .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageRead )
-                          .Storage( "DrawLayout", ve.DrawLayoutRef, RDG::Access::StorageRead )
-                          .Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
-                                    RDG::Access::StorageRead );
+                          .Storage( ParticleSpriteShaderParameters::AttributeFloats, ve.FloatsRef,
+                                    RDG::Access::StorageRead )
+                          .Storage( ParticleSpriteShaderParameters::DrawLayout, ve.DrawLayoutRef,
+                                    RDG::Access::StorageRead )
+                          .Storage( ParticleSpriteShaderParameters::AliveList,
+                                    ve.Sorted ? m_SortedRef : m_Pool.AliveRef, RDG::Access::StorageRead );
                 const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
                 if ( fades && depth )
-                    block.Texture( kSceneViewSceneDepthName, depth, RDG::Access::SampledGraphics,
+                    block.Texture( kSceneViewSceneDepth, depth, RDG::Access::SampledGraphics,
                                    "SceneDepth.Compute" )
-                         .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                         .Sampler( ParticleSpriteShaderParameters::PointClampSampler,
+                                   RDG::SamplerDesc::PointClamp() );
                 // The rest of the list, minus the depth above and minus what the material route already fills
                 // (a slot filled by both faults the node as surely as one filled by neither).
                 const RDG::OtherRouteFill& route  = ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill();

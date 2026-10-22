@@ -300,6 +300,28 @@ namespace Desert::Graphic::RDG
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr ValidateShaderParameters( const ShaderBindingLayout&      layout,
+                                                    std::span<const ShaderParameter> parameters )
+    {
+        constexpr std::string_view kMissingFormat = "parameter '{}' is not a resource of shader '{}'";
+        constexpr std::string_view kKindFormat    = "parameter '{}' is a {} in shader '{}', declared as a {}";
+        for ( const ShaderParameter& parameter : parameters )
+        {
+            // An arrayed parameter is present when its first element is (the layout lists each element).
+            const std::string slotName =
+                 parameter.Arrayed ? std::format( "{}[0]", parameter.Name ) : std::string( parameter.Name );
+            const auto slot = std::find_if( layout.Slots.begin(), layout.Slots.end(),
+                                            [&]( const ShaderSlot& s ) { return s.Name == slotName; } );
+            if ( slot == layout.Slots.end() )
+                return Common::MakeError( std::format( kMissingFormat, parameter.Name, layout.ShaderName ) );
+            if ( slot->Kind != parameter.Kind )
+                return Common::MakeError( std::format( kKindFormat, parameter.Name,
+                                                       GetShaderResourceKindName( slot->Kind ), layout.ShaderName,
+                                                       GetShaderResourceKindName( parameter.Kind ) ) );
+        }
+        return Common::MakeSuccess( true );
+    }
+
     BindingBlockBuilder PassBuilder::Bindings( ShaderBindingLayout layout, OtherRouteFill other )
     {
         return Bindings( std::make_shared<const ShaderBindingLayout>( std::move( layout ) ), std::move( other ) );
@@ -313,18 +335,20 @@ namespace Desert::Graphic::RDG
         return BindingBlockBuilder( *this, BindingBlockRef{ m_Pass, static_cast<uint32_t>( blocks.size() - 1 ) } );
     }
 
-    BindingBlockBuilder& BindingBlockBuilder::Texture( std::string_view shaderName, TextureRef texture,
+    BindingBlockBuilder& BindingBlockBuilder::Texture( TextureParameter parameter, TextureRef texture,
                                                        Access declared, SubresourceRange range )
     {
+        const std::string shaderName = parameter.SlotName();
         m_Pass.DeclareTexture( texture, declared, range, false, "Bindings.Texture" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { std::string( shaderName ), ShaderResourceKind::Texture, ResourceKind::Texture, texture.Index,
-               declared, range, std::nullopt } );
+             { shaderName, ShaderResourceKind::Texture, ResourceKind::Texture, texture.Index, declared, range,
+               std::nullopt } );
         return *this;
     }
 
-    BindingBlockBuilder& BindingBlockBuilder::Sampler( std::string_view shaderName, SamplerDesc sampler )
+    BindingBlockBuilder& BindingBlockBuilder::Sampler( SamplerParameter parameter, SamplerDesc sampler )
     {
+        const std::string shaderName = parameter.SlotName();
         // No resource and no access: nothing for the graph to declare, only the slot to fill. The same shared
         // state named again by another input of the block is the entry already there.
         std::vector<DeclaredBindingEntry>& entries =
@@ -336,49 +360,54 @@ namespace Desert::Graphic::RDG
                                           } );
         if ( already )
             return *this;
-        entries.push_back( { std::string( shaderName ), ShaderResourceKind::Sampler, ResourceKind::Texture,
-                             kInvalidResource, Access::None, SubresourceRange::All(), sampler } );
+        entries.push_back( { shaderName, ShaderResourceKind::Sampler, ResourceKind::Texture, kInvalidResource,
+                             Access::None, SubresourceRange::All(), sampler } );
         return *this;
     }
 
-    BindingBlockBuilder& BindingBlockBuilder::Storage( std::string_view shaderName, TextureRef texture,
+    BindingBlockBuilder& BindingBlockBuilder::Storage( StorageTextureParameter parameter, TextureRef texture,
                                                        Access declared, uint32_t mip )
     {
+        const std::string shaderName = parameter.SlotName();
         m_Pass.DeclareTexture( texture, declared, SubresourceRange::Mip( mip ), IsWriteAccess( declared ),
                                "Bindings.Storage" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { std::string( shaderName ), ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index,
-               declared, SubresourceRange::Mip( mip ), std::nullopt } );
+             { shaderName, ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index, declared,
+               SubresourceRange::Mip( mip ), std::nullopt } );
         return *this;
     }
 
-    BindingBlockBuilder& BindingBlockBuilder::Uniform( std::string_view shaderName, BufferRef buffer )
+    BindingBlockBuilder& BindingBlockBuilder::Uniform( UniformBufferParameter parameter, BufferRef buffer )
     {
+        const std::string shaderName = parameter.SlotName();
         m_Pass.DeclareBuffer( buffer, Access::UniformRead, false, "Bindings.Uniform" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { std::string( shaderName ), ShaderResourceKind::UniformBuffer, ResourceKind::Buffer, buffer.Index,
+             { shaderName, ShaderResourceKind::UniformBuffer, ResourceKind::Buffer, buffer.Index,
                Access::UniformRead, SubresourceRange::All(), std::nullopt } );
         return *this;
     }
 
-    BindingBlockBuilder& BindingBlockBuilder::Storage( std::string_view shaderName, BufferRef buffer,
+    BindingBlockBuilder& BindingBlockBuilder::Storage( StorageBufferParameter parameter, BufferRef buffer,
                                                        Access declared )
     {
+        const std::string shaderName = parameter.SlotName();
         // The call names the shader binding, so an invalid handle says WHICH input the pass was never given.
         m_Pass.DeclareBuffer( buffer, declared, IsWriteAccess( declared ),
                               fmt::format( "Bindings.Storage[{}]", shaderName ) );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { std::string( shaderName ), ShaderResourceKind::StorageBuffer, ResourceKind::Buffer, buffer.Index,
-               declared, SubresourceRange::All(), std::nullopt } );
+             { shaderName, ShaderResourceKind::StorageBuffer, ResourceKind::Buffer, buffer.Index, declared,
+               SubresourceRange::All(), std::nullopt } );
         return *this;
     }
 
-    BindingBlockBuilder& BindingBlockBuilder::AccelerationStructure( std::string_view shaderName, BufferRef tlas )
+    BindingBlockBuilder& BindingBlockBuilder::AccelerationStructure( AccelerationStructureParameter parameter,
+                                                                     BufferRef                      tlas )
     {
+        const std::string shaderName = parameter.SlotName();
         m_Pass.DeclareBuffer( tlas, Access::AccelStructRead, false, "Bindings.AccelerationStructure" );
         m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
-             { std::string( shaderName ), ShaderResourceKind::AccelerationStructure, ResourceKind::Buffer,
-               tlas.Index, Access::AccelStructRead, SubresourceRange::All(), std::nullopt } );
+             { shaderName, ShaderResourceKind::AccelerationStructure, ResourceKind::Buffer, tlas.Index,
+               Access::AccelStructRead, SubresourceRange::All(), std::nullopt } );
         return *this;
     }
 

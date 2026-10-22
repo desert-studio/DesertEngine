@@ -89,11 +89,9 @@ namespace Desert::Editor
             seen.push_back( part.Source );
             name += ( name.empty() ? "" : "+" ) + part.Source.stem().string();
         }
-        std::string_view slotName = slot.Slot;
-        if ( slotName.starts_with( "u_" ) )
-            slotName.remove_prefix( 2 );
+        // The slot is the material's parameter name (OrmTexture): no GLSL prefix to strip since SHADER-NAMING.
         return slot.Parts.front().Source.parent_path() /
-               std::format( "{}_{}{}", name, slotName, Assets::kTextureAssetExtension );
+               std::format( "{}_{}{}", name, slot.Slot, Assets::kTextureAssetExtension );
     }
 
     Common::ResultStr<PackOutcome> PackTextureChannels( const ImportedTextureSlot&   slot,

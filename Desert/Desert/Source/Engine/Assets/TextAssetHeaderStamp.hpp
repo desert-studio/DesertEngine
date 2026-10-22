@@ -25,7 +25,7 @@ namespace Desert::Assets
     // clear share of the sky (W = 1 elsewhere, Assets::CloudWeatherPresence), was the slope of a ramp that
     // emptied 1 - 1/(2s); Tools/SceneMigrator raises v4 by s -> max(0, 1 - 1/(2s)), the clear share kept.
     inline constexpr uint32_t kMaterialSchemaTag     = Common::Content::FourCC( "MATL" );
-    inline constexpr uint32_t kMaterialSchemaVersion = 5;
+    inline constexpr uint32_t kMaterialSchemaVersion = 6;
     // A .decloudtype: the cloud type file layout, stated in the header since v4 (AF7v; v1-v3 had a
     // top-level FormatVersion and no header). Here rather than beside CloudTypeData so the migrator can
     // state it without the cloud maths. v5 (T7h): the noise volume is named by {Guid, Path} and stated as

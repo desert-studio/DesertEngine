@@ -1536,7 +1536,7 @@ namespace Desert::Editor
                         break;
                     case VM_Lighting:
                         // No DeferredDebug partner, unlike Normals below: the deferred path zeroes
-                        // u_DebugParams, so SceneRenderer forces the FORWARD path while this is on — the
+                        // DebugParams, so SceneRenderer forces the FORWARD path while this is on — the
                         // same treatment Wireframe gets, for the same reason.
                         view.LightingDebug = true;
                         break;

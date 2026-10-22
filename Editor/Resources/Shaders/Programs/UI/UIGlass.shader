@@ -42,9 +42,9 @@ Shader "UIGlass"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(1) sampler u_LinearClampSampler;
-        Uniform(0) texture2D u_Backdrop;
-        #define u_Backdrop sampler2D(u_Backdrop, u_LinearClampSampler)
+        Uniform(1) sampler LinearClampSampler;
+        Uniform(0) texture2D BackdropTexture;
+        #define BackdropTexture sampler2D(BackdropTexture, LinearClampSampler)
 
         PushConstant constants
         {
@@ -68,7 +68,7 @@ Shader "UIGlass"
         {
             // The backdrop is a snapshot of THIS target, so screen position maps to it directly.
             vec2 screenUV = gl_FragCoord.xy * m_PushConstants.Params.zw;
-            vec3 blurred  = textureLod(u_Backdrop, screenUV, m_PushConstants.Params.y).rgb;
+            vec3 blurred  = textureLod(BackdropTexture, screenUV, m_PushConstants.Params.y).rgb;
 
             // Tint over the blur: alpha 0 = pure blur, 1 = flat colour (a plain panel).
             vec3 color = mix(blurred, v_Color.rgb, v_Color.a);

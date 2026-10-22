@@ -29,15 +29,15 @@ Shader "HeightFogApply"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(1) sampler u_PointClampSampler;
-        Uniform(0) texture2D u_FogApply;
-        #define u_FogApply sampler2D(u_FogApply, u_PointClampSampler)
+        Uniform(1) sampler PointClampSampler;
+        Uniform(0) texture2D FogApplyTexture;
+        #define FogApplyTexture sampler2D(FogApplyTexture, PointClampSampler)
 
         void main()
         {
-            ivec2 size  = textureSize(u_FogApply, 0);
+            ivec2 size  = textureSize(FogApplyTexture, 0);
             ivec2 coord = clamp(ivec2(v_TexCoord * vec2(size)), ivec2(0, 0), size - ivec2(1, 1));
-            vec4  fog   = texelFetch(u_FogApply, coord, 0);
+            vec4  fog   = texelFetch(FogApplyTexture, coord, 0);
 
             o_Color = vec4(fog.rgb, clamp(fog.a, 0.0, 1.0));
         }

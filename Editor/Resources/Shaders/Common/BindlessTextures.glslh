@@ -23,8 +23,8 @@
 #endif
 
 layout( set = DESERT_BINDLESS_SET, binding = DESERT_BINDLESS_SAMPLER_BINDING ) uniform sampler
-     u_BindlessSamplers[DESERT_BINDLESS_SAMPLER_COUNT];
-layout( set = DESERT_BINDLESS_SET, binding = DESERT_BINDLESS_TEXTURE_BINDING ) uniform texture2D u_BindlessTextures[];
+     BindlessSamplers[DESERT_BINDLESS_SAMPLER_COUNT];
+layout( set = DESERT_BINDLESS_SET, binding = DESERT_BINDLESS_TEXTURE_BINDING ) uniform texture2D BindlessTextures[];
 
 // Sampler indices: wrapU + W * wrapV + W * W * filter with W = DESERT_BINDLESS_SAMPLER_WRAP_COUNT, wrap Repeat 0 /
 // Clamp 1 / Mirror 2 and filter Linear 0 / Nearest 1 (BindlessSamplerFor in BindlessTextureTable.hpp).
@@ -45,8 +45,8 @@ const uint BINDLESS_SAMPLER_NEAREST_CLAMP  = 1u + BINDLESS_SAMPLER_WRAP_COUNT * 
 // is not dynamically uniform without the qualifier is undefined behaviour.
 vec4 SampleBindless( uint textureSlot, uint samplerSlot, vec2 uv, float lod )
 {
-    return textureLod( sampler2D( u_BindlessTextures[nonuniformEXT( textureSlot )],
-                                  u_BindlessSamplers[nonuniformEXT( samplerSlot )] ),
+    return textureLod( sampler2D( BindlessTextures[nonuniformEXT( textureSlot )],
+                                  BindlessSamplers[nonuniformEXT( samplerSlot )] ),
                        uv, lod );
 }
 
@@ -65,16 +65,16 @@ struct BindlessTexture
 #ifndef DESERT_RAY_TRACING_STAGE
 vec4 SampleBindless( BindlessTexture t, vec2 uv )
 {
-    return texture( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
-                               u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+    return texture( sampler2D( BindlessTextures[nonuniformEXT( t.Texture )],
+                               BindlessSamplers[nonuniformEXT( t.Sampler )] ),
                     uv );
 }
 
 // Fragment stage only, as GLSL's own bias form.
 vec4 SampleBindlessBias( BindlessTexture t, vec2 uv, float bias )
 {
-    return texture( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
-                               u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+    return texture( sampler2D( BindlessTextures[nonuniformEXT( t.Texture )],
+                               BindlessSamplers[nonuniformEXT( t.Sampler )] ),
                     uv, bias );
 }
 
@@ -83,8 +83,8 @@ vec4 SampleBindlessBias( BindlessTexture t, vec2 uv, float bias )
 // once, before the loop, and hands them here.
 vec4 SampleBindlessGrad( BindlessTexture t, vec2 uv, vec2 dUVdx, vec2 dUVdy )
 {
-    return textureGrad( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
-                                   u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+    return textureGrad( sampler2D( BindlessTextures[nonuniformEXT( t.Texture )],
+                                   BindlessSamplers[nonuniformEXT( t.Sampler )] ),
                         uv, dUVdx, dUVdy );
 }
 #endif // !DESERT_RAY_TRACING_STAGE
@@ -96,8 +96,8 @@ vec4 SampleBindlessLod( BindlessTexture t, vec2 uv, float lod )
 
 ivec2 BindlessTextureSize( BindlessTexture t, int lod )
 {
-    return textureSize( sampler2D( u_BindlessTextures[nonuniformEXT( t.Texture )],
-                                   u_BindlessSamplers[nonuniformEXT( t.Sampler )] ),
+    return textureSize( sampler2D( BindlessTextures[nonuniformEXT( t.Texture )],
+                                   BindlessSamplers[nonuniformEXT( t.Sampler )] ),
                         lod );
 }
 

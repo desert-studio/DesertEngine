@@ -5,12 +5,21 @@
 
 #include <Common/Core/Logger.hpp>
 
+namespace
+{
+    // The slot names this material binds, spelled once (RDGShaderParameters.hpp).
+    struct MaterialSkyboxShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, samplerCubeMap );
+    };
+} // namespace
+
 namespace Desert::Graphic
 {
     MaterialSkybox::MaterialSkybox( const std::shared_ptr<Assets::SkyboxAsset>& baseAsset )
          : Material( "MaterialSkybox", "Skybox" ), m_BaseMaterial( baseAsset )
     {
-        m_CubeMapTexture = m_MaterialExecutor->GetTextureCubeProperty( "samplerCubeMap" ).get();
+        m_CubeMapTexture = Get<TextureCubeProperty>( MaterialSkyboxShaderParameters::samplerCubeMap );
         // The FILE as authored — identity rotation, white tint, unit intensity — and that is ALL it will
         // ever be: the scene's look is applied where the cubes are sampled (BindInputs below, and
         // SceneEnvironmentBind for the lit materials), so there is no second bake for it to trigger.

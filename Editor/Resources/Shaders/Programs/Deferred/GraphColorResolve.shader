@@ -22,17 +22,17 @@ Shader "GraphColorResolve"
 
         // A separate multisampled texture read (texelFetch) through the pass's point-clamped shared state.
 
-        Uniform(2) sampler u_PointClampSampler;
+        Uniform(2) sampler PointClampSampler;
 
-        Uniform(1) texture2DMS u_Input;
+        Uniform(1) texture2DMS MultisampledColorTexture;
 
-        #define u_Input sampler2DMS(u_Input, u_PointClampSampler)
+        #define MultisampledColorTexture sampler2DMS(MultisampledColorTexture, PointClampSampler)
 
         Out(0) vec4 oColor;
 
         void main()
         {
-        	oColor = texelFetch(u_Input, ivec2(gl_FragCoord.xy), 0);
+        	oColor = texelFetch(MultisampledColorTexture, ivec2(gl_FragCoord.xy), 0);
         }
     }
 }

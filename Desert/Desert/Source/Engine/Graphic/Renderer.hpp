@@ -119,7 +119,7 @@ namespace Desert::Graphic
                                                                            const MaterialExecutor*  material,
                                                                            RDG::BufferRef args, uint64_t offset );
         // The PassBindings route for indexed batched draws (the 2D/UI batcher): one indexed draw with the
-        // graph textures bound by shader name, e.g. Render2D's glass batches sampling u_Backdrop from this
+        // graph textures bound by shader name, e.g. Render2D's glass batches sampling BackdropTexture from this
         // frame's backdrop pyramid. Same contract as DrawFullscreen otherwise.
         [[nodiscard]] static Common::BoolResultStr
         DrawIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
@@ -128,7 +128,7 @@ namespace Desert::Graphic
         // The PassBindings route for mesh draws (UE: a mesh pass binds its graph textures through the pass
         // parameters): RenderMesh's submesh / LOD walk (same hidden-submesh mask, same LOD clamp, same instance
         // offset), every submesh drawn with the graph textures bound by shader name from @p bindings, e.g. the
-        // forward glass sampling u_SceneColor from this frame's scene copy. @p material is required: its push
+        // forward glass sampling SceneColorTexture from this frame's scene copy. @p material is required: its push
         // block is pushed for each submesh with that submesh's transform (transform * submesh.Transform) over its
         // first mat4, as RenderMesh does, and it supplies uniform values / asset textures; a @p bindings with push
         // constants of its own is refused (the block is the transform's). Same contract as DrawFullscreen

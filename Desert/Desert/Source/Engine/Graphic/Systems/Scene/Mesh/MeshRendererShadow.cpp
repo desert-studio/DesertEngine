@@ -5,6 +5,16 @@
 
 #include <format>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MeshShadowShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, InstanceTransforms );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     using MeshRendererDetail::SignatureHash;
@@ -92,7 +102,7 @@ namespace Desert::Graphic::System
         // built with Graphic::kNoShadowQuality allocates no map, compiles no caster pipeline and loads no
         // shadow shader; everything downstream is already driven by the count it publishes
         // (ShadowCascadePasses hands no pass, CaptureFrameState reports 0, and the shader's cascade
-        // loop over u_ShadowParams.w selects none), so there is no second switch to keep in step.
+        // loop over ShadowParams.w selects none), so there is no second switch to keep in step.
         //
         // Returning `true` matters: Initialize treats a false here as fatal, and "this renderer was asked
         // for no shadows" is not a failure to set them up.
@@ -231,7 +241,7 @@ namespace Desert::Graphic::System
         // index, and a count asked of the class instead of the instance): the count published to the
         // shader was the count ALLOCATED, and the count fitted is a different number. A scene with no
         // directional light returns here having written no matrix at all, and every lit draw was still
-        // told u_ShadowParams.w = 4 — so the shader walked four cascades whose matrices are the array's
+        // told ShadowParams.w = 4 — so the shader walked four cascades whose matrices are the array's
         // initializer, which is identity for cascade 0 and the ZERO matrix for 1..3. A zero matrix divides
         // by w = 0; identity makes light space equal world space, so fragments near the origin test as
         // "inside cascade 0" and are sampled from a map nothing rendered. Nothing reports any of it.
@@ -630,7 +640,7 @@ namespace Desert::Graphic::System
         const bool drawStatic  = layer != ShadowCasterLayer::Movable;
         const bool drawMovable = layer != ShadowCasterLayer::Static;
         // Shadow vert computes Projection*View*Transform; feed the combined cascade matrix as
-        // Projection and identity as View, matching u_LightViewProj[c] on the lit side.
+        // Projection and identity as View, matching LightViewProjection[c] on the lit side.
         m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                                              m_CascadeCasterBias[c], m_ParallaxQuality );
         const MaterialExecutor* casterExecutor = m_ShadowMaterial[c]->GetMaterialExecutor();
@@ -1041,7 +1051,7 @@ namespace Desert::Graphic::System
             auto* instMat = m_ShadowInstancedMaterial[c].get();
             instMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                                      m_CascadeCasterBias[c], m_ParallaxQuality );
-            if ( auto* sb = instMat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
+            if ( auto* sb = instMat->Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
                 sb->SetRawData( instTransforms.data(),
                                 static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
             for ( const auto& b : batches )
@@ -1069,7 +1079,9 @@ namespace Desert::Graphic::System
             auto& set = *m_ScratchMaskedSets[i];
             WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                               m_CascadeCasterBias[c], m_ParallaxQuality );
-            if ( auto* sb = set.Caster->Get<StorageBufferProperty>( "Materials" ) )
+            // Find: a masked caster whose surface has no parameters (or whose mask reads none) declares no row
+            // block.
+            if ( auto* sb = set.Caster->Find<StorageBufferProperty>( kMaterialRowBlock ) )
             {
                 sb->SetRawData( set.Rows.data(), static_cast<uint32_t>( set.Rows.size() * sizeof( glm::vec4 ) ) );
             }
@@ -1082,17 +1094,18 @@ namespace Desert::Graphic::System
             // A skinned caster also reads its row's skin-cache fields from the view's rows (Vertex_Skinned.glslh).
             if ( path == MeshVertexPath::Skinned )
             {
-                auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kObjectMotionsName );
+                auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kObjectMotions );
                 const bool bound = rows != nullptr && m_ObjectMotions != nullptr;
                 DESERT_VERIFY( bound, "a skinned masked caster reads ObjectMotions but the view carries none" );
                 rows->SetBuffer( m_ObjectMotions );
             }
-            const std::string own  = path ? MeshPathOwnBufferName( *path ) : std::string();
-            if ( own.empty() )
+            const std::optional<RDG::StorageBufferParameter> own =
+                 path ? MeshPathOwnBuffer( *path ) : std::nullopt;
+            if ( !own )
             {
                 continue;
             }
-            if ( auto* sb = set.Caster->Get<StorageBufferProperty>( own ) )
+            if ( auto* sb = set.Caster->Get<StorageBufferProperty>( *own ) )
             {
                 sb->SetRawData( set.Transforms.data(),
                                 static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );

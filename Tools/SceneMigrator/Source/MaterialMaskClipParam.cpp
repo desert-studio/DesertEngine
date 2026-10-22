@@ -53,14 +53,14 @@ namespace Desert::Migration
         {
             // An opaque StandardSurface: the mask's three entries have no Property to land on.
             const auto channel = param( "OpacityChannel" );
-            const auto mask    = texture( "u_OpacityTexture" );
+            const auto mask    = texture( "OpacityTexture" );
             if ( retired == material.Params.end() && channel == material.Params.end() &&
                  mask == material.Textures.end() )
                 return Common::MakeSuccess( Result{} );
             std::erase_if( material.Params, []( const Assets::MaterialShaderParam& p )
                            { return p.Name == kRetired || p.Name == "OpacityChannel"; } );
             std::erase_if( material.Textures,
-                           []( const Assets::MaterialAssetRef& t ) { return t.Name == "u_OpacityTexture"; } );
+                           []( const Assets::MaterialAssetRef& t ) { return t.Name == "OpacityTexture"; } );
         }
 
         auto written = Assets::WriteMaterialJson( material );

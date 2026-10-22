@@ -42,27 +42,27 @@ Shader "GrassGenerate"
 
         ReadBuffer(0) Field
         {
-            uint u_Field[]; // GrassFieldLayout (LandscapeGrassField.hpp)
+            uint FieldData[]; // GrassFieldLayout (LandscapeGrassField.hpp)
         };
 
         ReadBuffer(1) Params
         {
-            GrassParams u_Params[];
+            GrassParams GrassParamsData[];
         };
 
         Buffer(2) Instances
         {
-            mat4 u_Instances[];
+            mat4 GrassInstancesData[];
         };
 
         Buffer(3) Args
         {
-            uint u_Args[]; // GpuInstances.hpp: header, the draw records, then per bucket count, first, capacity, 0
+            uint Arguments[]; // GpuInstances.hpp: header, the draw records, then per bucket count, first, capacity, 0
         };
 
         PushConstant PushConstants
         {
-            ivec4 u_Cells; // x, y = the first cell (world grid index), z, w = cells along x, z (the lens footprint's box)
+            ivec4 CellRange; // x, y = the first cell (world grid index), z, w = cells along x, z (the lens footprint's box)
         };
 
         const uint kFlagRandomRotation = 1u;
@@ -102,22 +102,22 @@ Shader "GrassGenerate"
                    3.0;
         }
 
-        uint SamplesX() { return u_Field[0]; }
-        uint SamplesZ() { return u_Field[1]; }
-        float HeightAt( uint x, uint z ) { return uintBitsToFloat( u_Field[8u + z * SamplesX() + x] ); }
+        uint SamplesX() { return FieldData[0]; }
+        uint SamplesZ() { return FieldData[1]; }
+        float HeightAt( uint x, uint z ) { return uintBitsToFloat( FieldData[8u + z * SamplesX() + x] ); }
         float WeightAt( uint layer, uint x, uint z )
         {
             uint count = SamplesX() * SamplesZ();
             uint index = z * SamplesX() + x;
-            uint word  = u_Field[8u + count + layer * ( ( count + 3u ) / 4u ) + index / 4u];
+            uint word  = FieldData[8u + count + layer * ( ( count + 3u ) / 4u ) + index / 4u];
             return float( ( word >> ( 8u * ( index & 3u ) ) ) & 0xffu ) * ( 1.0 / 255.0 );
         }
 
         // Bilinear height and layer weight at world XZ; false outside the field or over a missing tile.
         bool SampleField( vec2 world, uint layer, out float height, out float weight )
         {
-            vec2  origin  = vec2( uintBitsToFloat( u_Field[4] ), uintBitsToFloat( u_Field[5] ) );
-            float spacing = uintBitsToFloat( u_Field[6] );
+            vec2  origin  = vec2( uintBitsToFloat( FieldData[4] ), uintBitsToFloat( FieldData[5] ) );
+            float spacing = uintBitsToFloat( FieldData[6] );
             vec2  local   = ( world - origin ) / spacing;
             if ( local.x < 0.0 || local.y < 0.0 || local.x >= float( SamplesX() - 1u ) || local.y >= float( SamplesZ() - 1u ) )
                 return false;
@@ -135,7 +135,7 @@ Shader "GrassGenerate"
 
         vec3 FieldNormal( vec2 world, uint layer, float centre )
         {
-            float spacing = uintBitsToFloat( u_Field[6] );
+            float spacing = uintBitsToFloat( FieldData[6] );
             float hx, hz, w;
             if ( !SampleField( world + vec2( spacing, 0.0 ), layer, hx, w ) )
                 hx = centre;
@@ -173,10 +173,10 @@ Shader "GrassGenerate"
 
         void main()
         {
-            GrassParams p = u_Params[0];
-            if ( gl_GlobalInvocationID.x >= uint( u_Cells.z ) || gl_GlobalInvocationID.y >= uint( u_Cells.w ) )
+            GrassParams p = GrassParamsData[0];
+            if ( gl_GlobalInvocationID.x >= uint( CellRange.z ) || gl_GlobalInvocationID.y >= uint( CellRange.w ) )
                 return;
-            ivec2 cell  = u_Cells.xy + ivec2( gl_GlobalInvocationID.xy );
+            ivec2 cell  = CellRange.xy + ivec2( gl_GlobalInvocationID.xy );
             uint  state = Hash( uint( cell.x ) * 0x8da6b343u ^ uint( cell.y ) * 0xd8163841u ^ p.Info.w );
             // The lens share's draw (below): a hash of its own, so the share does not reshuffle the cell's jitter,
             // scale or rotation.
@@ -311,17 +311,17 @@ Shader "GrassGenerate"
             if ( p.Blade.x > 0.0 )
                 bucket = min( uint( distance / p.Blade.x ), p.Buckets.x - 1u );
             uint table = p.Buckets.y + bucket * 4u;
-            uint index = atomicAdd( u_Args[table], 1u );
-            if ( index >= u_Args[table + 2u] )
+            uint index = atomicAdd( Arguments[table], 1u );
+            if ( index >= Arguments[table + 2u] )
                 return;
-            index += u_Args[table + 1u];
+            index += Arguments[table + 1u];
             // A blade's forward axis carries the height multiplier (its lean is a share of its height) and the
             // columns' w its three draws (Vertex_GrassBlade.glslh); a mesh's are its scaled axes.
             if ( blade )
-                u_Instances[index] = mat4( vec4( basis[0] * scale.x, draws.x ), vec4( basis[1] * scale.y, draws.y ),
+                GrassInstancesData[index] = mat4( vec4( basis[0] * scale.x, draws.x ), vec4( basis[1] * scale.y, draws.y ),
                                            vec4( basis[2] * scale.y, draws.z ), vec4( position, 1.0 ) );
             else
-                u_Instances[index] = mat4( vec4( basis[0] * scale.x, 0.0 ), vec4( basis[1] * scale.y, 0.0 ),
+                GrassInstancesData[index] = mat4( vec4( basis[0] * scale.x, 0.0 ), vec4( basis[1] * scale.y, 0.0 ),
                                            vec4( basis[2] * scale.z, 0.0 ), vec4( position, 1.0 ) );
         }
     }

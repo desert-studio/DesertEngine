@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "75e5b94c36bb7b4af97d2154b5771ee3",
         "Versions": {
-            "MATL": 5
+            "MATL": 6
         },
         "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "2302ccedeb1fbf04779f2197a76e8ab2", "db2dcb1527798e552c9df6a238a87b68", "bd7d0892683cbfdcdd4c4bfbb0816325"]
     },
@@ -35,17 +35,17 @@
     ],
     "Textures": [
         {
-            "Name": "u_AlbedoTexture",
+            "Name": "AlbedoTexture",
             "Guid": "2302ccedeb1fbf04779f2197a76e8ab2",
             "Path": "assets:Environments/FieldBarn/Meshes/dead_tree_trunk/textures/dead_tree_trunk_diff_2k.detex"
         },
         {
-            "Name": "u_ORMTexture",
+            "Name": "OrmTexture",
             "Guid": "db2dcb1527798e552c9df6a238a87b68",
             "Path": "assets:Environments/FieldBarn/Meshes/dead_tree_trunk/textures/dead_tree_trunk_arm_2k_ORMTexture.detex"
         },
         {
-            "Name": "u_NormalTexture",
+            "Name": "NormalTexture",
             "Guid": "bd7d0892683cbfdcdd4c4bfbb0816325",
             "Path": "assets:Environments/FieldBarn/Meshes/dead_tree_trunk/textures/dead_tree_trunk_nor_gl_2k.detex"
         }

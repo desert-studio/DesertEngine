@@ -15,61 +15,61 @@ Shader "MorphTargets"
         // TexCoord 12-13, BoneIDs 14-17, BoneWeights 18-21 (sizeof 88, Geometry/MeshTypes.hpp).
         Buffer(0) MorphBaseVertices
         {
-            uint u_Base[];
+            uint BaseVertices[];
         };
 
         // SkinnedMesh::GetMorphDeltas: target k's delta of vertex i at [(k * VertexCount + i) * 2] (position)
         // and [... + 1] (normal).
         Buffer(1) MorphDeltas
         {
-            vec4 u_Deltas[];
+            vec4 Deltas[];
         };
 
         // x = VertexCount, y = the number of active targets, then per active target (target index, weight bits).
         Buffer(2) MorphWeights
         {
-            uvec4 u_Header;
-            uvec2 u_Active[];
+            uvec4 MorphHeader;
+            uvec2 Active[];
         };
 
         Buffer(3) MorphOutput
         {
-            uint u_Out[];
+            uint MorphedVertices[];
         };
 
         void main()
         {
             const uint vertex      = gl_GlobalInvocationID.x;
-            const uint vertexCount = u_Header.x;
+            const uint vertexCount = MorphHeader.x;
             if (vertex >= vertexCount)
                 return;
 
             const uint first = vertex * 22u;
             for (uint w = 0u; w < 22u; ++w)
-                u_Out[first + w] = u_Base[first + w];
+                MorphedVertices[first + w] = BaseVertices[first + w];
 
-            vec3 position = vec3(uintBitsToFloat(u_Base[first + 0u]), uintBitsToFloat(u_Base[first + 1u]),
-                                 uintBitsToFloat(u_Base[first + 2u]));
-            vec3 normal   = vec3(uintBitsToFloat(u_Base[first + 3u]), uintBitsToFloat(u_Base[first + 4u]),
-                                 uintBitsToFloat(u_Base[first + 5u]));
-            for (uint a = 0u; a < u_Header.y; ++a)
+            vec3 position = vec3(uintBitsToFloat(BaseVertices[first + 0u]), uintBitsToFloat(BaseVertices[first + 1u]),
+                                 uintBitsToFloat(BaseVertices[first + 2u]));
+            vec3 normal   = vec3(uintBitsToFloat(BaseVertices[first + 3u]), uintBitsToFloat(BaseVertices[first + 4u]),
+                                 uintBitsToFloat(BaseVertices[first + 5u]));
+            for (uint a = 0u; a < MorphHeader.y; ++a)
             {
-                const uint  target = u_Active[a].x;
-                const float weight = uintBitsToFloat(u_Active[a].y);
+                const uint  target = Active[a].x;
+                const float weight = uintBitsToFloat(Active[a].y);
                 const uint  delta  = (target * vertexCount + vertex) * 2u;
-                position += weight * u_Deltas[delta].xyz;
-                normal   += weight * u_Deltas[delta + 1u].xyz;
+                position += weight * Deltas[delta].xyz;
+                normal   += weight * Deltas[delta + 1u].xyz;
             }
             const float length2 = dot(normal, normal);
             if (length2 > 1e-12)
                 normal *= inversesqrt(length2);
 
-            u_Out[first + 0u] = floatBitsToUint(position.x);
-            u_Out[first + 1u] = floatBitsToUint(position.y);
-            u_Out[first + 2u] = floatBitsToUint(position.z);
-            u_Out[first + 3u] = floatBitsToUint(normal.x);
-            u_Out[first + 4u] = floatBitsToUint(normal.y);
-            u_Out[first + 5u] = floatBitsToUint(normal.z);
+            MorphedVertices[first + 0u] = floatBitsToUint(position.x);
+            MorphedVertices[first + 1u] = floatBitsToUint(position.y);
+            MorphedVertices[first + 2u] = floatBitsToUint(position.z);
+            MorphedVertices[first + 3u] = floatBitsToUint(normal.x);
+            MorphedVertices[first + 4u] = floatBitsToUint(normal.y);
+            MorphedVertices[first + 5u] = floatBitsToUint(normal.z);
         }
     }
 }

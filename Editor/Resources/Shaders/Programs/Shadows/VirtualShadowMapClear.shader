@@ -12,26 +12,26 @@ Shader "VirtualShadowMapClear"
 
         ReadBuffer(0) VsmPageTable
         {
-            VsmPageEntry u_Entries[];
+            VsmPageEntry Entries[];
         };
         ReadBuffer(1) VsmLists
         {
-            uint u_Lists[];
+            uint Lists[];
         };
-        layout(binding = 2, r32ui) restrict writeonly uniform uimage2D u_PhysicalPool;
+        layout(binding = 2, r32ui) restrict writeonly uniform uimage2D PhysicalPoolTexture;
 
         PushConstant PushConstants
         {
-            uvec4 u_Pool; // x = physical page count
+            uvec4 Pool; // x = physical page count
         };
 
         void main()
         {
-            const uint  entry  = u_Lists[2u * u_Pool.x + gl_WorkGroupID.x];
-            const ivec2 origin = VsmPoolPageOrigin( u_Entries[entry].Physical ) + ivec2( gl_LocalInvocationID.xy );
+            const uint  entry  = Lists[2u * Pool.x + gl_WorkGroupID.x];
+            const ivec2 origin = VsmPoolPageOrigin( Entries[entry].Physical ) + ivec2( gl_LocalInvocationID.xy );
             for ( int y = 0; y < int( VSM_PAGE_SIZE ); y += 16 )
                 for ( int x = 0; x < int( VSM_PAGE_SIZE ); x += 16 )
-                    imageStore( u_PhysicalPool, origin + ivec2( x, y ), uvec4( 0u ) );
+                    imageStore( PhysicalPoolTexture, origin + ivec2( x, y ), uvec4( 0u ) );
         }
     }
 }

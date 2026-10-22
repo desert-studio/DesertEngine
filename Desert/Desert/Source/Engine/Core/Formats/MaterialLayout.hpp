@@ -98,7 +98,7 @@ namespace Desert::Core::Formats
         // The world's parameters this frame (Common/WorldParameters.glslh `WorldParameters`): read by the cells
         // whose surface names one (`WorldParameter( "Name" )`).
         WorldParameters = 1u << 8,
-        // The view's rain occlusion (Common/RainOcclusion.glslh `RainOcclusionUB`, `u_RainOcclusionMap`):
+        // The view's rain occlusion (Common/RainOcclusion.glslh `RainOcclusionUB`, `RainOcclusionMapTexture`):
         // read by the cells that wet a surface. The block is written by SceneFrameBinding::ApplyTo, the map is a
         // pass parameter (BindSceneViewInputs).
         RainOcclusion = 1u << 9,
@@ -391,7 +391,7 @@ namespace Desert::Core::Formats
                 if ( const auto* p = layout.FindParam( s.Name ); p != nullptr && p->IsTexture )
                     fail( stage.Stage,
                           std::format(
-                               "texture '{}' is a row texture read through the bindless table (u_Material.{}), "
+                               "texture '{}' is a row texture read through the bindless table (Material.{}), "
                                "and the stage also declares a sampler of that name at binding {}; remove "
                                "the sampler declaration",
                                s.Name, s.Name, s.Offset ) );

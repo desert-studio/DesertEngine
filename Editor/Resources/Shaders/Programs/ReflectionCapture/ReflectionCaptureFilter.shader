@@ -25,16 +25,16 @@ Shader "ReflectionCaptureFilter"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(2) sampler u_LinearClampSampler;
-        Uniform(0) textureCube u_Radiance; // every mip of the capture's radiance cube
-        #define u_Radiance samplerCube(u_Radiance, u_LinearClampSampler)
-        layout(binding = 1, rgba16f) writeonly uniform imageCubeArray u_Output; // this mip, every layer
+        Uniform(2) sampler LinearClampSampler;
+        Uniform(0) textureCube RadianceTexture; // every mip of the capture's radiance cube
+        #define RadianceTexture samplerCube(RadianceTexture, LinearClampSampler)
+        layout(binding = 1, rgba16f) writeonly uniform imageCubeArray DestinationCubeTexture; // this mip, every layer
 
         PushConstant PushConstants
         {
-        	uint u_Mip;        // the mip this dispatch writes
-        	uint u_MaxMip;     // the array's last mip index
-        	uint u_FirstLayer; // the capture's first layer: cube index * 6
+        	uint Mip;        // the mip this dispatch writes
+        	uint MaxMip;     // the array's last mip index
+        	uint FirstLayer; // the capture's first layer: cube index * 6
         };
 
         #include <Common/ReflectionCaptureMip.glslh>
@@ -96,23 +96,23 @@ Shader "ReflectionCaptureFilter"
         LocalSize(8, 8, 1);
         void main()
         {
-        	const ivec2 size = imageSize(u_Output).xy;
+        	const ivec2 size = imageSize(DestinationCubeTexture).xy;
         	if (gl_GlobalInvocationID.x >= uint(size.x) || gl_GlobalInvocationID.y >= uint(size.y))
         		return;
 
-        	const ivec3 texel = ivec3(gl_GlobalInvocationID.xy, int(u_FirstLayer + gl_GlobalInvocationID.z));
+        	const ivec3 texel = ivec3(gl_GlobalInvocationID.xy, int(FirstLayer + gl_GlobalInvocationID.z));
         	const float brightness = 0.0; // not measured: ReflectionCaptureDiffuse.shader stores it
         	const vec3  N = CubeTexelDirection(gl_GlobalInvocationID, vec2(size));
-        	const float roughness = ComputeReflectionCaptureRoughnessFromMip(float(u_Mip), float(u_MaxMip));
+        	const float roughness = ComputeReflectionCaptureRoughnessFromMip(float(Mip), float(MaxMip));
 
         	// Roughness 0 is the radiance itself (see PrefilterEnvMap: the GGX path is 0/0 there); a limit guard.
         	if (roughness <= Epsilon)
         	{
-        		imageStore(u_Output, texel, vec4(textureLod(u_Radiance, N, 0.0).rgb, brightness));
+        		imageStore(DestinationCubeTexture, texel, vec4(textureLod(RadianceTexture, N, 0.0).rgb, brightness));
         		return;
         	}
 
-        	const vec2  inputSize = vec2(textureSize(u_Radiance, 0));
+        	const vec2  inputSize = vec2(textureSize(RadianceTexture, 0));
         	const float wt = 4.0 * PI / (6 * inputSize.x * inputSize.y);
         	vec3 S, T;
         	computeBasisVectors(N, S, T);
@@ -132,11 +132,11 @@ Shader "ReflectionCaptureFilter"
         			float pdf = ndfGGX(cosLh, roughness) * 0.25;
         			float ws = 1.0 / (float(NumSamples) * pdf);
         			float mipLevel = max(0.5 * log2(ws / wt) + 1.0, 0.0);
-        			color  += textureLod(u_Radiance, Li, mipLevel).rgb * cosLi;
+        			color  += textureLod(RadianceTexture, Li, mipLevel).rgb * cosLi;
         			weight += cosLi;
         		}
         	}
-        	imageStore(u_Output, texel, vec4(color / max(weight, Epsilon), brightness));
+        	imageStore(DestinationCubeTexture, texel, vec4(color / max(weight, Epsilon), brightness));
         }
     }
 }

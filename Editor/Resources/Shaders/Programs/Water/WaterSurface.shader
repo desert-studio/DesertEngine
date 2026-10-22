@@ -47,7 +47,7 @@ Shader "WaterSurface"
 
         void main()
         {
-            WaterTileRow t = u_Tiles[int( m_PushConstants.MaterialIndex ) + gl_InstanceIndex];
+            WaterTileRow t = WaterTileRows[int( m_PushConstants.MaterialIndex ) + gl_InstanceIndex];
 
             // Two triangles per quad, quads row by row.
             const ivec2 kCorner[6] = ivec2[]( ivec2( 0, 0 ), ivec2( 1, 0 ), ivec2( 0, 1 ),

@@ -10,6 +10,7 @@
 #include <regex>
 #include <cmath>
 #include <optional>
+#include <algorithm>
 #include <array>
 #include <format>
 #include <fstream>
@@ -73,6 +74,7 @@
 #include <rflcpp/rfl/DefaultIfMissing.hpp>
 #include <rflcpp/rfl/json.hpp>
 
+#include <algorithm>
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -3552,41 +3554,100 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( written ) );
     }
 
-    float MigratePatchStrengthV4ToV5( float strength )
+    namespace
     {
-        const float s = std::clamp( strength, 0.0f, 1.0f );
-        // At s <= 1/2 the v4 ramp never reached zero: no sky was clear, which is v5's zero.
-        return s <= 0.5f ? 0.0f : 1.0f - 1.0f / ( 2.0f * s );
-    }
+        // The DSL texture properties MATL 5 stored under their GLSL spelling, and the parameter name MATL 6
+        // stores (SHADER-NAMING: the shader identifier is no longer the asset's key). The shipped schemas'
+        // whole list (Terrain.shader's eight landscape layers included): a `u_` name outside it is refused by
+        // name, not guessed.
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 41> kMaterialTextureRenamesV6{ {
+             { "u_AlbedoTexture", "AlbedoTexture" },
+             { "u_CubeMap", "CubeMapTexture" },
+             { "u_EmissiveTexture", "EmissiveTexture" },
+             { "u_Heightmap", "HeightmapTexture" },
+             { "u_Layer0ARM", "Layer0ArmTexture" },
+             { "u_Layer0Albedo", "Layer0AlbedoTexture" },
+             { "u_Layer0Height", "Layer0HeightTexture" },
+             { "u_Layer0Normal", "Layer0NormalTexture" },
+             { "u_Layer1ARM", "Layer1ArmTexture" },
+             { "u_Layer1Albedo", "Layer1AlbedoTexture" },
+             { "u_Layer1Height", "Layer1HeightTexture" },
+             { "u_Layer1Normal", "Layer1NormalTexture" },
+             { "u_Layer2ARM", "Layer2ArmTexture" },
+             { "u_Layer2Albedo", "Layer2AlbedoTexture" },
+             { "u_Layer2Height", "Layer2HeightTexture" },
+             { "u_Layer2Normal", "Layer2NormalTexture" },
+             { "u_Layer3ARM", "Layer3ArmTexture" },
+             { "u_Layer3Albedo", "Layer3AlbedoTexture" },
+             { "u_Layer3Height", "Layer3HeightTexture" },
+             { "u_Layer3Normal", "Layer3NormalTexture" },
+             { "u_Layer4ARM", "Layer4ArmTexture" },
+             { "u_Layer4Albedo", "Layer4AlbedoTexture" },
+             { "u_Layer4Height", "Layer4HeightTexture" },
+             { "u_Layer4Normal", "Layer4NormalTexture" },
+             { "u_Layer5ARM", "Layer5ArmTexture" },
+             { "u_Layer5Albedo", "Layer5AlbedoTexture" },
+             { "u_Layer5Height", "Layer5HeightTexture" },
+             { "u_Layer5Normal", "Layer5NormalTexture" },
+             { "u_Layer6ARM", "Layer6ArmTexture" },
+             { "u_Layer6Albedo", "Layer6AlbedoTexture" },
+             { "u_Layer6Height", "Layer6HeightTexture" },
+             { "u_Layer6Normal", "Layer6NormalTexture" },
+             { "u_Layer7ARM", "Layer7ArmTexture" },
+             { "u_Layer7Albedo", "Layer7AlbedoTexture" },
+             { "u_Layer7Height", "Layer7HeightTexture" },
+             { "u_Layer7Normal", "Layer7NormalTexture" },
+             { "u_NormalTexture", "NormalTexture" },
+             { "u_ORMTexture", "OrmTexture" },
+             { "u_OpacityTexture", "OpacityTexture" },
+             { "u_SDFAtlas", "SdfAtlasTexture" },
+             { "u_Weightmap", "WeightmapTexture" },
+        } };
+        // UI2D's texture: the one `u_Texture` property a shipped schema declared.
+        constexpr std::string_view kUi2DShaderSuffix = "UI/UI2D.shader";
+    } // namespace
 
-    Common::ResultStr<std::string> MigrateMaterialV4ToV5( const std::string& text )
+    Common::ResultStr<std::string> MigrateMaterialV5ToV6( const std::string& text )
     {
         const auto parsed = Common::Json::Read<Assets::MaterialData>( text );
         if ( !parsed )
-            return Common::MakeFormattedError<std::string>( "MATL 4 body does not read: {}", parsed.GetError() );
+            return Common::MakeFormattedError<std::string>( "MATL 5 body does not read: {}", parsed.GetError() );
         Assets::MaterialData data = parsed.GetValue();
         if ( !data.Header )
             return Common::MakeFormattedError<std::string>(
-                 "the file states no header, and this step raises MATL 4 only" );
+                 "the file states no header, and this step raises MATL 5 only" );
         const auto stated = data.Header->Versions.find( "MATL" );
-        if ( stated == data.Header->Versions.end() || stated->second != 4u )
+        if ( stated == data.Header->Versions.end() || stated->second != 5u )
             return Common::MakeFormattedError<std::string>(
-                 "the header states MATL {}, and this step raises MATL 4 only",
+                 "the header states MATL {}, and this step raises MATL 5 only",
                  stated == data.Header->Versions.end() ? std::string( "nothing" )
                                                        : std::to_string( stated->second ) );
 
-        // BY NAME, NOT BY SHADER: an instance of the cloud material states no Shader of its own and may still
-        // override PatchStrength, and no other schema has a parameter of that name.
-        for ( Assets::MaterialShaderParam& param : data.Params )
-            if ( param.Name == "PatchStrength" )
-                param.Value.x = MigratePatchStrengthV4ToV5( param.Value.x );
+        const bool isUi2D = data.Shader.has_value() && data.Shader->Path.ends_with( kUi2DShaderSuffix );
+        for ( auto& ref : data.Textures )
+        {
+            if ( !ref.Name.starts_with( "u_" ) )
+                continue;
+            const auto row = std::ranges::find( kMaterialTextureRenamesV6, std::string_view( ref.Name ),
+                                                &std::pair<std::string_view, std::string_view>::first );
+            if ( row != kMaterialTextureRenamesV6.end() )
+                ref.Name = std::string( row->second );
+            else if ( ref.Name == "u_Texture" && isUi2D )
+                ref.Name = "ElementTexture";
+            else
+                return Common::MakeFormattedError<std::string>(
+                     "texture '{}' is no shipped schema's MATL 5 texture property; rename it to the parameter "
+                     "its shader declares by hand",
+                     ref.Name );
+        }
+        data.Header->Versions["MATL"] = 6u;
 
         auto written = Assets::WriteMaterialJson( data );
         if ( !written )
             return Common::MakeFormattedError<std::string>( "the raised material does not write: {}",
                                                             written.GetError() );
-        if ( auto reread = Assets::ParseMaterialJson( "MATL 4 -> 5", written.GetValue() ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as MATL 5: {}",
+        if ( auto reread = Assets::ParseMaterialJson( "MATL 5 -> 6", written.GetValue() ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as MATL 6: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::string( written.GetValue() ) );
     }

@@ -1,7 +1,7 @@
 // Whether a terrain caster's fragment lies in a hole of its tile (UE's Landscape Visibility Mask): the same
 // visibility test as the surface (LandscapeIsHole), the ONE statement of it for both casters - the cascades'
 // (TerrainShadow.shader) and the virtual shadow map's (TerrainVirtualShadow.shader). The including fragment declares
-// u_T (its tile's TerrainInstance row) and u_Weightmap, and includes Common/LandscapeWeights.glslh first.
+// CurrentTerrain (its tile's TerrainInstance row) and WeightmapTexture, and includes Common/LandscapeWeights.glslh first.
 #ifndef TERRAIN_CASTER_HOLE_GLSLH
 #define TERRAIN_CASTER_HOLE_GLSLH
 
@@ -9,14 +9,14 @@ bool TerrainCasterIsHole( vec2 tileSample )
 {
     // The weightmap is bound only when the tile has layers (Params2.y > 0), and only a tile with a visibility layer
     // (Params.z > 0) has holes.
-    if ( u_T.Params2.y <= 0.5 || u_T.Params.z <= 0.5 )
+    if ( CurrentTerrain.Params2.y <= 0.5 || CurrentTerrain.Params.z <= 0.5 )
         return false;
-    vec2  size  = vec2( textureSize( u_Weightmap, 0 ) );
-    float pages = u_T.Params2.z;
-    vec4  w0    = texture( u_Weightmap, LandscapeWeightmapPageUV( tileSample, 0.0, size, pages ) );
-    vec4  w1    = pages > 1.5 ? texture( u_Weightmap, LandscapeWeightmapPageUV( tileSample, 1.0, size, pages ) )
+    vec2  size  = vec2( textureSize( WeightmapTexture, 0 ) );
+    float pages = CurrentTerrain.Params2.z;
+    vec4  w0    = texture( WeightmapTexture, LandscapeWeightmapPageUV( tileSample, 0.0, size, pages ) );
+    vec4  w1    = pages > 1.5 ? texture( WeightmapTexture, LandscapeWeightmapPageUV( tileSample, 1.0, size, pages ) )
                               : vec4( 0.0 );
-    return LandscapeIsHole( LandscapeVisibility( w0, w1, u_T.Params.z ) );
+    return LandscapeIsHole( LandscapeVisibility( w0, w1, CurrentTerrain.Params.z ) );
 }
 
 #endif // TERRAIN_CASTER_HOLE_GLSLH

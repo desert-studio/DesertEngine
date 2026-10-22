@@ -89,12 +89,12 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::BufferRef  Params;      // "RadianceCacheParamsUB"
         RDG::BufferRef  Indirection; // "RadianceCacheIndirectionUB"
         RDG::BufferRef  Probes;      // "RadianceCacheProbesUB"
-        RDG::TextureRef Irradiance;  // "u_RadianceCacheIrradiance"
-        RDG::TextureRef Depth;       // "u_RadianceCacheDepth"
+        RDG::TextureRef Irradiance;  // "RadianceCacheIrradianceTexture"
+        RDG::TextureRef Depth;       // "RadianceCacheDepthTexture"
         // The traced radiance probes, octahedral with borders (UE RadianceProbeAtlasTexture): the far field of
         // a screen probe ray that leaves the cache's minimum trace distance without a hit
         // (RadianceCacheRadianceAt).
-        RDG::TextureRef Radiance; // "u_RadianceCacheRadianceAtlas"
+        RDG::TextureRef Radiance; // "RadianceCacheRadianceAtlasTexture"
     };
 
     class WorldRadianceCache

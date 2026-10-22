@@ -13,7 +13,7 @@
 // as separate signals. The text every MegaLights pass shares: the view block, the G-buffer reads, the sample-pixel
 // space, the light index space (the light grid's: points first, then spots), the reservoir and its update.
 //
-// The includer, before this file: `Uniform sampler u_PointClampSampler;`. Defines:
+// The includer, before this file: `Uniform sampler PointClampSampler;`. Defines:
 //   MEGALIGHTS_SHADING - the pass evaluates a light at its pixel (the target function, the shading): GBufferA and
 //                        the shading word are declared and the registry's shading models included.
 //   MEGALIGHTS_TRACE   - the pass traces visibility: Common/RayQueryVisibility.glslh included before this file
@@ -37,40 +37,40 @@
 // MegaLightsViewUniforms (MegaLights.hpp), std140.
 Uniform(0) MegaLightsViewUB
 {
-	mat4  u_ViewProjection;            // unjittered, this frame
-	mat4  u_PrevViewProjection;        // unjittered, the view's previous frame
-	mat4  u_InvJitteredViewProjection; // the one the G-buffer was rasterised with
-	mat4  u_JitteredViewProjection;    // the same, forward: the contact shadow marches the G-buffer depth with it
-	vec4  u_CameraPosition;            // xyz = the eye (cm)
-	uvec4 u_Counts;                    // x = point lights, y = spot lights, z = samples per pixel, w = spatial samples
-	vec4  u_Params;                    // x = temporal history cap (frames), y = history readable (> 0.5),
+	mat4  ViewProjection;            // unjittered, this frame
+	mat4  PreviousViewProjection;        // unjittered, the view's previous frame
+	mat4  InverseJitteredViewProjection; // the one the G-buffer was rasterised with
+	mat4  JitteredWorldToClip;    // the same, forward: the contact shadow marches the G-buffer depth with it
+	vec4  CameraPosition;            // xyz = the eye (cm)
+	uvec4 Counts;                    // x = point lights, y = spot lights, z = samples per pixel, w = spatial samples
+	vec4  Params;                    // x = temporal history cap (frames), y = history readable (> 0.5),
 	                                   // z = shadow-ray normal bias (cm), w = spatial reuse radius (sample pixels)
-	uvec4 u_Frame;                     // x = frame index, y = render width, z = render height, w = downsample factor
-	vec4  u_ContactShadowView;         // SceneResources ContactShadowView: x = steps (0 = off), y = tan(fov / 2),
+	uvec4 Frame;                     // x = frame index, y = render width, z = render height, w = downsample factor
+	vec4  ContactShadowView;         // SceneResources ContactShadowView: x = steps (0 = off), y = tan(fov / 2),
 	                                   // z = dither frame (Common/ContactShadow.glslh)
 };
 
-Uniform(1) texture2D u_GBufferDepth;  // device depth, reversed-Z (0 = far: no surface)
-#define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-Uniform(2) texture2D u_GBufferNormal; // rgb = world normal, a = roughness
-#define u_GBufferNormal sampler2D(u_GBufferNormal, u_PointClampSampler)
+Uniform(1) texture2D GBufferDepthTexture;  // device depth, reversed-Z (0 = far: no surface)
+#define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+Uniform(2) texture2D GBufferNormalTexture; // rgb = world normal, a = roughness
+#define GBufferNormalTexture sampler2D(GBufferNormalTexture, PointClampSampler)
 #ifdef MEGALIGHTS_SHADING
-Uniform(3) texture2D u_GBufferA;                 // rgb = albedo, a = metallic
-#define u_GBufferA sampler2D(u_GBufferA, u_PointClampSampler)
-layout(set = 0, binding = 4) uniform utexture2D u_GBufferShadingWord;
-#define u_GBufferShadingWord usampler2D(u_GBufferShadingWord, u_PointClampSampler)
+Uniform(3) texture2D GBufferATexture;                 // rgb = albedo, a = metallic
+#define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
+layout(set = 0, binding = 4) uniform utexture2D GBufferShadingWordTexture;
+#define GBufferShadingWordTexture usampler2D(GBufferShadingWordTexture, PointClampSampler)
 #include <Generated/ShadingModels.glslh>
 #endif
 
 // The render resolution: the G-buffer's, the shading's and the denoiser's.
 ivec2 MegaLightsViewSize()
 {
-	return ivec2(u_Frame.yz);
+	return ivec2(Frame.yz);
 }
 
 int MegaLightsDownsampleFactor()
 {
-	return max(int(u_Frame.w), 1);
+	return max(int(Frame.w), 1);
 }
 
 // The sample pixels: one per factor x factor block of render pixels (the last block of a row may be partial).
@@ -82,12 +82,12 @@ ivec2 MegaLightsSampleSize()
 
 uint MegaLightsSamplesPerPixel()
 {
-	return clamp(u_Counts.z, 1u, uint(MEGALIGHTS_MAX_SAMPLES));
+	return clamp(Counts.z, 1u, uint(MEGALIGHTS_MAX_SAMPLES));
 }
 
 int MegaLightsLightCount()
 {
-	return int(u_Counts.x + u_Counts.y);
+	return int(Counts.x + Counts.y);
 }
 
 ivec2 MegaLightsReservoirTexel(ivec2 samplePixel, uint layer)
@@ -113,7 +113,7 @@ uint MegaLightsPcg(uint v)
 // One stream per pixel, frame and pass (@p pass tells the passes' streams apart).
 uint MegaLightsSeed(ivec2 pixel, uint pass)
 {
-	return MegaLightsPcg(uint(pixel.x) + MegaLightsPcg(uint(pixel.y) + MegaLightsPcg(u_Frame.x * 8u + pass)));
+	return MegaLightsPcg(uint(pixel.x) + MegaLightsPcg(uint(pixel.y) + MegaLightsPcg(Frame.x * 8u + pass)));
 }
 
 float MegaLightsRandom(inout uint state)
@@ -132,14 +132,14 @@ ivec2 MegaLightsScreenPixel(ivec2 samplePixel)
 	const int   cells  = factor * factor;
 	const ivec2 size   = MegaLightsViewSize();
 	const ivec2 corner = samplePixel * factor;
-	const int   start  = int(MegaLightsPcg(u_Frame.x + MegaLightsPcg(uint(samplePixel.x) +
+	const int   start  = int(MegaLightsPcg(Frame.x + MegaLightsPcg(uint(samplePixel.x) +
 	                                                                  MegaLightsPcg(uint(samplePixel.y)))) %
 	                         uint(cells));
 	for (int i = 0; i < cells; ++i)
 	{
 		const int   cell  = (start + i) % cells;
 		const ivec2 pixel = corner + ivec2(cell % factor, cell / factor);
-		if (pixel.x < size.x && pixel.y < size.y && texelFetch(u_GBufferDepth, pixel, 0).r > 0.0)
+		if (pixel.x < size.x && pixel.y < size.y && texelFetch(GBufferDepthTexture, pixel, 0).r > 0.0)
 			return pixel;
 	}
 	return min(corner, size - 1);
@@ -148,35 +148,35 @@ ivec2 MegaLightsScreenPixel(ivec2 samplePixel)
 // ---- The light index space (Mesh/LightGrid.glslh: points first, then spots) ----------------------------------
 vec3 MegaLightsLightPosition(int light)
 {
-	const int points = int(u_Counts.x);
+	const int points = int(Counts.x);
 	return light < points ? pointLights[light].position : spotLights[light - points].position;
 }
 
 // A light whose shadowCaster is 0 casts no shadow in this view (UE CastShadows off): visible without a ray.
 bool MegaLightsLightCastsShadow(int light)
 {
-	const int points = int(u_Counts.x);
+	const int points = int(Counts.x);
 	return (light < points ? pointLights[light].shadowCaster : spotLights[light - points].shadowCaster) != 0;
 }
 
 // UE SourceRadius (cm): the sphere a shadow ray aims at; 0 = a point.
 float MegaLightsLightSourceRadius(int light)
 {
-	const int points = int(u_Counts.x);
+	const int points = int(Counts.x);
 	return light < points ? pointLights[light].sourceRadius : spotLights[light - points].sourceRadius;
 }
 
 // The light's contact shadow (Mesh/LightSources.glslh LightContactShadow: length, in world, intensities).
 vec4 MegaLightsLightContactShadow(int light)
 {
-	const int points = int(u_Counts.x);
+	const int points = int(Counts.x);
 	return light < points ? LightContactShadow(pointLights[light]) : LightContactShadow(spotLights[light - points]);
 }
 
 // The light as a shading model receives it, unshadowed (the target function's light and the shading's).
 DesertLight MegaLightsLightAt(int light, vec3 worldPosition)
 {
-	const int points = int(u_Counts.x);
+	const int points = int(Counts.x);
 	return light < points ? DesertPointLightAt(pointLights[light], worldPosition)
 	                      : DesertSpotLightAt(spotLights[light - points], worldPosition);
 }
@@ -187,7 +187,7 @@ struct MegaLightsPixel
 	bool  Valid;     // a surface (the G-buffer's normal is not the cleared zero, the depth is not the far plane)
 	vec3  Position;  // world, cm
 	vec3  N;         // unit world normal
-	float ViewDepth; // clip w through u_ViewProjection: the depth the temporal reuse compares
+	float ViewDepth; // clip w through ViewProjection: the depth the temporal reuse compares
 #ifdef MEGALIGHTS_SHADING
 	int           Model;
 	DesertSurface Surface;
@@ -201,18 +201,18 @@ struct MegaLightsPixel
 MegaLightsPixel MegaLightsLoadPixel(ivec2 pixel)
 {
 	MegaLightsPixel p;
-	const float depth  = texelFetch(u_GBufferDepth, pixel, 0).r;
-	const vec4  gb     = texelFetch(u_GBufferNormal, pixel, 0);
+	const float depth  = texelFetch(GBufferDepthTexture, pixel, 0).r;
+	const vec4  gb     = texelFetch(GBufferNormalTexture, pixel, 0);
 	p.Valid            = depth > 0.0 && dot(gb.rgb, gb.rgb) > 0.001;
 	p.N                = p.Valid ? normalize(gb.rgb) : vec3(0.0, 0.0, 1.0);
 	const vec2 uv      = (vec2(pixel) + 0.5) / vec2(MegaLightsViewSize());
-	p.Position         = ReconstructWorldPosition(uv, depth, u_InvJitteredViewProjection);
-	p.ViewDepth        = (u_ViewProjection * vec4(p.Position, 1.0)).w;
+	p.Position         = ReconstructWorldPosition(uv, depth, InverseJitteredViewProjection);
+	p.ViewDepth        = (ViewProjection * vec4(p.Position, 1.0)).w;
 #ifdef MEGALIGHTS_SHADING
-	const vec4  ga        = texelFetch(u_GBufferA, pixel, 0);
+	const vec4  ga        = texelFetch(GBufferATexture, pixel, 0);
 	const float roughness = max(gb.a, 0.04); // as the composite floors it
-	const vec3  V         = normalize(u_CameraPosition.xyz - p.Position);
-	const uvec2 word      = texelFetch(u_GBufferShadingWord, pixel, 0).rg;
+	const vec3  V         = normalize(CameraPosition.xyz - p.Position);
+	const uvec2 word      = texelFetch(GBufferShadingWordTexture, pixel, 0).rg;
 	p.Model               = DesertShadingModelIndex(word);
 	p.Payload             = DesertUnpackPayload(word);
 	p.Surface             = DesertMakeSurface(p.Position, p.N, V, ga.rgb, ga.a, roughness, DesertShadingWordSpecular(word));
@@ -319,10 +319,10 @@ MegaLightsReservoir MegaLightsEndMerge(MegaLightsMerge merge)
 #ifdef MEGALIGHTS_TRACE
 // The includer defines CONTACT_SHADOW_* before this file is included: the G-buffer depth, the jittered matrix, the
 // shading word (Common/ContactShadow.glslh).
-#define CONTACT_SHADOW_DEPTH        u_GBufferDepth
-#define CONTACT_SHADOW_VP           u_JitteredViewProjection
-#define CONTACT_SHADOW_INV_VP       u_InvJitteredViewProjection
-#define CONTACT_SHADOW_SHADING_WORD u_GBufferShadingWord
+#define CONTACT_SHADOW_DEPTH        GBufferDepthTexture
+#define CONTACT_SHADOW_VP           JitteredWorldToClip
+#define CONTACT_SHADOW_INV_VP       InverseJitteredViewProjection
+#define CONTACT_SHADOW_SHADING_WORD GBufferShadingWordTexture
 // The representative pixel being traced (a compute pass has no gl_FragCoord): set by the pass before each test.
 vec2 g_MegaLightsTracedPixel = vec2(0.0);
 #define CONTACT_SHADOW_PIXEL g_MegaLightsTracedPixel
@@ -338,7 +338,7 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 {
 	if (!MegaLightsLightCastsShadow(light))
 		return 1.0;
-	const float bias     = u_Params.z;
+	const float bias     = Params.z;
 	const vec3  toLight  = MegaLightsLightPosition(light) - p.Position;
 	const float distance = length(toLight);
 	const float radius   = MegaLightsLightSourceRadius(light);

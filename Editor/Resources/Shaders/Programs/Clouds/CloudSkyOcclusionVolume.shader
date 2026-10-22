@@ -37,55 +37,55 @@ Shader "CloudSkyOcclusionVolume"
         // one part in a thousand, which is finer than the 8-bit frame this multiplies into by a factor of
         // four. The other three channels are unwritten because Core::Formats::ImageFormat has no one- or
         // two-channel float format — a fact about the engine's formats, not a reserved slot.
-        layout(binding = 0, rgba16f) restrict writeonly uniform image3D u_CloudSkyOcclusion;
+        layout(binding = 0, rgba16f) restrict writeonly uniform image3D CloudSkyOcclusionTexture;
 
         // The field, through the march's own bindings — one vocabulary for one field, exactly as
         // Programs/Clouds/CloudShadowMap.shader takes them. A column integrated from a different field
         // than the one the eye marches would darken clouds that are not there.
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform sampler u_LinearRepeatSampler;
-        Uniform(3) texture3D u_CloudNoise;
-        #define u_CloudNoise sampler3D(u_CloudNoise, u_LinearRepeatSampler)
-        Uniform(10) texture3D u_CloudNoise1;
-        #define u_CloudNoise1 sampler3D(u_CloudNoise1, u_LinearRepeatSampler)
-        Uniform(11) texture3D u_CloudNoise2;
-        #define u_CloudNoise2 sampler3D(u_CloudNoise2, u_LinearRepeatSampler)
-        Uniform(12) texture3D u_CloudNoise3;
-        #define u_CloudNoise3 sampler3D(u_CloudNoise3, u_LinearRepeatSampler)
-        Uniform(7) texture3D u_CloudModelling;
-        #define u_CloudModelling sampler3D(u_CloudModelling, u_LinearRepeatSampler)
+        Uniform sampler LinearRepeatSampler;
+        Uniform(3) texture3D CloudNoiseTexture;
+        #define CloudNoiseTexture sampler3D(CloudNoiseTexture, LinearRepeatSampler)
+        Uniform(10) texture3D CloudNoise1Texture;
+        #define CloudNoise1Texture sampler3D(CloudNoise1Texture, LinearRepeatSampler)
+        Uniform(11) texture3D CloudNoise2Texture;
+        #define CloudNoise2Texture sampler3D(CloudNoise2Texture, LinearRepeatSampler)
+        Uniform(12) texture3D CloudNoise3Texture;
+        #define CloudNoise3Texture sampler3D(CloudNoise3Texture, LinearRepeatSampler)
+        Uniform(7) texture3D CloudModellingTexture;
+        #define CloudModellingTexture sampler3D(CloudModellingTexture, LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
-        // of the baked profile by u_CloudWeather.
+        // of the baked profile by CloudWeather.
         // Always bound, on the terms every sampler here is.
-        Uniform(15) texture2D u_CloudFarWeather;
-        #define u_CloudFarWeather sampler2D(u_CloudFarWeather, u_LinearRepeatSampler)
-        Uniform(16) texture2D u_CloudLayoutPattern;
-        #define u_CloudLayoutPattern sampler2D(u_CloudLayoutPattern, u_LinearRepeatSampler)
-        Uniform(17) texture2D u_CloudLayoutMask;
-        #define u_CloudLayoutMask sampler2D(u_CloudLayoutMask, u_LinearRepeatSampler)
-        Uniform(9) texture3D u_CloudAuthoredAtlas;
-        #define u_CloudAuthoredAtlas sampler3D(u_CloudAuthoredAtlas, u_LinearRepeatSampler)
+        Uniform(15) texture2D CloudFarWeatherTexture;
+        #define CloudFarWeatherTexture sampler2D(CloudFarWeatherTexture, LinearRepeatSampler)
+        Uniform(16) texture2D CloudLayoutPatternTexture;
+        #define CloudLayoutPatternTexture sampler2D(CloudLayoutPatternTexture, LinearRepeatSampler)
+        Uniform(17) texture2D CloudLayoutMaskTexture;
+        #define CloudLayoutMaskTexture sampler2D(CloudLayoutMaskTexture, LinearRepeatSampler)
+        Uniform(9) texture3D CloudAuthoredAtlasTexture;
+        #define CloudAuthoredAtlasTexture sampler3D(CloudAuthoredAtlasTexture, LinearRepeatSampler)
 
         // The same four-way select the other two passes declare, repeated for the same reason:
         // Common/CloudField.glslh must stay free of samplers to remain compilable as C++ by its tests.
         vec4 CloudFetchNoise( int slot, vec3 p )
         {
             if ( slot == 1 )
-                return texture( u_CloudNoise1, p );
+                return texture( CloudNoise1Texture, p );
             if ( slot == 2 )
-                return texture( u_CloudNoise2, p );
+                return texture( CloudNoise2Texture, p );
             if ( slot == 3 )
-                return texture( u_CloudNoise3, p );
-            return texture( u_CloudNoise, p );
+                return texture( CloudNoise3Texture, p );
+            return texture( CloudNoiseTexture, p );
         }
 
         #define CLOUD_SAMPLE_NOISE(s, p) CloudFetchNoise((s), (p))
-        #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
-        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
-        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(u_CloudLayoutPattern, (uv), 0.0f)
-        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(u_CloudLayoutMask, (uv), 0.0f).r
-        #define CLOUD_SAMPLE_AUTHORED(p) textureLod(u_CloudAuthoredAtlas, (p), 0.0f)
+        #define CLOUD_SAMPLE_MODELLING(p) textureLod(CloudModellingTexture, (p), 0.0f)
+        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(CloudFarWeatherTexture, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(CloudLayoutPatternTexture, (uv), 0.0f)
+        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(CloudLayoutMaskTexture, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_AUTHORED(p) textureLod(CloudAuthoredAtlasTexture, (p), 0.0f)
 
         #define CLOUD_AUTHORED_BUFFER_BINDING 8
         #include <Common/CloudAuthored.glslh>
@@ -106,7 +106,7 @@ Shader "CloudSkyOcclusionVolume"
 
         void main()
         {
-            ivec3 size  = imageSize(u_CloudSkyOcclusion);
+            ivec3 size  = imageSize(CloudSkyOcclusionTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
             if (coord.x >= size.x || coord.y >= size.z)
                 return;
@@ -123,8 +123,8 @@ Shader "CloudSkyOcclusionVolume"
             // it.
             params.ShadowRay = CLOUD_RAY_SHADOW;
 
-            float thicknessKm = max(u_CloudLayer.z, 1e-4f);
-            float regionSideKm = 1.0f / max(u_CloudLevel[2].z, 1e-9f);
+            float thicknessKm = max(CloudLayerGeometry.z, 1e-4f);
+            float regionSideKm = 1.0f / max(CloudLevel[2].z, 1e-9f);
 
             // THE COLUMN'S PLACE IN THE WORLD, through the texel CENTRE. The consumer fetches this volume
             // trilinearly, so a column traced at a texel corner and read at its centre would be a
@@ -136,10 +136,10 @@ Shader "CloudSkyOcclusionVolume"
             // Constructing it this way rather than shifting the fetch is what puts the traced column and
             // the consumer's own CloudSkyOcclusionUvw on exactly the same texel however far the wind has
             // run — they are one mapping used in two directions rather than two mappings.
-            float worldX = u_CloudLevel[2].x + uv.x * regionSideKm + u_CloudWind.x;
-            float worldZ = u_CloudLevel[2].y + uv.y * regionSideKm + u_CloudWind.z;
+            float worldX = CloudLevel[2].x + uv.x * regionSideKm + CloudWind.x;
+            float worldZ = CloudLevel[2].y + uv.y * regionSideKm + CloudWind.z;
 
-            float extinction = max(u_CloudMarch.w, 0.0f);
+            float extinction = max(CloudMarch.w, 0.0f);
 
             // The half-slice, as a fraction of the shell and as kilometres of path. RADIAL, and therefore
             // exactly the distance between two surfaces of constant height fraction — which is the
@@ -177,7 +177,7 @@ Shader "CloudSkyOcclusionVolume"
                     heightFraction -= subFraction;
                 }
 
-                imageStore(u_CloudSkyOcclusion, ivec3(coord.x, slice, coord.y),
+                imageStore(CloudSkyOcclusionTexture, ivec3(coord.x, slice, coord.y),
                            vec4(CloudSkyDiffuseTransmittance(tau), 0.0f, 0.0f, 0.0f));
 
                 // The LOWER half, which belongs to the slices under this one and not to it.

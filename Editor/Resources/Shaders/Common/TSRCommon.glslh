@@ -18,39 +18,39 @@
 
 layout(std430, binding = 0) readonly buffer TSRParamsBuffer
 {
-    mat4  u_InvViewProjection;  // this frame, unjittered
-    mat4  u_PrevViewProjection; // previous frame, unjittered
-    mat4  u_PrevInvProjection;  // previous frame, unjittered: device depth -> view depth
-    vec2  u_RenderSize;
-    vec2  u_HistorySize;
-    vec2  u_OutputSize;
-    vec2  u_JitterUv;           // this frame's jitter in uv (JitterNdc * (0.5, -0.5))
-    float u_HistoryValid;
-    float u_HistorySampleCount;
-    float u_HistoryHisteresis;
-    float u_WeightClampingRejection;
-    float u_WeightClampingPixelSpeedAmplitude;
-    float u_InvWeightClampingPixelSpeed;
-    float u_InputToHistoryFactor;
-    float u_FlickeringFramePeriod;
-    float u_DepthPixelRadiusScale;
-    float u_DepthPixelRadiusBias;
-    float u_EnableFlickeringHeuristic; // r.TSR.ShadingRejection.Flickering: 0 / 1 (UE bEnableFlickeringHeuristic)
-    float u_ReprojectionField;         // r.TSR.ReprojectionField: 0 / 1 (UE bReprojectionField, a uniform)
-    mat4  u_InvProjection;             // this frame, unjittered: device depth -> view
-    mat4  u_Projection;                // this frame, unjittered: view -> clip
-    mat4  u_ClipToResurrectionClip;    // this frame's unjittered clip -> the resurrection frame's clip
-    float u_ReprojectionFieldAntiAliasVelocityThreshold; // UE TemporalSuperResolution.cpp :2531
-    float u_ResurrectionEnabled; // 1 when a persistent frame can be resurrected this frame (UE bEnableResurrection)
-    float u_ThinGeometryDetection;  // the project's r.TSR.ThinGeometryDetection: 0 / 1 (TSR.DilateVelocity's offset)
-    float u_ThinGeometryFrameIndex; // the frame count since the history reset, mod 64 (the coverage dither)
-    // Pre-exposure (ViewFrame::PreExposure): the scene colour arrives multiplied by u_PreExposure; the colour
+    mat4  InverseViewProjection;  // this frame, unjittered
+    mat4  PreviousViewProjection; // previous frame, unjittered
+    mat4  PreviousInverseProjection;  // previous frame, unjittered: device depth -> view depth
+    vec2  RenderSize;
+    vec2  HistorySize;
+    vec2  OutputSize;
+    vec2  JitterUv;           // this frame's jitter in uv (JitterNdc * (0.5, -0.5))
+    float HistoryValid;
+    float HistorySampleCount;
+    float HistoryHysteresis;
+    float WeightClampingRejection;
+    float WeightClampingPixelSpeedAmplitude;
+    float InverseWeightClampingPixelSpeed;
+    float InputToHistoryFactor;
+    float FlickeringFramePeriod;
+    float DepthPixelRadiusScale;
+    float DepthPixelRadiusBias;
+    float EnableFlickeringHeuristic; // r.TSR.ShadingRejection.Flickering: 0 / 1 (UE bEnableFlickeringHeuristic)
+    float ReprojectionField;         // r.TSR.ReprojectionField: 0 / 1 (UE bReprojectionField, a uniform)
+    mat4  InverseProjection;             // this frame, unjittered: device depth -> view
+    mat4  Projection;                // this frame, unjittered: view -> clip
+    mat4  ClipToResurrectionClip;    // this frame's unjittered clip -> the resurrection frame's clip
+    float ReprojectionFieldAntiAliasVelocityThreshold; // UE TemporalSuperResolution.cpp :2531
+    float ResurrectionEnabled; // 1 when a persistent frame can be resurrected this frame (UE bEnableResurrection)
+    float ThinGeometryDetection;  // the project's r.TSR.ThinGeometryDetection: 0 / 1 (TSR.DilateVelocity's offset)
+    float ThinGeometryFrameIndex; // the frame count since the history reset, mod 64 (the coverage dither)
+    // Pre-exposure (ViewFrame::PreExposure): the scene colour arrives multiplied by PreExposure; the colour
     // history was stored at the previous frame's (UE HistoryPreExposureCorrection = PreExposure / PrevPreExposure)
     // and a persistent frame at its own (UE ResurrectionPreExposureCorrection = PreExposure / slice's).
-    float u_PreExposure;
-    float u_HistoryPreExposureCorrection;
-    float u_ResurrectionPreExposureCorrection;
-    float u_PreExposurePad;
+    float PreExposure;
+    float HistoryPreExposureCorrection;
+    float ResurrectionPreExposureCorrection;
+    float PreExposurePad;
 };
 
 const float kGCSPreceptionAdd   = 0.17;          // UE TSRColorSpace.ush
@@ -70,7 +70,7 @@ float TsrLuma(vec3 c)
 // function argument.
 float TsrExposure(texture2D exposureTexture, sampler pointSampler)
 {
-    return 1.0 / (max(texelFetch(sampler2D(exposureTexture, pointSampler), ivec2(0), 0).r, 1e-4) * u_PreExposure);
+    return 1.0 / (max(texelFetch(sampler2D(exposureTexture, pointSampler), ivec2(0), 0).r, 1e-4) * PreExposure);
 }
 
 // UE's guide colour space: the pre-exposed linear colour compressed as c / (c + 0.17).
@@ -128,36 +128,36 @@ vec2 WeightedLerpFactors(float weightA, float weightB, float blend)
 // The unjittered screen uv of the surface the render pixel @p p shows (its centre minus this frame's jitter).
 vec2 TsrSurfaceUv(ivec2 p)
 {
-    return (vec2(p) + 0.5) / u_RenderSize - u_JitterUv;
+    return (vec2(p) + 0.5) / RenderSize - JitterUv;
 }
 
 // The previous frame's view depth of a previous device depth (perspective and orthographic alike).
 float TsrPrevViewDepth(float prevDeviceDepth)
 {
-    const vec4 v = u_PrevInvProjection * vec4(0.0, 0.0, prevDeviceDepth, 1.0);
+    const vec4 v = PreviousInverseProjection * vec4(0.0, 0.0, prevDeviceDepth, 1.0);
     return abs(v.z / v.w);
 }
 
 // The world radius of one render pixel at view depth @p depth (UE GetDepthPixelRadiusForProjectionType).
 float TsrDepthPixelRadius(float depth)
 {
-    return depth * u_DepthPixelRadiusScale + u_DepthPixelRadiusBias;
+    return depth * DepthPixelRadiusScale + DepthPixelRadiusBias;
 }
 
 ivec2 TsrClampRender(ivec2 p)
 {
-    return clamp(p, ivec2(0), ivec2(u_RenderSize) - 1);
+    return clamp(p, ivec2(0), ivec2(RenderSize) - 1);
 }
 
 // This frame's view depth of a device depth (UE ConvertFromDeviceZ) and back (UE ConvertToDeviceZ).
 float TsrViewDepth(float deviceDepth)
 {
-    const vec4 v = u_InvProjection * vec4(0.0, 0.0, deviceDepth, 1.0);
+    const vec4 v = InverseProjection * vec4(0.0, 0.0, deviceDepth, 1.0);
     return abs(v.z / v.w);
 }
 float TsrDeviceDepth(float viewDepth)
 {
-    const vec4 c = u_Projection * vec4(0.0, 0.0, -viewDepth, 1.0);
+    const vec4 c = Projection * vec4(0.0, 0.0, -viewDepth, 1.0);
     return c.z / c.w;
 }
 
@@ -171,11 +171,11 @@ float TsrPixelDeviceZError(float deviceDepth)
 // NDC velocity (current - previous, y up) -> render-pixel velocity (y down), and back.
 vec2 TsrNdcToPixelVelocity(vec2 ndcVelocity)
 {
-    return ndcVelocity * vec2(0.5, -0.5) * u_RenderSize;
+    return ndcVelocity * vec2(0.5, -0.5) * RenderSize;
 }
 vec2 TsrPixelToNdcVelocity(vec2 pixelVelocity)
 {
-    return pixelVelocity * vec2(2.0, -2.0) / u_RenderSize;
+    return pixelVelocity * vec2(2.0, -2.0) / RenderSize;
 }
 
 // ---- The reprojection field (UE TSRReprojectionField.ush) ----------------------------------------------------
@@ -288,7 +288,7 @@ vec2 DecodeSpatialAntiAliasingOffset(uint encoded)
 }
 
 // The history-rejection bit mask (UE TSRRejectShading.usf :883): bit 0 the pixel is NOT parallax disoccluded, bit 1
-// its history is resurrected; u_HistoryRejection.w holds mask / 255.
+// its history is resurrected; HistoryRejectionTexture.w holds mask / 255.
 const uint kRejectionNotDisoccluded = 0x1u;
 const uint kRejectionResurrected    = 0x2u;
 uint TsrRejectionBits(float w)

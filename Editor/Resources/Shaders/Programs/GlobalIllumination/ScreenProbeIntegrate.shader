@@ -60,16 +60,16 @@ Shader "ScreenProbeIntegrate"
         {
             vec4 screenProbeSH[];
         };
-        Uniform sampler u_LinearClampSampler;
-        Uniform(5) texture2D u_ScreenProbeFiltered;
-        #define u_ScreenProbeFiltered sampler2D(u_ScreenProbeFiltered, u_LinearClampSampler)
-        Uniform sampler u_PointClampSampler;
-        Uniform(6) texture2D u_GBufferDepth;
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-        Uniform(7) texture2D u_GBufferB;
-        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
-        layout(binding = 10, rgba16f) restrict writeonly uniform image2D u_ScreenProbeDiffuseOut;
-        layout(binding = 11, rgba16f) restrict writeonly uniform image2D u_ScreenProbeSpecularOut;
+        Uniform sampler LinearClampSampler;
+        Uniform(5) texture2D ScreenProbeFilteredTexture;
+        #define ScreenProbeFilteredTexture sampler2D(ScreenProbeFilteredTexture, LinearClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(6) texture2D GBufferDepthTexture;
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(7) texture2D GBufferBTexture;
+        #define GBufferBTexture sampler2D(GBufferBTexture, PointClampSampler)
+        layout(binding = 10, rgba16f) restrict writeonly uniform image2D ScreenProbeDiffuseOutTexture;
+        layout(binding = 11, rgba16f) restrict writeonly uniform image2D ScreenProbeSpecularOutTexture;
         ReadBuffer(12) RadianceCacheParamsUB
         {
             RadianceCacheParams radianceCache;
@@ -82,17 +82,17 @@ Shader "ScreenProbeIntegrate"
         {
             RadianceCacheProbe radianceCacheProbes[];
         };
-        Uniform(15) texture2D u_RadianceCacheIrradiance;
-        #define u_RadianceCacheIrradiance sampler2D(u_RadianceCacheIrradiance, u_LinearClampSampler)
-        Uniform(16) texture2D u_RadianceCacheDepth;
-        #define u_RadianceCacheDepth sampler2D(u_RadianceCacheDepth, u_LinearClampSampler)
+        Uniform(15) texture2D RadianceCacheIrradianceTexture;
+        #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
+        Uniform(16) texture2D RadianceCacheDepthTexture;
+        #define RadianceCacheDepthTexture sampler2D(RadianceCacheDepthTexture, LinearClampSampler)
         ReadBuffer(17) ScreenProbeBackfaceUB
         {
             vec4 screenProbeBackface[];
         };
-        layout(binding = 19, rgba16f) restrict writeonly uniform image2D u_ScreenProbeBackfaceOut;
-        Uniform(20) texture2D u_ShortRangeAO; // xyz = bent normal, w = AO (ScreenProbeShortRangeAO)
-        #define u_ShortRangeAO sampler2D(u_ShortRangeAO, u_PointClampSampler)
+        layout(binding = 19, rgba16f) restrict writeonly uniform image2D ScreenProbeBackfaceOutTexture;
+        Uniform(20) texture2D ShortRangeAoTexture; // xyz = bent normal, w = AO (ScreenProbeShortRangeAO)
+        #define ShortRangeAoTexture sampler2D(ShortRangeAoTexture, PointClampSampler)
         ReadBuffer(21) ScreenProbeMovingUB
         {
             float screenProbeMoving[]; // per probe, the share of its rays that are moving (ScreenProbeFilter)
@@ -178,7 +178,7 @@ Shader "ScreenProbeIntegrate"
             const ScreenProbe state = screenProbes[probe];
             const vec2 o      = SPProbeOct( SPProbeFrame( state.normal.xyz ), direction );
             const vec2 texel  = vec2( SPAtlasOrigin( probe, SP_TILE ) + 1 ) + ( o * 0.5 + 0.5 ) * float( SP_RES );
-            return textureLod( u_ScreenProbeFiltered, texel / vec2( textureSize( u_ScreenProbeFiltered, 0 ) ), 0.0 ).rgb;
+            return textureLod( ScreenProbeFilteredTexture, texel / vec2( textureSize( ScreenProbeFilteredTexture, 0 ) ), 0.0 ).rgb;
         }
 
         void main()
@@ -187,16 +187,16 @@ Shader "ScreenProbeIntegrate"
             const vec2  extent = giFrame.screen.xy;
             if ( any( greaterThanEqual( pixel, ivec2( extent ) ) ) )
                 return;
-            const vec4 gb = texelFetch( u_GBufferB, pixel, 0 );
+            const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
             if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
             {
-                imageStore( u_ScreenProbeDiffuseOut, pixel, vec4( 0.0 ) );
-                imageStore( u_ScreenProbeSpecularOut, pixel, vec4( 0.0 ) );
-                imageStore( u_ScreenProbeBackfaceOut, pixel, vec4( 0.0 ) );
+                imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( 0.0 ) );
+                imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( 0.0 ) );
+                imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( 0.0 ) );
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( u_GBufferDepth, pixel, 0 ).r,
+            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, pixel, 0 ).r,
                                                              giFrame.invViewProjection );
             const vec3  n        = normalize( gb.xyz );
             const float distance = max( length( p - giFrame.camera.xyz ), 1e-3 );
@@ -205,7 +205,7 @@ Shader "ScreenProbeIntegrate"
             // Off (Scalability GlobalIllumination.ShortRangeAO 0): the shading normal, unoccluded; SSAO occludes the
             // gather in the composite instead.
             const vec4  shortAO  = ( screenProbeParams.atlas.z & SP_FLAG_SHORT_RANGE_AO ) != 0u
-                                       ? texelFetch( u_ShortRangeAO, pixel, 0 )
+                                       ? texelFetch( ShortRangeAoTexture, pixel, 0 )
                                        : vec4( 0.0, 0.0, 0.0, 1.0 );
             const vec3  bent     = dot( shortAO.xyz, shortAO.xyz ) > 0.5 ? normalize( shortAO.xyz ) : n;
             const float ao       = shortAO.w;
@@ -312,9 +312,9 @@ Shader "ScreenProbeIntegrate"
                     backface = back.rgb;
             }
 
-            imageStore( u_ScreenProbeDiffuseOut, pixel, vec4( diffuse, distance ) );
-            imageStore( u_ScreenProbeSpecularOut, pixel, vec4( specular, lightIsMoving ) );
-            imageStore( u_ScreenProbeBackfaceOut, pixel, vec4( backface, 1.0 ) );
+            imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( diffuse, distance ) );
+            imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( specular, lightIsMoving ) );
+            imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( backface, 1.0 ) );
         }
     }
 }

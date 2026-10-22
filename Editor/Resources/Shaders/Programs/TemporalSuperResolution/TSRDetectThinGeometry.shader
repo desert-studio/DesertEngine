@@ -12,7 +12,7 @@ Shader "TSRDetectThinGeometry"
         //  - one 16x16 tile per 8x8 group, four pixels per lane (UE: LANE_COUNT lanes x SIMD_SIZE elements on a
         //    32x32 tile), the 3x3 neighbours read from shared memory; UE's tile overscan (r.TSR.ShadingRejection.
         //    TileOverscan 3), so a group writes its inner 10x10;
-        //  - the current coverage is the base passes' (u_ThinGeometryCoverage, Common/ThinGeometryCoverage.glslh)
+        //  - the current coverage is the base passes' (ThinGeometryCoverageTexture, Common/ThinGeometryCoverage.glslh)
         //    instead of TSRMeasureCoverage.usf's slice of the anti-flickering luma array;
         //  - the reprojection offset is the low 4 bits of TSR.ReprojectionBoundary (TSR.DilateVelocity writes it
         //    with thin geometry on, UE's R8Output ThinGeometryTextureIndex slice), and "has an offset" is it being
@@ -26,36 +26,36 @@ Shader "TSRDetectThinGeometry"
         // TsrThinGeometryVaryingRange): regular materials get edge-only relaxation, foliage the dilated one. 0: UE
         // ShadingRange Foliage (binary coverage: only foliage counts).
         // TSR_THIN_INTENSITY_LINE (UE DIM_INTENSITY_LINE_DETECTION, :368-372, :394-411, :460-492, :502-512,
-        // :545-553, :598-602): one-pixel lines of the opaque scene's luma (u_FlickeringLuma, TSR.MeasureFlickering-
+        // :545-553, :598-602): one-pixel lines of the opaque scene's luma (FlickeringLumaTexture, TSR.MeasureFlickering-
         // Luma) brighter than both neighbours by MinKeepLineContrast are kept in the coverage history's low bit
         // (UE EncodeCoverage: 7-bit coverage << 1 | high-contrast-line bit), faded stochastically after dark
         // frames, and relax the history by HighContrastLineWeight within 2 pixels where no cluster weight does.
-        // Writes u_ThinGeometry (UE R8Output[ThinGeometryTextureIndex]: weight * 127 << 1 | cluster-hole bit) and
-        // this frame's coverage history u_CoverageOut (UE HistoryCoverageOutput, EncodeCoverage).
+        // Writes ThinGeometryTexture (UE R8Output[ThinGeometryTextureIndex]: weight * 127 << 1 | cluster-hole bit) and
+        // this frame's coverage history CoverageOutTexture (UE HistoryCoverageOutput, EncodeCoverage).
         LocalSize(8, 8, 1);
 
         #include <Common/TSRCommon.glslh>
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(8) sampler u_PointClampSampler;
-        Uniform(1) texture2D u_SceneDepth;            // reversed-Z device depth, RenderExtent
-        #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
-        Uniform(2) texture2D u_ThinGeometryCoverage;  // the base passes': 0 / 0.5 / 1
-        #define u_ThinGeometryCoverage sampler2D(u_ThinGeometryCoverage, u_PointClampSampler)
-        Uniform(3) texture2D u_ReprojectedCoverage;   // TSR.DecimateHistory: last frame's coverage history
-        #define u_ReprojectedCoverage sampler2D(u_ReprojectedCoverage, u_PointClampSampler)
-        Uniform(4) utexture2D u_ReprojectionBoundary; // TSR.DilateVelocity: low 4 bits the reprojection offset
-        #define u_ReprojectionBoundary usampler2D(u_ReprojectionBoundary, u_PointClampSampler)
-        layout(binding = 5, r32ui) restrict writeonly uniform uimage2D u_ThinGeometry;
-        layout(binding = 6, r32f) restrict writeonly uniform image2D u_CoverageOut;
+        Uniform(8) sampler PointClampSampler;
+        Uniform(1) texture2D SceneDepthTexture;            // reversed-Z device depth, RenderExtent
+        #define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
+        Uniform(2) texture2D ThinGeometryCoverageTexture;  // the base passes': 0 / 0.5 / 1
+        #define ThinGeometryCoverageTexture sampler2D(ThinGeometryCoverageTexture, PointClampSampler)
+        Uniform(3) texture2D ReprojectedCoverageTexture;   // TSR.DecimateHistory: last frame's coverage history
+        #define ReprojectedCoverageTexture sampler2D(ReprojectedCoverageTexture, PointClampSampler)
+        Uniform(4) utexture2D ReprojectionBoundaryTexture; // TSR.DilateVelocity: low 4 bits the reprojection offset
+        #define ReprojectionBoundaryTexture usampler2D(ReprojectionBoundaryTexture, PointClampSampler)
+        layout(binding = 5, r32ui) restrict writeonly uniform uimage2D ThinGeometryTexture;
+        layout(binding = 6, r32f) restrict writeonly uniform image2D CoverageOutTexture;
 
         #ifndef TSR_THIN_INTENSITY_LINE
         #define TSR_THIN_INTENSITY_LINE 0
         #endif
         #if TSR_THIN_INTENSITY_LINE
-        Uniform(7) texture2D u_FlickeringLuma; // TSR.MeasureFlickeringLuma: the opaque scene's luma, guide space
-        #define u_FlickeringLuma sampler2D(u_FlickeringLuma, u_PointClampSampler)
+        Uniform(7) texture2D FlickeringLumaTexture; // TSR.MeasureFlickeringLuma: the opaque scene's luma, guide space
+        #define FlickeringLumaTexture sampler2D(FlickeringLumaTexture, PointClampSampler)
         // UE r.TSR.ThinGeometryDetection.Coverage.MinKeepLineContrast (0.30), .HighContrastLineFadeRate (0.1),
         // .HighContrastLineFadeRateInsideRegion (0.03), .HighContrastLineWeight (0.6): their defaults.
         const float kMinKeepLineContrast                  = 0.30;
@@ -215,7 +215,7 @@ Shader "TSRDetectThinGeometry"
         void main()
         {
             const ivec2 origin = ivec2(gl_WorkGroupID.xy) * kTileOutput - kOverscan;
-            const ivec2 size   = ivec2(u_RenderSize);
+            const ivec2 size   = ivec2(RenderSize);
 
             ivec2 pixel[kE];
             float coverage[kE];
@@ -226,10 +226,10 @@ Shader "TSRDetectThinGeometry"
                 pixel[e] = clamp(origin + ElementLocal(e), ivec2(0), size - 1);
                 // FetchCommonInput: the coverage counts only where the closest-depth dilation moved the pixel,
                 // at the max of its own and the dilated neighbour's.
-                const ivec2 offset    = DecodeReprojectionOffset(texelFetch(u_ReprojectionBoundary, pixel[e], 0).r);
+                const ivec2 offset    = DecodeReprojectionOffset(texelFetch(ReprojectionBoundaryTexture, pixel[e], 0).r);
                 const bool  hasOffset = any(notEqual(offset, ivec2(0)));
-                const float own       = texelFetch(u_ThinGeometryCoverage, pixel[e], 0).r;
-                const float dilated   = texelFetch(u_ThinGeometryCoverage, TsrClampRender(pixel[e] + offset), 0).r;
+                const float own       = texelFetch(ThinGeometryCoverageTexture, pixel[e], 0).r;
+                const float dilated   = texelFetch(ThinGeometryCoverageTexture, TsrClampRender(pixel[e] + offset), 0).r;
                 const float current   = hasOffset ? max(own, dilated) : 0.0;
 #if TSR_THIN_VARYING_RANGE
                 materialMask[e] = uint(current * 2.01);
@@ -266,7 +266,7 @@ Shader "TSRDetectThinGeometry"
             #endif
                 for (int e = 0; e < kE; ++e)
                 {
-                    depth[e] = texelFetch(u_SceneDepth, pixel[e], 0).r;
+                    depth[e] = texelFetch(SceneDepthTexture, pixel[e], 0).r;
                     // The sky (depth 0) is no edge: its pixel error is unbounded.
                     const float error = depth[e] > 0.0 ? TsrPixelDeviceZError(depth[e]) : 0.0;
 #if TSR_THIN_VARYING_RANGE
@@ -274,13 +274,13 @@ Shader "TSRDetectThinGeometry"
 #else
                     threshold[e] = error * kErrorMultiplier;
 #endif
-                    history[e] = texelFetch(u_ReprojectedCoverage, pixel[e], 0).r;
+                    history[e] = texelFetch(ReprojectedCoverageTexture, pixel[e], 0).r;
             #if TSR_THIN_INTENSITY_LINE
                     // UE DecodeCoverage: 7-bit coverage << 1 | the high-contrast-line bit, in 8 bits.
                     const uint packed    = uint(history[e] * 255.0 + 0.5);
                     history[e]           = float(packed >> 1u) / kCoverageMaxValue;
                     prevHighIntensity[e] = float(packed & 1u);
-                    luma[e]              = texelFetch(u_FlickeringLuma, pixel[e], 0).r;
+                    luma[e]              = texelFetch(FlickeringLumaTexture, pixel[e], 0).r;
                     contrast[e]          = kMinKeepLineContrast;
             #endif
                 }
@@ -341,7 +341,7 @@ Shader "TSRDetectThinGeometry"
             #if TSR_THIN_INTENSITY_LINE
                     // UE :460-492: a stochastic OR of the lines over time, kept through bright/dark alternation,
                     // cleared after consecutive dark frames (more slowly inside a cluster region).
-                    const float noise       = InterleavedGradientNoise(vec2(pixel[e]), u_ThinGeometryFrameIndex);
+                    const float noise       = InterleavedGradientNoise(vec2(pixel[e]), ThinGeometryFrameIndex);
                     const float dark        = 1.0 - currentLine[e];
                     const float probability = clusterHole[e] ? kHighContrastLineFadeRateInsideRegion
                                                              : kHighContrastLineFadeRate;
@@ -433,10 +433,10 @@ Shader "TSRDetectThinGeometry"
                 const bool isEdge = edge[e] > 0.0;
                 weight            = isEdge ? edge[e] : weight;
                 const uint hole   = (!isEdge && clusterHole[e]) ? 1u : 0u;
-                imageStore(u_ThinGeometry, outPixel, uvec4((uint(weight * 127.0) << 1u) | hole));
+                imageStore(ThinGeometryTexture, outPixel, uvec4((uint(weight * 127.0) << 1u) | hole));
                 // UE EncodeCoverage(Coverage, bHighContrastLine, Dither): the dithered coverage bits (8, or 7 above
                 // the line bit), in 8 bits.
-                const float dither   = InterleavedGradientNoise(vec2(outPixel), u_ThinGeometryFrameIndex);
+                const float dither   = InterleavedGradientNoise(vec2(outPixel), ThinGeometryFrameIndex);
                 const uint  coverageBits =
                      uint(clamp(clamp(history[e], 0.0, 1.0) * kCoverageMaxValue + dither, 0.0, kCoverageMaxValue));
             #if TSR_THIN_INTENSITY_LINE
@@ -444,7 +444,7 @@ Shader "TSRDetectThinGeometry"
             #else
                 const uint packed = coverageBits;
             #endif
-                imageStore(u_CoverageOut, outPixel, vec4(float(packed) / 255.0));
+                imageStore(CoverageOutTexture, outPixel, vec4(float(packed) / 255.0));
             }
         }
     }

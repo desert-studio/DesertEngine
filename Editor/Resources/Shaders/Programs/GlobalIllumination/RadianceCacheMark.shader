@@ -20,15 +20,15 @@ Shader "RadianceCacheMark"
         {
             GIFrame giFrame;
         };
-        Uniform sampler u_PointClampSampler;
-        Uniform(7) texture2D u_GBufferDepth;
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-        Uniform(8) texture2D u_GBufferB;
-        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(7) texture2D GBufferDepthTexture;
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(8) texture2D GBufferBTexture;
+        #define GBufferBTexture sampler2D(GBufferBTexture, PointClampSampler)
         ReadBuffer(9) RadianceCacheMarkPointsUB
         {
-            uvec4 u_MarkPointHeader; // x = the number of points
-            vec4  u_MarkPoints[];    // xyz = world cm
+            uvec4 MarkPointHeader; // x = the number of points
+            vec4  MarkPointsData[];    // xyz = world cm
         };
 
         void MarkClipmap( vec3 p, vec3 N, vec3 V, uint clipmap )
@@ -43,7 +43,7 @@ Shader "RadianceCacheMark"
                 const ivec3 local = clamp( base + ivec3( i & 1u, ( i >> 1 ) & 1u, ( i >> 2 ) & 1u ), ivec3( 0 ),
                                            ivec3( grid - 1 ) );
                 radianceCacheLastUsed[RadianceCacheIndirectionIndex( radianceCache, corner + local, clipmap )] =
-                     u_FrameIndex;
+                     FrameIndex;
             }
         }
 
@@ -67,16 +67,16 @@ Shader "RadianceCacheMark"
         void main()
         {
             if ( gl_GlobalInvocationID.x == 0u && gl_GlobalInvocationID.y == 0u )
-                for ( uint i = 0u; i < u_MarkPointHeader.x; ++i )
-                    MarkPoint( u_MarkPoints[i].xyz );
-            const uvec2 pixel = gl_GlobalInvocationID.xy * 2u + uvec2( u_FrameIndex & 1u, ( u_FrameIndex >> 1 ) & 1u );
-            if ( pixel.x >= u_Width || pixel.y >= u_Height )
+                for ( uint i = 0u; i < MarkPointHeader.x; ++i )
+                    MarkPoint( MarkPointsData[i].xyz );
+            const uvec2 pixel = gl_GlobalInvocationID.xy * 2u + uvec2( FrameIndex & 1u, ( FrameIndex >> 1 ) & 1u );
+            if ( pixel.x >= Width || pixel.y >= Height )
                 return;
-            const vec3 normal = texelFetch( u_GBufferB, ivec2( pixel ), 0 ).rgb;
+            const vec3 normal = texelFetch( GBufferBTexture, ivec2( pixel ), 0 ).rgb;
             if ( dot( normal, normal ) <= 0.001 ) // no geometry (the G-buffer is cleared to zero)
                 return;
             const vec2  uv    = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-            const vec3  p     = ReconstructWorldPosition( uv, texelFetch( u_GBufferDepth, ivec2( pixel ), 0 ).r,
+            const vec3  p     = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, ivec2( pixel ), 0 ).r,
                                                           giFrame.invViewProjection );
             const vec3  N     = normalize( normal );
             const vec3  V     = normalize( giFrame.camera.xyz - p );

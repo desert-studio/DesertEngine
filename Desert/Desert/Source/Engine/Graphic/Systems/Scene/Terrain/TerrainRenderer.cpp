@@ -24,6 +24,16 @@
 #include <unordered_set>
 #include <vector>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct TerrainShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( UniformBuffer, TerrainUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, TerrainInstances );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -376,15 +386,15 @@ namespace Desert::Graphic::System
                     if ( !layers.ArrayNames[kind].empty() && layers.Arrays[kind] &&
                          !surface->SetTexture( layers.ArrayNames[kind], layers.Arrays[kind].get() ) )
                         LogRefusedTextureOverride( surface->GetShaderName(), layers.ArrayNames[kind] );
-                surface->SetTexture( "u_Heightmap", t.Heightmap.get() );
-                materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
-                materials.VirtualShadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
+                surface->SetTexture( "HeightmapTexture", t.Heightmap.get() );
+                materials.Shadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
+                materials.VirtualShadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
                 if ( t.Weights.Weightmap != nullptr )
                 {
-                    surface->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
+                    surface->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
                     // The casters read the visibility channel too: a hole must not cast a shadow.
-                    materials.Shadow->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
-                    materials.VirtualShadow->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
+                    materials.Shadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
+                    materials.VirtualShadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
                 }
             }
             FrameGroup&         group   = m_FrameGroups[it->second];
@@ -491,20 +501,28 @@ namespace Desert::Graphic::System
             for ( DataDrivenMaterial* material :
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
             {
-                // The shadow programs have no TerrainUB: its vertices are the camera's (the LOD rides in the row).
-                if ( auto* terrainUB = material->Get<UniformBufferProperty>( "TerrainUB" ) )
+                // The shadow programs have no TerrainUB (their vertices are the camera's, the LOD rides in the
+                // row) and no Materials[] row block (no Properties block): for them both slots are optional.
+                const bool shadowProgram = material != surface;
+                auto*      terrainUB =
+                     shadowProgram ? material->Find<UniformBufferProperty>( TerrainShaderParameters::TerrainUB )
+                                        : material->Get<UniformBufferProperty>( TerrainShaderParameters::TerrainUB );
+                if ( terrainUB )
                     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as
                     // bytes
                     // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
                     terrainUB->SetRawData( reinterpret_cast<const std::byte*>( &ub ), sizeof( ub ) );
                 // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 
-                if ( auto* rows = material->Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName ) )
+                auto* rows = shadowProgram ? material->Find<StorageBufferProperty>( kMaterialRowBlock )
+                                           : material->Get<StorageBufferProperty>( kMaterialRowBlock );
+                if ( rows )
                     if ( !group.ParamRows.empty() )
                         rows->SetRawData( group.ParamRows.data(),
                                           static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
 
-                if ( auto* instances = material->Get<StorageBufferProperty>( "TerrainInstances" ) )
+                if ( auto* instances =
+                          material->Get<StorageBufferProperty>( TerrainShaderParameters::TerrainInstances ) )
                     instances->SetRawData(
                          group.Instances.data(),
                          static_cast<uint32_t>( group.Instances.size() * sizeof( TerrainInstance ) ) );

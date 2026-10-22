@@ -7,8 +7,8 @@
 // centimetres rather than normalized by the influence radius, and the coverage (UE's coverage atlas) in the second
 // channel of the same texel (RG16F).
 //
-// The including shader declares u_GlobalDistanceField0..3 before including this file (separate texture3Ds, each
-// with a same-name `sampler3D(texture, u_LinearRepeatSampler)` macro: the pass's shared repeat state), and passes
+// The including shader declares GlobalDistanceField0Texture..3 before including this file (separate texture3Ds, each
+// with a same-name `sampler3D(texture, LinearRepeatSampler)` macro: the pass's shared repeat state), and passes
 // the clipmap parameters: GDFLevel[k] = (centre.xyz world cm, voxel size cm), the C++ ClipmapUniforms().
 #ifndef GLOBAL_DISTANCE_FIELD_GLSLH
 #define GLOBAL_DISTANCE_FIELD_GLSLH
@@ -21,12 +21,12 @@ float SampleGlobalDistanceFieldLevel(int level, vec3 worldPosition, float voxelS
     // the normalized coordinate is simply position / (voxel * R), wrapped by the sampler.
     const vec3 uvw = worldPosition / (voxelSize * float(GDF_RESOLUTION));
     if (level == 0)
-        return textureLod(u_GlobalDistanceField0, uvw, 0.0).x;
+        return textureLod(GlobalDistanceField0Texture, uvw, 0.0).x;
     if (level == 1)
-        return textureLod(u_GlobalDistanceField1, uvw, 0.0).x;
+        return textureLod(GlobalDistanceField1Texture, uvw, 0.0).x;
     if (level == 2)
-        return textureLod(u_GlobalDistanceField2, uvw, 0.0).x;
-    return textureLod(u_GlobalDistanceField3, uvw, 0.0).x;
+        return textureLod(GlobalDistanceField2Texture, uvw, 0.0).x;
+    return textureLod(GlobalDistanceField3Texture, uvw, 0.0).x;
 }
 
 // The distance (x, cm) and the coverage (y: 1 near solid geometry, 0 where only foliage or nothing is near) in one
@@ -35,12 +35,12 @@ vec2 SampleGlobalDistanceFieldLevelCoverage(int level, vec3 worldPosition, float
 {
     const vec3 uvw = worldPosition / (voxelSize * float(GDF_RESOLUTION));
     if (level == 0)
-        return textureLod(u_GlobalDistanceField0, uvw, 0.0).xy;
+        return textureLod(GlobalDistanceField0Texture, uvw, 0.0).xy;
     if (level == 1)
-        return textureLod(u_GlobalDistanceField1, uvw, 0.0).xy;
+        return textureLod(GlobalDistanceField1Texture, uvw, 0.0).xy;
     if (level == 2)
-        return textureLod(u_GlobalDistanceField2, uvw, 0.0).xy;
-    return textureLod(u_GlobalDistanceField3, uvw, 0.0).xy;
+        return textureLod(GlobalDistanceField2Texture, uvw, 0.0).xy;
+    return textureLod(GlobalDistanceField3Texture, uvw, 0.0).xy;
 }
 
 // The finest clipmap whose window holds @p worldPosition with a one-voxel margin (the trilinear footprint must

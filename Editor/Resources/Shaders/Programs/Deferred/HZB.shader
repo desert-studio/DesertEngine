@@ -16,27 +16,27 @@ Shader "HZB"
     {
         // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
         // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
-        Uniform sampler u_PointClampSampler;
-        Uniform(0) texture2D u_Source; // mip 0: the scene depth; mip n: this HZB's mip n - 1 (a single-mip view)
-        #define u_Source sampler2D(u_Source, u_PointClampSampler)
-        layout(binding = 1, r32f) writeonly uniform image2D u_Output;
+        Uniform sampler PointClampSampler;
+        Uniform(0) texture2D SourceMipTexture; // mip 0: the scene depth; mip n: this HZB's mip n - 1 (a single-mip view)
+        #define SourceMipTexture sampler2D(SourceMipTexture, PointClampSampler)
+        layout(binding = 1, r32f) writeonly uniform image2D DestinationMipTexture;
 
         LocalSize(8, 8, 1);
         void main()
         {
-        	const ivec2 dst = imageSize(u_Output);
+        	const ivec2 dst = imageSize(DestinationMipTexture);
         	const ivec2 d   = ivec2(gl_GlobalInvocationID.xy);
         	if (d.x >= dst.x || d.y >= dst.y)
         		return;
-        	const ivec2 src   = textureSize(u_Source, 0);
+        	const ivec2 src   = textureSize(SourceMipTexture, 0);
         	const vec2  scale = vec2(src) / vec2(dst);
         	const ivec2 p0    = ivec2(floor(vec2(d) * scale));
         	const ivec2 p1    = min(ivec2(ceil(vec2(d + 1) * scale)), src);
         	float closest = 0.0; // the far plane under reversed-Z
         	for (int y = p0.y; y < p1.y; ++y)
         		for (int x = p0.x; x < p1.x; ++x)
-        			closest = max(closest, texelFetch(u_Source, ivec2(x, y), 0).r);
-        	imageStore(u_Output, d, vec4(closest));
+        			closest = max(closest, texelFetch(SourceMipTexture, ivec2(x, y), 0).r);
+        	imageStore(DestinationMipTexture, d, vec4(closest));
         }
     }
 }

@@ -1,6 +1,6 @@
 // EVERY ASSET REFERENCE A SHIPPED `.demat` MAKES MUST NAME A FILE THIS REPOSITORY CONTAINS.
 //
-// A material names its assets by header GUID (MATL 3: `{"Name":"u_AlbedoTexture","Guid":"...","Path":
+// A material names its assets by header GUID (MATL 3: `{"Name":"AlbedoTexture","Guid":"...","Path":
 // "assets:Textures/T_Checker.detex"}`), and the runtime reaches the asset by HandleForGuid of that GUID. The
 // path is a locator only, so a reference whose GUID stops resolving produces a surface that is merely
 // untextured - nobody gets an error naming a file unless this census names it.
@@ -444,9 +444,9 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
         ASSERT_TRUE( out.is_open() );
         // No `Header`, on purpose: `ReferencesUnder` reads through `Common::Json::Read<MaterialData>` and
         // `Header` is optional, so this fixture stays the minimal shape the census actually needs.
-        out << R"({"Params":[],"Textures":[{"Name":"u_AlbedoTexture","Guid":")"
+        out << R"({"Params":[],"Textures":[{"Name":"AlbedoTexture","Guid":")"
             << Common::Content::AssetGuidToText( goodKey.GetValue().Guid )
-            << R"(","Path":""},{"Name":"u_NormalTexture","Guid":")" << Common::Content::AssetGuidToText( badGuid )
+            << R"(","Path":""},{"Name":"NormalTexture","Guid":")" << Common::Content::AssetGuidToText( badGuid )
             << R"(","Path":""}],"CloudAssets":[]})";
     }
 
@@ -459,7 +459,7 @@ TEST( AssetReferenceCensus, TheCensusReportsAReferenceThatNamesNothing )
     EXPECT_TRUE( parseError.empty() ) << parseError;
     ASSERT_EQ( references.size(), 2u );
     ASSERT_EQ( unresolved.size(), 1u ) << "the census did not report the dangling reference";
-    EXPECT_EQ( unresolved[0].Slot, "u_NormalTexture" );
+    EXPECT_EQ( unresolved[0].Slot, "NormalTexture" );
     EXPECT_EQ( unresolved[0].Handle, bad );
     EXPECT_EQ( unresolved[0].File, "M_Dangling.demat" )
          << "the failure must name the material file, or the message is another bare number";

@@ -17,39 +17,39 @@
 // (Common/GITracer.glslh, the traced permutation): declared once, under its guard.
 #ifndef DESERT_SHARED_LINEAR_REPEAT_SAMPLER
 #define DESERT_SHARED_LINEAR_REPEAT_SAMPLER
-Uniform sampler u_LinearRepeatSampler;
+Uniform sampler LinearRepeatSampler;
 #endif
-Uniform sampler u_LinearClampSampler;
-Uniform sampler u_PointClampSampler;
-Uniform(1) texture2D u_GBufferNormal;   // rgb = world normal, a = roughness
-#define u_GBufferNormal sampler2D(u_GBufferNormal, u_LinearRepeatSampler)
-Uniform(2) texture2D u_GBufferDepth;    // device depth (nearest): world position via SSRTraceUB's inverse
-#define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-Uniform(3) texture2D u_SceneColor;      // LAST frame's lit opaque scene (SSRRenderer's scene colour history)
-#define u_SceneColor sampler2D(u_SceneColor, u_LinearClampSampler)
-layout(binding = 4, rgba16f) writeonly uniform image2D u_Trace;    // one texel per DownsampleFactor^2 pixels (u_SSRParams3.x)
+Uniform sampler LinearClampSampler;
+Uniform sampler PointClampSampler;
+Uniform(1) texture2D GBufferNormalTexture;   // rgb = world normal, a = roughness
+#define GBufferNormalTexture sampler2D(GBufferNormalTexture, LinearRepeatSampler)
+Uniform(2) texture2D GBufferDepthTexture;    // device depth (nearest): world position via SSRTraceUB's inverse
+#define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+Uniform(3) texture2D SceneColorTexture;      // LAST frame's lit opaque scene (SSRRenderer's scene colour history)
+#define SceneColorTexture sampler2D(SceneColorTexture, LinearClampSampler)
+layout(binding = 4, rgba16f) writeonly uniform image2D SsrTraceTexture;    // one texel per DownsampleFactor^2 pixels (SsrParams3.x)
 // One texel per tile: the compute classify writes it; the hit-lighting ray generation reads its texel's tile.
 #if defined( DESERT_RAY_TRACING_STAGE )
-layout(binding = 5, rgba8) readonly uniform image2D u_TileMask;
+layout(binding = 5, rgba8) readonly uniform image2D TileMaskTexture;
 #else
-layout(binding = 5, rgba8) writeonly uniform image2D u_TileMask;
+layout(binding = 5, rgba8) writeonly uniform image2D TileMaskTexture;
 #endif
-Uniform(7) texture2D u_HZB;             // closest-depth hierarchy of this frame's depth (HZB.shader)
-#define u_HZB sampler2D(u_HZB, u_PointClampSampler)
-Uniform(8) texture2D u_Velocity;        // NDC current - previous per pixel (View/Velocity.hpp), unjittered
-#define u_Velocity sampler2D(u_Velocity, u_PointClampSampler)
+Uniform(7) texture2D HzbTexture;             // closest-depth hierarchy of this frame's depth (HZB.shader)
+#define HzbTexture sampler2D(HzbTexture, PointClampSampler)
+Uniform(8) texture2D VelocityTexture;        // NDC current - previous per pixel (View/Velocity.hpp), unjittered
+#define VelocityTexture sampler2D(VelocityTexture, PointClampSampler)
 // The traced texel's ray, for the reconstruction's neighbour reuse (Denoise/SSDReconstructReflections.shader,
 // UE SSRT): xyz = the WORLD point the texel's estimate was reflected from (a neighbour re-aims its own ray at it), w = log2 of
 // the VNDF pdf with which this texel drew that direction. RGBA32F: ViewTargetFormats::kSSRTraceRay.
-layout(binding = 9, rgba32f) writeonly uniform image2D u_TraceRay;  // the resolution of u_Trace
+layout(binding = 9, rgba32f) writeonly uniform image2D TraceRayTexture;  // the resolution of SsrTraceTexture
 
 #if defined( DESERT_REFLECTIONS_FRONT_LAYER )
 // THE TRANSLUCENT FRONT LAYER (UE LumenReflections FRONT_LAYER_TRANSLUCENCY, Reflections.TranslucentFrontLayer): the
 // surface the rays leave from is the nearest translucent surface of the pixel (Mesh/Surface/Pass_FrontLayer.glslh,
 // "Translucency: Front Layer G-buffer"); the screen walk, its hits and every world leg still read the OPAQUE scene
-// (u_GBufferNormal / u_GBufferDepth at a hit, u_HZB, u_Velocity): what glass reflects is the world, not itself.
-layout(binding = 42) uniform texture2D u_FrontLayerNormal; // rgb = world normal, a = roughness (cleared: zero)
-layout(binding = 43) uniform texture2D u_FrontLayerDepth;  // device depth of the front layer (cleared: far)
+// (GBufferNormalTexture / GBufferDepthTexture at a hit, HzbTexture, VelocityTexture): what glass reflects is the world, not itself.
+layout(binding = 42) uniform texture2D FrontLayerNormalTexture; // rgb = world normal, a = roughness (cleared: zero)
+layout(binding = 43) uniform texture2D FrontLayerDepthTexture;  // device depth of the front layer (cleared: far)
 #endif
 
 // THE REFLECTING SURFACE at G-buffer pixel @p p - where the rays leave from, never where they land: rgb = world
@@ -59,11 +59,11 @@ layout(binding = 43) uniform texture2D u_FrontLayerDepth;  // device depth of th
 vec4 SSRSurfaceNormal(ivec2 p)
 {
 #if defined( DESERT_REFLECTIONS_FRONT_LAYER )
-	if (texelFetch(sampler2D(u_FrontLayerDepth, u_PointClampSampler), p, 0).r <= texelFetch(u_GBufferDepth, p, 0).r)
+	if (texelFetch(sampler2D(FrontLayerDepthTexture, PointClampSampler), p, 0).r <= texelFetch(GBufferDepthTexture, p, 0).r)
 		return vec4(0.0);
-	return texelFetch(sampler2D(u_FrontLayerNormal, u_PointClampSampler), p, 0);
+	return texelFetch(sampler2D(FrontLayerNormalTexture, PointClampSampler), p, 0);
 #else
-	return texelFetch(u_GBufferNormal, p, 0);
+	return texelFetch(GBufferNormalTexture, p, 0);
 #endif
 }
 
@@ -71,9 +71,9 @@ vec4 SSRSurfaceNormal(ivec2 p)
 float SSRSurfaceDepth(ivec2 p)
 {
 #if defined( DESERT_REFLECTIONS_FRONT_LAYER )
-	return texelFetch(sampler2D(u_FrontLayerDepth, u_PointClampSampler), p, 0).r;
+	return texelFetch(sampler2D(FrontLayerDepthTexture, PointClampSampler), p, 0).r;
 #else
-	return texelFetch(u_GBufferDepth, p, 0).r;
+	return texelFetch(GBufferDepthTexture, p, 0).r;
 #endif
 }
 #include <Common/HZBTrace.glslh>
@@ -121,16 +121,16 @@ layout(std430, binding = 17) readonly buffer RadianceCacheProbesUB
 {
 	RadianceCacheProbe radianceCacheProbes[];
 };
-layout(binding = 18) uniform texture2D u_RadianceCacheIrradiance;
-#define u_RadianceCacheIrradiance sampler2D(u_RadianceCacheIrradiance, u_LinearClampSampler)
-layout(binding = 19) uniform texture2D u_RadianceCacheDepth;
-#define u_RadianceCacheDepth sampler2D(u_RadianceCacheDepth, u_LinearClampSampler)
-layout(binding = 20) uniform textureCube u_EnvSpecularTex;
-#define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
-layout(binding = 21) uniform texture2D u_GBufferA;
-#define u_GBufferA sampler2D(u_GBufferA, u_PointClampSampler)
-layout(binding = 22) uniform texture2D u_GBufferEmissive;
-#define u_GBufferEmissive sampler2D(u_GBufferEmissive, u_PointClampSampler)
+layout(binding = 18) uniform texture2D RadianceCacheIrradianceTexture;
+#define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
+layout(binding = 19) uniform texture2D RadianceCacheDepthTexture;
+#define RadianceCacheDepthTexture sampler2D(RadianceCacheDepthTexture, LinearClampSampler)
+layout(binding = 20) uniform textureCube EnvironmentSpecularTexture;
+#define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+layout(binding = 21) uniform texture2D GBufferATexture;
+#define GBufferATexture sampler2D(GBufferATexture, PointClampSampler)
+layout(binding = 22) uniform texture2D GBufferEmissiveTexture;
+#define GBufferEmissiveTexture sampler2D(GBufferEmissiveTexture, PointClampSampler)
 #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
 #define RADIANCE_CACHE_PROBES radianceCacheProbes
 #include <Common/RadianceCache.glslh>
@@ -182,11 +182,11 @@ bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, out vec3 radiance, o
 #if defined( DESERT_REFLECTIONS_HIT_LIGHTING ) && defined( DESERT_RAY_TRACING_STAGE )
 	// The ray cone of the texel (UE GetPixelSpreadAngle): its width where the reflection leaves the surface and the
 	// view's per-pixel spread, so the hit's texture LOD is the one the reflected footprint sees.
-	const float pixelSpread = 2.0 / (abs(cameraUB.Projection[1][1]) * float(textureSize(u_GBufferNormal, 0).y));
+	const float pixelSpread = 2.0 / (abs(cameraUB.Projection[1][1]) * float(textureSize(GBufferNormalTexture, 0).y));
 	payload.HitT       = -1.0;
 	payload.ConeWidth  = pixelSpread * distance(cameraUB.CameraPos, worldPos);
 	payload.ConeSpread = pixelSpread;
-	traceRayEXT(u_SceneTLAS, gl_RayFlagsNoneEXT, RAY_TRACING_MASK_OPAQUE, 0u, 1u, 0u, ray.origin, ray.tMin, L, ray.tMax,
+	traceRayEXT(SceneTlas, gl_RayFlagsNoneEXT, RAY_TRACING_MASK_OPAQUE, 0u, 1u, 0u, ray.origin, ray.tMin, L, ray.tMax,
 	            0);
 	if (payload.HitT < 0.0)
 		return false;
@@ -215,25 +215,25 @@ bool TraceWorld(vec3 worldPos, vec3 N, vec3 L, float start, out vec3 radiance, o
 #endif // DESERT_REFLECTIONS_TRACED
 
 // Filled on the CPU from the view's matrices once per view frame (SSRRenderer::UploadTraceUniforms).
-// u_InvJitteredViewProjection = inverse of the matrix the G-buffer depth was rasterised with
-// (Common/ReconstructPosition.glslh); u_JitteredViewProjection = that matrix (rays are projected with it,
+// InverseJitteredViewProjection = inverse of the matrix the G-buffer depth was rasterised with
+// (Common/ReconstructPosition.glslh); JitteredWorldToClip = that matrix (rays are projected with it,
 // so a ray and the depth it is tested against are in one space). Where a hit was on last frame's screen
 // is the hit pixel's VELOCITY, not a camera reprojection: a moving reflected object is read where it
 // was, not where the still world behind it was (UE SSRT: the hit is reprojected through the velocity).
 Uniform(6) SSRTraceUB
 {
-	mat4 u_InvJitteredViewProjection;
-	mat4 u_JitteredViewProjection;
+	mat4 InverseJitteredViewProjection;
+	mat4 JitteredWorldToClip;
 };
 
 PushConstant PushConstants
 {
-	vec4 u_CameraPos;  // xyz = camera world position, w = per-frame seed (ray sequence + 2x2 rotation)
-	vec4 u_SSRParams;  // x = rays per texel, y = HZB iterations per ray, z = intensity, w = thickness (world)
-	vec4 u_SSRParams2; // x = max ray distance (world), y = 1 when u_SceneColor holds last frame,
+	vec4 CameraPosition;  // xyz = camera world position, w = per-frame seed (ray sequence + 2x2 rotation)
+	vec4 SsrParams;  // x = rays per texel, y = HZB iterations per ray, z = intensity, w = thickness (world)
+	vec4 SsrParams2; // x = max ray distance (world), y = 1 when SceneColorTexture holds last frame,
 	                   // z = mesh SDF trace distance, w = mesh SDF end distance from the camera (traced only)
-	vec4 u_SSRParams3; // x = the trace's downsample factor (Scalability Reflections.DownsampleFactor: 1 or 2),
-	                   // y = 1 / PrevPreExposure (u_SceneColor is stored at LAST frame's pre-exposure), zw unused
+	vec4 SsrParams3; // x = the trace's downsample factor (Scalability Reflections.DownsampleFactor: 1 or 2),
+	                   // y = 1 / PrevPreExposure (SceneColorTexture is stored at LAST frame's pre-exposure), zw unused
 };
 
 // The G-buffer pixel trace texel q traces from: the pixel itself at factor 1; at factor 2 the pixel of its 2x2
@@ -277,16 +277,16 @@ float SSRHitConfidence(vec3 hit, vec3 origin, vec3 L, float thickness, float max
 	surface = origin;
 	if (any(lessThan(hit.xy, vec2(0.0))) || any(greaterThan(hit.xy, vec2(1.0))))
 		return 0.0;
-	const ivec2 size  = textureSize(u_GBufferDepth, 0);
+	const ivec2 size  = textureSize(GBufferDepthTexture, 0);
 	const ivec2 texel = clamp(ivec2(hit.xy * vec2(size)), ivec2(0), size - 1);
-	const vec3  hN    = texelFetch(u_GBufferNormal, texel, 0).rgb;
+	const vec3  hN    = texelFetch(GBufferNormalTexture, texel, 0).rgb;
 	if (dot(hN, hN) <= 0.001)
 		return 0.0; // sky: the sky is the environment's, not a screen hit
 	if (dot(normalize(hN), L) > 0.0)
 		return 0.0; // back face
-	surface             = ReconstructWorldPosition(hit.xy, texelFetch(u_GBufferDepth, texel, 0).r,
-	                                               u_InvJitteredViewProjection);
-	const vec3  rayAt   = ReconstructWorldPosition(hit.xy, hit.z, u_InvJitteredViewProjection);
+	surface             = ReconstructWorldPosition(hit.xy, texelFetch(GBufferDepthTexture, texel, 0).r,
+	                                               InverseJitteredViewProjection);
+	const vec3  rayAt   = ReconstructWorldPosition(hit.xy, hit.z, InverseJitteredViewProjection);
 	const float behind  = distance(surface, rayAt);
 	float confidence    = 1.0 - smoothstep(0.0, thickness, behind);
 	confidence *= confidence;
@@ -296,7 +296,7 @@ float SSRHitConfidence(vec3 hit, vec3 origin, vec3 L, float thickness, float max
 
 // The traced texel gPix (SSRTraceSourcePixel: every pixel, or one pixel of a 2x2 block rotating every frame).
 // Returns rgb = the ratio-estimated radiance of the hits, a = coverage (see the header); @p ray = the
-// texel's ray for the reconstruction (u_TraceRay): xyz = the point it hit (the weighted mean of the hit points;
+// texel's ray for the reconstruction (TraceRayTexture): xyz = the point it hit (the weighted mean of the hit points;
 // when nothing hit, a point kMissDistance along the weighted mean direction of all rays - the environment
 // the next source answers is at infinity), w = the log2 pdf of drawing the direction to it from here.
 // A texel with no ray: pdf 0 (log -126), which the reconstruction reads as "nothing to reuse".
@@ -305,7 +305,7 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 	ray = vec4(0.0, 0.0, 0.0, -126.0);
 	// Whether the screen holds last frame to return at a hit. Without it the screen-only trace answers
 	// nothing (all to the next source); the traced one still has the world.
-	const bool screenLeg = u_SSRParams2.y >= 0.5;
+	const bool screenLeg = SsrParams2.y >= 0.5;
 #if !defined( DESERT_REFLECTIONS_TRACED )
 	if (!screenLeg)
 		return vec4(0.0);
@@ -320,8 +320,8 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 	const float alpha     = max(roughness * roughness, 0.001);
 
 	const vec3 worldPos = ReconstructWorldPosition(gUV, SSRSurfaceDepth(gPix),
-	                                               u_InvJitteredViewProjection);
-	const vec3 V        = normalize(u_CameraPos.xyz - worldPos);
+	                                               InverseJitteredViewProjection);
+	const vec3 V        = normalize(CameraPosition.xyz - worldPos);
 	vec3       T, B;
 	Basis(N, T, B);
 	const vec3 Ve = vec3(dot(V, T), dot(V, B), dot(V, N));
@@ -330,19 +330,19 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 	// own texel's neighbours in the depth buffer.
 	const vec3 origin = worldPos + N * 2.0;
 	vec3       originScreen;
-	const bool onScreen = ProjectToScreen(u_JitteredViewProjection, origin, originScreen);
+	const bool onScreen = ProjectToScreen(JitteredWorldToClip, origin, originScreen);
 #if !defined( DESERT_REFLECTIONS_TRACED )
 	if (!onScreen)
 		return vec4(0.0);
 #endif
-	const float originW = (u_JitteredViewProjection * vec4(origin, 1.0)).w;
+	const float originW = (JitteredWorldToClip * vec4(origin, 1.0)).w;
 
-	const int   rays        = int(u_SSRParams.x);
-	const int   iterations  = int(u_SSRParams.y);
-	const float thickness   = u_SSRParams.w;
-	const float maxDistance = u_SSRParams2.x;
+	const int   rays        = int(SsrParams.x);
+	const int   iterations  = int(SsrParams.y);
+	const float thickness   = SsrParams.w;
+	const float maxDistance = SsrParams2.x;
 	const vec2  rotation    = vec2(hash12(vec2(gPix)), hash12(vec2(gPix) + 17.17));
-	const uint  seed        = uint(u_CameraPos.w);
+	const uint  seed        = uint(CameraPosition.w);
 #if defined( DESERT_REFLECTIONS_TRACED )
 	// UE MaxRoughnessToTrace: the share of this texel's rays that go past the screen, dithered per ray.
 	const float worldShare = TracedReflectionsAlpha(roughness);
@@ -380,10 +380,10 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 		vec3  surface    = origin;
 		vec3  L_i        = vec3(0.0);
 		float start      = 0.0; // traced: where the world legs start along the ray (0: uncertain)
-		const float dw   = (u_JitteredViewProjection * vec4(L, 0.0)).w;
+		const float dw   = (JitteredWorldToClip * vec4(L, 0.0)).w;
 		const float rayLength = dw < 0.0 ? min(0.99 * originW / -dw, maxDistance) : maxDistance;
 		vec3 endScreen;
-		if (screenLeg && onScreen && ProjectToScreen(u_JitteredViewProjection, origin + L * rayLength, endScreen))
+		if (screenLeg && onScreen && ProjectToScreen(JitteredWorldToClip, origin + L * rayLength, endScreen))
 		{
 			const HZBTraceResult walk = HZBTraceScreen(originScreen, endScreen, iterations);
 			if (!walk.Stopped)
@@ -391,7 +391,7 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 #if defined( DESERT_REFLECTIONS_TRACED )
 				// In front of every surface it passed, as far as it got: certain that far (UE writes the distance).
 				const vec3 reached = ReconstructWorldPosition(walk.Position.xy, walk.Position.z,
-				                                              u_InvJitteredViewProjection);
+				                                              InverseJitteredViewProjection);
 				start = max(distance(origin, reached) - kWorldStartBackoff, 0.0);
 #endif
 			}
@@ -405,14 +405,14 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 					// View/Velocity.hpp). The velocity carries the object's own motion as well as the camera's,
 					// so a car passing in a shop window is read where the car was, not where the street behind
 					// it was: no trail behind moving objects.
-					const ivec2 vSize  = textureSize(u_Velocity, 0);
+					const ivec2 vSize  = textureSize(VelocityTexture, 0);
 					const ivec2 vTexel = clamp(ivec2(walk.Position.xy * vec2(vSize)), ivec2(0), vSize - 1);
-					const vec2  prevUV = walk.Position.xy - texelFetch(u_Velocity, vTexel, 0).xy * vec2(0.5, -0.5);
+					const vec2  prevUV = walk.Position.xy - texelFetch(VelocityTexture, vTexel, 0).xy * vec2(0.5, -0.5);
 					if (any(lessThan(prevUV, vec2(0.0))) || any(greaterThan(prevUV, vec2(1.0))))
 						confidence = 0.0;
 					else
 						// Stored pre-exposed by last frame's P: undone, so the trace's output is absolute radiance.
-						L_i = textureLod(u_SceneColor, prevUV, 0.0).rgb * u_SSRParams3.y;
+						L_i = textureLod(SceneColorTexture, prevUV, 0.0).rgb * SsrParams3.y;
 #if defined( DESERT_REFLECTIONS_TRACED )
 					// The depth there was certain: a world leg starts just before the surface the screen found.
 					start = max(distance(origin, surface) - kWorldStartBackoff, 0.0);
@@ -474,7 +474,7 @@ vec4 TraceFrom(ivec2 gPix, ivec2 gSize, out vec4 ray)
 	const vec3 L   = normalize(hit - worldPos);
 	ray = vec4(hit, Log2VNDFReflectionPdf(Ve, vec3(dot(L, T), dot(L, B), max(dot(L, N), 1e-4)), alpha));
 
-	const float fade = SSRRoughnessFade(roughness) * u_SSRParams.z;
+	const float fade = SSRRoughnessFade(roughness) * SsrParams.z;
 	return vec4(radiance / hitWeight, clamp(coverage / weightSum * fade, 0.0, 1.0));
 }
 

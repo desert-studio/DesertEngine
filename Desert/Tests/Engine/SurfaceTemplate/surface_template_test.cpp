@@ -52,7 +52,7 @@ namespace
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             SurfaceOutput s = DefaultSurfaceOutput();
-            const vec4 base = texture( u_BaseTexture, i.UV0 ) * u_Material.Tint;
+            const vec4 base = texture( u_BaseTexture, i.UV0 ) * Material.Tint;
             s.BaseColor     = base.rgb;
             s.Opacity       = base.a;
             return s;

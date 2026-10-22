@@ -253,7 +253,7 @@ TEST( CloudMediumConsumers, EveryMediumEntryPointIsDefinedOnceAndInTheSubstituta
 //
 // AND IT MEASURES THE SHADERS RATHER THAN TRUSTING A LIST. Which components of which member are fetched is
 // read out of the shader tree's own text, with comments stripped first — the block's own header discusses
-// `u_CloudAlbedo.w` in prose, and a scan that counted prose would certify the very slot it says is unread.
+// `CloudAlbedo.w` in prose, and a scan that counted prose would certify the very slot it says is unread.
 //
 // IT ALSO PINS THE ONE RELATION NOTHING ELSE DOES: the GLSL block and Graphic::CloudGpuPayload agree on
 // how many floats they carry. The C++ side has static_asserts on every offset; the GLSL side is a
@@ -325,7 +325,7 @@ namespace
             BlockMember member;
             member.Components = type == "vec4" ? 4 : 3;
 
-            // `u_CloudSpeciesEdge[4];` — the count is part of the name as read.
+            // `CloudSpeciesEdge[4];` — the count is part of the name as read.
             const std::size_t bracket = name.find( '[' );
             if ( bracket != std::string::npos )
             {
@@ -343,7 +343,7 @@ namespace
     }
 
     // THE BLOCK'S OWN DECLARATION IS NOT A READ, and leaving it in was this census's own blind spot: a
-    // member declared as `vec4 u_CloudDetail;` is a bare occurrence of the name with no swizzle after it,
+    // member declared as `vec4 CloudDetail;` is a bare occurrence of the name with no swizzle after it,
     // which is exactly the shape of "passed or assigned whole" — so the first version of this test
     // certified every slot in the block as read, including the two it was written to find. Cutting the
     // declaration out is what leaves only USES behind.
@@ -434,7 +434,7 @@ TEST( CloudMediumConsumers, EverySlotOfTheParameterBlockIsReadOrHasARowSayingWhy
                 if ( !wholeWord )
                     continue;
 
-                // A SUBSCRIPT OR A BARE USE READS THE WHOLE THING. `u_CloudSpeciesEdge[slot]` yields a
+                // A SUBSCRIPT OR A BARE USE READS THE WHOLE THING. `CloudSpeciesEdge[slot]` yields a
                 // vec4 the caller then uses entire, and a bare member name is passed or assigned whole.
                 if ( after >= code.size() || code[after] != '.' )
                 {

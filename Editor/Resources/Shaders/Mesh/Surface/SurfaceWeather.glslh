@@ -53,8 +53,8 @@ SurfaceOutput ApplyWetness( SurfaceOutput s, const float wetness, const float po
 // wetness here, at the material's porosity.
 SurfaceOutput DesertApplySurfaceWeather( SurfaceInput i, SurfaceOutput s )
 {
-    const float response = clamp( u_Material.RespondsToWeather, 0.0, 1.0 );
-    return ApplyWetness( s, response * DesertSurfaceWetness( i ), u_Material.Porosity );
+    const float response = clamp( Material.RespondsToWeather, 0.0, 1.0 );
+    return ApplyWetness( s, response * DesertSurfaceWetness( i ), Material.Porosity );
 }
 
 #endif

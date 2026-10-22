@@ -255,7 +255,7 @@ namespace Desert::Graphic
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>&
     TsrRejectShadingLayout( bool thinGeometry );
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrSpatialAntiAliasingLayout();
-    // @p writesOutput: the TSR_WRITE_OUTPUT=1 variant (History == Output) also binds u_Output.
+    // @p writesOutput: the TSR_WRITE_OUTPUT=1 variant (History == Output) also binds OutputTexture.
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>&
     TsrUpdateHistoryLayout( bool writesOutput );
     [[nodiscard]] const std::shared_ptr<const RDG::ShaderBindingLayout>& TsrResolveHistoryLayout();

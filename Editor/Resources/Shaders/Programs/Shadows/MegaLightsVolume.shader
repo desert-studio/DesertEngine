@@ -28,15 +28,15 @@ Shader "MegaLightsVolume"
         // MegaLightsVolumeUniforms (MegaLightsVolume.hpp), std140.
         Uniform(0) MegaLightsVolumeViewUB
         {
-        	mat4  u_InvViewProjection;  // unjittered, this frame
-        	mat4  u_View;               // world -> view, this frame
-        	mat4  u_PrevView;           // the view's previous frame
-        	mat4  u_PrevViewProjection; // unjittered, the view's previous frame
-        	vec4  u_ZParams;            // near (cm), slices / log(far / near), far (cm), froxel edge (render px)
-        	vec4  u_PrevZParams;        // the same, of the frame the history was written in
-        	uvec4 u_Size;               // xyz = froxels, w = frame index
-        	uvec4 u_Counts;             // x = point lights, y = spot lights, z = samples per froxel, w = history readable
-        	vec4  u_Params;             // x = history weight (0 = none), y = shadow-ray bias (cm), zw = render extent (px)
+        	mat4  InverseViewProjection;  // unjittered, this frame
+        	mat4  View;               // world -> view, this frame
+        	mat4  PreviousView;           // the view's previous frame
+        	mat4  PreviousViewProjection; // unjittered, the view's previous frame
+        	vec4  ZParams;            // near (cm), slices / log(far / near), far (cm), froxel edge (render px)
+        	vec4  PreviousZParams;        // the same, of the frame the history was written in
+        	uvec4 RenderSize;               // xyz = froxels, w = frame index
+        	uvec4 Counts;             // x = point lights, y = spot lights, z = samples per froxel, w = history readable
+        	vec4  Params;             // x = history weight (0 = none), y = shadow-ray bias (cm), zw = render extent (px)
         };
 
         // The view's light grid (Programs/Deferred/LightGridBuild.shader), as the composite reads it.
@@ -50,16 +50,16 @@ Shader "MegaLightsVolume"
         	uint lightGridCells[];
         };
 
-        Uniform sampler u_LinearClampSampler;
-        Uniform(10) texture3D u_HistoryR;
-        #define u_HistoryR sampler3D(u_HistoryR, u_LinearClampSampler)
-        Uniform(11) texture3D u_HistoryG;
-        #define u_HistoryG sampler3D(u_HistoryG, u_LinearClampSampler)
-        Uniform(12) texture3D u_HistoryB;
-        #define u_HistoryB sampler3D(u_HistoryB, u_LinearClampSampler)
-        layout(binding = 13, rgba16f) writeonly uniform image3D u_OutR; // L0, L1 x y z of red
-        layout(binding = 14, rgba16f) writeonly uniform image3D u_OutG;
-        layout(binding = 15, rgba16f) writeonly uniform image3D u_OutB;
+        Uniform sampler LinearClampSampler;
+        Uniform(10) texture3D HistoryRTexture;
+        #define HistoryRTexture sampler3D(HistoryRTexture, LinearClampSampler)
+        Uniform(11) texture3D HistoryGTexture;
+        #define HistoryGTexture sampler3D(HistoryGTexture, LinearClampSampler)
+        Uniform(12) texture3D HistoryBTexture;
+        #define HistoryBTexture sampler3D(HistoryBTexture, LinearClampSampler)
+        layout(binding = 13, rgba16f) writeonly uniform image3D OutRTexture; // L0, L1 x y z of red
+        layout(binding = 14, rgba16f) writeonly uniform image3D OutGTexture;
+        layout(binding = 15, rgba16f) writeonly uniform image3D OutBTexture;
 
         #define MEGALIGHTS_VOLUME_MAX_SAMPLES 4
         #define MEGALIGHTS_SH_L0 0.282094792
@@ -90,18 +90,18 @@ Shader "MegaLightsVolume"
         // ray, the one at that depth between them (perspective and orthographic alike).
         vec3 VolumeWorldPosition(vec2 pixel, float depth)
         {
-        	const vec2  uv     = pixel / u_Params.zw;
-        	const vec3  a      = ReconstructWorldPosition(uv, 1.0, u_InvViewProjection);
-        	const vec3  b      = ReconstructWorldPosition(uv, 0.5, u_InvViewProjection);
-        	const float depthA = -(u_View * vec4(a, 1.0)).z;
-        	const float depthB = -(u_View * vec4(b, 1.0)).z;
+        	const vec2  uv     = pixel / Params.zw;
+        	const vec3  a      = ReconstructWorldPosition(uv, 1.0, InverseViewProjection);
+        	const vec3  b      = ReconstructWorldPosition(uv, 0.5, InverseViewProjection);
+        	const float depthA = -(View * vec4(a, 1.0)).z;
+        	const float depthB = -(View * vec4(b, 1.0)).z;
         	return a + (b - a) * ((depth - depthA) / (depthB - depthA));
         }
 
         // ---- The light index space (Mesh/LightGrid.glslh: points first, then spots) ---------------------------
         DesertLight VolumeLightAt(int light, vec3 p)
         {
-        	const int points = int(u_Counts.x);
+        	const int points = int(Counts.x);
         	return light < points ? DesertPointLightAt(pointLights[light], p)
         	                      : DesertSpotLightAt(spotLights[light - points], p);
         }
@@ -116,12 +116,12 @@ Shader "MegaLightsVolume"
         // whose shadowCaster is 0 (CastShadows off) needs no ray.
         float VolumeVisibility(int light, vec3 p, inout uint random)
         {
-        	const int  points  = int(u_Counts.x);
+        	const int  points  = int(Counts.x);
         	const bool casts   = (light < points ? pointLights[light].shadowCaster
         	                                     : spotLights[light - points].shadowCaster) != 0;
         	if (!casts)
         		return 1.0;
-        	const float bias     = u_Params.y;
+        	const float bias     = Params.y;
         	const vec3  toLight  = (light < points ? pointLights[light].position : spotLights[light - points].position) - p;
         	const float distance = length(toLight);
         	const float radius   = light < points ? pointLights[light].sourceRadius : spotLights[light - points].sourceRadius;
@@ -152,19 +152,19 @@ Shader "MegaLightsVolume"
         void main()
         {
         	const ivec3 froxel = ivec3(gl_GlobalInvocationID);
-        	if (any(greaterThanEqual(froxel, ivec3(u_Size.xyz))))
+        	if (any(greaterThanEqual(froxel, ivec3(RenderSize.xyz))))
         		return;
         	uint random = VolumePcg(uint(froxel.x) + VolumePcg(uint(froxel.y) + VolumePcg(uint(froxel.z) +
-        	                                                                               VolumePcg(u_Size.w))));
+        	                                                                               VolumePcg(RenderSize.w))));
 
         	// The point: jittered inside the froxel, so the frames' average covers it whole.
         	const vec3  jitter = vec3(VolumeRandom(random), VolumeRandom(random), VolumeRandom(random));
-        	const vec2  pixel  = (vec2(froxel.xy) + jitter.xy) * u_ZParams.w;
-        	const float depth  = VolumeFroxelDepth(u_ZParams, float(froxel.z) + jitter.z);
+        	const vec2  pixel  = (vec2(froxel.xy) + jitter.xy) * ZParams.w;
+        	const float depth  = VolumeFroxelDepth(ZParams, float(froxel.z) + jitter.z);
         	const vec3  p      = VolumeWorldPosition(pixel, depth);
 
         	// 1) Resampled importance sampling over the point's light-grid cell, one draw per sample.
-        	const uint samples = clamp(u_Counts.z, 1u, uint(MEGALIGHTS_VOLUME_MAX_SAMPLES));
+        	const uint samples = clamp(Counts.z, 1u, uint(MEGALIGHTS_VOLUME_MAX_SAMPLES));
         	int   chosen[MEGALIGHTS_VOLUME_MAX_SAMPLES];
         	float chosenTarget[MEGALIGHTS_VOLUME_MAX_SAMPLES];
         	for (uint k = 0u; k < uint(MEGALIGHTS_VOLUME_MAX_SAMPLES); ++k)
@@ -173,10 +173,10 @@ Shader "MegaLightsVolume"
         		chosenTarget[k] = 0.0;
         	}
         	float      weightSum  = 0.0;
-        	const uint cell       = LightGridCellAt(lightGrid, min(pixel, u_Params.zw - 0.5), p);
+        	const uint cell       = LightGridCellAt(lightGrid, min(pixel, Params.zw - 0.5), p);
         	const uint count      = lightGridCells[cell];
         	const bool overflowed = LightGridCellOverflowed(lightGrid, count);
-        	const uint candidates = overflowed ? u_Counts.x + u_Counts.y : count;
+        	const uint candidates = overflowed ? Counts.x + Counts.y : count;
         	const uint list       = LightGridListOffset(lightGrid, cell);
         	for (uint j = 0u; j < candidates; ++j)
         	{
@@ -213,29 +213,29 @@ Shader "MegaLightsVolume"
         	}
 
         	// 4) The history at the point's place in the previous frame's volume.
-        	const float weight = u_Params.x;
-        	if (u_Counts.w != 0u && weight > 0.0)
+        	const float weight = Params.x;
+        	if (Counts.w != 0u && weight > 0.0)
         	{
-        		const vec4  clip      = u_PrevViewProjection * vec4(p, 1.0);
-        		const float prevDepth = -(u_PrevView * vec4(p, 1.0)).z;
+        		const vec4  clip      = PreviousViewProjection * vec4(p, 1.0);
+        		const float prevDepth = -(PreviousView * vec4(p, 1.0)).z;
         		if (clip.w > 0.0 && prevDepth > 0.0)
         		{
         			const vec2  ndc   = clip.xy / clip.w;
         			const vec2  uv    = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5); // ScreenUVToNdc's inverse
-        			const vec3  size  = vec3(u_Size.xyz);
-        			const float slice = prevDepth <= u_PrevZParams.x ? 0.0 : log(prevDepth / u_PrevZParams.x) * u_PrevZParams.y;
-        			const vec3  uvw   = vec3(uv * u_Params.zw / (u_PrevZParams.w * size.xy), slice / size.z);
+        			const vec3  size  = vec3(RenderSize.xyz);
+        			const float slice = prevDepth <= PreviousZParams.x ? 0.0 : log(prevDepth / PreviousZParams.x) * PreviousZParams.y;
+        			const vec3  uvw   = vec3(uv * Params.zw / (PreviousZParams.w * size.xy), slice / size.z);
         			if (all(greaterThanEqual(uvw, vec3(0.0))) && all(lessThanEqual(uvw, vec3(1.0))))
         			{
-        				shR = mix(texture(u_HistoryR, uvw), shR, weight);
-        				shG = mix(texture(u_HistoryG, uvw), shG, weight);
-        				shB = mix(texture(u_HistoryB, uvw), shB, weight);
+        				shR = mix(texture(HistoryRTexture, uvw), shR, weight);
+        				shG = mix(texture(HistoryGTexture, uvw), shG, weight);
+        				shB = mix(texture(HistoryBTexture, uvw), shB, weight);
         			}
         		}
         	}
-        	imageStore(u_OutR, froxel, shR);
-        	imageStore(u_OutG, froxel, shG);
-        	imageStore(u_OutB, froxel, shB);
+        	imageStore(OutRTexture, froxel, shR);
+        	imageStore(OutGTexture, froxel, shG);
+        	imageStore(OutBTexture, froxel, shB);
         }
     }
 }

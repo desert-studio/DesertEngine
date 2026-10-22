@@ -125,19 +125,19 @@ namespace Desert::Graphic::System
 
         // The storage buffer the path adds to a caster cell (MeshPathOwnBinding): instance matrices or bone
         // poses; empty for the static path, which has none.
-        std::string MeshPathOwnBufferName( MeshVertexPath path )
+        std::optional<RDG::StorageBufferParameter> MeshPathOwnBuffer( MeshVertexPath path )
         {
             switch ( path )
             {
                 case MeshVertexPath::Instanced:
                 case MeshVertexPath::GrassBlade:
-                    return "InstanceTransforms";
+                    return RDG::StorageBufferParameter( "InstanceTransforms" );
                 case MeshVertexPath::Skinned:
-                    return ShaderProtocols::SkinnedUB::Name;
+                    return ShaderProtocols::SkinnedUB::Parameter;
                 case MeshVertexPath::Static:
-                    return {};
+                    return std::nullopt;
             }
-            return {};
+            return std::nullopt;
         }
     } // namespace MeshRendererDetail
 
@@ -476,7 +476,7 @@ namespace Desert::Graphic::System
         // THE COUNT TRAVELS WITH THE MAPS. Without it the applier bound four maps and told the shader to
         // walk four cascades whatever this renderer had allocated, so a one-cascade renderer would have
         // had three identity matrices tested and three unbound samplers read — the shader's own loop is
-        // driven by u_ShadowParams.w and would have found "the fragment is inside cascade 1" everywhere.
+        // driven by ShadowParams.w and would have found "the fragment is inside cascade 1" everywhere.
         //
         // And it is the count FITTED THIS FRAME, not the count allocated — GetValidCascadeCount, see
         // UpdateCascades. The two differ whenever the fit does not run or degenerates (no sun in the
@@ -517,7 +517,7 @@ namespace Desert::Graphic::System
         frame.CloudShadow = m_SceneRenderer->GetCloudShadowInput();
 
         // The view's contact shadows, from the SAME settings the deferred composite packs. The forward meshes
-        // and the glass march the opaque scene depth (u_SceneDepth): the deferred path has it (the G-buffer
+        // and the glass march the opaque scene depth (SceneDepthTexture): the deferred path has it (the G-buffer
         // depth, finished before any of them draws); the forward path has no prepass, so it marches nothing.
         if ( view != nullptr )
             frame.ContactShadow = m_SceneRenderer->GetContactShadowSettings(

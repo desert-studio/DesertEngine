@@ -670,11 +670,11 @@ TEST( PipelineBlendState, PipelineCreationTakesEveryBlendSwitchFromTheRule )
 
 // G-buffer slot 2 is the RG32_UINT shading word. A float sampler over it reinterprets the bits, so: no shader
 // declares a float sampler for a *ShadingWord, none reads one through texture()/textureLod (texelFetch only), the
-// one C++ binding is DeferredLighting's u_GBufferShadingWord fed from gbuffer[2], and the editor's buffer views of
+// one C++ binding is DeferredLighting's GBufferShadingWordTexture fed from gbuffer[2], and the editor's buffer views of
 // the word's three fields (Material Complexity = TEXTURES, Shading Model = INDEX, Sun Shadow Receive =
-// NO_SUN_SHADOWS) decode the one integer fetch. Mutations: `usampler2D u_GBufferShadingWord` -> `sampler2D`, or a
-// debug branch reading texture(u_GBufferShadingWord,
-// ...), or a second .Texture("u_GBufferShadingWord", ...) anywhere -> red.
+// NO_SUN_SHADOWS) decode the one integer fetch. Mutations: `usampler2D GBufferShadingWordTexture` -> `sampler2D`, or a
+// debug branch reading texture(GBufferShadingWordTexture,
+// ...), or a second .Texture("GBufferShadingWordTexture", ...) anywhere -> red.
 TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
 {
     const auto read = []( const std::filesystem::path& path )
@@ -712,7 +712,7 @@ TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
     ASSERT_FALSE( lighting.empty() );
     EXPECT_NE( lighting.find( "Uniform(1)usampler2Du_GBufferShadingWord;" ), std::string::npos );
     const auto fetch =
-         lighting.find( "constuvec2word=texelFetch(u_GBufferShadingWord,ivec2(gl_FragCoord.xy),0).rg;" );
+         lighting.find( "constuvec2word=texelFetch(GBufferShadingWordTexture,ivec2(gl_FragCoord.xy),0).rg;" );
     ASSERT_NE( fetch, std::string::npos );
     for ( const char* branch : { "if(dbg==9){oColor=vec4(HeatColor(DesertSampledTextureCount(word)",
                                  "if(dbg==10){constfloathue=fract(float(shadingModel)",
@@ -736,13 +736,14 @@ TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
             const auto ext = entry.path().extension();
             if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" ) )
                 continue;
-            if ( read( entry.path() ).find( "\"u_GBufferShadingWord\"" ) != std::string::npos )
+            if ( read( entry.path() ).find( "\"GBufferShadingWordTexture\"" ) != std::string::npos )
                 binders.push_back( entry.path().filename().string() );
         }
     EXPECT_EQ( binders, std::vector<std::string>{ "DeferredLightingRenderer.hpp" } );
     const std::string renderer = strip( read(
          root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp" ) );
-    EXPECT_NE( renderer.find( ".Texture(\"u_GBufferShadingWord\",inputs.GBufferShadingWord,kRead,kWhole)" ),
+    EXPECT_NE( renderer.find( ".Texture(DeferredLightingCompositeShaderParameters::GBufferShadingWordTexture,"
+                              "inputs.GBufferShadingWord,kRead,kWhole)" ),
                std::string::npos );
     const std::string deferred =
          strip( read( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" ) );

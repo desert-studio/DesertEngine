@@ -14,10 +14,10 @@ Shader "TSRDilateVelocity"
         // DEPTH32F is not guaranteed on Vulkan / MoltenVK). A pixel nothing wrote velocity for (depth 0: the
         // reversed-Z far plane, the sky) is reprojected through the camera, as TemporalAA.shader does.
         //
-        // u_ReprojectionField (r.TSR.ReprojectionField, a uniform as in UE): 1 writes the field TSR.UpdateHistory
-        // reads — u_ReprojectionJacobian (UE EncodeReprojectionJacobian) and u_ReprojectionBoundary (the dilating
+        // ReprojectionField (r.TSR.ReprojectionField, a uniform as in UE): 1 writes the field TSR.UpdateHistory
+        // reads — ReprojectionJacobianTexture (UE EncodeReprojectionJacobian) and ReprojectionBoundaryTexture (the dilating
         // offset to the closest depth and the boundary, UE EncodeReprojectionBoundary); 0 writes both as 0, except
-        // with u_ThinGeometryDetection, where the boundary holds the dilating offset alone (UE
+        // with ThinGeometryDetection, where the boundary holds the dilating offset alone (UE
         // CONFIG_THIN_GEOMETRY_EDGE_REPROJECTION, TSRDilateVelocity.usf :325, :393) for TSR.DetectThinGeometry.
         LocalSize(8, 8, 1);
 
@@ -25,29 +25,29 @@ Shader "TSRDilateVelocity"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(8) sampler u_PointClampSampler;
-        Uniform(1) texture2D u_SceneDepth; // reversed-Z device depth, RenderExtent
-        #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
-        Uniform(2) texture2D u_Velocity;   // NDC current - previous, RenderExtent
-        #define u_Velocity sampler2D(u_Velocity, u_PointClampSampler)
-        layout(binding = 3, rgba16f) restrict writeonly uniform image2D u_DilatedVelocity; // xy: NDC velocity
-        layout(binding = 4, r32f) restrict writeonly uniform image2D u_ClosestDepth;       // device depth
+        Uniform(8) sampler PointClampSampler;
+        Uniform(1) texture2D SceneDepthTexture; // reversed-Z device depth, RenderExtent
+        #define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
+        Uniform(2) texture2D VelocityTexture;   // NDC current - previous, RenderExtent
+        #define VelocityTexture sampler2D(VelocityTexture, PointClampSampler)
+        layout(binding = 3, rgba16f) restrict writeonly uniform image2D DilatedVelocityTexture; // xy: NDC velocity
+        layout(binding = 4, r32f) restrict writeonly uniform image2D ClosestDepthTexture;       // device depth
         layout(std430, binding = 5) restrict buffer TSRPrevAtomicBuffer
         {
-            uint u_PrevAtomic[];
+            uint PreviousAtomicData[];
         };
-        layout(binding = 6, r32ui) restrict writeonly uniform uimage2D u_ReprojectionJacobian;
-        layout(binding = 7, r32ui) restrict writeonly uniform uimage2D u_ReprojectionBoundary;
+        layout(binding = 6, r32ui) restrict writeonly uniform uimage2D ReprojectionJacobianTexture;
+        layout(binding = 7, r32ui) restrict writeonly uniform uimage2D ReprojectionBoundaryTexture;
 
         float DepthAt(ivec2 p)
         {
-            return texelFetch(u_SceneDepth, TsrClampRender(p), 0).r;
+            return texelFetch(SceneDepthTexture, TsrClampRender(p), 0).r;
         }
 
         // The bilinear device depth at a render-pixel position, clamped to UE's bilinear viewport.
         float BilinearDepth(vec2 position)
         {
-            const vec2  p    = clamp(position, vec2(0.5), u_RenderSize - 0.5) - 0.5;
+            const vec2  p    = clamp(position, vec2(0.5), RenderSize - 0.5) - 0.5;
             const ivec2 base = ivec2(floor(p));
             const vec2  f    = p - vec2(base);
             const float d00  = DepthAt(base);
@@ -64,10 +64,10 @@ Shader "TSRDilateVelocity"
         vec2 NdcVelocityAt(ivec2 p, float depth)
         {
             if (depth > 0.0)
-                return texelFetch(u_Velocity, TsrClampRender(p), 0).xy;
+                return texelFetch(VelocityTexture, TsrClampRender(p), 0).xy;
             const vec2 uv       = TsrSurfaceUv(p);
-            const vec4 world    = u_InvViewProjection * vec4(ScreenUVToNdc(uv), depth, 1.0);
-            const vec4 prevClip = u_PrevViewProjection * world;
+            const vec4 world    = InverseViewProjection * vec4(ScreenUVToNdc(uv), depth, 1.0);
+            const vec4 prevClip = PreviousViewProjection * world;
             return ScreenUVToNdc(uv) - prevClip.xy / prevClip.w;
         }
 
@@ -151,11 +151,11 @@ Shader "TSRDilateVelocity"
         vec2 ComputeBoundary(ivec2 pixel, vec2 ndcVelocity, vec2 dilatedNdcVelocity)
         {
             const int  kBrowsingIterations = 3;
-            const vec2 screenPos           = ScreenUVToNdc((vec2(pixel) + 0.5) / u_RenderSize);
+            const vec2 screenPos           = ScreenUVToNdc((vec2(pixel) + 0.5) / RenderSize);
             const vec2 prevScreenPos       = screenPos - dilatedNdcVelocity;
             const bool offscreen           = any(notEqual(prevScreenPos, clamp(prevScreenPos, vec2(-1.0), vec2(1.0))));
-            const vec2 differential        = u_RenderSize * (ndcVelocity - dilatedNdcVelocity);
-            const bool enoughDifference    = dot(differential, differential) > u_ReprojectionFieldAntiAliasVelocityThreshold;
+            const vec2 differential        = RenderSize * (ndcVelocity - dilatedNdcVelocity);
+            const bool enoughDifference    = dot(differential, differential) > ReprojectionFieldAntiAliasVelocityThreshold;
             if (!enoughDifference || offscreen)
                 return kFullDilateBoundary;
 
@@ -183,7 +183,7 @@ Shader "TSRDilateVelocity"
         void main()
         {
             const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-            if (any(greaterThanEqual(pixel, ivec2(u_RenderSize))))
+            if (any(greaterThanEqual(pixel, ivec2(RenderSize))))
                 return;
 
             float closest       = -1.0;
@@ -207,19 +207,19 @@ Shader "TSRDilateVelocity"
             // The closest surface at THIS pixel, in homogeneous world space, never divided: the sky at depth 0 is a
             // point at infinity, and its reprojection is still that of its direction.
             const vec2 uv       = TsrSurfaceUv(pixel);
-            const vec4 world    = u_InvViewProjection * vec4(ScreenUVToNdc(uv), closest, 1.0);
-            const vec4 prevClip = u_PrevViewProjection * world;
+            const vec4 world    = InverseViewProjection * vec4(ScreenUVToNdc(uv), closest, 1.0);
+            const vec4 prevClip = PreviousViewProjection * world;
 
-            vec2 velocity = texelFetch(u_Velocity, closestPixel, 0).xy;
+            vec2 velocity = texelFetch(VelocityTexture, closestPixel, 0).xy;
             if (closest <= 0.0)
                 velocity = ScreenUVToNdc(uv) - prevClip.xy / prevClip.w;
 
-            imageStore(u_DilatedVelocity, pixel, vec4(velocity, 0.0, 0.0));
-            imageStore(u_ClosestDepth, pixel, vec4(closest));
+            imageStore(DilatedVelocityTexture, pixel, vec4(velocity, 0.0, 0.0));
+            imageStore(ClosestDepthTexture, pixel, vec4(closest));
 
             uint encodedJacobian = 0u;
             uint encodedBoundary = 0u;
-            if (u_ReprojectionField > 0.5)
+            if (ReprojectionField > 0.5)
             {
                 for (int y = -1; y <= 1; ++y)
                     for (int x = -1; x <= 1; ++x)
@@ -230,27 +230,27 @@ Shader "TSRDilateVelocity"
                 encodedBoundary =
                      EncodeReprojectionBoundary(closestOffset, ComputeBoundary(pixel, centreVelocity, velocity));
             }
-            else if (u_ThinGeometryDetection > 0.5)
+            else if (ThinGeometryDetection > 0.5)
             {
                 // UE CONFIG_THIN_GEOMETRY_EDGE_REPROJECTION without the field: the dilating offset alone, which
                 // TSR.DetectThinGeometry reads from the low 4 bits (as from a full boundary encoding).
                 encodedBoundary = EncodeReprojectionOffset(closestOffset);
             }
-            imageStore(u_ReprojectionJacobian, pixel, uvec4(encodedJacobian));
-            imageStore(u_ReprojectionBoundary, pixel, uvec4(encodedBoundary));
+            imageStore(ReprojectionJacobianTexture, pixel, uvec4(encodedJacobian));
+            imageStore(ReprojectionBoundaryTexture, pixel, uvec4(encodedBoundary));
 
             if (closest <= 0.0 || prevClip.w <= 0.0)
                 return;
             const float prevDepth = clamp(prevClip.z / prevClip.w, 0.0, 1.0);
-            const vec2  prevPixel = (uv - velocity * vec2(0.5, -0.5)) * u_RenderSize - 0.5;
+            const vec2  prevPixel = (uv - velocity * vec2(0.5, -0.5)) * RenderSize - 0.5;
             const ivec2 base      = ivec2(floor(prevPixel));
             for (int i = 0; i < 4; ++i)
             {
                 const ivec2 q = base + ivec2(i & 1, i >> 1);
-                if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, ivec2(u_RenderSize))))
+                if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, ivec2(RenderSize))))
                     continue;
                 // Positive floats order as their bit patterns: atomicMax on the bits keeps the nearest.
-                atomicMax(u_PrevAtomic[q.y * int(u_RenderSize.x) + q.x], floatBitsToUint(prevDepth));
+                atomicMax(PreviousAtomicData[q.y * int(RenderSize.x) + q.x], floatBitsToUint(prevDepth));
             }
         }
     }

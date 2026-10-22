@@ -15,7 +15,7 @@
 // VELOCITY_ENCODE_DEPTH), so a surface moving toward or away from the camera keeps its history.
 // The constants are for every pass of the gather's denoiser; the functions need SCREEN_PROBE_HISTORY_DECLARED,
 // defined by ScreenProbeDisocclusion and ScreenProbeTemporal after they declare screenProbeParams, giFrame,
-// Velocity, GBufferShadingWord, u_PointClampSampler and the bare texture2D DiffuseIndirectHistory and HistoryGuide
+// Velocity, GBufferShadingWord, PointClampSampler and the bare texture2D DiffuseIndirectHistory and HistoryGuide
 // (read through SPHistoryAverage) and include Generated/ShadingModels.glslh.
 
 // UE r.Lumen.ScreenProbeGather.Temporal.MaxFramesAccumulated.
@@ -119,8 +119,8 @@ SPHistoryTaps SPHistoryReproject( ivec2 pixel, float deviceDepth, vec3 p, vec3 n
         const ivec2 tap = taps.origin + ivec2( k & 1, k >> 1 );
         if ( any( lessThan( tap, ivec2( 0 ) ) ) || any( greaterThanEqual( tap, ivec2( extent ) ) ) )
             continue;
-        const float distance = texelFetch( sampler2D( DiffuseIndirectHistory, u_PointClampSampler ), tap, 0 ).a;
-        const vec4  guide    = texelFetch( sampler2D( HistoryGuide, u_PointClampSampler ), tap, 0 );
+        const float distance = texelFetch( sampler2D( DiffuseIndirectHistory, PointClampSampler ), tap, 0 ).a;
+        const vec4  guide    = texelFetch( sampler2D( HistoryGuide, PointClampSampler ), tap, 0 );
         // Depth test, normal test, material test (UE: foliage never takes a non-foliage pixel's history, nor the
         // other way round).
         if ( distance > 0.0 && abs( distance - expected ) < threshold &&
@@ -144,7 +144,7 @@ vec4 SPHistoryAverage( texture2D history, SPHistoryTaps taps )
     for ( int k = 0; k < 4; ++k )
         if ( taps.weights[k] > 0.0 )
             sum += taps.weights[k] *
-                   texelFetch( sampler2D( history, u_PointClampSampler ), taps.origin + ivec2( k & 1, k >> 1 ), 0 );
+                   texelFetch( sampler2D( history, PointClampSampler ), taps.origin + ivec2( k & 1, k >> 1 ), 0 );
     return sum / max( dot( taps.weights, vec4( 1.0 ) ), 1e-5 );
 }
 
