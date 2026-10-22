@@ -23,6 +23,8 @@
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/EnhancedInputAssets.hpp>
 #include <Engine/Assets/VFXDataChannelAsset.hpp>
+#include <Engine/Assets/VFXSystemAsset.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
@@ -31,9 +33,11 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <ImGui/imgui.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <format>
@@ -108,6 +112,17 @@ namespace Desert::Editor
         if ( ImGui::Selectable( std::string( kNewVFXDataChannelLabel ).c_str() ) )
             if ( const auto created = CreateNewVFXDataChannel( &folder ); !created )
                 LOG_ERROR( "[Content] {}", created.GetError() );
+
+        // UE Niagara's "New System from Template": one item per template file of the engine content.
+        if ( const auto templates = VFXSystemTemplates();
+             !templates.empty() && ImGui::BeginMenu( std::string( kNewVFXSystemFromTemplateLabel ).c_str() ) )
+        {
+            for ( const std::filesystem::path& file : templates )
+                if ( ImGui::MenuItem( file.stem().string().c_str() ) )
+                    if ( const auto created = CreateVFXSystemFromTemplate( &folder, file ); !created )
+                        LOG_ERROR( "[Content] {}", created.GetError() );
+            ImGui::EndMenu();
+        }
 
         // Pick the domain up front (like Unreal's Material Domain / Godot's Mode): it decides the output node,
         // vertex contract and palette of the new graph.
@@ -333,6 +348,56 @@ namespace Desert::Editor
         data.Fields = { { "Position", Assets::Serialization::VFXDataChannelFieldType::Position } };
         if ( const auto saved = Assets::VFXDataChannelAsset::Save( path, data ); !saved )
             return Common::MakeFormattedError( "New VFX Data Channel: {}", saved.GetError() );
+        m_On.OnSelectAfterRefresh( path.generic_string() );
+        m_On.OnRefresh();
+        return Common::MakeSuccess( true );
+    }
+
+    std::vector<std::filesystem::path> NewAssetMenu::VFXSystemTemplates()
+    {
+        const std::filesystem::path        dir = Common::Constants::Path::EngineContentDir() / "VFX" / "Templates";
+        std::vector<std::filesystem::path> out;
+        std::error_code                    ec;
+        for ( const auto& entry : std::filesystem::directory_iterator( dir, ec ) )
+            if ( entry.is_regular_file() &&
+                 entry.path().extension() == Assets::Serialization::kVFXSystemExtension )
+                out.push_back( entry.path() );
+        std::sort( out.begin(), out.end() );
+        return out;
+    }
+
+    Common::BoolResultStr NewAssetMenu::CreateVFXSystemFromTemplate( const DirectoryInformation*  folder,
+                                                                     const std::filesystem::path& templateFile )
+    {
+        namespace S            = Assets::Serialization;
+        const std::string name = templateFile.stem().string();
+        if ( folder == nullptr )
+            return Common::MakeFormattedError(
+                 "New VFX System from template '{}': the Assets window has no folder "
+                 "open",
+                 name );
+        auto text = Common::Utils::FileSystem::ReadFileContent( templateFile );
+        if ( !text )
+            return Common::MakeFormattedError( "New VFX System from template '{}': {}", name, text.GetError() );
+        // The template is read against THIS project's categories, as every `.dfx` of the project is: a template
+        // stating a category the project does not register is refused by name, not copied into a file that
+        // would not load.
+        const std::filesystem::path registerPath =
+             Common::Constants::Path::CurrentProjectRoot().ProjectDir / "Config" / S::kVFXCategoriesFileName;
+        const auto categories = S::ReadVFXCategories( registerPath );
+        if ( !categories )
+            return Common::MakeFormattedError( "New VFX System from template '{}': {}", name,
+                                               categories.GetError() );
+        auto parsed = S::ParseVFXSystem( text.GetValue(), categories.GetValue() );
+        if ( !parsed )
+            return Common::MakeFormattedError( "New VFX System from template '{}': {}", name, parsed.GetError() );
+        S::VFXSystemData data = parsed.ExtractValue();
+        // A copy is a NEW asset: without the template's header the writer mints a fresh GUID, so the copy and
+        // the template (and two copies) never share an identity.
+        data.Header.reset();
+        const auto path = UniqueIn( *folder, name, std::string( S::kVFXSystemExtension ) );
+        if ( const auto saved = Assets::VFXSystemAsset::Save( path, data ); !saved )
+            return Common::MakeFormattedError( "New VFX System from template '{}': {}", name, saved.GetError() );
         m_On.OnSelectAfterRefresh( path.generic_string() );
         m_On.OnRefresh();
         return Common::MakeSuccess( true );

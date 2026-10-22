@@ -236,6 +236,14 @@ namespace Desert::Assets::Serialization
         return 0;
     }
 
+    glm::vec4 UserParamValue( const VFXUserParam& row, const std::vector<ECS::VFXUserOverride>& overrides )
+    {
+        for ( const ECS::VFXUserOverride& o : overrides )
+            if ( o.Name == row.Name )
+                return o.Value;
+        return row.Default;
+    }
+
     Common::BoolResultStr ValidateVFXSystemData( const VFXSystemData& data )
     {
         if ( !data.EffectType || data.EffectType->empty() ||
@@ -288,6 +296,8 @@ namespace Desert::Assets::Serialization
             if ( l.Loop == VFXLoopBehavior::Multiple && l.LoopCount == 0 )
                 return Common::MakeFormattedError<bool>( "emitter '{}' loops Multiple with LoopCount 0", e.Name );
             const std::string at = std::format( "emitter '{}'", e.Name );
+            if ( auto ok = CheckGroup( e.Stack.EmitterSpawn, data, std::format( "{} EmitterSpawn", at ) ); !ok )
+                return ok;
             if ( auto ok = CheckGroup( e.Stack.EmitterUpdate, data, std::format( "{} EmitterUpdate", at ) ); !ok )
                 return ok;
             if ( auto ok = CheckGroup( e.Stack.ParticleSpawn, data, std::format( "{} ParticleSpawn", at ) ); !ok )

@@ -13,14 +13,23 @@ namespace Desert::VFX
 
     namespace
     {
-        struct CpuInput
-        {
-            const char*     Name;
-            S::VFXValueType Type;
-        };
+        // UE SpawnRate (10 / s) and SpawnBurstInstantaneous (10 at time 0) defaults.
+        const std::vector<VFXModuleInputDecl> kSpawnRateInputs  = { { "SpawnRate", S::VFXValueType::Float,
+                                                                      glm::vec4( 10.0f, 0.0f, 0.0f, 0.0f ) } };
+        const std::vector<VFXModuleInputDecl> kSpawnBurstInputs = {
+             { "SpawnCount", S::VFXValueType::Int, glm::vec4( 10.0f, 0.0f, 0.0f, 0.0f ) },
+             { "SpawnTime", S::VFXValueType::Float, glm::vec4( 0.0f ) } };
+        // UE Spawn From Data Channel: the channel is picked, one particle per entry, UE's default entry budget
+        // (MaxEntriesPerFrame: unbounded there; ours must be >= 1), no distance cull (MaxDistance 0).
+        const std::vector<VFXModuleInputDecl> kSpawnFromChannelInputs = {
+             { "Channel", S::VFXValueType::Float, glm::vec4( 0.0f ), true },
+             { "ParticlesPerEntry", S::VFXValueType::Int, glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) },
+             { "MaxEntriesPerFrame", S::VFXValueType::Int, glm::vec4( 1024.0f, 0.0f, 0.0f, 0.0f ) },
+             { "MaxDistance", S::VFXValueType::Float, glm::vec4( 0.0f ) } };
 
         // The scalar an EmitterUpdate input carries: its Value, or the default of the User.* row it is bound to.
-        Common::ResultStr<float> ReadScalar( const S::VFXSystemData& system, const S::VFXModuleInput& in,
+        Common::ResultStr<float> ReadScalar( const S::VFXSystemData& system, const std::vector<ECS::VFXUserOverride>& overrides,
+                                             const S::VFXModuleInput& in,
                                              const std::string& where )
         {
             switch ( in.Source )
@@ -40,7 +49,7 @@ namespace Desert::VFX
                                 if ( u.Type != in.Type )
                                     return Common::MakeFormattedError<float>( "{}: bound to {} of another type",
                                                                               where, *in.Binding );
-                                return Common::MakeSuccess( u.Default.x );
+                                return Common::MakeSuccess( S::UserParamValue( u, overrides ).x );
                             }
                         return Common::MakeFormattedError<float>( "{}: {} names no UserParams row", where,
                                                                   *in.Binding );
@@ -63,18 +72,19 @@ namespace Desert::VFX
 
         // The module's inputs, in @p declared order, each exactly once with its declared type.
         Common::ResultStr<std::vector<float>> ReadInputs( const S::VFXSystemData&      system,
+                                                          const std::vector<ECS::VFXUserOverride>& overrides,
                                                           const S::VFXModuleUse&       use,
-                                                          const std::vector<CpuInput>& declared,
+                                                          const std::vector<VFXModuleInputDecl>& declared,
                                                           const std::string&           where )
         {
             using Result = std::vector<float>;
             for ( const S::VFXModuleInput& in : use.Inputs )
                 if ( std::none_of( declared.begin(), declared.end(),
-                                   [&]( const CpuInput& d ) { return in.Name == d.Name; } ) )
+                                   [&]( const VFXModuleInputDecl& d ) { return in.Name == d.Name; } ) )
                     return Common::MakeFormattedError<Result>( "{} input '{}': the module declares no such input",
                                                                where, in.Name );
             Result values;
-            for ( const CpuInput& d : declared )
+            for ( const VFXModuleInputDecl& d : declared )
             {
                 const auto        in      = std::find_if( use.Inputs.begin(), use.Inputs.end(),
                                                           [&]( const S::VFXModuleInput& x ) { return x.Name == d.Name; } );
@@ -85,7 +95,7 @@ namespace Desert::VFX
                 if ( in->Type != d.Type )
                     return Common::MakeFormattedError<Result>( "{}: the row's type disagrees with the module's",
                                                                inWhere );
-                auto value = ReadScalar( system, *in, inWhere );
+                auto value = ReadScalar( system, overrides, *in, inWhere );
                 if ( !value.IsSuccess() )
                     return Common::MakeError<Result>( value.GetError() );
                 values.push_back( value.GetValue() );
@@ -215,7 +225,34 @@ namespace Desert::VFX
         }
     } // namespace
 
-    Common::ResultStr<VFXSpawnPlan> CompileSpawnPlan( const S::VFXSystemData& system, std::size_t emitterIndex )
+    std::vector<std::string_view> EmitterModules()
+    {
+        return { kVFXSpawnRateModule, kVFXSpawnBurstModule, kVFXSpawnFromChannelModule };
+    }
+
+    uint8_t EmitterModuleUsage( const std::string_view module )
+    {
+        if ( module == kVFXSpawnBurstModule )
+            return static_cast<uint8_t>( UsageBit( VFXStage::EmitterSpawn ) |
+                                         UsageBit( VFXStage::EmitterUpdate ) );
+        if ( module == kVFXSpawnRateModule || module == kVFXSpawnFromChannelModule )
+            return UsageBit( VFXStage::EmitterUpdate );
+        return 0;
+    }
+
+    const std::vector<VFXModuleInputDecl>* EmitterModuleInputs( const std::string_view module )
+    {
+        if ( module == kVFXSpawnRateModule )
+            return &kSpawnRateInputs;
+        if ( module == kVFXSpawnBurstModule )
+            return &kSpawnBurstInputs;
+        if ( module == kVFXSpawnFromChannelModule )
+            return &kSpawnFromChannelInputs;
+        return nullptr;
+    }
+
+    Common::ResultStr<VFXSpawnPlan> CompileSpawnPlan( const S::VFXSystemData& system, std::size_t emitterIndex,
+                                                      const std::vector<ECS::VFXUserOverride>& overrides )
     {
         using Result = VFXSpawnPlan;
         if ( emitterIndex >= system.Emitters.size() )
@@ -228,6 +265,32 @@ namespace Desert::VFX
             return Common::MakeFormattedError<Result>( "emitter '{}': LoopDuration {} is not positive",
                                                        emitter.Name, plan.Lifecycle.LoopDuration );
 
+        // EmitterSpawn: once per instance (UE's Emitter Spawn script). Only a burst has a meaning there.
+        const auto& spawnGroup = emitter.Stack.EmitterSpawn;
+        for ( std::size_t m = 0; m < spawnGroup.size(); ++m )
+        {
+            const S::VFXModuleUse& use = spawnGroup[m];
+            if ( !use.Enabled )
+                continue;
+            const std::string where =
+                 std::format( "emitter '{}' EmitterSpawn module {} '{}'", emitter.Name, m, use.Module );
+            if ( ( EmitterModuleUsage( use.Module ) & UsageBit( VFXStage::EmitterSpawn ) ) == 0 )
+                return Common::MakeFormattedError<Result>(
+                     "{}: EmitterSpawn runs once on the CPU and knows only {}", where, kVFXSpawnBurstModule );
+            auto in = ReadInputs( system, overrides, use, kSpawnBurstInputs, where );
+            if ( !in.IsSuccess() )
+                return Common::MakeError<Result>( in.GetError() );
+            const float count = in.GetValue()[0];
+            const float time  = in.GetValue()[1];
+            if ( count < 0.0f )
+                return Common::MakeFormattedError<Result>( "{}: SpawnCount {} is negative", where, count );
+            if ( time < 0.0f || time >= plan.Lifecycle.LoopDuration )
+                return Common::MakeFormattedError<Result>(
+                     "{}: SpawnTime {} lies outside the first loop [0, {}) — it would never fire", where, time,
+                     plan.Lifecycle.LoopDuration );
+            plan.StartBursts.push_back( { time, static_cast<std::uint32_t>( count ) } );
+        }
+
         const auto& group = emitter.Stack.EmitterUpdate;
         for ( std::size_t m = 0; m < group.size(); ++m )
         {
@@ -238,7 +301,7 @@ namespace Desert::VFX
                  std::format( "emitter '{}' EmitterUpdate module {} '{}'", emitter.Name, m, use.Module );
             if ( use.Module == kVFXSpawnRateModule )
             {
-                auto in = ReadInputs( system, use, { { "SpawnRate", S::VFXValueType::Float } }, where );
+                auto in = ReadInputs( system, overrides, use, kSpawnRateInputs, where );
                 if ( !in.IsSuccess() )
                     return Common::MakeError<Result>( in.GetError() );
                 if ( in.GetValue()[0] < 0.0f )
@@ -248,9 +311,7 @@ namespace Desert::VFX
             }
             else if ( use.Module == kVFXSpawnBurstModule )
             {
-                auto in = ReadInputs(
-                     system, use,
-                     { { "SpawnCount", S::VFXValueType::Int }, { "SpawnTime", S::VFXValueType::Float } }, where );
+                auto in = ReadInputs( system, overrides, use, kSpawnBurstInputs, where );
                 if ( !in.IsSuccess() )
                     return Common::MakeError<Result>( in.GetError() );
                 const float count = in.GetValue()[0];
@@ -300,6 +361,11 @@ namespace Desert::VFX
             return 0;
 
         std::uint32_t born = RateCarry.Step( plan.Rate * spawnCountScale, hi - lo );
+
+        // An EmitterSpawn burst fires once, in the step whose window holds its Time (inside the first loop).
+        for ( const VFXSpawnBurst& burst : plan.StartBursts )
+            if ( burst.Time >= lo && burst.Time < hi )
+                born += burst.Count;
 
         // A burst fires in the step whose window [lo, hi) holds k * LoopDuration + Time, for every loop k. The
         // windows of consecutive steps share their bounds exactly, so each firing lands in exactly one step.

@@ -9,9 +9,10 @@ Shader "InitializeColor"
     Domain Particle
     Particle
     {
+        Usage ParticleSpawn
         Attribute Color vec4
         Attribute InitialColor vec4
-        Input Color vec4
+        Input Color vec4 = 1 1 1 1
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

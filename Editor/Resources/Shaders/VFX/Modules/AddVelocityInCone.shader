@@ -10,11 +10,12 @@ Shader "AddVelocityInCone"
     Domain Particle
     Particle
     {
+        Usage ParticleSpawn
         Attribute Velocity vec3
-        Input Speed float
-        Input Angle float
-        Input Falloff float
-        Input Axis vec3
+        Input Speed float = 100
+        Input Angle float = 45
+        Input Falloff float = 0
+        Input Axis vec3 = 0 1 0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

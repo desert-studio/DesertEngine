@@ -229,6 +229,11 @@ namespace Desert::Graphic::System
         if ( !gpu.Pipeline )
             return refuse( "its host program did not build (logged above)" );
         gpu.ParamRows    = std::move( params.GetValue() );
+        gpu.UserRows.clear();
+        for ( std::size_t s = 0; s < compiled.GetValue().Slots.size(); ++s )
+            if ( const VFX::VFXParamSlot& slot = compiled.GetValue().Slots[s];
+                 slot.SlotKind == VFX::VFXParamSlot::Kind::User )
+                gpu.UserRows.emplace_back( static_cast<uint32_t>( s ), slot.User );
         gpu.CurveFloats  = curves.GetValue().Floats;
         gpu.FloatColumns = compiled.GetValue().Layout.TotalFloatComponents;
         gpu.IntColumns   = compiled.GetValue().Layout.TotalIntComponents;
@@ -327,6 +332,31 @@ namespace Desert::Graphic::System
         }
     }
 
+    void ParticleWorldGpu::ApplyUserOverrides( ParticleSystemGpu& system,
+                                               const std::vector<ECS::VFXUserOverride>& overrides,
+                                               const uint32_t entityId )
+    {
+        // UE OverrideParameters: the placement's value replaces the row the stack's User binding reads; the
+        // rows go up with the next step (PrepareEmitter uploads ParamRows every simulated tick).
+        system.Overrides = overrides;
+        const auto& rows = system.System->UserParams;
+        for ( const ECS::VFXUserOverride& o : overrides )
+            if ( std::none_of( rows.begin(), rows.end(),
+                               [&]( const Assets::Serialization::VFXUserParam& p ) { return p.Name == o.Name; } ) )
+                LOG_ERROR( "[VFX] entity {}: the override of User.{} names no User parameter of its system - it "
+                           "plays nothing",
+                           entityId, o.Name );
+        for ( ParticleEmitterGpu& gpu : system.Emitters )
+            for ( const auto& [row, name] : gpu.UserRows )
+            {
+                const auto it = std::find_if( rows.begin(), rows.end(),
+                                              [&]( const Assets::Serialization::VFXUserParam& p )
+                                              { return p.Name == name; } );
+                if ( it != rows.end() && row < gpu.ParamRows.size() )
+                    gpu.ParamRows[row] = Assets::Serialization::UserParamValue( *it, overrides );
+            }
+    }
+
     bool ParticleWorldGpu::EnsurePoolCapacity( const uint32_t particles )
     {
         if ( particles <= m_Pool.Capacity && m_Pool.Slots )
@@ -379,12 +409,10 @@ namespace Desert::Graphic::System
         if ( retired > 0 )
             LOG_INFO( "[Particles] Released {} system(s) whose entity is gone.", retired );
         m_Ranges.ReleaseUnless( [this]( const uint32_t key ) { return m_Systems.contains( key ); } );
-        // The random streams' step: unique per fixed step of the world's life (Stack.x + step).
-        const auto stepSerial = static_cast<uint32_t>( world.GetTickSerial() * std::max( 1u, stepCapacity ) );
 
         auto view = reg.view<const ECS::VFXComponent, const ECS::TransformComponent, const ECS::UUIDComponent>();
         view.each(
-             [&]( entt::entity entity, const ECS::VFXComponent&, const ECS::TransformComponent& transform,
+             [&]( entt::entity entity, const ECS::VFXComponent& vfx, const ECS::TransformComponent& transform,
                   const ECS::UUIDComponent& id )
              {
                  const VFX::SystemInstance* instances = world.FindSystem( static_cast<uint64_t>( id.UUID ) );
@@ -401,7 +429,10 @@ namespace Desert::Graphic::System
                      system.Emitters.resize( instances->System->Emitters.size() );
                      for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
                          BuildEmitter( system.Emitters[k], *instances->System, k, entityId );
+                     ApplyUserOverrides( system, vfx.Data.Overrides, entityId );
                  }
+                 else if ( system.Overrides != vfx.Data.Overrides )
+                     ApplyUserOverrides( system, vfx.Data.Overrides, entityId );
 
                  // One range of the pool per system, each emitter a slice of it in emitter order.
                  uint32_t total = 0;
@@ -424,7 +455,7 @@ namespace Desert::Graphic::System
                      if ( !EnsureTickBuffers( gpu, stepCapacity ) )
                          continue;
                      if ( !PrepareEmitter( gpu, *instance, instances->System->Emitters[k], range, entityId,
-                                           static_cast<uint32_t>( k ), worldPos, stepSeconds, stepSerial ) )
+                                           static_cast<uint32_t>( k ), worldPos, stepSeconds ) )
                          continue;
                  }
              } );
@@ -456,7 +487,7 @@ namespace Desert::Graphic::System
                                            const Assets::Serialization::VFXEmitterData& data,
                                            const ParticlePoolRange& range, const uint32_t entityId,
                                            const uint32_t emitterIndex, const glm::vec3& worldPos,
-                                           const float stepSeconds, const uint32_t stepSerial )
+                                           const float stepSeconds )
     {
         const VFX::EmitterInstance* instance = &emitter;
         // The emitter's range of the pool; a new or moved range starts dead.
@@ -585,7 +616,9 @@ namespace Desert::Graphic::System
         fe.StepCount       = stepCount;
         fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
-        fe.Push.Stack      = glm::uvec4( stepSerial, 0u, 0u, 0u );
+        // The random streams' step (Stack.x + step): the emitter's own step since its reset, never the world's
+        // tick - the same age draws the same numbers however it was reached (play, scrub forward, scrub back).
+        fe.Push.Stack = glm::uvec4( instance->FirstStep, 0u, 0u, 0u );
         fe.Renderers.reserve( data.Renderers.size() );
         for ( std::size_t r = 0; r < data.Renderers.size(); ++r )
         {

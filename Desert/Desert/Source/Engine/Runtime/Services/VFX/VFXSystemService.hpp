@@ -37,6 +37,10 @@ namespace Desert::Runtime
         /// name, two of them, or a first read that failed.
         Common::ResultStr<Assets::Asset<Assets::VFXEffectTypeAsset>> EffectType( const std::string& name );
 
+        /// Forgets the copy of @p handle, so the next Get adopts the asset's data afresh - a new pointer, so every
+        /// component playing it starts over. Called after the editor saved the system (VFX-12).
+        void Refresh( const Assets::AssetHandle& handle );
+
         void Clear();
 
     private:

@@ -8,9 +8,10 @@ Shader "InitializeSpriteSize"
     Domain Particle
     Particle
     {
+        Usage ParticleSpawn
         Attribute SpriteSize vec2
         Attribute InitialSpriteSize vec2
-        Input Size vec2
+        Input Size vec2 = 10 10
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

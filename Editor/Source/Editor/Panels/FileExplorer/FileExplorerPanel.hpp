@@ -108,6 +108,8 @@ namespace Desert::Editor
         // A `.dfxch` with one Position field in the current folder, selected once listed. The ONE creation route
         // for the context menu and the palette's "Assets / New VFX Data Channel".
         Common::BoolResultStr CreateNewVFXDataChannel();
+        // A copy of an engine VFX system template (NewAssetMenu::VFXSystemTemplates) in the current folder.
+        Common::BoolResultStr CreateVFXSystemFromTemplate( const std::filesystem::path& templateFile );
 
         void ChangeDirectory( DirectoryInformation* directory );
         // Hand the pictures of m_CurrentDir's tiles to ThumbnailPrefetch so a worker decodes them before

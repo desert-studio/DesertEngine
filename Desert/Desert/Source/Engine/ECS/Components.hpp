@@ -6,6 +6,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -33,6 +34,11 @@
 #include <Engine/Scripting/ScriptProperty.hpp>
 
 #include <CoreReflection/ReflectionMacros.hpp>
+
+namespace Desert::Assets::Serialization
+{
+    struct VFXSystemData;
+}
 #include <UI/Args/UIArgs.hpp>
 
 // Components big enough to own a file. They live in Desert::ECS like everything below, and are included
@@ -52,6 +58,7 @@
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/ECS/VFXUserOverride.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
@@ -1287,6 +1294,33 @@ namespace Desert::ECS
         // UE bAutoActivate: false = the system is placed but bears no particles until it is activated.
         PROPERTY( DisplayName( "Auto Activate" ), Category( "VFX" ) )
         bool AutoActivate = true;
+
+        // UE UNiagaraComponent::OverrideParameters: this placement's values for the system's User parameters
+        // (a parameter absent here plays its Default from the `.dfx`). Read by the spawn plan (VFXWorld) and the
+        // GPU parameter rows (ParticleWorldGpu) every tick. Drawn by the VFX entry's "User Parameters" section,
+        // which lists the SYSTEM's rows (a name, a type, a default) - a bare list of name/value pairs cannot.
+        PROPERTY( DisplayName( "User Parameters" ), Category( "VFX" ), Hidden,
+                  Tooltip( "This placement's values for the system's User parameters" ) )
+        std::vector<VFXUserOverride> Overrides;
+
+        /// UE SetVariable*: this placement's User.<name> becomes @p value (packed like the row's Default),
+        /// starting from the next VFX tick. The type is the system's to check (VFX.setVariable does).
+        void SetVariable( std::string_view name, const glm::vec4& value )
+        {
+            for ( VFXUserOverride& o : Overrides )
+                if ( o.Name == name )
+                {
+                    o.Value = value;
+                    return;
+                }
+            Overrides.push_back( VFXUserOverride{ std::string( name ), value } );
+        }
+
+        /// The parameter plays its Default again (UE: resetting an override in the Details panel).
+        void ClearVariable( std::string_view name )
+        {
+            std::erase_if( Overrides, [&]( const VFXUserOverride& o ) { return o.Name == name; } );
+        }
     };
 
     struct VFXComponent
@@ -1296,6 +1330,12 @@ namespace Desert::ECS
 
         // One-shot restart from the editor (every emitter of the system starts over). Transient - not reflected.
         bool RequestRestart = false;
+
+        // The VFX System editor's working copy (UE: the Niagara editor previews its own copy of the system, not
+        // the asset): when set, this component plays it instead of what Data.System names. Set only on the
+        // preview scene's effect, never on a level's; a new pointer is a new system - every emitter starts over.
+        // Transient - not reflected.
+        std::shared_ptr<const Assets::Serialization::VFXSystemData> EditedSystem;
     };
 
     // ============================================================

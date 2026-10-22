@@ -8,10 +8,11 @@ Shader "InitializeRotation"
     Domain Particle
     Particle
     {
+        Usage ParticleSpawn
         Attribute SpriteRotation float
         Attribute SpriteRotationRate float
-        Input Rotation float
-        Input RotationRate float
+        Input Rotation float = 0
+        Input RotationRate float = 0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -329,6 +330,25 @@ namespace Desert::Editor
         // copy, so an edit shows without an Apply).
         void SetVolumeMaterial( const Assets::AssetHandle& material );
 
+        // A `.dfx` system played by one VFXComponent in the preview scene, on the floor, realtime (an effect moves
+        // every frame, so the change-gated render would freeze it), framed by the system's fixed Bounds (local
+        // space, cm; UE: the Niagara editor viewport frames the system's fixed bounds). Zero clears like Clear().
+        void SetVFXSystem( const Assets::AssetHandle& system, const Assets::Serialization::VFXBounds& bounds );
+        // UE Reset Simulation: every emitter of the previewed system starts over (VFXComponent::RequestRestart)
+        // and the preview's effects clock goes back to zero, so a desired age (SetVFXDesiredAge) is replayed from
+        // there.
+        void RestartVFX();
+        /// The VFX System editor's transport: the preview's effects clock in DesiredAge mode at @p age seconds
+        /// (each scene update seeks to it; a pause is the same age twice), or nullopt for the scene's own delta.
+        void SetVFXDesiredAge( std::optional<double> age );
+        /// The age the preview's effects clock has reached (whole fixed steps; behind a desired age while a long
+        /// seek is spread over several updates) and the length of one fixed step.
+        [[nodiscard]] double GetVFXAge() const;
+        [[nodiscard]] double GetVFXStepSeconds() const;
+        /// Plays @p working (the VFX System editor's unsaved copy) instead of the asset SetVFXSystem named; null
+        /// returns to the asset. A new pointer starts every emitter over (VFXWorld keys instances by it).
+        void SetVFXWorkingCopy( std::shared_ptr<const Assets::Serialization::VFXSystemData> working );
+
         void Clear();
 
         // WHAT THE CALLER KNOWS ABOUT ITS SUBJECT that this widget cannot see: the parameter values of the
@@ -503,6 +523,7 @@ namespace Desert::Editor
         // modelling volume of 8 MiB and a sky-occlusion volume of 2 MiB per renderer, which no material
         // preview should pay for by existing.
         ECS::Entity m_CloudLayer;
+        ECS::Entity m_Effect; // SetVFXSystem's VFXComponent, created on first use
 
         Fill                m_Fill       = Fill::Empty;
         bool                m_Inited     = false;

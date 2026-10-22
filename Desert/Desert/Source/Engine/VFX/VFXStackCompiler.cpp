@@ -1,6 +1,7 @@
 #include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <Engine/VFX/VFXCurveLUT.hpp>
+#include <Engine/VFX/VFXEmitterSpawn.hpp>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
@@ -8,12 +9,14 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <format>
 #include <fstream>
 #include <iterator>
 #include <map>
 #include <set>
 #include <sstream>
+#include <system_error>
 
 namespace Desert::VFX
 {
@@ -234,6 +237,62 @@ namespace Desert::VFX
         }
     } // namespace
 
+    std::string_view StageName( const VFXStage stage )
+    {
+        switch ( stage )
+        {
+            case VFXStage::EmitterSpawn:
+                return "EmitterSpawn";
+            case VFXStage::EmitterUpdate:
+                return "EmitterUpdate";
+            case VFXStage::ParticleSpawn:
+                return "ParticleSpawn";
+            case VFXStage::ParticleUpdate:
+                return "ParticleUpdate";
+        }
+        return "EmitterUpdate";
+    }
+
+    Common::ResultStr<VFXModuleDescription> DescribeModule( const S::VFXSystemData&      system,
+                                                            const std::string&           ref,
+                                                            const std::filesystem::path& engineModuleDir )
+    {
+        VFXModuleDescription description;
+        description.Ref = ref;
+        if ( const std::vector<VFXModuleInputDecl>* cpu = EmitterModuleInputs( ref ) )
+        {
+            description.Usage  = EmitterModuleUsage( ref );
+            description.Inputs = *cpu;
+            return Common::MakeSuccess( std::move( description ) );
+        }
+        auto resolved = ResolveModule( system, ref, engineModuleDir, ref );
+        if ( !resolved.IsSuccess() )
+            return Common::MakeError<VFXModuleDescription>( resolved.GetError() );
+        VFXParticleModule module = std::move( resolved.ExtractValue().Module );
+        description.Usage        = module.Usage;
+        description.Inputs       = std::move( module.Inputs );
+        return Common::MakeSuccess( std::move( description ) );
+    }
+
+    std::vector<std::string> ListModules( const S::VFXSystemData& system, const std::filesystem::path& engineModuleDir )
+    {
+        std::vector<std::string> out;
+        for ( const std::string_view cpu : EmitterModules() )
+            out.emplace_back( cpu );
+        std::vector<std::string> engine;
+        std::error_code          ec;
+        for ( const auto& entry : std::filesystem::directory_iterator( engineModuleDir, ec ) )
+        {
+            if ( entry.is_regular_file( ec ) && entry.path().extension() == ".shader" )
+                engine.push_back( std::format( "{}{}", S::kVFXEnginePrefix, entry.path().stem().string() ) );
+        }
+        std::sort( engine.begin(), engine.end() );
+        out.insert( out.end(), engine.begin(), engine.end() );
+        for ( const S::VFXLocalModule& local : system.LocalModules )
+            out.push_back( std::format( "{}{}", S::kVFXLocalPrefix, local.Id ) );
+        return out;
+    }
+
     std::string_view GlslTypeName( VFXValueType type )
     {
         switch ( type )
@@ -274,6 +333,7 @@ namespace Desert::VFX
                  where );
 
         VFXParticleModule     module;
+        bool                  sawUsage = false;
         std::set<std::string> attributeNames;
         std::set<std::string> inputNames;
         const std::string&    source = meta.ParticleSource;
@@ -290,25 +350,85 @@ namespace Desert::VFX
                 pos = end + 1;
                 continue;
             }
+            if ( keyword == "Usage" )
+            {
+                if ( sawUsage )
+                    return Common::MakeFormattedError<VFXParticleModule>( "{}: `Usage` is declared twice", where );
+                sawUsage = true;
+                std::string stage;
+                while ( words >> stage )
+                {
+                    uint8_t bit = 0;
+                    if ( stage == StageName( VFXStage::ParticleSpawn ) )
+                        bit = UsageBit( VFXStage::ParticleSpawn );
+                    else if ( stage == StageName( VFXStage::ParticleUpdate ) )
+                        bit = UsageBit( VFXStage::ParticleUpdate );
+                    else
+                        return Common::MakeFormattedError<VFXParticleModule>(
+                             "{}: '{}' is not `Usage <ParticleSpawn|ParticleUpdate>...` (EmitterUpdate modules are "
+                             "the CPU ones)",
+                             where, line );
+                    module.Usage |= bit;
+                }
+                if ( module.Usage == 0 )
+                    return Common::MakeFormattedError<VFXParticleModule>( "{}: `Usage` names no stage", where );
+                pos = end + 1;
+                continue;
+            }
             if ( keyword != "Attribute" && keyword != "Input" )
                 break; // the GLSL starts here
 
+            const bool  isInput = keyword == "Input";
             std::string name;
             std::string typeWord;
-            std::string extra;
-            words >> name >> typeWord >> extra;
+            words >> name >> typeWord;
             VFXValueType type = VFXValueType::Float;
-            if ( !IsIdentifier( name ) || !ParseType( typeWord, type ) || !extra.empty() )
+            bool         ok   = IsIdentifier( name ) && ParseType( typeWord, type );
+            glm::vec4    initial( 0.0f );
+            std::string  extra;
+            if ( ok && isInput )
+            {
+                // `= <one number per component>`: the default a new stack row starts from.
+                std::string equals;
+                words >> equals;
+                ok = equals == "=";
+                const uint32_t components = S::ComponentCount( type );
+                for ( uint32_t c = 0; ok && c < components; ++c )
+                {
+                    std::string number;
+                    words >> number;
+                    char*       stop  = nullptr;
+                    const float value = number.empty() ? 0.0f : std::strtof( number.c_str(), &stop );
+                    ok                = !number.empty() && stop != nullptr && *stop == '\0';
+                    if ( ok && type == VFXValueType::Bool )
+                        ok = value == 0.0f || value == 1.0f;
+                    if ( ok && type == VFXValueType::Int )
+                        ok = value == static_cast<float>( static_cast<int>( value ) );
+                    initial[static_cast<int>( c )] = value;
+                }
+            }
+            words >> extra;
+            if ( ( !ok || !extra.empty() ) && isInput )
                 return Common::MakeFormattedError<VFXParticleModule>(
-                     "{}: '{}' is not `{} <Name> <float|vec2|vec3|vec4|int|bool>`", where, line, keyword );
-            auto& names = keyword == "Attribute" ? attributeNames : inputNames;
+                     "{}: '{}' is not `Input <Name> <float|vec2|vec3|vec4|int|bool> = <one number per component>`",
+                     where, line );
+            if ( !ok || !extra.empty() )
+                return Common::MakeFormattedError<VFXParticleModule>(
+                     "{}: '{}' is not `Attribute <Name> <float|vec2|vec3|vec4|int|bool>`", where, line );
+            auto& names = isInput ? inputNames : attributeNames;
             if ( !names.insert( name ).second )
                 return Common::MakeFormattedError<VFXParticleModule>( "{}: {} '{}' is declared twice", where,
                                                                       keyword, name );
-            ( keyword == "Attribute" ? module.Attributes : module.Inputs ).push_back( { name, type } );
+            if ( isInput )
+                module.Inputs.push_back( { name, type, initial } );
+            else
+                module.Attributes.push_back( { name, type } );
             pos = end + 1;
         }
         module.Body = pos < source.size() ? source.substr( pos ) : std::string{};
+        if ( !sawUsage )
+            return Common::MakeFormattedError<VFXParticleModule>(
+                 "{}: the Particle block declares no `Usage <ParticleSpawn|ParticleUpdate>...`", where );
 
         // The function the stack calls must be there; anything else in the body is the shader compiler's to judge.
         bool        definesModule = false;
@@ -411,6 +531,11 @@ namespace Desert::VFX
                     moduleOrder.push_back( use.Module );
                 }
                 const VFXParticleModule& module = modules.at( use.Module ).Module;
+                const VFXStage           stage  = group == VFXStackGroup::ParticleSpawn ? VFXStage::ParticleSpawn
+                                                                                        : VFXStage::ParticleUpdate;
+                if ( ( module.Usage & UsageBit( stage ) ) == 0 )
+                    return Common::MakeFormattedError<Result>( "{}: the module's Usage does not include {}", where,
+                                                               StageName( stage ) );
                 for ( const VFXModuleDecl& a : module.Attributes )
                     if ( auto ok = addAttribute( a.Name, a.Type, where ); !ok.IsSuccess() )
                         return Common::MakeError<Result>( ok.GetError() );
@@ -422,7 +547,7 @@ namespace Desert::VFX
                     if ( !seen.insert( in.Name ).second )
                         return Common::MakeFormattedError<Result>( "{}: given twice", inWhere );
                     const auto decl = std::find_if( module.Inputs.begin(), module.Inputs.end(),
-                                                    [&]( const VFXModuleDecl& d ) { return d.Name == in.Name; } );
+                                                    [&]( const VFXModuleInputDecl& d ) { return d.Name == in.Name; } );
                     if ( decl == module.Inputs.end() )
                         return Common::MakeFormattedError<Result>( "{}: the module declares no such input",
                                                                    inWhere );
@@ -442,7 +567,7 @@ namespace Desert::VFX
                              !ok.IsSuccess() )
                             return Common::MakeError<Result>( ok.GetError() );
                 }
-                for ( const VFXModuleDecl& d : module.Inputs )
+                for ( const VFXModuleInputDecl& d : module.Inputs )
                     if ( !seen.contains( d.Name ) )
                         return Common::MakeFormattedError<Result>(
                              "{}: input '{}' is declared by the module and not "
@@ -483,7 +608,7 @@ namespace Desert::VFX
                                 0x80000000u + ( ( group == VFXStackGroup::ParticleSpawn ? 0u : 1u ) * 4096u +
                                                 static_cast<uint32_t>( m ) ) *
                                                    16u );
-                for ( const VFXModuleDecl& d : resolved.Module.Inputs )
+                for ( const VFXModuleInputDecl& d : resolved.Module.Inputs )
                 {
                     const S::VFXModuleInput& in = *std::find_if(
                          use.Inputs.begin(), use.Inputs.end(), [&]( const auto& x ) { return x.Name == d.Name; } );
@@ -538,7 +663,7 @@ namespace Desert::VFX
             const ResolvedModule& resolved = modules.at( ref );
             std::format_to( std::back_inserter( body ), "\n// {}\nstruct {}\n{{\n", ref, resolved.Inputs );
             body += "    uint VFXModuleKey;\n";
-            for ( const VFXModuleDecl& d : resolved.Module.Inputs )
+            for ( const VFXModuleInputDecl& d : resolved.Module.Inputs )
                 std::format_to( std::back_inserter( body ), "    {} {};\n", GlslTypeName( d.Type ), d.Name );
             body += "};\n";
             body += RenameModuleSymbols( resolved.Module.Body, resolved.Function, resolved.Inputs );

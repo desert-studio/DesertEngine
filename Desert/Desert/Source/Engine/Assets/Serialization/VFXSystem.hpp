@@ -12,6 +12,7 @@
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Engine/ECS/VFXUserOverride.hpp>
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/glm.hpp>
@@ -144,6 +145,9 @@ namespace Desert::Assets::Serialization
     /// The stack, in execution order inside each group (the array index IS the order).
     struct VFXEmitterStack
     {
+        /// UE's Emitter Spawn group: runs once when the emitter instance starts. A file written before the group
+        /// existed states no key and reads as the empty group it was.
+        std::vector<VFXModuleUse> EmitterSpawn;
         std::vector<VFXModuleUse> EmitterUpdate;
         std::vector<VFXModuleUse> ParticleSpawn;
         std::vector<VFXModuleUse> ParticleUpdate;
@@ -255,6 +259,12 @@ namespace Desert::Assets::Serialization
 
         [[nodiscard]] bool operator==( const VFXUserParam& ) const = default;
     };
+
+
+    /// What User.<row.Name> is for a placement with @p overrides: its override when it has one, else the row's
+    /// Default. The one rule both the CPU spawn plan and the GPU parameter rows read.
+    [[nodiscard]] glm::vec4 UserParamValue( const VFXUserParam&                 row,
+                                            const std::vector<ECS::VFXUserOverride>& overrides );
 
     /// A module that lives inside the system (UE Scratch Pad): its DSL fragment in the Particle domain.
     struct VFXLocalModule

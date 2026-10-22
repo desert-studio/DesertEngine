@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -51,6 +52,11 @@ namespace Desert::VFX
         std::uint64_t Generation = 0;
 
         std::uint32_t NextId = 0; // particle ids handed out since the last reset
+        // The effect's own step counter (UE: the system instance's tick count, not the world's): steps run since
+        // the last reset, and the first of this tick's Steps. Per-step random streams key on it, so an age reached
+        // by playing, by a forward seek or by a backwards seek (reset + replay) draws the same numbers.
+        std::uint32_t StepsRun  = 0;
+        std::uint32_t FirstStep = 0;
         SpawnState    Spawn;      // the births of each step (VFXEmitterSpawn): lifecycle, rate, bursts
         double        SpawnCountScale = 1.0; // this tick's Effects spawn-count scale (VFXWorld::Tick sets it)
 
@@ -91,6 +97,9 @@ namespace Desert::VFX
         VFXCullReason Reason        = VFXCullReason::None;
         double        AgeSeconds    = 0.0; // effects time since the instance (re)started (Age significance)
         double        HiddenSeconds = 0.0; // outside every view's frustum so far (MaxTimeWithoutRender)
+        // The VFXComponent's User overrides the plans were compiled with: a change recompiles the plans and
+        // keeps every instance running (UE: a SetVariable mid-flight changes the next spawns, not the past).
+        std::vector<ECS::VFXUserOverride> Overrides;
     };
 
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, std::uint32_t stepCount,
@@ -184,6 +193,15 @@ namespace Desert::VFX
             m_Clock.Reset();
         }
 
+        // UE ENiagaraAgeUpdateMode: nullopt = TickDeltaTime (time flows by the scene's delta); an age = DesiredAge
+        // - every Tick seeks to it and ignores the delta, so whoever owns the age (the VFX System editor's
+        // transport: play, pause, scrub, step) owns the simulation's time, and an age reached by scrubbing is the
+        // state reached by playing (Clock::SeekTo replays from zero when going back).
+        void SetDesiredAge( std::optional<double> age )
+        {
+            m_DesiredAge = age;
+        }
+
         // A world emptied with its scene: the clock back to zero, every instance forgotten.
         void Clear();
 
@@ -268,6 +286,7 @@ namespace Desert::VFX
 
         Clock                                              m_Clock;
         TickPlan                                           m_Plan;
+        std::optional<double>                              m_DesiredAge; // see SetDesiredAge
         std::unordered_map<std::uint64_t, SystemInstance>  m_Systems;
         std::uint64_t                                      m_LastGeneration = 0;
         std::uint64_t                                      m_TickSerial     = 0;

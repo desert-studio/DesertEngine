@@ -8,9 +8,10 @@ Shader "ShapeSphere"
     Domain Particle
     Particle
     {
+        Usage ParticleSpawn
         Attribute Position vec3
-        Input Radius float
-        Input Offset vec3
+        Input Radius float = 50
+        Input Offset vec3 = 0 0 0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

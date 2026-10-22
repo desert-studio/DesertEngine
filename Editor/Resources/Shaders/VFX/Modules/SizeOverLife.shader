@@ -7,9 +7,10 @@ Shader "SizeOverLife"
     Domain Particle
     Particle
     {
+        Usage ParticleUpdate
         Attribute SpriteSize vec2
         Attribute InitialSpriteSize vec2
-        Input Scale vec2
+        Input Scale vec2 = 1 1
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

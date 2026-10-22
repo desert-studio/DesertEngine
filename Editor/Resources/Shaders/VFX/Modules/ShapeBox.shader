@@ -8,11 +8,12 @@ Shader "ShapeBox"
     Domain Particle
     Particle
     {
+        Usage ParticleSpawn
         Attribute Position vec3
-        Input Size vec3
-        Input SurfaceOnly bool
-        Input Thickness vec3
-        Input Offset vec3
+        Input Size vec3 = 100 100 100
+        Input SurfaceOnly bool = 0
+        Input Thickness vec3 = 0 0 0
+        Input Offset vec3 = 0 0 0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

@@ -90,13 +90,14 @@ namespace
     // A local (scratch pad) module: a lifetime from its input, a start velocity bound to the position, a bool.
     const char* kInitSource = "Shader \"VFX/Local/Init\"\n{\n    Domain Particle\n    Particle\n    {\n"
                               "        // the declarations come first\n"
+                              "        Usage ParticleSpawn\n"
                               "        Attribute Lifetime float\n"
                               "        Attribute Velocity vec3\n"
                               "        Attribute Alive bool\n"
                               "        Attribute Spin int\n"
-                              "        Input Life float\n"
-                              "        Input Origin vec3\n"
-                              "        Input Turns int\n"
+                              "        Input Life float = 1\n"
+                              "        Input Origin vec3 = 0 0 0\n"
+                              "        Input Turns int = 0\n"
                               "        void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )\n"
                               "        {\n"
                               "            p.Lifetime = i.Life;\n"
@@ -199,7 +200,9 @@ TEST( VFXStackCompile, AnEngineModuleParsesIntoDeclarationsAndBody )
     const auto& m = module.GetValue();
     EXPECT_EQ( m.Attributes, ( std::vector<VFX::VFXModuleDecl>{ { "PhysicsForce", S::VFXValueType::Vec3 },
                                                                 { "Mass", S::VFXValueType::Float } } ) );
-    EXPECT_EQ( m.Inputs, ( std::vector<VFX::VFXModuleDecl>{ { "Gravity", S::VFXValueType::Vec3 } } ) );
+    EXPECT_EQ( m.Usage, VFX::UsageBit( VFX::VFXStage::ParticleUpdate ) );
+    EXPECT_EQ( m.Inputs, ( std::vector<VFX::VFXModuleInputDecl>{
+                              { "Gravity", S::VFXValueType::Vec3, glm::vec4( 0.0f, -981.0f, 0.0f, 0.0f ) } } ) );
     EXPECT_NE( m.Body.find( "void Module(" ), std::string::npos );
     EXPECT_EQ( m.Body.find( "Attribute" ), std::string::npos );
 }

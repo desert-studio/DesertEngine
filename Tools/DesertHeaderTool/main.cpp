@@ -1078,9 +1078,11 @@ namespace
                             else if ( std::string elem = VectorElement( typeName ); !elem.empty() )
                             {
                                 std::string et = MapFieldType( elem );
-                                // Supported element types (scalars + asset handle). vector<struct/vec> later.
+                                // Supported element types: scalars, an asset handle, and a REFLECT( ScriptStruct )
+                                // (UE TArray<FStruct>): its JSON halves go through reflect-cpp like any block, its
+                                // Value through ValueTraits<ScriptStruct> (FunctionThunk.hpp). vector<vec> later.
                                 if ( et == "AssetHandle" || et == "Bool" || et == "Int" || et == "UInt" ||
-                                     et == "Float" || et == "Double" || et == "String" )
+                                     et == "Float" || et == "Double" || et == "String" || et == "Struct" )
                                 {
                                     f.isContainer   = true;
                                     f.elemFieldType = et;

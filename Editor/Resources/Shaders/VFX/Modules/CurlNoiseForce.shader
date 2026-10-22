@@ -11,12 +11,13 @@ Shader "CurlNoiseForce"
     Domain Particle
     Particle
     {
+        Usage ParticleUpdate
         Attribute Position vec3
         Attribute PhysicsForce vec3
-        Input Strength float
-        Input Frequency float
-        Input Pan vec3
-        Input Offset vec3
+        Input Strength float = 100
+        Input Frequency float = 0.02
+        Input Pan vec3 = 0 0 0
+        Input Offset vec3 = 0 0 0
 
         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
         {

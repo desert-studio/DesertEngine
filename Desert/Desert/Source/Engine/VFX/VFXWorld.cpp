@@ -23,6 +23,8 @@ namespace Desert::VFX
     {
         instance.Generation = ++m_LastGeneration;
         instance.NextId     = 0;
+        instance.StepsRun   = 0;
+        instance.FirstStep  = 0;
         instance.Spawn      = {};
     }
 
@@ -123,6 +125,8 @@ namespace Desert::VFX
         }
         const std::uint32_t channelParticles = batch.ParticleCount();
 
+        instance.FirstStep = instance.StepsRun;
+        instance.StepsRun += stepCount;
         instance.Steps.reserve( stepCount );
         for ( std::uint32_t s = 0; s < stepCount; ++s )
         {
@@ -150,7 +154,9 @@ namespace Desert::VFX
             if ( m_FrozenSteps > 0 )
                 --m_FrozenSteps;
         }
-        m_Plan = m_Clock.Advance( seconds );
+        if ( m_DesiredAge )
+            m_Clock.SeekTo( *m_DesiredAge ); // served by this Advance: no steps when the age is already reached
+        m_Plan = m_Clock.Advance( m_DesiredAge ? 0.0 : seconds );
 
         if ( m_Plan.Reset )
             for ( auto& entry : m_Systems )
@@ -198,10 +204,15 @@ namespace Desert::VFX
                      return; // an empty slot plays nothing
                  // Pending = not yet read (the system starts when it lands); a failed read is logged once by the
                  // service, naming the handle.
-                 const auto resolved = systems->Get( vfx.Data.System );
-                 if ( !resolved.IsSuccess() || !resolved.GetValue() )
-                     return;
-                 const auto& data = resolved.GetValue();
+                 // The editor's working copy, when the component carries one, is what plays (VFX-12).
+                 std::shared_ptr<const Assets::Serialization::VFXSystemData> data = vfx.EditedSystem;
+                 if ( !data )
+                 {
+                     const auto resolved = systems->Get( vfx.Data.System );
+                     if ( !resolved.IsSuccess() || !resolved.GetValue() )
+                         return;
+                     data = resolved.GetValue();
+                 }
 
                  const std::uint64_t uuid   = id.UUID;
                  SystemInstance&     system = m_Systems[uuid];
@@ -220,9 +231,10 @@ namespace Desert::VFX
                      system.Reason        = VFXCullReason::None;
                      system.AgeSeconds    = 0.0;
                      system.HiddenSeconds = 0.0;
+                     system.Overrides = vfx.Data.Overrides;
                      for ( std::size_t k = 0; k < count; ++k )
                      {
-                         auto plan = CompileSpawnPlan( *data, k );
+                         auto plan = CompileSpawnPlan( *data, k, system.Overrides );
                          if ( !plan.IsSuccess() )
                          {
                              LOG_ERROR( "[VFX] entity {} emitter {} '{}' bears nothing: {}", uuid, k,
@@ -242,6 +254,27 @@ namespace Desert::VFX
                      LOG_INFO( "[VFX] entity {} system {} ({} emitter(s), {} pool particles, seed {})", uuid,
                                firstSight ? "spawned" : "restarted (asset changed)", count,
                                RunningPoolParticles( system ), data->Seed );
+                 }
+                 else if ( system.Overrides != vfx.Data.Overrides )
+                 {
+                     // The placement's User values moved (Details, VFX.setVariable): the plans read them again;
+                     // the instances keep their age and carried fractions.
+                     system.Overrides = vfx.Data.Overrides;
+                     for ( std::size_t k = 0; k < system.Plans.size(); ++k )
+                     {
+                         auto plan = CompileSpawnPlan( *data, k, system.Overrides );
+                         if ( !plan.IsSuccess() )
+                         {
+                             LOG_ERROR( "[VFX] entity {} emitter {} '{}' bears nothing: {}", uuid, k,
+                                        data->Emitters[k].Name, plan.GetError() );
+                             system.Runs[k] = false;
+                         }
+                         else
+                         {
+                             system.Plans[k] = plan.GetValue();
+                             system.Runs[k]  = data->Emitters[k].Enabled;
+                         }
+                     }
                  }
                  system.Seen   = true;
                  system.Entity = entity;

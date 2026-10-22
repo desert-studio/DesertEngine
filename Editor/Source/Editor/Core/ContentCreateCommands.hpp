@@ -20,6 +20,9 @@ namespace Desert::Editor
     inline constexpr std::string_view kNewInputMappingContextLabel = "New Input Mapping Context";
     // UE's "Niagara Data Channel" under the FX category; the same one-spelling rule.
     inline constexpr std::string_view kNewVFXDataChannelLabel = "New VFX Data Channel";
+    // UE Niagara's "New System from Template" (the template picker); the palette entry is
+    // "<label>: <template name>", one per template file.
+    inline constexpr std::string_view kNewVFXSystemFromTemplateLabel = "New VFX System from Template";
 
     // "Assets / New Level Sequence". The creation itself is FileExplorerPanel::CreateNewLevelSequence and
     // nothing here: the entry is handed that one route and answers with its outcome, so the palette, the
