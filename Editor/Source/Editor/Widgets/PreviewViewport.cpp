@@ -845,7 +845,8 @@ namespace Desert::Editor
         ResetView();
     }
 
-    void PreviewViewport::SetVFXSystem( const Assets::AssetHandle& system )
+    void PreviewViewport::SetVFXSystem( const Assets::AssetHandle&                system,
+                                       const Assets::Serialization::VFXBounds& bounds )
     {
         if ( static_cast<uint64_t>( system ) == 0 )
         {
@@ -878,15 +879,19 @@ namespace Desert::Editor
         vfx.Data.AutoActivate = true;
         vfx.RequestRestart    = true;
         // On the floor's top (the floor entity sits at y = -50, ApplySetup).
-        m_Effect.GetComponent<ECS::TransformComponent>().Translation = glm::vec3( 0.0f, -50.0f, 0.0f );
+        const glm::vec3 origin( 0.0f, -50.0f, 0.0f );
+        m_Effect.GetComponent<ECS::TransformComponent>().Translation = origin;
 
         m_MeshHandle      = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         m_Fill            = Fill::Object;
         m_HasContent      = true;
-        m_FrameHalfExtent = glm::vec3( 100.0f ); // a 2 m effect box until the system's Bounds feed the framing
-        m_FrameRadius     = RadiusOfHalfExtent( m_FrameHalfExtent );
+        // Framed by the system's fixed Bounds, placed at the effect's origin (no rotation or scale on the preview
+        // effect): the box the GPU emitters live in is the box the camera fits.
+        m_FrameHalfExtent = glm::max( ( bounds.Max - bounds.Min ) * 0.5f, glm::vec3( 0.0f ) );
+        m_FrameRadius     = std::max( RadiusOfHalfExtent( m_FrameHalfExtent ), 1.0f );
+        m_FrameIsRound    = false; // fitted by its box, as a measured mesh
         ResetView();
-        m_Focus    = glm::vec3( 0.0f, 25.0f, 0.0f );
+        m_Focus    = origin + ( bounds.Min + bounds.Max ) * 0.5f;
         m_Framed   = true;
         m_Realtime = true;
     }
