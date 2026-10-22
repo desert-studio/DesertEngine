@@ -109,7 +109,7 @@ namespace Desert::Geometry
             if ( after >= before || a <= 3 || b <= 3 )
                 return false;
             const Index2i              et = mesh.GetEdgeT( eid );
-            const glm::dvec3 n0 = mesh.GetTriNormal( et.A ), n1 = mesh.GetTriNormal( et.B );
+            const glm::dvec3           n0 = mesh.GetTriNormal( et.A ), n1 = mesh.GetTriNormal( et.B );
             // A pair that is already folded (or degenerate) has no side to keep: normalising n0 + n1 there gives
             // NaN, every comparison with it is false, and the flip went through unchecked (M27 p9: 1..12
             // inward triangles per stroke). UE CheckIfFlipInvertsNormals refuses it; so does this.
