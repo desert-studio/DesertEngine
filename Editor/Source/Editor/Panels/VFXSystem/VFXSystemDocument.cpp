@@ -550,7 +550,7 @@ namespace Desert::Editor
                 ImGui::SameLine();
                 const std::string label = std::format( "{}{}", use.Module, use.Enabled ? "" : "  (disabled)" );
                 const bool        open  = ImGui::TreeNodeEx(
-                     "##module", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap, "%s",
+                     "##module", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap, "%s",
                      label.c_str() );
                 ImGui::SameLine(
                      std::max( ImGui::GetContentRegionMax().x - 3.0f * ImGui::GetFrameHeight(), 0.0f ) );
