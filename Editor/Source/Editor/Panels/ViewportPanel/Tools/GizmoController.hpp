@@ -44,9 +44,9 @@ namespace Desert::Editor::Tools
         // @p handles: kFrameTranslateRotate (Warp) or kFrameTranslateRotateScale (Lattice's point selection).
         static constexpr int kFrameTranslateRotate      = 1;
         static constexpr int kFrameTranslateRotateScale = 2;
-        bool RenderFrame( const char* site, glm::mat4& frame,
-                          const std::shared_ptr<::Desert::Core::Camera>& camera, const glm::vec2& viewportPos,
-                          const glm::vec2& viewportSize, int handles );
+        bool                 RenderFrame( const char* site, glm::mat4& frame,
+                                          const std::shared_ptr<::Desert::Core::Camera>& camera, const glm::vec2& viewportPos,
+                                          const glm::vec2& viewportSize, int handles );
         // UE's UIntervalGizmo on a tool frame (Warp's Upper / Lower bounds): the frame's Z axis between @p lower
         // and @p upper (cm from the frame origin) with a handle at each end, dragged along the axis; upper stays
         // >= 0 and lower <= 0, as UE clamps them. A hovered or held handle stands picking down like the gizmo.

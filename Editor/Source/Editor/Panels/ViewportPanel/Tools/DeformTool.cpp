@@ -233,7 +233,8 @@ namespace Desert::Editor::Tools
                 case MS::Tool::Offset:
                     return Geometry::Offset( input, ms.DeformOffset );
                 case MS::Tool::Lattice:
-                    return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints, ms.DeformLattice );
+                    return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints,
+                                                    ms.DeformLattice );
                 default: // Warp: object space -> the gizmo's frame, as UE's FMeshSpaceDeformerOp::ObjectToGizmo
                     return Geometry::Warp( input, ms.DeformWarp,
                                            glm::inverse( glm::dmat4( ms.WarpGizmo ) ) *

@@ -78,16 +78,16 @@ namespace Desert::Editor::Tools
         if ( !camera )
             return false;
         const Core::GizmoIdScope gizmoId( site );
-        const ImGuizmo::OPERATION operation =
-             handles == kFrameTranslateRotateScale ? ImGuizmo::TRANSLATE | ImGuizmo::ROTATE | ImGuizmo::SCALE
+        const ImGuizmo::OPERATION operation = handles == kFrameTranslateRotateScale
+                                                   ? ImGuizmo::TRANSLATE | ImGuizmo::ROTATE | ImGuizmo::SCALE
                                                    : ImGuizmo::TRANSLATE | ImGuizmo::ROTATE;
         ImGuizmo::SetOrthographic( false );
         ImGuizmo::SetDrawlist();
         ImGuizmo::SetRect( viewportPos.x, viewportPos.y, viewportSize.x, viewportSize.y );
         const auto& view        = camera->GetViewMatrix();
         const auto& proj        = camera->GetProjectionMatrix();
-        const bool  manipulated = ImGuizmo::Manipulate(
-             &view[0][0], &proj[0][0], operation, ImGuizmo::LOCAL, &frame[0][0] );
+        const bool  manipulated =
+             ImGuizmo::Manipulate( &view[0][0], &proj[0][0], operation, ImGuizmo::LOCAL, &frame[0][0] );
         if ( ImGuizmo::IsOver() || ImGuizmo::IsUsing() )
             m_Hovered = true;
         return manipulated;
