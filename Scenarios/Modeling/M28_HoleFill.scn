@@ -1,4 +1,5 @@
 # M28 Hole Fill (UE UHoleFillTool, MeshOps palette "Mesh"): Box 100 cm with its top face deleted in PolyModel -> Hole Fill Minimal, Select All Holes (preview) -> Accept -> Undo. Lit, seen from above and to the side.
+Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Direction 0.3,-0.9,0.3
 Дано run Modeling "Create shape tool: Box"
 Дано run Modeling "Create shape: place at the viewport centre"

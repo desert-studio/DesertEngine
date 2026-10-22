@@ -860,11 +860,10 @@ namespace Desert::Editor
         }
         if ( ms.ActiveTool != MS::Tool::HoleFill )
             return;
+        // The label above its control: the palette column is too narrow for UE's label-beside-value rows.
         const auto row = []( const char* label )
         {
-            ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted( label );
-            ImGui::SameLine( 150.0f );
             ImGui::SetNextItemWidth( -1.0f );
         };
         ImGui::Separator();
