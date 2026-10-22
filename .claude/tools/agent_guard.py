@@ -32,9 +32,9 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
     _stream.reconfigure(encoding="utf-8")
 
 STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /tmp reset the 80-call budget
-TURN_WARN = 32
-TURN_LIMIT = 40  # owner 10-20: «запиши это все в хуки» — an agent's cost grows with the square of its length (PT-LANDSCAPE 135 calls = 20.6M re-read); one cause per agent, the rest to a fresh agent
-TURN_HARD_CAP = 40  # owner 2026-10-20 (150 on 10-10, 60 on 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
+TURN_WARN = 72
+TURN_LIMIT = 80  # owner 10-22 «применяй все четыре»: 40 → 80, a 40-call pass re-read brief+map+code twice as often; owner 10-20: «запиши это все в хуки» — an agent's cost grows with the square of its length (PT-LANDSCAPE 135 calls = 20.6M re-read); one cause per agent, the rest to a fresh agent
+TURN_HARD_CAP = 80  # owner 10-22: 40 → 80; owner 2026-10-20 (150 on 10-10, 60 on 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
 # Owner 10-15 «давай»: three of six agents that day ran out at 150 mid-build and handed over unchecked code, each
 # costing a fresh agent 1.5-3 h. So 300 through Monday 2026-10-19, then 150 again by itself; and a blocking wait on a
 # build or background job (build_wait.sh / wait_bg.sh) is not counted — waiting is not work.
@@ -98,6 +98,16 @@ def brief_size_denial(prompt):
     if not section:
         return f"[agent_guard] Тимлид: в брифе {found.group(0)} нет раздела «## Сделать»."
     body = section.group(1)
+    # Owner 10-22 «спеки = сценарии, сразу и до конца»: every brief carries the card's spec as «## Сценарий» —
+    # Дано / Когда / Тогда [кадр] lines, written BEFORE the code; the agent commits it as Scenarios/<Sub>/<CODE>.scn and
+    # proves the feature only with ~/.claude/tools/play_scenario.sh. «## Чем доказать» was the replaced free-text proof.
+    if re.search(r"^## Чем доказать", text, re.M):
+        return (f"[agent_guard] Тимлид: в брифе {found.group(0)} старый раздел «## Чем доказать» — заменён «## Сценарий» "
+                "(владелец 10-22).")
+    scen = re.search(r"^## Сценарий[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    if not scen or not re.search(r"^\s*(Тогда|Then)[^\n]*\[[\w.-]+\]", scen.group(1), re.M):
+        return (f"[agent_guard] Тимлид: в брифе {found.group(0)} нет «## Сценарий» с хотя бы одной строкой "
+                "«Тогда [имя_кадра]: что видно» (владелец 10-22: спека карточки = сценарий Дано/Когда/Тогда до кода).")
     items = re.findall(r"^\s*\d+[.)]\s", body, re.M)
     if len(items) > MAX_BRIEF_ITEMS or len(body) > MAX_BRIEF_DO_CHARS:
         return (f"[agent_guard] Тимлид: задача крупнее одного агента — «## Сделать» {len(items)} пунктов / {len(body)} знаков "
@@ -365,6 +375,7 @@ def self_check():
         "migrator directly": {"tool_name": "Bash", "tool_input": {"command": "./build/Bin/Debug/SceneMigrator a"}},
         "own test loop": {"tool_name": "Bash", "tool_input": {"command": "bash scripts/MacOS/RunTests.sh"}},
         "agent waits for CI": {"tool_name": "Bash", "tool_input": {"command": "gh run watch 1 --exit-status"}},
+        "editor outside a scenario": {"tool_name": "Bash", "tool_input": {"command": "DESERT_EDITOR_MANUAL=1 bash ~/.claude/tools/run_capped.sh build/Bin/Debug/Editor --control-socket /tmp/x.sock"}},
         "CI poll loop": {"tool_name": "Bash", "tool_input": {"command": "for i in $(seq 20); do gh run view 1 --json status; sleep 10; done"}},
     }
     failed = []
@@ -436,6 +447,7 @@ def self_check():
 # on the build lock instead of OOM-ing the 16 GB machine.
 import datetime as _dt
 # Owner 10-12: «в рамках текущего контекста снимаю лимит на агентов. Запускай 20 штук» — lifted for 10-12.
+NIGHT_MAX_WORKING_AGENTS = 3  # owner 10-22
 MAX_WORKING_AGENTS = 4  # owner 2026-10-16 evening: «Поднимаем» to 4 (the 4th slot is for merging); was 3 earlier on 10-16, 7 from 10-12
 # Owner 10-15: «уберу лимит агентов до понедельника» — no count cap through Monday 2026-10-19, then back to 7 by
 # itself. The real ceiling is the disk (10-15: 5.3 GB free; a tree + build is several GB), so a launch is refused
@@ -511,8 +523,30 @@ def main():
             deny(f"[agent_guard] Тимлид: на диске {free_gb:.1f} ГБ свободно (< {MIN_FREE_DISK_GB}) — новое дерево со сборкой "
                  f"его забьёт. Сначала освободи место (build/ влитых деревьев), потом запускай.", data, "lead")
         running = lead_running_agents()
-        if _dt.date.today() > NO_AGENT_CAP_THROUGH and len(running) >= MAX_WORKING_AGENTS:
-            deny(f"[agent_guard] Тимлид: лимит владельца 10-16 — не более {MAX_WORKING_AGENTS} агентов одновременно; идут: "
+        # Owner 10-22 (night cost 10 % of the weekly limit): while night mode is on, 3 slots, not 4.
+        try:
+            night = float(open(os.path.expanduser("~/.claude/night_mode")).read().strip()) > __import__("time").time()
+        except Exception:
+            night = False
+        cap = NIGHT_MAX_WORKING_AGENTS if night else MAX_WORKING_AGENTS
+        # Owner 10-22: two passes without progress (accept.sh writes ~/.claude/stall/<CODE>) → rethink, not a third try.
+        pr = (data.get("tool_input") or {}).get("prompt") or ""
+        cm, bm = re.search(r"You are agent ([A-Z0-9-]+)", pr), re.search(r"execute (\S+BRIEF\S*\.md)", pr)
+        if cm:
+            try:
+                stalled = int(open(os.path.expanduser(f"~/.claude/stall/{cm.group(1)}")).read().strip() or 0)
+            except Exception:
+                stalled = 0
+            brief = ""
+            try:
+                brief = open(bm.group(1)).read() if bm else ""
+            except Exception:
+                pass
+            if stalled >= 2 and "## Пересмотр" not in brief:
+                deny(f"[agent_guard] Тимлид: {cm.group(1)} — {stalled} прохода без продвижения (владелец 10-22). Третий "
+                     f"заход тем же путём не запускать: впиши в бриф «## Пересмотр» — причина застоя и новый подход.", data, "lead")
+        if _dt.date.today() > NO_AGENT_CAP_THROUGH and len(running) >= cap:
+            deny(f"[agent_guard] Тимлид: лимит владельца — не более {cap} агентов одновременно{' (ночной режим)' if night else ''}; идут: "
                  f"{', '.join(running)}. Дождись сдачи (accept.sh), потом запускай.", data, "lead")
     # Owner 10-05 («можно дать гарантию, что не повторится?»): three of four agents that day hit the 60-call cap with
     # 4-6-item briefs (VIDEO-1, MEDIA-3, VIDEO-2a: done 25 % vs 59 % baseline) and the next agent re-read the same files.
@@ -752,6 +786,11 @@ def main():
                      "make в ту же команду: for i in $(seq 27); do pgrep -x make >/dev/null || break; sleep 10; "
                      "done; make ...",
                      data, agent)
+        if re.search(r"DESERT_EDITOR_MANUAL|DESERT_SCENARIO\s*=", cmd):
+            save_state(state, path)
+            deny("[agent_guard] Живой редактор агент поднимает только ~/.claude/tools/play_scenario.sh <ДЕРЕВО> "
+                 "<Scenarios/…/КОД.scn> [--hold] (владелец 10-22: доказательство = сценарий); обходной флаг — только тимлиду.",
+                 data, agent)
         if runs_editor(cmd) and "run_capped" not in cmd:
             save_state(state, path)
             deny("[agent_guard] Редактор/рантайм запускается только через ограничитель памяти: "

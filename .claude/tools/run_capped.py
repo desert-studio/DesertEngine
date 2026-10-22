@@ -75,6 +75,12 @@ def run_windows(argv):
 
 def main():
     argv = sys.argv[1:]
+    # Owner 10-22 «specs = scenarios», both machines: a live editor (--control-socket) starts only through
+    # .claude/tools/play_scenario.py, which sets DESERT_SCENARIO=1; DESERT_EDITOR_MANUAL=1 is the lead's escape.
+    if "--control-socket" in argv and os.environ.get("DESERT_SCENARIO") != "1" \
+            and os.environ.get("DESERT_EDITOR_MANUAL") != "1":
+        sys.exit("run_capped: a live editor starts only through "
+                 "python .claude/tools/play_scenario.py <TREE> <Scenarios/.../CODE.scn> [--hold]")
     if not argv:
         print(__doc__, file=sys.stderr)
         return 2

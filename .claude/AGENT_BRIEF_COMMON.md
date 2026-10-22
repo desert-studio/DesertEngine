@@ -168,3 +168,6 @@ Examples and tests may use concrete names; engine headers/sources may not hard-c
 - **IPanel.hpp — без ImGui** (правило в самом заголовке): всё, что зовёт ImGui, — в IPanel.cpp.
 - **После живой проверки — чистый `git status --ignored`:** импортированные файлы, `base_basic_*.png`, `Saved/`-мусор уронили TextureImport/AssetReferenceCensus/MeshBinaryFormat у следующего прогона.
 - **Тест, что ищет строку в исходнике** (placement/pose-edit и т.п.): переименовал/обобщил вызов — обнови закреплённую строку в тот же коммит.
+
+## Доказательство = сценарий (владелец 10-22, Mac и Windows)
+Спека задачи — «## Сценарий» брифа (Дано/Когда/Тогда [кадр]). Первый шаг — `Scenarios/<Подсистема>/<КОД>.scn` в дереве, коммит; строки `Дано|Когда <аргументы DesertCtl>`, `Тогда <кадр> <что видно>`, `Тогда-вид <кадр> …`. Живая проверка — только `python .claude/tools/play_scenario.py <ДЕРЕВО> <scn> [--hold]` (ждёт GPU-слот сам; кадры в `<скретч>/<КОД>/frames/scn-latest`). Редактор с `--control-socket` мимо плеера run_capped не запустит. Каждый кадр смотреть самому; в отчёте строка SCENARIO.
