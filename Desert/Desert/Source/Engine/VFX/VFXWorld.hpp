@@ -3,6 +3,7 @@
 #include <Engine/VFX/VFXClock.hpp>
 #include <Engine/VFX/VFXDataChannel.hpp>
 #include <Engine/VFX/VFXEmitterSpawn.hpp>
+#include <Engine/VFX/VFXScalability.hpp>
 
 #include <Engine/Assets/Serialization/VFXEffectType.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
@@ -86,9 +87,7 @@ namespace Desert::VFX
     /// What one view of a frame reports to its scene's world (VFX-11; UE FNiagaraWorldManager caches the
     /// player views the same way): where it looks from and its Effects level's particle rows. The world decides
     /// from every view of the PREVIOUS frame, never per view, so two viewports cannot disagree.
-    struct VFXViewReport
-    {
-        glm::vec3 Origin{ 0.0f };        // centimetres
+       // centimetres
         double    SpawnCountScale = 1.0; // Effects.SpawnCountScalePercent / 100
         int       EffectsLevel    = 0;   // Effects.QualityLevel: the level of every effect type this view reads
     };

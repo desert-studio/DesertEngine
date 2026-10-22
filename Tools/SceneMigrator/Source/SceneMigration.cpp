@@ -3557,6 +3557,45 @@ namespace Desert::Migration
         return type;
     }
 
+    Common::ResultStr<std::string> MigrateVFXEffectTypeV1ToV2( const std::string& text )
+    {
+        // VFXT 2 IS VFXT 1 PLUS KEYS WITH DEFAULTS, so the v1 body reads as v2 once they are in: every level object
+        // gets the four level keys after its SpawnCountScale value, the type its two keys before `Levels`.
+        namespace S = Assets::Serialization;
+        std::string patched;
+        patched.reserve( text.size() + 1024u );
+        const std::string key = "\"SpawnCountScale\"";
+        std::size_t       from = 0;
+        for ( std::size_t at = text.find( key ); at != std::string::npos; at = text.find( key, from ) )
+        {
+            const std::size_t end = text.find_first_of( ",}\n", text.find( ':', at ) + 1u );
+            if ( end == std::string::npos )
+                return Common::MakeFormattedError<std::string>( "VFXT 1 level SpawnCountScale has no value end" );
+            patched += text.substr( from, end - from );
+            patched += ", \"MaxInstances\": 0, \"MaxSystemInstances\": 0, \"CullByViewFrustum\": false, "
+                       "\"MaxTimeWithoutRender\": 0.0";
+            from = end;
+        }
+        patched += text.substr( from );
+        const std::size_t levels = patched.find( "\"Levels\"" );
+        if ( levels == std::string::npos )
+            return Common::MakeFormattedError<std::string>( "VFXT 1 body has no Levels" );
+        patched.insert( levels, "\"CullReaction\": \"DeactivateResume\", \"Significance\": \"Distance\", " );
+
+        const auto v1 = Common::Json::Read<S::VFXEffectTypeData>( patched );
+        if ( !v1 )
+            return Common::MakeFormattedError<std::string>( "VFXT 1 body does not read: {}", v1.GetError() );
+        const S::VFXEffectTypeData& data = v1.GetValue();
+        const auto stated = data.Header ? data.Header->Versions.find( "VFXT" ) : decltype( data.Header->Versions.end() ){};
+        if ( !data.Header || stated == data.Header->Versions.end() || stated->second != 1u )
+            return Common::MakeFormattedError<std::string>( "the file does not state VFXT 1, and this step raises VFXT 1 only" );
+        std::string written = S::WriteVFXEffectType( data );
+        if ( auto reread = S::ParseVFXEffectType( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as VFXT 2: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
     Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text )
     {
         namespace S = Assets::Serialization;

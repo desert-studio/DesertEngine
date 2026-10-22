@@ -76,7 +76,7 @@ namespace Desert::Assets
     inline constexpr uint32_t kVFXSystemSchemaVersion = 3;
     // A .dfxtype: the VFX effect type file layout (UE UNiagaraEffectType), stated from its first version (VFX-11).
     inline constexpr uint32_t kVFXEffectTypeSchemaTag     = Common::Content::FourCC( "VFXT" );
-    inline constexpr uint32_t kVFXEffectTypeSchemaVersion = 1;
+    inline constexpr uint32_t kVFXEffectTypeSchemaVersion = 2;
     // A .deinputaction / .deinputcontext: UE's UInputAction / UInputMappingContext, stated in the header from
     // their first version (GP1a; Serialization/InputAssets.hpp).
     inline constexpr uint32_t kInputActionSchemaTag             = Common::Content::FourCC( "INAC" );

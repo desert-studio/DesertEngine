@@ -132,7 +132,7 @@ namespace
     // `.dfx` too: its content step (VFXS 1 -> 2, VFX-09) runs in the same loop.
     constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
                                                 ".detheme",    ".derig",  ".retarget",    ".skeleton",
-                                                ".defoliage",  ".dfx" };
+                                                ".defoliage",  ".dfx",    ".dfxtype" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -364,6 +364,7 @@ namespace
          TextHeaderGate{ ".skeleton", "SKEL", Desert::Assets::kSkeletonSchemaVersion },
          TextHeaderGate{ ".anim", "ANIM", Desert::Assets::kAnimationSchemaVersion },
          TextHeaderGate{ ".dfx", "VFXS", Desert::Assets::kVFXSystemSchemaVersion },
+         TextHeaderGate{ ".dfxtype", "VFXT", Desert::Assets::kVFXEffectTypeSchemaVersion },
     };
 
     const TextHeaderGate* TextHeaderGateFor( const std::filesystem::path& path )
@@ -1663,6 +1664,30 @@ namespace Desert::Migration
                                 ++failed;
                                 continue;
                             }
+                    }
+                    ++vfxSystemsRaised;
+                    continue;
+                }
+            }
+            // VFXT 1 -> 2 (VFX-11 p7): the type's CullReaction / Significance and the levels' limits and culls.
+            if ( path.extension() == Desert::Assets::Serialization::kVFXEffectTypeExtension )
+            {
+                const auto stated = ReadStatedVersion( path, text, "VFXT" );
+                if ( stated && stated.GetValue() == 1u )
+                {
+                    const auto raised = Desert::Migration::MigrateVFXEffectTypeV1ToV2( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — VFXT 1 -> 2: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXT 1 -> "
+                        << Desert::Assets::kVFXEffectTypeSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
                     }
                     ++vfxSystemsRaised;
                     continue;

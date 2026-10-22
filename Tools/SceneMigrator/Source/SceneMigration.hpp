@@ -894,6 +894,12 @@ namespace Desert::Migration
     // beside the first system it raises when the project has none. PURE.
     Assets::Serialization::VFXEffectTypeData DefaultVFXEffectTypeForV3();
 
+    // The VFXT 2 text of a VFXT 1 `.dfxtype` (VFX-11 p7): every v1 value kept; the type gets CullReaction
+    // DeactivateResume and Significance Distance, every level MaxInstances / MaxSystemInstances 0 (no limit),
+    // CullByViewFrustum false and MaxTimeWithoutRender 0 - what a v1 type did. The header's GUID kept; a file that
+    // does not state VFXT 1 is an error naming what it states. PURE.
+    Common::ResultStr<std::string> MigrateVFXEffectTypeV1ToV2( const std::string& text );
+
     // A MATL 4 `PatchStrength` s — the slope of the ramp W = saturate(1 - 2 s u) — as the MATL 5 clear share of
     // the sky that ramp left: max(0, 1 - 1/(2s)), the fraction of the sky with W = 0 (FIELD-GRAIN-b).
     float MigratePatchStrengthV4ToV5( float strength );

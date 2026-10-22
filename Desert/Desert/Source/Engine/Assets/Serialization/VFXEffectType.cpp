@@ -21,6 +21,12 @@ namespace Desert::Assets::Serialization
             if ( !( l.SpawnCountScale >= 0.0f && l.SpawnCountScale <= 1.0f ) )
                 return Common::MakeFormattedError<bool>( "level {}: SpawnCountScale {} is outside 0..1", i,
                                                          l.SpawnCountScale );
+            if ( l.MaxInstances < 0 || l.MaxSystemInstances < 0 )
+                return Common::MakeFormattedError<bool>( "level {}: MaxInstances {} / MaxSystemInstances {} is negative",
+                                                         i, l.MaxInstances, l.MaxSystemInstances );
+            if ( !( l.MaxTimeWithoutRender >= 0.0f ) )
+                return Common::MakeFormattedError<bool>( "level {}: MaxTimeWithoutRender {} is negative", i,
+                                                         l.MaxTimeWithoutRender );
         }
         return BOOLSUCCESS;
     }
