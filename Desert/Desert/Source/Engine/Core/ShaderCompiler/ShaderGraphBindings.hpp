@@ -93,18 +93,54 @@ namespace Desert::Core
     // (BindSceneViewInputs); declared in Mesh/ForwardLocalLights.glslh.
     inline constexpr uint32_t kLocalShadowAtlasBinding = kSceneReadBindingFirst + 13u;
     inline constexpr uint32_t kLocalShadowViewsBinding = kSceneReadBindingFirst + 14u;
-    inline constexpr uint32_t kSceneReadBindingCount   = 15u;
+    // The view's ray-traced local shadow masks (`u_LocalShadowMasks`, Graphic/RayTracedLocalShadow.hpp: one layer per
+    // shadowed light, by its shadowMaskSlot), read by the OPAQUE forward cells instead of the atlas when the local
+    // shadows are ray traced (DESERT_LOCAL_SHADOW_SCREEN_MASK, as the deferred composite reads them). Bound by name
+    // from the frame graph (BindSceneViewInputs); declared in Mesh/ForwardLocalLights.glslh.
+    inline constexpr uint32_t kLocalShadowMasksBinding = kSceneReadBindingFirst + 15u;
+    inline constexpr uint32_t kSceneReadBindingCount   = 16u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
         return binding >= kSceneReadBindingFirst && binding < kSceneReadBindingFirst + kSceneReadBindingCount;
     }
 
+    /**
+     * THE VIRTUAL SHADOW RASTER'S OWN SLOTS ("VSM: Raster", MeshRenderer::AddVirtualShadowRasterPasses): the frame's
+     * level table (`VsmFrameData`), the page table (`VsmPageTable`), the physical pool (`u_PhysicalPool`) and the
+     * level the draw rasterizes (`VsmRasterLevel`), declared by Common/VirtualShadowRaster.glslh, and the level's
+     * instance remap (`VsmInstanceRemap`, Mesh/Surface/Vertex_Instanced.glslh). Bound by name.
+     *
+     * They are declared into a SURFACE CELL (Mesh/Surface/Pass_VirtualShadowDepth.glslh) of every template and of
+     * every graph-generated surface, beside the template's hand-numbered textures (0-24) and the graph's own
+     * textures (the window below), so they may sit in neither, nor on the scene-read range a header shares with the
+     * view-pass cells. They had sat at 40-44: on the last scene-read slot and in the graph's window. A range of
+     * their own between the two keeps the three apart by construction.
+     */
+    inline constexpr uint32_t kVirtualShadowRasterBindingFirst = kSceneReadBindingFirst + kSceneReadBindingCount;
+    inline constexpr uint32_t kVsmFrameDataBinding             = kVirtualShadowRasterBindingFirst;
+    inline constexpr uint32_t kVsmPageTableBinding             = kVirtualShadowRasterBindingFirst + 1u;
+    inline constexpr uint32_t kVsmPhysicalPoolBinding          = kVirtualShadowRasterBindingFirst + 2u;
+    inline constexpr uint32_t kVsmRasterLevelBinding           = kVirtualShadowRasterBindingFirst + 3u;
+    inline constexpr uint32_t kVsmInstanceRemapBinding         = kVirtualShadowRasterBindingFirst + 4u;
+    inline constexpr uint32_t kVirtualShadowRasterBindingCount = 5u;
+    static_assert( kVsmFrameDataBinding == 41u && kVsmInstanceRemapBinding == 45u,
+                   "Common/VirtualShadowRaster.glslh and Mesh/Surface/Vertex_Instanced.glslh spell 41-45" );
+
+    [[nodiscard]] constexpr bool IsVirtualShadowRasterBinding( uint32_t binding )
+    {
+        return binding >= kVirtualShadowRasterBindingFirst &&
+               binding < kVirtualShadowRasterBindingFirst + kVirtualShadowRasterBindingCount;
+    }
+
     // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the scene
     // shading word and the light grid joined it), then from 31 (the MegaLights volume joined it), then from 35 (the
     // world parameters joined it), then from 36 (the rain occlusion's map and block joined it), then from 38 (the
-    // local shadow atlas and its views joined it), to sit above the scene-read range; see the paragraph on moving it
-    // above.
-    inline constexpr uint32_t kGraphOwnedBindingFirst = kSceneReadBindingFirst + kSceneReadBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 40u, "the graph's window opens right above the scene-read range" );
+    // local shadow atlas and its views joined it), then from 40 (the ray-traced local shadow masks joined it), then
+    // from 41 (the virtual shadow raster's slots got a range of their own), to sit above both ranges; see the
+    // paragraph on moving it above (10-22: no generated `.shader` under Resources spells a TextureBinding).
+    inline constexpr uint32_t kGraphOwnedBindingFirst =
+         kVirtualShadowRasterBindingFirst + kVirtualShadowRasterBindingCount;
+    static_assert( kGraphOwnedBindingFirst == 46u,
+                   "the graph's window opens right above the virtual shadow raster's range" );
 } // namespace Desert::Core

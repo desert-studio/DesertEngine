@@ -1008,8 +1008,10 @@ namespace Desert::Graphic
                                          System::MeshRenderer* meshRenderer );
         // @p sunShadowMask: the ray-traced sun's screen mask (invalid when the sun is not ray traced), bound where
         // a generic program's DESERT_SUN_SHADOW_SCREEN_MASK permutation reads it (SceneViewInputs.SunShadowMask).
+        // @p localShadowMasks: the ray-traced local shadows' masks (invalid when not traced), likewise for
+        // DESERT_LOCAL_SHADOW_SCREEN_MASK (SceneViewInputs.LocalShadowMasks).
         void AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
-                              RDG::TextureRef sunShadowMask );
+                              RDG::TextureRef sunShadowMask, RDG::TextureRef localShadowMasks );
         // THE TRANSLUCENT FRONT LAYER of the frame (UE FFrontLayerTranslucencyData, Reflections.TranslucentFrontLayer):
         // the nearest translucent surface's normal + roughness, motion and depth ("Translucency: Front Layer G-buffer",
         // Mesh/Surface/Pass_FrontLayer.glslh), graph transients of the frame - the surface AddFrameSSR's front layer
