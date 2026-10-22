@@ -319,7 +319,7 @@ namespace Desert::Graphic
         // ForcedLOD, the authored StaticMeshComponent::ForcedLOD is untouched and other views keep their own pick.
         // It is a LEASE, not a setting: per-frame renderer state that lapses one frame after the caller stops
         // renewing it (BeginScene), so a closed tool can never leave a view pinned. level < 0 clears it now.
-        void SetLODPreview( uint32_t entity, int level );
+        void              SetLODPreview( uint32_t entity, int level );
         [[nodiscard]] int LODPreviewFor( uint32_t entity, int authoredForcedLOD ) const;
 
         // Submit one landscape tile for this frame (from LandscapeECSSystem via DrawLandscapeTileCommand):
