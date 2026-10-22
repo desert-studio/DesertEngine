@@ -32,9 +32,9 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
     _stream.reconfigure(encoding="utf-8")
 
 STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /tmp reset the 80-call budget
-TURN_WARN = 32
-TURN_LIMIT = 40  # owner 10-20: «запиши это все в хуки» — an agent's cost grows with the square of its length (PT-LANDSCAPE 135 calls = 20.6M re-read); one cause per agent, the rest to a fresh agent
-TURN_HARD_CAP = 40  # owner 2026-10-20 (150 on 10-10, 60 on 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
+TURN_WARN = 72
+TURN_LIMIT = 80  # owner 10-22 «применяй все четыре»: 40 → 80, a 40-call pass re-read brief+map+code twice as often; owner 10-20: «запиши это все в хуки» — an agent's cost grows with the square of its length (PT-LANDSCAPE 135 calls = 20.6M re-read); one cause per agent, the rest to a fresh agent
+TURN_HARD_CAP = 80  # owner 10-22: 40 → 80; owner 2026-10-20 (150 on 10-10, 60 on 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
 # Owner 10-15 «давай»: three of six agents that day ran out at 150 mid-build and handed over unchecked code, each
 # costing a fresh agent 1.5-3 h. So 300 through Monday 2026-10-19, then 150 again by itself; and a blocking wait on a
 # build or background job (build_wait.sh / wait_bg.sh) is not counted — waiting is not work.
@@ -436,6 +436,7 @@ def self_check():
 # on the build lock instead of OOM-ing the 16 GB machine.
 import datetime as _dt
 # Owner 10-12: «в рамках текущего контекста снимаю лимит на агентов. Запускай 20 штук» — lifted for 10-12.
+NIGHT_MAX_WORKING_AGENTS = 3  # owner 10-22
 MAX_WORKING_AGENTS = 4  # owner 2026-10-16 evening: «Поднимаем» to 4 (the 4th slot is for merging); was 3 earlier on 10-16, 7 from 10-12
 # Owner 10-15: «уберу лимит агентов до понедельника» — no count cap through Monday 2026-10-19, then back to 7 by
 # itself. The real ceiling is the disk (10-15: 5.3 GB free; a tree + build is several GB), so a launch is refused
@@ -511,8 +512,30 @@ def main():
             deny(f"[agent_guard] Тимлид: на диске {free_gb:.1f} ГБ свободно (< {MIN_FREE_DISK_GB}) — новое дерево со сборкой "
                  f"его забьёт. Сначала освободи место (build/ влитых деревьев), потом запускай.", data, "lead")
         running = lead_running_agents()
-        if _dt.date.today() > NO_AGENT_CAP_THROUGH and len(running) >= MAX_WORKING_AGENTS:
-            deny(f"[agent_guard] Тимлид: лимит владельца 10-16 — не более {MAX_WORKING_AGENTS} агентов одновременно; идут: "
+        # Owner 10-22 (night cost 10 % of the weekly limit): while night mode is on, 3 slots, not 4.
+        try:
+            night = float(open(os.path.expanduser("~/.claude/night_mode")).read().strip()) > __import__("time").time()
+        except Exception:
+            night = False
+        cap = NIGHT_MAX_WORKING_AGENTS if night else MAX_WORKING_AGENTS
+        # Owner 10-22: two passes without progress (accept.sh writes ~/.claude/stall/<CODE>) → rethink, not a third try.
+        pr = (data.get("tool_input") or {}).get("prompt") or ""
+        cm, bm = re.search(r"You are agent ([A-Z0-9-]+)", pr), re.search(r"execute (\S+BRIEF\S*\.md)", pr)
+        if cm:
+            try:
+                stalled = int(open(os.path.expanduser(f"~/.claude/stall/{cm.group(1)}")).read().strip() or 0)
+            except Exception:
+                stalled = 0
+            brief = ""
+            try:
+                brief = open(bm.group(1)).read() if bm else ""
+            except Exception:
+                pass
+            if stalled >= 2 and "## Пересмотр" not in brief:
+                deny(f"[agent_guard] Тимлид: {cm.group(1)} — {stalled} прохода без продвижения (владелец 10-22). Третий "
+                     f"заход тем же путём не запускать: впиши в бриф «## Пересмотр» — причина застоя и новый подход.", data, "lead")
+        if _dt.date.today() > NO_AGENT_CAP_THROUGH and len(running) >= cap:
+            deny(f"[agent_guard] Тимлид: лимит владельца — не более {cap} агентов одновременно{' (ночной режим)' if night else ''}; идут: "
                  f"{', '.join(running)}. Дождись сдачи (accept.sh), потом запускай.", data, "lead")
     # Owner 10-05 («можно дать гарантию, что не повторится?»): three of four agents that day hit the 60-call cap with
     # 4-6-item briefs (VIDEO-1, MEDIA-3, VIDEO-2a: done 25 % vs 59 % baseline) and the next agent re-read the same files.
