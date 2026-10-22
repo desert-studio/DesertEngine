@@ -35,13 +35,6 @@ namespace Desert::AI::StateTree
         Luau    // a Luau module; `Type` is its script key ("assets:AI/Tasks/Patrol.luau")
     };
 
-    enum class NodeKind : std::uint8_t
-    {
-        Task,
-        Condition,
-        Evaluator
-    };
-
     /// One node as authored: its implementation, its parameter values, and the bindings that feed parameters
     /// from elsewhere (UE FStateTreeEditorNode + FStateTreePropertyPathBinding).
     struct NodeDesc
@@ -66,8 +59,10 @@ namespace Desert::AI::StateTree
 
     /// A parameter of a node fed from another value instead of its literal (UE FStateTreePropertyPathBinding).
     /// Sources: a tree parameter ("Tree.<Name>"), an evaluator output ("<evaluatorId>.<Output>"), or the
-    /// context ("Context.Actor", "Context.Perception"). Resolved by the compiler to indices; a binding whose
-    /// source or target does not exist, or whose types differ, is a compile ERROR (not a warning).
+    /// context ("Context.Controller", "Context.Pawn", "Context.Perception" - the AI controller that owns the
+    /// tree, the pawn it possesses, the controller's perception; lead decision 10-22 Q4). Resolved by the compiler
+    /// to indices; a binding whose source or target does not exist, or whose types differ, is a compile ERROR (not
+    /// a warning).
     struct PropertyBinding
     {
         std::uint64_t TargetNode = 0;
@@ -77,8 +72,12 @@ namespace Desert::AI::StateTree
 
     struct TransitionDesc
     {
-        TransitionTrigger     Trigger = TransitionTrigger::OnStateCompleted;
-        std::string           EventTag; // OnEvent only
+        TransitionTrigger Trigger = TransitionTrigger::OnStateCompleted;
+        /// OnEvent only: the registered tag listened for (parent-aware, GameplayTag::MatchesTag). The file stores
+        /// the tag's name; ReadStateTree resolves it through GameplayTagRegistry::RequestTag and refuses a name
+        /// nobody registered (lead decision 10-22 Q5: never a free string).
+        GameplayTags::GameplayTag EventTag;
+
         TransitionTarget      Target       = TransitionTarget::GotoState;
         std::uint64_t         TargetState  = 0; // GotoState only: StateDesc::Id
         TransitionPriority    Priority     = TransitionPriority::Normal;
@@ -107,7 +106,8 @@ namespace Desert::AI::StateTree
     struct StateTreeDesc
     {
         std::string Name;
-        /// The context this tree runs in (UE Schema): "AI" = an NPC with perception and movement. Only one
+        /// The context this tree runs in (UE Schema, UStateTreeAIComponentSchema): "AI" = an AI controller that
+        /// possesses a pawn, with the controller's perception and the pawn's movement. Only one
         /// schema exists in this contract; the field is there so a node can refuse a tree it cannot run in.
         std::string Schema = "AI";
         /// Tree parameters, overridable per instance by StateTreeComponent (UE FStateTreeParameters).
@@ -140,7 +140,7 @@ namespace Desert::AI::StateTree
         TransitionTarget   Target;
         TransitionPriority Priority;
         StateIndex         TargetState;   // GotoState / NextState resolved
-        std::uint16_t      EventTagIndex; // into CompiledStateTree::EventTags; max = none
+        GameplayTags::GameplayTag EventTag;      // OnEvent only; the empty tag otherwise
         float              DelaySeconds;
         NodeIndex          ConditionBegin;
         std::uint8_t       ConditionCount;
@@ -182,7 +182,6 @@ namespace Desert::AI::StateTree
         std::vector<Scripting::ScriptProperty> Parameters; // node parameter values, defaults applied
         std::vector<Scripting::ScriptProperty> TreeParameters;
         std::vector<std::string>               NodeTypes;
-        std::vector<std::string>               EventTags;
         std::vector<std::string>               LinkedAssets;
         std::vector<std::string>               BindingSources;
         NodeIndex                              EvaluatorBegin  = 0;

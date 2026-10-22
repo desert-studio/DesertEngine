@@ -6,6 +6,8 @@
 // StateTreeTypes.h). Indices, not pointers: the compiled tree is a flat array (UE FCompactStateTreeState /
 // FCompactStateTransition) and an instance names its active states by index into it.
 
+#include <Engine/GameplayTags/GameplayTag.hpp>
+
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -92,13 +94,20 @@ namespace Desert::AI::StateTree
         Or
     };
 
-    /// An event the tree reacts to (UE FStateTreeEvent: Tag + Payload + Origin). The tag is a dotted name
-    /// ("Perception.Sight.Gained"); a transition listening for "Perception.Sight" matches every tag below it
-    /// (UE FGameplayTag::MatchesTag). The engine has no GameplayTag type yet (TAGS line) - when it lands, the
-    /// string is replaced by it in ONE place, here.
+    /// What a node is (UE: which base struct it derives from).
+    enum class NodeKind : std::uint8_t
+    {
+        Task,
+        Condition,
+        Evaluator
+    };
+
+    /// An event the tree reacts to (UE FStateTreeEvent: Tag + Payload + Origin). The tag is a registered
+    /// GameplayTag (lead decision 10-22, Q5 - never a string); a transition listening for "Perception.Sight"
+    /// matches every tag below it (GameplayTag::MatchesTag, UE FGameplayTag::MatchesTag).
     struct StateTreeEvent
     {
-        std::string Tag;
+        GameplayTags::GameplayTag Tag;
         /// Optional payload: the entity the event is about (the seen actor, the noise instigator); entt::null
         /// encoded as the max value so this header stays free of entt.
         std::uint32_t Subject = std::numeric_limits<std::uint32_t>::max();
