@@ -779,11 +779,17 @@ namespace Desert::Editor
                 auto&                 s        = ms.DeformSculpt;
                 int                   brush    = static_cast<int>( s.Brush );
                 int                   falloff  = static_cast<int>( s.FalloffType );
-                constexpr const char* kBrush[] = { "Move", "Smooth" };
                 constexpr const char* kFall[]  = { "Smooth", "Linear", "Inverse", "Round" };
                 row( "Brush" );
-                if ( ImGui::Combo( "##SculptBrush", &brush, kBrush, 2 ) )
-                    s.Brush = static_cast<Geometry::SculptBrush>( brush );
+                if ( ImGui::Combo(
+                          "##SculptBrush", &brush,
+                          []( void*, int i, const char** out )
+                          {
+                              *out = Geometry::ToString( Geometry::kSculptBrushes[i] );
+                              return true;
+                          }, nullptr,
+                          static_cast<int>( std::size( Geometry::kSculptBrushes ) ) ) )
+                    s.Brush = Geometry::kSculptBrushes[brush];
                 row( "Brush Radius" );
                 ImGui::DragFloat( "##SculptRadius", &s.Radius, 0.5f, Geometry::kSculptMinRadius,
                                   Geometry::kSculptMaxRadius, "%.1f cm", ImGuiSliderFlags_AlwaysClamp );

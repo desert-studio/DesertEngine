@@ -617,7 +617,7 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         // Vertex Sculpt's closed choices (UE UMeshVertexSculptTool brush type, USculptBrushProperties falloff).
-        for ( const Geometry::SculptBrush brush : { Geometry::SculptBrush::Move, Geometry::SculptBrush::Smooth } )
+        for ( const Geometry::SculptBrush brush : Geometry::kSculptBrushes )
             commands.push_back( { "Modeling", std::string( "Vertex Sculpt brush: " ) + Geometry::ToString( brush ),
                                   [brush]
                                   {

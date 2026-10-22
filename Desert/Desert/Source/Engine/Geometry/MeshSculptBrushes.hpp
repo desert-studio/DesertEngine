@@ -15,12 +15,18 @@ namespace Desert::Geometry
     // owns that copy for the length of a stroke and commits it once at the stroke's end). Positions are object
     // space of the sculpted mesh, in centimetres.
 
-    // UE EMeshSculptBrushType, the two ported so far.
+    // UE EMeshSculptBrushType, the ported ones.
     enum class SculptBrush : uint8_t
     {
-        Move,   // UE FMoveBrushOp: the vertices follow the brush, weighted by the falloff (Strength ignored)
-        Smooth, // UE FSmoothBrushOp: each vertex pulled towards its one-ring centroid by Strength * falloff
+        Move,    // UE FMoveBrushOp: the vertices follow the brush, weighted by the falloff (Strength ignored)
+        Smooth,  // UE FSmoothBrushOp: each vertex pulled towards its one-ring centroid by Strength * falloff
+        Inflate, // UE FInflateBrushOp: each vertex pushed out along its vertex normal
+        Flatten, // UE FFlattenBrushOp: each vertex pulled towards the plane fitted to the brush region
+        Pinch,   // UE FPinchBrushOp: each vertex pulled towards the brush centre, across its normal only
     };
+    // Every brush, in the order the panel's combo and the command palette list them (one list for both).
+    inline constexpr SculptBrush kSculptBrushes[] = { SculptBrush::Move, SculptBrush::Smooth, SculptBrush::Inflate,
+                                                      SculptBrush::Flatten, SculptBrush::Pinch };
     [[nodiscard]] const char* ToString( SculptBrush brush );
 
     // UE EMeshSculptFalloffType (the spherical ones; MeshSculptFalloffs.cpp). t runs 0 at the inner edge of the
@@ -49,6 +55,9 @@ namespace Desert::Geometry
     };
     inline constexpr float kSculptMinRadius = 0.1f;
     inline constexpr float kSculptMaxRadius = 10000.0f;
+    // The per-stamp rates of the surface brushes (a stamp is one editor frame of a held stroke).
+    inline constexpr double kSculptInflateStep = 0.05; // of the radius, at Strength 1 and full weight
+    inline constexpr double kSculptPlaneRate   = 0.25; // of the gap, Flatten and Pinch, at Strength 1
 
     // The brush weight of a vertex `distance` cm from the brush centre (0 beyond the radius).
     [[nodiscard]] double SculptFalloffWeight( const SculptSettings& settings, double distance );
@@ -62,8 +71,11 @@ namespace Desert::Geometry
 
     // Applies one stamp to `mesh` in place (positions, then overlay / vertex normals from them). Move weighs
     // each vertex by its distance to PrevCenter - the surface that was under the brush - and carries it by
-    // Center - PrevCenter; Smooth weighs by the distance to Center, reading the one-ring centroids from the
-    // positions before the stamp (Jacobi, as UE's op reads its ROI snapshot). Returns the vertices moved.
+    // Center - PrevCenter; the surface brushes (Smooth, Inflate, Flatten, Pinch) weigh by the distance to Center
+    // and read the positions and normals from before the stamp (Jacobi, as UE's ops read their ROI snapshot).
+    // Per stamp, at full weight: Inflate moves Strength * kSculptInflateStep * Radius along the normal, Flatten
+    // and Pinch close Strength * kSculptPlaneRate of the gap to the region plane / the centre. Returns the
+    // vertices moved.
     // Refused for a non-positive radius or a strength outside 0..1.
     [[nodiscard]] Common::ResultStr<int32_t> ApplySculptStamp( DynamicMesh3& mesh, const SculptSettings& settings,
                                                                const SculptStamp& stamp );
