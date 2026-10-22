@@ -104,25 +104,35 @@ namespace Desert::Editor
                                   std::string( "Mesh selection: " ) + Core::MeshElementSelection::ToString( op ),
                                   [op] { return Core::MeshElementSelection::Get().Apply( op ); } } );
         }
-        commands.push_back(
-             { "Modeling", "Mesh selection: pick at the viewport centre", [&scene]
-               {
-                   if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect )
-                       return PaletteCommandOutcome( false, "the Select Elements tool is not active" );
-                   // The tool's own target rule, not "the tracker has a mesh": the tracker only learns the mesh
-                   // on the tool's next frame, and a static mesh with no EditableMesh is a target too (P9c).
-                   const auto selected = Core::SelectionManager::GetSelected();
-                   if ( !scene || !selected.has_value() )
-                       return PaletteCommandOutcome( false, "no entity is selected" );
-                   auto ref = scene->FindEntityByID( *selected );
-                   if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
-                       return PaletteCommandOutcome( false, "the selected entity has no static mesh" );
-                   auto target = Editor::GetToolTargetMesh( ref->get().GetComponent<ECS::StaticMeshComponent>() );
-                   if ( !target.IsSuccess() )
-                       return PaletteCommandOutcome( false, target.GetError() );
-                   Core::MeshElementSelection::Get().ReqPickCentre = true;
-                   return PaletteCommandDone();
-               } } );
+        // The plain pick replaces the selection (a click); "add" keeps it and adds (a Shift-click).
+        for ( const auto& [name, add] : { std::pair{ "Mesh selection: pick at the viewport centre", false },
+                                          std::pair{ "Mesh selection: add pick at the viewport centre", true } } )
+            commands.push_back(
+                 { "Modeling", name, [&scene, add]
+                   {
+                       // Edit Materials selects its triangles with the same element selection (ElementSelectTool).
+                       const auto tool = Core::ModelingState::Get().ActiveTool;
+                       if ( tool != Core::ModelingState::Tool::ElementSelect &&
+                            tool != Core::ModelingState::Tool::EditMaterials )
+                           return PaletteCommandOutcome( false,
+                                                         "neither Select Elements nor Edit Materials is active" );
+                       // The tool's own target rule, not "the tracker has a mesh": the tracker only learns the
+                       // mesh on the tool's next frame, and a static mesh with no EditableMesh is a target too
+                       // (P9c).
+                       const auto selected = Core::SelectionManager::GetSelected();
+                       if ( !scene || !selected.has_value() )
+                           return PaletteCommandOutcome( false, "no entity is selected" );
+                       auto ref = scene->FindEntityByID( *selected );
+                       if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+                           return PaletteCommandOutcome( false, "the selected entity has no static mesh" );
+                       auto target =
+                            Editor::GetToolTargetMesh( ref->get().GetComponent<ECS::StaticMeshComponent>() );
+                       if ( !target.IsSuccess() )
+                           return PaletteCommandOutcome( false, target.GetError() );
+                       Core::MeshElementSelection::Get().ReqPickCentre    = true;
+                       Core::MeshElementSelection::Get().ReqPickCentreAdd = add;
+                       return PaletteCommandDone();
+                   } } );
         // UE's Accept on a static mesh (P9b): the selected entity's edit goes INTO its asset - an imported .fbx
         // mesh included - under the same GUID, so every scene and foliage type naming the mesh draws the edit.
         commands.push_back(
