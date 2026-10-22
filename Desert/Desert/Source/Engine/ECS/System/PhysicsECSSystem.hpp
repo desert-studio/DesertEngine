@@ -491,7 +491,7 @@ namespace Desert::ECS
             {
                 if ( event.Kind != PhysicsEventKind::BeginOverlap && event.Kind != PhysicsEventKind::EndOverlap )
                     continue;
-                if ( !registry.valid( event.Self ) || !registry.all_of<VolumeComponent>( event.Self ) )
+                if ( !registry.valid( event.Self ) || !registry.has<VolumeComponent>( event.Self ) )
                     continue;
                 LOG_INFO( "[Volume] '{}' {} '{}'", nameOf( event.Self ),
                           event.Kind == PhysicsEventKind::BeginOverlap ? "entered by" : "left by",

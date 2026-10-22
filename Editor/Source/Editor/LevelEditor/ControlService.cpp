@@ -752,7 +752,8 @@ namespace Desert::Editor
 
                     // Selected first, as a person editing it in Details has it selected: the undo record
                     // and the panel's view of the edit are then the ones a hand edit produces.
-                    const Common::UUID entityId = ControlEntityId( request.Entity ).GetValue();
+                    const auto         entityWord = ControlEntityId( request.Entity );
+                    const Common::UUID entityId   = entityWord.GetValue();
                     Core::SelectionManager::SetSelected( entityId );
                     // Only this entity's file is rewritten by the next save (WP17), as from Details.
                     const CommandHistory::FieldSubject fieldSubject( entityId );
@@ -812,7 +813,8 @@ namespace Desert::Editor
                     return Control::Response::Failure(
                          request.Id,
                          std::format( "no component '{}' in the Add Component menu", request.Component ) );
-                Core::SelectionManager::SetSelected( ControlEntityId( request.Entity ).GetValue() );
+                const auto entityWord = ControlEntityId( request.Entity );
+                Core::SelectionManager::SetSelected( entityWord.GetValue() );
                 if ( const auto added = AddComponentUndoable( en, *found ); !added )
                     return Control::Response::Failure( request.Id, added.GetError() );
                 return Control::Response::Success( request.Id );
