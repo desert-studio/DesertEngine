@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 86> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 90> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -216,6 +216,14 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.UVLayout.Translation.x; }, nullptr },
          { "UVLayout.TranslateV",       "Translate V",        "UV Layout", 1, false, -1000.0f, 1000.0f,
            []( ModelingState& s ) { return &s.UVLayout.Translation.y; }, nullptr },
+         { "Sculpt.BrushSize",          "Brush Size",         "Sculpt", 1, false, 0.1f, 1.0e5f,
+           []( ModelingState& s ) { return &s.Sculpt.Radius; }, nullptr },
+         { "Sculpt.Strength",           "Strength",           "Sculpt", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.Sculpt.Strength; }, nullptr },
+         { "Sculpt.Falloff",            "Falloff",            "Sculpt", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.Sculpt.Falloff; }, nullptr },
+         { "Sculpt.Spacing",            "Spacing",            "Sculpt", 1, false, 0.01f, 4.0f,
+           []( ModelingState& s ) { return &s.Sculpt.Spacing; }, nullptr },
     } };
     // clang-format on
 

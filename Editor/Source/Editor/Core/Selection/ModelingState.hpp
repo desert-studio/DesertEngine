@@ -5,6 +5,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
+#include <Engine/Geometry/DynamicMeshSculpt.hpp>
 #include <Engine/Geometry/DynamicMeshUVOperations.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
@@ -34,6 +35,8 @@ namespace Desert::Editor::Core
             UVProject,
             UVUnwrap,
             UVLayout,
+            // UE's Deform palette: Sculpt (UMeshVertexSculptTool) - brush strokes on the selected mesh.
+            Sculpt,
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -298,6 +301,9 @@ namespace Desert::Editor::Core
         Geometry::UVLayoutSettings  UVLayout;
         // What the active UV tool's preview did (its report), or why there is none - the panel shows it.
         std::string UVStatus;
+
+        // Sculpt tool (SculptTool, Geometry/DynamicMeshSculpt.hpp): the brush every stroke uses.
+        Geometry::SculptBrushSettings Sculpt;
 
         // Create tool: the shape a click places (the palette places it at the viewport centre directly,
         // ViewportPanel::PlaceShapeInActiveViewport, so its refusal reaches the command's result).

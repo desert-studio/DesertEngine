@@ -74,6 +74,7 @@ namespace Desert::Editor
         void DrawCreatePalette();
         void DrawPolyModelPalette();
         void DrawTriModelPalette();
+        void DrawDeformPalette();
         void DrawTransformPalette();
         void DrawUVsPalette();
         void DrawCollisionPalette();

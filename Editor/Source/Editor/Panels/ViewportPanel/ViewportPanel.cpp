@@ -2052,6 +2052,8 @@ namespace Desert::Editor
                                        m_ViewportData.IsHovered );
                 m_PolyEditTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                        m_ViewportData.IsHovered );
+                m_SculptTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
+                                     m_ViewportData.IsHovered );
                 m_ElementSelectTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos,
                                             m_ViewportData.Size, m_ViewportData.IsHovered );
                 m_CreateShapeTool.Update( *m_Scene, ray, centreRay, m_ViewportData.ViewportPos,
@@ -2550,6 +2552,8 @@ namespace Desert::Editor
                 return m_CubeGridTool.Cursor();
             case T::PolyEdit:
                 return m_PolyEditTool.Cursor();
+            case T::Sculpt:
+                return m_SculptTool.Cursor();
             case T::ElementSelect:
                 return m_ElementSelectTool.Cursor();
             case T::CreateShape:

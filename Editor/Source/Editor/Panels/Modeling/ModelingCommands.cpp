@@ -213,6 +213,15 @@ namespace Desert::Editor
                         : PaletteCommandOutcome( false, "the CubeGrid tool is not active ('CubeGrid tool')" );
         };
         modelingTool( "Modeling", "PolyEdit tool", MS::Tool::PolyEdit );
+        // UE's Deform palette Sculpt tool: the tool, its brush (UE's brush-type picker) and Invert (UE: Ctrl).
+        modelingTool( "Sculpt", "Sculpt tool", MS::Tool::Sculpt );
+        for ( const auto brush : { Geometry::SculptBrushType::Standard, Geometry::SculptBrushType::Smooth } )
+            commands.push_back( { "Sculpt", std::string( "Brush: " ) + Geometry::ToString( brush ), [brush]
+                                  {
+                                      MS::Get().Sculpt.Brush = brush;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Sculpt", "Invert", []( MS& ms, bool on ) { ms.Sculpt.Invert = on; } );
         modelingTool( "CubeGrid", "CubeGrid tool", MS::Tool::CubeGrid );
         // Reopen CubeGrid on the selected blockout (UE: the tool takes the selected mesh as its target); the
         // tool refuses, with a toast naming why, anything that does not carry its voxels.
