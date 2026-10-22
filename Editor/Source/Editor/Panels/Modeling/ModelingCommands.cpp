@@ -128,6 +128,15 @@ namespace Desert::Editor
         commands.push_back(
              { "Modeling", "Accept: write the edit into the static mesh asset", [&scene]
                {
+                   // An open tool's preview is not an edit yet: it has no undo step until the tool's own
+                   // Accept records one, so writing it into the asset would ship a change Undo cannot take
+                   // back (Undo then reverted the step BEFORE the tool - the Box's creation). UE's tools
+                   // commit through their own Accept too.
+                   const Tools::ActiveToolLabel open = Tools::LabelOf( Core::ModelingState::Get().ActiveTool );
+                   if ( open.Name != nullptr )
+                       return PaletteCommandOutcome(
+                            false, std::format( "{} is open: Accept or Cancel it first (\"Active tool: Accept\")",
+                                                open.Name ) );
                    const auto selected = Core::SelectionManager::GetSelected();
                    if ( !scene || !selected.has_value() )
                        return PaletteCommandOutcome( false, "no entity is selected" );
