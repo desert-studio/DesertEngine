@@ -34,10 +34,13 @@ namespace Desert::Graphic::ShaderProtocols
     /// The include path the shader includer answers with the generated block.
     inline constexpr std::string_view kLightsMetadataInclude = "Mesh/LightsMetadata.glslh";
 
+    /// The block's set-0 slot (GeneratedProtocolIncludes.hpp holds the protocols' slots apart).
+    inline constexpr uint32_t kLightsMetadataBinding = 4u;
+
     [[nodiscard]] inline const std::string& LightsMetadataGlsl()
     {
         static const std::string glsl = GenerateUniformBlockGlsl(
-             "DESERT_LIGHTS_METADATA_GLSLH", "Engine/Graphic/ShaderProtocols/Metadata.hpp", 4,
+             "DESERT_LIGHTS_METADATA_GLSLH", "Engine/Graphic/ShaderProtocols/Metadata.hpp", kLightsMetadataBinding,
              LightsMetadata::Name, "lightsMetadata", kLightsMetadataFields );
         return glsl;
     }

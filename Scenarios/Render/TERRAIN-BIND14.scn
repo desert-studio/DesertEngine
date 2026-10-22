@@ -1,0 +1,5 @@
+# TERRAIN-BIND14: SHADER-PROTOCOL-GEN generated DirectionLightsUB at set 0 binding 3, Terrain's LayerNormalTexture slot, and the Terrain program failed; DEV-BUILD put it back on 14 and the generator now static_asserts the protocol slots apart.
+Дано run Scene "Open Scene G3_TwoTerrains.desce"
+Когда run View "View mode: Lit"
+Когда state
+Тогда 0_landscape ландшафт нарисован и освещён (слои видны, не пропал и не чёрный); в editor.log нет ошибки шейдера Terrain или коллизии привязок

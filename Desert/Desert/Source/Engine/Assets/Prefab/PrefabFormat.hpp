@@ -30,13 +30,14 @@ namespace Desert::Assets
     [[nodiscard]] inline bool PrefabIsAtCurrentVersion( const PrefabData& prefab )
     {
         return StatedVersion( prefab.Header, kSceneSchemaTag ) == Core::kSceneVersion &&
-               StatedVersion( prefab.Header, kUnitSchemaTag ) == Core::kUnitVersion;
+               StatedVersion( prefab.Header, kUnitSchemaTag ) == Core::kUnitVersion &&
+               StatedVersion( prefab.Header, kWorldPartitionSchemaTag ) == Core::kWorldPartitionVersion;
     }
 
     // The refusal, as a string: which file, what it is, what this engine needs, and the exact command
     // that fixes it — the four things a reader must have to act without opening any source.
     [[nodiscard]] std::string RefusePrefabVersion( std::string_view source, int foundSceneVersion,
-                                                   int foundUnitVersion );
+                                                   int foundUnitVersion, int foundWorldPartitionVersion );
 
     // Same, read straight off the parsed tree (absent integers become 0).
     [[nodiscard]] std::string RefusePrefabVersion( std::string_view source, const PrefabData& prefab );

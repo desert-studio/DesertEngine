@@ -63,10 +63,13 @@ namespace Desert::Editor
             const Autosave::RecoveryChoice choice = CrashRecovery::ChooseAutosave();
             for ( const Autosave::NotOfferedCopy& copy : choice.NotOffered )
             {
-                LOG_WARN( "[Recovery] not offered: '{}' states scene schema v{} / world units v{}; this build "
-                          "opens v{} / v{} only. Autosaves are not migrated -- the file is left as it is.",
-                          copy.Path.string(), copy.Stated.Scene, copy.Stated.Unit, Desert::Core::kSceneVersion,
-                          Desert::Core::kUnitVersion );
+                LOG_WARN(
+                     "[Recovery] not offered: '{}' states scene schema v{} / world units v{} / world "
+                     "partition v{}; this build opens v{} / v{} / v{} only. Autosaves are not migrated -- the "
+                     "file is left as it is.",
+                     copy.Path.string(), copy.Stated.Scene, copy.Stated.Unit, copy.Stated.WorldPartition,
+                     Desert::Core::kSceneVersion, Desert::Core::kUnitVersion,
+                     Desert::Core::kWorldPartitionVersion );
             }
             dock.OfferRecovery( choice.Offered );
         }

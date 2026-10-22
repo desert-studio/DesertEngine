@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/ShaderProtocols/Camera.hpp>
 #include <Engine/Graphic/ShaderProtocols/DirectionLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/Metadata.hpp>
@@ -7,6 +8,8 @@
 #include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 
+#include <array>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -26,6 +29,42 @@ namespace Desert::Graphic::ShaderProtocols
                                        GenerateGlslStruct( "SpotLight", kSpotLightPayloadFields ) );
         return glsl;
     }
+
+    /// THE SET-0 SLOTS THE SCENE PROTOCOLS ARE GENERATED AT, held apart where the numbers are chosen. Every lit
+    /// program (the forward cells, Terrain.shader, the deferred composite) includes these blocks beside its own
+    /// hand-numbered resources, and two declarations on one slot is no compile error (ShaderGraphBindings.hpp):
+    /// VulkanShader::Reflect drops the program at material apply. That is how DirectionLightsUB at 3 lost the
+    /// landscape (TERRAIN-BIND14). The whole tree is MEASURED by Tests/Engine/ShaderCacheKey (every shipped pass
+    /// compiled and reflected, no collision); this keeps the generator from handing out a known-taken slot first.
+    /// SkinnedBones (1) is left out: it is declared only into the light-view caster cells, where 1 is its own.
+    inline constexpr std::array<uint32_t, 5> kSceneProtocolBindings = {
+         kCameraUBBinding, kLightsMetadataBinding, kPointLightsUBBinding, kDirectionLightsUBBinding,
+         kSpotLightsUBBinding };
+    /// Slots a lit program including the protocols already spends by hand: the material params row (1, every
+    /// surface template and Terrain), and the landscape layer arrays of Programs/Terrain/TerrainSurface.glslh
+    /// (LayerAlbedo/Normal/Arm/HeightTexture at 2/3/13/15).
+    inline constexpr std::array<uint32_t, 5> kSceneProtocolTakenBindings = { 1u, 2u, 3u, 13u, 15u };
+
+    [[nodiscard]] consteval bool SceneProtocolBindingsAreFree()
+    {
+        for ( size_t i = 0; i < kSceneProtocolBindings.size(); ++i )
+        {
+            const uint32_t binding = kSceneProtocolBindings[i];
+            for ( size_t j = i + 1; j < kSceneProtocolBindings.size(); ++j )
+                if ( kSceneProtocolBindings[j] == binding )
+                    return false;
+            for ( const uint32_t taken : kSceneProtocolTakenBindings )
+                if ( taken == binding )
+                    return false;
+            // Everything from the scene-read range up (it, the virtual-shadow raster's and the graph's window).
+            if ( binding >= Core::kSceneReadBindingFirst )
+                return false;
+        }
+        return true;
+    }
+    static_assert( SceneProtocolBindingsAreFree(),
+                   "a scene protocol block is generated on a slot another protocol, a lit program's own resource "
+                   "(material row / terrain layer arrays) or a reserved range already holds" );
 
     /// THE INCLUDES WHOSE TEXT IS GENERATED FROM A C++ PROTOCOL (Std140Block.hpp) rather than read from disk.
     /// @p requested is an angle include's shader-root-relative path, normalised with '/' separators. Asked by the

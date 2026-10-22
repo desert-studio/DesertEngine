@@ -4763,6 +4763,28 @@ namespace Desert::Migration
         return report;
     }
 
+    namespace
+    {
+        // World Partition's chain, by the number the file states under its own tag (kWorldPartitionVersion*).
+        // One `if` per step, in order, as the scene chain; a step that refuses names the file and stops it.
+        void RunWorldPartitionSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
+                                     FileMigrationReport&                                             report )
+        {
+            report.StatedWorldPartitionVersion = Assets::StatedVersion( header, Assets::kWorldPartitionSchemaTag );
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionTagged )
+                report.WorldPartitionTagRaised = true; // the stamp only: v1 is the v70 block under its own tag
+        }
+
+        // A file at a LATER World Partition generation than this tool raises to, refused in the scene's words.
+        std::string RefuseLaterWorldPartition( const char* what, int stated )
+        {
+            return std::string( "states " ) + what + " World Partition v" + std::to_string( stated ) +
+                   ", and this tool raises files to v" + std::to_string( Core::kWorldPartitionVersion ) +
+                   ". A file at a LATER generation was written by a build this tool predates - convert it with "
+                   "THAT build's SceneMigrator.";
+        }
+    } // namespace
+
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
     {
@@ -4780,6 +4802,13 @@ namespace Desert::Migration
             report.Refused = RefuseGeneration( "scene", statedSceneVersion, statedUnitVersion,
                                                "A file at a LATER generation was written by a build this "
                                                "tool predates - convert it with THAT build's SceneMigrator." );
+            return report;
+        }
+        if ( const int statedWorldPartition =
+                  Assets::StatedVersion( scene.Header, Assets::kWorldPartitionSchemaTag );
+             statedWorldPartition > Core::kWorldPartitionVersion )
+        {
+            report.Refused = RefuseLaterWorldPartition( "scene", statedWorldPartition );
             return report;
         }
 
@@ -4916,6 +4945,9 @@ namespace Desert::Migration
             report.RootSiblingIndexDropped = MigrateRootSiblingIndexV69ToV70( scene );
         }
 
+        // World Partition's own chain, after the scene's: its numbers are its tag's (kWorldPartitionVersion*).
+        RunWorldPartitionSteps( scene.Header, report );
+
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently
         // (MigrationHeader keeps an existing GUID) - leaving it unstamped is how a load would re-run this.
         scene.Header =
@@ -4947,7 +4979,9 @@ namespace Desert::Migration
         outcome.FoundUnitVersion  = prefab.Header ? Assets::StatedVersion( prefab.Header, Assets::kUnitSchemaTag )
                                                   : prefab.UnitVersion.value_or( 0 );
 
-        if ( outcome.FoundSceneVersion == kSceneVersion && outcome.FoundUnitVersion == kUnitVersion )
+        const int foundWorldPartition = Assets::StatedVersion( prefab.Header, Assets::kWorldPartitionSchemaTag );
+        if ( outcome.FoundSceneVersion == kSceneVersion && outcome.FoundUnitVersion == kUnitVersion &&
+             foundWorldPartition == Core::kWorldPartitionVersion )
         {
             outcome.AlreadyCurrent = true;
             return outcome;
@@ -4958,6 +4992,11 @@ namespace Desert::Migration
             outcome.Refused = RefuseGeneration( "prefab", outcome.FoundSceneVersion, outcome.FoundUnitVersion,
                                                 "A file at a LATER generation was written by a build this "
                                                 "tool predates - convert it with THAT build's SceneMigrator." );
+            return outcome;
+        }
+        if ( foundWorldPartition > Core::kWorldPartitionVersion )
+        {
+            outcome.Refused = RefuseLaterWorldPartition( "prefab", foundWorldPartition );
             return outcome;
         }
 
@@ -4987,6 +5026,8 @@ namespace Desert::Migration
             if ( !outcome.Steps.AssetKeys.Refused.empty() )
                 outcome.Steps.Refused = RefusedWhole( prefab.Name, outcome.Steps.AssetKeys.Refused );
         }
+        if ( outcome.Steps.Refused.empty() )
+            RunWorldPartitionSteps( prefab.Header, outcome.Steps );
         if ( !outcome.Steps.Refused.empty() )
         {
             outcome.Refused = outcome.Steps.Refused;
