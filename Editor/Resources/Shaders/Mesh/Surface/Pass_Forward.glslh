@@ -23,7 +23,7 @@ layout( location = 1 ) out vec4 oVelocity;
 // (responsive AA) is translucency's, not written here.
 layout( location = 3 ) out float oThinGeometryCoverage;
 
-// The scene directional light (struct DirectionLight + DirectionLightsUB, binding 3): GENERATED from
+// The scene directional light (struct DirectionLight + DirectionLightsUB, binding 14): GENERATED from
 // Engine/Graphic/ShaderProtocols/DirectionLight.hpp by the shader includer.
 #include <Common/DirectionLightsUB.glslh>
 
@@ -33,8 +33,10 @@ layout( location = 3 ) out float oThinGeometryCoverage;
 // one). 13 and 14 were the cascades 1..3, which are one array now.
 // The repeat state is numbered by the program build (`Uniform sampler`, ShaderMapBuild AssignSharedSamplerBindings):
 // a fixed 13 collided with the grass blade path's GrassBladeShape (Vertex_GrassBlade.glslh) in GrassBlade.Forward.
+// The clamp state too: a fixed 14 collided with the generated DirectionLightsUB (Engine/Graphic/ShaderProtocols/
+// DirectionLight.hpp, kDirectionLightsUBBinding), which every lit program includes (TERRAIN-BIND14).
 Uniform sampler LinearRepeatSampler;
-layout( binding = 14 ) uniform sampler LinearClampSampler;
+Uniform sampler LinearClampSampler;
 // THE MEGALIGHTS TRANSLUCENCY VOLUME (Shadows Stochastic): on, the local lights come from it, shadowed, in place of
 // the light-grid loop below; off, its block says so and the loop runs.
 #include <Common/MegaLightsVolume.glslh>
