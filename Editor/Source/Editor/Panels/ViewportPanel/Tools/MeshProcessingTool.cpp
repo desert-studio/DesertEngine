@@ -12,6 +12,7 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/MeshDeformOperations.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 
 #include <ImGui/imgui.h>
 #include <ImGuizmo.h>

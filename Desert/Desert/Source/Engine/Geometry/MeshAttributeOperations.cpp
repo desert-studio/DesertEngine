@@ -270,7 +270,7 @@ namespace Desert::Geometry
                                   ToString( settings.CalculationMethod ), mesh.TriangleCount(),
                                   tangents.GetDegenerateTris().size() );
         out.Mesh   = std::move( mesh );
-        return out;
+        return Common::MakeSuccess( std::move( out ) );
     }
 
     Common::ResultStr<DeformOutcome> EditNormals( const DynamicMesh3& input, const NormalsSettings& settings )
