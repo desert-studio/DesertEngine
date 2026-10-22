@@ -4,13 +4,17 @@
 #include <Common/Core/Logger.hpp>
 
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstdint>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -28,6 +32,33 @@ namespace Desert::Graphic
     /// the substitution simply never happens, the default file is read instead, and the authored medium
     /// silently does nothing.
     inline constexpr const char* kCloudMediumInclude = "Generated/CloudMedium.glslh";
+
+    /// THE FOUR PROGRAMS AN AUTHORED MEDIUM IS COMPILED INTO: the march (the cloud material shader), the shadow
+    /// map, the sky-occlusion volume (VolumetricCloudRenderer) and the sky light's bake (SkyCapture). One list
+    /// for the runtime and the package cook (CloudMediumProgramVariants).
+    inline constexpr const char* kCloudShadowMapShaderName    = "CloudShadowMap";
+    inline constexpr const char* kCloudSkyOcclusionShaderName = "CloudSkyOcclusionVolume";
+    inline constexpr const char* kCloudSkyBakeShaderName      = "BakeProceduralSky";
+    inline constexpr std::array<const char*, 4> kCloudMediumPrograms{
+         kCloudMaterialShaderName, kCloudShadowMapShaderName, kCloudSkyOcclusionShaderName, kCloudSkyBakeShaderName };
+
+    /// The permutation of an authored medium's @p source (ShaderService::MediumSourceOf): kCloudMediumInclude
+    /// substituted. COOKED (ShaderVariant::ShippedByCook): the package cook compiles every registered medium
+    /// into every kCloudMediumPrograms entry (CloudMediumProgramVariants), so a package never compiles one.
+    [[nodiscard]] inline Core::ShaderVariant CloudMediumVariant( std::string source )
+    {
+        return Core::ShaderVariant{ .VirtualSources = { { std::string( kCloudMediumInclude ), std::move( source ) } },
+                                    .ShippedByCook  = true };
+    }
+
+    /// Every program @p source is compiled into, under CloudMediumVariant - what the package cook compiles.
+    [[nodiscard]] inline std::vector<Core::CookedProgramVariant> CloudMediumProgramVariants( const std::string& source )
+    {
+        std::vector<Core::CookedProgramVariant> variants;
+        for ( const char* program : kCloudMediumPrograms )
+            variants.push_back( { std::string( program ), CloudMediumVariant( source ) } );
+        return variants;
+    }
 
     /// The cloud material property that NAMES the authored medium — a `ShaderAsset` reference in
     /// CloudRaymarch's Properties block. One spelling for its three readers: the override reader below,

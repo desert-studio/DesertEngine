@@ -333,6 +333,15 @@ namespace Desert::Runtime
         return {};
     }
 
+    std::vector<std::string> ShaderService::MediumSources() const
+    {
+        std::vector<std::string> sources;
+        sources.reserve( m_Media.size() );
+        for ( const auto& [handle, medium] : m_Media )
+            sources.push_back( medium.Source );
+        return sources;
+    }
+
     const std::vector<Core::Formats::ShaderParam>*
     ShaderService::MediumSchemaOf( const Assets::AssetHandle& handle ) const
     {

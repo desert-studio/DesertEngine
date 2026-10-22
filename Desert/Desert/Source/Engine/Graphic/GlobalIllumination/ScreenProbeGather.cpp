@@ -188,21 +188,15 @@ namespace Desert::Graphic::GlobalIllumination
         return BOOLSUCCESS;
     }
 
-    std::vector<ScreenProbeProgramVariant> ScreenProbeGather::ProgramVariants( const uint32_t downsample,
-                                                                             const uint32_t tracedTexels )
+    std::vector<Core::CookedProgramVariant> ScreenProbeGather::ProgramVariants( const uint32_t downsample,
+                                                                              const uint32_t tracedTexels )
     {
-        std::vector<ScreenProbeProgramVariant> variants;
+        std::vector<Core::CookedProgramVariant> variants;
         for ( uint32_t program = 0; program < ProgramCount; ++program )
             if ( program != TraceNearField && program != TraceFarField )
                 variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
                                       LayoutVariant( downsample, tracedTexels ) } );
-        // The tracer permutations a Pipeline resolves to (GITracing.hpp PipelineFor): in-place hit lighting is
-        // hardware-only.
-        constexpr std::array<Pipeline, 3> kTracers{
-             Pipeline{ .Tracer = Tracer::SoftwareDistanceField, .Hits = HitLighting::SurfaceCache },
-             Pipeline{ .Tracer = Tracer::HardwareRayQuery, .Hits = HitLighting::SurfaceCache },
-             Pipeline{ .Tracer = Tracer::HardwareRayQuery, .Hits = HitLighting::InPlace } };
-        for ( const Pipeline& tracer : kTracers )
+        for ( const Pipeline& tracer : kTracerPermutations )
             for ( const auto& [program, leg] : { std::pair{ TraceNearField, kTraceNearFieldDefine },
                                                  std::pair{ TraceFarField, kTraceFarFieldDefine } } )
                 variants.push_back( { std::string( kScreenProbeShaderNames[program] ),

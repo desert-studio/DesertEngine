@@ -62,7 +62,10 @@ Shader "ScreenProbeCompactTraces"
         #define SP_COMPACT_GROUP_SIZE 64u
         #include <Common/ScreenProbeTracing.glslh>
 
-        shared uint s_Open[SP_RES * SP_RES];
+        #define SP_COMPACT_TEXELS ( SP_RES * SP_RES )
+        // The probe's open-ray prefix sum, ping-ponged between two halves (Hillis-Steele: log2(SP_RES²) steps, each
+        // thread reading only the step before's half, so no step reads a value the same step writes).
+        shared uint s_Scan[2u * SP_COMPACT_TEXELS];
         shared uint s_Start;
 
         void main()
@@ -78,17 +81,28 @@ Shader "ScreenProbeCompactTraces"
                        ( u_FarField != 0u || ( encoded & SP_TRACE_REACHED_BIT ) == 0u ) &&
                        SPTraceHitDistance( encoded ) < u_MaxDistance;
             }
-            s_Open[texel] = open ? 1u : 0u;
+            const uint own = open ? 1u : 0u;
+            s_Scan[texel]  = own;
             barrier();
 
             // In texel order (UE's wave-ops path is ordered): neighbouring threads of the world legs trace
-            // neighbouring directions.
-            uint offset = 0u;
-            for ( uint i = 0u; i < texel; ++i )
-                offset += s_Open[i];
-            if ( texel == SP_RES * SP_RES - 1u )
+            // neighbouring directions. A groupshared inclusive prefix sum (UE ScreenProbeCompactTracesCS's
+            // GroupShared compaction), log2(SP_RES²) steps instead of a per-thread walk over every texel before it.
+            uint src = 0u;
+            for ( uint stride = 1u; stride < SP_COMPACT_TEXELS; stride <<= 1u )
             {
-                const uint count = offset + s_Open[texel];
+                uint sum = s_Scan[src * SP_COMPACT_TEXELS + texel];
+                if ( texel >= stride )
+                    sum += s_Scan[src * SP_COMPACT_TEXELS + texel - stride];
+                s_Scan[( src ^ 1u ) * SP_COMPACT_TEXELS + texel] = sum;
+                barrier();
+                src ^= 1u;
+            }
+            const uint inclusive = s_Scan[src * SP_COMPACT_TEXELS + texel];
+            const uint offset    = inclusive - own; // the open rays of the texels before this one
+            if ( texel == SP_COMPACT_TEXELS - 1u )
+            {
+                const uint count = inclusive;
                 s_Start          = count > 0u ? atomicAdd( screenProbeCompactAllocator, count ) : 0u;
                 if ( count > 0u )
                     atomicMax( screenProbeCompactArgs.x,

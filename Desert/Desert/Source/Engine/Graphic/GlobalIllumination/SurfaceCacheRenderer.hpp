@@ -181,6 +181,9 @@ namespace Desert::Graphic::SurfaceCache
         // first call for that tracer. Asked by the view before the frame's passes, so a permutation that does not
         // build refuses the methods it serves by name (SceneRenderer::AddFrameSurfaceCache, ProgramRefusals).
         [[nodiscard]] Common::BoolResultStr EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer );
+        // Every variant EnsureLightingProgram can acquire (GlobalIllumination::TracerProgramVariants of
+        // SurfaceCacheDirectLighting), cooked by the package (PackageCook CookShaderVariants).
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
     private:
         [[nodiscard]] Common::ResultStr<std::shared_ptr<GraphicsPipeline>>

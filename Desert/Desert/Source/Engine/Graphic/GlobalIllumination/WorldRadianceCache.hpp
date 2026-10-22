@@ -112,6 +112,9 @@ namespace Desert::Graphic::GlobalIllumination
         // Public so the view asks for it before the update and refuses the GI methods of that tracer by name
         // when it does not build (SceneRenderer::AddFrameTracedGI); AddUpdatePasses asks again (cached).
         [[nodiscard]] Common::BoolResultStr EnsureTraceProgram( const Pipeline& pipeline );
+        // Every variant EnsureTraceProgram can acquire: Trace under each tracer permutation (TracerProgramVariants),
+        // cooked by the package (PackageCook CookShaderVariants).
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 

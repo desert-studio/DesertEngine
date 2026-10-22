@@ -6,7 +6,13 @@
 #include <Engine/Core/ShaderCompiler/ShaderCompiler.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
+#include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
+#include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
 #include <Engine/Text/FontCache.hpp>
 #include <Engine/Vector/IconBake.hpp>
@@ -128,14 +134,100 @@ namespace Desert::Editor
             }
         }
 
-        // THE PERMUTATIONS THE SHIPPED QUALITY LEVELS SELECT (UE cooks a global shader's permutations). Every
-        // screen-probe layout a Scalability.json level names - {ScreenProbeDownsample, ScreenProbeTracedTexels}
-        // per level - is compiled under each of ScreenProbeGather::ProgramVariants, the list the runtime acquires
-        // from, so a package never compiles one (ShaderVariant::ShippedByCook refuses the miss by name).
+        // ONE COOKED PERMUTATION: @p cooked.Program ("<Shader>" or "<Shader>/<Pass>", ShaderService's names) under
+        // its variant, every stage, into the SPIR-V store under the key the runtime asks for.
+        void CookVariant( const ::Desert::Core::CookedProgramVariant& cooked, const std::vector<fs::path>& programs,
+                          bool spirvDebugInfo, CookStats& stats )
+        {
+            namespace Preprocess = ::Desert::Core::Preprocess;
+
+            const std::size_t slash  = cooked.Program.find( '/' );
+            const std::string shader = cooked.Program.substr( 0, slash );
+            const std::string pass   = slash == std::string::npos ? std::string() : cooked.Program.substr( slash + 1 );
+            const auto        file =
+                 std::ranges::find_if( programs, [&]( const fs::path& p ) { return p.stem().string() == shader; } );
+            if ( file == programs.end() )
+            {
+                LOG_ERROR( "[PackageCook] the shipped program {} is not among the packaged shaders", cooked.Program );
+                ++stats.Failures;
+                return;
+            }
+            const auto content = Common::Utils::FileSystem::ReadFileContent( *file );
+            if ( !content || content.GetValue().empty() )
+            {
+                ++stats.Failures; // the primitive logged a miss; an empty file is CookShaders' failure too
+                return;
+            }
+            const auto stages = Preprocess::ShaderPreprocess::PreProcessProgramPass( content.GetValue(), *file, pass );
+            if ( !stages.IsSuccess() )
+            {
+                LOG_ERROR( "[PackageCook] {} [{:016x}] was not cooked: {}", cooked.Program, cooked.Variant.Hash(),
+                           stages.GetError() );
+                ++stats.Failures;
+                return;
+            }
+            for ( const auto& [stage, source] : stages.GetValue() )
+            {
+                const uint64_t key = ::Desert::Core::ComputeShaderCacheKeyForProfile( stage, source, *file,
+                                                                                      spirvDebugInfo, cooked.Variant );
+                if ( ::Desert::Core::TryLoadCachedSpirv( key ) )
+                {
+                    ++stats.ShadersCached;
+                    continue;
+                }
+                if ( !::Desert::Core::ShaderCompiler::CompileGLSLToSPIRVForProfile( stage, source, file->string(),
+                                                                                   spirvDebugInfo, cooked.Variant )
+                           .IsSuccess() )
+                {
+                    ++stats.Failures;
+                    continue;
+                }
+                if ( !::Desert::Core::TryLoadCachedSpirv( key ) )
+                {
+                    LOG_ERROR( "[PackageCook] {} [{:016x}] stage {} compiled but its artifact did not reach {}",
+                               cooked.Program, cooked.Variant.Hash(), static_cast<int>( stage ),
+                               ::Desert::Core::SpirvCachePathForKey( key ).string() );
+                    ++stats.StoreFailures;
+                    continue;
+                }
+                ++stats.ShadersCompiled;
+            }
+        }
+
+        // THE PERMUTATIONS THE PACKAGE CAN SELECT (UE cooks a global shader's permutations), each system's one
+        // list - the list its runtime acquires from - so a package never compiles one (ShaderVariant::
+        // ShippedByCook refuses the miss by name):
+        //   the tracing consumers   under every tracer permutation (GlobalIllumination::kTracerPermutations):
+        //                           WorldRadianceCache, SurfaceCacheRenderer, SSRRenderer ProgramVariants;
+        //   the cloud media         every registered Volume medium into each of its programs
+        //                           (CloudMediumProgramVariants);
+        //   the screen probes       every layout a Scalability.json level names - {ScreenProbeDownsample,
+        //                           ScreenProbeTracedTexels} per level - under ScreenProbeGather::ProgramVariants.
         void CookShaderVariants( bool spirvDebugInfo, bool developerInstruments, CookStats& stats )
         {
-            namespace Preprocess  = ::Desert::Core::Preprocess;
             namespace Scalability = ::Common::Scalability;
+            namespace GI          = Graphic::GlobalIllumination;
+
+            std::vector<::Desert::Core::CookedProgramVariant> cooked;
+            const auto append = [&cooked]( std::vector<::Desert::Core::CookedProgramVariant> list )
+            {
+                for ( auto& entry : list )
+                    cooked.push_back( std::move( entry ) );
+            };
+            append( GI::WorldRadianceCache::ProgramVariants() );
+            append( Graphic::SurfaceCache::SurfaceCacheRenderer::ProgramVariants() );
+            append( Graphic::System::SSRRenderer::ProgramVariants() );
+
+            if ( const auto shaders = Runtime::ResourceRegistry::GetShaderService() )
+            {
+                for ( const std::string& medium : shaders->MediumSources() )
+                    append( Graphic::CloudMediumProgramVariants( medium ) );
+            }
+            else
+            {
+                LOG_ERROR( "[PackageCook] no shader service: the cloud media's permutations were not cooked" );
+                ++stats.Failures;
+            }
 
             const fs::path tableFile = ::Common::Constants::Path::CONFIG_PATH / "Scalability.json";
             const auto     text      = Common::Utils::FileSystem::ReadFileContent( tableFile );
@@ -143,80 +235,27 @@ namespace Desert::Editor
                                             : Common::MakeError<Scalability::ScalabilityTable>( text.GetError() );
             if ( !table )
             {
-                LOG_ERROR( "[PackageCook] {}: the shader permutations its levels select were not cooked: {}",
+                LOG_ERROR( "[PackageCook] {}: the screen-probe permutations its levels select were not cooked: {}",
                            tableFile.string(), table.GetError() );
                 ++stats.Failures;
-                return;
             }
-            std::set<std::pair<uint32_t, uint32_t>> layouts;
-            for ( std::size_t level = 0; level < Scalability::kLevelCount; ++level )
+            else
             {
-                const auto at = static_cast<Scalability::Level>( level );
-                layouts.emplace(
-                     static_cast<uint32_t>( table.GetValue().ValueAt( Scalability::Parameter::ScreenProbeDownsample, at ) ),
-                     static_cast<uint32_t>( table.GetValue().ValueAt( Scalability::Parameter::ScreenProbeTracedTexels, at ) ) );
+                std::set<std::pair<uint32_t, uint32_t>> layouts;
+                for ( std::size_t level = 0; level < Scalability::kLevelCount; ++level )
+                {
+                    const auto at = static_cast<Scalability::Level>( level );
+                    layouts.emplace(
+                         static_cast<uint32_t>( table.GetValue().ValueAt( Scalability::Parameter::ScreenProbeDownsample, at ) ),
+                         static_cast<uint32_t>( table.GetValue().ValueAt( Scalability::Parameter::ScreenProbeTracedTexels, at ) ) );
+                }
+                for ( const auto& [downsample, tracedTexels] : layouts )
+                    append( GI::ScreenProbeGather::ProgramVariants( downsample, tracedTexels ) );
             }
 
             const std::vector<fs::path> programs = PackagedShaderPrograms( developerInstruments );
-            for ( const auto& [downsample, tracedTexels] : layouts )
-            {
-                for ( const auto& [shader, variant] :
-                      Graphic::GlobalIllumination::ScreenProbeGather::ProgramVariants( downsample, tracedTexels ) )
-                {
-                    const auto file = std::ranges::find_if( programs, [&]( const fs::path& p )
-                                                            { return p.stem().string() == shader; } );
-                    if ( file == programs.end() )
-                    {
-                        LOG_ERROR( "[PackageCook] the shipped program {} ({} px, {} texels) is not among the "
-                                   "packaged shaders",
-                                   shader, downsample, tracedTexels );
-                        ++stats.Failures;
-                        continue;
-                    }
-                    const auto content = Common::Utils::FileSystem::ReadFileContent( *file );
-                    if ( !content || content.GetValue().empty() )
-                    {
-                        ++stats.Failures; // the primitive logged a miss; an empty file is CookShaders' failure too
-                        continue;
-                    }
-                    const auto stages =
-                         Preprocess::ShaderPreprocess::PreProcessProgramPass( content.GetValue(), *file, "" );
-                    if ( !stages.IsSuccess() )
-                    {
-                        LOG_ERROR( "[PackageCook] {} ({} px, {} texels) was not cooked: {}", file->string(),
-                                   downsample, tracedTexels, stages.GetError() );
-                        ++stats.Failures;
-                        continue;
-                    }
-                    for ( const auto& [stage, source] : stages.GetValue() )
-                    {
-                        const uint64_t key = ::Desert::Core::ComputeShaderCacheKeyForProfile(
-                             stage, source, *file, spirvDebugInfo, variant );
-                        if ( ::Desert::Core::TryLoadCachedSpirv( key ) )
-                        {
-                            ++stats.ShadersCached;
-                            continue;
-                        }
-                        if ( !::Desert::Core::ShaderCompiler::CompileGLSLToSPIRVForProfile(
-                                   stage, source, file->string(), spirvDebugInfo, variant )
-                                   .IsSuccess() )
-                        {
-                            ++stats.Failures;
-                            continue;
-                        }
-                        if ( !::Desert::Core::TryLoadCachedSpirv( key ) )
-                        {
-                            LOG_ERROR( "[PackageCook] {} [{}] ({} px, {} texels) compiled but its artifact did not "
-                                       "reach {}",
-                                       file->string(), static_cast<int>( stage ), downsample, tracedTexels,
-                                       ::Desert::Core::SpirvCachePathForKey( key ).string() );
-                            ++stats.StoreFailures;
-                            continue;
-                        }
-                        ++stats.ShadersCompiled;
-                    }
-                }
-            }
+            for ( const ::Desert::Core::CookedProgramVariant& entry : cooked )
+                CookVariant( entry, programs, spirvDebugInfo, stats );
         }
 
         void CookFonts( CookStats& stats )
