@@ -8,6 +8,7 @@
 // Geometry/Mesh.hpp by translation units that never include Core.hpp on their own.
 #include <Common/Core/Core.hpp>
 
+#include <source_location>
 #include <vector>
 
 namespace Desert::Graphic
@@ -229,11 +230,18 @@ namespace Desert::Graphic
 
         [[nodiscard]] virtual Common::BoolResultStr RT_Invalidate() = 0;
 
+        // @p site names the ledger row after the line that asked for the buffer: a vertex buffer has no
+        // name of its own, and a row a closing view leaves behind has to say WHOSE it is (EDITOR-LOG-CLEAN).
         static std::shared_ptr<VertexBuffer> Create( const void* data, uint32_t size,
-                                                     BufferUsage usage = BufferUsage::Static );
-        static std::shared_ptr<VertexBuffer> Create( uint32_t size, BufferUsage usage = BufferUsage::Dynamic );
+                                                     BufferUsage          usage = BufferUsage::Static,
+                                                     std::source_location site = std::source_location::current() );
+        static std::shared_ptr<VertexBuffer> Create( uint32_t size, BufferUsage usage = BufferUsage::Dynamic,
+                                                     std::source_location site = std::source_location::current() );
 
     private:
+        static std::shared_ptr<VertexBuffer> NamedAfter( std::shared_ptr<VertexBuffer> buffer,
+                                                         const std::source_location&   site );
+
         ResourceOwnership m_Accounting;
     };
 } // namespace Desert::Graphic

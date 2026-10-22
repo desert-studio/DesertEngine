@@ -722,7 +722,9 @@ namespace Desert::Graphic
                        ResourceOwnerInstanceName( Instance ), left.Live, left.Bytes );
             // Each by kind, claiming owner and size: the row names no object, these find its holder.
             for ( const ResourceRowSummary& row : ResourceLedger::RowsOf( Instance ) )
-                LOG_ERROR( "[Resources]   row #{}: {} claimed by {}, {}", row.Id, ResourceKindName( row.Kind ),
+                LOG_ERROR( "[Resources]   row #{}: {} '{}' claimed by {}, {}", row.Id,
+                           ResourceKindName( row.Kind ),
+                           row.Name.empty() ? std::string_view( "unnamed" ) : std::string_view( row.Name ),
                            ResourceOwnerName( row.Owner ),
                            row.BytesKnown ? std::format( "{} bytes", row.Bytes ) : std::string( "size unknown" ) );
         }
