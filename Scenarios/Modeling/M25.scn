@@ -1,4 +1,4 @@
-# M25 VoxBoolean: Box + Sphere -> Union and Difference A - B; the preview hides input B, Accept creates a new entity, one Undo removes it
+# M25 VoxBoolean (the operator runs in the background for ~6 s in Debug; the 1a/1a2 window frames take that long - DesertCtl has no wait-for-background step): Box + Sphere -> Union and Difference A - B; the preview hides input B, Accept creates a new entity, one Undo removes it
 Дано --subject viewport set Camera.Direction 0.6,-0.55,0.6
 Дано run Modeling "Create shape tool: Box"
 Дано run Modeling "Create shape: place at the viewport centre"
@@ -15,6 +15,7 @@
 Когда run Modeling "VoxOps tool: VoxBoolean"
 Когда run Modeling "VoxBoolean operation: Union"
 Тогда 1a_union_computing the Sphere input is already hidden while the operator runs (status "computing")
+Тогда 1a2_union_status the panel status line reports the Union result (24^3 cells -> vertices, triangles)
 Тогда-вид 1_union_preview VoxBoolean bar (Accept/Cancel); the Sphere input is hidden, the Box shows the Union preview (box with the sphere bulging out of its top corner)
 Когда run Modeling "Active tool: Accept"
 Тогда 1b_union_accepted a new entity "Box VoxBoolean" holds the Union; both inputs hidden; it is selected
@@ -26,6 +27,7 @@
 Когда run Modeling "VoxOps tool: VoxBoolean"
 Когда run Modeling "VoxBoolean operation: Difference A - B"
 Тогда 2a_difference_computing the Sphere is hidden while the operator runs
+Тогда 2a2_difference_status the panel status line reports the Difference A - B result
 Тогда-вид 2_difference the Sphere is hidden; the Box shows a spherical bite out of its top corner
 Когда run Modeling "Active tool: Cancel"
 Тогда 2_difference_cancel the tool ended; Box unchanged and the Sphere visible again
