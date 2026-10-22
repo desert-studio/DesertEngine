@@ -90,12 +90,12 @@ namespace Desert::Editor::Tools
         int         m_ScaleAxis  = -1;
         int         m_ScaleHover = -1;
         const char* m_ScaleSite  = nullptr;
-        glm::mat4   m_ScaleStart{ 1.0f };   // the matrix when the drag began
-        glm::vec2   m_ScaleMouse{ 0.0f };   // the cursor when the drag began
-        glm::vec2   m_ScaleOrigin{ 0.0f };  // gizmo origin on screen
-        glm::vec2   m_ScaleDir{ 0.0f };     // unit screen direction origin -> ball
-        float       m_ScalePixels = 1.0f;   // screen distance origin -> ball at scale 1
-        float       m_ScaleFactor = 1.0f;   // the held drag's current ratio (for drawing)
+        glm::mat4   m_ScaleStart{ 1.0f };  // the matrix when the drag began
+        glm::vec2   m_ScaleMouse{ 0.0f };  // the cursor when the drag began
+        glm::vec2   m_ScaleOrigin{ 0.0f }; // gizmo origin on screen
+        glm::vec2   m_ScaleDir{ 0.0f };    // unit screen direction origin -> ball
+        float       m_ScalePixels = 1.0f;  // screen distance origin -> ball at scale 1
+        float       m_ScaleFactor = 1.0f;  // the held drag's current ratio (for drawing)
         // RenderInterval's held handle: 0 none, 1 lower, 2 upper.
         int m_IntervalDrag = 0;
         // The cursor was over a handle last frame: the frame gizmo stands down so the handle gets the click.

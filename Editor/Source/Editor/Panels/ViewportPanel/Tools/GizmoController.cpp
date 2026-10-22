@@ -110,11 +110,11 @@ namespace Desert::Editor::Tools
         const bool        held = m_ScaleAxis >= 0 && m_ScaleSite == site;
         if ( m_ScaleAxis >= 0 && !held )
             return result; // another site's handle is held
-        if ( !held && ( ImGuizmo::IsUsing() || IntervalOwnsInput() || viewportSize.x <= 0.0f ||
-                        viewportSize.y <= 0.0f ) )
+        if ( !held &&
+             ( ImGuizmo::IsUsing() || IntervalOwnsInput() || viewportSize.x <= 0.0f || viewportSize.y <= 0.0f ) )
             return result;
 
-        const ImVec2 mouseIm = ::ImGui::GetMousePos();
+        const ImVec2    mouseIm = ::ImGui::GetMousePos();
         const glm::vec2 mouse( mouseIm.x, mouseIm.y );
         if ( held )
         {
@@ -132,9 +132,9 @@ namespace Desert::Editor::Tools
             float factor = 1.0f + glm::dot( mouse - m_ScaleMouse, m_ScaleDir ) / m_ScalePixels;
             if ( snap && snap[0] > 0.0f )
                 factor = std::round( factor / snap[0] ) * snap[0];
-            factor        = std::max( factor, 0.001f );
-            m_ScaleFactor = factor;
-            glm::mat4 scaled   = m_ScaleStart;
+            factor              = std::max( factor, 0.001f );
+            m_ScaleFactor       = factor;
+            glm::mat4 scaled    = m_ScaleStart;
             scaled[m_ScaleAxis] = m_ScaleStart[m_ScaleAxis] * factor;
             if ( scaled != matrix )
             {
@@ -182,7 +182,7 @@ namespace Desert::Editor::Tools
             return result;
         const float screenFactor = 0.1f / rightLength; // ImGuizmo's default gizmo size, 0.1 clip
 
-        int       best = -1;
+        int       best     = -1;
         float     bestDist = 12.0f; // ImGuizmo's pixel tolerance
         glm::vec2 bestBall( 0.0f );
         for ( int i = 0; i < 3; ++i )
@@ -204,9 +204,9 @@ namespace Desert::Editor::Tools
                 continue;
             const glm::vec2 a = toScreen( startNdc ), b = toScreen( endNdc );
             const glm::vec2 ab = b - a;
-            const float     t  = glm::clamp( glm::dot( mouse - a, ab ) / std::max( glm::dot( ab, ab ), 1e-6f ), 0.0f,
-                                             1.0f );
-            const float     d  = glm::length( mouse - ( a + ab * t ) );
+            const float     t =
+                 glm::clamp( glm::dot( mouse - a, ab ) / std::max( glm::dot( ab, ab ), 1e-6f ), 0.0f, 1.0f );
+            const float d = glm::length( mouse - ( a + ab * t ) );
             if ( d < bestDist )
             {
                 best     = i;
@@ -237,8 +237,8 @@ namespace Desert::Editor::Tools
     {
         if ( m_ScaleSite != site || ( m_ScaleAxis < 0 && m_ScaleHover < 0 ) )
             return;
-        ImDrawList*     dl   = ::ImGui::GetWindowDrawList();
-        const glm::vec2 ball = m_ScaleOrigin + m_ScaleDir * m_ScalePixels * m_ScaleFactor;
+        ImDrawList*     dl      = ::ImGui::GetWindowDrawList();
+        const glm::vec2 ball    = m_ScaleOrigin + m_ScaleDir * m_ScalePixels * m_ScaleFactor;
         constexpr auto  kActive = IM_COL32( 255, 255, 16, 255 ); // ImGuizmo's SELECTION colour
         if ( m_ScaleAxis >= 0 )
             dl->AddLine( ImVec2( m_ScaleOrigin.x, m_ScaleOrigin.y ), ImVec2( ball.x, ball.y ), kActive, 3.0f );
