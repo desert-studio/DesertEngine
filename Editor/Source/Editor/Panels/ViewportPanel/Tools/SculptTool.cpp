@@ -72,6 +72,7 @@ namespace Desert::Editor::Tools
                                                                         : glm::cross( n, glm::vec3( 1, 0, 0 ) ) );
             const glm::vec3 b  = glm::cross( n, a );
             const ImU32 colour = brush.Brush == Geometry::SculptBrushType::Smooth ? IM_COL32( 120, 200, 255, 255 )
+                                 : brush.Brush == Geometry::SculptBrushType::Move ? IM_COL32( 140, 240, 140, 255 )
                                  : brush.Invert                                   ? IM_COL32( 255, 140, 90, 255 )
                                                                                   : IM_COL32( 240, 240, 120, 255 );
             for ( const float share : { 1.0f, std::clamp( 1.0f - brush.Falloff, 0.0f, 1.0f ) } )
@@ -125,6 +126,7 @@ namespace Desert::Editor::Tools
         m_StrokeBefore.reset();
         m_Stroking = false;
         m_LastStamp.reset();
+        m_PlanePoint.reset();
     }
 
     void SculptTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, const glm::mat4& viewProj,
@@ -173,9 +175,48 @@ namespace Desert::Editor::Tools
             // Null for a lifted asset: the stroke's undo returns the entity to its asset.
             m_StrokeBefore = target->Target.Committed;
             m_LastStamp.reset();
+            // UE's active plane for Move: through the first hit, facing the cursor ray.
+            if ( brush.Brush == Geometry::SculptBrushType::Move )
+            {
+                m_PlanePoint  = hit.Center;
+                m_PlaneNormal = -glm::normalize( glm::dvec3( ray.Direction ) );
+                m_LastStamp   = hit.Center;
+            }
         }
 
-        if ( m_Stroking && ::ImGui::IsMouseDown( ImGuiMouseButton_Left ) && onMesh )
+        // Move: the brush is where the cursor ray meets the active plane, on the mesh or off it; one stamp a
+        // frame carries the vertices under the previous centre to this one.
+        const bool moving = m_Stroking && m_PlanePoint.has_value();
+        if ( moving )
+        {
+            brush.Brush            = Geometry::SculptBrushType::Move;
+            const glm::dvec3 o     = glm::dvec3( ray.Origin );
+            const glm::dvec3 d     = glm::normalize( glm::dvec3( ray.Direction ) );
+            const double     denom = glm::dot( d, m_PlaneNormal );
+            if ( std::abs( denom ) > 1e-9 )
+            {
+                hit.Center = o + glm::dot( *m_PlanePoint - o, m_PlaneNormal ) / denom * d;
+                hit.Normal = m_PlaneNormal;
+                if ( ::ImGui::IsMouseDown( ImGuiMouseButton_Left ) && m_LastStamp &&
+                     glm::length( hit.Center - *m_LastStamp ) > 0.0 )
+                {
+                    auto                  next  = std::make_shared<Geometry::DynamicMesh3>( *target->Target.Mesh );
+                    Geometry::SculptStamp stamp = hit;
+                    stamp.PrevCenter            = *m_LastStamp;
+                    const auto&                     ms = Core::ModelingState::Get();
+                    const Geometry::RemeshSettings* topology =
+                         ms.SculptDynamic ? &ms.DynamicSculptTopology : nullptr;
+                    Geometry::ApplySculptStamp( *next, target->World, stamp, brush, topology );
+                    auto& component = target->Entity.GetComponent<ECS::StaticMeshComponent>();
+                    if ( auto set = ECS::SetEditableMesh( component, std::move( next ) ); set.IsSuccess() )
+                        m_LastStamp = hit.Center;
+                    else
+                        LOG_ERROR( "[Sculpt] the moved mesh could not be built: {0}", set.GetError() );
+                }
+            }
+        }
+
+        if ( !moving && m_Stroking && ::ImGui::IsMouseDown( ImGuiMouseButton_Left ) && onMesh )
         {
             // Stamps from the last one to the cursor, a spacing apart; the first contact stamps where it lands.
             const double spacing = std::max( 1e-3, static_cast<double>( brush.Spacing * brush.Radius ) );
@@ -215,13 +256,13 @@ namespace Desert::Editor::Tools
             }
         }
         // Off the mesh mid-stroke: the next contact starts a fresh run of stamps, not a line across the gap.
-        if ( m_Stroking && !onMesh )
+        if ( !moving && m_Stroking && !onMesh )
             m_LastStamp.reset();
         if ( m_Stroking && !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
             FinishStroke();
 
         m_Cursor = m_Stroking ? ToolCursor::Drag : onMesh ? ToolCursor::Select : ToolCursor::Unavailable;
-        if ( onMesh )
+        if ( onMesh || moving )
             DrawBrush( ::ImGui::GetWindowDrawList(), hit, brush, viewProj, viewportPos, viewportSize );
     }
 } // namespace Desert::Editor::Tools

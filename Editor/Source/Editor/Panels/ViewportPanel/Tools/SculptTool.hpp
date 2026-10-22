@@ -31,8 +31,10 @@ namespace Desert::Editor::Tools
     // Sculpt (Modeling / Deform palette; UE's UMeshVertexSculptTool): LMB-drag across the selected static mesh
     // lays brush stamps along the stroke (Geometry/DynamicMeshSculpt.hpp), with the brush, size, strength and
     // falloff from ModelingState::Sculpt. Shift held = Smooth for the stroke, Ctrl held = Invert (UE's
-    // modifiers). Edits the entity's DynamicMesh3 (StaticMeshComponent::EditableMesh); one stroke is one undo
-    // step; "Accept: write the edit into the static mesh asset" saves it to the .stmesh.
+    // modifiers). The Move brush rides UE's active plane: through the stroke's first hit, facing the cursor
+    // ray, one stamp per frame from where the brush was to where the ray meets that plane (on or off the mesh).
+    // Edits the entity's DynamicMesh3 (StaticMeshComponent::EditableMesh); one stroke is one undo step; "Accept:
+    // write the edit into the static mesh asset" saves it to the .stmesh.
     class SculptTool
     {
     public:
@@ -53,6 +55,9 @@ namespace Desert::Editor::Tools
         bool         m_Stroking = false;
         // Where the last stamp landed (world): the next one is laid a spacing further along the stroke.
         std::optional<glm::dvec3> m_LastStamp;
+        // Move's active plane (world), fixed at the stroke's first hit; empty for the surface brushes.
+        std::optional<glm::dvec3> m_PlanePoint;
+        glm::dvec3                m_PlaneNormal{ 0.0, 1.0, 0.0 };
         // The stroke's undo record: whose mesh, and the mesh it started from (immutable, kept by reference).
         Common::UUID                                  m_StrokeEntity = Common::UUID::Null();
         std::shared_ptr<const Geometry::DynamicMesh3> m_StrokeBefore;

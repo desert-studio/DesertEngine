@@ -2111,8 +2111,6 @@ namespace Desert::Editor
                 m_EditMaterialsTool.Update( *m_Scene, m_AssetManager );
                 m_PaintGroupsTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                           m_ViewportData.IsHovered );
-                m_VertexSculptTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
-                                           m_ViewportData.IsHovered );
                 // Warp's frame: UE's transform gizmo on the deformer (UMeshSpaceDeformerTool TransformProxy).
                 // Its Upper / Lower bounds: UE's interval gizmo on the frame's axis; Bend draws the bent axis.
                 if ( m_MeshProcessingTool.HasWarpSession() )
@@ -2681,8 +2679,7 @@ namespace Desert::Editor
             case T::VoxBoolean:
             case T::VoxMorph:
             case T::VoxBlend:
-            case T::VertexSculpt: // draws its own brush ring (VertexSculptTool)
-            case T::PaintGroups:  // draws its own brush ring (PaintGroupsTool)
+            case T::PaintGroups:                // draws its own brush ring (PaintGroupsTool)
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click
         }
         return Tools::ToolCursor::None;
@@ -2859,9 +2856,6 @@ namespace Desert::Editor
             return false;
         // Hole Fill owns the scene's left clicks likewise (a click toggles a hole; the entity selection stays).
         if ( e.GetMouseButton() == Common::MouseButton::Left && m_MeshProcessingTool.HasHoleFillSession() && overImage )
-            return false;
-        // Vertex Sculpt owns a left click on the mesh it brushes (the stroke), so the click does not reselect.
-        if ( e.GetMouseButton() == Common::MouseButton::Left && m_VertexSculptTool.OwnsClick() && overImage )
             return false;
         // Paint PolyGroups owns a left click on the mesh it paints, likewise.
         if ( e.GetMouseButton() == Common::MouseButton::Left && m_PaintGroupsTool.OwnsClick() && overImage )

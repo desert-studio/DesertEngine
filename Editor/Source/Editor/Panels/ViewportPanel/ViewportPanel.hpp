@@ -31,7 +31,6 @@
 #include "Tools/MeshProcessingTool.hpp"
 #include "Tools/EditMaterialsTool.hpp"
 #include "Tools/PaintGroupsTool.hpp"
-#include "Tools/VertexSculptTool.hpp"
 #include "Tools/UVTool.hpp"
 #include "Tools/PolyEditTool.hpp"
 #include "Tools/SculptTool.hpp"
@@ -448,7 +447,6 @@ namespace Desert::Editor
         Tools::MeshProcessingTool             m_MeshProcessingTool; // Deform palette (Modeling mode)
         Tools::EditMaterialsTool              m_EditMaterialsTool;  // Attributes -> Edit Materials
         Tools::PaintGroupsTool                m_PaintGroupsTool;    // Attributes -> Paint PolyGroups
-        Tools::VertexSculptTool               m_VertexSculptTool;  // Vertex Sculpt brush (Modeling mode)
         Tools::GizmoController                m_Gizmo;       // object + bone transform gizmos (extracted)
         Tools::PickingController              m_Picking;     // ray-pick + select (extracted)
         std::unique_ptr<AsyncMeshLoader>      m_AsyncLoader; // background cook of dropped meshes (no hitch)

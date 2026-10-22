@@ -67,6 +67,8 @@ namespace Desert::Geometry
                 return "Standard";
             case SculptBrushType::Smooth:
                 return "Smooth";
+            case SculptBrushType::Move:
+                return "Move";
         }
         return "?";
     }
@@ -90,12 +92,17 @@ namespace Desert::Geometry
     {
         std::vector<int> moved;
         const double     radius = settings.Radius;
-        if ( radius <= 0.0 || settings.Strength <= 0.0f )
+        // Move reaches the surface that was under the brush (the previous stamp) and carries it to this one.
+        const bool isMove = settings.Brush == SculptBrushType::Move;
+        if ( radius <= 0.0 || ( !isMove && settings.Strength <= 0.0f ) )
+            return moved;
+        const glm::dvec3 centre = isMove ? stamp.PrevCenter : stamp.Center;
+        if ( isMove && glm::dot( stamp.Center - stamp.PrevCenter, stamp.Center - stamp.PrevCenter ) <= 0.0 )
             return moved;
         // Dynamic sculpt: the stamp's region gains (or sheds) resolution before it moves.
         std::vector<int> remeshed;
         if ( topology )
-            remeshed = RemeshRegion( mesh, localToWorld, stamp.Center, radius, *topology );
+            remeshed = RemeshRegion( mesh, localToWorld, centre, radius, *topology );
         const glm::dmat3 toLocal = glm::inverse( glm::dmat3( localToWorld ) );
 
         // The region of interest: every vertex inside the radius, with its world position and falloff.
@@ -109,7 +116,7 @@ namespace Desert::Geometry
         for ( const int v : mesh.VertexIndicesItr() )
         {
             const glm::dvec3 w = Transform( localToWorld, mesh.GetVertex( v ) );
-            const double     f = SculptFalloff( glm::length( w - stamp.Center ), radius, settings.Falloff );
+            const double     f = SculptFalloff( glm::length( w - centre ), radius, settings.Falloff );
             if ( f > 0.0 )
                 roi.push_back( { v, w, f } );
         }
@@ -170,6 +177,15 @@ namespace Desert::Geometry
                     centroid /= static_cast<double>( count );
                     next[i] = glm::mix( orig, centroid, std::clamp( roi[i].Weight * power, 0.0, 1.0 ) );
                 }
+                break;
+            }
+            case SculptBrushType::Move:
+            {
+                // UE FMoveBrushOp: NewPos = OrigPos + Falloff * (Stamp - PrevStamp); the brush power is not
+                // applied, the vertices under the brush centre stay under it.
+                const glm::dvec3 moveLocal = toLocal * ( stamp.Center - stamp.PrevCenter );
+                for ( size_t i = 0; i < roi.size(); ++i )
+                    next[i] = mesh.GetVertex( roi[i].Vertex ) + roi[i].Weight * moveLocal;
                 break;
             }
         }
