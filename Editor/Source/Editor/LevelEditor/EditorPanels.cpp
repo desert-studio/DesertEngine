@@ -65,7 +65,7 @@ namespace Desert::Editor
             handles.FileExplorer = fileExplorer.get();
             panels.Adopt( std::move( fileExplorer ) );
         }
-        panels.Add<Editor::ModelingPanel>( workspace.ActiveScene() );
+        panels.Add<Editor::ModelingPanel>( workspace.ActiveScene(), assetManager );
         panels.Add<Editor::LandscapePanel>( workspace.ActiveScene() );
         panels.Add<Editor::FracturePanel>( workspace.ActiveScene() );
         panels.Add<Editor::WorldSettingsPanel>( workspace.ActiveScene(), assetManager );

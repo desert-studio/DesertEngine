@@ -4,6 +4,7 @@
 #include <Editor/Core/ColliderFit.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
+#include <Editor/Core/Selection/MeshBakeNormalTool.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>
@@ -87,6 +88,7 @@ namespace Desert::Editor
             TriModel,
             Transform,
             UVs,
+            Bake,
             Collision,
         };
         struct PaletteEntry
@@ -94,20 +96,23 @@ namespace Desert::Editor
             const char* Icon;
             const char* Name;
         };
-        constexpr std::array<PaletteEntry, 8> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
+        constexpr std::array<PaletteEntry, 9> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
                                                               { ICON_MDI_SHAPE_PLUS, "Shapes" },
                                                               { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
                                                               { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
                                                               { ICON_MDI_VECTOR_TRIANGLE, "TriModel" },
                                                               { ICON_MDI_ARROW_ALL, "Transform" },
                                                               { ICON_MDI_CHECKERBOARD, "UVs" },
+                                                              { ICON_MDI_TEXTURE_BOX, "Bake" },
                                                               { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
         static_assert( kPalettes.size() == static_cast<size_t>( Palette::Collision ) + 1,
                        "one rail entry per palette" );
     } // namespace
 
-    ModelingPanel::ModelingPanel( const std::shared_ptr<Desert::Core::Scene>& scene )
-         : IPanel( "Modeling", /*showPanel=*/false ), m_Scene( scene ) // contextual: Modeling mode opens it
+    ModelingPanel::ModelingPanel( const std::shared_ptr<Desert::Core::Scene>&   scene,
+                                  const std::shared_ptr<Assets::AssetManager>& assets )
+         : IPanel( "Modeling", /*showPanel=*/false ), m_Scene( scene ),
+           m_Assets( assets ) // contextual: Modeling mode opens it
     {
     }
 
@@ -192,6 +197,9 @@ namespace Desert::Editor
                 break;
             case Palette::UVs:
                 DrawUVsPalette();
+                break;
+            case Palette::Bake:
+                DrawBakePalette();
                 break;
             case Palette::Collision:
                 DrawCollisionPalette();
@@ -727,6 +735,58 @@ namespace Desert::Editor
         ImGui::Separator();
         ImGui::TextWrapped( "%s", ms.UVStatus.c_str() );
         ImGui::TextDisabled( "Accept / Cancel: bottom of the viewport" );
+    }
+
+    void ModelingPanel::DrawBakePalette()
+    {
+        // UE 5.8 Modeling Mode -> Bake -> BakeTx (UBakeMeshAttributeMapsTool), Map Type = Tangent Normal: select
+        // the target (low poly, its UVs lay out the map) FIRST, then the detail (high poly).
+        auto&      s   = Core::BakeNormalMapSettings().Settings;
+        const auto row = []( const char* label )
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted( label );
+            ImGui::SameLine( 150.0f );
+            ImGui::SetNextItemWidth( -1.0f );
+        };
+        // UE EBakeTextureResolution: square powers of two, 16 to 8192; ours from 256 to 4096.
+        constexpr std::array<int, 5>         kResolutions     = { 256, 512, 1024, 2048, 4096 };
+        constexpr std::array<const char*, 5> kResolutionNames = { "256", "512", "1024", "2048", "4096" };
+        int                                  resolution       = 0;
+        for ( size_t i = 0; i < kResolutions.size(); ++i )
+            if ( kResolutions[i] == s.Resolution )
+                resolution = static_cast<int>( i );
+        row( "Resolution" );
+        if ( ImGui::Combo( "##BakeResolution", &resolution, kResolutionNames.data(),
+                           static_cast<int>( kResolutionNames.size() ) ) )
+            s.Resolution = kResolutions.at( static_cast<size_t>( resolution ) );
+        row( "Projection Distance" );
+        ImGui::DragScalar( "##BakeProjectionDistance", ImGuiDataType_Double, &s.ProjectionDistance, 0.1f, nullptr,
+                           nullptr, "%.2f cm" );
+        s.ProjectionDistance = std::max( s.ProjectionDistance, 0.001 );
+        row( "Gutter" );
+        ImGui::DragInt( "##BakeGutter", &s.GutterTexels, 0.25f, 0, 64, "%d texels", ImGuiSliderFlags_AlwaysClamp );
+        ImGui::TextDisabled( "Select the target (low) first, then the detail (high)." );
+        if ( ImGui::Button( "Bake Normal Map", ImVec2( -1.0f, 0.0f ) ) )
+        {
+            const auto done = BakeNormalMap( m_Scene, m_Assets );
+            if ( !done.IsSuccess() )
+                LOG_WARN( "Bake Normal Map: {}", done.GetError() );
+        }
+    }
+
+    Common::ResultStr<bool> ModelingPanel::BakeNormalMap( const std::shared_ptr<Desert::Core::Scene>&   scene,
+                                                          const std::shared_ptr<Assets::AssetManager>& assets )
+    {
+        if ( !scene || !assets )
+            return Common::MakeFormattedError<bool>( "no {} to bake in", !scene ? "scene" : "asset manager" );
+        const auto baked = Core::ApplyBakeNormalMap( *scene, *assets, Core::BakeNormalMapSettings() );
+        if ( !baked.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "{}", baked.GetError() );
+        const auto& out = baked.GetValue();
+        LOG_INFO( "Bake Normal Map: {} -> {} ({} of {} texels hit)", out.TextureAsset.generic_string(),
+                  out.Material.generic_string(), out.HitTexels, out.CoveredTexels );
+        return true;
     }
 
     void ModelingPanel::DrawCollisionPalette()
