@@ -14,6 +14,7 @@
 #include <Engine/Geometry/MeshCore/MeshBoundaryLoops.hpp>
 #include <Engine/Geometry/MeshDeformOperations.hpp>
 #include <Engine/Geometry/MeshHoleFillOperation.hpp>
+#include <Engine/Geometry/MeshJacketOperation.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 
 #include <ImGui/imgui.h>
@@ -49,6 +50,8 @@ namespace Desert::Editor::Tools
                     return "Tangents";
                 case MS::Tool::HoleFill:
                     return "Hole Fill";
+                case MS::Tool::Jacket:
+                    return "Jacket";
                 default:
                     return "?";
             }
@@ -105,7 +108,7 @@ namespace Desert::Editor::Tools
     {
         return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
                tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents ||
-               tool == MS::Tool::HoleFill;
+               tool == MS::Tool::HoleFill || tool == MS::Tool::Jacket;
     }
 
     void MeshProcessingTool::Update( ::Desert::Core::Scene& scene )
@@ -256,6 +259,7 @@ namespace Desert::Editor::Tools
         m_Tangents = ms.AttribTangents;
         m_HoleFill         = ms.MeshHoleFill;
         m_HoleFillSelected = ms.HoleFillSelected;
+        m_Jacket           = ms.MeshJacket;
         m_Warp                                               = ms.DeformWarp;
         m_WarpGizmo                                          = ms.WarpGizmo;
         m_Lattice                                            = ms.DeformLattice;
@@ -275,6 +279,8 @@ namespace Desert::Editor::Tools
                     return Geometry::ComputeTangents( input, ms.AttribTangents );
                 case MS::Tool::HoleFill:
                     return Geometry::HoleFill( input, ms.HoleFillSelected, ms.MeshHoleFill );
+                case MS::Tool::Jacket:
+                    return Geometry::Jacket( input, ms.MeshJacket );
                 case MS::Tool::Lattice:
                     return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints,
                                                     ms.DeformLattice );
@@ -579,6 +585,8 @@ namespace Desert::Editor::Tools
                 return ms.AttribTangents.CalculationMethod != m_Tangents.CalculationMethod;
             case MS::Tool::HoleFill:
                 return !( ms.MeshHoleFill == m_HoleFill ) || ms.HoleFillSelected != m_HoleFillSelected;
+            case MS::Tool::Jacket:
+                return !( ms.MeshJacket == m_Jacket );
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

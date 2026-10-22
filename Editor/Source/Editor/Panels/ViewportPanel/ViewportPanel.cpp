@@ -2628,6 +2628,7 @@ namespace Desert::Editor
             case T::Lattice:
             case T::Normals:
             case T::HoleFill: // picks a hole by its drawn edge, no cursor of its own
+            case T::Jacket:
             case T::VertexSculpt: // draws its own brush ring (VertexSculptTool)
             case T::PaintGroups:  // draws its own brush ring (PaintGroupsTool)
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click

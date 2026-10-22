@@ -741,6 +741,31 @@ namespace Desert::Editor
                                       MS::Get().MeshHoleFill.Type = type;
                                       return PaletteCommandDone();
                                   } } );
+        // UE's MeshOps palette: Jacket (URemoveOccludedTrianglesTool, the MeshProcessingTool session) and its
+        // closed choices.
+        commands.push_back( { "Modeling", "Mesh tool: Jacket", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Jacket;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::JacketOcclusionMode mode :
+              { Geometry::JacketOcclusionMode::WindingNumber, Geometry::JacketOcclusionMode::RaycastOcclusionSamples } )
+            commands.push_back( { "Modeling", std::string( "Jacket occlusion mode: " ) + Geometry::ToString( mode ),
+                                  [mode]
+                                  {
+                                      MS::Get().MeshJacket.OcclusionMode = mode;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::JacketTriangleSampling sampling :
+              { Geometry::JacketTriangleSampling::Vertices, Geometry::JacketTriangleSampling::VerticesAndCentroids } )
+            commands.push_back( { "Modeling",
+                                  std::string( "Jacket triangle sampling: " ) + Geometry::ToString( sampling ),
+                                  [sampling]
+                                  {
+                                      MS::Get().MeshJacket.TriangleSampling = sampling;
+                                      return PaletteCommandDone();
+                                  } } );
         commands.push_back( { "Modeling", "Hole Fill: Select All Holes", []
                               {
                                   MS::Get().HoleFillReqSelectAll = true;

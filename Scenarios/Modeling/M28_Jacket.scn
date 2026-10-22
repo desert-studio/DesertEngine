@@ -1,0 +1,24 @@
+# M28 Jacket (UE URemoveOccludedTrianglesTool, MeshOps palette "Mesh"): a Box 40 cm (scale 0.4) merged into a Box 100 cm so it sits wholly inside it -> Jacket (Winding Number, Vertices and Centroids) -> Accept -> Undo. Wireframe, seen from above and to the side.
+# The inner box is created FIRST: both are named "Box" and the palette resolves "Add to selection Box" to the first one, so the outer box (selected after its creation) is the Merge target.
+Дано run View "View mode: Wireframe"
+Дано --subject viewport set Camera.Direction 0.3,-0.6,0.5
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Rotation 0,0,0
+Дано --subject selection set Scale 0.4,0.4,0.4
+Дано --subject selection set Translation 0,10,0
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Rotation 0,0,0
+Дано --subject selection set Translation 0,0,0
+Дано run Entity "Add to selection Box"
+Дано run Modeling "XForm: Merge"
+Дано run "Level Viewport" "Focus Selected"
+Тогда-вид 0_inner Wireframe: the outer box and, through it, the smaller inner box are both drawn
+Когда run Modeling "Mesh tool: Jacket"
+Когда run Modeling "Jacket occlusion mode: Winding Number"
+Когда run Modeling "Jacket triangle sampling: Vertices and Centroids"
+Тогда 1_panel the Mesh palette shows Jacket with Occlusion Mode Winding Number; the status reads "Jacket (...): N of M triangles removed" with N >= 12
+Когда run Modeling "Active tool: Accept"
+Тогда 1_jacket Wireframe after Accept: only the outer box is drawn, the inner box is gone; the status line keeps the removed count (>= 12)
+Когда run Action Undo
+Тогда-вид 2_undo after Undo the inner box is drawn again through the outer one

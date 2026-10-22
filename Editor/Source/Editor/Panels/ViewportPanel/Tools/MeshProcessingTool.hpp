@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Geometry/MeshJacketOperation.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 
 #include <Common/Core/UUID.hpp>
@@ -113,6 +114,7 @@ namespace Desert::Editor::Tools
         Geometry::TangentsSettings m_Tangents;
         Geometry::HoleFillSettings m_HoleFill;
         std::vector<int32_t>       m_HoleFillSelected;
+        Geometry::JacketSettings   m_Jacket;
         Geometry::WarpSettings   m_Warp;
         glm::mat4                m_WarpGizmo{ 1.0f };
         Geometry::LatticeSettings m_Lattice;

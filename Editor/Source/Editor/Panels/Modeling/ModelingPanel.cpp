@@ -152,7 +152,7 @@ namespace Desert::Editor
             else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents ||
                       ms.ActiveTool == MS::Tool::EditMaterials || ms.ActiveTool == MS::Tool::PaintGroups )
                 m_Category = static_cast<int>( Palette::Attributes );
-            else if ( ms.ActiveTool == MS::Tool::HoleFill )
+            else if ( ms.ActiveTool == MS::Tool::HoleFill || ms.ActiveTool == MS::Tool::Jacket )
                 m_Category = static_cast<int>( Palette::MeshOps );
         }
 
@@ -835,7 +835,8 @@ namespace Desert::Editor
     // UE's Attributes palette. Normals = UE UEditNormalsTool (UEditNormalsProperties, its defaults and ranges): a
     // tool on the selected mesh previewed by MeshProcessingTool's session, recomputed on every change, committed by the
     // bar's Accept as one undo step.
-    // UE's MeshOps palette ("Mesh" on the rail). Hole Fill = UE UHoleFillTool (UHoleFillToolProperties,
+    // UE's MeshOps palette ("Mesh" on the rail). Jacket = UE URemoveOccludedTrianglesTool: the same session, the
+    // preview showing the mesh with its hidden triangles removed. Hole Fill = UE UHoleFillTool (UHoleFillToolProperties,
     // USmoothHoleFillProperties, its Select All / Clear actions): a tool on the selected mesh previewed by
     // MeshProcessingTool's session, the viewport drawing the holes (selected ones highlighted, a click on a
     // hole's edge toggles it), committed by the bar's Accept as one undo step.
@@ -844,28 +845,61 @@ namespace Desert::Editor
         using MS         = Core::ModelingState;
         auto&       ms   = MS::Get();
         const float full = ImGui::GetContentRegionAvail().x;
+        const auto  toolButton = [&]( MS::Tool tool, const char* icon, const char* name )
         {
-            const bool on = ms.ActiveTool == MS::Tool::HoleFill;
+            const bool on = ms.ActiveTool == tool;
             if ( on )
                 ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
             char label[64];
-            std::snprintf( label, sizeof( label ), "%s  %s", ICON_MDI_VECTOR_SQUARE_CLOSE, "Hole Fill" );
+            std::snprintf( label, sizeof( label ), "%s  %s", icon, name );
             if ( ImGui::Button( label, ImVec2( full, 26.0f ) ) )
             {
-                ms.ActiveTool = MS::Tool::HoleFill;
+                ms.ActiveTool = tool;
                 Core::ViewportMode::Set( Core::EditorMode::Modeling );
             }
             if ( on )
                 ImGui::PopStyleColor();
-        }
-        if ( ms.ActiveTool != MS::Tool::HoleFill )
-            return;
+        };
+        toolButton( MS::Tool::HoleFill, ICON_MDI_VECTOR_SQUARE_CLOSE, "Hole Fill" );
+        toolButton( MS::Tool::Jacket, ICON_MDI_LAYERS_MINUS, "Jacket" );
         // The label above its control: the palette column is too narrow for UE's label-beside-value rows.
         const auto row = []( const char* label )
         {
             ImGui::TextUnformatted( label );
             ImGui::SetNextItemWidth( -1.0f );
         };
+        if ( ms.ActiveTool == MS::Tool::Jacket )
+        {
+            // UE URemoveOccludedTrianglesToolProperties: Occlusion Mode, Triangle Sampling, Winding Iso Value,
+            // Add Random Rays (Raycast only), Add Triangle Samples; the status line counts the removed triangles.
+            ImGui::Separator();
+            Geometry::JacketSettings& j = ms.MeshJacket;
+            row( "Occlusion Mode" );
+            int mode = static_cast<int>( j.OcclusionMode );
+            if ( ImGui::Combo( "##JacketMode", &mode, "Winding Number\0Raycast Occlusion Samples\0" ) )
+                j.OcclusionMode = static_cast<Geometry::JacketOcclusionMode>( mode );
+            row( "Triangle Sampling" );
+            int sampling = static_cast<int>( j.TriangleSampling );
+            if ( ImGui::Combo( "##JacketSampling", &sampling, "Vertices\0Vertices and Centroids\0" ) )
+                j.TriangleSampling = static_cast<Geometry::JacketTriangleSampling>( sampling );
+            if ( j.OcclusionMode == Geometry::JacketOcclusionMode::WindingNumber )
+            {
+                row( "Winding Iso Value" );
+                ImGui::SliderFloat( "##JacketIso", &j.WindingIsoValue, 0.0f, 1.0f, "%.2f" );
+            }
+            else
+            {
+                row( "Add Random Rays" );
+                ImGui::SliderInt( "##JacketRays", &j.AddRandomRays, 0, 1000 );
+            }
+            row( "Add Triangle Samples" );
+            ImGui::SliderInt( "##JacketSamples", &j.AddTriangleSamples, 0, 1000 );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+            return;
+        }
+        if ( ms.ActiveTool != MS::Tool::HoleFill )
+            return;
         ImGui::Separator();
         Geometry::HoleFillSettings& h = ms.MeshHoleFill;
         row( "Fill Type" );
