@@ -565,9 +565,11 @@ namespace Desert::Graphic::System
         // u_ShadowCascades (the opaque generic ones read the screen mask through their
         // DESERT_SUN_SHADOW_SCREEN_MASK permutation, the lit queue is shaded by the composite).
         [[nodiscard]] bool SunCascadeReadersQueued() const;
-        // The mesh part of SceneRenderer::LocalShadowMapsRead: a visible blended generic draw or static translucent
-        // section, or an opaque generic draw, whose program samples the local shadow atlas (the lit queue is
-        // shaded by the composite, which reads the ray-traced masks).
+        // The mesh part of SceneRenderer::LocalShadowMapsRead ("does a program of this frame sample the local shadow
+        // atlas while the local shadows are ray traced"): a visible blended draw of the generic queue, or a
+        // translucent section of the static queue, whose program samples the atlas (the opaque generic ones read the
+        // ray-traced masks through their DESERT_LOCAL_SHADOW_SCREEN_MASK permutation, the lit queue is shaded by the
+        // composite).
         [[nodiscard]] bool LocalShadowMapReadersQueued() const;
         // The visible translucent sections of the static queue (RenderGlassManual's cells, TranslucentDrawFor) and
         // their front layer cells (FrontLayerShaderFor) whose compiled program samples @p textureName.
