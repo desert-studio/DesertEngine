@@ -252,7 +252,10 @@ namespace Desert::Editor::Tools
         {
             const auto selected = Core::SelectionManager::GetSelected();
             if ( !active || !selected.has_value() || *selected != m_Session->Entity ||
-                 MeshOf( EntityOf( scene, m_Session->Entity ) ) == nullptr )
+                 MeshOf( EntityOf( scene, m_Session->Entity ) ) == nullptr ||
+                 // Undo / Redo (or any other edit) replaced the component's mesh under the session: start over
+                 // from what it holds now, or the preview would show the copy of the mesh it no longer has.
+                 MeshOf( EntityOf( scene, m_Session->Entity ) )->EditableMesh != m_Session->Committed )
             {
                 if ( !active && ms.ReqCancel )
                     ms.ReqCancel = false;
