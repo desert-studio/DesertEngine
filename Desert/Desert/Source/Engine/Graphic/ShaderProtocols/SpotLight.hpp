@@ -72,12 +72,16 @@ namespace Desert::Graphic::ShaderProtocols
     /// The include path the shader includer answers with the generated storage buffer.
     inline constexpr std::string_view kSpotLightsUBInclude = "Mesh/SpotLightsUB.glslh";
 
+    /// The buffer's set-0 slot (GeneratedProtocolIncludes.hpp holds the protocols' slots apart).
+    inline constexpr uint32_t kSpotLightsUBBinding = 16u;
+
     /// The scene's spot lights: an unbounded storage buffer (no cap), count = LightsMetadata.SpotLightCount.
     [[nodiscard]] inline const std::string& SpotLightsUBGlsl()
     {
-        static const std::string glsl = GenerateGuardedGlsl(
-             "DESERT_SPOT_LIGHTS_UB_GLSLH", "Engine/Graphic/ShaderProtocols/SpotLight.hpp",
-             GenerateGlslBlock( "ReadBuffer", 16, SpotLight::Name, "    SpotLight spotLights[];\n", "" ) );
+        static const std::string glsl =
+             GenerateGuardedGlsl( "DESERT_SPOT_LIGHTS_UB_GLSLH", "Engine/Graphic/ShaderProtocols/SpotLight.hpp",
+                                  GenerateGlslBlock( "ReadBuffer", kSpotLightsUBBinding, SpotLight::Name,
+                                                     "    SpotLight spotLights[];\n", "" ) );
         return glsl;
     }
 

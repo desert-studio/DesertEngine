@@ -40,14 +40,19 @@ namespace Desert::Graphic::ShaderProtocols
     /// The include path the shader includer answers with the generated struct + block.
     inline constexpr std::string_view kDirectionLightsUBInclude = "Common/DirectionLightsUB.glslh";
 
+    /// The block's set-0 slot. 14, not 3: Programs/Terrain/TerrainSurface.glslh holds 3 (LayerNormalTexture), and
+    /// a generated block at 3 failed the Terrain program (two resources on one slot, VulkanShader::Reflect). The
+    /// protocols' slots are held apart, and off the reserved ranges, in GeneratedProtocolIncludes.hpp.
+    inline constexpr uint32_t kDirectionLightsUBBinding = 14u;
+
     /// The GLSL of the directional-light block: ONE light (the scene's main one) — generated once per process.
     [[nodiscard]] inline const std::string& DirectionLightsUBGlsl()
     {
         static const std::string glsl = GenerateGuardedGlsl(
              "DESERT_DIRECTION_LIGHTS_UB_GLSLH", "Engine/Graphic/ShaderProtocols/DirectionLight.hpp",
              GenerateGlslStruct( "DirectionLight", kDirectionLightPayloadFields ) + "\n" +
-                  GenerateGlslBlock( "Uniform", 14, DirectionLight::Name, "    DirectionLight directionLights;\n",
-                                     "directionLights" ) );
+                  GenerateGlslBlock( "Uniform", kDirectionLightsUBBinding, DirectionLight::Name,
+                                     "    DirectionLight directionLights;\n", "directionLights" ) );
         return glsl;
     }
 
