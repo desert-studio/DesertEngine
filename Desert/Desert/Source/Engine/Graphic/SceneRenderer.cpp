@@ -1725,7 +1725,7 @@ namespace Desert::Graphic
                      m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights, m_SpotLightShadows,
                      !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) &&
                           ( !LocalShadowsAreRayTraced() || localShadowMeshes->LocalShadowMapReadersQueued() ) );
-                AssignLocalShadowMaskSlots();
+                AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
             }
             // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
             // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
@@ -2147,7 +2147,7 @@ namespace Desert::Graphic
                !PathTraced( m_RenderMethods );
     }
 
-    void SceneRenderer::AssignLocalShadowMaskSlots()
+    void SceneRenderer::AssignLocalShadowMaskSlots( const Core::Frustum& view )
     {
         // ShadowCaster is UpdateLocalShadows' answer "this light casts in this view" (CastShadows, and the view
         // draws shadows), whether or not a map was drawn for it.
@@ -2158,7 +2158,9 @@ namespace Desert::Graphic
         {
             auto& point          = m_PointLight.PointLights[i];
             point.ShadowMaskSlot = -1;
-            if ( !traced || point.ShadowCaster == 0 )
+            // Per-light view cull (UE: a light whose bounds miss the view frustum renders no shadow): no pixel of
+            // the view is inside its attenuation sphere, so no slot, no trace, no pack.
+            if ( !traced || point.ShadowCaster == 0 || !view.IntersectsSphere( point.Position, point.Radius ) )
                 continue;
             point.ShadowMaskSlot = slot++;
             m_LocalShadowMaskLights.push_back( System::RayTracedLocalShadowLight{
@@ -2171,7 +2173,7 @@ namespace Desert::Graphic
         {
             auto& spot          = m_SpotLight.SpotLights[i];
             spot.ShadowMaskSlot = -1;
-            if ( !traced || spot.ShadowCaster == 0 )
+            if ( !traced || spot.ShadowCaster == 0 || !view.IntersectsSphere( spot.Position, spot.Range ) )
                 continue;
             spot.ShadowMaskSlot = slot++;
             m_LocalShadowMaskLights.push_back( System::RayTracedLocalShadowLight{
@@ -2542,8 +2544,22 @@ namespace Desert::Graphic
                 return {};
             }
         }
-        // The histories of lights that left the frame go with them (a light that comes back starts a new one).
-        std::erase_if( m_LocalShadowDenoisers, [&live]( const auto& entry ) { return !live.contains( entry.first ); } );
+        // The histories of lights that left the frame go with them (a light that comes back starts a new one),
+        // through the frame-retire path: parked at this frame, released after every frame in flight completed.
+        const auto&    frames      = Engine::FrameManager::GetInstance();
+        const uint64_t frameNumber = frames.GetAbsoluteFrameCount();
+        m_RetiredLocalShadowDenoisers.Collect( frameNumber, frames.GetMaxFramesInFlight() );
+        for ( auto it = m_LocalShadowDenoisers.begin(); it != m_LocalShadowDenoisers.end(); )
+        {
+            if ( live.contains( it->first ) )
+            {
+                ++it;
+                continue;
+            }
+            if ( it->second )
+                m_RetiredLocalShadowDenoisers.Park( std::move( it->second ), frameNumber );
+            it = m_LocalShadowDenoisers.erase( it );
+        }
         return masks;
     }
 

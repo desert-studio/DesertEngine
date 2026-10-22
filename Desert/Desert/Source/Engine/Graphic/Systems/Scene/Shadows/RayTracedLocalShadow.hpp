@@ -60,7 +60,7 @@ namespace Desert::Graphic::System
     // The push block of RayTracedLocalShadowPack.shader (16 B).
     struct RayTracedLocalShadowPackPush
     {
-        glm::ivec4 Layer; // x = the slot's layer
+        glm::ivec4 Layer; // x = the slot's layer (informational: the bound view is that layer alone)
     };
     static_assert( sizeof( RayTracedLocalShadowPackPush ) == 16 );
 
@@ -163,8 +163,9 @@ namespace Desert::Graphic::System
         }
 
         // Declares "Shadows: Ray Traced Local Pack": @p visibility (r; any extent - System.White is 1x1, it is
-        // read at the pixel's uv) into layer @p layer of @p masks. Every slot's pack writes the same array, each
-        // its own layer: the graph orders them in declaration order. An error when not initialised.
+        // read at the pixel's uv) into layer @p layer of @p masks. Each slot's pack declares ITS layer alone
+        // (StorageLayer: a per-subresource write, so an earlier slot's layer is neither discarded nor culled); the
+        // shader writes layer 0 of that one-layer view. An error when not initialised.
         [[nodiscard]] Common::BoolResultStr AddPackPass( RDG::Builder& graph, const RDG::TextureRef visibility,
                                                          const RDG::TextureRef masks, const uint32_t layer,
                                                          const uint32_t width, const uint32_t height )
@@ -182,7 +183,7 @@ namespace Desert::Graphic::System
                           .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
                           .Texture( "u_Visibility", visibility, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Storage( "u_LocalShadowMasks", masks, RDG::Access::StorageWrite )
+                          .StorageLayer( "u_LocalShadowMasks", masks, RDG::Access::StorageWrite, 0, layer )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( RayTracedLocalShadowPackPush ) ) );
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr

@@ -28,7 +28,8 @@ Shader "RayTracedLocalShadowPack"
                 return;
             const vec2  uv         = ( vec2( pixel ) + 0.5 ) / vec2( size );
             const float visibility = textureLod( sampler2D( u_Visibility, u_PointClampSampler ), uv, 0.0 ).r;
-            imageStore( u_LocalShadowMasks, ivec3( pixel, u_Layer.x ), vec4( visibility ) );
+            // The bound view is this slot's layer alone (StorageLayer): its layer 0.
+            imageStore( u_LocalShadowMasks, ivec3( pixel, 0 ), vec4( visibility ) );
         }
     }
 }

@@ -64,6 +64,11 @@ namespace Desert::Core
         // the picture, and this function will not trade in that direction.
         [[nodiscard]] bool Intersects( const Common::Math::AABB& worldBox ) const;
 
+        // A sphere (a local light's attenuation range): rejected only when it lies wholly behind one plane (the
+        // planes are normalised, so the signed distance is in world units). Conservative in the same direction as
+        // the box test: a sphere past a corner of two planes is kept.
+        [[nodiscard]] bool IntersectsSphere( const glm::vec3& center, float radius ) const;
+
         // Opens the frustum on one side: @p plane accepts every point from now on (a zero plane). The sun's
         // virtual shadow map culls its casters without the plane on the sun's side: they draw with depth clamp, so
         // a caster nearer the sun than a clipmap level's depth range is flattened onto it rather than clipped (UE

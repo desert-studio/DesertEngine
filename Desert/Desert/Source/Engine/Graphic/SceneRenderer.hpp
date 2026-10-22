@@ -6,6 +6,8 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
+#include <Engine/Core/Frustum.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RenderMethods.hpp>
@@ -898,8 +900,9 @@ namespace Desert::Graphic
         // "Shadows: Ray Traced Local" per slot, read by the composite's RayTracedLocal program.
         [[nodiscard]] bool LocalShadowsAreRayTraced() const;
         // Every point/spot light that casts in this view gets a ShadowMaskSlot (and a record of
-        // m_LocalShadowMaskLights) when LocalShadowsAreRayTraced, every other -1. After UpdateLocalShadows.
-        void AssignLocalShadowMaskSlots();
+        // m_LocalShadowMaskLights) when LocalShadowsAreRayTraced and its attenuation sphere meets @p view (the
+        // frame's unjittered frustum), every other -1. After UpdateLocalShadows.
+        void AssignLocalShadowMaskSlots( const Core::Frustum& view );
         // Per slot: trace, denoise (history per light, m_LocalShadowDenoisers) and pack into the frame's 2D-array
         // mask (one White layer when no slot). Invalid (logged) only when the array could not be filled at all;
         // the composite then draws its sun-mask program (the lights' shadow maps, if drawn, or unshadowed).
@@ -1489,6 +1492,9 @@ namespace Desert::Graphic
         System::RayTracedLocalShadowRenderer                                     m_RayTracedLocalShadow;
         std::vector<System::RayTracedLocalShadowLight>                           m_LocalShadowMaskLights;
         std::unordered_map<uint32_t, std::unique_ptr<System::ScreenSpaceDenoiser>> m_LocalShadowDenoisers;
+        // A pruned light's denoiser (its extracted history textures) is PARKED here, not destroyed: frames still
+        // in flight may read its history; released once no frame recorded before the prune can (FrameRetireQueue).
+        Assets::FrameRetireQueue<std::unique_ptr<System::ScreenSpaceDenoiser>> m_RetiredLocalShadowDenoisers;
         bool                               m_RayTracedShadowReady  = false;
         bool                               m_RayTracedShadowFailed = false;
         // MegaLights (per view: its reservoir and denoiser histories are this view's), created on the first frame
