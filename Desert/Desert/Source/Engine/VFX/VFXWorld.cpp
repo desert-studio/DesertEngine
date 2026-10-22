@@ -76,7 +76,9 @@ namespace Desert::VFX
     void VFXWorld::Tick( entt::registry& registry, double seconds )
     {
         ++m_TickSerial;
-        m_Plan = m_Clock.Advance( seconds );
+        if ( m_DesiredAge )
+            m_Clock.SeekTo( *m_DesiredAge ); // served by this Advance: no steps when the age is already reached
+        m_Plan = m_Clock.Advance( m_DesiredAge ? 0.0 : seconds );
 
         if ( m_Plan.Reset )
             for ( auto& entry : m_Systems )

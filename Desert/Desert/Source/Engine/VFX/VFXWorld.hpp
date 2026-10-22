@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -113,6 +114,15 @@ namespace Desert::VFX
             m_Clock.Reset();
         }
 
+        // UE ENiagaraAgeUpdateMode: nullopt = TickDeltaTime (time flows by the scene's delta); an age = DesiredAge
+        // - every Tick seeks to it and ignores the delta, so whoever owns the age (the VFX System editor's
+        // transport: play, pause, scrub, step) owns the simulation's time, and an age reached by scrubbing is the
+        // state reached by playing (Clock::SeekTo replays from zero when going back).
+        void SetDesiredAge( std::optional<double> age )
+        {
+            m_DesiredAge = age;
+        }
+
         // A world emptied with its scene: the clock back to zero, every instance forgotten.
         void Clear();
 
@@ -159,6 +169,7 @@ namespace Desert::VFX
 
         Clock                                              m_Clock;
         TickPlan                                           m_Plan;
+        std::optional<double>                              m_DesiredAge; // see SetDesiredAge
         std::unordered_map<std::uint64_t, SystemInstance>  m_Systems;
         std::uint64_t                                      m_LastGeneration = 0;
         std::uint64_t                                      m_TickSerial     = 0;

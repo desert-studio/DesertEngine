@@ -266,12 +266,34 @@ namespace Desert::Editor
         if ( !m_Preview || m_ViewSize.x == 0u || m_ViewSize.y == 0u )
             return;
         // An edit, an undo or a redo changed the working copy: the preview plays a fresh copy of it (a new pointer
-        // restarts every emitter). Compared by value, so whatever route changed m_Working is seen.
+        // restarts every emitter). Compared by value, so whatever route changed m_Working is seen. The effects
+        // clock starts over too and replays to the transport's time, so a paused frame shows the edit at the same
+        // t.
         if ( !m_Played || *m_Played != m_Working )
         {
             m_Played = std::make_shared<const Assets::Serialization::VFXSystemData>( m_Working );
             m_Preview->SetVFXWorkingCopy( m_Played );
+            m_Preview->RestartVFX();
         }
+
+        // The transport's clock: wall time x speed while playing (UE's sequencer plays the timeline in real time);
+        // at the end of the range a looping transport jumps back to its start, another one stops there.
+        if ( m_Playing )
+        {
+            m_Time += static_cast<double>( ImGui::GetIO().DeltaTime ) * static_cast<double>( m_Speed );
+            const double end = PlaybackEnd();
+            if ( m_Time >= end )
+            {
+                if ( m_Loop && end > 0.0 )
+                    m_Time = std::fmod( m_Time, end );
+                else
+                {
+                    m_Time    = end;
+                    m_Playing = false;
+                }
+            }
+        }
+        m_Preview->SetVFXDesiredAge( m_Time );
         PreviewEnvironment::ApplyTo( *m_Preview, m_Assets );
         m_Preview->Update( m_ViewSize.x, m_ViewSize.y );
     }
@@ -279,13 +301,110 @@ namespace Desert::Editor
     void VFXSystemDocument::ExtendToolbar( AssetEditorToolbar& toolbar )
     {
         toolbar.AddButton(
-             ICON_MDI_REFRESH, "Restart", "Start every emitter of the preview over (UE Reset Simulation)",
+             ICON_MDI_REFRESH, "Restart",
+             "Start every emitter of the preview over from t = 0 (UE Reset Simulation)",
              [this]()
              {
+                 m_Time = 0.0;
                  if ( m_Preview )
                      m_Preview->RestartVFX();
              },
              []() { return false; } );
+    }
+
+    double VFXSystemDocument::PlaybackEnd() const
+    {
+        return m_Working.Duration > 0.0f ? static_cast<double>( m_Working.Duration )
+                                         : static_cast<double>( m_PlaybackEnd );
+    }
+
+    void VFXSystemDocument::ScrubTo( const double seconds )
+    {
+        m_Playing = false;
+        m_Time    = std::clamp( seconds, 0.0, PlaybackEnd() );
+    }
+
+    void VFXSystemDocument::StepTransport( const int steps )
+    {
+        // One fixed step of the effects clock: the smallest change of the picture there is.
+        const double step = m_Preview ? m_Preview->GetVFXStepSeconds() : 1.0 / 60.0;
+        ScrubTo( ( std::round( m_Time / step ) + static_cast<double>( steps ) ) * step );
+    }
+
+    void VFXSystemDocument::DrawTransport()
+    {
+        // UE Niagara's timeline transport, one row under the preview: to start, step back, play/pause, step
+        // forward, loop | the time scrubber over the range | speed.
+        if ( ImGui::Button( ICON_MDI_SKIP_PREVIOUS "##vfxtostart" ) )
+            ScrubTo( 0.0 );
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "To start (t = 0)" );
+        ImGui::SameLine();
+        if ( ImGui::Button( ICON_MDI_STEP_BACKWARD "##vfxstepback" ) )
+            StepTransport( -1 );
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Step back one simulation step" );
+        ImGui::SameLine();
+        if ( ImGui::Button( m_Playing ? ICON_MDI_PAUSE "##vfxplay" : ICON_MDI_PLAY "##vfxplay" ) )
+        {
+            if ( !m_Playing && !m_Loop && m_Time >= PlaybackEnd() )
+                m_Time = 0.0; // UE: Play at the end of a non-looping range starts it again
+            m_Playing = !m_Playing;
+        }
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( m_Playing ? "Pause" : "Play" );
+        ImGui::SameLine();
+        if ( ImGui::Button( ICON_MDI_STEP_FORWARD "##vfxstepfwd" ) )
+            StepTransport( 1 );
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Step forward one simulation step" );
+        ImGui::SameLine();
+        const bool loop = m_Loop;
+        if ( loop )
+            ImGui::PushStyleColor( ImGuiCol_Button, ImGui::GetStyleColorVec4( ImGuiCol_ButtonActive ) );
+        if ( ImGui::Button( ICON_MDI_REPEAT "##vfxloop" ) )
+            m_Loop = !m_Loop;
+        if ( loop )
+            ImGui::PopStyleColor();
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( m_Loop ? "Loop playback: on" : "Loop playback: off" );
+
+        constexpr float kSpeedWidth = 90.0f;
+        constexpr float kEndWidth   = 70.0f;
+        const bool      ownEnd      = m_Working.Duration <= 0.0f;
+        const float     spacing     = ImGui::GetStyle().ItemSpacing.x;
+        ImGui::SameLine();
+        const float scrubWidth =
+             ImGui::GetContentRegionAvail().x - kSpeedWidth - spacing - ( ownEnd ? kEndWidth + spacing : 0.0f );
+        ImGui::SetNextItemWidth( std::max( scrubWidth, 60.0f ) );
+        float       time = static_cast<float>( m_Time );
+        const float end  = static_cast<float>( PlaybackEnd() );
+        const auto  text = std::format( "{:.3f} / {:.2f} s  (sim {:.3f})", m_Time, end,
+                                       m_Preview ? m_Preview->GetVFXAge() : 0.0 );
+        if ( ImGui::SliderFloat( "##vfxtime", &time, 0.0f, end, text.c_str(), ImGuiSliderFlags_NoRoundToFormat ) )
+            ScrubTo( static_cast<double>( time ) );
+        if ( ownEnd )
+        {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( kEndWidth );
+            if ( ImGui::DragFloat( "##vfxend", &m_PlaybackEnd, 0.05f, 0.1f, 600.0f, "end %.2f s" ) )
+                m_Time = std::min( m_Time, static_cast<double>( m_PlaybackEnd ) );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "The system has no Duration: the end of the preview's range" );
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( kSpeedWidth );
+        static constexpr std::array<float, 5> kSpeeds{ 0.1f, 0.25f, 0.5f, 1.0f, 2.0f };
+        const auto                            speedText = std::format( "{:g}x", m_Speed );
+        if ( ImGui::BeginCombo( "##vfxspeed", speedText.c_str() ) )
+        {
+            for ( const float speed : kSpeeds )
+                if ( ImGui::Selectable( std::format( "{:g}x", speed ).c_str(), speed == m_Speed ) )
+                    m_Speed = speed;
+            ImGui::EndCombo();
+        }
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Playback speed" );
     }
 
     void VFXSystemDocument::DrawSystemColumn()
@@ -365,7 +484,9 @@ namespace Desert::Editor
         const ImVec2    avail        = ImGui::GetContentRegionAvail();
         const ImVec2    view( std::max( avail.x - kSystemWidth - kStackWidth - 2.0f * spacing, 1.0f ),
                               std::max( avail.y, 1.0f ) );
-        m_ViewSize = glm::uvec2( static_cast<uint32_t>( view.x ), static_cast<uint32_t>( view.y ) );
+        // The picture leaves one row at the bottom of the column for the transport.
+        const ImVec2 picture( view.x, std::max( view.y - ImGui::GetFrameHeightWithSpacing(), 1.0f ) );
+        m_ViewSize = glm::uvec2( static_cast<uint32_t>( picture.x ), static_cast<uint32_t>( picture.y ) );
 
         if ( ImGui::BeginChild( "##vfxsystem", ImVec2( kSystemWidth, view.y ), true ) )
             DrawSystemColumn();
@@ -376,7 +497,8 @@ namespace Desert::Editor
             if ( !m_Preview || !m_UIHelper )
                 ImGui::TextDisabled( "Starting the preview..." );
             else
-                (void)m_Preview->Draw( *m_UIHelper, view, PreviewInteraction::Interactive );
+                (void)m_Preview->Draw( *m_UIHelper, picture, PreviewInteraction::Interactive );
+            DrawTransport();
         }
         ImGui::EndChild();
         ImGui::SameLine();
@@ -579,6 +701,23 @@ namespace Desert::Editor
             }
             out.push_back( std::move( row ) );
         }
+        // The transport: the window's, not the asset's - setting it is never an undo step.
+        const auto transport = [&out]( const char* name, const char* label, const char* type, const float value )
+        {
+            EditableProperty row;
+            row.Name       = std::format( "Transport.{}", name );
+            row.Label      = label;
+            row.Group      = "Transport";
+            row.Type       = type;
+            row.Components = 1;
+            row.Value[0]   = value;
+            out.push_back( std::move( row ) );
+        };
+        transport( "Time", "Time (s; setting it pauses, as a scrub)", "float", static_cast<float>( m_Time ) );
+        transport( "Playing", "Playing", "bool", m_Playing ? 1.0f : 0.0f );
+        transport( "Speed", "Speed (0.1 .. 2)", "float", m_Speed );
+        transport( "Loop", "Loop", "bool", m_Loop ? 1.0f : 0.0f );
+        transport( "Step", "Step (n simulation steps from now; pauses)", "int", 0.0f );
         return out;
     }
 
@@ -587,6 +726,35 @@ namespace Desert::Editor
     {
         if ( !m_Loaded )
             return Common::MakeFormattedError<bool>( "the system could not be read, so '{}' cannot be set", name );
+        if ( name.starts_with( "Transport." ) )
+        {
+            if ( value.size() != 1 )
+                return Common::MakeFormattedError<bool>( "'{}' takes one number, not {}", name, value.size() );
+            const float v = value[0];
+            if ( name == "Transport.Time" )
+            {
+                if ( v < 0.0f || static_cast<double>( v ) > PlaybackEnd() )
+                    return Common::MakeFormattedError<bool>( "'{}' is {} s, outside the range 0 .. {} s", name, v,
+                                                             PlaybackEnd() );
+                ScrubTo( static_cast<double>( v ) );
+            }
+            else if ( name == "Transport.Playing" )
+                m_Playing = v != 0.0f;
+            else if ( name == "Transport.Speed" )
+            {
+                if ( v < 0.1f || v > 2.0f )
+                    return Common::MakeFormattedError<bool>( "'{}' is {}, outside 0.1 .. 2", name, v );
+                m_Speed = v;
+            }
+            else if ( name == "Transport.Loop" )
+                m_Loop = v != 0.0f;
+            else if ( name == "Transport.Step" )
+                StepTransport( static_cast<int>( std::lround( v ) ) );
+            else
+                return Common::MakeFormattedError<bool>(
+                     "the transport has no '{}'; it offers Time, Playing, Speed, Loop and Step", name );
+            return BOOLSUCCESS;
+        }
         const auto addresses = AddressInputs( m_Working );
         const auto found     = std::find_if( addresses.begin(), addresses.end(),
                                              [&name]( const InputAddress& a ) { return a.Name == name; } );

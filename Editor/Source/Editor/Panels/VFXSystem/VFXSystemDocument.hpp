@@ -44,6 +44,14 @@ namespace Desert::Editor
      * m_Working differs from what the preview last got - an edit, an undo, a redo - a new immutable copy goes to
      * the preview's VFXComponent::EditedSystem, and the new pointer restarts the simulation (UE ResetSimulation on
      * every stack change). Levels keep playing the asset until Save.
+     *
+     * THE TRANSPORT (12e, UE Niagara's timeline transport): the window owns the preview's time. m_Time runs while
+     * playing (wall delta x speed), wraps at the playback end when looping (UE jumps back to the range start,
+     * which resets the simulation) or stops there; scrubbing and stepping pause. The preview's effects clock is in
+     * DesiredAge mode at m_Time (VFXWorld::SetDesiredAge), so the picture at t is a function of t alone - a replay
+     * from zero by fixed steps from the system's Seed - whether t was reached by playing, scrubbing or stepping.
+     * An edit replays to the same t. Transport state is the window's, not the asset's: it is never an undo step.
+     * The control socket sees it as the `Transport.*` properties.
      */
     class VFXSystemDocument final : public ISubjectDocument
     {
@@ -101,6 +109,14 @@ namespace Desert::Editor
         void EnsurePreview();
         void DrawSystemColumn();
         void DrawStackColumn();
+        void DrawTransport();
+        // The end of the transport's range: the system's Duration (one system loop), m_PlaybackEnd when it has
+        // none.
+        [[nodiscard]] double PlaybackEnd() const;
+        // Pauses and moves to the fixed step @p steps away from the current time (UE Step Forward / Backward).
+        void StepTransport( int steps );
+        // Moves to @p seconds, clamped to the range; pauses, as a scrub does in UE.
+        void ScrubTo( double seconds );
         void DrawStage( const char* title, std::size_t emitter, std::size_t stage );
         void DrawInputEditor( std::size_t emitter, std::size_t stage, std::size_t module, std::size_t input );
         // Ends a gesture that began from @p before: one undo step labelled @p label, or - when the result is not a
@@ -124,6 +140,13 @@ namespace Desert::Editor
         bool                             m_PreviewLive   = false;
         bool                             m_DrewThisFrame = false;
         glm::uvec2                       m_ViewSize{ 0u, 0u };
+
+        // The transport (see the class comment).
+        double m_Time        = 0.0; // the age the preview shows, seconds
+        bool   m_Playing     = true;
+        float  m_Speed       = 1.0f; // 0.1x .. 2x
+        bool   m_Loop        = true;
+        float  m_PlaybackEnd = 5.0f; // the range of a system without Duration (editable on the transport bar)
     };
 
     // The `.dfx` path opener: find-or-create the VFXSystemAsset, make sure it is read, then open it through the one

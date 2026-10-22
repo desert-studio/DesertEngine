@@ -901,6 +901,22 @@ namespace Desert::Editor
     {
         if ( m_Effect )
             m_Effect.GetComponent<ECS::VFXComponent>().RequestRestart = true;
+        m_Scene->GetVFXWorld().Reset();
+    }
+
+    void PreviewViewport::SetVFXDesiredAge( const std::optional<double> age )
+    {
+        m_Scene->GetVFXWorld().SetDesiredAge( age );
+    }
+
+    double PreviewViewport::GetVFXAge() const
+    {
+        return m_Scene->GetVFXWorld().GetClock().GetAge();
+    }
+
+    double PreviewViewport::GetVFXStepSeconds() const
+    {
+        return m_Scene->GetVFXWorld().GetClock().GetSettings().StepSeconds;
     }
 
     void PreviewViewport::SetVFXWorkingCopy( std::shared_ptr<const Assets::Serialization::VFXSystemData> working )
