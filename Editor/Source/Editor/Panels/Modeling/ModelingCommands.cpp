@@ -608,11 +608,30 @@ namespace Desert::Editor
                                   } } );
         // UE's Deform palette: Smooth, Offset and Warp (DeformTool), committed the same way as the UV tools.
         for ( const auto& [name, tool] : std::initializer_list<std::pair<const char*, MS::Tool>>{
-                   { "Smooth", MS::Tool::Smooth }, { "Offset", MS::Tool::Offset }, { "Warp", MS::Tool::Warp }, { "Lattice", MS::Tool::Lattice } } )
+                   { "Smooth", MS::Tool::Smooth }, { "Offset", MS::Tool::Offset }, { "Warp", MS::Tool::Warp }, { "Lattice", MS::Tool::Lattice },
+                   { "Vertex Sculpt", MS::Tool::VertexSculpt } } )
             commands.push_back( { "Modeling", std::string( "Deform tool: " ) + name, [tool]
                                   {
                                       MS::Get().ActiveTool = tool;
                                       Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                      return PaletteCommandDone();
+                                  } } );
+        // Vertex Sculpt's closed choices (UE UMeshVertexSculptTool brush type, USculptBrushProperties falloff).
+        for ( const Geometry::SculptBrush brush : { Geometry::SculptBrush::Move, Geometry::SculptBrush::Smooth } )
+            commands.push_back( { "Modeling", std::string( "Vertex Sculpt brush: " ) + Geometry::ToString( brush ),
+                                  [brush]
+                                  {
+                                      MS::Get().DeformSculpt.Brush = brush;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::SculptFalloff falloff :
+              { Geometry::SculptFalloff::Smooth, Geometry::SculptFalloff::Linear, Geometry::SculptFalloff::Inverse,
+                Geometry::SculptFalloff::Round } )
+            commands.push_back( { "Modeling",
+                                  std::string( "Vertex Sculpt falloff: " ) + Geometry::ToString( falloff ),
+                                  [falloff]
+                                  {
+                                      MS::Get().DeformSculpt.FalloffType = falloff;
                                       return PaletteCommandDone();
                                   } } );
         for ( const Geometry::SmoothWeightType type :

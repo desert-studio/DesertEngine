@@ -2585,6 +2585,7 @@ namespace Desert::Editor
             case T::Offset:
             case T::Warp:
             case T::Lattice:
+            case T::VertexSculpt: // draws its own brush ring (VertexSculptTool)
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click
         }
         return Tools::ToolCursor::None;

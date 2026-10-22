@@ -13,6 +13,7 @@
 #include <Engine/Geometry/MeshDeformOperations.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
+#include <Engine/Geometry/MeshSculptBrushes.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
 #include <glm/glm.hpp>
@@ -43,6 +44,7 @@ namespace Desert::Editor::Core
             Offset,
             Warp, // UE's UMeshSpaceDeformerTool: Bend / Twist / Flare in the frame of its gizmo
             Lattice, // UE's ULatticeDeformerTool: a control-point lattice over the mesh's bounds (FFD)
+            VertexSculpt, // UE's UMeshVertexSculptTool: brush strokes on the mesh's vertices (Move, Smooth)
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -326,6 +328,9 @@ namespace Desert::Editor::Core
         std::vector<glm::dvec3>   LatticePoints;
         std::vector<int32_t>      LatticeSelection;
         glm::mat4                 LatticeGizmo{ 1.0f };
+        // Vertex Sculpt (UE UMeshVertexSculptTool / USculptBrushProperties): the brush, its radius, strength and
+        // falloff. Each stroke edits a copy of the mesh and is committed at its end as ONE undo step.
+        Geometry::SculptSettings DeformSculpt;
         // What the active Deform tool's preview did (its report), or why there is none - the panel shows it.
         std::string DeformStatus;
 

@@ -141,7 +141,8 @@ namespace Desert::Editor
                       ms.ActiveTool == MS::Tool::UVUnwrap || ms.ActiveTool == MS::Tool::UVLayout )
                 m_Category = static_cast<int>( Palette::UVs );
             else if ( ms.ActiveTool == MS::Tool::Smooth || ms.ActiveTool == MS::Tool::Offset ||
-                      ms.ActiveTool == MS::Tool::Warp || ms.ActiveTool == MS::Tool::Lattice )
+                      ms.ActiveTool == MS::Tool::Warp || ms.ActiveTool == MS::Tool::Lattice ||
+                      ms.ActiveTool == MS::Tool::VertexSculpt )
                 m_Category = static_cast<int>( Palette::Deform );
         }
 
@@ -595,11 +596,12 @@ namespace Desert::Editor
             const char* Name;
             MS::Tool    Tool;
         };
-        constexpr std::array<DeformToolEntry, 4> kDeformTools = {
+        constexpr std::array<DeformToolEntry, 5> kDeformTools = {
              { { ICON_MDI_BLUR, "Smooth", MS::Tool::Smooth },
                { ICON_MDI_ARROW_EXPAND_ALL, "Offset", MS::Tool::Offset },
                { ICON_MDI_ROTATE_ORBIT, "Warp", MS::Tool::Warp },
-               { ICON_MDI_GRID, "Lattice", MS::Tool::Lattice } } };
+               { ICON_MDI_GRID, "Lattice", MS::Tool::Lattice },
+               { ICON_MDI_BRUSH, "VSculpt", MS::Tool::VertexSculpt } } };
         for ( size_t i = 0; i < kDeformTools.size(); ++i )
         {
             const bool on = ms.ActiveTool == kDeformTools[i].Tool;
@@ -769,6 +771,32 @@ namespace Desert::Editor
                 ImGui::Checkbox( "##LatticeSoft", &s.SoftDeformation );
                 ImGui::Text( "%zu of %zu points selected", ms.LatticeSelection.size(), ms.LatticePoints.size() );
                 ImGui::TextDisabled( "Click a point (Shift adds, Ctrl toggles); the gizmo moves the selection." );
+                break;
+            }
+            case MS::Tool::VertexSculpt:
+            {
+                // UE UMeshVertexSculptTool: brush type + USculptBrushProperties (size, strength, falloff).
+                auto&                 s        = ms.DeformSculpt;
+                int                   brush    = static_cast<int>( s.Brush );
+                int                   falloff  = static_cast<int>( s.FalloffType );
+                constexpr const char* kBrush[] = { "Move", "Smooth" };
+                constexpr const char* kFall[]  = { "Smooth", "Linear", "Inverse", "Round" };
+                row( "Brush" );
+                if ( ImGui::Combo( "##SculptBrush", &brush, kBrush, 2 ) )
+                    s.Brush = static_cast<Geometry::SculptBrush>( brush );
+                row( "Brush Radius" );
+                ImGui::DragFloat( "##SculptRadius", &s.Radius, 0.5f, Geometry::kSculptMinRadius,
+                                  Geometry::kSculptMaxRadius, "%.1f cm", ImGuiSliderFlags_AlwaysClamp );
+                row( "Strength" );
+                ImGui::SliderFloat( "##SculptStrength", &s.Strength, 0.0f, 1.0f, "%.2f",
+                                    ImGuiSliderFlags_AlwaysClamp );
+                row( "Falloff" );
+                ImGui::SliderFloat( "##SculptFalloff", &s.FalloffAmount, 0.0f, 1.0f, "%.2f",
+                                    ImGuiSliderFlags_AlwaysClamp );
+                row( "Falloff Type" );
+                if ( ImGui::Combo( "##SculptFalloffType", &falloff, kFall, 4 ) )
+                    s.FalloffType = static_cast<Geometry::SculptFalloff>( falloff );
+                ImGui::TextDisabled( "Drag on the mesh; each stroke is one undo step." );
                 break;
             }
             default:

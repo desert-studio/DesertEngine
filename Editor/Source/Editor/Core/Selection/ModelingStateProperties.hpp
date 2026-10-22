@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 112> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 115> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -269,6 +269,13 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.LatticeGizmo[1].y; }, nullptr },
          { "Lattice.GizmoScaleZ",       "Gizmo Scale Z",      "Lattice", 1, false, 0.001f, 1000.0f,
            []( ModelingState& s ) { return &s.LatticeGizmo[2].z; }, nullptr },
+         // Vertex Sculpt (UE USculptBrushProperties): the brush radius in cm, its strength and falloff band.
+         { "VertexSculpt.BrushRadius",  "Brush Radius",       "VertexSculpt", 1, false, Geometry::kSculptMinRadius,
+           Geometry::kSculptMaxRadius, []( ModelingState& s ) { return &s.DeformSculpt.Radius; }, nullptr },
+         { "VertexSculpt.Strength",     "Strength",           "VertexSculpt", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.DeformSculpt.Strength; }, nullptr },
+         { "VertexSculpt.Falloff",      "Falloff",            "VertexSculpt", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.DeformSculpt.FalloffAmount; }, nullptr },
     } };
     // clang-format on
 
