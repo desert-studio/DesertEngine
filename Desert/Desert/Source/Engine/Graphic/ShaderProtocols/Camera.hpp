@@ -66,12 +66,15 @@ namespace Desert::Graphic::ShaderProtocols
     /// The include path the shader includer answers with the generated block (angle include, shader-root relative).
     inline constexpr std::string_view kCameraUBInclude = "Common/CameraUB.glslh";
 
+    /// The camera block's set-0 slot (GeneratedProtocolIncludes.hpp holds the protocols' slots apart).
+    inline constexpr uint32_t kCameraUBBinding = 0u;
+
     /// The GLSL of the camera block — generated once per process from kCameraFields.
     [[nodiscard]] inline const std::string& CameraUBGlsl()
     {
-        static const std::string glsl = GenerateUniformBlockGlsl(
-             "DESERT_CAMERA_UB_GLSLH", "Engine/Graphic/ShaderProtocols/Camera.hpp", 0, Camera::Name, "cameraUB",
-             kCameraFields );
+        static const std::string glsl =
+             GenerateUniformBlockGlsl( "DESERT_CAMERA_UB_GLSLH", "Engine/Graphic/ShaderProtocols/Camera.hpp",
+                                       kCameraUBBinding, Camera::Name, "cameraUB", kCameraFields );
         return glsl;
     }
 
