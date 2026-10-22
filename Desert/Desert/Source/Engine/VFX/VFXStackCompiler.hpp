@@ -31,9 +31,9 @@ namespace Desert::VFX
     using Assets::Serialization::VFXValueType;
 
     /// The four stack groups of an emitter, in the stack's order (UE ENiagaraScriptUsage: EmitterSpawnScript,
-    /// EmitterUpdateScript, ParticleSpawnScript, ParticleUpdateScript). The two Emitter groups are CPU administration
-    /// (EmitterSpawn runs once when the emitter instance starts, EmitterUpdate every step), the other two the GPU
-    /// program.
+    /// EmitterUpdateScript, ParticleSpawnScript, ParticleUpdateScript). The two Emitter groups are CPU
+    /// administration (EmitterSpawn runs once when the emitter instance starts, EmitterUpdate every step), the
+    /// other two the GPU program.
     enum class VFXStage : uint8_t
     {
         EmitterSpawn,

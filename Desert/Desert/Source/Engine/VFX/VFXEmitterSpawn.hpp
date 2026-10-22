@@ -12,8 +12,8 @@
 // (Amount = floor(LoopDuration * Rate), :887); our simulation is stateful, so the rate goes through the per-step
 // SpawnAccumulator instead (the fraction carries to the next step) — over N steps the same floor(N * dt * Rate).
 //
-// Engine CPU modules (the Emitter groups; EmitterSpawn takes SpawnBurst only, fired ONCE when the instance starts —
-// UE's Emitter Spawn script runs once per emitter spawn — EmitterUpdate takes all three):
+// Engine CPU modules (the Emitter groups; EmitterSpawn takes SpawnBurst only, fired ONCE when the instance starts
+// — UE's Emitter Spawn script runs once per emitter spawn — EmitterUpdate takes all three):
 //   engine:SpawnRate   Input SpawnRate float  — particles per second while a loop is active
 //   engine:SpawnBurst  Input SpawnCount int, Input SpawnTime float — SpawnCount particles once per loop, at
 //                      SpawnTime seconds into it (0 <= SpawnTime < LoopDuration)
@@ -48,9 +48,9 @@ namespace Desert::VFX
     /// pickers, filtered by EmitterModuleUsage), in picker order.
     [[nodiscard]] std::vector<std::string_view> EmitterModules();
 
-    /// An Emitter-group module's inputs with their defaults - the one table CompileSpawnPlan reads the row by and the
-    /// stack editor starts a new row from (SpawnFromChannel's Channel is BindingRequired); nullptr for any other
-    /// module.
+    /// An Emitter-group module's inputs with their defaults - the one table CompileSpawnPlan reads the row by and
+    /// the stack editor starts a new row from (SpawnFromChannel's Channel is BindingRequired); nullptr for any
+    /// other module.
     [[nodiscard]] const std::vector<VFXModuleInputDecl>* EmitterModuleInputs( std::string_view module );
 
     /// The Emitter groups an Emitter-group module may sit in (UsageBit of EmitterSpawn / EmitterUpdate); 0 for any
@@ -71,7 +71,7 @@ namespace Desert::VFX
     {
         Assets::Serialization::VFXEmitterLifecycle Lifecycle;
         double                                     Rate = 0.0; ///< the sum of every SpawnRate module, per second
-        std::vector<VFXSpawnBurst>                 Bursts; ///< EmitterUpdate: once in every loop
+        std::vector<VFXSpawnBurst>                 Bursts;     ///< EmitterUpdate: once in every loop
         std::vector<VFXSpawnBurst> StartBursts; ///< EmitterSpawn: once per instance, Time into the first loop
         /// engine:SpawnFromChannel, at most one per emitter: its spawns join the first fixed step of each tick.
         std::optional<VFXChannelSpawnModule> Channel;
@@ -79,10 +79,9 @@ namespace Desert::VFX
         [[nodiscard]] bool operator==( const VFXSpawnPlan& ) const = default;
     };
 
-    /// Reads emitter @p emitterIndex's lifecycle and its EmitterSpawn and EmitterUpdate groups. A module the group's
-    /// usage does not take, a
-    /// local module in the group, an input the module does not take or leaves out, a source it cannot read and a
-    /// burst outside its loop are errors naming the emitter, module and input.
+    /// Reads emitter @p emitterIndex's lifecycle and its EmitterSpawn and EmitterUpdate groups. A module the
+    /// group's usage does not take, a local module in the group, an input the module does not take or leaves out,
+    /// a source it cannot read and a burst outside its loop are errors naming the emitter, module and input.
     Common::ResultStr<VFXSpawnPlan> CompileSpawnPlan( const Assets::Serialization::VFXSystemData& system,
                                                       std::size_t                                 emitterIndex );
 

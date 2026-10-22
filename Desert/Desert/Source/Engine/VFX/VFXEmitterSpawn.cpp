@@ -231,7 +231,8 @@ namespace Desert::VFX
     uint8_t EmitterModuleUsage( const std::string_view module )
     {
         if ( module == kVFXSpawnBurstModule )
-            return static_cast<uint8_t>( UsageBit( VFXStage::EmitterSpawn ) | UsageBit( VFXStage::EmitterUpdate ) );
+            return static_cast<uint8_t>( UsageBit( VFXStage::EmitterSpawn ) |
+                                         UsageBit( VFXStage::EmitterUpdate ) );
         if ( module == kVFXSpawnRateModule || module == kVFXSpawnFromChannelModule )
             return UsageBit( VFXStage::EmitterUpdate );
         return 0;
@@ -271,8 +272,8 @@ namespace Desert::VFX
             const std::string where =
                  std::format( "emitter '{}' EmitterSpawn module {} '{}'", emitter.Name, m, use.Module );
             if ( ( EmitterModuleUsage( use.Module ) & UsageBit( VFXStage::EmitterSpawn ) ) == 0 )
-                return Common::MakeFormattedError<Result>( "{}: EmitterSpawn runs once on the CPU and knows only {}",
-                                                           where, kVFXSpawnBurstModule );
+                return Common::MakeFormattedError<Result>(
+                     "{}: EmitterSpawn runs once on the CPU and knows only {}", where, kVFXSpawnBurstModule );
             auto in = ReadInputs( system, use, kSpawnBurstInputs, where );
             if ( !in.IsSuccess() )
                 return Common::MakeError<Result>( in.GetError() );

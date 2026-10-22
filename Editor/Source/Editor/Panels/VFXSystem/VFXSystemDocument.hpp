@@ -134,8 +134,8 @@ namespace Desert::Editor
         // enable checkbox). Each is one Commit - one undo step - and, being a change of m_Working, restarts the
         // preview. A module added gets its inputs from the module's own declarations (ResolveParticleModule),
         // each a Value at zero.
-        // @p channel: the DataChannel a BindingRequired input (SpawnFromChannel's Channel) is bound to - UE picks the
-        // channel asset on the new row; a module with such an input and no channel is refused.
+        // @p channel: the DataChannel a BindingRequired input (SpawnFromChannel's Channel) is bound to - UE picks
+        // the channel asset on the new row; a module with such an input and no channel is refused.
         Common::BoolResultStr AddModule( std::size_t emitter, std::size_t stage, const std::string& module,
                                          const std::string& channel = {} );
         Common::BoolResultStr RemoveModule( std::size_t emitter, std::size_t stage, std::size_t module );

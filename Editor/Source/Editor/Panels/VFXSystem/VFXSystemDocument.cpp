@@ -1073,16 +1073,16 @@ namespace Desert::Editor
             }
             for ( const ModuleChoice& choice : ModuleLibrary( st ) )
                 if ( choice.Error.empty() && !choice.NeedsChannel ) // the channel is named in the picker
-                        out.push_back( { std::format( "Add {} to {}.{}", choice.Ref, name, kStageKeys[st] ),
-                                 [this, name, st, module = choice.Ref]
-                                 {
-                                     for ( std::size_t em = 0; em < m_Working.Emitters.size(); ++em )
-                                         if ( m_Working.Emitters[em].Name == name )
-                                         {
-                                             (void)AddModule( em, st, module );
-                                             return;
-                                         }
-                                 } } );
+                    out.push_back( { std::format( "Add {} to {}.{}", choice.Ref, name, kStageKeys[st] ),
+                                     [this, name, st, module = choice.Ref]
+                                     {
+                                         for ( std::size_t em = 0; em < m_Working.Emitters.size(); ++em )
+                                             if ( m_Working.Emitters[em].Name == name )
+                                             {
+                                                 (void)AddModule( em, st, module );
+                                                 return;
+                                             }
+                                     } } );
         }
         return out;
     }
