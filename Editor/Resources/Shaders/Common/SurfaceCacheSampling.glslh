@@ -53,14 +53,14 @@ layout( std430, binding = GI_SURFACE_CACHE_BINDING + 3 ) readonly buffer Surface
     SurfaceCacheInstance surfaceCacheInstances[];
 };
 // The atlas layers are separate textures read through the includer's point-clamped shared state (UE shared
-// samplers; DeclareSurfaceCacheReads binds u_PointClampSampler with them): the includer declares
-// u_PointClampSampler, as every tracer program does for its G-buffer reads.
-layout( binding = GI_SURFACE_CACHE_BINDING + 4 ) uniform texture2D u_SurfaceCacheFinalLighting;
-#define u_SurfaceCacheFinalLighting sampler2D(u_SurfaceCacheFinalLighting, u_PointClampSampler)
-layout( binding = GI_SURFACE_CACHE_BINDING + 5 ) uniform texture2D u_SurfaceCacheDepth;
-#define u_SurfaceCacheDepth sampler2D(u_SurfaceCacheDepth, u_PointClampSampler)
-layout( binding = GI_SURFACE_CACHE_BINDING + 6 ) uniform texture2D u_SurfaceCacheOpacity;
-#define u_SurfaceCacheOpacity sampler2D(u_SurfaceCacheOpacity, u_PointClampSampler)
+// samplers; DeclareSurfaceCacheReads binds PointClampSampler with them): the includer declares
+// PointClampSampler, as every tracer program does for its G-buffer reads.
+layout( binding = GI_SURFACE_CACHE_BINDING + 4 ) uniform texture2D SurfaceCacheFinalLightingTexture;
+#define SurfaceCacheFinalLightingTexture sampler2D(SurfaceCacheFinalLightingTexture, PointClampSampler)
+layout( binding = GI_SURFACE_CACHE_BINDING + 5 ) uniform texture2D SurfaceCacheDepthTexture;
+#define SurfaceCacheDepthTexture sampler2D(SurfaceCacheDepthTexture, PointClampSampler)
+layout( binding = GI_SURFACE_CACHE_BINDING + 6 ) uniform texture2D SurfaceCacheOpacityTexture;
+#define SurfaceCacheOpacityTexture sampler2D(SurfaceCacheOpacityTexture, PointClampSampler)
 // Below this summed weight the cards hold too little of the hit to stand for it (UE: bValid needs a weight).
 #define SURFACE_CACHE_MIN_HIT_WEIGHT 0.05
 // From this summed weight on the rows read so far hold the hit: the farther rows are not read (UE
@@ -142,7 +142,7 @@ void SurfaceCacheSampleMeshCards( uint meshCardsIndex, vec3 position, vec3 norma
     // The hit normal in the mesh's frame: its axes pick the card directions.
     const vec3 localNormal = vec3( dot( mesh.worldToLocal[0].xyz, normal ), dot( mesh.worldToLocal[1].xyz, normal ),
                                    dot( mesh.worldToLocal[2].xyz, normal ) );
-    const vec2 atlasSize = vec2( textureSize( u_SurfaceCacheFinalLighting, 0 ) );
+    const vec2 atlasSize = vec2( textureSize( SurfaceCacheFinalLightingTexture, 0 ) );
     for ( uint axis = 0u; axis < 3u; ++axis )
     {
         const float axisWeight = localNormal[axis] * localNormal[axis];
@@ -165,14 +165,14 @@ void SurfaceCacheSampleMeshCards( uint meshCardsIndex, vec3 position, vec3 norma
             {
                 ivec2       atlasTexel;
                 const float bilinear = SurfaceCardFootprintTexel( fp, k, atlasTexel );
-                if ( bilinear <= 0.0 || texelFetch( u_SurfaceCacheOpacity, atlasTexel, 0 ).r < 0.5 )
+                if ( bilinear <= 0.0 || texelFetch( SurfaceCacheOpacityTexture, atlasTexel, 0 ).r < 0.5 )
                     continue;
-                const float captured   = texelFetch( u_SurfaceCacheDepth, atlasTexel, 0 ).r;
+                const float captured   = texelFetch( SurfaceCacheDepthTexture, atlasTexel, 0 ).r;
                 const float visibility = 1.0 - clamp( ( abs( fp.hitDepth - captured ) - fp.threshold ) / fp.falloff, 0.0, 1.0 );
                 const float w          = bilinear * visibility;
                 if ( w <= 0.0 )
                     continue;
-                lighting += texelFetch( u_SurfaceCacheFinalLighting, atlasTexel, 0 ).rgb * w;
+                lighting += texelFetch( SurfaceCacheFinalLightingTexture, atlasTexel, 0 ).rgb * w;
                 weightSum += w;
             }
             if ( weightSum <= 0.0 )
@@ -195,7 +195,7 @@ float SurfaceCacheBackFaceMeshCards( uint meshCardsIndex, vec3 position, vec3 no
     const MeshCards mesh        = surfaceMeshCards[meshCardsIndex];
     const vec3      localNormal = vec3( dot( mesh.worldToLocal[0].xyz, normal ), dot( mesh.worldToLocal[1].xyz, normal ),
                                         dot( mesh.worldToLocal[2].xyz, normal ) );
-    const vec2      atlasSize   = vec2( textureSize( u_SurfaceCacheFinalLighting, 0 ) );
+    const vec2      atlasSize   = vec2( textureSize( SurfaceCacheFinalLightingTexture, 0 ) );
     float           weight      = 0.0;
     for ( uint axis = 0u; axis < 3u; ++axis )
     {
@@ -217,9 +217,9 @@ float SurfaceCacheBackFaceMeshCards( uint meshCardsIndex, vec3 position, vec3 no
             {
                 ivec2       atlasTexel;
                 const float bilinear = SurfaceCardFootprintTexel( fp, k, atlasTexel );
-                if ( bilinear <= 0.0 || texelFetch( u_SurfaceCacheOpacity, atlasTexel, 0 ).r < 0.5 )
+                if ( bilinear <= 0.0 || texelFetch( SurfaceCacheOpacityTexture, atlasTexel, 0 ).r < 0.5 )
                     continue;
-                const float captured = texelFetch( u_SurfaceCacheDepth, atlasTexel, 0 ).r;
+                const float captured = texelFetch( SurfaceCacheDepthTexture, atlasTexel, 0 ).r;
                 behindSum += bilinear * clamp( ( fp.hitDepth - captured - fp.threshold ) / fp.falloff, 0.0, 1.0 );
             }
             weight += axisWeight * behindSum;

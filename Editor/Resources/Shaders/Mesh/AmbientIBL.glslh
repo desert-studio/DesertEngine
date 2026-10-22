@@ -15,8 +15,8 @@
 //   * EvaluateAmbientIBL is PURE ALGEBRA over already-fetched samples. It declares no sampler, so it
 //     also compiles as C++ (see Desert/Tests/Engine/AmbientIBL) and the split-sum identity can be
 //     asserted without a GPU.
-//   * AmbientIBL does the three fetches and calls it. It names u_EnvIrradianceTex / u_EnvSpecularTex /
-//     u_BRDFLUTTexture and the `skyLook` block (Common/SkyLook.glslh), which the includer must have
+//   * AmbientIBL does the three fetches and calls it. It names EnvironmentIrradianceTexture / EnvironmentSpecularTexture /
+//     BrdfLutTexture and the `skyLook` block (Common/SkyLook.glslh), which the includer must have
 //     declared. Define AMBIENT_IBL_NO_SAMPLERS to take only the algebra half.
 //
 
@@ -93,7 +93,7 @@ vec3 DesertComposeTracedReflection(vec4 traced, vec3 environment)
 // ones the split sum below makes: the sky cubes through the sky look's rotation and gain.
 vec3 DesertAmbientIrradiance(vec3 worldDirection)
 {
-	return ApplySkyGain(texture(u_EnvIrradianceTex, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy)).rgb,
+	return ApplySkyGain(texture(EnvironmentIrradianceTexture, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy)).rgb,
 	                    skyLook.Gain.rgb);
 }
 
@@ -101,9 +101,9 @@ vec3 DesertAmbientSpecular(vec3 worldDirection, float roughness)
 {
 	// The engine's one roughness -> mip ramp (Common/ReflectionCaptureMip.glslh), the inverse of PrefilterEnvMap's.
 	const float lod =
-	     ComputeReflectionCaptureMipFromRoughness(roughness, float(textureQueryLevels(u_EnvSpecularTex) - 1));
+	     ComputeReflectionCaptureMipFromRoughness(roughness, float(textureQueryLevels(EnvironmentSpecularTexture) - 1));
 	return ApplySkyGain(
-	     textureLod(u_EnvSpecularTex, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy), lod).rgb,
+	     textureLod(EnvironmentSpecularTexture, SkyLookDirection(worldDirection, skyLook.YawCosSin.xy), lod).rgb,
 	     skyLook.Gain.rgb);
 }
 
@@ -115,7 +115,7 @@ vec3 AmbientIBL(vec3 view, vec3 N, vec3 F0, float metalness, float roughness, ve
 	// reflect(-view, N) = 2*dot(N,view)*N - view (unclamped, correct specular reflection)
 	vec3 specularIrradiance = DesertAmbientSpecular(reflect(-view, N), roughness);
 
-	vec2 specularBRDF = texture(u_BRDFLUTTexture, vec2(cosLo, roughness)).rg;
+	vec2 specularBRDF = texture(BrdfLutTexture, vec2(cosLo, roughness)).rg;
 
 	return EvaluateAmbientIBL(irradiance, specularIrradiance, specularBRDF, F0, albedo, metalness);
 }
@@ -157,7 +157,7 @@ DesertAmbient DesertSampleAmbient(DesertSurface S, vec3 irradiance, vec3 remaind
 	A.Prefiltered = DesertReflectionEnvironment(S.WorldPosition, reflect(-S.V, S.N), S.N, S.Roughness, A.Prefiltered,
 	                                            indirectIrradiance);
 #endif
-	A.SpecularBRDF = texture(u_BRDFLUTTexture, vec2(max(0.0, dot(S.N, S.V)), S.Roughness)).rg;
+	A.SpecularBRDF = texture(BrdfLutTexture, vec2(max(0.0, dot(S.N, S.V)), S.Roughness)).rg;
 	A.Indirect     = indirect;
 	A.Occlusion    = occlusion;
 	A.BackIrradiance = DesertAmbientIrradiance(-S.N);

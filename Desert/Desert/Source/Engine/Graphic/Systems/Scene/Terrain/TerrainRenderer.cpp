@@ -24,6 +24,16 @@
 #include <unordered_set>
 #include <vector>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct TerrainShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( UniformBuffer, TerrainUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, TerrainInstances );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -267,16 +277,12 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void TerrainRenderer::PrepareFrame( const ViewFrame& frame, const SceneFrameBinding& scene,
-                                        const std::vector<LocalShadowCasterLight>& localLights )
+    void TerrainRenderer::PrepareFrame( const ViewFrame& frame, const SceneFrameBinding& scene )
     {
         m_FrameGroups.clear();
         m_FrameDraws.clear();
-        // Every light of the frame has its entry, drawn or not: LocalShadowSignature answers for each of them.
+        // The lights' draws are PrepareLocalShadowViews' (after UpdateLocalShadows gave the lights their views).
         m_LocalLightDraws.clear();
-        for ( const LocalShadowCasterLight& light : localLights )
-            m_LocalLightDraws.push_back(
-                 { .Light = light, .Draws = {}, .Signature = ShadowSignatureHash{}.Value } );
         m_FrameInstances.clear();
         m_FrameTints.clear();
         if ( m_Queue.empty() )
@@ -376,15 +382,15 @@ namespace Desert::Graphic::System
                     if ( !layers.ArrayNames[kind].empty() && layers.Arrays[kind] &&
                          !surface->SetTexture( layers.ArrayNames[kind], layers.Arrays[kind].get() ) )
                         LogRefusedTextureOverride( surface->GetShaderName(), layers.ArrayNames[kind] );
-                surface->SetTexture( "u_Heightmap", t.Heightmap.get() );
-                materials.Shadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
-                materials.VirtualShadow->SetTexture( "u_Heightmap", t.Heightmap.get() );
+                surface->SetTexture( "HeightmapTexture", t.Heightmap.get() );
+                materials.Shadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
+                materials.VirtualShadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
                 if ( t.Weights.Weightmap != nullptr )
                 {
-                    surface->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
+                    surface->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
                     // The casters read the visibility channel too: a hole must not cast a shadow.
-                    materials.Shadow->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
-                    materials.VirtualShadow->SetTexture( "u_Weightmap", t.Weights.Weightmap.get() );
+                    materials.Shadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
+                    materials.VirtualShadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
                 }
             }
             FrameGroup&         group   = m_FrameGroups[it->second];
@@ -417,6 +423,70 @@ namespace Desert::Graphic::System
                            surface->GetShaderName() );
             m_FrameTints.push_back( tint.value_or( glm::vec4( 1.0f ) ) );
         }
+
+        // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────
+        // (the instance rows go up in PrepareLocalShadowViews, once the lights' rows follow the camera's)
+        TerrainUB ub{};
+        ub.View                      = frame.View;
+        ub.Projection                = frame.Projection;
+        ub.ViewProjection            = frame.ViewProjection;
+        ub.PrevViewProjection        = frame.PrevViewProjection;
+        ub.JitteredViewProjection    = frame.JitteredViewProjection;
+        ub.InvJitteredViewProjection = frame.InvJitteredViewProjection;
+        ub.Exposure                  = glm::vec4( frame.PreExposure, 0.0f, 0.0f, 0.0f );
+
+        for ( const auto& group : m_FrameGroups )
+        {
+            ProgramMaterials const& materials = m_Materials[group.Key];
+            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
+            for ( DataDrivenMaterial* material :
+                  { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
+            {
+                // The shadow programs have no TerrainUB (their vertices are the camera's, the LOD rides in the
+                // row) and no Materials[] row block (no Properties block): for them both slots are optional.
+                const bool shadowProgram = material != surface;
+                auto*      terrainUB =
+                     shadowProgram ? material->Find<UniformBufferProperty>( TerrainShaderParameters::TerrainUB )
+                                        : material->Get<UniformBufferProperty>( TerrainShaderParameters::TerrainUB );
+                if ( terrainUB )
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as
+                    // bytes
+                    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+                    terrainUB->SetRawData( reinterpret_cast<const std::byte*>( &ub ), sizeof( ub ) );
+                // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+
+                auto* rows = shadowProgram ? material->Find<StorageBufferProperty>( kMaterialRowBlock )
+                                           : material->Get<StorageBufferProperty>( kMaterialRowBlock );
+                if ( rows )
+                    if ( !group.ParamRows.empty() )
+                        rows->SetRawData( group.ParamRows.data(),
+                                          static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
+            }
+
+            // The scene's part of the forward program, by the ONE applier every lit material gets it from
+            // (SceneFrameBinding::ApplyTo, the groups its layout declares): the cloud layer's shadow on the sun
+            // — a terrain is drawn by neither render path's mesh shaders, so while the map's only reader was the
+            // deferred composite a terrain never darkened under a cloud at all — the sun (DirectionLightsUB, the
+            // one statement of it the forward meshes read; TerrainUB no longer carries a copy), the point and spot
+            // lights, the cascades' ShadowUB and the sky look the ambient reads (Mesh/AmbientIBL.glslh). Forward
+            // only: in Deferred the composite lights the terrain's G-buffer texels with all of it, like every
+            // other surface. The maps (the cascade array, the environment cubes and BRDF LUT, the reflection
+            // captures, the cloud shadow map) and the light grid are pass parameters of the "TerrainPass" node
+            // (SceneViewInputs); the material carries the blocks.
+            if ( !deferred )
+                scene.ApplyTo( surface );
+        }
+    }
+
+    void TerrainRenderer::PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights )
+    {
+        // Every light of the frame has its entry, drawn or not: LocalShadowSignature answers for each of them.
+        m_LocalLightDraws.clear();
+        for ( const LocalShadowCasterLight& light : localLights )
+            m_LocalLightDraws.push_back(
+                 { .Light = light, .Draws = {}, .Signature = ShadowSignatureHash{}.Value } );
+        if ( m_Queue.empty() )
+            return;
 
         // ── Each point/spot light's own draws: the tiles in its reach, at the LOD its position asks for ─────────
         //
@@ -474,54 +544,19 @@ namespace Desert::Graphic::System
             local.Signature = hash.Value;
         }
 
-        // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────
-        TerrainUB ub{};
-        ub.View       = frame.View;
-        ub.Projection = frame.Projection;
-        ub.ViewProjection         = frame.ViewProjection;
-        ub.PrevViewProjection     = frame.PrevViewProjection;
-        ub.JitteredViewProjection = frame.JitteredViewProjection;
-        ub.InvJitteredViewProjection = frame.InvJitteredViewProjection;
-        ub.Exposure               = glm::vec4( frame.PreExposure, 0.0f, 0.0f, 0.0f );
-
+        // ── The instance rows, the camera's and the lights', once, still before any draw ──────────────
+        const bool deferred = m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred;
         for ( const auto& group : m_FrameGroups )
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
-            DataDrivenMaterial* surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
+            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
             for ( DataDrivenMaterial* material :
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
-            {
-                // The shadow programs have no TerrainUB: its vertices are the camera's (the LOD rides in the row).
-                if ( auto* terrainUB = material->Get<UniformBufferProperty>( "TerrainUB" ) )
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as
-                    // bytes
-                    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
-                    terrainUB->SetRawData( reinterpret_cast<const std::byte*>( &ub ), sizeof( ub ) );
-                // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
-
-                if ( auto* rows = material->Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName ) )
-                    if ( !group.ParamRows.empty() )
-                        rows->SetRawData( group.ParamRows.data(),
-                                          static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
-
-                if ( auto* instances = material->Get<StorageBufferProperty>( "TerrainInstances" ) )
+                if ( auto* instances =
+                          material->Get<StorageBufferProperty>( TerrainShaderParameters::TerrainInstances ) )
                     instances->SetRawData(
                          group.Instances.data(),
                          static_cast<uint32_t>( group.Instances.size() * sizeof( TerrainInstance ) ) );
-            }
-
-            // The scene's part of the forward program, by the ONE applier every lit material gets it from
-            // (SceneFrameBinding::ApplyTo, the groups its layout declares): the cloud layer's shadow on the sun
-            // — a terrain is drawn by neither render path's mesh shaders, so while the map's only reader was the
-            // deferred composite a terrain never darkened under a cloud at all — the sun (DirectionLightsUB, the
-            // one statement of it the forward meshes read; TerrainUB no longer carries a copy), the point and spot
-            // lights, the cascades' ShadowUB and the sky look the ambient reads (Mesh/AmbientIBL.glslh). Forward
-            // only: in Deferred the composite lights the terrain's G-buffer texels with all of it, like every
-            // other surface. The maps (the cascade array, the environment cubes and BRDF LUT, the reflection
-            // captures, the cloud shadow map) and the light grid are pass parameters of the "TerrainPass" node
-            // (SceneViewInputs); the material carries the blocks.
-            if ( !deferred )
-                scene.ApplyTo( surface );
         }
     }
 

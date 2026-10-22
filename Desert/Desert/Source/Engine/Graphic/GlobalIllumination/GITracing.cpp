@@ -1,8 +1,33 @@
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
 
+#include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 #include <format>
+
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct GITracingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GITracerSoftwareUB );
+        DESERT_SHADER_PARAMETER( Texture, GlobalDistanceFieldObjectGridTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SurfaceCardBuffer );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SurfaceCardPageBuffer );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SurfaceMeshCardsBuffer );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SurfaceCacheInstancesUB );
+        DESERT_SHADER_PARAMETER( Texture, SurfaceCacheFinalLightingTexture );
+        DESERT_SHADER_PARAMETER( Texture, SurfaceCacheDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, SurfaceCacheOpacityTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GITracerDFAssetsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GITracerDFIndirectionUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GITracerDFObjectsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GITracerMeshSDFGridCellsUB );
+        DESERT_SHADER_PARAMETER( Texture, DistanceFieldBrickAtlasTexture );
+    };
+} // namespace
 
 namespace Desert::Graphic::GlobalIllumination
 {
@@ -43,30 +68,34 @@ namespace Desert::Graphic::GlobalIllumination
         {
             case Tracer::SoftwareDistanceField:
                 for ( uint32_t level = 0; level < frame.GlobalDistanceField.size(); ++level )
-                    block.Texture( std::format( "u_GlobalDistanceField{}", level ),
+                    block.Texture( DistanceField::kGlobalDistanceFieldClipmapTextures[level],
                                    frame.GlobalDistanceField[level], sampled, RDG::SubresourceRange::All() )
-                         .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
-                block.Storage( "GITracerSoftwareUB", frame.GlobalDistanceFieldLevels, RDG::Access::StorageRead )
-                     .Storage( "GITracerDFAssetsUB", frame.MeshDistanceFields.Assets, RDG::Access::StorageRead )
-                     .Storage( "GITracerDFIndirectionUB", frame.MeshDistanceFields.Indirection,
+                         .Sampler( GITracingShaderParameters::LinearRepeatSampler,
+                                   RDG::SamplerDesc::LinearRepeat() );
+                block.Storage( GITracingShaderParameters::GITracerSoftwareUB, frame.GlobalDistanceFieldLevels,
                                RDG::Access::StorageRead )
-                     .Storage( "GITracerDFObjectsUB", frame.MeshDistanceFields.Objects, RDG::Access::StorageRead )
-                     .Storage( "GITracerMeshSDFGridCellsUB", frame.MeshDistanceFields.NearFieldGrid,
+                     .Storage( GITracingShaderParameters::GITracerDFAssetsUB, frame.MeshDistanceFields.Assets,
                                RDG::Access::StorageRead )
+                     .Storage( GITracingShaderParameters::GITracerDFIndirectionUB,
+                               frame.MeshDistanceFields.Indirection, RDG::Access::StorageRead )
+                     .Storage( GITracingShaderParameters::GITracerDFObjectsUB, frame.MeshDistanceFields.Objects,
+                               RDG::Access::StorageRead )
+                     .Storage( GITracingShaderParameters::GITracerMeshSDFGridCellsUB,
+                               frame.MeshDistanceFields.NearFieldGrid, RDG::Access::StorageRead )
                      // The brick atlas reads through the clipmaps' shared repeat state (GITracer.glslh).
-                     .Texture( "u_DFBrickAtlas", frame.MeshDistanceFields.BrickAtlas, sampled,
-                               RDG::SubresourceRange::All() )
-                     .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
+                     .Texture( GITracingShaderParameters::DistanceFieldBrickAtlasTexture,
+                               frame.MeshDistanceFields.BrickAtlas, sampled, RDG::SubresourceRange::All() )
+                     .Sampler( GITracingShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
                      // Fetched texel by texel through the includer's point-clamped shared state (GITracer.glslh).
-                     .Texture( "u_GlobalDistanceFieldObjectGrid", frame.GlobalDistanceFieldObjectGrid, sampled,
-                               RDG::SubresourceRange::All() )
-                     .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                     .Texture( GITracingShaderParameters::GlobalDistanceFieldObjectGridTexture,
+                               frame.GlobalDistanceFieldObjectGrid, sampled, RDG::SubresourceRange::All() )
+                     .Sampler( GITracingShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
                 return;
             case Tracer::HardwareRayQuery:
-                block.AccelerationStructure( kHardwareTracerTlasName, frame.Tlas )
-                     .Storage( kHardwareTracerGeometryName, frame.Metadata.Geometry, RDG::Access::StorageRead )
-                     .Storage( kHardwareTracerMaterialsName, frame.Metadata.Materials, RDG::Access::StorageRead )
-                     .Storage( kHardwareTracerInstanceSurfaceCacheRowsName, frame.InstanceSurfaceCacheRows,
+                block.AccelerationStructure( kHardwareTracerTlas, frame.Tlas )
+                     .Storage( kHardwareTracerGeometry, frame.Metadata.Geometry, RDG::Access::StorageRead )
+                     .Storage( kHardwareTracerMaterials, frame.Metadata.Materials, RDG::Access::StorageRead )
+                     .Storage( kHardwareTracerInstanceSurfaceCacheRows, frame.InstanceSurfaceCacheRows,
                                RDG::Access::StorageRead );
                 return;
         }
@@ -86,13 +115,18 @@ namespace Desert::Graphic::GlobalIllumination
     void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame )
     {
         const auto all = RDG::SubresourceRange::All();
-        block.Storage( "SurfaceCardBuffer", frame.Cards, RDG::Access::StorageRead )
-             .Storage( "SurfaceCardPageBuffer", frame.Pages, RDG::Access::StorageRead )
-             .Storage( "SurfaceMeshCardsBuffer", frame.MeshCards, RDG::Access::StorageRead )
-             .Storage( "SurfaceCacheInstancesUB", frame.InstanceRows, RDG::Access::StorageRead )
-             .Texture( "u_SurfaceCacheFinalLighting", frame.FinalLighting, RDG::Access::SampledCompute, all )
-             .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-             .Texture( "u_SurfaceCacheDepth", frame.Depth, RDG::Access::SampledCompute, all )
-             .Texture( "u_SurfaceCacheOpacity", frame.Opacity, RDG::Access::SampledCompute, all );
+        block.Storage( GITracingShaderParameters::SurfaceCardBuffer, frame.Cards, RDG::Access::StorageRead )
+             .Storage( GITracingShaderParameters::SurfaceCardPageBuffer, frame.Pages, RDG::Access::StorageRead )
+             .Storage( GITracingShaderParameters::SurfaceMeshCardsBuffer, frame.MeshCards,
+                       RDG::Access::StorageRead )
+             .Storage( GITracingShaderParameters::SurfaceCacheInstancesUB, frame.InstanceRows,
+                       RDG::Access::StorageRead )
+             .Texture( GITracingShaderParameters::SurfaceCacheFinalLightingTexture, frame.FinalLighting,
+                       RDG::Access::SampledCompute, all )
+             .Sampler( GITracingShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+             .Texture( GITracingShaderParameters::SurfaceCacheDepthTexture, frame.Depth,
+                       RDG::Access::SampledCompute, all )
+             .Texture( GITracingShaderParameters::SurfaceCacheOpacityTexture, frame.Opacity,
+                       RDG::Access::SampledCompute, all );
     }
 } // namespace Desert::Graphic::GlobalIllumination

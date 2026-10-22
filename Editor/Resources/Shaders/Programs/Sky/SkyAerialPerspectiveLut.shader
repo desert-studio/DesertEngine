@@ -32,30 +32,30 @@ Shader "SkyAerialPerspectiveLut"
 
         // rgba16f: in-scattered radiance is pre-tonemap HDR and transmittance is in [0,1]; half carries
         // three decimal digits, an order more than an over-operator needs.
-        layout(binding = 0, rgba16f) restrict writeonly uniform image3D u_AerialPerspectiveLut;
+        layout(binding = 0, rgba16f) restrict writeonly uniform image3D AerialPerspectiveLutTexture;
 
         // The SAME sky parameter buffer every other sky consumer reads (Graphic::kSkyPayloadBinding).
         ReadBuffer(1) SkyBuffer
         {
-            vec4 u_SkyPacked[SKY_PACKED_VEC4_COUNT];
+            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
         };
 
         // The cached pair, valid whenever this pass runs — SkyboxRenderer dispatches them first.
         // Bindings = Graphic::kSkyTransmittanceLutBinding / kSkyMultiScatterLutBinding.
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform sampler u_GlobalFilterSampler;
-        Uniform(2) texture2D u_TransmittanceLut;
-        #define u_TransmittanceLut sampler2D(u_TransmittanceLut, u_GlobalFilterSampler)
-        Uniform(3) texture2D u_MultiScatterLut;
-        #define u_MultiScatterLut sampler2D(u_MultiScatterLut, u_GlobalFilterSampler)
+        Uniform sampler GlobalFilterSampler;
+        Uniform(2) texture2D TransmittanceLutTexture;
+        #define TransmittanceLutTexture sampler2D(TransmittanceLutTexture, GlobalFilterSampler)
+        Uniform(3) texture2D MultiScatterLutTexture;
+        #define MultiScatterLutTexture sampler2D(MultiScatterLutTexture, GlobalFilterSampler)
 
         // Mirrored by Graphic::SkyAerialPerspectivePush.
         PushConstant SkyApPush
         {
-            mat4 u_InverseViewProjection;
-            vec4 u_CameraPosWorld; // xyz = camera position in WORLD UNITS (centimetres)
-            vec4 u_VolumeParams;   // x = volume depth (km), y = aerial perspective start depth (km)
+            mat4 InverseViewProjection;
+            vec4 CameraPositionWorld; // xyz = camera position in WORLD UNITS (centimetres)
+            vec4 VolumeParams;   // x = volume depth (km), y = aerial perspective start depth (km)
         };
 
         // The transmittance LUT is addressed straight from its distance parameterisation: no
@@ -69,7 +69,7 @@ Shader "SkyAerialPerspectiveLut"
         {
             vec2 uv = SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm, atm.TopRadiusKm, radiusKm,
                                                       sunZenithCos);
-            return texture(u_TransmittanceLut, uv).rgb;
+            return texture(TransmittanceLutTexture, uv).rgb;
         }
 
         vec3 SkySampleMultiScatterLut(SkyAtmParams atm, float radiusKm, float sunZenithCos)
@@ -77,7 +77,7 @@ Shader "SkyAerialPerspectiveLut"
             vec2 unit = SkyMultiScatterUnitFromParams(atm.BottomRadiusKm, atm.TopRadiusKm, radiusKm,
                                                       sunZenithCos);
             vec2 uv   = vec2(SkyUnitToTexelUv(unit.x, 32.0f), SkyUnitToTexelUv(unit.y, 32.0f));
-            return texture(u_MultiScatterLut, uv).rgb;
+            return texture(MultiScatterLutTexture, uv).rgb;
         }
 
         #define SKY_SCATTERING_SUN_TRANSMITTANCE(atm, radiusKm, sunZenithCos) SkySampleSunTransmittanceLut(atm, radiusKm, sunZenithCos)
@@ -88,14 +88,14 @@ Shader "SkyAerialPerspectiveLut"
         LocalSize(8, 8, 1);
         void main()
         {
-            ivec3 size  = imageSize(u_AerialPerspectiveLut);
+            ivec3 size  = imageSize(AerialPerspectiveLutTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
             SkyPacked s;
             for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = u_SkyPacked[i];
+                s.v[i] = SkyPackedData[i];
 
             SkyAtmParams atm = SkyMakeAtmParams(UnpackMediumRayleigh(s), UnpackMediumMie(s),
                                                 UnpackMediumMieAbsorption(s), UnpackMediumOzone(s),
@@ -113,15 +113,15 @@ Shader "SkyAerialPerspectiveLut"
             // neighbouring column at the frame's edges.
             vec2 ndc     = vec2(unitX * 2.0f - 1.0f, 1.0f - unitY * 2.0f);
             // Device depth 0 IS the far plane — the engine renders reversed-Z (Core/Projection.hpp).
-            vec4 farH    = u_InverseViewProjection * vec4(ndc.x, ndc.y, 0.0f, 1.0f);
+            vec4 farH    = InverseViewProjection * vec4(ndc.x, ndc.y, 0.0f, 1.0f);
             vec3 farPos  = farH.xyz / max(farH.w, 1e-9f);
-            vec3 rayDir  = normalize(farPos - u_CameraPosWorld.xyz);
+            vec3 rayDir  = normalize(farPos - CameraPositionWorld.xyz);
 
             // Planet-centred origin, built from the accurately-recovered view height rather than by
             // adding the planet radius to the camera's world Y — the SkyViewHeightKm argument, verbatim.
             // Clamped inside the shell: below the 10 m lift the ground intersection degenerates, above
             // the top the medium is empty and a space view is out of scope for a ground-level engine.
-            vec3  cameraKm   = u_CameraPosWorld.xyz / SKY_WORLD_UNITS_PER_KM;
+            vec3  cameraKm   = CameraPositionWorld.xyz / SKY_WORLD_UNITS_PER_KM;
             float viewHeight = clamp(SkyViewHeightKm(cameraKm, atm.BottomRadiusKm),
                                      atm.BottomRadiusKm + SKY_PLANET_RADIUS_OFFSET_KM,
                                      atm.TopRadiusKm - 0.01f);
@@ -138,8 +138,8 @@ Shader "SkyAerialPerspectiveLut"
             // is linear in it — the same place and the same reasoning as the Sky-View fill.
             vec3 apTint = UnpackSkyAndAerialPerspectiveLuminanceFactor(s);
 
-            float depthKm      = max(u_VolumeParams.x, 0.001f);
-            float startDepthKm = max(u_VolumeParams.y, 0.0f);
+            float depthKm      = max(VolumeParams.x, 0.001f);
+            float startDepthKm = max(VolumeParams.y, 0.0f);
 
             vec3  luminance     = vec3(0.0f, 0.0f, 0.0f);
             vec3  transmittance = vec3(1.0f, 1.0f, 1.0f);
@@ -168,7 +168,7 @@ Shader "SkyAerialPerspectiveLut"
                 float meanTransmittance =
                      (transmittance.r + transmittance.g + transmittance.b) / 3.0f;
 
-                imageStore(u_AerialPerspectiveLut, ivec3(coord.x, coord.y, slice),
+                imageStore(AerialPerspectiveLutTexture, ivec3(coord.x, coord.y, slice),
                            vec4(luminance * apTint, meanTransmittance));
             }
         }

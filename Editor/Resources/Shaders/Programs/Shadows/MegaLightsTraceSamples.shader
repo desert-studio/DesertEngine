@@ -16,15 +16,15 @@ Shader "MegaLightsTraceSamples"
         #define RAY_QUERY_VISIBILITY_GEOMETRY_BINDING  8
         #define RAY_QUERY_VISIBILITY_MATERIALS_BINDING 9
         #include <Common/RayQueryVisibility.glslh>
-        Uniform sampler u_PointClampSampler;
+        Uniform sampler PointClampSampler;
         #define MEGALIGHTS_SHADING
         #define MEGALIGHTS_TRACE
         #include <Common/MegaLights.glslh>
 
-        Uniform(10) texture2D u_Reservoirs; // "MegaLights: Spatial Resampling"
-        #define u_Reservoirs sampler2D(u_Reservoirs, u_PointClampSampler)
-        layout(binding = 11, rgba32f) writeonly uniform image2D u_OutReservoirs; // shaded now, history next frame
-        layout(binding = 17, rgba16f) writeonly uniform image2D u_OutSurface;    // xyz = normal, w = clip w (0 = none)
+        Uniform(10) texture2D ReservoirsTexture; // "MegaLights: Spatial Resampling"
+        #define ReservoirsTexture sampler2D(ReservoirsTexture, PointClampSampler)
+        layout(binding = 11, rgba32f) writeonly uniform image2D OutReservoirsTexture; // shaded now, history next frame
+        layout(binding = 17, rgba16f) writeonly uniform image2D OutSurfaceTexture;    // xyz = normal, w = clip w (0 = none)
 
         LocalSize(8, 8, 1);
 
@@ -42,14 +42,14 @@ Shader "MegaLightsTraceSamples"
         	for (uint k = 0u; k < samples; ++k)
         	{
         		const ivec2         texel = MegaLightsReservoirTexel(pixel, k);
-        		MegaLightsReservoir r     = MegaLightsUnpackReservoir(texelFetch(u_Reservoirs, texel, 0));
+        		MegaLightsReservoir r     = MegaLightsUnpackReservoir(texelFetch(ReservoirsTexture, texel, 0));
         		if (!p.Valid)
         			r = MegaLightsEmptyReservoir();
         		else if (r.Light >= 0 && r.W > 0.0)
         			r.W *= MegaLightsVisibility(p, r.Light, random);
-        		imageStore(u_OutReservoirs, texel, MegaLightsPackReservoir(r));
+        		imageStore(OutReservoirsTexture, texel, MegaLightsPackReservoir(r));
         	}
-        	imageStore(u_OutSurface, pixel, p.Valid ? vec4(p.N, p.ViewDepth) : vec4(0.0));
+        	imageStore(OutSurfaceTexture, pixel, p.Valid ? vec4(p.N, p.ViewDepth) : vec4(0.0));
         }
     }
 }

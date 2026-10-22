@@ -29,6 +29,7 @@ namespace Desert::Graphic
              { "ParticleSprite.Forward", nullptr, nullptr, nullptr, nullptr, nullptr },
              // The GPU-generated grass casts into the cascades only (MeshRenderer::BuildGpuInstancedShadowDraws).
              { "GrassBlade.Forward", "GrassBlade.GBuffer", nullptr, "GrassBlade.ShadowDepth", nullptr, nullptr },
+             { "ParticleRibbon.Forward", nullptr, nullptr, nullptr, nullptr, nullptr },
         };
     } // namespace
 
@@ -144,6 +145,7 @@ namespace Desert::Graphic
             case MeshVertexPath::GrassBlade:
                 return 17; // InstanceTransforms; the blade shape at 13 is bound beside it by the mesh renderer
             case MeshVertexPath::ParticleSprite:
+            case MeshVertexPath::ParticleRibbon:
                 return 9; // Particles (the pool); the alive list at 10 is bound beside it by ParticleRenderer
             case MeshVertexPath::Static:
                 break; // reads its model matrix from the push constant; adds no descriptor
@@ -165,6 +167,8 @@ namespace Desert::Graphic
                 return "ParticleSprite";
             case MeshVertexPath::GrassBlade:
                 return "GrassBlade";
+            case MeshVertexPath::ParticleRibbon:
+                return "ParticleRibbon";
         }
         return "?";
     }

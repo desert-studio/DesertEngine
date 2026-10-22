@@ -1371,11 +1371,14 @@ namespace Desert::Editor
             // members disagree cannot speak for them — and a person reading ONE control should not have to
             // scroll up to learn whether moving it costs a frame or fourteen seconds. Drawn only when the
             // schema states one: an unclassified parameter gets no sentence rather than a guessed one.
+            // The PARAMETER name heads the tooltip: it is what the .demat stores and what a script or an
+            // import mapping names, while the label is only the schema's display text.
             const char* timingPhrase = MaterialEdit::ParamTimingPhrase( p.Timing );
-            if ( ( !p.Tooltip.empty() || *timingPhrase != '\0' ) && ImGui::IsItemHovered() )
+            if ( ImGui::IsItemHovered() )
             {
                 ImGui::BeginTooltip();
                 ImGui::PushTextWrapPos( ImGui::GetFontSize() * 30.0f );
+                ImGui::TextDisabled( "Parameter: %s", p.Name.c_str() );
                 if ( !p.Tooltip.empty() )
                     ImGui::TextUnformatted( p.Tooltip.c_str() );
                 if ( *timingPhrase != '\0' )

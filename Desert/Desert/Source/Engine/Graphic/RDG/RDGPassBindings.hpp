@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -28,8 +29,8 @@
 // LUT loaded from disk). A pass that binds a graph resource through a Material property or a pipeline setter
 // is a defect, and so is a slot bound by both routes (the draw is refused, see Renderer::DrawFullscreen).
 //
-// SLOTS ARE SHADER NAMES. An entry names the resource as the shader declares it ("u_BloomTexture",
-// "u_Output"); the consumer resolves the name against the pipeline's shader reflection to (set, binding,
+// SLOTS ARE SHADER NAMES. An entry names the resource as the shader declares it ("BloomTexture",
+// "DestinationMipTexture"); the consumer resolves the name against the pipeline's shader reflection to (set, binding,
 // descriptor type). A name the shader does not declare, a kind that does not match the declared descriptor
 // type (Sampled into a storage-image slot), and a resource slot of the shader that neither this block nor the
 // material fills are errors returned by the consumer, never a silent fallback image. Binding indices never
@@ -72,22 +73,26 @@ namespace Desert::Graphic::RDG
     class BindingBlockBuilder
     {
     public:
+        // Every slot is named by a parameter (RDGShaderParameters.hpp): a member of the pass's parameter struct or
+        // a named engine constant of the parameter type, never a string - the member's kind admits only its own
+        // call, and the name is spelled once. An element of an arrayed slot is parameter[i] ("<name>[<i>]").
+        //
         // A separate texture slot (ShaderResourceKind::Texture): the image alone, sampled through a Sampler slot
-        // of the same pass. An element of an arrayed slot is named "<name>[<element>]".
-        BindingBlockBuilder& Texture( std::string_view shaderName, TextureRef texture, Access declared,
+        // of the same pass.
+        BindingBlockBuilder& Texture( TextureParameter parameter, TextureRef texture, Access declared,
                                       SubresourceRange range );
         // A separate sampler slot (ShaderResourceKind::Sampler): the state, no resource. A SHARED state: every
         // Texture entry read through it names it, and the block keeps one entry per slot - naming it again with
         // the same state adds nothing, with another state it is a second entry that ValidatePassBindings refuses
         // ("bound twice"), so one slot never carries two states.
-        BindingBlockBuilder& Sampler( std::string_view shaderName, SamplerDesc sampler );
-        BindingBlockBuilder& Storage( std::string_view shaderName, TextureRef texture, Access declared,
+        BindingBlockBuilder& Sampler( SamplerParameter parameter, SamplerDesc sampler );
+        BindingBlockBuilder& Storage( StorageTextureParameter parameter, TextureRef texture, Access declared,
                                       uint32_t mip = 0 );
-        BindingBlockBuilder& Uniform( std::string_view shaderName, BufferRef buffer );
-        BindingBlockBuilder& Storage( std::string_view shaderName, BufferRef buffer, Access declared );
+        BindingBlockBuilder& Uniform( UniformBufferParameter parameter, BufferRef buffer );
+        BindingBlockBuilder& Storage( StorageBufferParameter parameter, BufferRef buffer, Access declared );
         // A ray-queried scene: @p tlas is the buffer an acceleration-structure build wrote (RayTracingSceneFrame::
         // Tlas); declared AccelStructRead, bound as the acceleration structure it stores.
-        BindingBlockBuilder& AccelerationStructure( std::string_view shaderName, BufferRef tlas );
+        BindingBlockBuilder& AccelerationStructure( AccelerationStructureParameter parameter, BufferRef tlas );
         // The size the exec's PassBindings::PushConstants will give; 0 = none.
         BindingBlockBuilder& PushConstantBytes( uint32_t bytes );
 

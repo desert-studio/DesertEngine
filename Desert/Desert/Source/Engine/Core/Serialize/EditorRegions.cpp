@@ -48,6 +48,8 @@ namespace Desert::Core::EditorRegions
             const std::vector<Rules::EntityDescriptor> descriptors = DescriptorIndex::Descriptors( rows );
             const Rules::WorldPartitionPlan            plan        = Rules::PlanWorldPartition(
                  std::span<const Rules::EntityDescriptor>( descriptors ), settings, RegistryMeshBounds() );
+            // A region load names what the planner refused exactly as the cook and Play do (ReportPlanIssues).
+            Rules::ReportPlanIssues( plan, path.string() );
             selected.Selection = SelectRecords( plan, selected.RowIds, *regions );
             return Common::MakeSuccess( std::move( selected ) );
         }

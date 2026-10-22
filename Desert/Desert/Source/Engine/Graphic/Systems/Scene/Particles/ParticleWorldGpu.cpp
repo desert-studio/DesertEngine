@@ -3,6 +3,8 @@
 #include "ParticleEmitterRetire.hpp"
 
 #include <Engine/Core/Scene.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/VFX/VFXCurveLUT.hpp>
@@ -33,8 +35,8 @@ namespace Desert::Graphic::System
     namespace
     {
         // THE ONE TABLE of the attributes a renderer reads (UE: the sprite renderer's attribute bindings), each
-        // with the one type it reads it as and its lane in ParticleDrawLayoutGpu (Columns0.xyzw, Columns1.xy). The
-        // sprite vertex path and the sort read them out of the emitter's columns through
+        // with the one type it reads it as and its lane in ParticleDrawLayoutGpu (Columns0.xyzw, Columns1.xyzw).
+        // The sprite vertex path and the sort read them out of the emitter's columns through
         // Common/ParticleDrawRead.glslh.
         struct DrawnAttribute
         {
@@ -43,17 +45,53 @@ namespace Desert::Graphic::System
             uint32_t          Lane;
         };
         constexpr DrawnAttribute kDrawnAttributes[] = {
-             { "Position", VFX::VFXValueType::Vec3, 0 }, { "SpriteSize", VFX::VFXValueType::Vec2, 1 },
-             { "Color", VFX::VFXValueType::Vec4, 2 },    { "SpriteRotation", VFX::VFXValueType::Float, 3 },
-             { "Age", VFX::VFXValueType::Float, 4 },     { "Lifetime", VFX::VFXValueType::Float, 5 },
+             { "Position", VFX::VFXValueType::Vec3, 0 },
+             { "SpriteSize", VFX::VFXValueType::Vec2, 1 },
+             { "Color", VFX::VFXValueType::Vec4, 2 },
+             { "SpriteRotation", VFX::VFXValueType::Float, 3 },
+             { "Age", VFX::VFXValueType::Float, 4 },
+             { "Lifetime", VFX::VFXValueType::Float, 5 },
+             { "RibbonWidth", VFX::VFXValueType::Float, 6 },
+             { "RibbonLinkOrder", VFX::VFXValueType::Float, 7 },
+             // The Mesh row's (UE Particles.Scale, Particles.MeshOrientation): Columns2.y/z (Columns2.x is the
+             // Ribbon row's RibbonIdBinding, an int column).
+             { "Scale", VFX::VFXValueType::Vec3, 9 },
+             { "MeshOrientation", VFX::VFXValueType::Vec4, 10 },
         };
 
         // Where the compiled stack put each drawn attribute; an attribute the stack declares with another type is
         // refused by name (drawn at its default), never read as the wrong number of components.
         ParticleDrawLayoutGpu DrawColumnsOf( const VFX::VFXCompiledEmitter& compiled, const uint32_t entityId,
-                                             const std::string& emitter )
+                                             const std::string&                                         emitter,
+                                             const std::vector<Assets::Serialization::VFXRendererData>& renderers )
         {
             ParticleDrawLayoutGpu columns;
+            // The Ribbon row's RibbonIdBinding (UE: the ribbon renderer's RibbonId binding, an int): the int column
+            // ParticleSort splits the emitter's ribbons by. An unbound or mistyped name is refused aloud and the
+            // emitter draws one ribbon, as every drawn attribute falls back to its default.
+            for ( const Assets::Serialization::VFXRendererData& row : renderers )
+            {
+                if ( !row.Enabled || row.Kind != Assets::Serialization::VFXRendererKind::Ribbon || !row.Ribbon )
+                    continue;
+                const std::string& binding = row.Ribbon->RibbonIdBinding;
+                if ( binding.empty() )
+                    break;
+                const std::string  name    = binding.starts_with( Assets::Serialization::kVFXParticlesPrefix )
+                                                  ? binding.substr( Assets::Serialization::kVFXParticlesPrefix.size() )
+                                                  : binding;
+                const auto*        a       = compiled.Layout.Find( name );
+                if ( a == nullptr || a->Type != VFX::VFXValueType::Int )
+                {
+                    LOG_ERROR( "[VFX] entity {} emitter '{}' draws one ribbon: its RibbonIdBinding '{}' {}", entityId,
+                               emitter, binding,
+                               a == nullptr ? "names no attribute of the stack" : "is not an Int attribute" );
+                }
+                else
+                {
+                    columns.Columns2.x = a->IntStart;
+                }
+                break;
+            }
             for ( const DrawnAttribute& drawn : kDrawnAttributes )
             {
                 const auto* a = compiled.Layout.Find( drawn.Name );
@@ -68,7 +106,9 @@ namespace Desert::Graphic::System
                          VFX::GlslTypeName( drawn.Type ) );
                     continue;
                 }
-                ( drawn.Lane < 4 ? columns.Columns0 : columns.Columns1 )[drawn.Lane % 4] = a->FloatStart;
+                ( drawn.Lane < 4   ? columns.Columns0
+                  : drawn.Lane < 8 ? columns.Columns1
+                                   : columns.Columns2 )[drawn.Lane % 4] = a->FloatStart;
             }
             return columns;
         }
@@ -194,7 +234,7 @@ namespace Desert::Graphic::System
              "VFXStackParams", static_cast<uint32_t>( gpu.ParamRows.size() * sizeof( glm::vec4 ) ), 8 );
         gpu.Curves = ShaderResources::StorageBuffer::Create(
              "VFXStackCurves", static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ), 9 );
-        gpu.DrawColumns = DrawColumnsOf( compiled.GetValue(), entityId, emitter.Name );
+        gpu.DrawColumns = DrawColumnsOf( compiled.GetValue(), entityId, emitter.Name, emitter.Renderers );
         gpu.DrawLayout =
              ShaderResources::StorageBuffer::Create( "ParticleDrawLayout", kParticleDrawLayoutSize, 11 );
         gpu.NeedsReset = true;
@@ -245,7 +285,7 @@ namespace Desert::Graphic::System
         if ( retired > 0 )
             LOG_INFO( "[Particles] Released {} system(s) whose entity is gone.", retired );
         m_Ranges.ReleaseUnless( [this]( const uint32_t key ) { return m_Systems.contains( key ); } );
-        // The random streams' step: unique per fixed step of the world's life (u_Stack.x + step).
+        // The random streams' step: unique per fixed step of the world's life (Stack.x + step).
         const auto stepSerial = static_cast<uint32_t>( world.GetTickSerial() * std::max( 1u, stepCapacity ) );
 
         auto view = reg.view<const ECS::VFXComponent, const ECS::TransformComponent, const ECS::UUIDComponent>();
@@ -289,7 +329,8 @@ namespace Desert::Graphic::System
                      offset += gpu.Capacity;
                      if ( !EnsureTickBuffers( gpu, stepCapacity ) )
                          continue;
-                     if ( !PrepareEmitter( gpu, *instance, range, entityId, worldPos, stepSeconds, stepSerial ) )
+                     if ( !PrepareEmitter( gpu, *instance, instances->System->Emitters[k], range, entityId,
+                                           static_cast<uint32_t>( k ), worldPos, stepSeconds, stepSerial ) )
                          continue;
                  }
              } );
@@ -299,10 +340,29 @@ namespace Desert::Graphic::System
         return true;
     }
 
+    // THE ONE RULE for a renderer row's material (VFXS 2): the GUID the row states, or - the row states none - the
+    // null handle, which every drawing path reads as the engine's particle material for the row's kind (UE: the
+    // renderer properties' DefaultSpriteMaterial / DefaultRibbonMaterial; a Mesh row's absent override = the
+    // mesh's own materials). A stated GUID that does not parse is refused here, not drawn with the default.
+    static Common::ResultStr<Common::AssetHandle>
+    ParticleRendererMaterial( const Assets::Serialization::VFXRendererData& row )
+    {
+        if ( !row.Material )
+            return Common::MakeSuccess( Common::AssetHandle::Null() );
+        const auto guid = Common::Content::AssetGuidFromText( row.Material->Guid );
+        if ( !guid || guid.GetValue().IsNull() )
+            return Common::MakeError<Common::AssetHandle>(
+                 std::format( "its Material GUID '{}' ({}) is not a well-formed asset GUID", row.Material->Guid,
+                              row.Material->Path ) );
+        return Common::MakeSuccess(
+             Common::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ) );
+    }
+
     bool ParticleWorldGpu::PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
+                                           const Assets::Serialization::VFXEmitterData& data,
                                            const ParticlePoolRange& range, const uint32_t entityId,
-                                           const glm::vec3& worldPos, const float stepSeconds,
-                                           const uint32_t stepSerial )
+                                           const uint32_t emitterIndex, const glm::vec3& worldPos,
+                                           const float stepSeconds, const uint32_t stepSerial )
     {
         const VFX::EmitterInstance* instance = &emitter;
         // The emitter's range of the pool; a new or moved range starts dead.
@@ -399,6 +459,23 @@ namespace Desert::Graphic::System
         ParticleDrawLayoutGpu layout = gpu.DrawColumns;
         layout.Range                 = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, 0u );
         layout.EmitterPos            = glm::vec4( worldPos, 0.0f );
+        // The emitter's Ribbon row: its settings ride the layout to the ribbon vertex path (its RibbonIdBinding's
+        // column is in DrawColumns). The emitter's ribbons are drawn by the first enabled Ribbon row; another with
+        // other settings is refused aloud below (one ribbon order per emitter, ParticleSort).
+        const Assets::Serialization::VFXRibbonRendererData* ribbon = nullptr;
+        for ( const Assets::Serialization::VFXRendererData& row : data.Renderers )
+        {
+            if ( row.Enabled && row.Kind == Assets::Serialization::VFXRendererKind::Ribbon && row.Ribbon )
+            {
+                ribbon = &*row.Ribbon;
+                break;
+            }
+        }
+        if ( ribbon != nullptr )
+            layout.Ribbon =
+                 glm::vec4( ribbon->Width,
+                            ribbon->UVMode == Assets::Serialization::VFXRibbonUVMode::TileByDistance ? 1.0f : 0.0f,
+                            ribbon->UVTileDistance, 0.0f );
         if ( const auto drawn = gpu.DrawLayout->SetData( &layout, kParticleDrawLayoutSize ); !drawn.IsSuccess() )
         {
             LOG_ERROR( "[Particles] emitter {} sits out this tick, its draw layout did not upload: {}", entityId,
@@ -408,12 +485,39 @@ namespace Desert::Graphic::System
 
         ParticleFrameEmitter fe;
         fe.EntityId        = entityId;
+        fe.Emitter         = emitterIndex;
         fe.Gpu             = &gpu;
         fe.Pipeline        = gpu.Pipeline.get();
         fe.StepCount       = stepCount;
         fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
         fe.Push.Stack      = glm::uvec4( stepSerial, 0u, 0u, 0u );
+        fe.Renderers.reserve( data.Renderers.size() );
+        for ( std::size_t r = 0; r < data.Renderers.size(); ++r )
+        {
+            const Assets::Serialization::VFXRendererData& row = data.Renderers[r];
+            if ( !row.Enabled )
+                continue;
+            if ( row.Kind == Assets::Serialization::VFXRendererKind::Ribbon )
+            {
+                if ( !row.Ribbon || *row.Ribbon != *ribbon )
+                {
+                    LOG_ERROR( "[Particles] emitter {} renderer row {} does not draw: its Ribbon settings differ "
+                               "from the emitter's first Ribbon row, and an emitter draws one ribbon order",
+                               entityId, r );
+                    continue;
+                }
+            }
+            const auto material = ParticleRendererMaterial( row );
+            if ( !material )
+            {
+                LOG_ERROR( "[Particles] emitter {} renderer row {} does not draw: {}", entityId, r,
+                           material.GetError() );
+                continue;
+            }
+            fe.Renderers.push_back( { row.Kind, static_cast<uint32_t>( r ), material.GetValue(),
+                                      row.Ribbon ? &*row.Ribbon : nullptr, row.Mesh ? &*row.Mesh : nullptr } );
+        }
         m_FrameEmitters.push_back( fe );
         return true;
     }

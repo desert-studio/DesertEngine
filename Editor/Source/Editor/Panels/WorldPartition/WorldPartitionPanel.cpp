@@ -12,6 +12,7 @@
 #include "EditorLoadedRegions.hpp"
 
 #include "../../Core/CommandHistory.hpp"
+#include <Editor/Core/Commands/WorldPartitionEditCommand.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 
 #include <algorithm>
@@ -32,7 +33,9 @@
 #include <ImGui/imgui.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
+#include <cstdio>
 #include <format>
 #include <numbers>
 #include <span>
@@ -100,52 +103,6 @@ namespace Desert::Editor
         // Below this the legend (five rows in Play) covers the cells; a smaller window scrolls instead.
         constexpr float kMinMapPixels = 240.0f;
 
-        // One history entry for "the world's partition changed": the block before and the block after.
-        //
-        // WEAK, not shared. A history entry that owned the scene would keep a closed world alive for as
-        // long as the undo stack remembered it; ICommand's contract is that an entry whose target is
-        // gone returns false and is discarded, and a weak pointer is how that is DETECTED rather than
-        // assumed. The scene is addressed as a whole object because the partition is a property of the
-        // world itself and has no id of its own.
-        class ConvertToWorldPartitionCommand final : public ICommand
-        {
-        public:
-            ConvertToWorldPartitionCommand( std::weak_ptr<::Desert::Core::Scene>                    scene,
-                                            std::optional<::Desert::Core::WorldPartitionSerialized> before,
-                                            ::Desert::Core::WorldPartitionSerialized                after )
-                 : m_Scene( std::move( scene ) ), m_Before( std::move( before ) ), m_After( std::move( after ) )
-            {
-            }
-
-            [[nodiscard]] std::string GetLabel() const override
-            {
-                return "Convert to World Partition";
-            }
-
-            bool Undo() override
-            {
-                return Apply( m_Before );
-            }
-
-            bool Redo() override
-            {
-                return Apply( m_After );
-            }
-
-        private:
-            bool Apply( const std::optional<::Desert::Core::WorldPartitionSerialized>& partition )
-            {
-                const std::shared_ptr<::Desert::Core::Scene> scene = m_Scene.lock();
-                if ( !scene )
-                    return false;
-                scene->SetWorldPartition( partition );
-                return true;
-            }
-
-            std::weak_ptr<::Desert::Core::Scene>                    m_Scene;
-            std::optional<::Desert::Core::WorldPartitionSerialized> m_Before;
-            ::Desert::Core::WorldPartitionSerialized                m_After;
-        };
     } // namespace
 
     WorldPartitionPanel::WorldPartitionPanel( std::shared_ptr<::Desert::Core::Scene> scene,
@@ -346,6 +303,13 @@ namespace Desert::Editor
                 ImGui::TextWrapped( "%s", m_RegionStatus.c_str() );
         }
 
+        // ── HLOD per grid (Edit, a partitioned world) ──
+        if ( !playing && m_Scene && m_Scene->GetWorldPartition().has_value() )
+        {
+            DrawRuntimeGrids();
+            DrawGridHLODLayers();
+        }
+
         if ( plan == nullptr || partition->Grids.empty() )
         {
             ImGui::TextDisabled( "%s",
@@ -353,16 +317,192 @@ namespace Desert::Editor
             return;
         }
 
+        // ── the grid shown (UE's runtime hash grid picker): every grid of the partition reachable ──
+        if ( m_Grid >= partition->Grids.size() )
+        {
+            m_Grid         = 0;
+            m_FocusPending = true;
+        }
+        ImGui::SetNextItemWidth( 140.0f );
+        if ( ImGui::BeginCombo( "Grid", partition->Grids[m_Grid].Name.c_str() ) )
+        {
+            for ( std::size_t g = 0; g < partition->Grids.size(); ++g )
+            {
+                ImGui::PushID( static_cast<int>( g ) );
+                const bool picked = g == m_Grid;
+                if ( ImGui::Selectable( partition->Grids[g].Name.c_str(), picked ) && !picked )
+                {
+                    m_Grid         = g;
+                    m_FocusPending = true;
+                    m_Fitted       = false;
+                }
+                if ( picked )
+                    ImGui::SetItemDefaultFocus();
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        const ::Desert::Core::WorldPartitionGridSerialized& shown = partition->Grids[m_Grid];
+        // A plan without per-grid levels (none planned yet) shows the world's level count.
+        const int gridLevels =
+             m_Grid < plan->GridLevelCount.size() ? plan->GridLevelCount[m_Grid] : plan->LevelCount;
+        const std::size_t gridCells = static_cast<std::size_t>(
+             std::ranges::count( plan->Cells, m_Grid, &::Desert::Core::Rules::PlannedCell::Grid ) );
+        const int maxLevel = std::max( gridLevels - 1, 0 );
+        m_Level            = std::min( m_Level, maxLevel );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 120.0f );
-        const int maxLevel = std::max( plan->LevelCount - 1, 0 );
         ImGui::SliderInt( "Level", &m_Level, -1, maxLevel, m_Level < 0 ? "all" : "L%d" );
         ImGui::SameLine();
-        ImGui::TextDisabled( "%zu cells, %zu always-loaded, %d level(s), cell %.0f m", plan->Cells.size(),
-                             plan->AlwaysLoaded.size(), plan->LevelCount,
-                             static_cast<double>( partition->Grids[0].CellSize ) / 100.0 );
+        ImGui::TextDisabled( "%zu cells, %zu always-loaded, %d level(s), cell %.0f m", gridCells,
+                             plan->AlwaysLoaded.size(), gridLevels,
+                             static_cast<double>( shown.CellSize ) / 100.0 );
 
         DrawMap( *plan, *partition, residency, streamer );
+    }
+
+    // UE FRuntimePartitionDesc::HLODSetups, shown where UE shows them - beside the runtime grid they belong to:
+    // one row per grid, the layer its cells' HLOD is built with picked from the world's HLODLayers, or "None"
+    // (the grid's far cells draw nothing). Every pick is one history entry holding the whole block before and
+    // after, the same entry the conversion pushes, so an undo is a plain swap of the block.
+    void WorldPartitionPanel::DrawGridHLODLayers()
+    {
+        const ::Desert::Core::WorldPartitionSerialized& current = *m_Scene->GetWorldPartition();
+        if ( current.Grids.empty() || !ImGui::CollapsingHeader( "HLOD per grid" ) )
+            return;
+        static const std::vector<::Desert::Core::HLODLayerSerialized> kNoLayers;
+        const std::vector<::Desert::Core::HLODLayerSerialized>& layers = current.HLODLayers.value_or( kNoLayers );
+        if ( layers.empty() )
+            ImGui::TextDisabled(
+                 "This world states no HLOD layer; a grid can only name one of the world's layers." );
+
+        for ( std::size_t g = 0; g < current.Grids.size(); ++g )
+        {
+            const ::Desert::Core::WorldPartitionGridSerialized& grid    = current.Grids[g];
+            const std::string                                   preview = grid.HLODLayer.value_or( "None" );
+            ImGui::PushID( static_cast<int>( g ) );
+            ImGui::SetNextItemWidth( 200.0f );
+            if ( ImGui::BeginCombo( std::format( "{} (cell {:.0f} m)", grid.Name, grid.CellSize / 100.0f ).c_str(),
+                                    preview.c_str() ) )
+            {
+                std::optional<std::optional<std::string>> picked;
+                if ( ImGui::Selectable( "None", !grid.HLODLayer.has_value() ) && grid.HLODLayer.has_value() )
+                    picked = std::optional<std::string>();
+                for ( const ::Desert::Core::HLODLayerSerialized& layer : layers )
+                    if ( ImGui::Selectable( layer.Name.c_str(), grid.HLODLayer == layer.Name ) &&
+                         grid.HLODLayer != layer.Name )
+                        picked = std::optional<std::string>( layer.Name );
+                ImGui::EndCombo();
+                if ( picked )
+                {
+                    ::Desert::Core::WorldPartitionSerialized after                 = current;
+                    after.Grids[g].HLODLayer                                       = *picked;
+                    std::optional<::Desert::Core::WorldPartitionSerialized> before = current;
+                    const std::string label = std::format( "Set HLOD layer of grid {}", grid.Name );
+                    m_Scene->SetWorldPartition( after );
+                    CommandHistory::Get().PushCommand( std::make_unique<WorldPartitionEditCommand>(
+                         label, m_Scene, std::move( before ), std::move( after ) ) );
+                    ImGui::PopID();
+                    return; // `current` and `grid` referred to the block just replaced
+                }
+            }
+            ImGui::PopID();
+        }
+    }
+
+    // UE World Settings -> Runtime Partitions -> Grids (FSpatialHashRuntimeGrid): the world's grids as a table,
+    // added, removed and edited here. Every commit (Enter in a cell, a button) is ONE history entry through
+    // EditWorldPartition, which refuses what the planner would refuse. Sizes are world units (centimetres).
+    void WorldPartitionPanel::DrawRuntimeGrids()
+    {
+        if ( !ImGui::CollapsingHeader( "Runtime grids" ) )
+            return;
+        const ::Desert::Core::WorldPartitionSerialized          current = *m_Scene->GetWorldPartition();
+        std::optional<::Desert::Core::WorldPartitionSerialized> after;
+        std::string                                             label;
+        if ( ImGui::BeginTable( "##runtimegrids", 5,
+                                ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp ) )
+        {
+            ImGui::TableSetupColumn( "Name" );
+            ImGui::TableSetupColumn( "Cell size (cm)" );
+            ImGui::TableSetupColumn( "Loading range (cm)" );
+            ImGui::TableSetupColumn( "Priority" );
+            ImGui::TableSetupColumn( "" );
+            ImGui::TableHeadersRow();
+            constexpr ImGuiInputTextFlags kCommit = ImGuiInputTextFlags_EnterReturnsTrue;
+            for ( std::size_t g = 0; g < current.Grids.size(); ++g )
+            {
+                const ::Desert::Core::WorldPartitionGridSerialized& grid = current.Grids[g];
+                ImGui::PushID( static_cast<int>( g ) );
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                char name[128];
+                std::snprintf( name, sizeof( name ), "%s", grid.Name.c_str() );
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputText( "##name", name, sizeof( name ), kCommit ) && grid.Name != name )
+                {
+                    after                = current;
+                    after->Grids[g].Name = name;
+                    label                = std::format( "Rename grid {} to {}", grid.Name, name );
+                }
+                ImGui::TableNextColumn();
+                float cell = grid.CellSize;
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputFloat( "##cell", &cell, 0.0f, 0.0f, "%.0f", kCommit ) && cell != grid.CellSize )
+                {
+                    after                    = current;
+                    after->Grids[g].CellSize = cell;
+                    label                    = std::format( "Set cell size of grid {}", grid.Name );
+                }
+                ImGui::TableNextColumn();
+                float range = grid.LoadingRange;
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputFloat( "##range", &range, 0.0f, 0.0f, "%.0f", kCommit ) &&
+                     range != grid.LoadingRange )
+                {
+                    after                        = current;
+                    after->Grids[g].LoadingRange = range;
+                    label                        = std::format( "Set loading range of grid {}", grid.Name );
+                }
+                ImGui::TableNextColumn();
+                int priority = grid.Priority;
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputInt( "##priority", &priority, 0, 0, kCommit ) && priority != grid.Priority )
+                {
+                    after                    = current;
+                    after->Grids[g].Priority = priority;
+                    label                    = std::format( "Set priority of grid {}", grid.Name );
+                }
+                ImGui::TableNextColumn();
+                if ( ImGui::SmallButton( "Remove" ) )
+                {
+                    after = current;
+                    after->Grids.erase( after->Grids.begin() + static_cast<std::ptrdiff_t>( g ) );
+                    label = std::format( "Remove grid {}", grid.Name );
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        if ( ImGui::Button( "Add grid" ) )
+        {
+            after = current;
+            // UE's new grid: the main grid's defaults (128 m cell, 256 m range), a name no grid states.
+            ::Desert::Core::WorldPartitionGridSerialized grid;
+            std::size_t                                  n = after->Grids.size() + 1;
+            do
+                grid.Name = std::format( "Grid{}", n++ );
+            while ( ::Desert::Core::Rules::GridIndexOf( *after, grid.Name ).has_value() );
+            label = std::format( "Add grid {}", grid.Name );
+            after->Grids.push_back( std::move( grid ) );
+        }
+        if ( after )
+        {
+            const auto edited = EditWorldPartition( m_Scene, std::move( label ), std::move( *after ) );
+            m_GridEditStatus  = edited ? std::string() : edited.GetError();
+        }
+        if ( !m_GridEditStatus.empty() )
+            ImGui::TextWrapped( "%s", m_GridEditStatus.c_str() );
     }
 
     Common::BoolResultStr WorldPartitionPanel::LoadSelectedRegion()
@@ -595,8 +735,8 @@ namespace Desert::Editor
         m_Scene->SetWorldPartition( after );
         // The entry, not a dirty flag: the editor reads CommandHistory's revision to decide whether the
         // scene has unsaved changes, so pushing IS marking it dirty (EditorLayer.cpp, s_SavedRevision).
-        CommandHistory::Get().PushCommand(
-             std::make_unique<ConvertToWorldPartitionCommand>( m_Scene, std::move( before ), after ) );
+        CommandHistory::Get().PushCommand( std::make_unique<WorldPartitionEditCommand>(
+             "Convert to World Partition", m_Scene, std::move( before ), after ) );
         // FO-6: the world's foliage filed by the new grid, one field per type per cell (UE converts a level's
         // InstancedFoliageActor into partitioned ones the same way). Its own undo step, after the conversion's.
         if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *m_Scene ); !filed )
@@ -618,7 +758,9 @@ namespace Desert::Editor
         avail.x             = std::max( avail.x, kMinMapPixels );
         avail.y             = std::max( avail.y, kMinMapPixels );
         const glm::dvec2 size( avail.x, avail.y );
-        const float      cellSize = partition.Grids[0].CellSize;
+        // Only the picked grid is drawn (OnUIRender keeps m_Grid inside partition.Grids).
+        const ::Desert::Core::WorldPartitionGridSerialized& grid     = partition.Grids[m_Grid];
+        const float                                         cellSize = grid.CellSize;
 
         ImGui::InvisibleButton( "##wpmap", avail,
                                 ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
@@ -660,7 +802,7 @@ namespace Desert::Editor
             m_Fitted       = true;
             if ( streamer != nullptr && m_Follow && sourcePos )
                 m_View = Map::Follow( size, { sourcePos->x, sourcePos->z } );
-            else if ( const auto bounds = Map::PlanBounds( plan ) )
+            else if ( const auto bounds = Map::PlanBounds( plan, m_Grid ) )
                 Map::Focus( m_View, size, *bounds );
         }
         if ( streamer != nullptr && m_Follow && sourcePos )
@@ -694,7 +836,7 @@ namespace Desert::Editor
                 const float threshold = io.MouseDragThreshold;
                 if ( io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < threshold * threshold )
                 {
-                    if ( const auto index = Map::CellAt( plan, *m_DragFrom, m_Level ) )
+                    if ( const auto index = Map::CellAt( plan, *m_DragFrom, m_Level, m_Grid ) )
                         m_Selection = plan.Cells[*index].Square;
                     else
                         m_Selection.reset();
@@ -732,7 +874,7 @@ namespace Desert::Editor
         }
 
         // ── cells, coarse levels first ──
-        for ( const std::size_t index : Map::VisibleCells( plan, m_View, size, m_Level ) )
+        for ( const std::size_t index : Map::VisibleCells( plan, m_View, size, m_Level, m_Grid ) )
         {
             const auto&          cell  = plan.Cells[index];
             const Map::CellState state = Map::StateOf( plan, residency, index, m_EditCells );
@@ -767,10 +909,10 @@ namespace Desert::Editor
         for ( const ::Desert::Core::Rules::StreamingSource& source : sources )
         {
             const ImVec2 at     = ToScreen( m_View, size, origin, { source.Position.x, source.Position.z } );
-            const double loadCm = ::Desert::Core::Rules::SourceRadius( source, partition.Grids[0] );
+            const double loadCm = ::Desert::Core::Rules::SourceRadius( source, grid );
             const float  margin = streamer != nullptr ? streamer->Settings().UnloadMargin
                                                       : ::Desert::Core::Rules::ResidencySettings{}.UnloadMargin;
-            for ( const auto& sector : ::Desert::Core::Rules::SourceSectors( source, partition.Grids[0] ) )
+            for ( const auto& sector : ::Desert::Core::Rules::SourceSectors( source, grid ) )
             {
                 PaintSector( list, m_View, size, origin, sector, 1.0, 1.0, IM_COL32( 255, 255, 255, 200 ), false );
                 PaintSector( list, m_View, size, origin, sector, 1.0 + margin, 1.0 + margin,
@@ -792,7 +934,8 @@ namespace Desert::Editor
 
         // ── legend: every state, every cell at the shown level (on screen or not) ──
         {
-            const std::vector<Map::LegendRow> legend = Map::Legend( plan, residency, m_Level, m_EditCells );
+            const std::vector<Map::LegendRow> legend =
+                 Map::Legend( plan, residency, m_Level, m_EditCells, m_Grid );
             const float                       h      = ImGui::GetTextLineHeight();
             ImVec2                            row( origin.x + 8.0f, corner.y - 8.0f );
             for ( const Map::LegendRow& entry : std::views::reverse( legend ) )
@@ -810,7 +953,7 @@ namespace Desert::Editor
         {
             const glm::dvec2 world =
                  Map::ScreenToWorld( m_View, size, { io.MousePos.x - origin.x, io.MousePos.y - origin.y } );
-            if ( const auto index = Map::CellAt( plan, world, m_Level ) )
+            if ( const auto index = Map::CellAt( plan, world, m_Level, m_Grid ) )
             {
                 const auto& cell = plan.Cells[*index];
                 ImGui::BeginTooltip();

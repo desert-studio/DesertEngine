@@ -19,7 +19,7 @@ namespace Desert::Graphic
 namespace Desert::Graphic::System
 {
     // The kinds of map a landscape material input carries, in the order of the Terrain programs' four
-    // `Texture2DArray` properties (u_LayerAlbedo, u_LayerNormal, u_LayerARM, u_LayerHeight) and of the
+    // `Texture2DArray` properties (LayerAlbedoTexture, LayerNormalTexture, LayerArmTexture, LayerHeightTexture) and of the
     // x/y/z/w of TerrainInstance::InputSlices.
     inline constexpr uint32_t kTerrainLayerMapKinds = 4;
 

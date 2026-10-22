@@ -13,7 +13,7 @@ Shader "TSRRejectShading"
         //
         // THIN GEOMETRY (TSR_THIN_GEOMETRY, the project's r.TSR.ThinGeometryDetection; UE DIM_THIN_GEOMETRY_DETECTION,
         // TSRRejectShading.usf FetchThinGeometryEdge :123-140 and :497-505 / :644-666, TSRShadingAnalysis.ush
-        // MeasureRejection :530-560 and ComputeMoireError :416-424): u_ThinGeometry is TSR.DetectThinGeometry's
+        // MeasureRejection :530-560 and ComputeMoireError :416-424): ThinGeometryTexture is TSR.DetectThinGeometry's
         // weight (UE R8Output[ThinGeometryTextureIndex]: weight * 127 << 1 | cluster-hole bit). Where it is above
         // 1/127 the clamp box of the filtered input is relaxed toward the 3x3 box of the filtered history by that
         // weight, then replaced by the 3x3 box of the history clamped into the relaxed box, so a sub-pixel wire or
@@ -35,19 +35,19 @@ Shader "TSRRejectShading"
         // pass's output.
         //
         // SPATIAL ANTI-ALIASING INPUT (UE ComputeSpatialAntiAliaserLumaLDR / IsAliasingVisible /
-        // ShouldSpatialAntiAlias, TSRShadingAnalysis.ush :171-212): u_AntiAliasInput.x the input's LDR luma
+        // ShouldSpatialAntiAlias, TSRShadingAnalysis.ush :171-212): AntiAliasInputTexture.x the input's LDR luma
         // l / (0.5 + l), .y 1 where TSR.SpatialAntiAliasing must run.
         //
         // In UE's guide colour space (TSRColorSpace.ush: c / (c + 0.17) of the pre-exposed colour). Writes:
-        //   u_HistoryRejection: x LowFrequencyRejection (UE RejectionBlendFinal), y DisableHistoryClamp (UE
+        //   HistoryRejectionTexture: x LowFrequencyRejection (UE RejectionBlendFinal), y DisableHistoryClamp (UE
         //                       RejectionClampBlend), z DecreaseValidityMultiplier, w the bit mask / 255 (TSRCommon
         //                       kRejectionNotDisoccluded / kRejectionResurrected); a pixel off screen or parallax
         //                       disoccluded and not resurrected has 0 / 0 / 1;
-        //   u_GuideOut / u_MoireOut: this frame's guide and moire histories;
-        //   u_AntiAliasInput: above.
+        //   GuideOutTexture / MoireOutTexture: this frame's guide and moire histories;
+        //   AntiAliasInputTexture: above.
         //
-        // u_EnableFlickeringHeuristic (r.TSR.ShadingRejection.Flickering; a uniform as in UE, not a permutation):
-        // 1 tracks the luma oscillation of each pixel over u_FlickeringFramePeriod frames and widens the clamp box
+        // EnableFlickeringHeuristic (r.TSR.ShadingRejection.Flickering; a uniform as in UE, not a permutation):
+        // 1 tracks the luma oscillation of each pixel over FlickeringFramePeriod frames and widens the clamp box
         // by it (UE bEnableMoireError), so a flickering detail keeps its history instead of being rejected every
         // frame; 0 writes a reset moire history.
 
@@ -57,28 +57,28 @@ Shader "TSRRejectShading"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(11) sampler u_PointClampSampler;
-        Uniform(1) texture2D u_SceneColor;       // linear HDR, RenderExtent, jittered
-        #define u_SceneColor sampler2D(u_SceneColor, u_PointClampSampler)
-        Uniform(2) texture2D u_Exposure;         // 1x1 previous adapted luminance
-        Uniform(3) texture2D u_ReprojectedGuide; // rgb guide (GCS), a validity
-        #define u_ReprojectedGuide sampler2D(u_ReprojectedGuide, u_PointClampSampler)
-        Uniform(4) texture2D u_ReprojectedMoire; // x flicker luma, y gradient, z total variation, w validity
-        #define u_ReprojectedMoire sampler2D(u_ReprojectedMoire, u_PointClampSampler)
-        Uniform(5) texture2D u_ResurrectedGuide; // rgb guide (GCS), a 1 on screen in the resurrection frame
-        #define u_ResurrectedGuide sampler2D(u_ResurrectedGuide, u_PointClampSampler)
-        layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_HistoryRejection;
-        layout(binding = 7, rgba16f) restrict writeonly uniform image2D u_GuideOut;
-        layout(binding = 8, rgba16f) restrict writeonly uniform image2D u_MoireOut;
-        layout(binding = 9, rgba16f) restrict writeonly uniform image2D u_AntiAliasInput;
+        Uniform(11) sampler PointClampSampler;
+        Uniform(1) texture2D SceneColorTexture;       // linear HDR, RenderExtent, jittered
+        #define SceneColorTexture sampler2D(SceneColorTexture, PointClampSampler)
+        Uniform(2) texture2D ExposureTexture;         // 1x1 previous adapted luminance
+        Uniform(3) texture2D ReprojectedGuideTexture; // rgb guide (GCS), a validity
+        #define ReprojectedGuideTexture sampler2D(ReprojectedGuideTexture, PointClampSampler)
+        Uniform(4) texture2D ReprojectedMoireTexture; // x flicker luma, y gradient, z total variation, w validity
+        #define ReprojectedMoireTexture sampler2D(ReprojectedMoireTexture, PointClampSampler)
+        Uniform(5) texture2D ResurrectedGuideTexture; // rgb guide (GCS), a 1 on screen in the resurrection frame
+        #define ResurrectedGuideTexture sampler2D(ResurrectedGuideTexture, PointClampSampler)
+        layout(binding = 6, rgba16f) restrict writeonly uniform image2D HistoryRejectionTexture;
+        layout(binding = 7, rgba16f) restrict writeonly uniform image2D GuideOutTexture;
+        layout(binding = 8, rgba16f) restrict writeonly uniform image2D MoireOutTexture;
+        layout(binding = 9, rgba16f) restrict writeonly uniform image2D AntiAliasInputTexture;
 
         #ifndef TSR_THIN_GEOMETRY
         #define TSR_THIN_GEOMETRY 0
         #endif
 
         #if TSR_THIN_GEOMETRY
-        Uniform(10) utexture2D u_ThinGeometry; // TSR.DetectThinGeometry: weight * 127 << 1 | cluster-hole bit
-        #define u_ThinGeometry usampler2D(u_ThinGeometry, u_PointClampSampler)
+        Uniform(10) utexture2D ThinGeometryTexture; // TSR.DetectThinGeometry: weight * 127 << 1 | cluster-hole bit
+        #define ThinGeometryTexture usampler2D(ThinGeometryTexture, PointClampSampler)
         const int kTile  = 6;
         const int kApron = 5; // Blur3x3 -> MinMax3x3 -> lerp-clamped history's MinMax3x3 -> Median3x3 -> Min/Max3x3
         #else
@@ -133,15 +133,15 @@ Shader "TSRRejectShading"
         // UE FetchThinGeometryEdge's HistoryRelaxationWeight, with MeasureRejection's cut at one code (:533).
         float ThinGeometryRelaxationAt(ivec2 p)
         {
-            const float weight = float(texelFetch(u_ThinGeometry, TsrClampRender(p), 0).r >> 1u) * (1.0 / 127.0);
+            const float weight = float(texelFetch(ThinGeometryTexture, TsrClampRender(p), 0).r >> 1u) * (1.0 / 127.0);
             return weight > 1.0 / 127.0 ? weight : 0.0;
         }
         #endif
 
         float MoireErrorAt(ivec2 p)
         {
-            const vec4 moire = texelFetch(u_ReprojectedMoire, TsrClampRender(p), 0);
-            return u_EnableFlickeringHeuristic > 0.5 && moire.w > 0.5 ? moire.z : 0.0;
+            const vec4 moire = texelFetch(ReprojectedMoireTexture, TsrClampRender(p), 0);
+            return EnableFlickeringHeuristic > 0.5 && moire.w > 0.5 ? moire.z : 0.0;
         }
 
         // UE MeasureRejection over the group's tile against s_History (or s_Resurrected): Blur3x3 -> clamp box ->
@@ -316,21 +316,21 @@ Shader "TSRRejectShading"
             const ivec2 local               = ivec2(gl_LocalInvocationID.xy);
             const int   lane                = local.y * kLanes + local.x;
             const ivec2 origin              = ivec2(gl_WorkGroupID.xy) * kTile - kApron;
-            const float exposure            = TsrExposure(u_Exposure, u_PointClampSampler);
+            const float exposure            = TsrExposure(ExposureTexture, PointClampSampler);
             // A lane past the output tile (thin geometry: 6x6 of 8x8) loads and filters, and writes nothing.
             const bool  ownsPixel           = all(lessThan(local, ivec2(kTile)));
             const ivec2 tileLocal           = min(local, ivec2(kTile - 1));
             const ivec2 pixel               = ivec2(gl_WorkGroupID.xy) * kTile + tileLocal;
-            const bool  inside              = ownsPixel && all(lessThan(pixel, ivec2(u_RenderSize)));
-            const bool  resurrectionEnabled = u_ResurrectionEnabled > 0.5;
+            const bool  inside              = ownsPixel && all(lessThan(pixel, ivec2(RenderSize)));
+            const bool  resurrectionEnabled = ResurrectionEnabled > 0.5;
 
             // 1. The input, the reprojected guide and the resurrected one of the 16x16 tile, in the guide space.
             for (int i = lane; i < kLoad * kLoad; i += kLaneCount)
             {
                 const ivec2 p    = TsrClampRender(origin + ivec2(i % kLoad, i / kLoad));
-                s_Input[i]       = LinearToGCS(max(texelFetch(u_SceneColor, p, 0).rgb, vec3(0.0)) * exposure);
-                s_History[i]     = texelFetch(u_ReprojectedGuide, p, 0).rgb;
-                s_Resurrected[i] = resurrectionEnabled ? texelFetch(u_ResurrectedGuide, p, 0).rgb : vec3(0.0);
+                s_Input[i]       = LinearToGCS(max(texelFetch(SceneColorTexture, p, 0).rgb, vec3(0.0)) * exposure);
+                s_History[i]     = texelFetch(ReprojectedGuideTexture, p, 0).rgb;
+                s_Resurrected[i] = resurrectionEnabled ? texelFetch(ResurrectedGuideTexture, p, 0).rgb : vec3(0.0);
             }
             if (lane == 0)
                 s_WantResurrection = 0u;
@@ -357,9 +357,9 @@ Shader "TSRRejectShading"
             MeasureRejectionTile(tileLocal, lane, origin, false, true, blendFinal, clampBlend);
 
             const ivec2 clampedPixel = TsrClampRender(pixel);
-            const bool  valid        = texelFetch(u_ReprojectedGuide, clampedPixel, 0).a > 0.5;
+            const bool  valid        = texelFetch(ReprojectedGuideTexture, clampedPixel, 0).a > 0.5;
 
-            // 4. History resurrection (UE :716-790). u_ResurrectionEnabled is uniform, so are the barriers below.
+            // 4. History resurrection (UE :716-790). ResurrectionEnabled is uniform, so are the barriers below.
             bool resurrect = false;
             if (resurrectionEnabled)
             {
@@ -368,7 +368,7 @@ Shader "TSRRejectShading"
                 for (int y = -1; y <= 1; ++y)
                     for (int x = -1; x <= 1; ++x)
                         closer += s_MatchSum[(m.y + y) * kMatch + m.x + x] > 0.05 * 3.0 * 9.0 ? 1.0 : 0.0;
-                const bool onScreen             = texelFetch(u_ResurrectedGuide, clampedPixel, 0).a > 0.5;
+                const bool onScreen             = texelFetch(ResurrectedGuideTexture, clampedPixel, 0).a > 0.5;
                 const bool resurrectionIsCloser = closer > 4.0 && onScreen && inside;
                 if (resurrectionIsCloser && blendFinal < 0.5)
                     atomicOr(s_WantResurrection, 1u);
@@ -395,12 +395,12 @@ Shader "TSRRejectShading"
 
             const uint bits   = (valid ? kRejectionNotDisoccluded : 0u) | (resurrect ? kRejectionResurrected : 0u);
             const bool usable = valid || resurrect;
-            imageStore(u_HistoryRejection, pixel,
+            imageStore(HistoryRejectionTexture, pixel,
                        usable ? vec4(blendFinal, clampBlend, 1.0 - blendFinal, float(bits) / 255.0)
                               : vec4(0.0, 0.0, 1.0, float(bits) / 255.0));
 
             const vec3 current = s_Input[(tileLocal.y + kApron) * kLoad + tileLocal.x + kApron];
-            imageStore(u_GuideOut, pixel, vec4(current, 1.0));
+            imageStore(GuideOutTexture, pixel, vec4(current, 1.0));
 
             // The spatial anti-aliaser's input: UE ComputeSpatialAntiAliaserLumaLDR (luma of the pre-exposed colour,
             // l / (0.5 + l)), IsAliasingVisible (the 3x3 input box in the shading-measurement space) and
@@ -423,17 +423,17 @@ Shader "TSRRejectShading"
                 }
                 const bool aliasingIsVisible = dot(boxMax - boxMin, aaLumaWeights) > 0.05;
                 const bool spatialAntiAlias  = aliasingIsVisible && (blendFinal < 0.25 || (!valid && !resurrect));
-                imageStore(u_AntiAliasInput, pixel, vec4(ldrLuma, spatialAntiAlias ? 1.0 : 0.0, 0.0, 0.0));
+                imageStore(AntiAliasInputTexture, pixel, vec4(ldrLuma, spatialAntiAlias ? 1.0 : 0.0, 0.0, 0.0));
             }
 
             // The flickering history (UE TSRShadingAnalysis.ush :263-395): the luma's running mean over the period,
             // the last frame-to-frame gradient, and the total variation of gradients that changed sign.
             const float luma = TsrLuma(GCSToSMCS(current));
-            const vec4  prev = texelFetch(u_ReprojectedMoire, pixel, 0);
+            const vec4  prev = texelFetch(ReprojectedMoireTexture, pixel, 0);
             vec4        moire = vec4(luma, 0.0, 0.0, 1.0);
-            if (u_EnableFlickeringHeuristic > 0.5 && valid && prev.w > 0.5)
+            if (EnableFlickeringHeuristic > 0.5 && valid && prev.w > 0.5)
             {
-                const float blend     = 1.0 / max(u_FlickeringFramePeriod, 1.0);
+                const float blend     = 1.0 / max(FlickeringFramePeriod, 1.0);
                 const float gradient    = luma - prev.x;
                 bool        withinError = abs(gradient) <= kQuantizationError || abs(prev.y) <= kQuantizationError;
             #if TSR_THIN_GEOMETRY
@@ -447,7 +447,7 @@ Shader "TSRRejectShading"
                 const float variation = flickers ? min(abs(gradient), abs(prev.y)) : 0.0;
                 moire = vec4(mix(prev.x, luma, blend), gradient, max(variation, prev.z * (1.0 - blend * 0.25)), 1.0);
             }
-            imageStore(u_MoireOut, pixel, moire);
+            imageStore(MoireOutTexture, pixel, moire);
         }
     }
 }

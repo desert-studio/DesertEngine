@@ -39,36 +39,36 @@ Shader "CloudShadowMap"
         // an optical depth of 0.5 and a transmittance wrong by forty per cent. The fourth channel is
         // unwritten because Core::Formats::ImageFormat has no three-channel float format; that is a fact
         // about the engine's formats and not a reserved slot.
-        layout(binding = 0, rgba32f) restrict writeonly uniform image2D u_CloudShadowMap;
+        layout(binding = 0, rgba32f) restrict writeonly uniform image2D CloudShadowMapTexture;
 
         // The noise volume and the procedural modelling volume, at the march's own binding numbers (see
         // Graphic::kCloudShadowNoiseBinding). One vocabulary for one field.
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform sampler u_LinearRepeatSampler;
-        Uniform(3) texture3D u_CloudNoise;
-        #define u_CloudNoise sampler3D(u_CloudNoise, u_LinearRepeatSampler)
+        Uniform sampler LinearRepeatSampler;
+        Uniform(3) texture3D CloudNoiseTexture;
+        #define CloudNoiseTexture sampler3D(CloudNoiseTexture, LinearRepeatSampler)
         // ALL FOUR OF THE MARCH'S NOISE SLOTS, at the march's own numbers. A cloud shades the ground with
         // the edge it actually has: a cirrus eroded by the fine volume for the eye and by the default one
         // for the shadow map would be two different clouds in one frame, and the disagreement would show
         // as a shadow that does not fit its cloud.
-        Uniform(10) texture3D u_CloudNoise1;
-        #define u_CloudNoise1 sampler3D(u_CloudNoise1, u_LinearRepeatSampler)
-        Uniform(11) texture3D u_CloudNoise2;
-        #define u_CloudNoise2 sampler3D(u_CloudNoise2, u_LinearRepeatSampler)
-        Uniform(12) texture3D u_CloudNoise3;
-        #define u_CloudNoise3 sampler3D(u_CloudNoise3, u_LinearRepeatSampler)
-        Uniform(7) texture3D u_CloudModelling;
-        #define u_CloudModelling sampler3D(u_CloudModelling, u_LinearRepeatSampler)
+        Uniform(10) texture3D CloudNoise1Texture;
+        #define CloudNoise1Texture sampler3D(CloudNoise1Texture, LinearRepeatSampler)
+        Uniform(11) texture3D CloudNoise2Texture;
+        #define CloudNoise2Texture sampler3D(CloudNoise2Texture, LinearRepeatSampler)
+        Uniform(12) texture3D CloudNoise3Texture;
+        #define CloudNoise3Texture sampler3D(CloudNoise3Texture, LinearRepeatSampler)
+        Uniform(7) texture3D CloudModellingTexture;
+        #define CloudModellingTexture sampler3D(CloudModellingTexture, LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
-        // of the baked profile by u_CloudWeather.
+        // of the baked profile by CloudWeather.
         // Always bound, on the terms every sampler here is.
-        Uniform(15) texture2D u_CloudFarWeather;
-        #define u_CloudFarWeather sampler2D(u_CloudFarWeather, u_LinearRepeatSampler)
-        Uniform(16) texture2D u_CloudLayoutPattern;
-        #define u_CloudLayoutPattern sampler2D(u_CloudLayoutPattern, u_LinearRepeatSampler)
-        Uniform(17) texture2D u_CloudLayoutMask;
-        #define u_CloudLayoutMask sampler2D(u_CloudLayoutMask, u_LinearRepeatSampler)
+        Uniform(15) texture2D CloudFarWeatherTexture;
+        #define CloudFarWeatherTexture sampler2D(CloudFarWeatherTexture, LinearRepeatSampler)
+        Uniform(16) texture2D CloudLayoutPatternTexture;
+        #define CloudLayoutPatternTexture sampler2D(CloudLayoutPatternTexture, LinearRepeatSampler)
+        Uniform(17) texture2D CloudLayoutMaskTexture;
+        #define CloudLayoutMaskTexture sampler2D(CloudLayoutMaskTexture, LinearRepeatSampler)
 
         // The same four-way select the march declares, for the same reason and at the same cost. Repeated
         // rather than shared because Common/CloudField.glslh must stay free of samplers to remain
@@ -77,29 +77,29 @@ Shader "CloudShadowMap"
         vec4 CloudFetchNoise( int slot, vec3 p )
         {
             if ( slot == 1 )
-                return texture( u_CloudNoise1, p );
+                return texture( CloudNoise1Texture, p );
             if ( slot == 2 )
-                return texture( u_CloudNoise2, p );
+                return texture( CloudNoise2Texture, p );
             if ( slot == 3 )
-                return texture( u_CloudNoise3, p );
-            return texture( u_CloudNoise, p );
+                return texture( CloudNoise3Texture, p );
+            return texture( CloudNoiseTexture, p );
         }
 
         // The sculpted hero-cloud body, at the march's own slot too — one vocabulary for one field, and
         // the reason the shadow map needs it at all is that a hero cloud is a cloud: it shades the ground
         // under it because it is the same field, not because anything was added to the deferred pass.
         // ALWAYS BOUND, fallback included, on the terms the two above are bound on.
-        Uniform(9) texture3D u_CloudAuthoredAtlas;
-        #define u_CloudAuthoredAtlas sampler3D(u_CloudAuthoredAtlas, u_LinearRepeatSampler)
+        Uniform(9) texture3D CloudAuthoredAtlasTexture;
+        #define CloudAuthoredAtlasTexture sampler3D(CloudAuthoredAtlasTexture, LinearRepeatSampler)
 
         // The seam's three callbacks, exactly as CloudRaymarch.shader declares them: Common/CloudField.glslh
         // must stay free of samplers to remain compilable as C++ by its tests.
         #define CLOUD_SAMPLE_NOISE(s, p) CloudFetchNoise((s), (p))
-        #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
-        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
-        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(u_CloudLayoutPattern, (uv), 0.0f)
-        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(u_CloudLayoutMask, (uv), 0.0f).r
-        #define CLOUD_SAMPLE_AUTHORED(p) textureLod(u_CloudAuthoredAtlas, (p), 0.0f)
+        #define CLOUD_SAMPLE_MODELLING(p) textureLod(CloudModellingTexture, (p), 0.0f)
+        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(CloudFarWeatherTexture, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(CloudLayoutPatternTexture, (uv), 0.0f)
+        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(CloudLayoutMaskTexture, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_AUTHORED(p) textureLod(CloudAuthoredAtlasTexture, (p), 0.0f)
 
         #define CLOUD_AUTHORED_BUFFER_BINDING 8
         #include <Common/CloudAuthored.glslh>
@@ -110,15 +110,15 @@ Shader "CloudShadowMap"
         PushConstant CloudShadowPush
         {
             // The map's clip space back to world units. A texel's ray starts on the near plane at
-            // (clip.xy, 0) and runs along u_CloudShadowTrace.xyz.
-            mat4 u_CloudShadowMapToWorld;
+            // (clip.xy, 0) and runs along CloudShadowTrace.xyz.
+            mat4 CloudShadowMapToWorld;
             // xyz = the direction the light TRAVELS, normalized; w = samples this ray takes.
-            vec4 u_CloudShadowTrace;
+            vec4 CloudShadowTrace;
             // x = the kilometres the map's clip z spans. PUSHED rather than compiled from
             // CLOUD_SHADOWMAP_EXTENT_KM, because the quality tier scales the extent and this shader would
             // otherwise encode every front depth against a far plane the projection it was handed does
             // not have. y/z/w are unwritten — a push constant is laid out in vec4s.
-            vec4 u_CloudShadowDepth;
+            vec4 CloudShadowDepth;
         };
 
         LocalSize(8, 8, 1);
@@ -156,7 +156,7 @@ Shader "CloudShadowMap"
                 return 0.0f;
 
             float density = CloudSampleDensity(g_ShadowField, field, fieldPos);
-            return density * max(u_CloudMarch.w, 0.0f) *
+            return density * max(CloudMarch.w, 0.0f) *
                    CloudSampleExtinctionFactor(g_ShadowField, field, fieldPos);
         }
 
@@ -166,12 +166,12 @@ Shader "CloudShadowMap"
 
         void main()
         {
-            ivec2 size  = imageSize(u_CloudShadowMap);
+            ivec2 size  = imageSize(CloudShadowMapTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
-            float farDepthKm = max(u_CloudShadowDepth.x, 1e-3f);
+            float farDepthKm = max(CloudShadowDepth.x, 1e-3f);
 
             // The texel's ray origin: its own centre on the map's NEAR plane. Through the texel centre and
             // not its corner, because the consumer fetches this map bilinearly and a half-texel
@@ -181,9 +181,9 @@ Shader "CloudShadowMap"
             vec2 uv   = (vec2(coord) + vec2(0.5f, 0.5f)) / vec2(size);
             vec2 clip = uv * 2.0f - vec2(1.0f, 1.0f);
 
-            vec4 nearH  = u_CloudShadowMapToWorld * vec4(clip.x, clip.y, 0.0f, 1.0f);
+            vec4 nearH  = CloudShadowMapToWorld * vec4(clip.x, clip.y, 0.0f, 1.0f);
             vec3 nearP  = nearH.xyz / max(nearH.w, 1e-9f);
-            vec3 lightDir = normalize(u_CloudShadowTrace.xyz);
+            vec3 lightDir = normalize(CloudShadowTrace.xyz);
 
             g_ShadowLayer = CloudUnpackLayer();
             g_ShadowField = CloudUnpackFieldParams();
@@ -205,11 +205,11 @@ Shader "CloudShadowMap"
             // without that test the far side is what a grazing texel at the map's corner would march.
             vec2 segment = CloudLayerIntersect(g_ShadowLayer, originKm, lightDir);
 
-            int  sampleCount = int(clamp(u_CloudShadowTrace.w, 1.0f, 128.0f));
+            int  sampleCount = int(clamp(CloudShadowTrace.w, 1.0f, 128.0f));
             CloudShadowTexel texel =
                 CloudShadowTraceRay(originKm, lightDir, segment.x, segment.y, sampleCount, farDepthKm);
 
-            imageStore(u_CloudShadowMap, coord, vec4(CloudShadowEncode(texel), 0.0f));
+            imageStore(CloudShadowMapTexture, coord, vec4(CloudShadowEncode(texel), 0.0f));
         }
     }
 }

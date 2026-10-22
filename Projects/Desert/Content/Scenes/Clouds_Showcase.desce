@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "9072d755d005afb36804094fd5773882",
         "Versions": {
-            "SCNE": 67,
+            "SCNE": 68,
             "UNIT": 1
         },
         "Dependencies": ["732b2b6a48f6b68a5c5ab22f00719633", "b33524f57b8f411039fb457c1c34be51"]
@@ -154,6 +154,16 @@
             }
         },
         {
+            "id": 5868633061083022442,
+            "Tag": "Wind Source",
+            "WindSource": {
+                "Direction": [1.0, 0.0, 0.0],
+                "Speed": 3000.0,
+                "PointWind": false,
+                "Radius": 1000.0
+            }
+        },
+        {
             "id": 7100000000000000001,
             "siblingIndex": 3,
             "Tag": "Block_100m",
@@ -277,16 +287,6 @@
                     "LensFlareStreakAngle": 0.0,
                     "LensFlareChromaShift": 0.15000000596046448
                 }
-            }
-        },
-        {
-            "id": 5868633061083022442,
-            "Tag": "Wind Source",
-            "WindSource": {
-                "Direction": [1.0, 0.0, 0.0],
-                "Speed": 3000.0,
-                "PointWind": false,
-                "Radius": 1000.0
             }
         }
     ],

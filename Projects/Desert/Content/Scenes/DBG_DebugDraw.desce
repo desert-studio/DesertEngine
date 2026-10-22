@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "1e26145c4c6c4ded81fa57a2aea27de3",
         "Versions": {
-            "SCNE": 67,
+            "SCNE": 68,
             "UNIT": 1
         },
         "Dependencies": [
@@ -167,6 +167,22 @@
                 "MaterialPaths": ["Materials/M_Dielectric_R40.demat"],
                 "MaterialGuids": ["1ff7bf41d54b6c595b934944215d82aa"],
                 "Primitive": "Sphere"
+            }
+        },
+        {
+            "id": 7300100200300400501,
+            "siblingIndex": 26,
+            "Tag": "DebugDrawDemo",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/DebugDrawDemo.lua",
+                        "Props": []
+                    }
+                ]
             }
         },
         {
@@ -520,22 +536,6 @@
                     "LensFlareStreakAngle": 0.0,
                     "LensFlareChromaShift": 0.15000000596046448
                 }
-            }
-        },
-        {
-            "id": 7300100200300400501,
-            "siblingIndex": 26,
-            "Tag": "DebugDrawDemo",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/Examples/DebugDrawDemo.lua",
-                        "Props": []
-                    }
-                ]
             }
         }
     ],

@@ -72,6 +72,40 @@ namespace Desert::Graphic::System
             }
             return "?";
         }
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct SkyCaptureFacesShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( Texture, TransmittanceLutTexture );
+            DESERT_SHADER_PARAMETER( Texture, MultiScatterLutTexture );
+            DESERT_SHADER_PARAMETER( Texture, DistantSkyLightTexture );
+            DESERT_SHADER_PARAMETER( Sampler, GlobalFilterSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, outputFaces );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct SkyCaptureRadianceMipShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( Texture, SourceCubeMipTexture );
+            DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, DestinationCubeTexture );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct SkyCaptureIrradianceShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( Texture, RadianceTexture );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, DestinationCubeTexture );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct SkyCapturePrefilterShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( Texture, inputTexture );
+            DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, outputTexture );
+        };
+
     } // namespace
 
     std::vector<SkyCaptureFaceSlice> SkyCaptureFaceSlices( uint32_t face )
@@ -238,7 +272,7 @@ namespace Desert::Graphic::System
             sampled( Core::kCloudMediumTextureFirst + static_cast<uint32_t>( slot ),
                      clouds.MediumImages[slot] != nullptr ? clouds.MediumImages[slot].get() : Fallback2D() );
         // The medium's shared state sits right after its textures (ShaderGraph's Volume-domain emitter), in the
-        // state the screen march binds it with (VolumetricCloudRenderer, u_CloudMediumSampler).
+        // state the screen march binds it with (VolumetricCloudRenderer, CloudMediumSampler).
         if ( !clouds.MediumImages.empty() )
             pipeline.SetSampler( Core::kCloudMediumTextureFirst +
                                       static_cast<uint32_t>( clouds.MediumImages.size() ),
@@ -485,14 +519,15 @@ namespace Desert::Graphic::System
              {
                  pass.Bindings( program.Layout.Get( program.Pipeline->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *program.Pipeline ) )
-                      .Texture( "u_TransmittanceLut", lutT, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "u_MultiScatterLut", lutM, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "u_DistantSkyLight", distantSky, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Sampler( "u_GlobalFilterSampler", ownSampler )
-                      .Storage( "outputFaces", radiance, RDG::Access::StorageWrite, 0 )
+                      .Texture( SkyCaptureFacesShaderParameters::TransmittanceLutTexture, lutT,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( SkyCaptureFacesShaderParameters::MultiScatterLutTexture, lutM,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( SkyCaptureFacesShaderParameters::DistantSkyLightTexture, distantSky,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( SkyCaptureFacesShaderParameters::GlobalFilterSampler, ownSampler )
+                      .Storage( SkyCaptureFacesShaderParameters::outputFaces, radiance, RDG::Access::StorageWrite,
+                                0 )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( FacesPush ) ) );
              },
              [pipeline = program.Pipeline, push, face, faceCount,
@@ -523,10 +558,12 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_Downsample.Layout.Get( m_Downsample.Pipeline->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Downsample.Pipeline ) )
-                          .Texture( "u_Source", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::Mip( mip - 1u ) )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                          .Storage( "u_Output", radiance, RDG::Access::StorageWrite, mip );
+                          .Texture( SkyCaptureRadianceMipShaderParameters::SourceCubeMipTexture, radiance,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1u ) )
+                          .Sampler( SkyCaptureRadianceMipShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() )
+                          .Storage( SkyCaptureRadianceMipShaderParameters::DestinationCubeTexture, radiance,
+                                    RDG::Access::StorageWrite, mip );
                  },
                  [pipeline = m_Downsample.Pipeline, mip,
                   face]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -551,10 +588,13 @@ namespace Desert::Graphic::System
              {
                  pass.Bindings( m_Irradiance.Layout.Get( m_Irradiance.Pipeline->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *m_Irradiance.Pipeline ) )
-                      .Texture( "u_Radiance", radiance, RDG::Access::SampledCompute,
+                      .Texture( SkyCaptureIrradianceShaderParameters::RadianceTexture, radiance,
+                                RDG::Access::SampledCompute,
                                 RDG::SubresourceRange::Mip( SkyCaptureIrradianceSourceMip( m_Size.Face ) ) )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Storage( "u_Output", irradiance, RDG::Access::StorageWrite, 0 );
+                      .Sampler( SkyCaptureIrradianceShaderParameters::PointClampSampler,
+                                RDG::SamplerDesc::PointClamp() )
+                      .Storage( SkyCaptureIrradianceShaderParameters::DestinationCubeTexture, irradiance,
+                                RDG::Access::StorageWrite, 0 );
              },
              [pipeline = m_Irradiance.Pipeline]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -587,10 +627,11 @@ namespace Desert::Graphic::System
                  {
                      pass.Bindings( m_Prefilter.Layout.Get( m_Prefilter.Pipeline->GetSpecification().Shader ),
                                     Renderer::GetPipelineRouteFill( *m_Prefilter.Pipeline ) )
-                          .Texture( "inputTexture", radiance, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearRepeatSampler", ownSampler )
-                          .Storage( "outputTexture", prefiltered, RDG::Access::StorageWrite, mip )
+                          .Texture( SkyCapturePrefilterShaderParameters::inputTexture, radiance,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Sampler( SkyCapturePrefilterShaderParameters::LinearRepeatSampler, ownSampler )
+                          .Storage( SkyCapturePrefilterShaderParameters::outputTexture, prefiltered,
+                                    RDG::Access::StorageWrite, mip )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( PrefilterPush ) ) );
                  },
                  [pipeline = m_Prefilter.Pipeline, mip, face,

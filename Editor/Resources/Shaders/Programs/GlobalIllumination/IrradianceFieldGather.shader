@@ -43,19 +43,19 @@ Shader "IrradianceFieldGather"
         {
             RadianceCacheProbe radianceCacheProbes[];
         };
-        Uniform sampler u_LinearClampSampler;
-        Uniform sampler u_PointClampSampler;
-        Uniform(4) texture2D u_GBufferDepth;
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-        Uniform(5) texture2D u_GBufferB;
-        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
-        Uniform(6) texture2D u_RadianceCacheIrradiance;
-        #define u_RadianceCacheIrradiance sampler2D(u_RadianceCacheIrradiance, u_LinearClampSampler)
-        Uniform(7) texture2D u_RadianceCacheDepth;
-        #define u_RadianceCacheDepth sampler2D(u_RadianceCacheDepth, u_LinearClampSampler)
-        layout(binding = 8, rgba16f) restrict writeonly uniform image2D u_GIHalfDiffuseOut;
-        layout(binding = 9, rgba16f) restrict writeonly uniform image2D u_GIHalfSpecularOut;
-        layout(binding = 10, rgba16f) restrict writeonly uniform image2D u_GIHalfBackfaceOut;
+        Uniform sampler LinearClampSampler;
+        Uniform sampler PointClampSampler;
+        Uniform(4) texture2D GBufferDepthTexture;
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(5) texture2D GBufferBTexture;
+        #define GBufferBTexture sampler2D(GBufferBTexture, PointClampSampler)
+        Uniform(6) texture2D RadianceCacheIrradianceTexture;
+        #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
+        Uniform(7) texture2D RadianceCacheDepthTexture;
+        #define RadianceCacheDepthTexture sampler2D(RadianceCacheDepthTexture, LinearClampSampler)
+        layout(binding = 8, rgba16f) restrict writeonly uniform image2D GiHalfDiffuseOutTexture;
+        layout(binding = 9, rgba16f) restrict writeonly uniform image2D GiHalfSpecularOutTexture;
+        layout(binding = 10, rgba16f) restrict writeonly uniform image2D GiHalfBackfaceOutTexture;
 
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
@@ -68,16 +68,16 @@ Shader "IrradianceFieldGather"
             if ( any( greaterThanEqual( half_, ( extent + 1 ) / 2 ) ) )
                 return;
             const ivec2 pixel = min( half_ * 2, extent - 1 );
-            const vec4  gb    = texelFetch( u_GBufferB, pixel, 0 );
+            const vec4  gb    = texelFetch( GBufferBTexture, pixel, 0 );
             if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
             {
-                imageStore( u_GIHalfDiffuseOut, half_, vec4( 0.0 ) );
-                imageStore( u_GIHalfSpecularOut, half_, vec4( 0.0 ) );
-                imageStore( u_GIHalfBackfaceOut, half_, vec4( 0.0 ) );
+                imageStore( GiHalfDiffuseOutTexture, half_, vec4( 0.0 ) );
+                imageStore( GiHalfSpecularOutTexture, half_, vec4( 0.0 ) );
+                imageStore( GiHalfBackfaceOutTexture, half_, vec4( 0.0 ) );
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( u_GBufferDepth, pixel, 0 ).r,
+            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, pixel, 0 ).r,
                                                              giFrame.invViewProjection );
             const vec3  n        = normalize( gb.xyz );
             const float distance = max( length( giFrame.camera.xyz - p ), 1e-3 );
@@ -87,10 +87,10 @@ Shader "IrradianceFieldGather"
 
             vec3       specular;
             const vec4 diffuse = RadianceCacheIrradianceAtImpl( p, n, v, r, dither, true, specular );
-            imageStore( u_GIHalfDiffuseOut, half_, vec4( diffuse.a > 0.0 ? diffuse.rgb : vec3( 0.0 ), distance ) );
-            imageStore( u_GIHalfSpecularOut, half_, vec4( diffuse.a > 0.0 ? specular : vec3( 0.0 ), 1.0 ) );
+            imageStore( GiHalfDiffuseOutTexture, half_, vec4( diffuse.a > 0.0 ? diffuse.rgb : vec3( 0.0 ), distance ) );
+            imageStore( GiHalfSpecularOutTexture, half_, vec4( diffuse.a > 0.0 ? specular : vec3( 0.0 ), 1.0 ) );
             const vec4 backface = RadianceCacheIrradianceAt( p, -n, v, dither );
-            imageStore( u_GIHalfBackfaceOut, half_, vec4( backface.a > 0.0 ? backface.rgb : vec3( 0.0 ), 1.0 ) );
+            imageStore( GiHalfBackfaceOutTexture, half_, vec4( backface.a > 0.0 ? backface.rgb : vec3( 0.0 ), 1.0 ) );
         }
     }
 }

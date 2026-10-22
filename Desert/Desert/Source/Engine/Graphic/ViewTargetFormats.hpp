@@ -79,7 +79,7 @@ namespace Desert::Graphic::ViewTargetFormats
 
     // Screen-space reflections.
     inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA16F;
-    // The trace texel's ray (SSR.shader u_TraceRay): xyz = the WORLD point it hit (centimetres: half floats step
+    // The trace texel's ray (SSR.shader TraceRayTexture): xyz = the WORLD point it hit (centimetres: half floats step
     // by 4 cm at 50 m, too coarse to re-aim a mirror's ray from a neighbour), w = log2 of its pdf.
     inline constexpr ImageFormat kSSRTraceRay = ImageFormat::RGBA32F;
     // One texel per SSR tile, 0 or 1 (SSRRenderer). RGBA8 because ImageFormat has no single-channel 8-bit

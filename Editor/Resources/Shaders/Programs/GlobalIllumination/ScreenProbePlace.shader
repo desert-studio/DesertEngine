@@ -34,11 +34,11 @@ Shader "ScreenProbePlace"
         };
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
-        Uniform sampler u_PointClampSampler;
-        Uniform(4) texture2D u_GBufferDepth;
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-        Uniform(5) texture2D u_GBufferB;
-        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(4) texture2D GBufferDepthTexture;
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(5) texture2D GBufferBTexture;
+        #define GBufferBTexture sampler2D(GBufferBTexture, PointClampSampler)
         // UE ScreenProbeWorldSpeed (LumenScreenProbeGather.usf:97-109): each probe's world speed, cm per frame - its
         // surface's position minus where the velocity says it was last frame. The trace's moving test compares a
         // hit's speed against it (Common/ScreenProbeTracing.glslh SPIsTraceMoving).
@@ -47,17 +47,17 @@ Shader "ScreenProbePlace"
             float screenProbeSpeed[];
         };
         Uniform(7) texture2D Velocity; // NDC.xyz current - previous (View/Velocity.hpp)
-        #define Velocity sampler2D(Velocity, u_PointClampSampler)
+        #define Velocity sampler2D(Velocity, PointClampSampler)
 
         PushConstant ScreenProbePlacePush
         {
-            uint u_Level;
+            uint Level;
         };
 
         void main()
         {
             const vec2  extent = giFrame.screen.xy;
-            const uint  level  = u_Level;
+            const uint  level  = Level;
             const uvec2 grid   = SPGridSize( level, extent );
             const ivec2 cell   = ivec2( gl_GlobalInvocationID.xy );
             if ( level == 0u && cell == ivec2( 0 ) )
@@ -73,14 +73,14 @@ Shader "ScreenProbePlace"
             else if ( any( greaterThanEqual( pixel, ivec2( extent ) ) ) )
                 return;
             const vec2 uv     = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-            const vec3 normal = texelFetch( u_GBufferB, pixel, 0 ).xyz;
+            const vec3 normal = texelFetch( GBufferBTexture, pixel, 0 ).xyz;
             ScreenProbe probe;
             probe.position = vec4( 0.0 );
             probe.normal   = vec4( 0.0 );
             float speed    = 0.0;
             if ( dot( normal, normal ) > 0.001 )
             {
-                const float depth = texelFetch( u_GBufferDepth, pixel, 0 ).r;
+                const float depth = texelFetch( GBufferDepthTexture, pixel, 0 ).r;
                 const vec3  p     = ReconstructWorldPosition( uv, depth, giFrame.invViewProjection );
                 probe.position    = vec4( p, max( distance( p, giFrame.camera.xyz ), 1e-3 ) );
                 probe.normal      = vec4( normalize( normal ), SPPackPixel( pixel ) );

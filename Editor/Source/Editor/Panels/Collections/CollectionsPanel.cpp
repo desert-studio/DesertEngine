@@ -223,12 +223,12 @@ namespace Desert::Editor
                 const Assets::AssetHandle normal    = resolveTex( mat.Normal );
                 const Assets::AssetHandle opacity   = resolveTex( mat.Opacity );
 
-                // ONE ORM SLOT (MAT1a): the lit templates read occlusion, roughness and metal from u_ORMTexture
+                // ONE ORM SLOT (MAT1a): the lit templates read occlusion, roughness and metal from OrmTexture
                 // (.r / .g / .b). A collection names the three as separate images, so they are packed into one
                 // derived texture beside them — the importer's own packer, so the name, the GUID (kept by path)
                 // and the "unchanged inputs are not rewritten" rule are the ones a mesh import gets.
                 ImportedTextureSlot orm{
-                     .Slot = "u_ORMTexture", .Parts = {}, .Sampler = std::nullopt, .TemplateChannels = "rgb" };
+                     .Slot = "OrmTexture", .Parts = {}, .Sampler = std::nullopt, .TemplateChannels = "rgb" };
                 for ( const auto& [source, channel] :
                       { std::pair{ &mat.AO, "r" }, std::pair{ &mat.Roughness, "g" },
                         std::pair{ &mat.Metallic, "b" } } )
@@ -308,11 +308,11 @@ namespace Desert::Editor
                              "[Collections] texture {} for slot '{}' states no header GUID; the slot stays empty",
                              static_cast<uint64_t>( handle ), sampler );
                 };
-                stateTexture( "u_AlbedoTexture", albedo );
-                stateTexture( "u_NormalTexture", normal );
-                stateTexture( "u_ORMTexture", ormTexture );
+                stateTexture( "AlbedoTexture", albedo );
+                stateTexture( "NormalTexture", normal );
+                stateTexture( "OrmTexture", ormTexture );
                 if ( cutsOut )
-                    stateTexture( "u_OpacityTexture", maskIsAlbedo ? albedo : opacity );
+                    stateTexture( "OpacityTexture", maskIsAlbedo ? albedo : opacity );
                 data.Header = header;
                 data        = Assets::StampMaterialHeader( std::move( data ) );
                 auto text   = Assets::WriteMaterialJson( data );

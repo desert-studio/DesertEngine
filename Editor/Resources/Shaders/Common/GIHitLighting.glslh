@@ -26,7 +26,7 @@
 // The includer declares, before including this file: the GI frame record `giFrame` (Common/GIFrame.glslh), the point and
 // spot rows (`pointLights[]`, `spotLights[]`), the world light grid (`lightGrid` + LIGHT_GRID_WORLD_CELLS, read
 // section included), the radiance cache read (Common/RadianceCache.glslh, read section included), samplers
-// u_EnvSpecularTex, u_GBufferDepth, u_GBufferA, u_GBufferEmissive, includes the tracer (Common/GITracer.glslh),
+// EnvironmentSpecularTexture, GBufferDepthTexture, GBufferATexture, GBufferEmissiveTexture, includes the tracer (Common/GITracer.glslh),
 // and defines GI_SURFACE_CACHE_BINDING (the surface cache's seven bindings). Nothing here knows which tracer that is.
 
 #include <Common/SkyLook.glslh>
@@ -54,18 +54,18 @@ void GIHitMaterial( GIHit hit, vec3 rayDirection, out vec3 albedo, out vec3 emis
     if ( any( greaterThan( abs( ndc ), vec2( 1.0 ) ) ) )
         return;
     const vec2  uv    = vec2( ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5 );
-    const float depth = textureLod( u_GBufferDepth, uv, 0.0 ).r;
+    const float depth = textureLod( GBufferDepthTexture, uv, 0.0 ).r;
     const vec3  seen  = ReconstructWorldPosition( uv, depth, giFrame.invViewProjection );
     // The pixel's surface counts as the hit within the tracer's tolerance.
     if ( distance( seen, hit.position ) > GIRayBias( hit.position, hit.normal, rayDirection ).screenTolerance )
         return;
-    albedo   = textureLod( u_GBufferA, uv, 0.0 ).rgb;
-    emissive = textureLod( u_GBufferEmissive, uv, 0.0 ).rgb;
+    albedo   = textureLod( GBufferATexture, uv, 0.0 ).rgb;
+    emissive = textureLod( GBufferEmissiveTexture, uv, 0.0 ).rgb;
 }
 
 vec3 GIMissRadiance( vec3 rayDirection )
 {
-    return ApplySkyGain( textureLod( u_EnvSpecularTex, SkyLookDirection( rayDirection, giFrame.skyYawCosSin.xy ), 0.0 ).rgb,
+    return ApplySkyGain( textureLod( EnvironmentSpecularTexture, SkyLookDirection( rayDirection, giFrame.skyYawCosSin.xy ), 0.0 ).rgb,
                          giFrame.skyGain.rgb );
 }
 

@@ -287,7 +287,7 @@ TEST( SkyLookCensus, EveryProgramThatReadsAnEnvironmentCubeAppliesTheLook )
     // The names the engine binds environment cubes under: the IBL pair, the skybox pass's cube, and
     // the preview ball's. A `samplerCube` declared under any of them is a reader of the environment.
     static const std::regex kEnvCube(
-         R"(samplerCube\s+(u_EnvSpecularTex|u_EnvIrradianceTex|samplerCubeMap|u_CubeMap)\b)" );
+         R"(samplerCube\s+(EnvironmentSpecularTexture|EnvironmentIrradianceTexture|samplerCubeMap|CubeMapTexture)\b)" );
 
     const std::string     shaders = root + "Editor/Resources/Shaders/";
     std::set<std::string> found;
@@ -322,8 +322,8 @@ TEST( SkyLookCensus, EveryProgramThatReadsAnEnvironmentCubeAppliesTheLook )
     // AmbientIBL is what `viaIbl` trusts, so it is held to the same rule: both fetches, both calls.
     const std::string ibl = CodeOnly( ReadFile( shaders + "Mesh/AmbientIBL.glslh" ) );
     ASSERT_FALSE( ibl.empty() );
-    EXPECT_NE( ibl.find( "texture(u_EnvIrradianceTex, SkyLookDirection(" ), std::string::npos );
-    EXPECT_NE( ibl.find( "textureLod(u_EnvSpecularTex, SkyLookDirection(" ), std::string::npos );
+    EXPECT_NE( ibl.find( "texture(EnvironmentIrradianceTexture, SkyLookDirection(" ), std::string::npos );
+    EXPECT_NE( ibl.find( "textureLod(EnvironmentSpecularTexture, SkyLookDirection(" ), std::string::npos );
     size_t gains = 0;
     for ( size_t at = ibl.find( "ApplySkyGain(" ); at != std::string::npos;
           at        = ibl.find( "ApplySkyGain(", at + 1 ) )

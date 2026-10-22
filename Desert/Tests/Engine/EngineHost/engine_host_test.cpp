@@ -48,6 +48,15 @@
 #include <string>
 #include <vector>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct EngineHostTestFillShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Words );
+    };
+} // namespace
+
 using namespace Desert;
 using namespace Desert::Graphic;
 namespace fs = std::filesystem;
@@ -299,7 +308,7 @@ TEST( EngineHost, DispatchComputeThroughPassBindingsIsByteExact )
                                .ShaderName = "EngineHostFill",
                                .Slots      = { { "Words", RDG::ShaderResourceKind::StorageBuffer } } },
                           RDG::OtherRouteFill{} )
-                      .Storage( "Words", words, RDG::Access::StorageWrite );
+                      .Storage( EngineHostTestFillShaderParameters::Words, words, RDG::Access::StorageWrite );
              },
              [&]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

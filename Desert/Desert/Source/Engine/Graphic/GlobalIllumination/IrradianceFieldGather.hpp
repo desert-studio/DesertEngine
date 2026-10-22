@@ -62,9 +62,9 @@ namespace Desert::Graphic::GlobalIllumination
     // What the deferred composite reads (ViewTargetFormats::kGIFinalGather, the G-buffer's extent).
     struct IrradianceFieldGatherFrame
     {
-        RDG::TextureRef Diffuse;  // rgb = irradiance / pi — "u_GIDiffuse"
-        RDG::TextureRef Specular; // rgb = the cosine lobe about the reflection direction — "u_GISpecular"
-        RDG::TextureRef Backface; // rgb = irradiance / pi from -N — "u_GIBackface"
+        RDG::TextureRef Diffuse;  // rgb = irradiance / pi — "GiDiffuseTexture"
+        RDG::TextureRef Specular; // rgb = the cosine lobe about the reflection direction — "GiSpecularTexture"
+        RDG::TextureRef Backface; // rgb = irradiance / pi from -N — "GiBackfaceTexture"
     };
 
     class IrradianceFieldGather

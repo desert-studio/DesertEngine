@@ -25,7 +25,7 @@ namespace Desert::Assets
     // clear share of the sky (W = 1 elsewhere, Assets::CloudWeatherPresence), was the slope of a ramp that
     // emptied 1 - 1/(2s); Tools/SceneMigrator raises v4 by s -> max(0, 1 - 1/(2s)), the clear share kept.
     inline constexpr uint32_t kMaterialSchemaTag     = Common::Content::FourCC( "MATL" );
-    inline constexpr uint32_t kMaterialSchemaVersion = 5;
+    inline constexpr uint32_t kMaterialSchemaVersion = 6;
     // A .decloudtype: the cloud type file layout, stated in the header since v4 (AF7v; v1-v3 had a
     // top-level FormatVersion and no header). Here rather than beside CloudTypeData so the migrator can
     // state it without the cloud maths. v5 (T7h): the noise volume is named by {Guid, Path} and stated as
@@ -69,9 +69,14 @@ namespace Desert::Assets
     // Dependencies.
     inline constexpr uint32_t kLandscapeGrassTypeSchemaTag     = Common::Content::FourCC( "LGRT" );
     inline constexpr uint32_t kLandscapeGrassTypeSchemaVersion = 3;
-    // A .dfx: the VFX system file layout, stated in the header from its first version (VFX-02).
+    // A .dfx: the VFX system file layout, stated in the header from its first version (VFX-02); v2 (VFX-09):
+    // renderer rows state their Material / Ribbon / Mesh, those assets the Dependencies; v3 (VFX-11): the system
+    // names its EffectType.
     inline constexpr uint32_t kVFXSystemSchemaTag     = Common::Content::FourCC( "VFXS" );
-    inline constexpr uint32_t kVFXSystemSchemaVersion = 1;
+    inline constexpr uint32_t kVFXSystemSchemaVersion = 3;
+    // A .dfxtype: the VFX effect type file layout (UE UNiagaraEffectType), stated from its first version (VFX-11).
+    inline constexpr uint32_t kVFXEffectTypeSchemaTag     = Common::Content::FourCC( "VFXT" );
+    inline constexpr uint32_t kVFXEffectTypeSchemaVersion = 2;
     // A .deinputaction / .deinputcontext: UE's UInputAction / UInputMappingContext, stated in the header from
     // their first version (GP1a; Serialization/InputAssets.hpp).
     inline constexpr uint32_t kInputActionSchemaTag             = Common::Content::FourCC( "INAC" );

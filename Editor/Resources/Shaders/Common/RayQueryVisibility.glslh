@@ -8,7 +8,7 @@
 // bindless table, with the UV fetched from the segment's own vertex buffer by device address.
 // The metadata is RayTracingSceneMetadata.hpp's, one record per segment record (RayTracingSegmentRecord, the same
 // table on the CPU): record = the instance's SBT record offset (its primitive's FirstSegmentRecord) + the geometry
-// index. A non-opaque segment whose material has no opacity source yet (Material = none) blocks, counted on the CPU
+// index. A non-opaque segment whose material has no opacity source yet (MaterialRecord = none) blocks, counted on the CPU
 // (RayTracingSceneStats::SegmentsWithoutOpacity).
 // The hardware GITraceVisibility(origin, dir, maxT) IS this function with RAY_TRACING_MASK_SHADOW_CASTER (GI-HWRT's
 // GITraceRayQuery.glslh defines it by calling it). There is no second path.
@@ -40,7 +40,7 @@ struct RayTracingGeometryRecord
     uint  VertexStride;
     uint  FirstVertex;
     uint  FirstIndex;
-    uint  Material; // RayTracingMaterialRecord row; 0xFFFFFFFF = opaque, no record
+    uint  MaterialRecord; // RayTracingMaterialRecord row; 0xFFFFFFFF = opaque, no record
     uint  NormalOffset;
     uint  UvOffset; // bytes into the vertex; 0xFFFFFFFF = none
     uint  SubmeshIndex;
@@ -62,14 +62,14 @@ const uint kRayTracingNoRecord = 0xFFFFFFFFu;
 const uint kRayTracingMaterialLandscapeVisibility = 1u << 3u;
 const uint kRayTracingMaterialLandscapeTwoPages   = 1u << 7u;
 
-layout( set = 0, binding = RAY_QUERY_VISIBILITY_TLAS_BINDING ) uniform accelerationStructureEXT u_SceneTLAS;
+layout( set = 0, binding = RAY_QUERY_VISIBILITY_TLAS_BINDING ) uniform accelerationStructureEXT SceneTlas;
 layout( std430, set = 0, binding = RAY_QUERY_VISIBILITY_GEOMETRY_BINDING ) readonly buffer RayTracingGeometryRecords
 {
-    RayTracingGeometryRecord u_RayTracingGeometry[];
+    RayTracingGeometryRecord RayTracingGeometry[];
 };
 layout( std430, set = 0, binding = RAY_QUERY_VISIBILITY_MATERIALS_BINDING ) readonly buffer RayTracingMaterialRecords
 {
-    RayTracingMaterialRecord u_RayTracingMaterials[];
+    RayTracingMaterialRecord RayTracingMaterials[];
 };
 
 layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer RayQueryUintRef
@@ -109,10 +109,10 @@ bool RayQueryCandidateBlocks( rayQueryEXT query )
 {
     const uint recordIndex = rayQueryGetIntersectionInstanceShaderBindingTableRecordOffsetEXT( query, false ) +
                              uint( rayQueryGetIntersectionGeometryIndexEXT( query, false ) );
-    const RayTracingGeometryRecord record = u_RayTracingGeometry[recordIndex];
-    if ( record.Material == kRayTracingNoRecord || record.UvOffset == kRayTracingNoRecord )
+    const RayTracingGeometryRecord record = RayTracingGeometry[recordIndex];
+    if ( record.MaterialRecord == kRayTracingNoRecord || record.UvOffset == kRayTracingNoRecord )
         return true; // a non-opaque segment with nothing to test against is a surface
-    const RayTracingMaterialRecord material = u_RayTracingMaterials[record.Material];
+    const RayTracingMaterialRecord material = RayTracingMaterials[record.MaterialRecord];
     if ( ( material.Flags & 1u ) == 0u && !rayQueryGetIntersectionFrontFaceEXT( query, false ) )
         return false; // a one-sided masked surface blocks from the face it rasterises
     const vec2 uv = RayQueryHitUv( record, uint( rayQueryGetIntersectionPrimitiveIndexEXT( query, false ) ),
@@ -140,7 +140,7 @@ bool RayQueryCandidateBlocks( rayQueryEXT query )
 float RayQueryVisibilityHit( vec3 origin, vec3 dir, float tMax, uint cullMask, inout float hitT )
 {
     rayQueryEXT query;
-    rayQueryInitializeEXT( query, u_SceneTLAS, gl_RayFlagsTerminateOnFirstHitEXT, cullMask & 0xFFu, origin, 0.0, dir,
+    rayQueryInitializeEXT( query, SceneTlas, gl_RayFlagsTerminateOnFirstHitEXT, cullMask & 0xFFu, origin, 0.0, dir,
                            tMax );
     while ( rayQueryProceedEXT( query ) )
     {

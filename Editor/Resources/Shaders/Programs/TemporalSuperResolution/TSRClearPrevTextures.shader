@@ -13,15 +13,15 @@ Shader "TSRClearPrevTextures"
 
         layout(std430, binding = 1) restrict writeonly buffer TSRPrevAtomicBuffer
         {
-            uint u_PrevAtomic[];
+            uint PreviousAtomicData[];
         };
 
         void main()
         {
             const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-            if (any(greaterThanEqual(pixel, ivec2(u_RenderSize))))
+            if (any(greaterThanEqual(pixel, ivec2(RenderSize))))
                 return;
-            u_PrevAtomic[pixel.y * int(u_RenderSize.x) + pixel.x] = 0u;
+            PreviousAtomicData[pixel.y * int(RenderSize.x) + pixel.x] = 0u;
         }
     }
 }

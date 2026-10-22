@@ -10,6 +10,7 @@
 #include <regex>
 #include <cmath>
 #include <optional>
+#include <algorithm>
 #include <array>
 #include <format>
 #include <fstream>
@@ -73,6 +74,7 @@
 #include <rflcpp/rfl/DefaultIfMissing.hpp>
 #include <rflcpp/rfl/json.hpp>
 
+#include <algorithm>
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -3552,41 +3554,203 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( written ) );
     }
 
-    float MigratePatchStrengthV4ToV5( float strength )
+    Assets::Serialization::VFXEffectTypeData DefaultVFXEffectTypeForV3()
     {
-        const float s = std::clamp( strength, 0.0f, 1.0f );
-        // At s <= 1/2 the v4 ramp never reached zero: no sky was clear, which is v5's zero.
-        return s <= 0.5f ? 0.0f : 1.0f - 1.0f / ( 2.0f * s );
+        Assets::Serialization::VFXEffectTypeData type;
+        for ( const float cm : { 5000.0f, 10000.0f, 20000.0f, 50000.0f, 0.0f } )
+            type.Levels.push_back( Assets::Serialization::VFXEffectTypeLevel{ cm, 1.0f } );
+        return type;
     }
 
-    Common::ResultStr<std::string> MigrateMaterialV4ToV5( const std::string& text )
+    Common::ResultStr<std::string> MigrateVFXEffectTypeV1ToV2( const std::string& text )
     {
-        const auto parsed = Common::Json::Read<Assets::MaterialData>( text );
-        if ( !parsed )
-            return Common::MakeFormattedError<std::string>( "MATL 4 body does not read: {}", parsed.GetError() );
-        Assets::MaterialData data = parsed.GetValue();
+        // VFXT 2 IS VFXT 1 PLUS KEYS WITH DEFAULTS, so the v1 body reads as v2 once they are in: every level object
+        // gets the four level keys after its SpawnCountScale value, the type its two keys before `Levels`.
+        namespace S = Assets::Serialization;
+        std::string patched;
+        patched.reserve( text.size() + 1024u );
+        const std::string key = "\"SpawnCountScale\"";
+        std::size_t       from = 0;
+        for ( std::size_t at = text.find( key ); at != std::string::npos; at = text.find( key, from ) )
+        {
+            const std::size_t end = text.find_first_of( ",}\n", text.find( ':', at ) + 1u );
+            if ( end == std::string::npos )
+                return Common::MakeFormattedError<std::string>( "VFXT 1 level SpawnCountScale has no value end" );
+            patched += text.substr( from, end - from );
+            patched += ", \"MaxInstances\": 0, \"MaxSystemInstances\": 0, \"CullByViewFrustum\": false, "
+                       "\"MaxTimeWithoutRender\": 0.0";
+            from = end;
+        }
+        patched += text.substr( from );
+        const std::size_t levels = patched.find( "\"Levels\"" );
+        if ( levels == std::string::npos )
+            return Common::MakeFormattedError<std::string>( "VFXT 1 body has no Levels" );
+        patched.insert( levels, "\"CullReaction\": \"DeactivateResume\", \"Significance\": \"Distance\", " );
+
+        const auto v1 = Common::Json::Read<S::VFXEffectTypeData>( patched );
+        if ( !v1 )
+            return Common::MakeFormattedError<std::string>( "VFXT 1 body does not read: {}", v1.GetError() );
+        const S::VFXEffectTypeData& data = v1.GetValue();
         if ( !data.Header )
             return Common::MakeFormattedError<std::string>(
-                 "the file states no header, and this step raises MATL 4 only" );
-        const auto stated = data.Header->Versions.find( "MATL" );
-        if ( stated == data.Header->Versions.end() || stated->second != 4u )
+                 "the file states no header, and this step raises VFXT 1 only" );
+        const auto stated = data.Header->Versions.find( "VFXT" );
+        if ( stated == data.Header->Versions.end() || stated->second != 1u )
+            return Common::MakeFormattedError<std::string>( "the file does not state VFXT 1, and this step raises VFXT 1 only" );
+        std::string written = S::WriteVFXEffectType( data );
+        if ( auto reread = S::ParseVFXEffectType( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as VFXT 2: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text )
+    {
+        namespace S = Assets::Serialization;
+        // VFXS 3 IS VFXS 2 IS VFXS 1 PLUS OPTIONAL KEYS, so the v1 body reads as the current type; what a v1 row
+        // lacks is filled on the typed data, not by splicing text.
+        const auto v1 = Common::Json::Read<S::VFXSystemData>( text );
+        if ( !v1 )
+            return Common::MakeFormattedError<std::string>( "VFXS 1 body does not read: {}", v1.GetError() );
+        S::VFXSystemData data = v1.GetValue();
+        if ( !data.Header )
             return Common::MakeFormattedError<std::string>(
-                 "the header states MATL {}, and this step raises MATL 4 only",
+                 "the file states no header, and this step raises VFXS 1 only" );
+        const auto stated = data.Header->Versions.find( "VFXS" );
+        if ( stated == data.Header->Versions.end() || ( stated->second != 1u && stated->second != 2u ) )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states VFXS {}, and this step raises VFXS 1 and 2 only",
                  stated == data.Header->Versions.end() ? std::string( "nothing" )
                                                        : std::to_string( stated->second ) );
 
-        // BY NAME, NOT BY SHADER: an instance of the cloud material states no Shader of its own and may still
-        // override PatchStrength, and no other schema has a parameter of that name.
-        for ( Assets::MaterialShaderParam& param : data.Params )
-            if ( param.Name == "PatchStrength" )
-                param.Value.x = MigratePatchStrengthV4ToV5( param.Value.x );
+        const bool fromV1 = stated->second == 1u;
+        for ( S::VFXEmitterData& e : data.Emitters )
+            for ( S::VFXRendererData& r : e.Renderers )
+            {
+                if ( !fromV1 )
+                    break;
+                if ( r.Material || r.Ribbon || r.Mesh )
+                    return Common::MakeFormattedError<std::string>(
+                         "emitter '{}': a VFXS 1 renderer row states VFXS 2 keys", e.Name );
+                if ( r.Kind == S::VFXRendererKind::Ribbon )
+                    r.Ribbon = S::VFXRibbonRendererData{};
+                else if ( r.Kind == S::VFXRendererKind::Mesh )
+                    return Common::MakeFormattedError<std::string>(
+                         "emitter '{}': a VFXS 1 Mesh row names no mesh, and VFXS 2 needs one", e.Name );
+            }
+        if ( data.EffectType )
+            return Common::MakeFormattedError<std::string>(
+                 "a VFXS {} system already names EffectType '{}', a VFXS 3 key", stated->second,
+                 *data.EffectType );
+        data.EffectType = "Default";
+
+        // WriteVFXSystem stamps the header at the engine's VFXS, keeps the loaded GUID and states the
+        // Dependencies.
+        std::string written = S::WriteVFXSystem( data );
+        const auto  reread  = Common::Json::Read<S::VFXSystemData>( written );
+        if ( !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as VFXS 3: {}",
+                                                            reread.GetError() );
+        if ( auto valid = S::ValidateVFXSystemData( reread.GetValue() ); !valid )
+            return Common::MakeFormattedError<std::string>( "the raised file is not a valid VFXS 3 system: {}",
+                                                            valid.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    namespace
+    {
+        // The DSL texture properties MATL 5 stored under their GLSL spelling, and the parameter name MATL 6
+        // stores (SHADER-NAMING: the shader identifier is no longer the asset's key). The shipped schemas'
+        // whole list (Terrain.shader's eight landscape layers included): a `u_` name outside it is refused by
+        // name, not guessed.
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 41> kMaterialTextureRenamesV6{ {
+             { "u_AlbedoTexture", "AlbedoTexture" },
+             { "u_CubeMap", "CubeMapTexture" },
+             { "u_EmissiveTexture", "EmissiveTexture" },
+             { "u_Heightmap", "HeightmapTexture" },
+             { "u_Layer0ARM", "Layer0ArmTexture" },
+             { "u_Layer0Albedo", "Layer0AlbedoTexture" },
+             { "u_Layer0Height", "Layer0HeightTexture" },
+             { "u_Layer0Normal", "Layer0NormalTexture" },
+             { "u_Layer1ARM", "Layer1ArmTexture" },
+             { "u_Layer1Albedo", "Layer1AlbedoTexture" },
+             { "u_Layer1Height", "Layer1HeightTexture" },
+             { "u_Layer1Normal", "Layer1NormalTexture" },
+             { "u_Layer2ARM", "Layer2ArmTexture" },
+             { "u_Layer2Albedo", "Layer2AlbedoTexture" },
+             { "u_Layer2Height", "Layer2HeightTexture" },
+             { "u_Layer2Normal", "Layer2NormalTexture" },
+             { "u_Layer3ARM", "Layer3ArmTexture" },
+             { "u_Layer3Albedo", "Layer3AlbedoTexture" },
+             { "u_Layer3Height", "Layer3HeightTexture" },
+             { "u_Layer3Normal", "Layer3NormalTexture" },
+             { "u_Layer4ARM", "Layer4ArmTexture" },
+             { "u_Layer4Albedo", "Layer4AlbedoTexture" },
+             { "u_Layer4Height", "Layer4HeightTexture" },
+             { "u_Layer4Normal", "Layer4NormalTexture" },
+             { "u_Layer5ARM", "Layer5ArmTexture" },
+             { "u_Layer5Albedo", "Layer5AlbedoTexture" },
+             { "u_Layer5Height", "Layer5HeightTexture" },
+             { "u_Layer5Normal", "Layer5NormalTexture" },
+             { "u_Layer6ARM", "Layer6ArmTexture" },
+             { "u_Layer6Albedo", "Layer6AlbedoTexture" },
+             { "u_Layer6Height", "Layer6HeightTexture" },
+             { "u_Layer6Normal", "Layer6NormalTexture" },
+             { "u_Layer7ARM", "Layer7ArmTexture" },
+             { "u_Layer7Albedo", "Layer7AlbedoTexture" },
+             { "u_Layer7Height", "Layer7HeightTexture" },
+             { "u_Layer7Normal", "Layer7NormalTexture" },
+             { "u_NormalTexture", "NormalTexture" },
+             { "u_ORMTexture", "OrmTexture" },
+             { "u_OpacityTexture", "OpacityTexture" },
+             { "u_SDFAtlas", "SdfAtlasTexture" },
+             { "u_Weightmap", "WeightmapTexture" },
+        } };
+        // UI2D's texture: the one `u_Texture` property a shipped schema declared.
+        constexpr std::string_view kUi2DShaderSuffix = "UI/UI2D.shader";
+    } // namespace
+
+    Common::ResultStr<std::string> MigrateMaterialV5ToV6( const std::string& text )
+    {
+        const auto parsed = Common::Json::Read<Assets::MaterialData>( text );
+        if ( !parsed )
+            return Common::MakeFormattedError<std::string>( "MATL 5 body does not read: {}", parsed.GetError() );
+        Assets::MaterialData data = parsed.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises MATL 5 only" );
+        const auto stated = data.Header->Versions.find( "MATL" );
+        if ( stated == data.Header->Versions.end() || stated->second != 5u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states MATL {}, and this step raises MATL 5 only",
+                 stated == data.Header->Versions.end() ? std::string( "nothing" )
+                                                       : std::to_string( stated->second ) );
+
+        const bool isUi2D = data.Shader.has_value() && data.Shader->Path.ends_with( kUi2DShaderSuffix );
+        for ( auto& ref : data.Textures )
+        {
+            if ( !ref.Name.starts_with( "u_" ) )
+                continue;
+            const auto row = std::ranges::find( kMaterialTextureRenamesV6, std::string_view( ref.Name ),
+                                                &std::pair<std::string_view, std::string_view>::first );
+            if ( row != kMaterialTextureRenamesV6.end() )
+                ref.Name = std::string( row->second );
+            else if ( ref.Name == "u_Texture" && isUi2D )
+                ref.Name = "ElementTexture";
+            else
+                return Common::MakeFormattedError<std::string>(
+                     "texture '{}' is no shipped schema's MATL 5 texture property; rename it to the parameter "
+                     "its shader declares by hand",
+                     ref.Name );
+        }
+        data.Header->Versions["MATL"] = 6u;
 
         auto written = Assets::WriteMaterialJson( data );
         if ( !written )
             return Common::MakeFormattedError<std::string>( "the raised material does not write: {}",
                                                             written.GetError() );
-        if ( auto reread = Assets::ParseMaterialJson( "MATL 4 -> 5", written.GetValue() ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as MATL 5: {}",
+        if ( auto reread = Assets::ParseMaterialJson( "MATL 5 -> 6", written.GetValue() ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as MATL 6: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::string( written.GetValue() ) );
     }
@@ -4298,7 +4462,12 @@ namespace Desert::Migration
         if ( !scene.WorldPartition.has_value() || scene.WorldPartition->HLODLayers.has_value() ||
              scene.WorldPartition->DefaultHLODLayer.has_value() )
             return false;
-        Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
+        // The v50 shape, frozen: the Instancing layer stated as the WORLD's default (v67 moves it onto the grids).
+        Core::HLODLayerSerialized layer;
+        layer.Name                           = std::string( Core::Rules::kInstancingHLODLayerName );
+        layer.Type                           = Core::HLODLayerType::Instancing;
+        scene.WorldPartition->HLODLayers     = std::vector<Core::HLODLayerSerialized>{ std::move( layer ) };
+        scene.WorldPartition->DefaultHLODLayer = std::string( Core::Rules::kInstancingHLODLayerName );
         return true;
     }
 
@@ -4316,6 +4485,22 @@ namespace Desert::Migration
             ++named;
         }
         return named;
+    }
+
+    std::size_t MigrateGridHLODLayerV67ToV68( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() || !scene.WorldPartition->DefaultHLODLayer.has_value() )
+            return 0;
+        std::size_t given = 0;
+        for ( Core::WorldPartitionGridSerialized& grid : scene.WorldPartition->Grids )
+        {
+            if ( grid.HLODLayer.has_value() )
+                continue;
+            grid.HLODLayer = *scene.WorldPartition->DefaultHLODLayer;
+            ++given;
+        }
+        scene.WorldPartition->DefaultHLODLayer = std::nullopt;
+        return given;
     }
 
     LandscapeHeightKeysReport MigrateLandscapeHeightKeysV66ToV67( std::vector<Assets::EntityData>& entities,
@@ -4568,6 +4753,11 @@ namespace Desert::Migration
                 report.Refused = RefusedWhole( scene.SceneName, report.LandscapeHeightKeys.Refused );
                 return report;
             }
+        }
+        if ( statedSceneVersion < kSceneVersionGridHLODLayer )
+        {
+            report.GridHLODLayerRaised = true;
+            report.GridsGivenHLODLayer = MigrateGridHLODLayerV67ToV68( scene );
         }
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently

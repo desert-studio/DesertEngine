@@ -13,6 +13,15 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SSAOBindingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+    };
+
     // Screen-space ambient occlusion (GTAO, SSAO.shader). Fullscreen: reads the G-buffer (depth + normal) and
     // writes an AO factor into a per-frame graph transient (FrameTransients::SSAO, SceneRendererFrameDeferred.cpp
     // "Deferred: SSAO"), which the deferred Composite then multiplies into the ambient term. Deferred only.
@@ -52,8 +61,8 @@ namespace Desert::Graphic::System
         // radius and bias are WORLD distances (the shader offsets samples in world space), and a world unit is a
         // centimetre - callers passing literature values must convert through Common::Units.
         //
-        // SETUP: DeclareBindings declares the node's one block (block 0): u_GBufferDepth through a nearest sampler
-        // (a DEPTH32F image is not guaranteed linear-filterable, MoltenVK included), u_GBufferNormal with the
+        // SETUP: DeclareBindings declares the node's one block (block 0): GBufferDepthTexture through a nearest sampler
+        // (a DEPTH32F image is not guaranteed linear-filterable, MoltenVK included), GBufferNormalTexture with the
         // sampler the material route sampled the G-buffer with (the image's own: linear, REPEAT), the material
         // as the other route. Not initialised: nothing is declared and Record refuses.
         void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef depth, RDG::TextureRef normal ) const
@@ -62,10 +71,12 @@ namespace Desert::Graphic::System
                 return;
             constexpr RDG::SamplerDesc kSampler = RDG::SamplerDesc::LinearRepeat();
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Texture( "u_GBufferDepth", depth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                 .Texture( "u_GBufferNormal", normal, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearRepeatSampler", kSampler );
+                 .Texture( SSAOBindingShaderParameters::GBufferDepthTexture, depth, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( SSAOBindingShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Texture( SSAOBindingShaderParameters::GBufferNormalTexture, normal, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( SSAOBindingShaderParameters::LinearRepeatSampler, kSampler );
         }
 
         [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext&     context,

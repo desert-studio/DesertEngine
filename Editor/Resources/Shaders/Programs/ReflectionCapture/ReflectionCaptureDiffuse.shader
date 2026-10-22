@@ -8,14 +8,14 @@ Shader "ReflectionCaptureDiffuse"
         // divides the pixel's own diffuse by. What it is follows the view's estimator
         // (Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp ReflectionCaptureLighting):
         //
-        //   THE RADIANCE CACHE (u_Estimator.x = 1): the CUBE'S OWN brightness, UE's AverageBrightness - the last
+        //   THE RADIANCE CACHE (EstimatorParams.x = 1): the CUBE'S OWN brightness, UE's AverageBrightness - the last
         // mip's radiance about each axis, the roughest lobe the filter wrote, i.e. the cube's light as a surface
         // facing that axis would gather it. The pixel's side is the cache's smooth irradiance (Mesh/AmbientIBL.glslh),
         // so the ratio rescales the cube to the GI's brightness where it is read: a cube rendered without the GI
         // (a face view runs none) no longer passes its own darkness - or a lamp seen directly - into every rough
         // surface it covers (REFL-NORM-SMOOTH: the Bistro night measured against the cache at the capture point
         // laid a grey veil over the street, 46.6 against 53.1 without captures; its own brightness gives 54.7).
-        //   THE SKY (u_Estimator.x = 0): the sky's irradiance at the capture point, as the pixels receive it. Not the
+        //   THE SKY (EstimatorParams.x = 0): the sky's irradiance at the capture point, as the pixels receive it. Not the
         // cube's own: a pixel lit by the sky alone at night would divide a lamp-lit cube's brightness by the dark
         // sky - the black reflections UE shows without lightmaps.
         //
@@ -30,9 +30,9 @@ Shader "ReflectionCaptureDiffuse"
 
         #include <Common/SkyLook.glslh>
 
-        Uniform sampler u_LinearClampSampler;
-        Uniform(5) textureCube u_EnvIrradianceTex; // the sky's irradiance cube, as the view's pixels read it
-        #define u_EnvIrradianceTex samplerCube(u_EnvIrradianceTex, u_LinearClampSampler)
+        Uniform sampler LinearClampSampler;
+        Uniform(5) textureCube EnvironmentIrradianceTexture; // the sky's irradiance cube, as the view's pixels read it
+        #define EnvironmentIrradianceTexture samplerCube(EnvironmentIrradianceTexture, LinearClampSampler)
         struct DiffusePoint
         {
             vec4  Point;      // xyz = the capture point (world cm)
@@ -41,30 +41,30 @@ Shader "ReflectionCaptureDiffuse"
         };
         ReadBuffer(6) ReflectionCaptureDiffusePointsUB
         {
-            DiffusePoint u_Points[];
+            DiffusePoint DiffusePoints[];
         };
-        layout(binding = 7, rgba16f) uniform imageCubeArray u_Cubes; // the array's LAST mip: 1x1 per face
+        layout(binding = 7, rgba16f) uniform imageCubeArray CubesTexture; // the array's LAST mip: 1x1 per face
 
         PushConstant PushConstants
         {
-            vec4 u_Estimator;    // x = 1 the radiance cache, 0 the sky's irradiance; y = the point count
-            vec4 u_SkyYawCosSin; // Graphic::SkyLookGPU: how the view reads its sky cubes
-            vec4 u_SkyGain;
+            vec4 EstimatorParams;    // x = 1 the radiance cache, 0 the sky's irradiance; y = the point count
+            vec4 SkyYawCosSin; // Graphic::SkyLookGPU: how the view reads its sky cubes
+            vec4 SkyGain;
         };
 
         void main()
         {
             const uint index = gl_GlobalInvocationID.x;
-            if (index >= uint(u_Estimator.y))
+            if (index >= uint(EstimatorParams.y))
                 return;
-            const DiffusePoint point = u_Points[index];
+            const DiffusePoint point = DiffusePoints[index];
             const int firstLayer = int(point.CubeForced.x) * 6;
 
             if (point.CubeForced.y == 0u)
             {
                 bool measured = true;
                 for (int i = 0; i < 6; ++i)
-                    measured = measured && imageLoad(u_Cubes, ivec3(0, 0, firstLayer + i)).a > 0.0;
+                    measured = measured && imageLoad(CubesTexture, ivec3(0, 0, firstLayer + i)).a > 0.0;
                 if (measured)
                     return;
             }
@@ -74,13 +74,13 @@ Shader "ReflectionCaptureDiffuse"
             for (int i = 0; i < 6; ++i)
             {
                 const ivec3 texel = ivec3(0, 0, firstLayer + i);
-                const vec4  own   = imageLoad(u_Cubes, texel);
-                const vec3  light = u_Estimator.x > 0.5
+                const vec4  own   = imageLoad(CubesTexture, texel);
+                const vec3  light = EstimatorParams.x > 0.5
                                          ? own.rgb
-                                         : ApplySkyGain(texture(u_EnvIrradianceTex,
-                                                                SkyLookDirection(axes[i], u_SkyYawCosSin.xy)).rgb,
-                                                        u_SkyGain.rgb);
-                imageStore(u_Cubes, texel, vec4(own.rgb, dot(light, vec3(0.2126, 0.7152, 0.0722))));
+                                         : ApplySkyGain(texture(EnvironmentIrradianceTexture,
+                                                                SkyLookDirection(axes[i], SkyYawCosSin.xy)).rgb,
+                                                        SkyGain.rgb);
+                imageStore(CubesTexture, texel, vec4(own.rgb, dot(light, vec3(0.2126, 0.7152, 0.0722))));
             }
         }
     }

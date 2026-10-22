@@ -229,11 +229,23 @@ namespace Desert::Graphic
 
         [[nodiscard]] virtual Common::BoolResultStr RT_Invalidate() = 0;
 
+        // @p file / @p line name the ledger row after the line that asked for the buffer: a vertex buffer has no
+        // name of its own, and a row a closing view leaves behind has to say WHOSE it is (EDITOR-LOG-CLEAN).
+        // __builtin_FILE/__builtin_LINE rather than std::source_location::current(): Apple clang 15 evaluates
+        // the consteval current() in a default argument at the DECLARATION (every row read
+        // "VertexBuffer.hpp:237"); the builtins are evaluated at the call site on clang, gcc and MSVC.
         static std::shared_ptr<VertexBuffer> Create( const void* data, uint32_t size,
-                                                     BufferUsage usage = BufferUsage::Static );
-        static std::shared_ptr<VertexBuffer> Create( uint32_t size, BufferUsage usage = BufferUsage::Dynamic );
+                                                     BufferUsage usage = BufferUsage::Static,
+                                                     const char* file  = __builtin_FILE(),
+                                                     uint32_t    line  = __builtin_LINE() );
+        static std::shared_ptr<VertexBuffer> Create( uint32_t size, BufferUsage usage = BufferUsage::Dynamic,
+                                                     const char* file = __builtin_FILE(),
+                                                     uint32_t    line = __builtin_LINE() );
 
     private:
+        static std::shared_ptr<VertexBuffer> NamedAfter( std::shared_ptr<VertexBuffer> buffer, const char* file,
+                                                         uint32_t line );
+
         ResourceOwnership m_Accounting;
     };
 } // namespace Desert::Graphic

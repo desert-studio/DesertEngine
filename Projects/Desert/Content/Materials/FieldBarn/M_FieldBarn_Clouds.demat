@@ -3,12 +3,9 @@
         "Kind": "Material",
         "Guid": "96b9613ab6105e2d4bf851bc19dbba55",
         "Versions": {
-            "MATL": 5
+            "MATL": 6
         },
-        "Dependencies": [
-            "e5f5868d2f307814ec90df16057f3698",
-            "57d4bb1926b4607e95f65d4c092b2747"
-        ]
+        "Dependencies": ["e5f5868d2f307814ec90df16057f3698", "57d4bb1926b4607e95f65d4c092b2747"]
     },
     "Shader": {
         "Guid": "e5f5868d2f307814ec90df16057f3698",
@@ -17,12 +14,7 @@
     "Params": [
         {
             "Name": "Coverage",
-            "Value": [
-                0.45,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.44999998807907104, 0.0, 0.0, 0.0]
         }
     ],
     "Textures": [],

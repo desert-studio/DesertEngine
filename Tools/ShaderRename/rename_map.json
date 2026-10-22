@@ -1,0 +1,933 @@
+{
+  "comment": [
+    "Old shader identifier -> new name. Style: no u_ prefix, whole words in PascalCase, textures and",
+    "images end in Texture, sampler states in Sampler, abbreviations written as a word (BrdfLut, Ssr).",
+    "A string value is used everywhere; an object gives per-pass names: `scopes` lists the files (shaders and",
+    "the C++ that binds them) for each new name, `default` serves C++ files in no scope (test fixtures).",
+    "Entries for names only C++ emits into generated GLSL are included so the generator and its readers agree.",
+    "`rest` names every file in no scope; `generated_macros` are names the C++ generator #defines (DShaderParser)."
+  ],
+  "generated_macros": [
+    "Material"
+  ],
+  "names": {
+    "u_Accumulation": "AccumulationTexture",
+    "u_Active": "Active",
+    "u_AdaptSpeed": "AdaptationSpeed",
+    "u_AdaptedLuminance": "AdaptedLuminanceTexture",
+    "u_AerialPerspective": "AerialPerspectiveTexture",
+    "u_AerialPerspectiveLut": "AerialPerspectiveLutTexture",
+    "u_AlbedoTexture": "AlbedoTexture",
+    "u_Alive": "AliveData",
+    "u_AllocCursor": "AllocationCursor",
+    "u_Amount": "Amount",
+    "u_AntiAliasInput": "AntiAliasInputTexture",
+    "u_AntiAliasing": "AntiAliasingTexture",
+    "u_ApParams": "AerialPerspectiveParams",
+    "u_AreaTex": "AreaTexture",
+    "u_Args": "Arguments",
+    "u_Arguments": "Arguments",
+    "u_AtlasAlbedo": "AtlasAlbedoTexture",
+    "u_AtlasColor": "AtlasColorTexture",
+    "u_AtlasDepth": "AtlasDepthTexture",
+    "u_AtlasDirectLighting": "AtlasDirectLightingTexture",
+    "u_AtlasEmissive": "AtlasEmissiveTexture",
+    "u_AtlasIndirectLighting": "AtlasIndirectLightingTexture",
+    "u_AtlasNormal": "AtlasNormalTexture",
+    "u_AtlasOpacity": "AtlasOpacityTexture",
+    "u_AtlasSubsurface": "AtlasSubsurfaceTexture",
+    "u_AttrFloats": "AttributeFloatsData",
+    "u_AttrInts": "AttributeIntsData",
+    "u_AutoExposure": "AutoExposure",
+    "u_AutoExposureEnabled": "AutoExposureEnabled",
+    "u_AvgLuminance": "AverageLuminanceTexture",
+    "u_Axis": "Axis",
+    "u_BRDFLUTTexture": "BrdfLutTexture",
+    "u_Backdrop": "BackdropTexture",
+    "u_Background": "BackgroundTexture",
+    "u_BakeClouds": "BakeClouds",
+    "u_BakeFace": "BakeFace",
+    "u_Base": "BaseVertices",
+    "u_BindlessSamplers": "BindlessSamplers",
+    "u_BindlessTextures": "BindlessTextures",
+    "u_Bins": "Bins",
+    "u_Blade": "Blade",
+    "u_BlendTex": "BlendTexture",
+    "u_BloomIntensity": "BloomIntensity",
+    "u_BloomTexture": "BloomTexture",
+    "u_Boxes": "Boxes",
+    "u_BrickObjects": "BrickObjects",
+    "u_CachedCount": "CachedCount",
+    "u_CameraPos": "CameraPosition",
+    "u_CameraPosWorld": "CameraPositionWorld",
+    "u_CameraPosition": "CameraPosition",
+    "u_CaptureAlbedo": "CaptureAlbedoTexture",
+    "u_CaptureDepth": "CaptureDepthTexture",
+    "u_CaptureEmissive": "CaptureEmissiveTexture",
+    "u_CaptureNormal": "CaptureNormalTexture",
+    "u_CaptureShadingWord": "CaptureShadingWordTexture",
+    "u_CascadeDepthRange": "CascadeDepthRange",
+    "u_CascadeTexelWorld": "CascadeTexelWorld",
+    "u_Cells": "CellRange",
+    "u_ChannelSpawns": "ChannelSpawnsData",
+    "u_ChromaticBloom": "ChromaticBloom",
+    "u_ClearArgs": "ClearArgs",
+    "u_ClipToResurrectionClip": "ClipToResurrectionClip",
+    "u_Clipmap": "ClipmapTexture",
+    "u_ClosestDepth": "ClosestDepthTexture",
+    "u_ClosestOccluder": "ClosestOccluderTexture",
+    "u_Cloud": "Cloud",
+    "u_CloudAerial": "CloudAerial",
+    "u_CloudAerialPerspective": "CloudAerialPerspectiveTexture",
+    "u_CloudAlbedo": "CloudAlbedo",
+    "u_CloudAmbient": "CloudAmbient",
+    "u_CloudAuthoredAtlas": "CloudAuthoredAtlasTexture",
+    "u_CloudAuthoredCount": "CloudAuthoredCount",
+    "u_CloudAuthoredInstances": "CloudAuthoredInstances",
+    "u_CloudAuthoredSlabCount": "CloudAuthoredSlabCount",
+    "u_CloudDetail": "CloudDetail",
+    "u_CloudFade": "CloudFadeParams",
+    "u_CloudFarPresence": "CloudFarPresence",
+    "u_CloudFarProfile": "CloudFarProfile",
+    "u_CloudFarWeather": "CloudFarWeatherTexture",
+    "u_CloudFrame": "CloudFrame",
+    "u_CloudGuide": "CloudGuideTexture",
+    "u_CloudHistory": "CloudHistoryTexture",
+    "u_CloudHistoryGuide": "CloudHistoryGuideTexture",
+    "u_CloudLayer": "CloudLayerGeometry",
+    "u_CloudLayoutMask": "CloudLayoutMaskTexture",
+    "u_CloudLayoutPattern": "CloudLayoutPatternTexture",
+    "u_CloudLayoutPlace": "CloudLayoutPlace",
+    "u_CloudLayoutStrength": "CloudLayoutStrength",
+    "u_CloudLevel": "CloudLevel",
+    "u_CloudMarch": "CloudMarch",
+    "u_CloudMedium": "CloudMedium",
+    "u_CloudMediumSampler": "CloudMediumSampler",
+    "u_CloudModelling": "CloudModellingTexture",
+    "u_CloudMultiScatter": "CloudMultiScatter",
+    "u_CloudNoise": "CloudNoiseTexture",
+    "u_CloudNoise1": "CloudNoise1Texture",
+    "u_CloudNoise2": "CloudNoise2Texture",
+    "u_CloudNoise3": "CloudNoise3Texture",
+    "u_CloudPhase": "CloudPhase",
+    "u_CloudScatter": "CloudScatterTexture",
+    "u_CloudShadowDepth": "CloudShadowDepth",
+    "u_CloudShadowMap": "CloudShadowMapTexture",
+    "u_CloudShadowMapToWorld": "CloudShadowMapToWorld",
+    "u_CloudShadowParams": "CloudShadowParams",
+    "u_CloudShadowTrace": "CloudShadowTrace",
+    "u_CloudShadowWorldToMap": "CloudShadowWorldToMap",
+    "u_CloudSkyOcclusion": "CloudSkyOcclusionTexture",
+    "u_CloudSkyOcclusionVolume": "CloudSkyOcclusionVolumeTexture",
+    "u_CloudSpeciesEdge": "CloudSpeciesEdge",
+    "u_CloudSpeciesNoise": "CloudSpeciesNoise",
+    "u_CloudSpeciesWispBase": "CloudSpeciesWispBase",
+    "u_CloudSpeciesWispTop": "CloudSpeciesWispTop",
+    "u_CloudSun": "CloudSun",
+    "u_CloudSunColour": "CloudSunColour",
+    "u_CloudSunTransmittanceLut": "CloudSunTransmittanceLutTexture",
+    "u_CloudTrace": {
+      "rest": "CloudTraceTexture",
+      "scopes": [
+        {
+          "new": "CloudTraceParams",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Clouds/CloudRaymarch.shader"
+          ]
+        }
+      ]
+    },
+    "u_CloudTraceGuide": "CloudTraceGuideTexture",
+    "u_CloudVisualize": "CloudVisualize",
+    "u_CloudWeather": "CloudWeather",
+    "u_CloudWind": "CloudWind",
+    "u_CocScale": "CocScale",
+    "u_ColorTex": "ColorTexture",
+    "u_ContactShadowView": "ContactShadowView",
+    "u_Content": "RetainedLayerTexture",
+    "u_Copies": "Copies",
+    "u_Counts": "Counts",
+    "u_CoverageOut": "CoverageOutTexture",
+    "u_CubeMap": "CubeMapTexture",
+    "u_CubeMapSampler": "CubeMapTextureSampler",
+    "u_Cubes": "CubesTexture",
+    "u_Cull": "CullParams",
+    "u_Culled": "CulledData",
+    "u_DFAssetData": "DistanceFieldAssetData",
+    "u_DFBrickAtlas": "DistanceFieldBrickAtlasTexture",
+    "u_DFIndirection": "DistanceFieldIndirection",
+    "u_DFObjects": "DistanceFieldObjects",
+    "u_DebugParams": "DebugParams",
+    "u_Decay": "Decay",
+    "u_Deltas": "Deltas",
+    "u_Depth": {
+      "default": "SourceDepthTexture",
+      "scopes": [
+        {
+          "new": "DeviceDepthTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Debug/LightGridWorldView.shader",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp"
+          ]
+        },
+        {
+          "new": "SourceDepthTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Deferred/*"
+          ]
+        }
+      ]
+    },
+    "u_DepthPixelRadiusBias": "DepthPixelRadiusBias",
+    "u_DepthPixelRadiusScale": "DepthPixelRadiusScale",
+    "u_DepthToView": "DepthToView",
+    "u_Destination": "DestinationColorTexture",
+    "u_DestinationHeight": "DestinationHeight",
+    "u_DestinationWidth": "DestinationWidth",
+    "u_DiffuseAlbedo": "DiffuseAlbedoTexture",
+    "u_DilateTiles": "DilateTiles",
+    "u_Dilated": "DilatedTexture",
+    "u_DilatedVelocity": "DilatedVelocityTexture",
+    "u_DirectionToSun": "DirectionToSun",
+    "u_DirtyCount": "DirtyCount",
+    "u_DirtyHistory": "DirtyHistory",
+    "u_Dispatch": "Dispatch",
+    "u_DistantSkyLight": "DistantSkyLightTexture",
+    "u_DrawFloats": "DrawFloats",
+    "u_DrawLayout": "DrawLayoutData",
+    "u_Draws": "Draws",
+    "u_Dt": "DeltaTime",
+    "u_EdgesTex": "EdgesTexture",
+    "u_Emissive": "EmissiveCounts",
+    "u_EmissiveDynamic": "EmissiveDynamicCounts",
+    "u_EmissiveTexture": "EmissiveTexture",
+    "u_EmitterPos": "EmitterPosition",
+    "u_EmptyCount": "EmptyCount",
+    "u_EnableFlickeringHeuristic": "EnableFlickeringHeuristic",
+    "u_Entries": "Entries",
+    "u_EnvIrradianceTex": "EnvironmentIrradianceTexture",
+    "u_EnvSpecularTex": "EnvironmentSpecularTexture",
+    "u_Estimator": "EstimatorParams",
+    "u_Exposure": {
+      "rest": "ExposureTexture",
+      "scopes": [
+        {
+          "new": "Exposure",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Clouds/CloudComposite.shader",
+            "Editor/Resources/Shaders/Programs/Composite/SceneComposite.shader",
+            "Desert/Desert/Source/Engine/Graphic/Materials/Clouds/MaterialCloudComposite.hpp",
+            "Desert/Desert/Source/Engine/Graphic/Materials/PostProcessing/MaterialTonemap.hpp"
+          ]
+        }
+      ]
+    },
+    "u_ExposureKey": "ExposureKey",
+    "u_FaceNegX": "FaceNegativeXTexture",
+    "u_FaceNegY": "FaceNegativeYTexture",
+    "u_FaceNegZ": "FaceNegativeZTexture",
+    "u_FacePosX": "FacePositiveXTexture",
+    "u_FacePosY": "FacePositiveYTexture",
+    "u_FacePosZ": "FacePositiveZTexture",
+    "u_FaceProbe": "FaceProbe",
+    "u_FaceViewProjection": "FaceViewProjection",
+    "u_FarField": "FarField",
+    "u_Feedback": "FeedbackData",
+    "u_Field": "FieldData",
+    "u_FilterRadius": "FilterRadius",
+    "u_FirstBrick": "FirstBrick",
+    "u_FirstLayer": "FirstLayer",
+    "u_FirstPass": "FirstPass",
+    "u_Flags": "LightingFlags",
+    "u_Flare": "FlareTexture",
+    "u_FlareSource": "FlareSourceTexture",
+    "u_Flat": "FlattenedVelocityTexture",
+    "u_FlickeringFramePeriod": "FlickeringFramePeriod",
+    "u_FlickeringLuma": "FlickeringLumaTexture",
+    "u_FocalDistanceMm": "FocalDistanceMm",
+    "u_FocalLengthMm": "FocalLengthMm",
+    "u_FogAmbient": "FogAmbient",
+    "u_FogApply": "FogApplyTexture",
+    "u_FogDirectional": "FogDirectional",
+    "u_FogInscattering": "FogInscattering",
+    "u_FogLayer0": "FogLayer0",
+    "u_FogLayer1": "FogLayer1",
+    "u_FogSun": "FogSun",
+    "u_Foreground": "ForegroundTexture",
+    "u_Frame": "Frame",
+    "u_FrameIndex": "FrameIndex",
+    "u_Free": "Free",
+    "u_FrontLayerDepth": "FrontLayerDepthTexture",
+    "u_FrontLayerNormal": "FrontLayerNormalTexture",
+    "u_FrontLayerReflection": "FrontLayerReflectionTexture",
+    "u_GBufferA": "GBufferATexture",
+    "u_GBufferAlbedo": "GBufferAlbedoTexture",
+    "u_GBufferB": "GBufferBTexture",
+    "u_GBufferDepth": "GBufferDepthTexture",
+    "u_GBufferEmissive": "GBufferEmissiveTexture",
+    "u_GBufferNormal": "GBufferNormalTexture",
+    "u_GBufferShadingWord": "GBufferShadingWordTexture",
+    "u_GI": "Gi",
+    "u_GIBackface": "GiBackfaceTexture",
+    "u_GIBackfaceOut": "GiBackfaceOutTexture",
+    "u_GIDiffuse": "GiDiffuseTexture",
+    "u_GIDiffuseOut": "GiDiffuseOutTexture",
+    "u_GIHalfBackface": "GiHalfBackfaceTexture",
+    "u_GIHalfBackfaceOut": "GiHalfBackfaceOutTexture",
+    "u_GIHalfDiffuse": "GiHalfDiffuseTexture",
+    "u_GIHalfDiffuseOut": "GiHalfDiffuseOutTexture",
+    "u_GIHalfSpecular": "GiHalfSpecularTexture",
+    "u_GIHalfSpecularOut": "GiHalfSpecularOutTexture",
+    "u_GIInstanceSurfaceCacheRows": "GiInstanceSurfaceCacheRows",
+    "u_GISpecular": "GiSpecularTexture",
+    "u_GISpecularOut": "GiSpecularOutTexture",
+    "u_Gamma": "Gamma",
+    "u_GeometryTexture": "GeometryTexture",
+    "u_GhostParams": "GhostParams",
+    "u_GlobalDistanceField0": "GlobalDistanceField0Texture",
+    "u_GlobalDistanceField1": "GlobalDistanceField1Texture",
+    "u_GlobalDistanceField2": "GlobalDistanceField2Texture",
+    "u_GlobalDistanceField3": "GlobalDistanceField3Texture",
+    "u_GlobalDistanceFieldObjectGrid": "GlobalDistanceFieldObjectGridTexture",
+    "u_GlobalFilterSampler": "GlobalFilterSampler",
+    "u_GridCells": "GridCellsData",
+    "u_GuideOut": "GuideOutTexture",
+    "u_HZB": "HzbTexture",
+    "u_Half": "HalfResolutionColorCocTexture",
+    "u_HalfSize": "HalfSize",
+    "u_Header": "MorphHeader",
+    "u_Height": "Height",
+    "u_Heightmap": "HeightmapTexture",
+    "u_HeightmapSampler": "HeightmapTextureSampler",
+    "u_HighPct": "HighPercent",
+    "u_History": {
+      "scopes": [
+        {
+          "new": "AccumulatedSignalTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Denoise/*",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp"
+          ]
+        },
+        {
+          "new": "PreviousResolvedColorTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/TemporalAA/*",
+            "Desert/Desert/Source/Engine/Graphic/View/TemporalAA.cpp"
+          ]
+        },
+        {
+          "new": "HistoryWeight",
+          "files": [
+            "Editor/Resources/Shaders/Common/RadianceCacheState.glslh",
+            "Editor/Resources/Shaders/Programs/GlobalIllumination/*"
+          ]
+        },
+        {
+          "new": "CurrentHistoryTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/TemporalSuperResolution/*",
+            "Desert/Desert/Source/Engine/Graphic/View/TemporalSuperResolution.cpp",
+            "Desert/Desert/Source/Engine/Graphic/View/TemporalSuperResolution.hpp"
+          ]
+        }
+      ]
+    },
+    "u_HistoryB": "HistoryBTexture",
+    "u_HistoryCount": "HistoryCountTexture",
+    "u_HistoryG": "HistoryGTexture",
+    "u_HistoryHisteresis": "HistoryHysteresis",
+    "u_HistoryOut": "HistoryOutTexture",
+    "u_HistoryPreExposureCorrection": "HistoryPreExposureCorrection",
+    "u_HistoryR": "HistoryRTexture",
+    "u_HistoryRejection": "HistoryRejectionTexture",
+    "u_HistoryReservoirs": "HistoryReservoirsTexture",
+    "u_HistorySampleCount": "HistorySampleCount",
+    "u_HistorySize": "HistorySize",
+    "u_HistorySurface": "HistorySurfaceTexture",
+    "u_HistoryValid": "HistoryValid",
+    "u_Indices": "Indices",
+    "u_InfluenceRadius": "InfluenceRadius",
+    "u_Input": {
+      "scopes": [
+        {
+          "new": "SourceColorTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Deferred/Copy.shader",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/CopyRenderer.hpp"
+          ]
+        },
+        {
+          "new": "MultisampledColorTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Deferred/GraphColorResolve.shader",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp"
+          ]
+        },
+        {
+          "new": "RawSignalTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Denoise/*",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp"
+          ]
+        }
+      ]
+    },
+    "u_InputTexture": {
+      "scopes": [
+        {
+          "new": "SourceMipTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Compute/GenerateMipMap_2D.shader",
+            "Desert/Desert/Source/Engine/Graphic/ComputeImages.cpp"
+          ]
+        },
+        {
+          "new": "LdrSceneColorTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/FXAA/*",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/FXAARenderer.*"
+          ]
+        },
+        {
+          "new": "SeedMapTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/JFA/*",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/JumpFloodOutlineRenderer.cpp"
+          ]
+        }
+      ]
+    },
+    "u_InputToHistoryFactor": "InputToHistoryFactor",
+    "u_InstanceRemap": "InstanceRemap",
+    "u_Instances": {
+      "rest": "Instances",
+      "scopes": [
+        {
+          "new": "GrassInstancesData",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Grass/*"
+          ]
+        }
+      ]
+    },
+    "u_InvJitteredViewProjection": "InverseJitteredViewProjection",
+    "u_InvLogLumRange": "InverseLogLuminanceRange",
+    "u_InvPreExposure": "InversePreExposure",
+    "u_InvProjection": "InverseProjection",
+    "u_InvViewProjection": "InverseViewProjection",
+    "u_InvWeightClampingPixelSpeed": "InverseWeightClampingPixelSpeed",
+    "u_InverseViewProjection": "InverseViewProjection",
+    "u_JFATexture": "JumpFloodTexture",
+    "u_JitterUv": "JitterUv",
+    "u_JitteredViewProjection": "JitteredWorldToClip",
+    "u_Keys": "Keys",
+    "u_Layer": "GatheredLayerTexture",
+    "u_Layer0ARM": "Layer0ArmTexture",
+    "u_Layer0Albedo": "Layer0AlbedoTexture",
+    "u_Layer0Height": "Layer0HeightTexture",
+    "u_Layer0Normal": "Layer0NormalTexture",
+    "u_Layer1ARM": "Layer1ArmTexture",
+    "u_Layer1Albedo": "Layer1AlbedoTexture",
+    "u_Layer1Height": "Layer1HeightTexture",
+    "u_Layer1Normal": "Layer1NormalTexture",
+    "u_Layer2ARM": "Layer2ArmTexture",
+    "u_Layer2Albedo": "Layer2AlbedoTexture",
+    "u_Layer2Height": "Layer2HeightTexture",
+    "u_Layer2Normal": "Layer2NormalTexture",
+    "u_Layer3ARM": "Layer3ArmTexture",
+    "u_Layer3Albedo": "Layer3AlbedoTexture",
+    "u_Layer3Height": "Layer3HeightTexture",
+    "u_Layer3Normal": "Layer3NormalTexture",
+    "u_Layer4ARM": "Layer4ArmTexture",
+    "u_Layer4Albedo": "Layer4AlbedoTexture",
+    "u_Layer4Height": "Layer4HeightTexture",
+    "u_Layer4Normal": "Layer4NormalTexture",
+    "u_Layer5ARM": "Layer5ArmTexture",
+    "u_Layer5Albedo": "Layer5AlbedoTexture",
+    "u_Layer5Height": "Layer5HeightTexture",
+    "u_Layer5Normal": "Layer5NormalTexture",
+    "u_Layer6ARM": "Layer6ArmTexture",
+    "u_Layer6Albedo": "Layer6AlbedoTexture",
+    "u_Layer6Height": "Layer6HeightTexture",
+    "u_Layer6Normal": "Layer6NormalTexture",
+    "u_Layer7ARM": "Layer7ArmTexture",
+    "u_Layer7Albedo": "Layer7AlbedoTexture",
+    "u_Layer7Height": "Layer7HeightTexture",
+    "u_Layer7Normal": "Layer7NormalTexture",
+    "u_LayerARM": "LayerArmTexture",
+    "u_LayerARMSampler": "LayerArmTextureSampler",
+    "u_LayerAlbedo": "LayerAlbedoTexture",
+    "u_LayerAlbedoSampler": "LayerAlbedoTextureSampler",
+    "u_LayerHeight": "LayerHeightTexture",
+    "u_LayerHeightSampler": "LayerHeightTextureSampler",
+    "u_LayerNormal": "LayerNormalTexture",
+    "u_LayerNormalSampler": "LayerNormalTextureSampler",
+    "u_LensFlareTexture": "LensFlareTexture",
+    "u_LensFlareTintIntensity": "LensFlareTintIntensity",
+    "u_Level": "Level",
+    "u_Levels": "Levels",
+    "u_LightColor": "LightColor",
+    "u_LightDir": "LightDirection",
+    "u_LightShaftTexture": "LightShaftTexture",
+    "u_LightShaftTintIntensity": "LightShaftTintIntensity",
+    "u_LightViewProj": "LightViewProjection",
+    "u_LinearClampSampler": "LinearClampSampler",
+    "u_LinearRepeatSampler": "LinearRepeatSampler",
+    "u_Lines": "LinesData",
+    "u_List": "ListCounts",
+    "u_Lists": "Lists",
+    "u_LiveLayer": "LiveLayer",
+    "u_LocalShadowAtlas": "LocalShadowAtlasTexture",
+    "u_LogLumRange": "LogLuminanceRange",
+    "u_LowPct": "LowPercent",
+    "u_MarkPointHeader": "MarkPointHeader",
+    "u_MarkPoints": "MarkPointsData",
+    "u_Mask": {
+      "default": "MaskTexture",
+      "scopes": [
+        {
+          "new": "RawSignalTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Denoise/*",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp"
+          ]
+        },
+        {
+          "new": "ShaftMaskTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/LightShafts/*",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/LightShaftRenderer.cpp"
+          ]
+        },
+        {
+          "new": "MaskLayerTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/UI/*",
+            "Desert/Desert/Source/Engine/Graphic/Render2D/*"
+          ]
+        },
+        {
+          "new": "DirtyPageMask",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Shadows/*"
+          ]
+        }
+      ]
+    },
+    "u_Material": "Material",
+    "u_Materials": "MaterialRows",
+    "u_Matrix": "Matrix",
+    "u_MaxBrightness": "MaxBrightness",
+    "u_MaxDistance": "MaxDistance",
+    "u_MaxLuma": "MaxLuma",
+    "u_MaxMip": "MaxMip",
+    "u_MaxPixels": "MaxPixels",
+    "u_MaxProbes": "MaxProbes",
+    "u_MaxRadius": "MaxRadius",
+    "u_MegaLightsDiffuse": "MegaLightsDiffuseTexture",
+    "u_MegaLightsSpecular": "MegaLightsSpecularTexture",
+    "u_MegaLightsVolumeB": "MegaLightsVolumeBTexture",
+    "u_MegaLightsVolumeG": "MegaLightsVolumeGTexture",
+    "u_MegaLightsVolumeR": "MegaLightsVolumeRTexture",
+    "u_MinLogLum": "MinLogLuminance",
+    "u_MinLuma": "MinLuma",
+    "u_Mip": "Mip",
+    "u_MoireOut": "MoireOutTexture",
+    "u_MultiScatterLut": "MultiScatterLutTexture",
+    "u_NeighborMax": "NeighborMaxTexture",
+    "u_NewHistory": "NewHistoryTexture",
+    "u_NewHistoryCount": "NewHistoryCountTexture",
+    "u_NormalTexture": "NormalTexture",
+    "u_ORMTexture": "OrmTexture",
+    "u_ObjectGrid": "ObjectGridTexture",
+    "u_ObjectRows": "ObjectRows",
+    "u_OpacityTexture": "OpacityTexture",
+    "u_Out": "MorphedVertices",
+    "u_OutB": "OutBTexture",
+    "u_OutDiffuse": "OutDiffuseTexture",
+    "u_OutG": "OutGTexture",
+    "u_OutLum": "OutLuminanceTexture",
+    "u_OutR": "OutRTexture",
+    "u_OutReservoirs": "OutReservoirsTexture",
+    "u_OutSpecular": "OutSpecularTexture",
+    "u_OutSurface": "OutSurfaceTexture",
+    "u_OutlineColor": "OutlineColor",
+    "u_OutlineResult": "OutlineResultTexture",
+    "u_OutlineWidth": "OutlineWidth",
+    "u_Output": {
+      "default": "OutputTexture",
+      "scopes": [
+        {
+          "new": "DestinationMipTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Bloom/*",
+            "Editor/Resources/Shaders/Programs/Deferred/HZB.shader",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/BloomRenderer.cpp",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/BackdropBlurRenderer.hpp",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/HZBRenderer.hpp",
+            "Desert/Desert/Source/Engine/Graphic/RDG/RDGPassBindings.hpp",
+            "Desert/Tests/Engine/RenderGraphPassBindings/pass_bindings_contract_test.cpp",
+            "Desert/Tests/Engine/RenderGraphVulkan/render_graph_vulkan_pass_bindings_test.cpp"
+          ]
+        },
+        {
+          "new": "DenoisedSignalTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Denoise/SSDHistoryConvolution.shader",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp"
+          ]
+        },
+        {
+          "new": "RecombinedColorTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/DepthOfField/*",
+            "Desert/Desert/Source/Engine/Graphic/View/DepthOfField.cpp"
+          ]
+        },
+        {
+          "new": "BrightPassTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/LensFlare/*",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/LensFlareRenderer.cpp"
+          ]
+        },
+        {
+          "new": "BlurredShaftsTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/LightShafts/*",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/LightShaftRenderer.cpp"
+          ]
+        },
+        {
+          "new": "RgbFrameTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Media/*",
+            "Desert/Desert/Source/Engine/Media/*"
+          ]
+        },
+        {
+          "new": "BlurredSceneColorTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/MotionBlur/*",
+            "Desert/Desert/Source/Engine/Graphic/View/MotionBlur.cpp"
+          ]
+        },
+        {
+          "new": "DestinationCubeTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/ReflectionCapture/*",
+            "Desert/Desert/Source/Engine/Graphic/ReflectionCaptures/*"
+          ]
+        },
+        {
+          "new": "ResolvedColorTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/TemporalAA/TemporalAA.shader",
+            "Desert/Desert/Source/Engine/Graphic/View/TemporalAA.cpp"
+          ]
+        },
+        {
+          "new": "OutputTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/TemporalSuperResolution/*",
+            "Desert/Desert/Source/Engine/Graphic/View/TemporalSuperResolution.cpp",
+            "Desert/Desert/Source/Engine/Graphic/View/TemporalSuperResolution.hpp"
+          ]
+        },
+        {
+          "new": "DestinationCubeTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Compute/SkyCapture*",
+            
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyCapture*"
+          ]
+        }
+      ]
+    },
+    "u_OutputSize": "OutputSize",
+    "u_OutputTexture": "DestinationMipTexture",
+    "u_Overdraw": "OverdrawTexture",
+    "u_Overflow": "Overflow",
+    "u_Owners": "Owners",
+    "u_Pad": "Pad",
+    "u_Pad0": "Pad0",
+    "u_Pad1": "Pad1",
+    "u_Pad2": "Pad2",
+    "u_Palettes": "Palettes",
+    "u_Params": {
+      "rest": "Params",
+      "scopes": [
+        {
+          "new": "GrassParamsData",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Grass/*"
+          ]
+        }
+      ]
+    },
+    "u_Pass": "CullPass",
+    "u_PhysicalPool": "PhysicalPoolTexture",
+    "u_PlaneU": "PlaneUTexture",
+    "u_PlaneV": "PlaneVTexture",
+    "u_PlaneY": "PlaneYTexture",
+    "u_PointClampSampler": "PointClampSampler",
+    "u_Points": "DiffusePoints",
+    "u_Pool": "Pool",
+    "u_PoolSlots": "PoolSlotsData",
+    "u_PreExposure": "PreExposure",
+    "u_PreExposurePad": "PreExposurePad",
+    "u_PrevAtomic": "PreviousAtomicData",
+    "u_PrevCoverage": "PreviousCoverageTexture",
+    "u_PrevGuide": "PreviousGuideTexture",
+    "u_PrevHistory": "PreviousHistoryTexture",
+    "u_PrevInvProjection": "PreviousInverseProjection",
+    "u_PrevLum": "PreviousLuminanceTexture",
+    "u_PrevMoire": "PreviousMoireTexture",
+    "u_PrevView": "PreviousView",
+    "u_PrevViewProjection": "PreviousViewProjection",
+    "u_PrevZParams": "PreviousZParams",
+    "u_Projection": "Projection",
+    "u_Radiance": "RadianceTexture",
+    "u_RadianceCacheDepth": "RadianceCacheDepthTexture",
+    "u_RadianceCacheDepthOut": "RadianceCacheDepthOutTexture",
+    "u_RadianceCacheIrradiance": "RadianceCacheIrradianceTexture",
+    "u_RadianceCacheIrradianceOut": "RadianceCacheIrradianceOutTexture",
+    "u_RadianceCacheRadiance": "RadianceCacheRadianceTexture",
+    "u_RadianceCacheRadianceAtlas": "RadianceCacheRadianceAtlasTexture",
+    "u_RainOcclusionMap": "RainOcclusionMapTexture",
+    "u_RainOcclusionParams": "RainOcclusionParams",
+    "u_RainOcclusionSampler": "RainOcclusionSampler",
+    "u_RainOcclusionWorldToMap": "RainOcclusionWorldToMap",
+    "u_Range": "SortRange",
+    "u_RasterLevel": "RasterLevel",
+    "u_RayHitRecord": "RayHitRecord",
+    "u_RayTracingGeometry": "RayTracingGeometry",
+    "u_RayTracingMaterials": "RayTracingMaterials",
+    "u_Reach": "Reach",
+    "u_Readback": "ReadbackData",
+    "u_ReconstructedGuide": "ReconstructedGuideTexture",
+    "u_ReconstructedScatter": "ReconstructedScatterTexture",
+    "u_Reconstruction": "Reconstruction",
+    "u_ReflectionCaptureCubes": "ReflectionCaptureCubesTexture",
+    "u_ReflectionCaptureHeader": "ReflectionCaptureHeader",
+    "u_ReflectionCaptures": "ReflectionCaptures",
+    "u_ReflectionRay": "ReflectionRayTexture",
+    "u_Remap": "Remap",
+    "u_RenderSize": "RenderSize",
+    "u_ReprojectedCoverage": "ReprojectedCoverageTexture",
+    "u_ReprojectedGuide": "ReprojectedGuideTexture",
+    "u_ReprojectedMoire": "ReprojectedMoireTexture",
+    "u_ReprojectionBoundary": "ReprojectionBoundaryTexture",
+    "u_ReprojectionField": "ReprojectionField",
+    "u_ReprojectionFieldAntiAliasVelocityThreshold": "ReprojectionFieldAntiAliasVelocityThreshold",
+    "u_ReprojectionJacobian": "ReprojectionJacobianTexture",
+    "u_Reserved0": "Reserved0",
+    "u_Reserved1": "Reserved1",
+    "u_Reserved2": "Reserved2",
+    "u_Reservoirs": "ReservoirsTexture",
+    "u_Reset": "Reset",
+    "u_ResponsiveAA": "ResponsiveAaTexture",
+    "u_ResurrectedGuide": "ResurrectedGuideTexture",
+    "u_ResurrectionEnabled": "ResurrectionEnabled",
+    "u_ResurrectionGuide": "ResurrectionGuideTexture",
+    "u_ResurrectionHistory": "ResurrectionHistoryTexture",
+    "u_ResurrectionPreExposureCorrection": "ResurrectionPreExposureCorrection",
+    "u_Rings": "Rings",
+    "u_SDFAtlas": "SdfAtlasTexture",
+    "u_SDFAtlasSampler": "SdfAtlasTextureSampler",
+    "u_SSAO": "SsaoTexture",
+    "u_SSAOParams": "SsaoParams",
+    "u_SSR": "SsrTexture",
+    "u_SSRParams": "SsrParams",
+    "u_SSRParams2": "SsrParams2",
+    "u_SSRParams3": "SsrParams3",
+    "u_Samples": "Samples",
+    "u_Scene": "SceneColorTexture",
+    "u_SceneColor": "SceneColorTexture",
+    "u_SceneColorHistory": "SceneColorHistoryTexture",
+    "u_SceneDepth": "SceneDepthTexture",
+    "u_SceneShadingWord": "SceneShadingWordTexture",
+    "u_SceneTLAS": "SceneTlas",
+    "u_SceneTexture": "SceneColorTexture",
+    "u_ScreenProbeBackfaceOut": "ScreenProbeBackfaceOutTexture",
+    "u_ScreenProbeDiffuseHistory": "ScreenProbeDiffuseHistoryTexture",
+    "u_ScreenProbeDiffuseOut": "ScreenProbeDiffuseOutTexture",
+    "u_ScreenProbeFiltered": "ScreenProbeFilteredTexture",
+    "u_ScreenProbeSpecularHistory": "ScreenProbeSpecularHistoryTexture",
+    "u_ScreenProbeSpecularOut": "ScreenProbeSpecularOutTexture",
+    "u_ScreenProbeTraced": "ScreenProbeTracedTexture",
+    "u_ScreenShadowMask": "ScreenShadowMaskTexture",
+    "u_ScreenSpaceGI": "ScreenSpaceGi",
+    "u_SearchTex": "SearchTexture",
+    "u_ShadowCascades": "ShadowCascadesTexture",
+    "u_ShadowFilter": "ShadowFilter",
+    "u_ShadowMask": "ShadowMaskTexture",
+    "u_ShadowOccluder": "ShadowOccluderTexture",
+    "u_ShadowParams": "ShadowParams",
+    "u_ShortRangeAO": "ShortRangeAoTexture",
+    "u_ShortRangeAOOut": "ShortRangeAoOutTexture",
+    "u_Signal": "ReconstructedSignalTexture",
+    "u_Size": "RenderSize",
+    "u_Sky": "SkyParams",
+    "u_SkyGain": "SkyGain",
+    "u_SkyPacked": "SkyPackedData",
+    "u_SkyRadiance": "SkyRadianceTexture",
+    "u_SkyViewLut": "SkyViewLutTexture",
+    "u_SkyYawCosSin": "SkyYawCosSin",
+    "u_Slots": "Slots",
+    "u_Smoothness": "Smoothness",
+    "u_Sorted": "Sorted",
+    "u_Source": {
+      "default": "SourceTexture",
+      "scopes": [
+        {
+          "new": "SourceMipTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Bloom/*",
+            "Editor/Resources/Shaders/Programs/Deferred/HZB.shader",
+            "Editor/Resources/Shaders/Programs/LensFlare/*",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/BloomRenderer.cpp",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/BackdropBlurRenderer.hpp",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/HZBRenderer.hpp",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/LensFlareRenderer.cpp",
+            "Desert/Tests/Engine/RenderGraphPassBindings/pass_bindings_contract_test.cpp",
+            "Desert/Tests/Engine/RenderGraphVulkan/render_graph_vulkan_pass_bindings_test.cpp"
+          ]
+        },
+        {
+          "new": "ShaftMaskTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/LightShafts/*",
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/PostProcessing/LightShaftRenderer.cpp"
+          ]
+        },
+        {
+          "new": "SourceCubeTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/ReflectionCapture/*",
+            "Desert/Desert/Source/Engine/Graphic/ReflectionCaptures/*"
+          ]
+        },
+        {
+          "new": "SourceColorTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/TemporalAA/*",
+            "Desert/Desert/Source/Engine/Graphic/View/SpatialUpscale.cpp",
+            "Desert/Desert/Source/Engine/Graphic/View/TemporalUpscaler.cpp"
+          ]
+        },
+        {
+          "new": "SourceCubeMipTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Compute/SkyCapture*",
+            
+            "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyCapture*"
+          ]
+        },
+        {
+          "new": "PersistentSourceTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/TemporalSuperResolution/*",
+            "Desert/Desert/Source/Engine/Graphic/View/TemporalSuperResolution.cpp",
+            "Desert/Desert/Source/Engine/Graphic/View/TemporalSuperResolution.hpp"
+          ]
+        }
+      ]
+    },
+    "u_SourceHeight": "SourceHeight",
+    "u_SourceWidth": "SourceWidth",
+    "u_SpecularAlbedo": "SpecularAlbedoTexture",
+    "u_SpecularHitDistance": "SpecularHitDistanceTexture",
+    "u_SrcTexelSize": "SourceTexelSize",
+    "u_Stack": "Stack",
+    "u_StackCurves": "StackCurvesData",
+    "u_StackParams": "StackParamsData",
+    "u_StagingLayer": "StagingLayer",
+    "u_StencilTexture": "StencilTexture",
+    "u_Step": "Step",
+    "u_StepLength": "StepLength",
+    "u_Steps": "Steps",
+    "u_Streak": "StreakParams",
+    "u_Streams": "Streams",
+    "u_SubPixelOffset": "SubPixelOffset",
+    "u_Sun": "SunParams",
+    "u_SunContactShadow": "SunContactShadow",
+    "u_SunUV": "SunUv",
+    "u_SunUvHalo": "SunUvHalo",
+    "u_SurfaceCacheDepth": "SurfaceCacheDepthTexture",
+    "u_SurfaceCacheFinalLighting": "SurfaceCacheFinalLightingTexture",
+    "u_SurfaceCacheOpacity": "SurfaceCacheOpacityTexture",
+    "u_T": "CurrentTerrain",
+    "u_Terrains": "Terrains",
+    "u_Texture": {
+      "default": "Texture",
+      "scopes": [
+        {
+          "new": "FinalColorTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Composite/SwapchainBlit.shader",
+            "Runtime/Source/RuntimeLayer.cpp"
+          ]
+        },
+        {
+          "new": "ElementTexture",
+          "files": [
+            "Editor/Resources/Shaders/Programs/UI/*",
+            "Desert/Desert/Source/Engine/Graphic/Render2D/*"
+          ]
+        }
+      ]
+    },
+    "u_TextureSampler": "ElementTextureSampler",
+    "u_ThinGeometry": "ThinGeometryTexture",
+    "u_ThinGeometryCoverage": "ThinGeometryCoverageTexture",
+    "u_ThinGeometryDetection": "ThinGeometryDetection",
+    "u_ThinGeometryFrameIndex": "ThinGeometryFrameIndex",
+    "u_Threshold": "Threshold",
+    "u_Tile": "Tile",
+    "u_TileCount": "TileCount",
+    "u_TileMask": "TileMaskTexture",
+    "u_TileMax": "TileMaxTexture",
+    "u_Tiles": {
+      "rest": "TilesTexture",
+      "scopes": [
+        {
+          "new": "WaterTileRows",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Water/*"
+          ]
+        }
+      ]
+    },
+    "u_TintInner": "TintInner",
+    "u_TintOuter": "TintOuter",
+    "u_TonemapOperator": "TonemapOperator",
+    "u_Trace": "SsrTraceTexture",
+    "u_TraceParams": "TraceParams",
+    "u_TraceRay": "TraceRayTexture",
+    "u_TransmittanceLut": "TransmittanceLutTexture",
+    "u_Unsorted": "UnsortedData",
+    "u_UnusedFrames": "UnusedFrames",
+    "u_UpdateBricks": "UpdateBricks",
+    "u_Velocity": "VelocityTexture",
+    "u_VelocityScale": "VelocityScale",
+    "u_Vertices": "Vertices",
+    "u_View": "View",
+    "u_ViewForward": "ViewForward",
+    "u_ViewOrigin": "ViewOrigin",
+    "u_ViewProj": "ViewProjection",
+    "u_ViewProjection": "ViewProjection",
+    "u_VolumeParams": "VolumeParams",
+    "u_VoxelSize": "VoxelSize",
+    "u_Weight": "StagingWeight",
+    "u_WeightClampingPixelSpeedAmplitude": "WeightClampingPixelSpeedAmplitude",
+    "u_WeightClampingRejection": "WeightClampingRejection",
+    "u_Weightmap": "WeightmapTexture",
+    "u_WeightmapSampler": "WeightmapTextureSampler",
+    "u_WhitePoint": "WhitePoint",
+    "u_Width": "Width",
+    "u_WindowRadius": "WindowRadius",
+    "u_ZParams": "ZParams"
+  }
+}

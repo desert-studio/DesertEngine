@@ -51,6 +51,7 @@ namespace Desert::Editor
              { "World Parameters", static_cast<int>( FileType::WorldParameters ) },
              { "Weather Presets", static_cast<int>( FileType::WeatherPreset ) },
              { "VFX Data Channels", static_cast<int>( FileType::VFXDataChannel ) },
+             { "VFX Effect Types", static_cast<int>( FileType::VFXEffectType ) },
         };
     } // namespace
 

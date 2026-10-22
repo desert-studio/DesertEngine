@@ -390,8 +390,11 @@ namespace Desert::Core::Rules
     {
         if ( !scene.WorldPartition.has_value() )
             return Common::MakeSuccess( std::optional<ResidencyExecutor>() );
-        auto begun = ResidencyExecutor::Begin( PlanWorldPartition( scene.Entities, *scene.WorldPartition, bounds ),
-                                               *scene.WorldPartition, scene.Entities, settings, sources, world );
+        WorldPartitionPlan plan = PlanWorldPartition( scene.Entities, *scene.WorldPartition, bounds );
+        // Play names what the planner refused exactly as the cook does (ReportPlanIssues).
+        ReportPlanIssues( plan, scene.SceneName );
+        auto begun = ResidencyExecutor::Begin( std::move( plan ), *scene.WorldPartition, scene.Entities, settings,
+                                               sources, world );
         if ( !begun.IsSuccess() )
             return Common::MakeError<std::optional<ResidencyExecutor>>( "'" + scene.SceneName +
                                                                         "': " + begun.GetError() );

@@ -7,7 +7,7 @@
 // (Worlds/World_Grid8km.desce, 1024 floor cubes on `M_CheckerFloor.demat`):
 //
 //   | knob                                   | before          | after                  |
-//   | replace u_AlbedoTexture's handle       | 0 / 0 / 0       | 317 852 / 436 601 /    |
+//   | replace AlbedoTexture's handle       | 0 / 0 / 0       | 317 852 / 436 601 /    |
 //   | (street / mid / altitude, of 560 560)  |                 | 547 802                |
 //   | UVTiling 500 -> 1                      | 0 / 0 / 0       | 313 064 / 434 787 /    |
 //   |                                        |                 | 546 609                |
@@ -42,7 +42,7 @@ using Desert::Graphic::SelectInstancedRecorder;
 
 // THE ROW THE DEFECT WAS. A group whose material came from a `.demat` and whose instanced sibling was
 // built must be recorded by that sibling. Answering `RendererSpare` here is precisely what drew 1024
-// floor cubes with a white 1x1 in `u_AlbedoTexture`, and it is what this expectation forbids.
+// floor cubes with a white 1x1 in `AlbedoTexture`, and it is what this expectation forbids.
 TEST( InstancedRecorder, AnAssetBackedGroupIsRecordedByItsOwnVariant )
 {
     EXPECT_EQ( SelectInstancedRecorder( /*groupHasAsset=*/true, /*assetVariantBuilt=*/true ),

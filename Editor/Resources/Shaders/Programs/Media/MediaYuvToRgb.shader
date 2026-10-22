@@ -13,43 +13,43 @@ Shader "MediaYuvToRgb"
 
         // Separate textures read by texelFetch only; the shared state at 4 exists because GLSL fetches through a
         // sampler (MediaTexture binds PointClamp there).
-        Uniform(0) texture2D u_PlaneY;
-        Uniform(1) texture2D u_PlaneU; // bound to Y when the frame is luma-only (u_Params.w == 1)
-        Uniform(2) texture2D u_PlaneV;
-        Uniform(4) sampler u_PointClampSampler;
-        #define u_PlaneY sampler2D(u_PlaneY, u_PointClampSampler)
-        #define u_PlaneU sampler2D(u_PlaneU, u_PointClampSampler)
-        #define u_PlaneV sampler2D(u_PlaneV, u_PointClampSampler)
-        layout(binding = 3, rgba8) writeonly uniform image2D u_Output;
+        Uniform(0) texture2D PlaneYTexture;
+        Uniform(1) texture2D PlaneUTexture; // bound to Y when the frame is luma-only (Params.w == 1)
+        Uniform(2) texture2D PlaneVTexture;
+        Uniform(4) sampler PointClampSampler;
+        #define PlaneYTexture sampler2D(PlaneYTexture, PointClampSampler)
+        #define PlaneUTexture sampler2D(PlaneUTexture, PointClampSampler)
+        #define PlaneVTexture sampler2D(PlaneVTexture, PointClampSampler)
+        layout(binding = 3, rgba8) writeonly uniform image2D RgbFrameTexture;
 
         PushConstant PushConstants
         {
-            vec4 u_Matrix; // x = Kr, y = Kb, z = sample scale (65535 / (2^bitDepth - 1), 1 for 8-bit), w = full range
-            vec4 u_Params; // w = luma only (I400)
+            vec4 Matrix; // x = Kr, y = Kb, z = sample scale (65535 / (2^bitDepth - 1), 1 for 8-bit), w = full range
+            vec4 Params; // w = luma only (I400)
         };
 
         void main()
         {
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
-            ivec2 size  = imageSize(u_Output);
+            ivec2 size  = imageSize(RgbFrameTexture);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
-            float scale = u_Matrix.z;
-            float y     = texelFetch(u_PlaneY, coord, 0).r * scale;
+            float scale = Matrix.z;
+            float y     = texelFetch(PlaneYTexture, coord, 0).r * scale;
             float cb    = 0.5;
             float cr    = 0.5;
-            if (u_Params.w < 0.5)
+            if (Params.w < 0.5)
             {
                 // Chroma planes may be subsampled (4:2:0, 4:2:2) or not (4:4:4): the plane's own size
                 // relative to luma says which, so one shader serves all three layouts.
-                ivec2 chromaSize  = textureSize(u_PlaneU, 0);
-                ivec2 chromaCoord = min(coord * chromaSize / textureSize(u_PlaneY, 0), chromaSize - 1);
-                cb = texelFetch(u_PlaneU, chromaCoord, 0).r * scale;
-                cr = texelFetch(u_PlaneV, chromaCoord, 0).r * scale;
+                ivec2 chromaSize  = textureSize(PlaneUTexture, 0);
+                ivec2 chromaCoord = min(coord * chromaSize / textureSize(PlaneYTexture, 0), chromaSize - 1);
+                cb = texelFetch(PlaneUTexture, chromaCoord, 0).r * scale;
+                cr = texelFetch(PlaneVTexture, chromaCoord, 0).r * scale;
             }
 
-            if (u_Matrix.w < 0.5)
+            if (Matrix.w < 0.5)
             {
                 // Limited ("studio") range: luma 16..235, chroma 16..240 in 8-bit code values.
                 y  = (y - 16.0 / 255.0) * (255.0 / 219.0);
@@ -62,14 +62,14 @@ Shader "MediaYuvToRgb"
                 cr -= 128.0 / 255.0;
             }
 
-            float kr = u_Matrix.x;
-            float kb = u_Matrix.y;
+            float kr = Matrix.x;
+            float kb = Matrix.y;
             float kg = 1.0 - kr - kb;
             float r  = y + 2.0 * (1.0 - kr) * cr;
             float b  = y + 2.0 * (1.0 - kb) * cb;
             float g  = (y - kr * r - kb * b) / kg;
 
-            imageStore(u_Output, coord, vec4(clamp(vec3(r, g, b), 0.0, 1.0), 1.0));
+            imageStore(RgbFrameTexture, coord, vec4(clamp(vec3(r, g, b), 0.0, 1.0), 1.0));
         }
     }
 }

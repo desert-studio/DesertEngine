@@ -65,8 +65,8 @@ struct SkyConfig
 //
 // A pass declares its own buffer at its own binding, copies it into a SkyPacked, and calls the loaders:
 //
-//   ReadBuffer(1) SkyBuffer { vec4 u_SkyPacked[SKY_PACKED_VEC4_COUNT]; };
-//   SkyPacked s; for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i) s.v[i] = u_SkyPacked[i];
+//   ReadBuffer(1) SkyBuffer { vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT]; };
+//   SkyPacked s; for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i) s.v[i] = SkyPackedData[i];
 //   vec3 color = EvaluateSky( dir, UnpackSunDirection(s), UnpackSunIntensity(s),
 //                             UnpackSunAngularRadius(s), UnpackSkyConfig(s) );
 //

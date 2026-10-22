@@ -17,17 +17,17 @@
 // and the emitter's alive list - nothing else of the particle system.
 layout( std430, binding = 9 ) readonly buffer AttributeFloats
 {
-    float u_DrawFloats[];
+    float DrawFloats[];
 };
 
 layout( std430, binding = 10 ) readonly buffer AliveList
 {
-    uint u_Alive[];
+    uint AliveData[];
 };
 
 layout( std430, binding = 11 ) readonly buffer DrawLayout
 {
-    ParticleDrawLayout u_DrawLayout;
+    ParticleDrawLayout DrawLayoutData;
 };
 
 #include <Common/ParticleDrawRead.glslh>
@@ -43,7 +43,7 @@ layout( location = 13 ) out flat vec2 v_ParticleTimeRandom; // x = relative time
 void main()
 {
     const uint corner = uint( gl_VertexIndex ) % 6u;
-    const uint index  = u_Alive[uint( gl_VertexIndex ) / 6u]; // a pool index
+    const uint index  = AliveData[uint( gl_VertexIndex ) / 6u]; // a pool index
     const uint n      = ParticleLocalIndex( index );            // its row in the emitter's columns
 
     const vec3  position = ParticleWorldPosition( n );

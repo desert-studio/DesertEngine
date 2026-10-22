@@ -54,20 +54,20 @@ Shader "SurfaceCacheIndirectLighting"
         {
             SurfaceCard surfaceCards[];
         };
-        Uniform sampler u_LinearClampSampler;
-        Uniform sampler u_PointClampSampler;
-        Uniform(3) texture2D u_AtlasDepth;
-        #define u_AtlasDepth sampler2D(u_AtlasDepth, u_PointClampSampler)
-        Uniform(4) texture2D u_AtlasAlbedo;
-        #define u_AtlasAlbedo sampler2D(u_AtlasAlbedo, u_PointClampSampler)
-        Uniform(5) texture2D u_AtlasOpacity;
-        #define u_AtlasOpacity sampler2D(u_AtlasOpacity, u_PointClampSampler)
-        Uniform(6) texture2D u_AtlasNormal;
-        #define u_AtlasNormal sampler2D(u_AtlasNormal, u_PointClampSampler)
-        Uniform(7) texture2D u_AtlasEmissive;
-        #define u_AtlasEmissive sampler2D(u_AtlasEmissive, u_PointClampSampler)
-        Uniform(8) texture2D u_AtlasDirectLighting;
-        #define u_AtlasDirectLighting sampler2D(u_AtlasDirectLighting, u_PointClampSampler)
+        Uniform sampler LinearClampSampler;
+        Uniform sampler PointClampSampler;
+        Uniform(3) texture2D AtlasDepthTexture;
+        #define AtlasDepthTexture sampler2D(AtlasDepthTexture, PointClampSampler)
+        Uniform(4) texture2D AtlasAlbedoTexture;
+        #define AtlasAlbedoTexture sampler2D(AtlasAlbedoTexture, PointClampSampler)
+        Uniform(5) texture2D AtlasOpacityTexture;
+        #define AtlasOpacityTexture sampler2D(AtlasOpacityTexture, PointClampSampler)
+        Uniform(6) texture2D AtlasNormalTexture;
+        #define AtlasNormalTexture sampler2D(AtlasNormalTexture, PointClampSampler)
+        Uniform(7) texture2D AtlasEmissiveTexture;
+        #define AtlasEmissiveTexture sampler2D(AtlasEmissiveTexture, PointClampSampler)
+        Uniform(8) texture2D AtlasDirectLightingTexture;
+        #define AtlasDirectLightingTexture sampler2D(AtlasDirectLightingTexture, PointClampSampler)
         ReadBuffer(9) RadianceCacheParamsUB
         {
             RadianceCacheParams radianceCache;
@@ -80,13 +80,13 @@ Shader "SurfaceCacheIndirectLighting"
         {
             RadianceCacheProbe radianceCacheProbes[];
         };
-        Uniform(12) texture2D u_RadianceCacheIrradiance;
-        #define u_RadianceCacheIrradiance sampler2D(u_RadianceCacheIrradiance, u_LinearClampSampler)
-        Uniform(13) texture2D u_RadianceCacheDepth;
-        #define u_RadianceCacheDepth sampler2D(u_RadianceCacheDepth, u_LinearClampSampler)
+        Uniform(12) texture2D RadianceCacheIrradianceTexture;
+        #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
+        Uniform(13) texture2D RadianceCacheDepthTexture;
+        #define RadianceCacheDepthTexture sampler2D(RadianceCacheDepthTexture, LinearClampSampler)
         // The light the texel lets through (rgb); 0 = opaque (SurfaceCacheCardCopy).
-        Uniform(14) texture2D u_AtlasSubsurface;
-        #define u_AtlasSubsurface sampler2D(u_AtlasSubsurface, u_PointClampSampler)
+        Uniform(14) texture2D AtlasSubsurfaceTexture;
+        #define AtlasSubsurfaceTexture sampler2D(AtlasSubsurfaceTexture, PointClampSampler)
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>
@@ -110,7 +110,7 @@ Shader "SurfaceCacheIndirectLighting"
         void main()
         {
             const ivec2 atlasTexel = ivec2(gl_FragCoord.xy);
-            if (texelFetch(u_AtlasOpacity, atlasTexel, 0).r < 0.5)
+            if (texelFetch(AtlasOpacityTexture, atlasTexel, 0).r < 0.5)
             {
                 oIndirect = vec4(0.0);
                 oFinal    = vec4(0.0);
@@ -119,23 +119,23 @@ Shader "SurfaceCacheIndirectLighting"
             // The texel's world position and normal, exactly as the direct lighting places them.
             const SurfaceCard card = surfaceCards[v_CardIndex];
             const vec2  res        = vec2(uvec2(1u << (card.info.x & 0xFFu), 1u << ((card.info.x >> 8u) & 0xFFu)));
-            const vec2  atlasSize  = vec2(textureSize(u_AtlasOpacity, 0));
+            const vec2  atlasSize  = vec2(textureSize(AtlasOpacityTexture, 0));
             const ivec2 pageOrigin = ivec2(v_AtlasUVRect.xy * atlasSize + 0.5);
             const vec2  cardTexel  = floor(v_CardUVRect.xy * res + 0.5) + vec2(atlasTexel - pageOrigin) + 0.5;
             const vec2  uv         = cardTexel / res;
             const vec2  local      = vec2(2.0 * uv.x - 1.0, 1.0 - 2.0 * uv.y) * card.localExtent.xy;
             const vec3  origin = vec3(card.worldToLocal[0].w, card.worldToLocal[1].w, card.worldToLocal[2].w);
-            const float depth  = texelFetch(u_AtlasDepth, atlasTexel, 0).r;
+            const float depth  = texelFetch(AtlasDepthTexture, atlasTexel, 0).r;
             const vec3 worldPos = origin + card.worldToLocal[0].xyz * local.x + card.worldToLocal[1].xyz * local.y +
                                   card.worldToLocal[2].xyz * (card.localExtent.z - depth * 2.0 * card.localExtent.z);
-            const vec3 N = OctahedronToUnitVector(texelFetch(u_AtlasNormal, atlasTexel, 0).rg * 2.0 - 1.0);
+            const vec3 N = OctahedronToUnitVector(texelFetch(AtlasNormalTexture, atlasTexel, 0).rg * 2.0 - 1.0);
 
             // The texel is seen from its own normal (no viewer): the cache's surface bias leaves along it.
             const vec4 irradiance = RadianceCacheIrradianceAt(worldPos, N, N, 0.5);
-            const vec3 albedo     = texelFetch(u_AtlasAlbedo, atlasTexel, 0).rgb;
+            const vec3 albedo     = texelFetch(AtlasAlbedoTexture, atlasTexel, 0).rgb;
             vec3       indirect   = irradiance.a > 0.0 ? albedo * max(irradiance.rgb, vec3(0.0)) : vec3(0.0);
             // The far side of a leaf, read the same way from -N.
-            const vec3 subsurface = texelFetch(u_AtlasSubsurface, atlasTexel, 0).rgb;
+            const vec3 subsurface = texelFetch(AtlasSubsurfaceTexture, atlasTexel, 0).rgb;
             if (max(subsurface.r, max(subsurface.g, subsurface.b)) > 0.0)
             {
                 const vec4 back = RadianceCacheIrradianceAt(worldPos, -N, -N, 0.5);
@@ -143,8 +143,8 @@ Shader "SurfaceCacheIndirectLighting"
                     indirect += subsurface * max(back.rgb, vec3(0.0));
             }
 
-            const vec3 emissive = texelFetch(u_AtlasEmissive, atlasTexel, 0).rgb;
-            const vec3 direct   = texelFetch(u_AtlasDirectLighting, atlasTexel, 0).rgb;
+            const vec3 emissive = texelFetch(AtlasEmissiveTexture, atlasTexel, 0).rgb;
+            const vec3 direct   = texelFetch(AtlasDirectLightingTexture, atlasTexel, 0).rgb;
             oIndirect = vec4(indirect, 0.0);
             oFinal    = vec4(direct + indirect + emissive, 0.0);
         }

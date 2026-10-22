@@ -142,6 +142,41 @@ namespace Desert::Graphic::DistanceField
                                                          size, wrote.GetError() );
             return BOOLSUCCESS;
         }
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct MeshSDFCullShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, MeshSDFCullParamsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, DFObjects );
+            DESERT_SHADER_PARAMETER( StorageBuffer, DFAssetData );
+            DESERT_SHADER_PARAMETER( StorageBuffer, MeshSDFCulledObjectsUB );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct MeshSDFGridShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, MeshSDFCullParamsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, DFObjects );
+            DESERT_SHADER_PARAMETER( StorageBuffer, MeshSDFCulledObjectsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, MeshSDFGridCellsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, MeshSDFGridUnsortedUB );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct MeshSDFGridOffsetsShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, MeshSDFCullParamsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, MeshSDFGridCellsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, MeshSDFCullFeedbackUB );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct MeshSDFGridSortShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, MeshSDFCullParamsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, MeshSDFGridCellsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, MeshSDFGridUnsortedUB );
+        };
+
     } // namespace
 
     float ClipmapVoxelSize( const int level )
@@ -292,6 +327,12 @@ namespace Desert::Graphic::DistanceField
         if ( !m_AssetBuffer || !m_IndirectionBuffer || !m_ObjectBuffer || !m_UpdateBrickBuffer ||
              !m_BrickObjectBuffer )
             return Common::MakeError<bool>( "global distance field: a storage buffer could not be created" );
+        if ( const auto valid = m_CompositeLayout.Validate( m_CompositeShader, GlobalDistanceFieldCompositeShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_ViewLayout.Validate( m_ViewShader, GlobalDistanceFieldViewShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -522,11 +563,11 @@ namespace Desert::Graphic::DistanceField
                      pipeline->SetStorageBuffer( kGdfBrickListBinding, m_BrickObjectBuffer.get() );
                      pass.Bindings( m_CompositeLayout.Get( m_CompositeShader ),
                                     Renderer::GetPipelineRouteFill( *pipeline ) )
-                          .Texture( "u_DFBrickAtlas", atlas, RDG::Access::SampledCompute,
+                          .Texture( GlobalDistanceFieldCompositeShaderParameters::DistanceFieldBrickAtlasTexture, atlas, RDG::Access::SampledCompute,
                                     RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                          .Storage( "u_Clipmap", clipmap, RDG::Access::StorageWrite )
-                          .Storage( "u_ObjectGrid", grid, RDG::Access::StorageWrite )
+                          .Sampler( GlobalDistanceFieldCompositeShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
+                          .Storage( GlobalDistanceFieldCompositeShaderParameters::ClipmapTexture, clipmap, RDG::Access::StorageWrite )
+                          .Storage( GlobalDistanceFieldCompositeShaderParameters::ObjectGridTexture, grid, RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( GdfCompositePush ) ) );
                  },
                  [pipeline, push, count]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -626,10 +667,10 @@ namespace Desert::Graphic::DistanceField
                  {
                      pass.Bindings( m_CullObjectsLayout.Get( m_CullObjectsShader ),
                                     Renderer::GetPipelineRouteFill( *pipeline ) )
-                          .Storage( "MeshSDFCullParamsUB", params, kR )
-                          .Storage( "DFObjects", fields.Objects, kR )
-                          .Storage( "DFAssetData", fields.Assets, kR )
-                          .Storage( "MeshSDFCulledObjectsUB", culled, kW );
+                          .Storage( MeshSDFCullShaderParameters::MeshSDFCullParamsUB, params, kR )
+                          .Storage( MeshSDFCullShaderParameters::DFObjects, fields.Objects, kR )
+                          .Storage( MeshSDFCullShaderParameters::DFAssetData, fields.Assets, kR )
+                          .Storage( MeshSDFCullShaderParameters::MeshSDFCulledObjectsUB, culled, kW );
                  },
                  [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -652,11 +693,11 @@ namespace Desert::Graphic::DistanceField
                  {
                      pass.Bindings( m_CullGridLayout.Get( m_CullGridShader ),
                                     Renderer::GetPipelineRouteFill( *pipeline ) )
-                          .Storage( "MeshSDFCullParamsUB", params, kR )
-                          .Storage( "DFObjects", fields.Objects, kR )
-                          .Storage( "MeshSDFCulledObjectsUB", culled, kR )
-                          .Storage( "MeshSDFGridCellsUB", grid, kW )
-                          .Storage( "MeshSDFGridUnsortedUB", unsorted, kW )
+                          .Storage( MeshSDFGridShaderParameters::MeshSDFCullParamsUB, params, kR )
+                          .Storage( MeshSDFGridShaderParameters::DFObjects, fields.Objects, kR )
+                          .Storage( MeshSDFGridShaderParameters::MeshSDFCulledObjectsUB, culled, kR )
+                          .Storage( MeshSDFGridShaderParameters::MeshSDFGridCellsUB, grid, kW )
+                          .Storage( MeshSDFGridShaderParameters::MeshSDFGridUnsortedUB, unsorted, kW )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshSDFCullGridPush ) ) );
                  },
                  [pipeline, groups, push]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -676,9 +717,9 @@ namespace Desert::Graphic::DistanceField
                  {
                      pass.Bindings( m_CullOffsetsLayout.Get( m_CullOffsetsShader ),
                                     Renderer::GetPipelineRouteFill( *pipeline ) )
-                          .Storage( "MeshSDFCullParamsUB", params, kR )
-                          .Storage( "MeshSDFGridCellsUB", grid, kW )
-                          .Storage( "MeshSDFCullFeedbackUB", feedback, kW );
+                          .Storage( MeshSDFGridOffsetsShaderParameters::MeshSDFCullParamsUB, params, kR )
+                          .Storage( MeshSDFGridOffsetsShaderParameters::MeshSDFGridCellsUB, grid, kW )
+                          .Storage( MeshSDFGridOffsetsShaderParameters::MeshSDFCullFeedbackUB, feedback, kW );
                  },
                  [pipeline]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -699,9 +740,9 @@ namespace Desert::Graphic::DistanceField
                  {
                      pass.Bindings( m_CullSortLayout.Get( m_CullSortShader ),
                                     Renderer::GetPipelineRouteFill( *pipeline ) )
-                          .Storage( "MeshSDFCullParamsUB", params, kR )
-                          .Storage( "MeshSDFGridCellsUB", grid, kW )
-                          .Storage( "MeshSDFGridUnsortedUB", unsorted, kR );
+                          .Storage( MeshSDFGridSortShaderParameters::MeshSDFCullParamsUB, params, kR )
+                          .Storage( MeshSDFGridSortShaderParameters::MeshSDFGridCellsUB, grid, kW )
+                          .Storage( MeshSDFGridSortShaderParameters::MeshSDFGridUnsortedUB, unsorted, kR );
                  },
                  [pipeline, groupsX, groupsY]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -819,9 +860,10 @@ namespace Desert::Graphic::DistanceField
              {
                  auto block = pass.Bindings( m_ViewLayout.Get( m_ViewShader ), RDG::OtherRouteFill{} );
                  for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
-                     block.Texture( std::format( "u_GlobalDistanceField{}", level ), field.Clipmaps[level],
+                     block.Texture( kGlobalDistanceFieldClipmapTextures[level], field.Clipmaps[level],
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
+                          .Sampler( GlobalDistanceFieldViewShaderParameters::LinearRepeatSampler,
+                                    RDG::SamplerDesc::LinearRepeat() );
                  block.PushConstantBytes( static_cast<uint32_t>( sizeof( GdfViewPush ) ) );
                  pass.ColorTarget( 0, target, load );
              },

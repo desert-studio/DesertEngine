@@ -16,42 +16,42 @@ Shader "GlobalDistanceFieldComposite"
 
         // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
         // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
-        Uniform sampler u_LinearRepeatSampler;
-        Uniform(0) texture3D u_DFBrickAtlas;
-        #define u_DFBrickAtlas sampler3D(u_DFBrickAtlas, u_LinearRepeatSampler)
+        Uniform sampler LinearRepeatSampler;
+        Uniform(0) texture3D DistanceFieldBrickAtlasTexture;
+        #define DistanceFieldBrickAtlasTexture sampler3D(DistanceFieldBrickAtlasTexture, LinearRepeatSampler)
         ReadBuffer(1) DFAssetData
         {
-            vec4 u_DFAssetData[];
+            vec4 DistanceFieldAssetData[];
         };
         ReadBuffer(2) DFIndirection
         {
-            uint u_DFIndirection[];
+            uint DistanceFieldIndirection[];
         };
         ReadBuffer(3) DFObjects
         {
-            vec4 u_DFObjects[];
+            vec4 DistanceFieldObjects[];
         };
-        // Per update brick: (brick x, y, z in world brick units, offset of its list in u_BrickObjects).
+        // Per update brick: (brick x, y, z in world brick units, offset of its list in BrickObjects).
         ReadBuffer(4) GDFUpdateBricks
         {
-            ivec4 u_UpdateBricks[];
+            ivec4 UpdateBricks[];
         };
         // Per list: the object count, then that many object indices.
         ReadBuffer(5) GDFBrickObjects
         {
-            uint u_BrickObjects[];
+            uint BrickObjects[];
         };
         // (distance cm, coverage): the coverage is UE's coverage atlas (GlobalDistanceFieldCompositeObjects.usf
         // COMPOSITE_COVERAGE_ATLAS), stored beside the distance instead of in pages of its own.
-        layout(binding = 6, rg16f) restrict writeonly uniform image3D u_Clipmap;
-        layout(binding = 8, r32ui) restrict writeonly uniform uimage3D u_ObjectGrid;
+        layout(binding = 6, rg16f) restrict writeonly uniform image3D ClipmapTexture;
+        layout(binding = 8, r32ui) restrict writeonly uniform uimage3D ObjectGridTexture;
 
         PushConstant GDFCompositePush
         {
-            uint  u_FirstBrick;      // this clipmap's first entry in u_UpdateBricks
-            float u_VoxelSize;       // centimetres
-            float u_InfluenceRadius; // centimetres
-            uint  u_Level;           // the object grid's slab of this clipmap
+            uint  FirstBrick;      // this clipmap's first entry in UpdateBricks
+            float VoxelSize;       // centimetres
+            float InfluenceRadius; // centimetres
+            uint  Level;           // the object grid's slab of this clipmap
         };
 
         #include <Common/MeshDistanceField.glslh>
@@ -87,17 +87,17 @@ Shader "GlobalDistanceFieldComposite"
                 return;
             const ivec3 cell       = brick.xyz * (GDF_UPDATE_BRICK / GDF_OBJECT_GRID_CELL_VOXELS) +
                                      ivec3(gl_LocalInvocationID) / GDF_OBJECT_GRID_CELL_VOXELS;
-            const float cellSize   = float(GDF_OBJECT_GRID_CELL_VOXELS) * u_VoxelSize;
+            const float cellSize   = float(GDF_OBJECT_GRID_CELL_VOXELS) * VoxelSize;
             const vec3  centre     = (vec3(cell) + 0.5) * cellSize;
             const float cellExtent = 0.5 * cellSize;
-            const float range      = GDF_OBJECT_GRID_INTERPOLATION_VOXELS * u_VoxelSize;
+            const float range      = GDF_OBJECT_GRID_INTERPOLATION_VOXELS * VoxelSize;
             // UE MaxQueryDistance: the cell's half diagonal (1.44 of its half size) plus the interpolation range.
             const float maxQuery   = 1.44 * cellExtent + range;
             uvec4 slots = uvec4(GDF_OBJECT_GRID_INVALID);
             for (uint i = 0u; i < count; ++i)
             {
-                const uint objectIndex = u_BrickObjects[listOffset + 1u + i];
-                const uint row = floatBitsToUint(u_DFObjects[objectIndex * uint(DF_OBJECT_STRIDE) +
+                const uint objectIndex = BrickObjects[listOffset + 1u + i];
+                const uint row = floatBitsToUint(DistanceFieldObjects[objectIndex * uint(DF_OBJECT_STRIDE) +
                                                              uint(DF_OBJECT_ROW_FLAGS)].y);
                 if (row == GDF_OBJECT_GRID_INVALID)
                     continue;
@@ -117,26 +117,26 @@ Shader "GlobalDistanceFieldComposite"
             const ivec3 wrapped = ((cell % GDF_OBJECT_GRID_RESOLUTION) + GDF_OBJECT_GRID_RESOLUTION) %
                                   GDF_OBJECT_GRID_RESOLUTION;
             const ivec3 base = ivec3(wrapped.x * GDF_OBJECT_GRID_SLOTS, wrapped.y,
-                                     int(u_Level) * GDF_OBJECT_GRID_RESOLUTION + wrapped.z);
+                                     int(Level) * GDF_OBJECT_GRID_RESOLUTION + wrapped.z);
             for (int i = 0; i < GDF_OBJECT_GRID_SLOTS; ++i)
-                imageStore(u_ObjectGrid, base + ivec3(i, 0, 0), uvec4(slots[i]));
+                imageStore(ObjectGridTexture, base + ivec3(i, 0, 0), uvec4(slots[i]));
         }
 
         void main()
         {
-            const ivec4 brick = u_UpdateBricks[u_FirstBrick + gl_WorkGroupID.x];
+            const ivec4 brick = UpdateBricks[FirstBrick + gl_WorkGroupID.x];
             const ivec3 voxel = brick.xyz * GDF_UPDATE_BRICK + ivec3(gl_LocalInvocationID);
-            const vec3  world = (vec3(voxel) + 0.5) * u_VoxelSize;
+            const vec3  world = (vec3(voxel) + 0.5) * VoxelSize;
 
             // Every object's surface makes the distance; only a SOLID one (not mostly two-sided) covers the voxel.
-            float minDistance = u_InfluenceRadius;
-            float minSolid    = u_InfluenceRadius;
+            float minDistance = InfluenceRadius;
+            float minSolid    = InfluenceRadius;
             const uint listOffset = uint(brick.w);
-            const uint count = u_BrickObjects[listOffset];
+            const uint count = BrickObjects[listOffset];
             for (uint i = 0u; i < count; ++i)
             {
-                const uint objectIndex = u_BrickObjects[listOffset + 1u + i];
-                const uint flags = floatBitsToUint(u_DFObjects[objectIndex * uint(DF_OBJECT_STRIDE) +
+                const uint objectIndex = BrickObjects[listOffset + 1u + i];
+                const uint flags = floatBitsToUint(DistanceFieldObjects[objectIndex * uint(DF_OBJECT_STRIDE) +
                                                                uint(DF_OBJECT_ROW_FLAGS)].x);
                 const bool foliage = (flags & uint(DF_OBJECT_FLAG_MOSTLY_TWO_SIDED)) != 0u;
                 const float d = DistanceToNearestSurfaceForObject(objectIndex, world, foliage ? minDistance : minSolid);
@@ -147,10 +147,10 @@ Shader "GlobalDistanceFieldComposite"
             // COVERED: a solid surface within one voxel of the voxel centre - the band the trace's expanded surface
             // can stop in - so the trilinear coverage is 1 wherever a ray may hit solid geometry, and falls to 0
             // across one voxel into foliage-only space.
-            const float coverage = minSolid < u_VoxelSize ? 1.0 : 0.0;
+            const float coverage = minSolid < VoxelSize ? 1.0 : 0.0;
             const ivec3 texel = ((voxel % GDF_RESOLUTION) + GDF_RESOLUTION) % GDF_RESOLUTION;
-            imageStore(u_Clipmap, texel,
-                       vec4(clamp(minDistance, -u_InfluenceRadius, u_InfluenceRadius), coverage, 0.0, 0.0));
+            imageStore(ClipmapTexture, texel,
+                       vec4(clamp(minDistance, -InfluenceRadius, InfluenceRadius), coverage, 0.0, 0.0));
             CompositeObjectGridCell(brick, listOffset, count);
         }
     }

@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "2e7f1fb2dd84686b69de21a859f5f018",
         "Versions": {
-            "SCNE": 67,
+            "SCNE": 68,
             "UNIT": 1
         },
         "Dependencies": ["b33524f57b8f411039fb457c1c34be51", "f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
@@ -231,20 +231,6 @@
             }
         },
         {
-            "id": 10144312751783984541,
-            "siblingIndex": 10,
-            "Tag": "Camera",
-            "Translation": [0.0, 200.0, 1500.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Camera": {
-                "AutoActivateForPlayer": true,
-                "FOV": 45.0,
-                "Near": 10.0,
-                "Far": 5000000.0
-            }
-        },
-        {
             "id": 7480392879292652412,
             "siblingIndex": 11,
             "Tag": "PostProcessVolume",
@@ -303,6 +289,20 @@
                     "LensFlareStreakAngle": 0.0,
                     "LensFlareChromaShift": 0.15000000596046448
                 }
+            }
+        },
+        {
+            "id": 10144312751783984541,
+            "siblingIndex": 10,
+            "Tag": "Camera",
+            "Translation": [0.0, 200.0, 1500.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Camera": {
+                "AutoActivateForPlayer": true,
+                "FOV": 45.0,
+                "Near": 10.0,
+                "Far": 5000000.0
             }
         }
     ],

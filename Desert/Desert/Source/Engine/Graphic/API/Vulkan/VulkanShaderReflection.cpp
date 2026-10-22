@@ -348,8 +348,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         }
 
         // SEPARATE SAMPLERS AND TEXTURES. In the bindless set they exist only as Common/BindlessTextures.glslh
-        // declares them — u_BindlessSamplers[kBindlessSamplerStateCount] at kBindlessSamplerBinding and the
-        // runtime array u_BindlessTextures[] at kBindlessTextureBinding. Recognised by set, binding and type (not
+        // declares them — BindlessSamplers[kBindlessSamplerStateCount] at kBindlessSamplerBinding and the
+        // runtime array BindlessTextures[] at kBindlessTextureBinding. Recognised by set, binding and type (not
         // by name); VulkanShader then takes the table's own layout for that set, and anything else there is
         // refused by name. In every other set they are a pass's own inputs, UE's way: a `texture2D` (or a fixed
         // array of them, textureCube, textureCubeArray) is a SAMPLED_IMAGE slot and a `sampler` a SAMPLER slot,

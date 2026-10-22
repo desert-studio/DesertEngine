@@ -293,7 +293,11 @@ namespace Desert::Editor::Tools
         m_Cursor       = ToolCursor::None;
         if ( ms.ActiveTool != MS::Tool::CreateShape )
         {
-            Render::ToolPreview::Hide( scene );
+            // The scene's tool preview belongs to whichever tool is active now (Paint PolyGroups shows one
+            // too): hide only the preview this tool showed, once, the frame it stops.
+            if ( m_PreviewShown )
+                Render::ToolPreview::Hide( scene );
+            m_PreviewShown = false;
             return;
         }
         const MS::ShapeSettings& settings = ms.CreateShape;
@@ -313,6 +317,7 @@ namespace Desert::Editor::Tools
         if ( !m_HasBuilt || !( m_Built == settings ) )
             Rebuild( settings );
         ShowPreview( scene, *spot, ray.Origin );
+        m_PreviewShown = true;
 
         // Alt + LMB is the camera's orbit, not a placement.
         const ImGuiIO& io = ::ImGui::GetIO();

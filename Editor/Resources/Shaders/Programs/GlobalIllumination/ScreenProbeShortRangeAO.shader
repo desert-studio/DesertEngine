@@ -32,12 +32,12 @@ Shader "ScreenProbeShortRangeAO"
         {
             GIFrame giFrame;
         };
-        Uniform sampler u_PointClampSampler;
-        Uniform(2) texture2D u_GBufferDepth;
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-        Uniform(3) texture2D u_GBufferB;
-        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
-        layout(binding = 4, rgba16f) restrict writeonly uniform image2D u_ShortRangeAOOut;
+        Uniform sampler PointClampSampler;
+        Uniform(2) texture2D GBufferDepthTexture;
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(3) texture2D GBufferBTexture;
+        #define GBufferBTexture sampler2D(GBufferBTexture, PointClampSampler)
+        layout(binding = 4, rgba16f) restrict writeonly uniform image2D ShortRangeAoOutTexture;
 
         // UE r.Lumen.ScreenProbeGather.ShortRangeAO: 4 rays a pixel, the temporal filter (here the integrate's
         // history) gathers the rest.
@@ -75,14 +75,14 @@ Shader "ScreenProbeShortRangeAO"
             const vec2  extent = giFrame.screen.xy;
             if ( any( greaterThanEqual( pixel, ivec2( extent ) ) ) )
                 return;
-            const vec4 gb = texelFetch( u_GBufferB, pixel, 0 );
+            const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
             if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
             {
-                imageStore( u_ShortRangeAOOut, pixel, vec4( 0.0, 0.0, 1.0, 1.0 ) );
+                imageStore( ShortRangeAoOutTexture, pixel, vec4( 0.0, 0.0, 1.0, 1.0 ) );
                 return;
             }
             const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( u_GBufferDepth, pixel, 0 ).r,
+            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, pixel, 0 ).r,
                                                              giFrame.invViewProjection );
             const vec3  n        = normalize( gb.xyz );
             const vec3  camera   = giFrame.camera.xyz;
@@ -131,7 +131,7 @@ Shader "ScreenProbeShortRangeAO"
                         continue;
                     // Both points lie on the same pixel's view ray: their distances to the camera compare.
                     const vec3  scene     = ReconstructWorldPosition( ( vec2( texel ) + 0.5 ) * giFrame.screen.zw,
-                                                                      texelFetch( u_GBufferDepth, texel, 0 ).r,
+                                                                      texelFetch( GBufferDepthTexture, texel, 0 ).r,
                                                                       giFrame.invViewProjection );
                     const float rayDist   = length( q - camera );
                     const float behind    = rayDist - length( scene - camera );
@@ -145,7 +145,7 @@ Shader "ScreenProbeShortRangeAO"
             }
             const float ao   = unoccluded / float( SR_AO_RAYS );
             const vec3  bent = dot( unoccludedSum, unoccludedSum ) > 1e-6 ? normalize( unoccludedSum ) : n;
-            imageStore( u_ShortRangeAOOut, pixel, vec4( bent, ao ) );
+            imageStore( ShortRangeAoOutTexture, pixel, vec4( bent, ao ) );
         }
     }
 }

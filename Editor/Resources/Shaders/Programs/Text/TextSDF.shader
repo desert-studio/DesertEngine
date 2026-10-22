@@ -16,7 +16,7 @@ Shader "TextSDF"
     {
         Color     TextColor         ("Text Color") = (1, 1, 1, 1)
         float     EmissiveIntensity ("Emissive Intensity") = 1.0
-        Texture2D u_SDFAtlas        ("SDF Atlas")
+        Texture2D SdfAtlasTexture        ("SDF Atlas")
     }
 
     State
@@ -60,15 +60,15 @@ Shader "TextSDF"
 
         void main()
         {
-            vec3  msd     = texture( u_SDFAtlas, v_UV ).rgb;
-            float pxRange = SdfTextScreenPxRange( fwidth( v_UV ), vec2( textureSize( u_SDFAtlas, 0 ) ) );
+            vec3  msd     = texture( SdfAtlasTexture, v_UV ).rgb;
+            float pxRange = SdfTextScreenPxRange( fwidth( v_UV ), vec2( textureSize( SdfAtlasTexture, 0 ) ) );
             float alpha   = SdfTextAlpha( msd, pxRange );
 
             if ( alpha <= 0.0 )
                 discard;
 
-            vec3 emissive = u_Material.TextColor.rgb * u_Material.EmissiveIntensity;
-            o_Color       = vec4( emissive, alpha * u_Material.TextColor.a );
+            vec3 emissive = Material.TextColor.rgb * Material.EmissiveIntensity;
+            o_Color       = vec4( emissive, alpha * Material.TextColor.a );
         }
     }
 }

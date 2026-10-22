@@ -137,6 +137,10 @@ namespace Desert::Assets
         // A WEATHER PRESET (`.dweatherpreset`): one weather as data, named by weather zones and SetWeather.
         // See Engine/Assets/WeatherPresetAsset.hpp.
         WeatherPreset,
+        // A VFX EFFECT TYPE (`.dfxtype`): UE's UNiagaraEffectType - the per-Effects-level scalability (MaxDistance,
+        // SpawnCountScale) a family of VFX systems shares; a `.dfx` names it by stem. See
+        // Engine/Assets/VFXEffectTypeAsset.hpp.
+        VFXEffectType,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -165,6 +169,10 @@ namespace Desert::Assets
         switch ( type )
         {
             case AssetTypeID::StringTable:
+            // AN EFFECT TYPE IS PROJECT-SCOPED for the string table's reason: a `.dfx` names it by its file STEM
+            // (VFXSystemData::EffectType), not by `AssetHandle`, so the reachability walk cannot see it - and a
+            // swept-out type would leave every VFXWorld reading a copy hot reload no longer reaches.
+            case AssetTypeID::VFXEffectType:
                 return true;
             case AssetTypeID::Unknown:
             case AssetTypeID::Mesh:
@@ -345,6 +353,8 @@ namespace Desert::Assets
                 return "WorldParameters";
             case AssetTypeID::WeatherPreset:
                 return "WeatherPreset";
+            case AssetTypeID::VFXEffectType:
+                return "VFXEffectType";
             case AssetTypeID::Count:
                 return "Count";
         }

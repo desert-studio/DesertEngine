@@ -24,9 +24,9 @@ Shader "VelocityView"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(0) sampler u_LinearRepeatSampler;
-        Uniform(1) texture2D u_Velocity;
-        #define u_Velocity sampler2D(u_Velocity, u_LinearRepeatSampler)
+        Uniform(0) sampler LinearRepeatSampler;
+        Uniform(1) texture2D VelocityTexture;
+        #define VelocityTexture sampler2D(VelocityTexture, LinearRepeatSampler)
 
         Out(0) vec4 oColor;
 
@@ -38,9 +38,9 @@ Shader "VelocityView"
 
         void main()
         {
-        	const ivec2 size     = textureSize(u_Velocity, 0);
+        	const ivec2 size     = textureSize(VelocityTexture, 0);
         	const ivec2 texel    = clamp(ivec2(v_TexCoord * vec2(size)), ivec2(0), size - 1);
-        	const vec2  ndc      = texelFetch(u_Velocity, texel, 0).xy;
+        	const vec2  ndc      = texelFetch(VelocityTexture, texel, 0).xy;
         	const vec2  pixels   = ndc * 0.5 * vec2(size);
         	const float speed    = length(pixels);
         	const float strength = clamp(speed / 16.0, 0.0, 1.0);

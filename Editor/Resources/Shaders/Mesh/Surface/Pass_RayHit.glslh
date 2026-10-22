@@ -54,7 +54,7 @@ SurfaceInput DesertRayHitSurfaceInput( DesertRayHitTriangle t )
 void main()
 {
     const SurfaceInput i = DesertRayHitSurfaceInput( DesertRayHitFetch() );
-    if ( DesertSurfaceOpacityMask( i ) < u_Material.OpacityMaskClipValue )
+    if ( DesertSurfaceOpacityMask( i ) < Material.OpacityMaskClipValue )
         ignoreIntersectionEXT;
 }
 #else

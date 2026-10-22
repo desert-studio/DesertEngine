@@ -33,13 +33,13 @@ Shader "ScreenProbeDisocclusion"
         {
             GIFrame giFrame;
         };
-        Uniform sampler u_PointClampSampler;
-        Uniform(4) texture2D u_GBufferDepth;
-        #define u_GBufferDepth sampler2D(u_GBufferDepth, u_PointClampSampler)
-        Uniform(5) texture2D u_GBufferB;
-        #define u_GBufferB sampler2D(u_GBufferB, u_PointClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(4) texture2D GBufferDepthTexture;
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(5) texture2D GBufferBTexture;
+        #define GBufferBTexture sampler2D(GBufferBTexture, PointClampSampler)
         Uniform(6) texture2D Velocity;
-        #define Velocity sampler2D(Velocity, u_PointClampSampler)
+        #define Velocity sampler2D(Velocity, PointClampSampler)
         Uniform(7) texture2D DiffuseIndirectHistory;
         Uniform(8) texture2D HistoryGuide;
         WriteBuffer(9) ScreenProbeDisocclusionUB
@@ -47,7 +47,7 @@ Shader "ScreenProbeDisocclusion"
             float screenProbeDisocclusion[]; // per probe: the disoccluded share of its tile, [0, 1]
         };
         Uniform(10) utexture2D GBufferShadingWord; // the foliage flag (DesertHasBackfaceDiffuse)
-        #define GBufferShadingWord usampler2D(GBufferShadingWord, u_PointClampSampler)
+        #define GBufferShadingWord usampler2D(GBufferShadingWord, PointClampSampler)
         #include <Generated/ShadingModels.glslh>
         #define SCREEN_PROBES_DECLARED
         #include <Common/ScreenProbes.glslh>
@@ -90,11 +90,11 @@ Shader "ScreenProbeDisocclusion"
                 const ivec2 pixel = block + ivec2( k & 1, k >> 1 );
                 if ( any( lessThan( pixel, ivec2( 0 ) ) ) || any( greaterThanEqual( pixel, ivec2( giFrame.screen.xy ) ) ) )
                     continue;
-                const vec4 gb = texelFetch( u_GBufferB, pixel, 0 );
+                const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
                 if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
                     continue;
                 const vec2  uv    = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
-                const float depth = texelFetch( u_GBufferDepth, pixel, 0 ).r;
+                const float depth = texelFetch( GBufferDepthTexture, pixel, 0 ).r;
                 const vec3  p     = ReconstructWorldPosition( uv, depth, giFrame.invViewProjection );
                 // The threshold's dither at its middle: the share, not one frame's coin flips, decides.
                 const SPHistoryTaps taps =

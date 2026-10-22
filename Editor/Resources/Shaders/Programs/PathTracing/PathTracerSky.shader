@@ -16,10 +16,10 @@ Shader "PathTracerSky"
             #include <Common/SkyLook.glslh>
             #include <Common/PathTracingSky.glslh>
 
-            Uniform sampler u_LinearClampSampler;
-            Uniform(0) textureCube u_EnvSpecularTex;
-            #define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
-            layout(binding = 1, rgba32f) writeonly uniform image2D u_SkyRadiance;
+            Uniform sampler LinearClampSampler;
+            Uniform(0) textureCube EnvironmentSpecularTexture;
+            #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+            layout(binding = 1, rgba32f) writeonly uniform image2D SkyRadianceTexture;
             layout(std430, binding = 2) writeonly buffer PathTracingSkyPdfUB
             {
                 float skyPdf[];
@@ -31,25 +31,25 @@ Shader "PathTracerSky"
 
             PushConstant PushConstants
             {
-                uvec4 u_Sky; // x = side S (a power of two)
+                uvec4 SkyParams; // x = side S (a power of two)
             };
 
             void main()
             {
-                const uint side = u_Sky.x;
+                const uint side = SkyParams.x;
                 const uvec2 id  = gl_GlobalInvocationID.xy;
                 if (id.x >= side || id.y >= side)
                     return;
                 const vec2 uv        = (vec2(id) + 0.5) / float(side);
                 const vec3 direction = PathTracingSkyDirectionOfUV(uv);
-                const vec3 radiance  = max(ApplySkyGain(textureLod(u_EnvSpecularTex,
+                const vec3 radiance  = max(ApplySkyGain(textureLod(EnvironmentSpecularTexture,
                                                                    SkyLookDirection(direction, giFrame.skyYawCosSin.xy),
                                                                    0.0).rgb,
                                                         giFrame.skyGain.rgb),
                                            vec3(0.0));
                 // The texel's weight: its largest channel (UE: Prob = max(r, g, b)).
                 const float weight = max(radiance.r, max(radiance.g, radiance.b));
-                imageStore(u_SkyRadiance, ivec2(id), vec4(radiance, weight));
+                imageStore(SkyRadianceTexture, ivec2(id), vec4(radiance, weight));
                 skyPdf[id.y * side + id.x] = weight;
             }
         }
@@ -70,15 +70,15 @@ Shader "PathTracerSky"
 
             PushConstant PushConstants
             {
-                uvec4 u_Sky; // x = side S of level 0, y = the level this dispatch writes (>= 1)
+                uvec4 SkyParams; // x = side S of level 0, y = the level this dispatch writes (>= 1)
             };
 
             // One texel of level y: the MEAN of its 2x2 children in level y - 1, so the 1x1 level is the mean
             // weight that PathTracingSkyEval / PathTracingSkySampleLight divide by.
             void main()
             {
-                const uint side  = u_Sky.x;
-                const uint level = u_Sky.y;
+                const uint side  = SkyParams.x;
+                const uint level = SkyParams.y;
                 const uint s     = side >> level;
                 const uvec2 id   = gl_GlobalInvocationID.xy;
                 if (id.x >= s || id.y >= s)

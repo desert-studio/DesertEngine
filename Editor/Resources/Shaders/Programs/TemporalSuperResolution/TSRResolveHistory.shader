@@ -14,23 +14,23 @@ Shader "TSRResolveHistory"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(4) sampler u_LinearClampSampler;
-        Uniform(5) sampler u_PointClampSampler;
-        Uniform(1) texture2D u_Exposure; // 1x1 previous adapted luminance
-        Uniform(2) texture2D u_History;  // this frame's TSR.History.Color, HistoryExtent
-        #define u_History sampler2D(u_History, u_LinearClampSampler)
-        layout(binding = 3, rgba16f) restrict writeonly uniform image2D u_Output;
+        Uniform(4) sampler LinearClampSampler;
+        Uniform(5) sampler PointClampSampler;
+        Uniform(1) texture2D ExposureTexture; // 1x1 previous adapted luminance
+        Uniform(2) texture2D CurrentHistoryTexture;  // this frame's TSR.History.Color, HistoryExtent
+        #define CurrentHistoryTexture sampler2D(CurrentHistoryTexture, LinearClampSampler)
+        layout(binding = 3, rgba16f) restrict writeonly uniform image2D OutputTexture;
 
         void main()
         {
             const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-            if (any(greaterThanEqual(pixel, ivec2(u_OutputSize))))
+            if (any(greaterThanEqual(pixel, ivec2(OutputSize))))
                 return;
 
-            const float exposure      = TsrExposure(u_Exposure, u_PointClampSampler);
-            const vec2  historyPos    = (vec2(pixel) + 0.5) / u_OutputSize * u_HistorySize;
+            const float exposure      = TsrExposure(ExposureTexture, PointClampSampler);
+            const vec2  historyPos    = (vec2(pixel) + 0.5) / OutputSize * HistorySize;
             const ivec2 base          = ivec2(floor(historyPos - 0.5)) - 1;
-            const vec2  historyToOutput = u_OutputSize / u_HistorySize;
+            const vec2  historyToOutput = OutputSize / HistorySize;
 
             vec3  sum       = vec3(0.0);
             float weightSum = 0.0;
@@ -38,16 +38,16 @@ Shader "TSRResolveHistory"
             {
                 for (int x = 0; x < 4; ++x)
                 {
-                    const ivec2 q = clamp(base + ivec2(x, y), ivec2(0), ivec2(u_HistorySize) - 1);
+                    const ivec2 q = clamp(base + ivec2(x, y), ivec2(0), ivec2(HistorySize) - 1);
                     const vec2  d = ((vec2(base + ivec2(x, y)) + 0.5) - historyPos) * historyToOutput;
-                    const vec3  c = texelFetch(u_History, q, 0).rgb * exposure;
+                    const vec3  c = texelFetch(CurrentHistoryTexture, q, 0).rgb * exposure;
                     const float w = TsrSampleWeight(1.0, d, 0.0) * TsrHdrWeight(c);
                     sum += c * w;
                     weightSum += w;
                 }
             }
-            const vec3 nearest = texelFetch(u_History, clamp(ivec2(historyPos), ivec2(0), ivec2(u_HistorySize) - 1), 0).rgb;
-            imageStore(u_Output, pixel, vec4(weightSum > 0.0 ? sum / (weightSum * exposure) : nearest, 1.0));
+            const vec3 nearest = texelFetch(CurrentHistoryTexture, clamp(ivec2(historyPos), ivec2(0), ivec2(HistorySize) - 1), 0).rgb;
+            imageStore(OutputTexture, pixel, vec4(weightSum > 0.0 ? sum / (weightSum * exposure) : nearest, 1.0));
         }
     }
 }

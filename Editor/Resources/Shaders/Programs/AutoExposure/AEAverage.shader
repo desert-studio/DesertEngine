@@ -12,82 +12,82 @@ Shader "AEAverage"
 
         Buffer(0) Histogram
         {
-            uint u_Bins[256];
+            uint Bins[256];
         };
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform sampler u_PointClampSampler;
-        Uniform(1) texture2D u_PrevLum;             // 1x1 previous adapted luminance
-        #define u_PrevLum sampler2D(u_PrevLum, u_PointClampSampler)
-        layout(binding = 2, rgba32f) writeonly uniform image2D u_OutLum; // 1x1 new adapted luminance
+        Uniform sampler PointClampSampler;
+        Uniform(1) texture2D PreviousLuminanceTexture;             // 1x1 previous adapted luminance
+        #define PreviousLuminanceTexture sampler2D(PreviousLuminanceTexture, PointClampSampler)
+        layout(binding = 2, rgba32f) writeonly uniform image2D OutLuminanceTexture; // 1x1 new adapted luminance
         // The same value for the CPU (UE FViewInfo::UpdatePreExposure's eye-adaptation readback): a per-frame
         // host-readable copy, read FramesInFlight frames later (AutoExposureRenderer::ReadBackAdaptedLuminance).
         // y = 1 marks a written value; z = this frame's measured luminance before the clamp and the adaptation
         // (-1 = empty histogram), w = the histogram's sample count — the read-back's trace says WHY x is what it is.
         Buffer(4) Readback
         {
-            vec4 u_Readback;
+            vec4 ReadbackData;
         };
 
         PushConstant PushConstants
         {
-            float u_Dt;
-            float u_AdaptSpeed;
-            float u_MinLuma;
-            float u_MaxLuma;
-            float u_MinLogLum;
-            float u_LogLumRange;
-            float u_LowPct;  // discard this fraction of the darkest samples
-            float u_HighPct; // keep up to this cumulative fraction (discard the brightest tail above it)
+            float DeltaTime;
+            float AdaptationSpeed;
+            float MinLuma;
+            float MaxLuma;
+            float MinLogLuminance;
+            float LogLuminanceRange;
+            float LowPercent;  // discard this fraction of the darkest samples
+            float HighPercent; // keep up to this cumulative fraction (discard the brightest tail above it)
         };
 
         void main()
         {
             uint total = 0u;
             for ( int i = 0; i < 256; ++i )
-                total += u_Bins[i];
+                total += Bins[i];
 
             float avgLum;
             float measured = -1.0;
             if ( total == 0u )
             {
-                avgLum = u_MinLuma;
+                avgLum = MinLuma;
             }
             else
             {
                 // Keep samples in the cumulative range [loCount, hiCount]; partial bins are weighted by overlap.
-                float loCount    = u_LowPct * float( total );
-                float hiCount    = u_HighPct * float( total );
+                float loCount    = LowPercent * float( total );
+                float hiCount    = HighPercent * float( total );
                 float cumulative = 0.0;
                 float wLogSum    = 0.0;
                 float wSum       = 0.0;
 
                 for ( int i = 0; i < 256; ++i )
                 {
-                    float c        = float( u_Bins[i] );
+                    float c        = float( Bins[i] );
                     float binStart = cumulative;
                     cumulative += c;
                     float w = max( min( cumulative, hiCount ) - max( binStart, loCount ), 0.0 );
                     if ( w > 0.0 )
                     {
-                        float logLum = u_MinLogLum + ( float( i ) / 255.0 ) * u_LogLumRange;
+                        float logLum = MinLogLuminance + ( float( i ) / 255.0 ) * LogLuminanceRange;
                         wLogSum += logLum * w;
                         wSum += w;
                     }
                 }
 
-                float avgLogLum = ( wSum > 0.0 ) ? ( wLogSum / wSum ) : u_MinLogLum;
+                float avgLogLum = ( wSum > 0.0 ) ? ( wLogSum / wSum ) : MinLogLuminance;
                 measured        = exp2( avgLogLum );
-                avgLum          = clamp( measured, u_MinLuma, u_MaxLuma );
+                avgLum          = clamp( measured, MinLuma, MaxLuma );
             }
 
-            float prev = texture( u_PrevLum, vec2( 0.5 ) ).r;
+            float prev = texture( PreviousLuminanceTexture, vec2( 0.5 ) ).r;
             if ( !( prev > 0.0 ) ) // first frame / NaN / uninitialised
                 prev = avgLum;
 
-            float adapted = mix( prev, avgLum, 1.0 - exp( -u_Dt * u_AdaptSpeed ) );
-            imageStore( u_OutLum, ivec2( 0 ), vec4( adapted, 0.0, 0.0, 1.0 ) );
-            u_Readback = vec4( adapted, 1.0, measured, float( total ) );
+            float adapted = mix( prev, avgLum, 1.0 - exp( -DeltaTime * AdaptationSpeed ) );
+            imageStore( OutLuminanceTexture, ivec2( 0 ), vec4( adapted, 0.0, 0.0, 1.0 ) );
+            ReadbackData = vec4( adapted, 1.0, measured, float( total ) );
         }
     }
 }

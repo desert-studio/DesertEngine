@@ -125,6 +125,22 @@ namespace Desert::Graphic::System
             for ( int i = 0; i < 4; ++i )
                 planes[i] = raw[i] / glm::length( glm::vec3( raw[i] ) );
         }
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct GrassGenerateShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, Field );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Params );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Instances );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Args );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct GrassFinalizeShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, Args );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Feedback );
+        };
+
     } // namespace
 
     Common::BoolResultStr GrassRenderer::Initialize()
@@ -530,10 +546,13 @@ namespace Desert::Graphic::System
                  const auto& layout = m_GenerateLayout.Get( m_Generate->GetSpecification().Shader );
                  for ( const VarietyGpu* gpu : m_Frame )
                      pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Generate ) )
-                          .Storage( "Field", gpu->FieldRef, RDG::Access::StorageRead )
-                          .Storage( "Params", gpu->ParamsRef, RDG::Access::StorageRead )
-                          .Storage( "Instances", gpu->Refs.Instances, RDG::Access::StorageWrite )
-                          .Storage( "Args", gpu->Refs.Args, RDG::Access::StorageWrite )
+                          .Storage( GrassGenerateShaderParameters::Field, gpu->FieldRef, RDG::Access::StorageRead )
+                          .Storage( GrassGenerateShaderParameters::Params, gpu->ParamsRef,
+                                    RDG::Access::StorageRead )
+                          .Storage( GrassGenerateShaderParameters::Instances, gpu->Refs.Instances,
+                                    RDG::Access::StorageWrite )
+                          .Storage( GrassGenerateShaderParameters::Args, gpu->Refs.Args,
+                                    RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::ivec4 ) ) );
              },
              [this]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -562,8 +581,10 @@ namespace Desert::Graphic::System
                  const auto& layout = m_FinalizeLayout.Get( m_Finalize->GetSpecification().Shader );
                  for ( const VarietyGpu* gpu : m_Frame )
                      pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Finalize ) )
-                          .Storage( "Args", gpu->Refs.Args, RDG::Access::StorageWrite )
-                          .Storage( "Feedback", gpu->FeedbackRef, RDG::Access::StorageWrite );
+                          .Storage( GrassFinalizeShaderParameters::Args, gpu->Refs.Args,
+                                    RDG::Access::StorageWrite )
+                          .Storage( GrassFinalizeShaderParameters::Feedback, gpu->FeedbackRef,
+                                    RDG::Access::StorageWrite );
              },
              [this]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

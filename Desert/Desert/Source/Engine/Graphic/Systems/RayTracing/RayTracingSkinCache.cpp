@@ -17,6 +17,18 @@
 #include <string>
 #include <unordered_map>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RayTracingSkinCacheShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, SkinCacheBones );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SkinCacheVertices );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SkinCacheDispatch );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SkinCacheStreams );
+    };
+} // namespace
+
 namespace Desert::Graphic::RayTracing
 {
     void RayTracingSkinCache::SetEnabled( const bool enabled )
@@ -232,10 +244,14 @@ namespace Desert::Graphic::RayTracing
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( layout, fill )
-                          .Storage( "SkinCacheBones", bonesRef, RDG::Access::StorageRead )
-                          .Storage( "SkinCacheVertices", vertices, RDG::Access::StorageRead )
-                          .Storage( "SkinCacheDispatch", dispatchRef, RDG::Access::StorageRead )
-                          .Storage( "SkinCacheStreams", streams, RDG::Access::StorageWrite );
+                          .Storage( RayTracingSkinCacheShaderParameters::SkinCacheBones, bonesRef,
+                                    RDG::Access::StorageRead )
+                          .Storage( RayTracingSkinCacheShaderParameters::SkinCacheVertices, vertices,
+                                    RDG::Access::StorageRead )
+                          .Storage( RayTracingSkinCacheShaderParameters::SkinCacheDispatch, dispatchRef,
+                                    RDG::Access::StorageRead )
+                          .Storage( RayTracingSkinCacheShaderParameters::SkinCacheStreams, streams,
+                                    RDG::Access::StorageWrite );
                  },
                  [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {

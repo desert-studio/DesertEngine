@@ -282,7 +282,7 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             const std::string name = m[2].matched ? m[2].str() : m[4].str();
             const bool        sceneReadHeader = entry.path().filename() == "ObjectMotion.glslh" ||
                                          ( entry.path().filename() == "SurfaceTypes.glslh" &&
-                                           ( name == "u_SceneDepth" || name == "u_SceneShadingWord" ) ) ||
+                                           ( name == "SceneDepthTexture" || name == "SceneShadingWordTexture" ) ) ||
                                          entry.path().filename() == "MegaLightsVolume.glslh";
             // The view's light grid and local shadows: the forward cell declares their four resources at their
             // numbers of the range (the deferred composite at set-0 slots 13/14 and 22/23 and the grid build
@@ -290,7 +290,7 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             const std::map<std::string, uint32_t> forwardSceneRead{
                  { "LightGridParamsUB", Desert::Core::kLightGridParamsBinding },
                  { "LightGridCellsUB", Desert::Core::kLightGridCellsBinding },
-                 { "u_LocalShadowAtlas", Desert::Core::kLocalShadowAtlasBinding },
+                 { "LocalShadowAtlasTexture", Desert::Core::kLocalShadowAtlasBinding },
                  { "LocalShadowViewsUB", Desert::Core::kLocalShadowViewsBinding } };
             if ( const auto forward = forwardSceneRead.find( name ); forward != forwardSceneRead.end() )
             {
@@ -312,18 +312,18 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
     ASSERT_EQ( sceneRead.size(), 12u );
-    EXPECT_EQ( sceneRead["u_LocalShadowAtlas"], Desert::Core::kLocalShadowAtlasBinding );
+    EXPECT_EQ( sceneRead["LocalShadowAtlasTexture"], Desert::Core::kLocalShadowAtlasBinding );
     EXPECT_EQ( sceneRead["LocalShadowViewsUB"], Desert::Core::kLocalShadowViewsBinding );
     EXPECT_EQ( sceneRead["MegaLightsVolumeUB"], Desert::Core::kMegaLightsVolumeParamsBinding );
-    EXPECT_EQ( sceneRead["u_MegaLightsVolumeR"], Desert::Core::kMegaLightsVolumeFirstBinding );
-    EXPECT_EQ( sceneRead["u_MegaLightsVolumeG"], Desert::Core::kMegaLightsVolumeFirstBinding + 1u );
-    EXPECT_EQ( sceneRead["u_MegaLightsVolumeB"], Desert::Core::kMegaLightsVolumeFirstBinding + 2u );
+    EXPECT_EQ( sceneRead["MegaLightsVolumeRTexture"], Desert::Core::kMegaLightsVolumeFirstBinding );
+    EXPECT_EQ( sceneRead["MegaLightsVolumeGTexture"], Desert::Core::kMegaLightsVolumeFirstBinding + 1u );
+    EXPECT_EQ( sceneRead["MegaLightsVolumeBTexture"], Desert::Core::kMegaLightsVolumeFirstBinding + 2u );
     EXPECT_EQ( sceneRead["LightGridParamsUB"], Desert::Core::kLightGridParamsBinding );
     EXPECT_EQ( sceneRead["LightGridCellsUB"], Desert::Core::kLightGridCellsBinding );
     EXPECT_EQ( sceneRead["ObjectMotions"], Desert::Core::kObjectMotionsBinding );
     EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
-    EXPECT_EQ( sceneRead["u_SceneDepth"], Desert::Core::kSceneDepthBinding );
-    EXPECT_EQ( sceneRead["u_SceneShadingWord"], Desert::Core::kSceneShadingWordBinding );
+    EXPECT_EQ( sceneRead["SceneDepthTexture"], Desert::Core::kSceneDepthBinding );
+    EXPECT_EQ( sceneRead["SceneShadingWordTexture"], Desert::Core::kSceneShadingWordBinding );
 }
 
 TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )
@@ -1186,7 +1186,7 @@ TEST( VelocityTarget, TheVelocityViewShowsAMovingCameraOverStaticGeometryAndIsBl
     const auto        root   = Desert::TestSupport::RepositoryRoot();
     const std::string shader = ReadFile( root / "Editor/Resources/Shaders/Programs/Debug/VelocityView.shader" );
     for ( const char* line :
-          { "const vec2  ndc      = texelFetch(u_Velocity, texel, 0).xy;",
+          { "const vec2  ndc      = texelFetch(VelocityTexture, texel, 0).xy;",
             "const vec2  pixels   = ndc * 0.5 * vec2(size);", "const float speed    = length(pixels);",
             "const float strength = clamp(speed / 16.0, 0.0, 1.0);",
             "const float hue      = atan(pixels.y, pixels.x) * (0.5 / 3.14159265) + 0.5;",

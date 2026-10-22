@@ -330,9 +330,9 @@ namespace
     // The cloud FIELD's samplers: the names VolumetricCloudRenderer::SampledVolumes binds on the shadow map,
     // the sky-light occlusion volume and the march alike — one vocabulary for one field.
     constexpr const char* kCloudFieldSamplerNames[] = {
-         "u_CloudNoise",         "u_CloudNoise1",     "u_CloudNoise2",
-         "u_CloudNoise3",        "u_CloudModelling",  "u_CloudFarWeather",
-         "u_CloudLayoutPattern", "u_CloudLayoutMask", "u_CloudAuthoredAtlas" };
+         "CloudNoiseTexture",         "CloudNoise1Texture",     "CloudNoise2Texture",
+         "CloudNoise3Texture",        "CloudModellingTexture",  "CloudFarWeatherTexture",
+         "CloudLayoutPatternTexture", "CloudLayoutMaskTexture", "CloudAuthoredAtlasTexture" };
 
     // A temporary .glslh next to the real ones, so an include can be edited without touching the tree.
     struct ScopedHeader
@@ -930,7 +930,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudShadowMapDeclaresTwelveDescriptorsInSe
     const auto names = ComputeSetZeroImageNames( ShaderPath( "Clouds/CloudShadowMap.shader" ) );
     for ( const char* sampled : kCloudFieldSamplerNames )
         EXPECT_TRUE( names.Sampled.contains( sampled ) ) << "the shadow pass does not declare " << sampled;
-    EXPECT_TRUE( names.Storage.contains( "u_CloudShadowMap" ) ); // the triple it writes
+    EXPECT_TRUE( names.Storage.contains( "CloudShadowMapTexture" ) ); // the triple it writes
     EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudShadowParamsBinding,
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ); // the cloud parameter block
     EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudShadowAuthoredBinding,
@@ -980,11 +980,11 @@ TEST_F( ShaderCacheKeyShaderRoot, TheCloudMarchDeclaresEighteenDescriptorsInSetZ
     const auto names = ComputeSetZeroImageNames( ShaderPath( "Clouds/CloudRaymarch.shader" ) );
     for ( const char* sampled : kCloudFieldSamplerNames )
         EXPECT_TRUE( names.Sampled.contains( sampled ) ) << "the march does not declare " << sampled;
-    for ( const char* sampled : { "u_SceneDepth", "u_DistantSkyLight", "u_CloudAerialPerspective",
-                                  "u_CloudSkyOcclusionVolume", "u_CloudSunTransmittanceLut" } )
+    for ( const char* sampled : { "SceneDepthTexture", "DistantSkyLightTexture", "CloudAerialPerspectiveTexture",
+                                  "CloudSkyOcclusionVolumeTexture", "CloudSunTransmittanceLutTexture" } )
         EXPECT_TRUE( names.Sampled.contains( sampled ) ) << "the march does not declare " << sampled;
-    EXPECT_TRUE( names.Storage.contains( "u_CloudScatter" ) ); // the scatter target
-    EXPECT_TRUE( names.Storage.contains( "u_CloudGuide" ) );   // the depth guide beside it
+    EXPECT_TRUE( names.Storage.contains( "CloudScatterTexture" ) ); // the scatter target
+    EXPECT_TRUE( names.Storage.contains( "CloudGuideTexture" ) );   // the depth guide beside it
     EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudParamsBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );
     EXPECT_TRUE( HasBinding( bindings, Desert::Graphic::kCloudAuthoredBinding,
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ); // the hero cloud instances
@@ -1001,7 +1001,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheSkyOcclusionVolumesProducerAndConsumerAgree
     const auto producer = ComputeSetZero( ShaderPath( "Clouds/CloudSkyOcclusionVolume.shader" ) );
 
     const auto names = ComputeSetZeroImageNames( ShaderPath( "Clouds/CloudSkyOcclusionVolume.shader" ) );
-    EXPECT_TRUE( names.Storage.contains( "u_CloudSkyOcclusion" ) ); // the volume it writes
+    EXPECT_TRUE( names.Storage.contains( "CloudSkyOcclusionTexture" ) ); // the volume it writes
     EXPECT_TRUE( HasBinding( producer, Desert::Graphic::kCloudSkyOcclusionParamsBinding,
                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );
     EXPECT_TRUE( HasBinding( producer, Desert::Graphic::kCloudSkyOcclusionAuthoredBinding,
@@ -1085,29 +1085,29 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresExactlyItsNamed
     constexpr VkDescriptorType kStorage = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     const Row                  rows[]   = {
          { 0, kUniform, "DeferredUB" },
-         { 1, kSampler, "u_GBufferShadingWord" },
-         { 2, kSampler, "u_GBufferA" },
-         { 3, kSampler, "u_GBufferB" },
+         { 1, kSampler, "GBufferShadingWordTexture" },
+         { 2, kSampler, "GBufferATexture" },
+         { 3, kSampler, "GBufferBTexture" },
          { 4, kUniform, "LightsMetadata" },
-         { 5, kSampler, "u_ShadowCascades" },
+         { 5, kSampler, "ShadowCascadesTexture" },
          { 6, kStorage, "PointLightsUB" },
          { 7, kUniform, "ShadowUB" },
-         { 8, kSampler, "u_SSAO" },
-         { 9, kSampler, "u_GBufferEmissive" },
-         { 10, kSampler, "u_GI" },
-         { 11, kSampler, "u_CloudShadowMap" },
+         { 8, kSampler, "SsaoTexture" },
+         { 9, kSampler, "GBufferEmissiveTexture" },
+         { 10, kSampler, "Gi" },
+         { 11, kSampler, "CloudShadowMapTexture" },
          { 12, kUniform, "CloudShadowUB" },
-         { 13, kSampler, "u_LocalShadowAtlas" },
+         { 13, kSampler, "LocalShadowAtlasTexture" },
          { 14, kStorage, "LocalShadowViewsUB" },
          { 16, kStorage, "SpotLightsUB" },
-         { 17, kSampler, "u_EnvIrradianceTex" },
-         { 18, kSampler, "u_EnvSpecularTex" },
-         { 19, kSampler, "u_BRDFLUTTexture" },
+         { 17, kSampler, "EnvironmentIrradianceTexture" },
+         { 18, kSampler, "EnvironmentSpecularTexture" },
+         { 19, kSampler, "BrdfLutTexture" },
          { 20, kUniform, "SkyLookUB" },
-         { 21, kSampler, "u_GBufferDepth" },
+         { 21, kSampler, "GBufferDepthTexture" },
          { 22, kStorage, "LightGridParamsUB" },
          { 23, kStorage, "LightGridCellsUB" },
-         { 24, kSampler, "u_SSR" },
+         { 24, kSampler, "SsrTexture" },
     };
     const auto bindings = FragmentSetZero( ShaderPath( "Deferred/DeferredLighting.shader" ) );
 
@@ -1120,7 +1120,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheDeferredLightingPassDeclaresExactlyItsNamed
     // SET 1: the reflection captures (REFL-CAPTURE), and nothing else.
     const Row setOne[] = {
          { 0, kStorage, "ReflectionCapturesUB" },
-         { 1, kSampler, "u_ReflectionCaptureCubes" },
+         { 1, kSampler, "ReflectionCaptureCubesTexture" },
     };
     const auto setOneBindings = FragmentSet( ShaderPath( "Deferred/DeferredLighting.shader" ), 1u );
     for ( const Row& row : setOne )
@@ -1164,18 +1164,18 @@ TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteA
 
     EXPECT_TRUE( HasBinding( gbuffer, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // CameraUB (vertex)
     EXPECT_TRUE( HasBinding( gbuffer, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );          // Materials[]
-    EXPECT_TRUE( HasBinding( gbuffer, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_AlbedoTexture
-    EXPECT_TRUE( HasBinding( gbuffer, 12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_NormalTexture
-    EXPECT_TRUE( HasBinding( gbuffer, 18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_OpacityTexture
-    EXPECT_TRUE( HasBinding( gbuffer, 23, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ORMTexture
-    EXPECT_TRUE( HasBinding( gbuffer, 24, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_EmissiveTexture
+    EXPECT_TRUE( HasBinding( gbuffer, 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // AlbedoTexture
+    EXPECT_TRUE( HasBinding( gbuffer, 12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // NormalTexture
+    EXPECT_TRUE( HasBinding( gbuffer, 18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // OpacityTexture
+    EXPECT_TRUE( HasBinding( gbuffer, 23, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // OrmTexture
+    EXPECT_TRUE( HasBinding( gbuffer, 24, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // EmissiveTexture
 
     // And the two the deferred composite owns, named individually because they are the ones a reader is
     // most likely to put back "so the G-buffer can shade the ambient". It cannot: it writes attributes and
     // Deferred/DeferredLighting.shader shades them, on its own material with its own layout.
-    EXPECT_FALSE( HasBinding( gbuffer, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) // u_ShadowCascades
+    EXPECT_FALSE( HasBinding( gbuffer, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) // ShadowCascadesTexture
          << "the G-buffer pass declares a cascade map; it shades nothing and samples none";
-    EXPECT_FALSE( HasBinding( gbuffer, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) // u_EnvIrradianceTex
+    EXPECT_FALSE( HasBinding( gbuffer, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) // EnvironmentIrradianceTexture
          << "the G-buffer pass declares the irradiance cube; the ambient lives in the deferred composite";
 
     // The forward shader is the control: it still declares everything a lit draw needs, so a G-buffer set
@@ -1273,7 +1273,7 @@ namespace
     // two punctual light models and the BRDF pieces they share, and nothing else has ever been put there.
     // Common/CloudShadowReceiver.glslh is named on top because it is the same kind of file and lives in
     // Common only under duress — its producer includes Common/CloudShadowMap.glslh and declares
-    // u_CloudShadowMap as a writeonly image2D, so the receiver cannot sit beside it.
+    // CloudShadowMapTexture as a writeonly image2D, so the receiver cannot sit beside it.
     //
     // A typed list would drift, and drifting is the whole failure mode: the next shared text somebody
     // extracts must reach the graph too, and nobody will remember to add it here.
@@ -1355,15 +1355,15 @@ TEST_F( ShaderCacheKeyShaderRoot, TheLitGraphSurfaceIsHANDEDTheSceneITSHADESWITH
     const auto bindings = GraphicsSetZero( ShaderPath( "Graph/MatLitConst.shader" ), "Static.Forward" );
     ASSERT_FALSE( bindings.empty() );
 
-    EXPECT_TRUE( HasBinding( bindings, 8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_EnvSpecularTex
-    EXPECT_TRUE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_EnvIrradianceTex
-    EXPECT_TRUE( HasBinding( bindings, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_BRDFLUTTexture
-    EXPECT_TRUE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
+    EXPECT_TRUE( HasBinding( bindings, 8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // EnvironmentSpecularTexture
+    EXPECT_TRUE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // EnvironmentIrradianceTexture
+    EXPECT_TRUE( HasBinding( bindings, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // BrdfLutTexture
+    EXPECT_TRUE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // CloudShadowMapTexture
     EXPECT_TRUE( HasBinding( bindings, 21, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CloudShadowUB
     // The forward ground is shaded as a forward mesh is: the sun (DirectionLightsUB) with the cascade array, the
     // environment cubes and split-sum LUT at the deferred composite's 17/18/19 (8/9/10 are the terrain's), and the
     // sky look. The reflection captures are set 1 (the composite's), outside this set-0 census.
-    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowCascades
+    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // ShadowCascadesTexture
     EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );        // DirectionLightsUB
     for ( const uint32_t environment : { 17u, 18u, 19u } )
         EXPECT_TRUE( HasBinding( bindings, environment, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
@@ -1378,7 +1378,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TheLitGraphSurfaceIsHANDEDTheSceneITSHADESWITH
     // Mesh/Surface/Pass_Forward.glslh, so these are the mesh forward layout's numbers (StandardSurface's), not a
     // shader-graph layout of its own.
     EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // ShadowUB
-    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_ShadowCascades
+    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // ShadowCascadesTexture
 
     // The graph's own textures start at kGraphTextureBinding (24) and count upward, so none of the slots
     // above can be taken by a Properties block however many textures an artist adds. Distinctness is the
@@ -1421,7 +1421,7 @@ namespace
             const auto it = parsed.GetValue().Stages.find( ShaderStage::Fragment );
             if ( it == parsed.GetValue().Stages.end() )
                 continue;
-            if ( it->second.find( "#define u_Material u_Materials[" ) != std::string::npos )
+            if ( it->second.find( "#define Material MaterialRows[" ) != std::string::npos )
                 out.push_back( entry.path() );
         }
         std::sort( out.begin(), out.end() );
@@ -1537,7 +1537,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TwoSmallParametersInARowStillLandOnTheirOwnSlo
         Out(0) vec4 o_Color;
         void main()
         {
-            o_Color = u_Material.Third * ( u_Material.First + u_Material.Second );
+            o_Color = Material.Third * ( Material.First + Material.Second );
         }
     }
 })";
@@ -1750,12 +1750,12 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
     EXPECT_TRUE( HasBinding( bindings, 6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );          // PointLightsUB
     EXPECT_TRUE( HasBinding( bindings, 7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );          // ShadowUB
     EXPECT_TRUE( HasBinding( bindings, 16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // SpotLightsUB
-    EXPECT_TRUE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_CloudShadowMap
+    EXPECT_TRUE( HasBinding( bindings, 20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // CloudShadowMapTexture
     EXPECT_TRUE( HasBinding( bindings, 21, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );         // CloudShadowUB
     // The forward ground is shaded as a forward mesh is: the sun (DirectionLightsUB) with the cascade array, the
     // environment cubes and split-sum LUT at the deferred composite's 17/18/19 (8/9/10 are the terrain's), and the
     // sky look. The reflection captures are set 1 (the composite's), outside this set-0 census.
-    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_ShadowCascades
+    EXPECT_TRUE( HasBinding( bindings, 5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // ShadowCascadesTexture
     EXPECT_TRUE( HasBinding( bindings, 14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ) );        // DirectionLightsUB
     for ( const uint32_t environment : { 17u, 18u, 19u } )
         EXPECT_TRUE( HasBinding( bindings, environment, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
@@ -1767,8 +1767,8 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainKeepsPerDrawDataOutOfItsSharedUnifor
     for ( const uint32_t storage : { 29u, 30u, 32u } )
         EXPECT_TRUE( HasBinding( bindings, storage, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ) << storage;
     EXPECT_TRUE( HasBinding( bindings, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );         // TerrainInstances[]
-    EXPECT_TRUE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Heightmap (R16)
-    EXPECT_TRUE( HasBinding( bindings, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Weightmap (RGBA8)
+    EXPECT_TRUE( HasBinding( bindings, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // HeightmapTexture (R16)
+    EXPECT_TRUE( HasBinding( bindings, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // WeightmapTexture (RGBA8)
     // The landscape material's layer maps: one 2D array per kind (albedo, normal, ARM, height) whatever the
     // number of inputs; the per-input samplers 15-22 of the three-input material may not come back.
     for ( uint32_t map = 11; map <= 14; ++map )
@@ -1845,15 +1845,15 @@ TEST_F( ShaderCacheKeyShaderRoot, TheTerrainProgramsShareOneMaterialAndTheCaster
     EXPECT_TRUE( HasBinding( g, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) ) << DescribeBindings( g );
     EXPECT_TRUE( HasBinding( g, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ) << DescribeBindings( g );
     EXPECT_TRUE( HasBinding( g, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) )
-         << DescribeBindings( g ); // u_Weightmap
+         << DescribeBindings( g ); // WeightmapTexture
 
     // The caster reads the patch and, since the landscape's visibility layer (L11a), the weightmap: a hole must
     // cast no shadow, so the caster discards on the same channel the surface does. Still nothing that shades.
     const auto c = reflect( "Terrain/TerrainShadow.shader" );
     EXPECT_EQ( c.size(), 3u ) << DescribeBindings( c );
     EXPECT_TRUE( HasBinding( c, 8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ) );          // TerrainInstances[]
-    EXPECT_TRUE( HasBinding( c, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // u_Heightmap
-    EXPECT_TRUE( HasBinding( c, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // u_Weightmap (holes)
+    EXPECT_TRUE( HasBinding( c, 9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) );  // HeightmapTexture
+    EXPECT_TRUE( HasBinding( c, 10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ) ); // WeightmapTexture (holes)
 }
 
 // ---- The particle state: one layout, three statements of it, and the dispatch that divides by a fourth --
@@ -2210,7 +2210,7 @@ Shader "ProseVsCode"
 {
     Vertex
     {
-        // Integrate alive particles. In LOCAL mode (u_Counts.w) the integrated state is the offset.
+        // Integrate alive particles. In LOCAL mode (Counts.w) the integrated state is the offset.
         /* Out of the pool comes exactly one entry, and the Buffer is a Uniform elsewhere. */
         In vec3 a_Position;
         In vec2 a_TexCoord;
@@ -2968,18 +2968,18 @@ Shader "RayQueryProbe"
     Compute
     {
         layout(local_size_x = 8, local_size_y = 8) in;
-        layout(set = 1, binding = 2) uniform accelerationStructureEXT u_Scene;
-        layout(set = 0, binding = 0, r8) writeonly uniform image2D u_Mask;
+        layout(set = 1, binding = 2) uniform accelerationStructureEXT SceneColorTexture;
+        layout(set = 0, binding = 0, r8) writeonly uniform image2D MaskTexture;
 
         void main()
         {
             rayQueryEXT query;
-            rayQueryInitializeEXT( query, u_Scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF,
+            rayQueryInitializeEXT( query, SceneColorTexture, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF,
                                    vec3( gl_GlobalInvocationID ), 0.01, vec3( 0.0, 1.0, 0.0 ), 1000.0 );
             rayQueryProceedEXT( query );
             const bool lit = rayQueryGetIntersectionTypeEXT( query, true ) ==
                              gl_RayQueryCommittedIntersectionNoneEXT;
-            imageStore( u_Mask, ivec2( gl_GlobalInvocationID.xy ), vec4( lit ? 1.0 : 0.0 ) );
+            imageStore( MaskTexture, ivec2( gl_GlobalInvocationID.xy ), vec4( lit ? 1.0 : 0.0 ) );
         }
     }
 }
@@ -3000,7 +3000,7 @@ Shader "RayQueryProbe"
     ASSERT_NE( set, data.ShaderDescriptorSets.end() ) << "the acceleration structure's set 1 was not reflected";
     ASSERT_EQ( set->second.AccelerationStructures.size(), 1u );
     const auto& as = set->second.AccelerationStructures.at( 2 );
-    EXPECT_EQ( as.Name, "u_Scene" );
+    EXPECT_EQ( as.Name, "SceneColorTexture" );
     EXPECT_EQ( as.DescriptorSet, 1u );
     EXPECT_EQ( as.ShaderStage, ShaderStage::Compute );
 

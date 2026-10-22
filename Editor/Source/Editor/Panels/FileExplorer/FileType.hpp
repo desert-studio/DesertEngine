@@ -118,6 +118,10 @@ namespace Desert::Editor
         /// it an icon and filter by it; a layout of fields has no picture, so it shows the class icon as UE does.
         VFXDataChannel,
 
+        /// A VFX effect type (`.dfxtype`, UE UNiagaraEffectType): its own type for the data channel's reason -
+        /// colour, icon and filter; a table of per-level distances has no picture.
+        VFXEffectType,
+
         /// A landscape grass type (`.degrasstype`, UE ULandscapeGrassType): its own type for the layer info's
         /// reason — colour, icon and filter; a list of meshes and numbers has no picture of its own.
         LandscapeGrassType
@@ -194,6 +198,7 @@ namespace Desert::Editor
          { "dweatherpreset", FileType::WeatherPreset },
          { "dephysasset", FileType::PhysicsAsset },
          { "dfxch", FileType::VFXDataChannel },
+         { "dfxtype", FileType::VFXEffectType },
          { "degrasstype", FileType::LandscapeGrassType },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },

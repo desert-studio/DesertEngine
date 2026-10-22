@@ -15,36 +15,36 @@ Shader "ReflectionCaptureBlend"
         // cube's own measure is taken as soon as it exists; an unmeasured new cube keeps the old measure until
         // the last step, then 0 ("not measured", re-measured by the Diffuse pass as any other).
 
-        layout(binding = 0, rgba16f) uniform imageCubeArray u_Cubes; // this mip, every layer
+        layout(binding = 0, rgba16f) uniform imageCubeArray CubesTexture; // this mip, every layer
 
         PushConstant PushConstants
         {
-        	uint  u_LiveLayer;    // the live cube's first layer (cube * 6)
-        	uint  u_StagingLayer; // the staging cube's first layer
-        	float u_Weight;       // 1 / (K - k): the share of the staging cube this step
-        	float u_Pad;
+        	uint  LiveLayer;    // the live cube's first layer (cube * 6)
+        	uint  StagingLayer; // the staging cube's first layer
+        	float StagingWeight;       // 1 / (K - k): the share of the staging cube this step
+        	float Pad;
         };
 
         LocalSize(8, 8, 1);
         void main()
         {
-        	const ivec2 size = imageSize(u_Cubes).xy;
+        	const ivec2 size = imageSize(CubesTexture).xy;
         	if (gl_GlobalInvocationID.x >= uint(size.x) || gl_GlobalInvocationID.y >= uint(size.y))
         		return;
         	const ivec2 xy      = ivec2(gl_GlobalInvocationID.xy);
         	const int   face    = int(gl_GlobalInvocationID.z);
-        	const ivec3 live    = ivec3(xy, int(u_LiveLayer) + face);
-        	const vec4  was     = imageLoad(u_Cubes, live);
-        	const vec4  now     = imageLoad(u_Cubes, ivec3(xy, int(u_StagingLayer) + face));
-        	const bool  last    = u_Weight >= 1.0;
+        	const ivec3 live    = ivec3(xy, int(LiveLayer) + face);
+        	const vec4  was     = imageLoad(CubesTexture, live);
+        	const vec4  now     = imageLoad(CubesTexture, ivec3(xy, int(StagingLayer) + face));
+        	const bool  last    = StagingWeight >= 1.0;
         	float       stored;
         	if (was.a > 0.0 && now.a > 0.0)
-        		stored = mix(was.a, now.a, u_Weight);
+        		stored = mix(was.a, now.a, StagingWeight);
         	else if (now.a > 0.0)
         		stored = now.a;
         	else
         		stored = last ? 0.0 : was.a;
-        	imageStore(u_Cubes, live, vec4(mix(was.rgb, now.rgb, u_Weight), stored));
+        	imageStore(CubesTexture, live, vec4(mix(was.rgb, now.rgb, StagingWeight), stored));
         }
     }
 }

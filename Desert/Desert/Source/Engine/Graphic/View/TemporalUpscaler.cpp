@@ -19,6 +19,17 @@
 #include <format>
 #include <mutex>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct TemporalUpscalerSupersampleResolveShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationColorTexture );
+    };
+} // namespace
+
 namespace Desert::Graphic
 {
     namespace
@@ -190,9 +201,9 @@ namespace Desert::Graphic
         static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
              std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
                   .ShaderName        = kResolveShaderName,
-                  .Slots             = { { "u_Source", Kind::Texture },
-                                         { "u_PointClampSampler", Kind::Sampler },
-                                         { "u_Destination", Kind::StorageTexture } },
+                  .Slots             = { { "SourceColorTexture", Kind::Texture },
+                                         { "PointClampSampler", Kind::Sampler },
+                                         { "DestinationColorTexture", Kind::StorageTexture } },
                   .PushConstantBytes = static_cast<uint32_t>( sizeof( SupersampleResolvePush ) ) } );
         return layout;
     }
@@ -267,9 +278,12 @@ namespace Desert::Graphic
                  {
                      // texelFetch only: the Catmull-Rom weights are the filter, the sampler filters nothing.
                      pass.Bindings( SupersampleResolveLayout(), RDG::OtherRouteFill{} )
-                          .Texture( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Storage( "u_Destination", destination, RDG::Access::StorageWrite, 0 )
+                          .Texture( TemporalUpscalerSupersampleResolveShaderParameters::SourceColorTexture, source,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Sampler( TemporalUpscalerSupersampleResolveShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Storage( TemporalUpscalerSupersampleResolveShaderParameters::DestinationColorTexture,
+                                    destination, RDG::Access::StorageWrite, 0 )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( SupersampleResolvePush ) ) );
                  },
                  [holder, push]( RDG::PassContext& context ) -> Common::BoolResultStr

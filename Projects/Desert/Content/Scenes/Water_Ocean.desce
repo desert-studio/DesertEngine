@@ -3,13 +3,40 @@
         "Kind": "Scene",
         "Guid": "4bfb3eba91034778ae690c9988341395",
         "Versions": {
-            "SCNE": 67,
+            "SCNE": 68,
             "UNIT": 1
         },
         "Dependencies": ["f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
     },
     "SceneName": "Water_Ocean",
     "Entities": [
+        {
+            "id": 371561652986549398,
+            "siblingIndex": 13,
+            "Tag": "Water Zone",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "WaterZone": {
+                "ZoneExtent": [4096000.0, 4096000.0],
+                "TileSize": 2400.0,
+                "TessellationFactor": 6,
+                "LODScale": 1.0
+            }
+        },
+        {
+            "id": 2646278175089776126,
+            "siblingIndex": 12,
+            "Tag": "Ocean",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "WaterBody": {
+                "WaterWaves": "",
+                "OceanExtents": [4096000.0, 4096000.0],
+                "TargetWaveMaskDepth": 2048.0
+            }
+        },
         {
             "id": 3541476290102148810,
             "siblingIndex": 1,
@@ -155,20 +182,6 @@
             }
         },
         {
-            "id": 10144312751783984541,
-            "siblingIndex": 10,
-            "Tag": "Camera",
-            "Translation": [0.0, 200.0, 1500.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Camera": {
-                "AutoActivateForPlayer": true,
-                "FOV": 45.0,
-                "Near": 10.0,
-                "Far": 5000000.0
-            }
-        },
-        {
             "id": 7480392879292652412,
             "siblingIndex": 11,
             "Tag": "PostProcessVolume",
@@ -230,30 +243,17 @@
             }
         },
         {
-            "id": 2646278175089776126,
-            "siblingIndex": 12,
-            "Tag": "Ocean",
-            "Translation": [0.0, 0.0, 0.0],
+            "id": 10144312751783984541,
+            "siblingIndex": 10,
+            "Tag": "Camera",
+            "Translation": [0.0, 200.0, 1500.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "WaterBody": {
-                "WaterWaves": "",
-                "OceanExtents": [4096000.0, 4096000.0],
-                "TargetWaveMaskDepth": 2048.0
-            }
-        },
-        {
-            "id": 371561652986549398,
-            "siblingIndex": 13,
-            "Tag": "Water Zone",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "WaterZone": {
-                "ZoneExtent": [4096000.0, 4096000.0],
-                "TileSize": 2400.0,
-                "TessellationFactor": 6,
-                "LODScale": 1.0
+            "Camera": {
+                "AutoActivateForPlayer": true,
+                "FOV": 45.0,
+                "Near": 10.0,
+                "Far": 5000000.0
             }
         }
     ],

@@ -17,9 +17,9 @@ Shader "SurfaceCacheSceneView"
         };
         PushConstant SceneViewPush
         {
-            mat4  u_ViewProjection;
-            vec4  u_CameraPosition;
-            uvec4 u_Counts; // x = atlas side, y = card count
+            mat4  ViewProjection;
+            vec4  CameraPosition;
+            uvec4 Counts; // x = atlas side, y = card count
         };
         Out(0) vec2 v_Local;                                    // card space, [-1, 1]² over the card
         Out(1) vec4 v_Clip;                                     // clip position on the card plane
@@ -38,11 +38,11 @@ Shader "SurfaceCacheSceneView"
             const vec3 origin = vec3(card.worldToLocal[0].w, card.worldToLocal[1].w, card.worldToLocal[2].w);
             const vec3 extent = card.localExtent.xyz;
             const vec3 world  = origin + x * (c.x * extent.x) + y * (c.y * extent.y) + z * extent.z;
-            const bool facing = dot(z, u_CameraPosition.xyz - world) > 0.0;
+            const bool facing = dot(z, CameraPosition.xyz - world) > 0.0;
 
             v_Local         = c;
-            v_Clip          = u_ViewProjection * vec4(world, 1.0);
-            v_ClipDepthStep = u_ViewProjection * vec4(z * (2.0 * extent.z), 0.0);
+            v_Clip          = ViewProjection * vec4(world, 1.0);
+            v_ClipDepthStep = ViewProjection * vec4(z * (2.0 * extent.z), 0.0);
             const uvec2 res = uvec2(1u << (card.info.x & 0xFFu), 1u << ((card.info.x >> 8u) & 0xFFu));
             v_CardInfo      = uvec4(res.x | (res.y << 16u), card.pages.x, card.pages.y, 0u);
             // A card not captured yet, or seen from behind, collapses (all six vertices outside the clip box).
@@ -56,13 +56,13 @@ Shader "SurfaceCacheSceneView"
         {
             SurfaceCardPage surfaceCardPages[];
         };
-        Uniform sampler u_PointClampSampler;
-        Uniform(2) texture2D u_AtlasColor; // albedo ("Lumen Scene (Cards)") or FinalLighting ("(Lit)")
-        #define u_AtlasColor sampler2D(u_AtlasColor, u_PointClampSampler)
-        Uniform(3) texture2D u_AtlasDepth;
-        #define u_AtlasDepth sampler2D(u_AtlasDepth, u_PointClampSampler)
-        Uniform(4) texture2D u_AtlasOpacity;
-        #define u_AtlasOpacity sampler2D(u_AtlasOpacity, u_PointClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(2) texture2D AtlasColorTexture; // albedo ("Lumen Scene (Cards)") or FinalLighting ("(Lit)")
+        #define AtlasColorTexture sampler2D(AtlasColorTexture, PointClampSampler)
+        Uniform(3) texture2D AtlasDepthTexture;
+        #define AtlasDepthTexture sampler2D(AtlasDepthTexture, PointClampSampler)
+        Uniform(4) texture2D AtlasOpacityTexture;
+        #define AtlasOpacityTexture sampler2D(AtlasOpacityTexture, PointClampSampler)
         In(0) vec2 v_Local;
         In(1) vec4 v_Clip;
         layout(location = 2) in flat vec4 v_ClipDepthStep;
@@ -84,15 +84,15 @@ Shader "SurfaceCacheSceneView"
             if (res.y >= SURFACE_CACHE_PHYSICAL_PAGE_SIZE)
                 page.y = min(texel.y / SURFACE_CACHE_VIRTUAL_PAGE_SIZE, pages.y - 1u);
             const SurfaceCardPage entry = surfaceCardPages[v_CardInfo.z + page.y * pages.x + page.x];
-            const vec2  atlasSize  = vec2(textureSize(u_AtlasColor, 0));
+            const vec2  atlasSize  = vec2(textureSize(AtlasColorTexture, 0));
             const ivec2 atlasTexel = ivec2(entry.physicalAtlasUVRect.xy * atlasSize + 0.5) +
                                      ivec2(texel - page * SURFACE_CACHE_VIRTUAL_PAGE_SIZE);
-            if (texelFetch(u_AtlasOpacity, atlasTexel, 0).r < 0.5)
+            if (texelFetch(AtlasOpacityTexture, atlasTexel, 0).r < 0.5)
                 discard;
             // Back to the captured surface: the depth layer runs from the card plane (0) to the far side (1).
-            const vec4 clip = v_Clip - texelFetch(u_AtlasDepth, atlasTexel, 0).r * v_ClipDepthStep;
+            const vec4 clip = v_Clip - texelFetch(AtlasDepthTexture, atlasTexel, 0).r * v_ClipDepthStep;
             gl_FragDepth    = clip.z / clip.w;
-            oColor          = vec4(texelFetch(u_AtlasColor, atlasTexel, 0).rgb, 1.0);
+            oColor          = vec4(texelFetch(AtlasColorTexture, atlasTexel, 0).rgb, 1.0);
         }
     }
 }

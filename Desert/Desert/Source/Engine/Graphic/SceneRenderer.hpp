@@ -890,7 +890,7 @@ namespace Desert::Graphic
         // THE ONE ANSWER TO "is the sun shadowed from a screen mask this frame" (the ray-traced sun or the virtual
         // shadow map, both ShadowMask.Sun): every mask READER asks it - the composite's and the opaque generic
         // programs' DESERT_SUN_SHADOW_SCREEN_MASK permutations, the depth/normal prepass, the cascade budget (the
-        // low-detail cascades kept for the blended u_ShadowCascades readers). The producers ask their own method.
+        // low-detail cascades kept for the blended ShadowCascadesTexture readers). The producers ask their own method.
         [[nodiscard]] bool SunShadowIsScreenMask() const;
         // "Shadows: Virtual Shadow Map" (System::VirtualShadowMapRenderer): the page passes over this view's
         // G-buffer, then "VSM: Project" (SMRT inside the sun's SourceAngle) into the screen mask. Invalid (logged)
@@ -1154,7 +1154,7 @@ namespace Desert::Graphic
         // The closest-depth hierarchy of the G-buffer depth (HZBRenderer), invalid when it was not built.
         RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures );
         // SSR's trace + denoiser over @p screenTrace, before the lighting. Resolved: the reflection the lighting
-        // composes (u_SSR); invalid when SSR did not run.
+        // composes (SsrTexture); invalid when SSR did not run.
         // Reflections.TranslucentFrontLayer of the resolved quality.
         [[nodiscard]] bool TranslucentFrontLayerReflections() const;
         // The front layer's G-buffer, then its reflections through the "FrontLayerReflectionsSystem" (an SSRRenderer
@@ -1192,7 +1192,11 @@ namespace Desert::Graphic
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameVolumetricClouds( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
-        void AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures );
+        // The selection outline composited over @p scene (the post input: the temporal resolve's output with the
+        // overlays, or the scene colour). Returns what the tonemap reads - the outlined scene - or an invalid ref
+        // when the outline system cannot record this frame (the tonemap then reads @p scene).
+        [[nodiscard]] RDG::TextureRef AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures,
+                                                         RDG::TextureRef scene );
         // @p previous: PrepareFrameAutoExposure's result (nothing is added when it is invalid).
         void AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
                                    const std::vector<RDG::TextureRef>& sceneColor, RDG::TextureRef previous );

@@ -10,43 +10,43 @@ Shader "DepthOfFieldRecombine"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(6) sampler u_PointClampSampler;
-        Uniform(7) sampler u_LinearClampSampler;
-        Uniform(0) texture2D u_SceneColor; // linear HDR, OutputExtent
-        #define u_SceneColor sampler2D(u_SceneColor, u_PointClampSampler)
-        Uniform(1) texture2D u_SceneDepth; // reversed-Z device depth, RenderExtent
-        #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
-        Uniform(2) texture2D u_Foreground; // HalfExtent: rgb, a opacity
-        #define u_Foreground sampler2D(u_Foreground, u_LinearClampSampler)
-        Uniform(3) texture2D u_Background; // HalfExtent: rgb, a presence
-        #define u_Background sampler2D(u_Background, u_LinearClampSampler)
-        layout(binding = 4, rgba16f) restrict writeonly uniform image2D u_Output;
+        Uniform(6) sampler PointClampSampler;
+        Uniform(7) sampler LinearClampSampler;
+        Uniform(0) texture2D SceneColorTexture; // linear HDR, OutputExtent
+        #define SceneColorTexture sampler2D(SceneColorTexture, PointClampSampler)
+        Uniform(1) texture2D SceneDepthTexture; // reversed-Z device depth, RenderExtent
+        #define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
+        Uniform(2) texture2D ForegroundTexture; // HalfExtent: rgb, a opacity
+        #define ForegroundTexture sampler2D(ForegroundTexture, LinearClampSampler)
+        Uniform(3) texture2D BackgroundTexture; // HalfExtent: rgb, a presence
+        #define BackgroundTexture sampler2D(BackgroundTexture, LinearClampSampler)
+        layout(binding = 4, rgba16f) restrict writeonly uniform image2D RecombinedColorTexture;
 
         // The C++ side is Graphic::DofParams (View/DepthOfField.hpp), offsets pinned by static_asserts.
         layout(std430, binding = 5) readonly buffer DepthOfFieldBuffer
         {
-            vec2  u_OutputSize;
-            vec2  u_RenderSize;
-            vec2  u_HalfSize;
-            vec2  u_TileCount;
-            vec4  u_DepthToView;
-            float u_FocalDistanceMm;
-            float u_FocalLengthMm;
-            float u_CocScale;
-            float u_MaxRadius;
-            int   u_Rings;
-            int   u_DilateTiles;
-            float u_Pad0;
-            float u_Pad1;
+            vec2  OutputSize;
+            vec2  RenderSize;
+            vec2  HalfSize;
+            vec2  TileCount;
+            vec4  DepthToView;
+            float FocalDistanceMm;
+            float FocalLengthMm;
+            float CocScale;
+            float MaxRadius;
+            int   Rings;
+            int   DilateTiles;
+            float Pad0;
+            float Pad1;
         };
 
         // Reversed-Z device depth -> distance along the view axis, cm (CPU twin: Graphic::DofSceneDistanceCm).
         float SceneDistanceCm(float deviceDepth)
         {
-            const float w = u_DepthToView.z * deviceDepth + u_DepthToView.w;
+            const float w = DepthToView.z * deviceDepth + DepthToView.w;
             if (abs(w) < 1e-12)
                 return 1e30;
-            return abs((u_DepthToView.x * deviceDepth + u_DepthToView.y) / w);
+            return abs((DepthToView.x * deviceDepth + DepthToView.y) / w);
         }
 
         // The signed thin-lens CoC radius in OUTPUT pixels, negative in front of the focus plane
@@ -54,26 +54,26 @@ Shader "DepthOfFieldRecombine"
         float CocRadiusOutput(float distanceCm)
         {
             const float z = distanceCm * 10.0;
-            const float t = (1.0 - u_FocalDistanceMm / z) / (u_FocalDistanceMm - u_FocalLengthMm);
-            return clamp(u_CocScale * t, -u_MaxRadius, u_MaxRadius);
+            const float t = (1.0 - FocalDistanceMm / z) / (FocalDistanceMm - FocalLengthMm);
+            return clamp(CocScale * t, -MaxRadius, MaxRadius);
         }
 
         void main()
         {
             const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-            if (any(greaterThanEqual(pixel, ivec2(u_OutputSize))))
+            if (any(greaterThanEqual(pixel, ivec2(OutputSize))))
                 return;
-            const vec4  sharp      = texelFetch(u_SceneColor, pixel, 0);
-            const vec2  uv         = (vec2(pixel) + 0.5) / u_OutputSize;
-            const float coc        = CocRadiusOutput(SceneDistanceCm(textureLod(u_SceneDepth, uv, 0.0).r));
-            const vec4  background = textureLod(u_Background, uv, 0.0);
-            const vec4  foreground = textureLod(u_Foreground, uv, 0.0);
+            const vec4  sharp      = texelFetch(SceneColorTexture, pixel, 0);
+            const vec2  uv         = (vec2(pixel) + 0.5) / OutputSize;
+            const float coc        = CocRadiusOutput(SceneDistanceCm(textureLod(SceneDepthTexture, uv, 0.0).r));
+            const vec4  background = textureLod(BackgroundTexture, uv, 0.0);
+            const vec4  foreground = textureLod(ForegroundTexture, uv, 0.0);
 
             // Within half an output pixel of focus the full-res colour stands; by 2 pixels the half-res layer.
             const float backgroundBlend = smoothstep(0.5, 2.0, coc) * background.a;
             vec3        color           = mix(sharp.rgb, background.rgb, backgroundBlend);
             color                       = mix(color, foreground.rgb, foreground.a);
-            imageStore(u_Output, pixel, vec4(color, sharp.a));
+            imageStore(RecombinedColorTexture, pixel, vec4(color, sharp.a));
         }
     }
 }

@@ -51,7 +51,7 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)" },
              { P::ShadowContactSteps, G::Shadows, "Shadows.ContactShadowSteps", 0, 32, CL::None,
                "SceneRenderer::BeginScene -> DeferredLighting.shader contact-shadow march "
-               "(u_ContactShadowView.x)" },
+               "(ContactShadowView.x)" },
              { P::ReflectionMaxSteps, G::Reflections, "Reflections.MaxSteps", 8, 128, CL::None,
                "SSRRenderer trace push constant: HZB traversal iterations per ray (SceneRenderer SSR pass)" },
              { P::DistanceFieldPoolMiB, G::GlobalIllumination, "GlobalIllumination.DistanceFieldPoolMiB", 32, 512,
@@ -91,16 +91,16 @@ namespace Common::Scalability
              { P::ShadowRayTracedTranslucencyCascades, G::Shadows, "Shadows.RayTracedTranslucencyCascades", 1, 4,
                CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows under a ray-traced sun (blended "
-               "u_ShadowCascades readers, MeshRenderer::SunCascadeReadersQueued)" },
+               "ShadowCascadesTexture readers, MeshRenderer::SunCascadeReadersQueued)" },
              { P::ShadowRayTracedTranslucencyMapSize, G::Shadows, "Shadows.RayTracedTranslucencyMapSize", 256,
                2048, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows under a ray-traced sun (blended "
-               "u_ShadowCascades readers, MeshRenderer::SunCascadeReadersQueued)" },
+               "ShadowCascadesTexture readers, MeshRenderer::SunCascadeReadersQueued)" },
              { P::ShadowFilterTaps, G::Shadows, "Shadows.FilterTaps", 4, 64, CL::None,
-               "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB u_ShadowFilter.y: "
+               "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB ShadowFilter.y: "
                "Mesh/CascadedShadow.glslh PCSS filter taps)" },
              { P::ShadowBlockerSearchTaps, G::Shadows, "Shadows.BlockerSearchTaps", 4, 32, CL::None,
-               "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB u_ShadowFilter.x: "
+               "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB ShadowFilter.x: "
                "Mesh/CascadedShadow.glslh PCSS blocker search taps)" },
              { P::ShadowRayTracedDenoiserRadius, G::Shadows, "Shadows.RayTracedDenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseShadowVisibility (reconstruction "
@@ -145,7 +145,7 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (recentre distance)" },
              { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
                CL::None,
-               "SceneRenderer::BeginScene -> MaterialDeferredLighting (u_ScreenSpaceGI.x: DeferredLighting.shader "
+               "SceneRenderer::BeginScene -> MaterialDeferredLighting (ScreenSpaceGi.x: DeferredLighting.shader "
                "GatherIndirectGI samples)" },
              { P::ReflectionDenoiserRadius, G::Reflections, "Reflections.DenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseReflections (reconstruction kernel)" },
@@ -270,6 +270,12 @@ namespace Common::Scalability
              { P::ShadingParallaxShadowSteps, G::Shading, "Shading.ParallaxShadowSteps", 0, 64, CL::None,
                "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxShadowSteps "
                "(Mesh/Surface/SurfaceParallax.glslh)" },
+             { P::EffectsSpawnCountScalePercent, G::Effects, "Effects.SpawnCountScalePercent", 1, 100, CL::None,
+               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> SpawnState::Step (rate and burst counts)" },
+             { P::EffectsQualityLevel, G::Effects, "Effects.QualityLevel", 0, 4, CL::None,
+               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> VFXWorld::Tick (effect type level)" },
+             { P::EffectsMaxWorldParticles, G::Effects, "Effects.MaxWorldParticles", 0, 4194304, CL::None,
+               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> EvaluateVFXScalability (world pool budget)" },
         } };
     } // namespace
 

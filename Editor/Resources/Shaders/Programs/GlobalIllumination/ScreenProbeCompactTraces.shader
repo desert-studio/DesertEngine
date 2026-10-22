@@ -5,7 +5,7 @@
 // probe, one thread per texel (Common/ScreenProbeTracing.glslh's trace hit buffer); the list keeps a probe's rays
 // together and in texel order (one group appends them as one run), so neighbouring threads of the world legs trace neighbouring directions
 // of one probe. Two compactions a frame (the push constant):
-//   near field   the rays with no hit that have not reached the radiance cache and are not past u_MaxDistance (the
+//   near field   the rays with no hit that have not reached the radiance cache and are not past MaxDistance (the
 //                near field's end: UE CompactionMaxTraceDistance = MaxMeshSDFTraceDistance);
 //   far field    every ray with no hit (UE bCompactForSkyApply: the cache's radiance and the sky apply to all of
 //                them).
@@ -52,8 +52,8 @@ Shader "ScreenProbeCompactTraces"
 
         PushConstant ScreenProbeCompactPush
         {
-            float u_MaxDistance; // a ray answered this far is not listed (cm)
-            uint  u_FarField;    // 1: list every ray with no hit, the cache's reached ones too
+            float MaxDistance; // a ray answered this far is not listed (cm)
+            uint  FarField;    // 1: list every ray with no hit, the cache's reached ones too
         };
 
         #define SCREEN_PROBES_DECLARED
@@ -74,8 +74,8 @@ Shader "ScreenProbeCompactTraces"
             {
                 const uint encoded = screenProbeTraceHit[slot];
                 open = ( encoded & SP_TRACE_HIT_BIT ) == 0u &&
-                       ( u_FarField != 0u || ( encoded & SP_TRACE_REACHED_BIT ) == 0u ) &&
-                       SPTraceHitDistance( encoded ) < u_MaxDistance;
+                       ( FarField != 0u || ( encoded & SP_TRACE_REACHED_BIT ) == 0u ) &&
+                       SPTraceHitDistance( encoded ) < MaxDistance;
             }
             s_Open[texel] = open ? 1u : 0u;
             barrier();

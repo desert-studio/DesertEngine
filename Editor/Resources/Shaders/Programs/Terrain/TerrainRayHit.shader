@@ -24,7 +24,7 @@ Shader "TerrainRayHit"
 
             void main()
             {
-                LandscapeRayHitRowRef       row  = LandscapeRayHitRowRef( u_RayHitRecord.MaterialRow );
+                LandscapeRayHitRowRef       row  = LandscapeRayHitRowRef( RayHitRecord.MaterialRow );
                 const TerrainInstance       tile = row.Tile;
                 vec4                        w0;
                 vec4                        w1;
@@ -54,7 +54,7 @@ Shader "TerrainRayHit"
 
             void main()
             {
-                LandscapeRayHitRowRef       row  = LandscapeRayHitRowRef( u_RayHitRecord.MaterialRow );
+                LandscapeRayHitRowRef       row  = LandscapeRayHitRowRef( RayHitRecord.MaterialRow );
                 const TerrainInstance       tile = row.Tile;
                 vec4                        w0;
                 vec4                        w1;

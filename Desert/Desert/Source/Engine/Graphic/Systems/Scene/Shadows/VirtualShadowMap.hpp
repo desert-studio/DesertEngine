@@ -139,7 +139,7 @@ namespace Desert::Graphic::System
     // VsmAllocator: the frame's counters and the indirect dispatch of "VSM: Clear Pages" at kVsmClearArgsOffset.
     inline constexpr uint64_t kVsmAllocatorBytes  = 48;
     inline constexpr uint64_t kVsmClearArgsOffset = 32;
-    inline constexpr uint64_t kVsmOverflowOffset  = 16; // VsmAllocator.u_Overflow
+    inline constexpr uint64_t kVsmOverflowOffset  = 16; // VsmAllocator.Overflow
 
     // ---- The clipmap, on the CPU (UE FVirtualShadowMapClipmap).
     // -------------------------------------------------- One level's placement this frame. The window is snapped

@@ -10,7 +10,7 @@
 // .shader, System::MegaLightsVolumeRenderer); bound by name (Graphic::SceneViewInputs::MegaLightsVolume).
 //
 // The block and the volumes sit in the reserved scene-read range (Core::kMegaLightsVolumeParamsBinding,
-// kMegaLightsVolumeFirstBinding, ShaderGraphBindings.hpp). The includer declares `u_LinearClampSampler` first.
+// kMegaLightsVolumeFirstBinding, ShaderGraphBindings.hpp). The includer declares `LinearClampSampler` first.
 // Off (Size.w == 0: any Shadows method but Stochastic, or no local light) the volumes are System.Black3D and
 // MegaLightsVolumeOn() is false.
 
@@ -26,12 +26,12 @@ layout( std430, binding = 31 ) readonly buffer MegaLightsVolumeUB
 {
     MegaLightsVolumeReadParams megaLightsVolume;
 };
-layout( binding = 32 ) uniform texture3D u_MegaLightsVolumeR;
-#define u_MegaLightsVolumeR sampler3D(u_MegaLightsVolumeR, u_LinearClampSampler)
-layout( binding = 33 ) uniform texture3D u_MegaLightsVolumeG;
-#define u_MegaLightsVolumeG sampler3D(u_MegaLightsVolumeG, u_LinearClampSampler)
-layout( binding = 34 ) uniform texture3D u_MegaLightsVolumeB;
-#define u_MegaLightsVolumeB sampler3D(u_MegaLightsVolumeB, u_LinearClampSampler)
+layout( binding = 32 ) uniform texture3D MegaLightsVolumeRTexture;
+#define MegaLightsVolumeRTexture sampler3D(MegaLightsVolumeRTexture, LinearClampSampler)
+layout( binding = 33 ) uniform texture3D MegaLightsVolumeGTexture;
+#define MegaLightsVolumeGTexture sampler3D(MegaLightsVolumeGTexture, LinearClampSampler)
+layout( binding = 34 ) uniform texture3D MegaLightsVolumeBTexture;
+#define MegaLightsVolumeBTexture sampler3D(MegaLightsVolumeBTexture, LinearClampSampler)
 
 // SH basis constants (Y00, and Y1m without the direction).
 #define MEGALIGHTS_SH_L0 0.282094792
@@ -75,9 +75,9 @@ MegaLightsVolumeLighting MegaLightsVolumeLightingAt( vec2 fragCoord, vec3 p, vec
     if ( !MegaLightsVolumeOn() )
         return lighting;
     const vec3 uvw = MegaLightsVolumeUVW( fragCoord, p );
-    const vec4 r   = texture( u_MegaLightsVolumeR, uvw );
-    const vec4 g   = texture( u_MegaLightsVolumeG, uvw );
-    const vec4 b   = texture( u_MegaLightsVolumeB, uvw );
+    const vec4 r   = texture( MegaLightsVolumeRTexture, uvw );
+    const vec4 g   = texture( MegaLightsVolumeGTexture, uvw );
+    const vec4 b   = texture( MegaLightsVolumeBTexture, uvw );
 
     const vec3  l1     = 0.2126 * r.yzw + 0.7152 * g.yzw + 0.0722 * b.yzw;
     const float l1Size = length( l1 );

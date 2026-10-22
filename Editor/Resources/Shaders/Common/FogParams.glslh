@@ -20,12 +20,12 @@
 
 layout(std430, binding = FOG_PARAMS_BINDING) readonly buffer FogParamsBuffer
 {
-    vec4 u_FogSun;          // xyz = TOWARD the sun (normalized), w = DirectionalInscatteringExponent
-    vec4 u_FogDirectional;  // rgb = directional lobe colour,     w = directional start distance (km)
-    vec4 u_FogInscattering; // rgb = fog inscattering colour,     w = 1 - FogMaxOpacity
-    vec4 u_FogLayer0;       // x = density /km, y = height falloff /km, z = fog height (km), w = start distance (km)
-    vec4 u_FogLayer1;       // x = density /km, y = height falloff /km, z = fog height (km), w = cutoff distance (km; 0 = off)
-    vec4 u_FogAmbient;      // rgb = sky-ambient contribution scale, w = 1 when the distant sky light must be sampled
+    vec4 FogSun;          // xyz = TOWARD the sun (normalized), w = DirectionalInscatteringExponent
+    vec4 FogDirectional;  // rgb = directional lobe colour,     w = directional start distance (km)
+    vec4 FogInscattering; // rgb = fog inscattering colour,     w = 1 - FogMaxOpacity
+    vec4 FogLayer0;       // x = density /km, y = height falloff /km, z = fog height (km), w = start distance (km)
+    vec4 FogLayer1;       // x = density /km, y = height falloff /km, z = fog height (km), w = cutoff distance (km; 0 = off)
+    vec4 FogAmbient;      // rgb = sky-ambient contribution scale, w = 1 when the distant sky light must be sampled
 };
 
 // Unpacks the block into the struct Common/HeightFog.glslh evaluates (include that first).
@@ -38,20 +38,20 @@ layout(std430, binding = FOG_PARAMS_BINDING) readonly buffer FogParamsBuffer
 HeightFogParams FogUnpackParams()
 {
     HeightFogParams p;
-    p.Density0            = u_FogLayer0.x;
-    p.Falloff0            = u_FogLayer0.y;
-    p.Height0Km           = u_FogLayer0.z;
-    p.Density1            = u_FogLayer1.x;
-    p.Falloff1            = u_FogLayer1.y;
-    p.Height1Km           = u_FogLayer1.z;
-    p.StartDistanceKm     = u_FogLayer0.w;
-    p.CutoffDistanceKm    = u_FogLayer1.w;
-    p.MinTransmittance    = u_FogInscattering.w;
-    p.Inscattering        = u_FogInscattering.rgb;
-    p.DirectionalColour   = u_FogDirectional.rgb;
-    p.DirectionalExponent = u_FogSun.w;
-    p.DirectionalStartKm  = u_FogDirectional.w;
-    p.SunDirection        = u_FogSun.xyz;
+    p.Density0            = FogLayer0.x;
+    p.Falloff0            = FogLayer0.y;
+    p.Height0Km           = FogLayer0.z;
+    p.Density1            = FogLayer1.x;
+    p.Falloff1            = FogLayer1.y;
+    p.Height1Km           = FogLayer1.z;
+    p.StartDistanceKm     = FogLayer0.w;
+    p.CutoffDistanceKm    = FogLayer1.w;
+    p.MinTransmittance    = FogInscattering.w;
+    p.Inscattering        = FogInscattering.rgb;
+    p.DirectionalColour   = FogDirectional.rgb;
+    p.DirectionalExponent = FogSun.w;
+    p.DirectionalStartKm  = FogDirectional.w;
+    p.SunDirection        = FogSun.xyz;
     return p;
 }
 

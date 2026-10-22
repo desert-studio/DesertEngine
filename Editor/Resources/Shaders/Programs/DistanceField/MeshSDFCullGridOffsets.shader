@@ -17,15 +17,15 @@ Shader "MeshSDFCullGridOffsets"
 
         ReadBuffer(0) MeshSDFCullParamsUB
         {
-            MeshSDFCullParams u_Cull;
+            MeshSDFCullParams CullParams;
         };
         Buffer(1) MeshSDFGridCellsUB
         {
-            uint u_GridCells[];
+            uint GridCellsData[];
         };
         Buffer(2) MeshSDFCullFeedbackUB
         {
-            uint u_Feedback[];
+            uint FeedbackData[];
         };
 
         const uint kThreads = 256u;
@@ -36,7 +36,7 @@ Shader "MeshSDFCullGridOffsets"
         void main()
         {
             const uint t     = gl_LocalInvocationIndex;
-            const uint cells = u_Cull.grid.cells.w;
+            const uint cells = CullParams.grid.cells.w;
             const uint run   = (cells + kThreads - 1u) / kThreads;
             const uint begin = min(t * run, cells);
             const uint end   = min(begin + run, cells);
@@ -48,7 +48,7 @@ Shader "MeshSDFCullGridOffsets"
             uint longest = 0u;
             for (uint c = begin; c < end; ++c)
             {
-                const uint n = u_GridCells[c * MeshSDFGridHeaderStride + 1u];
+                const uint n = GridCellsData[c * MeshSDFGridHeaderStride + 1u];
                 sum += n;
                 longest = max(longest, n);
             }
@@ -64,25 +64,25 @@ Shader "MeshSDFCullGridOffsets"
                 barrier();
             }
             const uint needed = s_Sum[kThreads - 1u];
-            const uint room   = u_Cull.counts.y;
+            const uint room   = CullParams.counts.y;
             const bool fits   = needed <= room;
 
             uint first = cells * MeshSDFGridHeaderStride + s_Sum[t] - sum;
             for (uint c = begin; c < end; ++c)
             {
                 const uint header = c * MeshSDFGridHeaderStride;
-                const uint n      = u_GridCells[header + 1u];
-                u_GridCells[header] = fits ? first : 0u;
+                const uint n      = GridCellsData[header + 1u];
+                GridCellsData[header] = fits ? first : 0u;
                 if (!fits)
-                    u_GridCells[header + 1u] = 0u;
+                    GridCellsData[header + 1u] = 0u;
                 first += n;
             }
             if (t == 0u)
             {
-                u_Feedback[0] = needed;
-                u_Feedback[1] = room;
-                u_Feedback[2] = s_Longest;
-                u_Feedback[3] = u_Cull.counts.z;
+                FeedbackData[0] = needed;
+                FeedbackData[1] = room;
+                FeedbackData[2] = s_Longest;
+                FeedbackData[3] = CullParams.counts.z;
             }
         }
     }

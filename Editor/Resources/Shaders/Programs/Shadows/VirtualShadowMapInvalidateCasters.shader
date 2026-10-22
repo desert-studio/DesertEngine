@@ -13,25 +13,25 @@ Shader "VirtualShadowMapInvalidateCasters"
 
         ReadBuffer(0) VsmFrameData
         {
-            VsmFrame u_Frame;
-            VsmLevel u_Levels[];
+            VsmFrame Frame;
+            VsmLevel Levels[];
         };
         Buffer(1) VsmPageTable
         {
-            VsmPageEntry u_Entries[];
+            VsmPageEntry Entries[];
         };
         ReadBuffer(2) VsmInvalidations
         {
-            vec4 u_Boxes[]; // box b: [2b].xyz = world min cm, [2b + 1].xyz = world max cm
+            vec4 Boxes[]; // box b: [2b].xyz = world min cm, [2b + 1].xyz = world max cm
         };
 
         void main()
         {
             const uint  box   = gl_WorkGroupID.x;
             const uint  level = gl_WorkGroupID.y;
-            const vec3  lo    = u_Boxes[2u * box].xyz;
-            const vec3  hi    = u_Boxes[2u * box + 1u].xyz;
-            const mat4  vp    = u_Levels[level].ViewProjection;
+            const vec3  lo    = Boxes[2u * box].xyz;
+            const vec3  hi    = Boxes[2u * box + 1u].xyz;
+            const mat4  vp    = Levels[level].ViewProjection;
             vec2        first = vec2( 1.0e30 );
             vec2        last  = vec2( -1.0e30 );
             for ( uint c = 0u; c < 8u; ++c )
@@ -50,9 +50,9 @@ Shader "VirtualShadowMapInvalidateCasters"
             for ( uint k = gl_LocalInvocationID.x; k < count; k += 64u )
             {
                 const ivec2 windowPage = lowPage + ivec2( int( k ) % size.x, int( k ) / size.x );
-                const uint  index      = VsmEntryIndex( level, u_Levels[level].Window.xy + windowPage );
-                if ( ( u_Entries[index].Flags & VSM_FLAG_ALLOCATED ) != 0u )
-                    atomicOr( u_Entries[index].Flags, VSM_FLAG_DIRTY );
+                const uint  index      = VsmEntryIndex( level, Levels[level].Window.xy + windowPage );
+                if ( ( Entries[index].Flags & VSM_FLAG_ALLOCATED ) != 0u )
+                    atomicOr( Entries[index].Flags, VSM_FLAG_DIRTY );
             }
         }
     }

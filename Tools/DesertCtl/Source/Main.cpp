@@ -54,15 +54,34 @@ namespace
                       "  set <name> <v1[,v2,v3,v4]>    write one of them (the drag a mouse would do)\n"
                       "  properties <uuid|world>       one entity's reflected components (by its UUID) or\n"
                       "                                the open scene's World Settings, as text\n"
+                      "  properties tool / set tool <Name> <text>\n"
+                      "                                the active mode's tool settings (Foliage: BrushSize,\n"
+                      "                                PaintDensity, Tool, ...), as the panel writes them\n"
                       "  set <uuid|world> <Type.Field[.Sub]> <text>\n"
                       "                                write one reflected field as Details would (one undo\n"
                       "                                step); the text is parsed by the field's own type\n"
                       "  state [section ...]           read the editor's state as JSON (default: all)\n"
-                      "  shot-window <file.png>        capture the WHOLE editor, interface included\n"
-                      "  shot-viewport <file.png>      capture the 3D viewport only, no interface\n"
+                      "  shot-window <file.png>        capture the WHOLE editor, interface included, in\n"
+                      "                                FRAMEBUFFER pixels (2 per point on Retina; the reply's\n"
+                      "                                pixelsPerPoint says): divide by it to get points\n"
+                      "  shot-viewport <file.png>      capture the 3D viewport only, no interface; its\n"
+                      "                                pixels ARE points (pixelsPerPoint 1)\n"
                       "  drag <x,y> <x,y> [steps]      press, move and release the left mouse over the\n"
-                      "                                subject's image (pixels), through ImGui's input\n"
+                      "                                subject's image, in POINTS from its top-left -- for\n"
+                      "                                the viewport, read straight off a shot-viewport\n"
+                      "                                frame (no x2); through ImGui's input;\n"
+                      "                                --shift / --ctrl / --alt after it hold that key for\n"
+                      "                                the whole drag (Shift-click adds to a selection)\n"
+                      "  input <kind> <panel|-> <x,y|-> [key | path...]\n"
+                      "                                kind: move|click|press|release|key|keydown|keyup|drop;\n"
+                      "                                x,y in POINTS inside the named panel (else the editor\n"
+                      "                                window) -- a shot-window pixel / pixelsPerPoint,\n"
+                      "                                minus the panel's corner\n"
                       "  quit [code]                   end the session with that exit status\n"
+                      "  add-component <uuid> <Type>   add a component as Details' Add Component does (one\n"
+                      "                                undo step); Type = its Details or reflected name\n"
+                      "  set world WorldPartition <json> | set world WorldPartition.Grids.<Name>.<Field> <text>\n"
+                      "                                edit the world's runtime grids (one undo step)\n"
                       "  save-as <name>                save the open scene as a NEW level <name> (File ->\n"
                       "                                Save's path; refused if that file already exists)\n"
                       "\n"
@@ -80,6 +99,9 @@ namespace
                       "                    entity's Translation (cm), Rotation (radians) and Scale, set\n"
                       "                    as one undo step, like a Details edit. 'drag' aims at\n"
                       "                    'document' (the Animation window's preview) or 'viewport'.\n"
+                      "\n"
+                      "Units: every coordinate this tool sends is ImGui POINTS -- one unit for drag and\n"
+                      "input. shot-viewport frames are already in points; shot-window frames are not.\n"
                       "\n"
                       "Exit status: 0 the editor did it, 1 it refused (reason on stderr), 2 unreachable.\n" );
     }
@@ -150,6 +172,8 @@ namespace
     {
         if ( who == "world" )
             return R"(,"subject":"world")";
+        if ( who == "tool" )
+            return R"(,"subject":"tool")";
         return R"(,"subject":"entity","entity":")" + Escape( who ) + R"(")";
     }
 
@@ -381,6 +405,16 @@ static int RunTool( int argc, char** argv )
         }
         request = R"({"id":1,"op":"save-as","name":")" + Escape( rest[1] ) + R"("})";
     }
+    else if ( operation == "add-component" )
+    {
+        if ( rest.size() != 3 )
+        {
+            std::fprintf( stderr, "desertctl: add-component needs <uuid> <Type>.\n" );
+            return kNoEditor;
+        }
+        request = R"({"id":1,"op":"add-component","entity":")" + Escape( rest[1] ) + R"(","component":")" +
+                  Escape( rest[2] ) + R"("})";
+    }
     else if ( operation == "properties" && rest.size() == 2 )
     {
         request = R"({"id":1,"op":"properties")" + ReflectedSubjectFields( rest[1] ) + "}";
@@ -428,18 +462,30 @@ static int RunTool( int argc, char** argv )
     }
     else if ( operation == "drag" )
     {
-        // drag <fromX,fromY> <toX,toY> [steps] — image pixels of --subject (document | viewport).
+        // drag <fromX,fromY> <toX,toY> [steps] [--shift] [--ctrl] [--alt] — image points of --subject.
+        std::string modifiers;
+        for ( auto it = rest.begin(); it != rest.end(); )
+        {
+            if ( *it == "--shift" || *it == "--ctrl" || *it == "--alt" )
+            {
+                modifiers += ( modifiers.empty() ? "" : "+" ) + it->substr( 2 );
+                it = rest.erase( it );
+            }
+            else
+                ++it;
+        }
         std::string from;
         std::string to;
         if ( rest.size() < 3 || !NumberArray( rest[1], from ) || !NumberArray( rest[2], to ) )
         {
-            std::fprintf( stderr, "desertctl: drag needs <fromX,fromY> <toX,toY> [steps] in image pixels.\n" );
+            std::fprintf( stderr, "desertctl: drag needs <fromX,fromY> <toX,toY> [steps] in image points (a "
+                                  "shot-viewport frame's pixels).\n" );
             return kNoEditor;
         }
         const std::string steps = ( rest.size() > 3 ) ? rest[3] : "8";
-        request                 = std::format( R"({{"id":1,"op":"drag","value":[{},{}],"steps":{}{}}})",
-                                               from.substr( 1, from.size() - 2 ), to.substr( 1, to.size() - 2 ), steps,
-                                               SubjectField( subject ) );
+        request = std::format( R"({{"id":1,"op":"drag","value":[{},{}],"steps":{},"modifiers":"{}"{}}})",
+                               from.substr( 1, from.size() - 2 ), to.substr( 1, to.size() - 2 ), steps, modifiers,
+                               SubjectField( subject ) );
     }
     else if ( operation == "input" )
     {

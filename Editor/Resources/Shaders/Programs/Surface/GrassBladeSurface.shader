@@ -35,15 +35,15 @@ Shader "GrassBladeSurface"
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             SurfaceOutput s     = DefaultSurfaceOutput();
-            s.BaseColor         = i.VertexColor.rgb * u_Material.AlbedoColor.rgb;
+            s.BaseColor         = i.VertexColor.rgb * Material.AlbedoColor.rgb;
             s.Metallic          = 0.0;
-            s.Roughness         = u_Material.RoughnessFactor;
-            s.Specular          = u_Material.Specular;
+            s.Roughness         = Material.RoughnessFactor;
+            s.Specular          = Material.Specular;
             // The blade darkens towards its root, where its neighbours shade it (UV0.y is 1 at the root).
             s.AmbientOcclusion  = mix( 1.0, 0.45, i.UV0.y );
-            s.ReceiveSunShadows = u_Material.ReceiveSunShadows;
+            s.ReceiveSunShadows = Material.ReceiveSunShadows;
             // TwoSidedFoliage's payload: SubsurfaceColor as its square root (UE EncodeSubsurfaceColor).
-            const vec3 subsurface = sqrt( clamp( s.BaseColor * u_Material.SubsurfaceColor.rgb, 0.0, 1.0 ) );
+            const vec3 subsurface = sqrt( clamp( s.BaseColor * Material.SubsurfaceColor.rgb, 0.0, 1.0 ) );
             s.CustomData0       = subsurface.r;
             s.CustomData1       = subsurface.g;
             s.CustomData2       = subsurface.b;
