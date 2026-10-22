@@ -13,11 +13,13 @@
 #include <Common/Core/Logger.hpp>
 
 #include <ImGui/imgui.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <string>
 #include <array>
 #include <cmath>
 #include <map>
@@ -111,7 +113,20 @@ namespace Desert::Editor::Tools
             return Common::MakeFormattedError<Common::UUID>( "the {} was not placed: {}",
                                                              MS::ShapeName( settings.Kind ), mesh.GetError() );
 
-        const ECS::Entity entity = scene.CreateNewEntity( MS::ShapeName( settings.Kind ) );
+        // A unique label, as UE's actor labels are ("Sphere", "Sphere2", ...): every palette entry that addresses
+        // an entity ("Add to selection <tag>") is keyed by its tag, so two "Sphere"s made the second unreachable.
+        std::string label = MS::ShapeName( settings.Kind );
+        {
+            const auto tags  = scene.GetRegistry().view<ECS::TagComponent>();
+            const auto taken = [&]( const std::string& name )
+            {
+                return std::any_of( tags.begin(), tags.end(),
+                                    [&]( auto e ) { return tags.get<ECS::TagComponent>( e ).Tag == name; } );
+            };
+            for ( int n = 2; taken( label ); ++n )
+                label = fmt::format( "{}{}", MS::ShapeName( settings.Kind ), n );
+        }
+        const ECS::Entity entity    = scene.CreateNewEntity( std::move( label ) );
         auto&             transform = entity.GetComponent<ECS::TransformComponent>();
         transform.Translation       = spot.Point;
         transform.Rotation          = glm::eulerAngles( spot.Rotation );
