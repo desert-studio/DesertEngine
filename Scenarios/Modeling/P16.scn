@@ -1,0 +1,23 @@
+# P16 UE's revolve generators in Modeling > Shapes: Spiral (FSpiralRevolvePlanarPolygonGenerator, a round profile on a
+# rising 720-degree helix, ends capped) and Revolve (FRevolvePlanarPolygonGenerator, a rectangle profile turned about +Y,
+# here 270 degrees so its two end caps show). Empty scene (Ctrl+N = the Basic level template: floor, sun, sky only).
+# Each shape is placed where the viewport centre ray meets the floor: the camera is aimed at x=-80 for the Spiral and
+# x=+80 for the Revolve, so neither needs a Translation edit (an edit would be the last undo step, not the Revolve).
+Дано input key - - ctrl+n
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject modeling set CreateShape.Revolve.RevolveDegrees 270
+Дано --subject viewport set Camera.Direction 0,-0.6,0.8
+Дано --subject viewport set Camera.Position -80,300,-400
+Когда run Modeling "Create shape tool: Spiral"
+Когда run Modeling "Create shape: place at the viewport centre"
+Когда --subject viewport set Camera.Position 80,300,-400
+Когда run Modeling "Create shape tool: Revolve"
+Когда run Modeling "Create shape: place at the viewport centre"
+Когда run Modeling "Select Elements tool"
+Когда --subject viewport set Camera.Direction 0,-0.55,0.835
+Когда --subject viewport set Camera.Position 0,190,-290
+Когда state
+Тогда-вид 0_shapes right (+X reads screen-left from this camera, so the Spiral at x=-80 is on the right) a round-section coil spring of two turns rising upward, both ends capped; left a thick ring with a rectangular cross-section turned 270 degrees, its two flat end caps visible at the gap; both closed, lit from outside, no black or inside-out faces; no default cubes/cylinders in the scene
+Когда run Action Undo
+Тогда-вид 1_undo the Revolve ring is gone, the Spiral on the right stays; no translucent tool preview in frame
