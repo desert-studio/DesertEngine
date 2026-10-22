@@ -419,9 +419,12 @@ namespace Common::Settings
                 LOG_WARN( "[Machine] {} holds {} entr{} refused at load; a write now leaves {} out.",
                           s_File.string(), dropped, dropped == 1 ? "y" : "ies", dropped == 1 ? "it" : "them" );
 
-            MachineSettings fromDisk = std::move( parsed.ExtractValue().Settings );
+            ScreenedFile    screened = parsed.ExtractValue();
+            MachineSettings fromDisk = std::move( screened.Settings );
 
-            const std::string canonical        = Json::Write( fromDisk );
+            // A file whose Quality.Levels had to be MIGRATED (the former positional list, a missing group) does
+            // not say what its canonical form says: an empty memo, so the write-back is not skipped as a no-op.
+            const std::string canonical        = screened.LevelsMigrated ? std::string{} : Json::Write( fromDisk );
             MachineSettings::Get().UnknownKeys = std::move( fromDisk.UnknownKeys );
             return canonical;
         }
