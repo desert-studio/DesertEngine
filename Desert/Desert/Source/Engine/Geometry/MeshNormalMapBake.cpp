@@ -50,6 +50,52 @@ namespace Desert::Geometry
             return true;
         }
 
+        // Texels whose centre lies strictly inside two or more target triangles in UV space (overlapping UVs -
+        // e.g. six box faces each mapped to [0,1]^2). Texels on a shared edge are not counted: the test is
+        // interior-only.
+        struct UvOverlap
+        {
+            std::size_t Covered    = 0;
+            std::size_t Overlapped = 0;
+        };
+
+        UvOverlap MeasureUvOverlap( const BakeSurface& target, const int W, const int H )
+        {
+            std::vector<uint8_t> inside( static_cast<size_t>( W ) * H, 0 );
+            UvOverlap            r;
+            for ( const glm::uvec3& tri : target.Triangles )
+            {
+                std::array<glm::dvec2, 3> px;
+                for ( int c = 0; c < 3; ++c )
+                    px[c] = { target.UVs[tri[c]].x * W, ( 1.0 - target.UVs[tri[c]].y ) * H };
+                const int x0 =
+                     std::max( 0, static_cast<int>( std::floor( std::min( { px[0].x, px[1].x, px[2].x } ) ) ) );
+                const int x1 =
+                     std::min( W - 1, static_cast<int>( std::ceil( std::max( { px[0].x, px[1].x, px[2].x } ) ) ) );
+                const int y0 =
+                     std::max( 0, static_cast<int>( std::floor( std::min( { px[0].y, px[1].y, px[2].y } ) ) ) );
+                const int y1 =
+                     std::min( H - 1, static_cast<int>( std::ceil( std::max( { px[0].y, px[1].y, px[2].y } ) ) ) );
+                for ( int y = y0; y <= y1; ++y )
+                    for ( int x = x0; x <= x1; ++x )
+                    {
+                        glm::dvec3 bc;
+                        if ( !Barycentric2D( { x + 0.5, y + 0.5 }, px[0], px[1], px[2], bc ) )
+                            continue;
+                        constexpr double kInterior = 1e-6;
+                        if ( bc.x <= kInterior || bc.y <= kInterior || bc.z <= kInterior )
+                            continue;
+                        uint8_t& n = inside[static_cast<size_t>( y ) * W + x];
+                        if ( n == 0 )
+                            ++r.Covered;
+                        else if ( n == 1 )
+                            ++r.Overlapped;
+                        n = static_cast<uint8_t>( std::min( 2, n + 1 ) );
+                    }
+            }
+            return r;
+        }
+
         // Barycentrics of a point ON the 3D triangle a + s*e1 + t*e2.
         glm::dvec3 Barycentric3D( const glm::dvec3& p, const glm::dvec3& a, const glm::dvec3& e1,
                                   const glm::dvec3& e2 )
@@ -128,6 +174,16 @@ namespace Desert::Geometry
                                                     target.Positions.size() );
         if ( detail.Triangles.empty() )
             return Common::MakeError<Out>( "the detail mesh has no triangles" );
+
+        // UE's FMeshMapBaker writes whichever triangle rasterises a texel last; overlapping target UVs then
+        // bake several surface points into one texel and the map is garbage. Refuse with the reason instead.
+        if ( const UvOverlap uvo = MeasureUvOverlap( target, settings.Resolution, settings.Resolution );
+             uvo.Overlapped * 100 > uvo.Covered )
+            return Common::MakeFormattedError<NormalMapBakeResult>(
+                 "the target's UVs overlap: {} of {} covered texels lie inside more than one triangle - unwrap "
+                 "the "
+                 "target (non-overlapping UVs, e.g. a Lat Long sphere or AutoUV) before baking",
+                 uvo.Overlapped, uvo.Covered );
 
         const TriangleBvh bvh = TriangleBvh::Build( detail.Positions, detail.Triangles );
 
