@@ -275,7 +275,8 @@ namespace Desert::Geometry
     {
         if ( mesh.VertexCount() == 0 )
             return Common::MakeError<UVProjectionVolume>( "UV Project: the mesh has no vertex" );
-        const auto toWorld = [&]( int vid ) { return glm::dvec3( meshToWorld * glm::dvec4( mesh.GetVertex( vid ), 1.0 ) ); };
+        const auto toWorld = [&]( int vid )
+        { return glm::dvec3( meshToWorld * glm::dvec4( mesh.GetVertex( vid ), 1.0 ) ); };
         glm::dvec3 lo( std::numeric_limits<double>::max() ), hi( -std::numeric_limits<double>::max() );
         for ( const int vid : mesh.VertexIndicesItr() )
         {
@@ -333,7 +334,8 @@ namespace Desert::Geometry
         DynamicMesh3          out = mesh;
         DynamicMeshUVOverlay& uvs = PrepareUVLayer( out );
         DynamicMeshUVEditor   editor( &out, &uvs );
-        const auto            toWorld   = [&]( const glm::dvec3& p ) { return glm::dvec3( meshToWorld * glm::dvec4( p, 1.0 ) ); };
+        const auto            toWorld = [&]( const glm::dvec3& p )
+        { return glm::dvec3( meshToWorld * glm::dvec4( p, 1.0 ) ); };
         const auto            triangles = AllTriangles( out );
         switch ( settings.Type )
         {

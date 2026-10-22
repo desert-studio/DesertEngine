@@ -29,7 +29,8 @@ namespace Desert::Editor::Tools
     //   - Cancel, or another tool / another selection: the entity goes back to what it held.
     //   - the preview is drawn with a checker of its UVs (UE's Checkerboard material mode), by the scene render
     //     (Render::ToolPreview); UV Project also draws its projection volume, and the viewport puts UE's
-    //     transform gizmo on it (ProjectionGizmo / ApplyProjectionGizmo), which edits CenterOffset / RotationDeg / Dimensions.
+    //     transform gizmo on it (ProjectionGizmo / ApplyProjectionGizmo), which edits CenterOffset / RotationDeg /
+    //     Dimensions.
     // Accept and Cancel are the viewport tool bar's (ActiveToolBar) and the palette's; this tool consumes them
     // while a UV tool is active, before CubeGrid would read them.
     class UVTool

@@ -291,7 +291,8 @@ namespace Desert::Editor::Tools
         ms.UVStatus        = out.GetValue().Report;
         m_Session->Volume.reset();
         if ( m_Session->Tool == MS::Tool::UVProject )
-            if ( auto volume = Geometry::ResolveUVProjectionVolume( input, WorldOf( scene, m_Session->Entity ), ms.UVProject );
+            if ( auto volume = Geometry::ResolveUVProjectionVolume( input, WorldOf( scene, m_Session->Entity ),
+                                                                    ms.UVProject );
                  volume.IsSuccess() )
                 m_Session->Volume = volume.GetValue();
     }
@@ -477,9 +478,9 @@ namespace Desert::Editor::Tools
             axes[c] = column / dims[c];
         }
         // Gram-Schmidt: float round-off of the gizmo's matrix must not skew the rotation read back.
-        axes[0] = glm::normalize( axes[0] );
-        axes[1] = glm::normalize( axes[1] - axes[0] * glm::dot( axes[0], axes[1] ) );
-        axes[2] = glm::cross( axes[0], axes[1] );
+        axes[0]                   = glm::normalize( axes[0] );
+        axes[1]                   = glm::normalize( axes[1] - axes[0] * glm::dot( axes[0], axes[1] ) );
+        axes[2]                   = glm::cross( axes[0], axes[1] );
         ms.UVProject.CenterOffset = glm::vec3( glm::dvec3( frame[3] ) - centre );
         ms.UVProject.RotationDeg  = Geometry::UVProjectionRotationDeg( axes );
         // A scale drag sets the Dimensions; fitted ones stop following the bounds (UE: the gizmo's scale is
