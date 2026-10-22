@@ -406,12 +406,13 @@ namespace Desert::VFX
                 }
             }
             words >> extra;
+            if ( ( !ok || !extra.empty() ) && isInput )
+                return Common::MakeFormattedError<VFXParticleModule>(
+                     "{}: '{}' is not `Input <Name> <float|vec2|vec3|vec4|int|bool> = <one number per component>`",
+                     where, line );
             if ( !ok || !extra.empty() )
                 return Common::MakeFormattedError<VFXParticleModule>(
-                     isInput ? "{}: '{}' is not `Input <Name> <float|vec2|vec3|vec4|int|bool> = <one number per "
-                               "component>`"
-                             : "{}: '{}' is not `Attribute <Name> <float|vec2|vec3|vec4|int|bool>`",
-                     where, line );
+                     "{}: '{}' is not `Attribute <Name> <float|vec2|vec3|vec4|int|bool>`", where, line );
             auto& names = isInput ? inputNames : attributeNames;
             if ( !names.insert( name ).second )
                 return Common::MakeFormattedError<VFXParticleModule>( "{}: {} '{}' is declared twice", where,
