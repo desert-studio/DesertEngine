@@ -4,8 +4,8 @@
 # terrain+shadows+grass check is Terrain_Grass. 'input drop' of a .desce does not open a scene, the palette's Open Scene does.
 Дано state
 Когда run View "View mode: Lit"
-Тогда 0_starter Starter в Lit нарисован целиком — пол, сферы, свет, тени, без чёрных/розовых поверхностей; в editor.log нет ошибок привязки шейдеров (u_*/missing binding) и нет отказа SceneSerializer
+Тогда 0_starter Starter в Lit: небо голубое (не чёрное), объекты освещены, тени есть, без чёрных/розовых поверхностей; в editor.log нет «Blending is enabled for attachment R32G32_UINT»; в editor.log нет ошибок привязки шейдеров (u_*/missing binding) и нет отказа SceneSerializer
 Когда run Scene "Open Scene Terrain_Grass.desce"
-Тогда 1_terrain_grass террейн с тенями и трава нарисованы, без чёрных/розовых поверхностей
+Тогда 1_terrain_grass небо голубое, террейн с тенями и трава нарисованы, без чёрных/розовых поверхностей
 Когда run Scene "Open Scene LocalShadows_Room.desce"
 Тогда 2_v68_loaded сцена LocalShadows_Room (мигрирована migrate.sh до SCNE 69) открылась, объекты комнаты и локальные тени на месте
