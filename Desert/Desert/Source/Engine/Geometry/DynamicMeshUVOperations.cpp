@@ -306,7 +306,7 @@ namespace Desert::Geometry
             if ( !( dims[k] > 1e-6 ) )
                 dims[k] = 1.0;
         volume.Dimensions = dims;
-        return volume;
+        return Common::MakeSuccess( std::move( volume ) );
     }
 
     glm::vec3 UVProjectionRotationDeg( const glm::dmat3& axes )
