@@ -3037,9 +3037,13 @@ namespace Desert::Graphic
     bool SceneRenderer::ReadsReflectionCaptures() const
     {
         // The profile admits captures for the view; the resolved method decides whether this view reflects them
-        // (Off is the sky's environment only - ReflectionMethod).
+        // (Off is the sky's environment only - ReflectionMethod). A path-traced view reads none: its reflections are
+        // the tracer's own bounces (UE RenderPathTracing never samples a reflection capture), so it neither drives
+        // the scene's captures nor holds a capture's start on their first fill (ReflectionCaptureRenderer::
+        // FirstFillPending) - a fill its frame never measures (AddFrameReflectionCaptureUpdate is not on its path).
         return m_ViewProfile.ReflectionCaptures &&
-               m_RenderMethods.Reflections.Effective != Common::Scalability::ReflectionMethod::Off;
+               m_RenderMethods.Reflections.Effective != Common::Scalability::ReflectionMethod::Off &&
+               !PathTraced( m_RenderMethods );
     }
 
     uint64_t SceneRenderer::GetEnvironmentIdentity()
