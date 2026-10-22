@@ -106,11 +106,8 @@ namespace Desert::Editor::Render
             const Graphic::ViewFrame* view = ctx.Renderer->GetViewFrame();
             if ( view == nullptr )
                 return BOOLSUCCESS;
-            if ( !ctx.Renderer->GetDebugView().ShowColliders )
-                return BOOLSUCCESS;
-
             std::vector<LineVertex> lines;
-            BuildLines( lines );
+            BuildLines( lines, ctx.Renderer->GetDebugView().ShowColliders );
             if ( lines.empty() )
                 return BOOLSUCCESS;
 
@@ -124,7 +121,7 @@ namespace Desert::Editor::Render
         return BOOLSUCCESS;
     }
 
-    void EditorColliderPass::BuildLines( std::vector<LineVertex>& outLines ) const
+    void EditorColliderPass::BuildLines( std::vector<LineVertex>& outLines, bool showColliders ) const
     {
         const auto scene = m_Scene.lock();
         if ( !scene )
@@ -136,6 +133,8 @@ namespace Desert::Editor::Render
              scene->GetRegistry().view<ECS::ColliderComponent, ECS::TransformComponent>();
         for ( auto entity : view )
         {
+            if ( !showColliders && scene->GetRegistry().try_get<ECS::VolumeComponent>( entity ) == nullptr )
+                continue;
             const auto& collider  = view.get<ECS::ColliderComponent>( entity ).Data;
             const auto& transform = view.get<ECS::TransformComponent>( entity );
 

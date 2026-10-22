@@ -21,7 +21,9 @@ namespace Desert::Editor::Render
         Common::BoolResultStr Install( const std::shared_ptr<::Desert::Core::Scene>& scene );
 
     private:
-        void BuildLines( std::vector<Graphic::MaterialDebugLine::LineVertex>& outLines ) const;
+        // Volumes always (UE: SHOW_Volumes is on in the editor, the brush outline is all a volume shows); every
+        // other collider only with the view's Colliders toggle.
+        void BuildLines( std::vector<Graphic::MaterialDebugLine::LineVertex>& outLines, bool showColliders ) const;
 
         std::weak_ptr<::Desert::Core::Scene>        m_Scene;
         std::shared_ptr<Graphic::GraphicsPipeline>  m_Pipeline;
