@@ -56,6 +56,13 @@
 #include <utility>
 #include <unordered_map>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
+#include <Common/Core/AssetHandle.hpp>
+
+namespace Desert::Runtime
+{
+    class MaterialService;
+    class ShaderService;
+} // namespace Desert::Runtime
 
 namespace Desert::Graphic::System
 {
@@ -1061,7 +1068,7 @@ namespace Desert::Graphic::System
             // at CloserOrEqual against its own prepassed depth.
             DeferredForward,
             // DeferredForward while the sun is ray traced: an opaque program that samples the sun shadow is shaded
-            // through its DESERT_SUN_SHADOW_SCREEN_MASK permutation (ReadsSunShadowScreenMask), which reads the
+            // through its DESERT_SUN_SHADOW_SCREEN_MASK permutation (RayTracedSunForwardVariant), which reads the
             // view's screen mask (SceneViewInputs.SunShadowMask) in place of the cascades; a blended one through
             // itself.
             DeferredForwardRayTracedSun,
@@ -1167,10 +1174,25 @@ namespace Desert::Graphic::System
              GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
         void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
-        // An opaque generic program that samples the sun's shadow (declares u_ShadowCascades): the one that gets a
-        // DESERT_SUN_SHADOW_SCREEN_MASK permutation while the sun is ray traced. A blended program (TextSDF) or
-        // one that reads no sun shadow is shaded through itself.
-        [[nodiscard]] static bool ReadsSunShadowScreenMask( const Shader& shader, bool opaque );
+    public:
+        // THE ONE PERMUTATION FUNCTION of a generic forward program while the sun is ray traced, asked by both
+        // places that build it ("Deferred: Generic" in BuildGenericDraws, GenericForwardPipelineReady) and by the
+        // cook (MaterialProgramVariants): an opaque program that samples the sun's shadow (declares
+        // u_ShadowCascades) reads DESERT_SUN_SHADOW_SCREEN_MASK, ShippedByCook; a blended program (TextSDF) or one
+        // that reads no sun shadow is the default permutation (shaded through itself).
+        [[nodiscard]] static Core::ShaderVariant RayTracedSunForwardVariant( const Shader& shader );
+        // The permutations the mesh path can select for @p materials (UE: a material's cooked shader map): each
+        // material's (Static x Forward) cell under RayTracedSunForwardVariant, defaults omitted - the list
+        // PackageCook CookShaderVariants cooks, from the same function the renderer acquires by. A material
+        // without that cell draws nothing forward (CreateSurfaceMaterial names it) and has nothing to cook.
+        // Not covered: a Shader Override draw (no `.demat`, its program named by the entity) - the
+        // ShippedByCook census names it when the session drew one.
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant>
+             MaterialProgramVariants( const Runtime::MaterialService& materials,
+                                      const Runtime::ShaderService&   shaders,
+                                      std::span<const ::Common::AssetHandle> handles );
+
+    private:
         // Whether the pipeline "Deferred: Generic" shades @p shader's opaque draw with is Ready, tracked (so a
         // compiling one counts among the pending pipelines); @p rayTracedSun picks the permutation as that pass
         // does.

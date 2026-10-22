@@ -12,6 +12,8 @@
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Graphic/View/TemporalAA.hpp>
 #include <Engine/Graphic/View/TemporalSuperResolution.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -204,6 +206,8 @@ namespace Desert::Editor
         //                           WorldRadianceCache, SurfaceCacheRenderer, SSRRenderer ProgramVariants;
         //   the untraced systems    DeferredLightingRenderer, TemporalAA, TemporalSuperResolution ProgramVariants
         //                           (and SSR's untraced front layer in SSRRenderer's);
+        //   the mesh materials      every registered `.demat` (ContentRegistry) under its forward cell's
+        //                           permutations (MeshRenderer::MaterialProgramVariants);
         //   the cloud media         every registered Volume medium into each of its programs
         //                           (CloudMediumProgramVariants);
         //   the screen probes       every layout a Scalability.json level names - {ScreenProbeDownsample,
@@ -230,6 +234,19 @@ namespace Desert::Editor
             {
                 for ( const std::string& medium : shaders->MediumSources() )
                     append( Graphic::CloudMediumProgramVariants( medium ) );
+
+                if ( const auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
+                {
+                    std::vector<::Common::AssetHandle> handles;
+                    for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material ) )
+                        handles.push_back( row.Handle );
+                    append( Graphic::System::MeshRenderer::MaterialProgramVariants( *materials, *shaders, handles ) );
+                }
+                else
+                {
+                    LOG_ERROR( "[PackageCook] no material service: the mesh materials' permutations were not cooked" );
+                    ++stats.Failures;
+                }
             }
             else
             {

@@ -67,8 +67,6 @@ namespace Desert::Graphic::System
         SurfaceSlot SectionSurface( const MaterialSlotBinding* slots, uint32_t sectionSlot );
         std::optional<std::string>          DefaultSurfaceShaderName( MeshVertexPath path, MeshPass pass );
         std::shared_ptr<Shader>             DefaultSurfaceProgram( MeshVertexPath path, MeshPass pass );
-        std::shared_ptr<Shader>             DefaultSurfaceProgramVariant( MeshVertexPath path, MeshPass pass,
-                                                                          const ShaderVariant& variant );
         std::shared_ptr<DataDrivenMaterial> CreateCellMaterial( MeshVertexPath path,
                                                                 MeshPass       pass = MeshPass::Forward );
         std::string                         MeshPathOwnBufferName( MeshVertexPath path );
@@ -93,7 +91,6 @@ namespace Desert::Graphic::System
     using MeshRendererDetail::ApplyGenericOverrides;
     using MeshRendererDetail::CreateCellMaterial;
     using MeshRendererDetail::DefaultSurfaceProgram;
-    using MeshRendererDetail::DefaultSurfaceProgramVariant;
     using MeshRendererDetail::DefaultSurfaceShaderName;
     using MeshRendererDetail::EffectiveRow;
     using MeshRendererDetail::GenericTextureKey;

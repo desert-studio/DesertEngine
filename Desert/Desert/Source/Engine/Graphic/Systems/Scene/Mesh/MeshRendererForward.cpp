@@ -11,6 +11,7 @@
 
 #include <format>
 #include <iterator>
+#include <set>
 
 namespace Desert::Graphic::System
 {
@@ -281,9 +282,8 @@ namespace Desert::Graphic::System
                     // Ready); until then the prepass counted its compiling pipelines and nothing of it is drawn.
                     if ( opaque && !OpaqueGenericAdmitted( g ) )
                         continue;
-                    if ( slice == GenericSlice::DeferredForwardRayTracedSun &&
-                         ReadsSunShadowScreenMask( *shader, opaque ) )
-                        permutation.Defines = { std::string( kSunShadowScreenMaskDefine ) };
+                    if ( slice == GenericSlice::DeferredForwardRayTracedSun )
+                        permutation = RayTracedSunForwardVariant( *shader );
                     break;
             }
             const std::shared_ptr<Shader> templateShader = shader;
@@ -527,9 +527,40 @@ namespace Desert::Graphic::System
         }
     }
 
-    bool MeshRenderer::ReadsSunShadowScreenMask( const Shader& shader, const bool opaque )
+    Core::ShaderVariant MeshRenderer::RayTracedSunForwardVariant( const Shader& shader )
     {
-        return opaque && shader.SamplesTexture( kSceneViewShadowCascadesName );
+        const auto&         state  = shader.GetProgramMeta().State;
+        const bool          opaque = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
+        Core::ShaderVariant permutation;
+        if ( !opaque || !shader.SamplesTexture( kSceneViewShadowCascadesName ) )
+            return permutation;
+        permutation.Defines       = { std::string( kSunShadowScreenMaskDefine ) };
+        permutation.ShippedByCook = true;
+        return permutation;
+    }
+
+    std::vector<Core::CookedProgramVariant>
+    MeshRenderer::MaterialProgramVariants( const Runtime::MaterialService& materials,
+                                           const Runtime::ShaderService&   shaders,
+                                           std::span<const ::Common::AssetHandle> handles )
+    {
+        std::vector<Core::CookedProgramVariant> variants;
+        std::set<std::pair<std::string, uint64_t>> listed; // materials sharing a template share its cell
+        for ( const ::Common::AssetHandle& handle : handles )
+        {
+            // The cell MaterialService::GetVariant builds the forward sibling in (CreateSurfaceMaterial's rule).
+            const auto cell = materials.CellShaderNameOf( handle, MeshVertexPath::Static, MeshPass::Forward );
+            if ( !cell )
+                continue;
+            const auto program = shaders.GetByName( cell.GetValue() );
+            if ( program == nullptr )
+                continue; // CellShaderNameOf resolves registered cells only
+            Core::ShaderVariant permutation = RayTracedSunForwardVariant( *program );
+            if ( permutation.IsDefault() || !listed.emplace( cell.GetValue(), permutation.Hash() ).second )
+                continue;
+            variants.push_back( { cell.GetValue(), std::move( permutation ) } );
+        }
+        return variants;
     }
 
     bool MeshRenderer::SunCascadeReadersQueued() const
@@ -613,14 +644,16 @@ namespace Desert::Graphic::System
     {
         std::shared_ptr<Shader> program    = shader;
         std::string             programKey = shaderName;
-        if ( rayTracedSun && ReadsSunShadowScreenMask( *shader, /*opaque*/ true ) )
+        Core::ShaderVariant permutation;
+        if ( rayTracedSun )
+            permutation = RayTracedSunForwardVariant( *shader );
+        if ( !permutation.IsDefault() )
         {
-            Core::ShaderVariant permutation;
-            permutation.Defines = { std::string( kSunShadowScreenMaskDefine ) };
             program = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
             if ( !program || !program->IsCompiled() )
                 return false; // ShaderService named the program and its compile error once
-            std::format_to( std::back_inserter( programKey ), "|{}", kSunShadowScreenMaskDefine );
+            for ( const auto& define : permutation.Defines )
+                std::format_to( std::back_inserter( programKey ), "|{}", define );
         }
         // The spec "Deferred: Generic" builds for this program (BuildGenericDraws): the same cache entry.
         GraphicsPipelineSpecification spec = GenericPipelineSpec( program );
