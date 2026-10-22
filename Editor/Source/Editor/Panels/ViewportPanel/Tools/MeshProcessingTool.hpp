@@ -116,6 +116,12 @@ namespace Desert::Editor::Tools
             std::shared_ptr<const Geometry::DynamicMesh3> OtherInput;
             std::shared_ptr<const Geometry::DynamicMesh3> OtherCommitted;
             std::string                                   NameA;
+            // UE UBaseCreateFromSelectedTool hides its inputs while the preview shows: B is hidden for the session
+            // (A draws the preview) and put back by Restore - on Cancel, on a selection change, and before Accept
+            // records its undo step. OtherHidden: B was hidden by the session; OtherVisibility: B's
+            // VisibilityComponent before that (nullopt = it had none, so Restore removes the one added).
+            bool                                          OtherHidden = false;
+            std::optional<bool>                           OtherVisibility;
             // UE UMeshOpPreviewWithBackgroundCompute: the operator runs on a JobSystem worker on copies of the
             // input and the settings; the last preview stays on screen until it lands. A settings change while it
             // runs cancels it (PendingCancel) and starts the next one at once; dropping the session cancels it
@@ -130,6 +136,8 @@ namespace Desert::Editor::Tools
         void               Recompute( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         // The background operator finished: its mesh becomes the preview, or its refusal the status.
         void               ApplyResult( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        // VoxBoolean: hides input B for the session (Restore shows it again).
+        void               HideOther( ::Desert::Core::Scene& scene );
         void               Restore( ::Desert::Core::Scene& scene );
         [[nodiscard]] bool Accept( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         // VoxBoolean's Accept (UE UBaseCreateFromSelectedTool::OnShutdown): the preview becomes a NEW entity

@@ -216,6 +216,7 @@ namespace Desert::Editor::Tools
             m_Session->OtherInput     = std::move( p.MeshBInA );
             m_Session->OtherCommitted = std::move( p.CommittedB );
             m_Session->NameA          = std::move( p.NameA );
+            HideOther( scene );
             Recompute( scene, ms );
             return;
         }
@@ -361,8 +362,39 @@ namespace Desert::Editor::Tools
         ms.DeformStatus    = std::move( report );
     }
 
+    void MeshProcessingTool::HideOther( ::Desert::Core::Scene& scene )
+    {
+        const auto ref = scene.FindEntityByID( m_Session->Other );
+        if ( !ref )
+            return;
+        ECS::Entity b = ref->get();
+        if ( b.HasComponent<ECS::VisibilityComponent>() )
+        {
+            m_Session->OtherVisibility                     = b.GetComponent<ECS::VisibilityComponent>().Visible;
+            b.GetComponent<ECS::VisibilityComponent>().Visible = false;
+        }
+        else
+            b.AddComponent<ECS::VisibilityComponent>().Visible = false;
+        m_Session->OtherHidden = true;
+    }
+
     void MeshProcessingTool::Restore( ::Desert::Core::Scene& scene )
     {
+        if ( m_Session->OtherHidden )
+        {
+            m_Session->OtherHidden = false;
+            if ( const auto ref = scene.FindEntityByID( m_Session->Other ); ref )
+            {
+                ECS::Entity b = ref->get();
+                if ( !m_Session->OtherVisibility )
+                {
+                    if ( b.HasComponent<ECS::VisibilityComponent>() )
+                        b.RemoveComponent<ECS::VisibilityComponent>();
+                }
+                else if ( b.HasComponent<ECS::VisibilityComponent>() )
+                    b.GetComponent<ECS::VisibilityComponent>().Visible = *m_Session->OtherVisibility;
+            }
+        }
         ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( component == nullptr )
             return;
