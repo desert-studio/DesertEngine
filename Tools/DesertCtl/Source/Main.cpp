@@ -58,12 +58,22 @@ namespace
                       "                                write one reflected field as Details would (one undo\n"
                       "                                step); the text is parsed by the field's own type\n"
                       "  state [section ...]           read the editor's state as JSON (default: all)\n"
-                      "  shot-window <file.png>        capture the WHOLE editor, interface included\n"
-                      "  shot-viewport <file.png>      capture the 3D viewport only, no interface\n"
+                      "  shot-window <file.png>        capture the WHOLE editor, interface included, in\n"
+                      "                                FRAMEBUFFER pixels (2 per point on Retina; the reply's\n"
+                      "                                pixelsPerPoint says): divide by it to get points\n"
+                      "  shot-viewport <file.png>      capture the 3D viewport only, no interface; its\n"
+                      "                                pixels ARE points (pixelsPerPoint 1)\n"
                       "  drag <x,y> <x,y> [steps]      press, move and release the left mouse over the\n"
-                      "                                subject's image (pixels), through ImGui's input;\n"
+                      "                                subject's image, in POINTS from its top-left -- for\n"
+                      "                                the viewport, read straight off a shot-viewport\n"
+                      "                                frame (no x2); through ImGui's input;\n"
                       "                                --shift / --ctrl / --alt after it hold that key for\n"
                       "                                the whole drag (Shift-click adds to a selection)\n"
+                      "  input <kind> <panel|-> <x,y|-> [key | path...]\n"
+                      "                                kind: move|click|press|release|key|keydown|keyup|drop;\n"
+                      "                                x,y in POINTS inside the named panel (else the editor\n"
+                      "                                window) -- a shot-window pixel / pixelsPerPoint,\n"
+                      "                                minus the panel's corner\n"
                       "  quit [code]                   end the session with that exit status\n"
                       "  save-as <name>                save the open scene as a NEW level <name> (File ->\n"
                       "                                Save's path; refused if that file already exists)\n"
@@ -82,6 +92,9 @@ namespace
                       "                    entity's Translation (cm), Rotation (radians) and Scale, set\n"
                       "                    as one undo step, like a Details edit. 'drag' aims at\n"
                       "                    'document' (the Animation window's preview) or 'viewport'.\n"
+                      "\n"
+                      "Units: every coordinate this tool sends is ImGui POINTS -- one unit for drag and\n"
+                      "input. shot-viewport frames are already in points; shot-window frames are not.\n"
                       "\n"
                       "Exit status: 0 the editor did it, 1 it refused (reason on stderr), 2 unreachable.\n" );
     }
@@ -430,7 +443,7 @@ static int RunTool( int argc, char** argv )
     }
     else if ( operation == "drag" )
     {
-        // drag <fromX,fromY> <toX,toY> [steps] [--shift] [--ctrl] [--alt] — image pixels of --subject.
+        // drag <fromX,fromY> <toX,toY> [steps] [--shift] [--ctrl] [--alt] — image points of --subject.
         std::string modifiers;
         for ( auto it = rest.begin(); it != rest.end(); )
         {
@@ -446,7 +459,8 @@ static int RunTool( int argc, char** argv )
         std::string to;
         if ( rest.size() < 3 || !NumberArray( rest[1], from ) || !NumberArray( rest[2], to ) )
         {
-            std::fprintf( stderr, "desertctl: drag needs <fromX,fromY> <toX,toY> [steps] in image pixels.\n" );
+            std::fprintf( stderr, "desertctl: drag needs <fromX,fromY> <toX,toY> [steps] in image points (a "
+                                  "shot-viewport frame's pixels).\n" );
             return kNoEditor;
         }
         const std::string steps = ( rest.size() > 3 ) ? rest[3] : "8";

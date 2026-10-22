@@ -53,39 +53,40 @@ namespace Desert::Editor::Control
         /// The step count a drag request that states none is played with (Request::Steps absent).
         static constexpr uint32_t kDefaultSteps = 8;
 
-        /// @p from / @p to are in the target's image PIXELS (what shot-viewport writes); @p pixelsPerPoint
-        /// converts them to ImGui points (the framebuffer scale, 2 on a Retina display).
-        [[nodiscard]] static Common::ResultStr<PointerDrag> Plan( const PointerTargetRect&    target,
-                                                                  const std::array<float, 4>& fromTo,
-                                                                  uint32_t steps, float pixelsPerPoint )
+        /// @p from / @p to are ImGui POINTS from the target image's top-left corner — the one unit of the
+        /// whole control channel: a `shot-viewport` PNG is drawn at the viewport's size in points, so a
+        /// coordinate read straight off that frame is the coordinate to send, and `input` takes panel
+        /// points too. (A framebuffer-pixel unit here, divided by the display scale, made every caller
+        /// that read the frame land at half the place on a Retina display — four times in one night.)
+        [[nodiscard]] static Common::ResultStr<PointerDrag>
+        Plan( const PointerTargetRect& target, const std::array<float, 4>& fromTo, uint32_t steps )
         {
             if ( steps == 0 || steps > kMaxSteps )
                 return Common::MakeFormattedError<PointerDrag>(
                      "a drag takes 1..{} steps, not {}: zero would press and release on one spot, and "
                      "more would hold the channel for seconds.",
                      kMaxSteps, steps );
-            if ( target.Width <= 0.0f || target.Height <= 0.0f || pixelsPerPoint <= 0.0f )
+            if ( target.Width <= 0.0f || target.Height <= 0.0f )
                 return Common::MakeFormattedError<PointerDrag>(
-                     "the target's image is {}x{} points at {} pixels per point; there is nothing to drag on.",
-                     target.Width, target.Height, pixelsPerPoint );
+                     "the target's image is {}x{} points; there is nothing to drag on.", target.Width,
+                     target.Height );
 
-            const float widthPx  = target.Width * pixelsPerPoint;
-            const float heightPx = target.Height * pixelsPerPoint;
             for ( std::size_t i = 0; i < 4; ++i )
             {
-                const float limit = ( i % 2 == 0 ) ? widthPx : heightPx;
+                const float limit = ( i % 2 == 0 ) ? target.Width : target.Height;
                 if ( fromTo[i] < 0.0f || fromTo[i] >= limit )
                     return Common::MakeFormattedError<PointerDrag>(
-                         "drag point {} ({}, {}) lies outside the target's {}x{} pixels; a press outside "
+                         "drag point {} ({}, {}) lies outside the target's {}x{} points; a press outside "
                          "the image would land on some other widget and the reply would still say done.",
-                         i / 2 == 0 ? "from" : "to", fromTo[i / 2 * 2], fromTo[i / 2 * 2 + 1], widthPx, heightPx );
+                         i / 2 == 0 ? "from" : "to", fromTo[i / 2 * 2], fromTo[i / 2 * 2 + 1], target.Width,
+                         target.Height );
             }
 
             PointerDrag drag;
-            drag.m_FromX      = target.X + fromTo[0] / pixelsPerPoint;
-            drag.m_FromY      = target.Y + fromTo[1] / pixelsPerPoint;
-            drag.m_ToX        = target.X + fromTo[2] / pixelsPerPoint;
-            drag.m_ToY        = target.Y + fromTo[3] / pixelsPerPoint;
+            drag.m_FromX      = target.X + fromTo[0];
+            drag.m_FromY      = target.Y + fromTo[1];
+            drag.m_ToX        = target.X + fromTo[2];
+            drag.m_ToY        = target.Y + fromTo[3];
             drag.m_Steps      = steps;
             drag.m_ViewportId = target.ViewportId;
             return Common::MakeSuccess( drag );

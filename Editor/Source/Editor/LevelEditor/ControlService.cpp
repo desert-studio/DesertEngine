@@ -378,6 +378,11 @@ namespace Desert::Editor
                 // Named on the wire so a report cannot quote a viewport capture as a picture of the
                 // editor. The two are different subjects and only one of them contains an interface.
                 payload["subject"] = rfl::Generic( std::string( window ? "window" : "viewport" ) );
+                // The unit a caller must divide by to aim `drag` / `input` from this picture: the window
+                // capture is the swapchain, in framebuffer pixels; the viewport capture is drawn at the
+                // viewport's size in points, so it is already in the channel's one unit.
+                payload["pixelsPerPoint"] = rfl::Generic(
+                     window ? static_cast<double>( ::ImGui::GetIO().DisplayFramebufferScale.x ) : 1.0 );
                 reply              = Control::Response::Success( m_ControlInFlight->Id, std::move( payload ) );
             }
             else
@@ -686,8 +691,7 @@ namespace Desert::Editor
                 }
                 const auto plan = Control::PointerDrag::Plan(
                      *target, { request.Value[0], request.Value[1], request.Value[2], request.Value[3] },
-                     request.Steps.value_or( Control::PointerDrag::kDefaultSteps ),
-                     ::ImGui::GetIO().DisplayFramebufferScale.x );
+                     request.Steps.value_or( Control::PointerDrag::kDefaultSteps ) );
                 if ( !plan.IsSuccess() )
                     return Control::Response::Failure( request.Id, plan.GetError() );
                 const auto mods = Control::ParseInputModifiers( request.DragModifiers );
