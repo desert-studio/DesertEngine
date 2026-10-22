@@ -1528,7 +1528,11 @@ namespace Desert::Graphic::System
         // cell) and into a cascade's movable list (their own masked caster, or the shared instanced caster).
         void BuildGpuInstancedDraws( MeshRendererDetail::MeshDrawList& list, GraphicsPipeline* instancedPipeline,
                                      MeshPass pass, const SceneFrameBinding& frameState );
-        void BuildGpuInstancedShadowDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list );
+        // `cascade` keys the caster cell (one per section x cascade); `shadowView` is the view drawn (the cascade
+        // itself, or its movable layer kCascadeMovableViewBase + cascade over the cache) and names its light
+        // camera.
+        void BuildGpuInstancedShadowDraws( uint32_t cascade, uint32_t shadowView,
+                                           MeshRendererDetail::MeshDrawList& list );
 
     private:
         // m_StaticMaterialFallback and m_SkinnedMaterialFallback stood here. The first was constructed

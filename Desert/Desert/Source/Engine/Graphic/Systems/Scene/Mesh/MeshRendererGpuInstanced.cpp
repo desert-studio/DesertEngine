@@ -100,7 +100,8 @@ namespace Desert::Graphic::System
         }
     }
 
-    void MeshRenderer::BuildGpuInstancedShadowDraws( const uint32_t c, MeshDrawList& list )
+    void MeshRenderer::BuildGpuInstancedShadowDraws( const uint32_t c, const uint32_t shadowView,
+                                                     MeshDrawList& list )
     {
         auto* materials = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr )
@@ -130,8 +131,8 @@ namespace Desert::Graphic::System
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue;
 
-            WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[c], m_ParallaxQuality );
+            WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
+                              m_CascadeCasterBias[shadowView], m_ParallaxQuality );
             BindGpuInstancedBuffers( *caster, gpu );
             std::vector<glm::vec4> rows;
             const uint32_t         row = AppendRow( rows, EffectiveRow( parent, gpu.Material.get() ) );
