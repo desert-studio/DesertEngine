@@ -14,6 +14,8 @@ namespace Desert::VFX
     {
         instance.Generation = ++m_LastGeneration;
         instance.NextId     = 0;
+        instance.StepsRun   = 0;
+        instance.FirstStep  = 0;
         instance.Spawn      = {};
     }
 
@@ -57,6 +59,8 @@ namespace Desert::VFX
         }
         const std::uint32_t channelParticles = batch.ParticleCount();
 
+        instance.FirstStep = instance.StepsRun;
+        instance.StepsRun += stepCount;
         instance.Steps.reserve( stepCount );
         for ( std::uint32_t s = 0; s < stepCount; ++s )
         {

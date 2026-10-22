@@ -44,6 +44,11 @@ namespace Desert::VFX
         std::uint64_t Generation = 0;
 
         std::uint32_t NextId = 0; // particle ids handed out since the last reset
+        // The effect's own step counter (UE: the system instance's tick count, not the world's): steps run since
+        // the last reset, and the first of this tick's Steps. Per-step random streams key on it, so an age reached
+        // by playing, by a forward seek or by a backwards seek (reset + replay) draws the same numbers.
+        std::uint32_t StepsRun  = 0;
+        std::uint32_t FirstStep = 0;
         SpawnState    Spawn;      // the births of each step (VFXEmitterSpawn): lifecycle, rate, bursts
 
         // This tick's steps, in order; empty when the clock ran none or the emitter is disabled.

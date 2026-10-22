@@ -219,7 +219,7 @@ namespace Desert::Graphic::System
         bool PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
                              const Assets::Serialization::VFXEmitterData& data, const ParticlePoolRange& range,
                              uint32_t entityId, uint32_t emitterIndex, const glm::vec3& worldPos,
-                             float stepSeconds, uint32_t stepSerial );
+                             float stepSeconds );
         // Makes @p gpu's per-tick buffers (step table, counters, dispatch args, channel spawns); false = it sits
         // out.
         static bool EnsureTickBuffers( ParticleEmitterGpu& gpu, uint32_t stepCapacity );

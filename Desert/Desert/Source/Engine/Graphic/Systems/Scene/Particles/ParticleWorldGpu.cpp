@@ -285,8 +285,6 @@ namespace Desert::Graphic::System
         if ( retired > 0 )
             LOG_INFO( "[Particles] Released {} system(s) whose entity is gone.", retired );
         m_Ranges.ReleaseUnless( [this]( const uint32_t key ) { return m_Systems.contains( key ); } );
-        // The random streams' step: unique per fixed step of the world's life (u_Stack.x + step).
-        const auto stepSerial = static_cast<uint32_t>( world.GetTickSerial() * std::max( 1u, stepCapacity ) );
 
         auto view = reg.view<const ECS::VFXComponent, const ECS::TransformComponent, const ECS::UUIDComponent>();
         view.each(
@@ -330,7 +328,7 @@ namespace Desert::Graphic::System
                      if ( !EnsureTickBuffers( gpu, stepCapacity ) )
                          continue;
                      if ( !PrepareEmitter( gpu, *instance, instances->System->Emitters[k], range, entityId,
-                                           static_cast<uint32_t>( k ), worldPos, stepSeconds, stepSerial ) )
+                                           static_cast<uint32_t>( k ), worldPos, stepSeconds ) )
                          continue;
                  }
              } );
@@ -362,7 +360,7 @@ namespace Desert::Graphic::System
                                            const Assets::Serialization::VFXEmitterData& data,
                                            const ParticlePoolRange& range, const uint32_t entityId,
                                            const uint32_t emitterIndex, const glm::vec3& worldPos,
-                                           const float stepSeconds, const uint32_t stepSerial )
+                                           const float stepSeconds )
     {
         const VFX::EmitterInstance* instance = &emitter;
         // The emitter's range of the pool; a new or moved range starts dead.
@@ -491,7 +489,9 @@ namespace Desert::Graphic::System
         fe.StepCount       = stepCount;
         fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
-        fe.Push.Stack      = glm::uvec4( stepSerial, 0u, 0u, 0u );
+        // The random streams' step (u_Stack.x + step): the emitter's own step since its reset, never the world's
+        // tick - the same age draws the same numbers however it was reached (play, scrub forward, scrub back).
+        fe.Push.Stack = glm::uvec4( instance->FirstStep, 0u, 0u, 0u );
         fe.Renderers.reserve( data.Renderers.size() );
         for ( std::size_t r = 0; r < data.Renderers.size(); ++r )
         {
