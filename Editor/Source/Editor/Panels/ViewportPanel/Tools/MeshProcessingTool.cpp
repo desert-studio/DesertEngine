@@ -56,6 +56,8 @@ namespace Desert::Editor::Tools
                     return "VoxBoolean";
                 case MS::Tool::VoxMorph:
                     return "VoxMorph";
+                case MS::Tool::VoxBlend:
+                    return "VoxBlend";
                 default:
                     return "?";
             }
@@ -112,12 +114,13 @@ namespace Desert::Editor::Tools
     {
         return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
                tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents ||
-               tool == MS::Tool::VoxWrap || tool == MS::Tool::VoxBoolean || tool == MS::Tool::VoxMorph;
+               tool == MS::Tool::VoxWrap || tool == MS::Tool::VoxBoolean || tool == MS::Tool::VoxMorph ||
+               tool == MS::Tool::VoxBlend;
     }
 
     bool MeshProcessingTool::SelectionStillMatches() const
     {
-        if ( m_Session->Tool == MS::Tool::VoxBoolean )
+        if ( m_Session->Tool == MS::Tool::VoxBoolean || m_Session->Tool == MS::Tool::VoxBlend )
         {
             const auto& selection = Core::SelectionManager::GetSelection();
             return selection.size() == 2 && selection[0] == m_Session->Entity && selection[1] == m_Session->Other;
@@ -193,7 +196,8 @@ namespace Desert::Editor::Tools
             const bool endTool   = ms.ReqAcceptEndsTool;
             ms.ReqAcceptEndsTool = false;
             const bool createsEntity =
-                 m_Session && ( m_Session->Tool == MS::Tool::VoxBoolean || m_Session->Tool == MS::Tool::VoxMorph );
+                 m_Session && ( m_Session->Tool == MS::Tool::VoxBoolean || m_Session->Tool == MS::Tool::VoxMorph ||
+                                m_Session->Tool == MS::Tool::VoxBlend );
             if ( !( createsEntity ? AcceptCreateFromSelected( scene, ms ) : Accept( scene, ms ) ) )
                 return; // refused: the tool stays open with its preview, and says why
             if ( endTool )
@@ -206,9 +210,10 @@ namespace Desert::Editor::Tools
     void MeshProcessingTool::Begin( ::Desert::Core::Scene& scene, MS& ms )
     {
         m_Session.reset();
-        if ( ms.ActiveTool == MS::Tool::VoxBoolean )
+        if ( ms.ActiveTool == MS::Tool::VoxBoolean || ms.ActiveTool == MS::Tool::VoxBlend )
         {
-            auto pair = Core::SelectedPairInSpaceOfA( scene, "VoxBoolean" );
+            auto pair = Core::SelectedPairInSpaceOfA( scene, ms.ActiveTool == MS::Tool::VoxBlend ? "VoxBlend"
+                                                                                                 : "VoxBoolean" );
             if ( !pair.IsSuccess() )
             {
                 ms.DeformStatus = pair.GetError();
@@ -295,6 +300,7 @@ namespace Desert::Editor::Tools
         m_VoxWrap       = ms.VoxWrap;
         m_VoxBoolean    = ms.VoxBoolean;
         m_VoxMorph      = ms.VoxMorph;
+        m_VoxBlend      = ms.VoxBlend;
         m_Normals       = ms.AttribNormals;
         m_Tangents      = ms.AttribTangents;
         m_Warp          = ms.DeformWarp;
@@ -315,8 +321,8 @@ namespace Desert::Editor::Tools
         m_Session->Pending                          = Common::JobSystem::Get().Async(
              [cancel = std::move( cancel ), tool = m_Session->Tool, input = m_Session->Input, smooth = m_Smooth,
               offset = m_Offset, voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, voxMorph = m_VoxMorph,
-              other = m_Session->OtherInput, normals = m_Normals, tangents = m_Tangents, warp = m_Warp,
-              latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ),
+              voxBlend = m_VoxBlend, other = m_Session->OtherInput, normals = m_Normals, tangents = m_Tangents,
+              warp = m_Warp, latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ),
               objectToGizmo]() -> Common::ResultStr<Geometry::DeformOutcome>
              {
                  switch ( tool )
@@ -335,6 +341,8 @@ namespace Desert::Editor::Tools
                          return Geometry::VoxBoolean( *input, *other, voxBoolean, cancel.get() );
                      case MS::Tool::VoxMorph:
                          return Geometry::VoxMorph( *input, voxMorph, cancel.get() );
+                     case MS::Tool::VoxBlend:
+                         return Geometry::VoxBlend( *input, *other, voxBlend, cancel.get() );
                      case MS::Tool::Lattice:
                          return Geometry::LatticeDeform( *input, *lattice, points, latticeSettings );
                      default:
@@ -459,9 +467,11 @@ namespace Desert::Editor::Tools
         if ( !m_Session || !m_Session->Preview )
             return refuse( ms.DeformStatus.empty() ? std::string( "select the input entities with a mesh" )
                                                    : ms.DeformStatus );
-        // VoxBoolean has inputs A and B; VoxMorph has one (A).
-        const bool                twoInputs = m_Session->Tool == MS::Tool::VoxBoolean;
-        const Core::BooleanInputs handling  = twoInputs ? ms.VoxBooleanInputs : ms.VoxMorphInputs;
+        // VoxBoolean and VoxBlend have inputs A and B; VoxMorph has one (A).
+        const bool                isBlend   = m_Session->Tool == MS::Tool::VoxBlend;
+        const bool                twoInputs = m_Session->Tool == MS::Tool::VoxBoolean || isBlend;
+        const Core::BooleanInputs handling =
+             isBlend ? ms.VoxBlendInputs : ( twoInputs ? ms.VoxBooleanInputs : ms.VoxMorphInputs );
         const auto                refA      = scene.FindEntityByID( m_Session->Entity );
         const auto                refB      = twoInputs ? scene.FindEntityByID( m_Session->Other ) : refA;
         if ( !refA || !refB )
@@ -494,8 +504,9 @@ namespace Desert::Editor::Tools
             }
         }
         const std::string label   = std::format( "Modeling: {} {}", tool,
-                                               twoInputs ? Geometry::ToString( m_VoxBoolean.Operation )
-                                                           : Geometry::ToString( m_VoxMorph.Operation ) );
+                                               isBlend     ? Geometry::ToString( m_VoxBlend.Operation )
+                                                 : twoInputs ? Geometry::ToString( m_VoxBoolean.Operation )
+                                                             : Geometry::ToString( m_VoxMorph.Operation ) );
         auto applied = Commands::ApplyXformEdit( label, changes, creates, deletes );
         if ( !applied.IsSuccess() )
         {
@@ -689,6 +700,8 @@ namespace Desert::Editor::Tools
                 return !( ms.VoxBoolean == m_VoxBoolean );
             case MS::Tool::VoxMorph:
                 return !( ms.VoxMorph == m_VoxMorph );
+            case MS::Tool::VoxBlend:
+                return !( ms.VoxBlend == m_VoxBlend );
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

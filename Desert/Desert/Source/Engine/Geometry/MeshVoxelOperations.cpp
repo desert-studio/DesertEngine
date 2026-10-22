@@ -418,4 +418,95 @@ namespace Desert::Geometry
         out.Mesh = std::move( *result );
         return Common::MakeSuccess( std::move( out ) );
     }
+
+    const char* ToString( VoxBlendOperation operation )
+    {
+        switch ( operation )
+        {
+            case VoxBlendOperation::Union:
+                return "Union";
+            case VoxBlendOperation::Subtract:
+                return "Subtract";
+        }
+        return "Unknown";
+    }
+
+    // UE FVoxelBlendMeshesOp::CalculateResult + TImplicitBlend::Generate, adapted as VoxBoolean: each input's
+    // field (inside positive, cm) becomes a falloff weight w = 1 + d / BlendFalloff inside (linear, so the
+    // bisection still finds the surface) and ( 1 + d / BlendFalloff )^BlendPower outside, zero beyond the falloff;
+    // Union meshes w_A + w_B = 1, Subtract meshes w_A - w_B = 1. Away from the other input both reduce to w = 1 on
+    // the input's own surface; within BlendFalloff of both the weights add up and the surfaces melt together.
+    Common::ResultStr<DeformOutcome> VoxBlend( const DynamicMesh3& a, const DynamicMesh3& b,
+                                               const VoxBlendSettings& s, const ProgressCancel* progress )
+    {
+        const auto cancelled = [progress] { return progress != nullptr && progress->Cancelled(); };
+        if ( a.TriangleCount() == 0 || b.TriangleCount() == 0 )
+            return Common::MakeError<DeformOutcome>(
+                 std::format( "input {} has no triangles", a.TriangleCount() == 0 ? "A" : "B" ) );
+        if ( !( s.BlendFalloff > 0.0f ) || !( s.BlendPower > 0.0f ) )
+            return Common::MakeError<DeformOutcome>( std::format(
+                 "Blend Falloff {:.2f} and Blend Power {:.2f} must be positive", s.BlendFalloff, s.BlendPower ) );
+        if ( s.VoxelCount < 8 || s.VoxelCount > 1024 )
+            return Common::MakeError<DeformOutcome>(
+                 std::format( "Voxel Count {} is outside 8..1024", s.VoxelCount ) );
+        if ( s.SurfaceSearchSteps < 0 || s.SurfaceSearchSteps > 10 )
+            return Common::MakeError<DeformOutcome>(
+                 std::format( "Surface Search Steps {} is outside 0..10", s.SurfaceSearchSteps ) );
+
+        const auto fa = std::make_unique<Field>( GeometryOf( a, nullptr ) );
+        if ( cancelled() )
+            return Common::MakeError<DeformOutcome>( kVoxBlendCancelled );
+        const auto fb = std::make_unique<Field>( GeometryOf( b, nullptr ) );
+        if ( cancelled() )
+            return Common::MakeError<DeformOutcome>( kVoxBlendCancelled );
+
+        const double           falloff = s.BlendFalloff, power = s.BlendPower;
+        const AxisAlignedBox3d ba = fa->Mesh.GetBounds(), bb = fb->Mesh.GetBounds();
+        AxisAlignedBox3d       bounds;
+        bounds.Min              = glm::min( ba.Min, bb.Min );
+        bounds.Max              = glm::max( ba.Max, bb.Max );
+        const glm::dvec3 size   = bounds.Max - bounds.Min;
+        const double     maxDim = std::max( { size.x, size.y, size.z } );
+        const double     cell   = maxDim / double( s.VoxelCount );
+        if ( !( cell > 0.0 ) || !std::isfinite( cell ) )
+            return Common::MakeError<DeformOutcome>( "the inputs have no extent" );
+
+        MarchingCubes mc;
+        mc.CubeSize = cell;
+        mc.Bounds   = bounds; // a blend never reaches past the falloff; two more cells close a surface there
+        mc.Bounds.Min -= glm::dvec3( falloff + cell * 2.0 );
+        mc.Bounds.Max += glm::dvec3( falloff + cell * 2.0 );
+        mc.RootMode                    = MarchingCubesRootMode::Bisection;
+        mc.RootModeSteps               = s.SurfaceSearchSteps;
+        mc.IsoValue                    = 0.0;
+        mc.Cancel                      = cancelled;
+        const VoxBlendOperation op     = s.Operation;
+        const auto              weight = [falloff, power]( double d )
+        {
+            const double t = 1.0 + d / falloff;
+            return d >= 0.0 ? t : ( t > 0.0 ? std::pow( t, power ) : 0.0 );
+        };
+        mc.Implicit = [&]( const glm::dvec3& p )
+        {
+            const double wa = weight( ( *fa )( p ) ), wb = weight( ( *fb )( p ) );
+            return op == VoxBlendOperation::Union ? wa + wb - 1.0 : wa - wb - 1.0;
+        };
+        DynamicMesh3 result = mc.Generate();
+        if ( mc.Cancelled || cancelled() )
+            return Common::MakeError<DeformOutcome>( kVoxBlendCancelled );
+        if ( result.TriangleCount() == 0 )
+            return Common::MakeError<DeformOutcome>(
+                 std::format( "the {} blend of the inputs is empty", ToString( op ) ) );
+        FinishVoxelMesh( result );
+
+        DeformOutcome out;
+        out.MovedVertices = result.VertexCount();
+        out.Report        = std::format(
+             "VoxBlend {} Falloff {:.1f} cm Power {:.1f}: {}^3 cells of {:.2f} cm -> {} vertices, {} triangles{}",
+             ToString( op ), falloff, power, s.VoxelCount, cell, result.VertexCount(), result.TriangleCount(),
+             mc.RejectedTriangles > 0 ? std::format( " ({} non-manifold triangles dropped)", mc.RejectedTriangles )
+                                             : std::string() );
+        out.Mesh = std::move( result );
+        return Common::MakeSuccess( std::move( out ) );
+    }
 } // namespace Desert::Geometry

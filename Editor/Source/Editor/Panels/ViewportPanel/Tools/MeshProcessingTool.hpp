@@ -161,6 +161,7 @@ namespace Desert::Editor::Tools
         Geometry::VoxWrapSettings m_VoxWrap;
         Geometry::VoxBooleanSettings m_VoxBoolean;
         Geometry::VoxMorphSettings   m_VoxMorph;
+        Geometry::VoxBlendSettings   m_VoxBlend;
         Geometry::NormalsSettings m_Normals;
         Geometry::TangentsSettings m_Tangents;
         Geometry::WarpSettings   m_Warp;

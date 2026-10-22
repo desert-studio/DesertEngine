@@ -63,6 +63,9 @@ namespace Desert::Editor::Tools
             // UE's Voxel Morphology previews until Accept, which creates the result entity (MeshProcessingTool).
             case T::VoxMorph:
                 return { ICON_MDI_CUBE_SEND, "VoxMorph", true };
+            // UE's Voxel Blend previews until Accept, which creates the result entity (MeshProcessingTool).
+            case T::VoxBlend:
+                return { ICON_MDI_VECTOR_UNION, "VoxBlend", true };
             // UE's Edit Materials previews until Accept; Cancel puts mesh and slots back (EditMaterialsTool).
             case T::EditMaterials:
                 return { ICON_MDI_BRUSH, "Edit Materials", true };

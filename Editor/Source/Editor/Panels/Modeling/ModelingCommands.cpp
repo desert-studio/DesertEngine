@@ -682,6 +682,29 @@ namespace Desert::Editor
                                       MS::Get().VoxMorphInputs = in;
                                       return PaletteCommandDone();
                                   } } );
+        // VoxBlend (UE UVoxelBlendMeshesTool): the tool on the two selected entities, its operation and what
+        // Accept does with the inputs.
+        commands.push_back( { "Modeling", "VoxOps tool: VoxBlend", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::VoxBlend;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::VoxBlendOperation op :
+              { Geometry::VoxBlendOperation::Union, Geometry::VoxBlendOperation::Subtract } )
+            commands.push_back( { "Modeling", std::string( "VoxBlend operation: " ) + Geometry::ToString( op ),
+                                  [op]
+                                  {
+                                      MS::Get().VoxBlend.Operation = op;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Core::BooleanInputs in :
+              { Core::BooleanInputs::Delete, Core::BooleanInputs::Hide, Core::BooleanInputs::Keep } )
+            commands.push_back( { "Modeling", std::string( "VoxBlend inputs: " ) + Core::ToString( in ), [in]
+                                  {
+                                      MS::Get().VoxBlendInputs = in;
+                                      return PaletteCommandDone();
+                                  } } );
         // UE's Attributes palette: Normals (MeshProcessingTool session) and its closed choices / toggles.
         commands.push_back( { "Modeling", "Attributes tool: Normals", []
                               {

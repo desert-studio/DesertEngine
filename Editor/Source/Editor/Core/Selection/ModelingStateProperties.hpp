@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 133> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 137> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -315,6 +315,15 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.VoxMorph.VoxelCount; } },
          { "VoxMorph.SurfaceSearchSteps", "Surface Search Steps", "VoxMorph", 1, true, 0.0f, 10.0f, nullptr,
            []( ModelingState& s ) { return &s.VoxMorph.SurfaceSearchSteps; } },
+         // VoxBlend (UE UVoxelBlendMeshesToolProperties + UVoxelProperties).
+         { "VoxBlend.BlendFalloff",     "Blend Falloff",      "VoxBlend", 1, false, 0.001f, 1000.0f,
+           []( ModelingState& s ) { return &s.VoxBlend.BlendFalloff; }, nullptr },
+         { "VoxBlend.BlendPower",       "Blend Power",        "VoxBlend", 1, false, 0.1f, 10.0f,
+           []( ModelingState& s ) { return &s.VoxBlend.BlendPower; }, nullptr },
+         { "VoxBlend.VoxelCount",       "Voxel Count",        "VoxBlend", 1, true, 8.0f, 1024.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxBlend.VoxelCount; } },
+         { "VoxBlend.SurfaceSearchSteps", "Surface Search Steps", "VoxBlend", 1, true, 0.0f, 10.0f, nullptr,
+           []( ModelingState& s ) { return &s.VoxBlend.SurfaceSearchSteps; } },
     } };
     // clang-format on
 

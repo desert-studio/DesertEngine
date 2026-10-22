@@ -105,4 +105,38 @@ namespace Desert::Geometry
     [[nodiscard]] Common::ResultStr<DeformOutcome> VoxMorph( const DynamicMesh3&     mesh,
                                                              const VoxMorphSettings& settings,
                                                              const ProgressCancel*   progress = nullptr );
+    // Modeling Mode -> VoxOps: UE 5.8 VoxBlend (UVoxelBlendMeshesTool, operator FVoxelBlendMeshesOp in
+    // ModelingOperators/Private/CompositionOps/VoxelBlendMeshesOp.cpp, implicit TImplicitBlend in
+    // GeometryCore/Public/Implicit/Blend.h): each input's signed distance field (as VoxBoolean's) passes through a
+    // falloff - full inside, (1 - d / BlendFalloff)^BlendPower out to BlendFalloff from the surface, zero beyond -
+    // and the two fields are summed (Union) or the second is taken from the first (Subtract), so surfaces nearer
+    // than BlendFalloff melt into each other with a smooth bridge or fillet while the rest of each surface stays
+    // where it was. Inputs are in ONE space (the caller bakes B into A's object space); the result is a NEW closed
+    // mesh in that space.
+    enum class VoxBlendOperation : uint8_t
+    {
+        Union,    // UE EVoxelBlendOperation::Union
+        Subtract, // A minus B, the cut's rim blended
+    };
+
+    [[nodiscard]] const char* ToString( VoxBlendOperation operation );
+
+    // UE UVoxelBlendMeshesToolProperties + UVoxelProperties (defaults as UE's).
+    struct VoxBlendSettings
+    {
+        VoxBlendOperation Operation          = VoxBlendOperation::Union;
+        float             BlendFalloff       = 10.0f; // UE BlendFalloff, cm (> 0): the reach of the blend
+        float             BlendPower         = 2.0f;  // UE BlendPower (> 0): the blend's profile, higher = tighter
+        int32_t           VoxelCount         = 128;   // cells along the longest side of both inputs' bounds
+        int32_t           SurfaceSearchSteps = 5;     // bisection steps per surface vertex, 0..10
+
+        bool operator==( const VoxBlendSettings& ) const = default;
+    };
+
+    // Refuses an input without triangles, BlendFalloff or BlendPower <= 0, VoxelCount outside 8..1024,
+    // SurfaceSearchSteps outside 0..10, an empty result. Polls progress; refuses with kVoxBlendCancelled.
+    inline constexpr const char*                   kVoxBlendCancelled = "VoxBlend was cancelled";
+    [[nodiscard]] Common::ResultStr<DeformOutcome> VoxBlend( const DynamicMesh3& a, const DynamicMesh3& b,
+                                                             const VoxBlendSettings& settings,
+                                                             const ProgressCancel*   progress = nullptr );
 } // namespace Desert::Geometry
