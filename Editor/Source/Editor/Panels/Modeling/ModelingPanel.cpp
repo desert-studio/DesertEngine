@@ -1105,6 +1105,14 @@ namespace Desert::Editor
                 return;
         }
         ImGui::Separator();
+        ImGui::Checkbox( "Checker Preview##UV", &ms.UVShowChecker );
+        if ( ms.UVShowChecker )
+        {
+            row( "Checker Density" );
+            ImGui::DragFloat( "##UVCheckerDensity", &ms.UVCheckerDensity, 0.1f, 0.1f, 1000.0f, "%.1f",
+                              ImGuiSliderFlags_AlwaysClamp );
+        }
+        ImGui::Separator();
         ImGui::TextWrapped( "%s", ms.UVStatus.c_str() );
         ImGui::TextDisabled( "Accept / Cancel: bottom of the viewport" );
     }

@@ -316,6 +316,10 @@ namespace Desert::Editor::Core
         Geometry::UVLayoutSettings  UVLayout;
         // What the active UV tool's preview did (its report), or why there is none - the panel shows it.
         std::string UVStatus;
+        // UE's UV tools' material mode Checkerboard (UExistingMeshMaterialProperties): the previewed mesh drawn
+        // with a checker of its new UVs, CheckerDensity cells per UV unit (UE default 20).
+        bool  UVShowChecker    = true;
+        float UVCheckerDensity = 20.0f;
 
         // Deform palette (MeshProcessingTool, Geometry/MeshDeformOperations.hpp): UE's Smooth and Offset tools' property
         // sets; the tool previews the selected mesh with them and recomputes whenever they change.

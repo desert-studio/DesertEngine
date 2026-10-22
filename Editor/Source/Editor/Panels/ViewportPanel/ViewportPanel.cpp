@@ -2046,7 +2046,15 @@ namespace Desert::Editor
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 const glm::mat4 viewProj = camera->GetProjectionMatrix() * camera->GetViewMatrix();
                 // Before CubeGrid: while a UV or Deform tool is active its Accept / Cancel requests are its own.
-                m_UVTool.Update( *m_Scene );
+                m_UVTool.Update( *m_Scene, glm::dvec3( camera->GetPosition() ) );
+                // UV Project's volume: UE's transform gizmo on the projection (UUVProjectionTool TransformProxy).
+                if ( auto volume = m_UVTool.ProjectionGizmo( *m_Scene ) )
+                {
+                    if ( m_Gizmo.RenderFrame( "UVProjectVolume", *volume, ViewCamera(), m_ViewportData.ViewportPos,
+                                              m_ViewportData.Size,
+                                              Tools::GizmoController::kFrameTranslateRotate ) )
+                        m_UVTool.ApplyProjectionGizmo( *m_Scene, *volume );
+                }
                 m_MeshProcessingTool.Update( *m_Scene );
                 m_EditMaterialsTool.Update( *m_Scene, m_AssetManager );
                 m_PaintGroupsTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,

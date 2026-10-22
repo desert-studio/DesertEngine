@@ -5,6 +5,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <glm/vec2.hpp>
+#include <glm/mat3x3.hpp>
 #include <glm/vec3.hpp>
 
 #include <cstdint>
@@ -72,6 +73,23 @@ namespace Desert::Geometry
     };
     [[nodiscard]] Common::ResultStr<UVOutcome> ProjectUVs( const DynamicMesh3&      mesh,
                                                            const UVProjectSettings& settings );
+
+    // The projection volume ProjectUVs maps through (UE UUVProjectionTool's projection box, which its gizmo
+    // moves): mesh space, unit axes, Dimensions in cm along AxisX / AxisY / AxisZ. The tool draws it and turns
+    // its gizmo back into the settings with UVProjectionRotationDeg, so the volume has one definition.
+    struct UVProjectionVolume
+    {
+        glm::dvec3 Origin{ 0.0 };
+        glm::dvec3 AxisX{ 1.0, 0.0, 0.0 };
+        glm::dvec3 AxisY{ 0.0, 0.0, -1.0 };
+        glm::dvec3 AxisZ{ 0.0, 1.0, 0.0 };
+        glm::dvec3 Dimensions{ 1.0 };
+    };
+    // Refused for a mesh with no vertex.
+    [[nodiscard]] Common::ResultStr<UVProjectionVolume>
+    ResolveUVProjectionVolume( const DynamicMesh3& mesh, const UVProjectSettings& settings );
+    // The RotationDeg whose volume has these axes (columns X, Y, Z of a rotation, mesh space).
+    [[nodiscard]] glm::vec3 UVProjectionRotationDeg( const glm::dmat3& axes );
 
     // ---- Unwrap (UE URecomputeUVsTool) ----
     enum class UVIslandSource : uint8_t

@@ -4,6 +4,7 @@
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
+#include <Editor/RenderSystems/Passes/EditorToolPreviewPass.hpp>
 
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -12,8 +13,12 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshUVOperations.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <format>
+#include <numbers>
 #include <string>
+#include <vector>
 
 namespace Desert::Editor::Tools
 {
@@ -45,6 +50,125 @@ namespace Desert::Editor::Tools
                 return nullptr;
             return &ref->get().GetComponent<ECS::StaticMeshComponent>();
         }
+
+        glm::dmat4 WorldOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
+        {
+            auto ref = scene.FindEntityByID( id );
+            return ref ? glm::dmat4( ref->get().GetWorldTransform() ) : glm::dmat4( 1.0 );
+        }
+
+        // ---- The checker preview (UE's Checkerboard material mode) ----
+        // A triangle is cut along the checker's cell lines in UV space (u = i / density, v = j / density), so each
+        // piece lies in one cell and is drawn in that cell's colour: the checker's edges are exact, not the
+        // vertex-colour interpolation a per-vertex checker would give.
+        struct ClipVertex
+        {
+            glm::dvec2 UV;
+            glm::dvec3 P;
+        };
+        using ClipPolygon = std::vector<ClipVertex>;
+
+        // One Sutherland-Hodgman step: @p in cut by the line UV[axis] == c into its two sides.
+        void SplitPolygon( const ClipPolygon& in, int axis, double c, ClipPolygon& below, ClipPolygon& above )
+        {
+            below.clear();
+            above.clear();
+            for ( size_t i = 0; i < in.size(); ++i )
+            {
+                const ClipVertex& a  = in[i];
+                const ClipVertex& b  = in[( i + 1 ) % in.size()];
+                const double      da = a.UV[axis] - c;
+                const double      db = b.UV[axis] - c;
+                if ( da <= 0.0 )
+                    below.push_back( a );
+                if ( da >= 0.0 )
+                    above.push_back( a );
+                if ( ( da < 0.0 && db > 0.0 ) || ( da > 0.0 && db < 0.0 ) )
+                {
+                    const double t = da / ( da - db );
+                    ClipVertex   m{ glm::mix( a.UV, b.UV, t ), glm::mix( a.P, b.P, t ) };
+                    m.UV[axis] = c;
+                    below.push_back( m );
+                    above.push_back( m );
+                }
+            }
+        }
+
+        // Cuts @p poly along every cell line of @p axis it crosses; the pieces go to @p out.
+        void CutAlong( ClipPolygon poly, int axis, double density, std::vector<ClipPolygon>& out )
+        {
+            double lo = poly[0].UV[axis], hi = lo;
+            for ( const ClipVertex& v : poly )
+            {
+                lo = std::min( lo, v.UV[axis] );
+                hi = std::max( hi, v.UV[axis] );
+            }
+            ClipPolygon below, above;
+            for ( double k = std::floor( lo * density ) + 1.0; k < hi * density; k += 1.0 )
+            {
+                SplitPolygon( poly, axis, k / density, below, above );
+                if ( below.size() >= 3 )
+                    out.push_back( below );
+                poly.swap( above );
+                if ( poly.size() < 3 )
+                    return;
+            }
+            out.push_back( std::move( poly ) );
+        }
+
+        // A triangle crossing more cells than this is drawn in one mid tone: its UVs are stretched beyond what a
+        // checker can show (thousands of cells inside one triangle read as grey anyway).
+        constexpr double kMaxCellsPerTriangle = 4096.0;
+
+        // ---- UV Project's volume, as edges (mesh space) ----
+        void VolumeEdges( const Geometry::UVProjectionVolume& v, Geometry::UVProjectionType type,
+                          std::vector<std::pair<glm::dvec3, glm::dvec3>>& out )
+        {
+            const glm::dvec3 hx = v.AxisX * ( 0.5 * v.Dimensions.x );
+            const glm::dvec3 hy = v.AxisY * ( 0.5 * v.Dimensions.y );
+            const glm::dvec3 hz = v.AxisZ * ( 0.5 * v.Dimensions.z );
+            const glm::dvec3 o  = v.Origin;
+            switch ( type )
+            {
+                case Geometry::UVProjectionType::Plane:
+                {
+                    // The projection rectangle, and the direction it projects along (Z).
+                    const glm::dvec3 c[4] = { o - hx - hy, o + hx - hy, o + hx + hy, o - hx + hy };
+                    for ( int i = 0; i < 4; ++i )
+                        out.emplace_back( c[i], c[( i + 1 ) % 4] );
+                    out.emplace_back( o, o + hz );
+                    break;
+                }
+                case Geometry::UVProjectionType::Box:
+                    for ( int i = 0; i < 4; ++i )
+                    {
+                        const double     sx = ( i & 1 ) ? 1.0 : -1.0, sy = ( i & 2 ) ? 1.0 : -1.0;
+                        const glm::dvec3 p = o + sx * hx + sy * hy;
+                        out.emplace_back( p - hz, p + hz ); // along Z
+                        out.emplace_back( o + sx * hx - hy + ( sy * hz ),
+                                          o + sx * hx + hy + ( sy * hz ) ); // along Y
+                        out.emplace_back( o - hx + sx * hy + ( sy * hz ),
+                                          o + hx + sx * hy + ( sy * hz ) ); // along X
+                    }
+                    break;
+                case Geometry::UVProjectionType::Cylinder:
+                {
+                    // Its two caps (the X / Y extents are the diameters) and four lines along the axis.
+                    constexpr int kSegments = 48;
+                    const auto    rim       = [&]( int i, double side )
+                    {
+                        const double a = 2.0 * std::numbers::pi * i / kSegments;
+                        return o + std::cos( a ) * hx + std::sin( a ) * hy + side * hz;
+                    };
+                    for ( int i = 0; i < kSegments; ++i )
+                        for ( const double side : { -1.0, 1.0 } )
+                            out.emplace_back( rim( i, side ), rim( i + 1, side ) );
+                    for ( int i = 0; i < kSegments; i += kSegments / 4 )
+                        out.emplace_back( rim( i, -1.0 ), rim( i, 1.0 ) );
+                    break;
+                }
+            }
+        }
     } // namespace
 
     bool UVTool::IsUVTool( MS::Tool tool )
@@ -53,7 +177,7 @@ namespace Desert::Editor::Tools
                tool == MS::Tool::UVLayout;
     }
 
-    void UVTool::Update( ::Desert::Core::Scene& scene )
+    void UVTool::Update( ::Desert::Core::Scene& scene, const glm::dvec3& eyeWorld )
     {
         MS&        ms       = MS::Get();
         const bool uvActive = IsUVTool( ms.ActiveTool );
@@ -79,6 +203,8 @@ namespace Desert::Editor::Tools
             Begin( scene, ms );
         if ( m_Session && SettingsChanged( ms ) )
             Recompute( scene, ms );
+        if ( m_Session )
+            DrawPreview( scene, eyeWorld );
 
         if ( ms.ReqAccept )
         {
@@ -149,6 +275,7 @@ namespace Desert::Editor::Tools
             ms.UVStatus = out.GetError();
             Restore( scene );
             m_Session->Preview.reset();
+            m_Session->Volume.reset();
             return;
         }
         auto preview = std::make_shared<const Geometry::DynamicMesh3>( std::move( out.ExtractValue().Mesh ) );
@@ -161,6 +288,10 @@ namespace Desert::Editor::Tools
         }
         m_Session->Preview = std::move( preview );
         ms.UVStatus        = out.GetValue().Report;
+        m_Session->Volume.reset();
+        if ( m_Session->Tool == MS::Tool::UVProject )
+            if ( auto volume = Geometry::ResolveUVProjectionVolume( input, ms.UVProject ); volume.IsSuccess() )
+                m_Session->Volume = volume.GetValue();
     }
 
     void UVTool::Restore( ::Desert::Core::Scene& scene )
@@ -204,6 +335,142 @@ namespace Desert::Editor::Tools
         LOG_INFO( "[Modeling] {0} accepted: {1}", ToolName( m_Session->Tool ), ms.UVStatus );
         m_Session.reset();
         return true;
+    }
+
+    void UVTool::DrawPreview( ::Desert::Core::Scene& scene, const glm::dvec3& eyeWorld ) const
+    {
+        using Vertex       = Graphic::MaterialDebugLine::LineVertex;
+        const MS&  ms      = MS::Get();
+        const auto world   = WorldOf( scene, m_Session->Entity );
+        const auto normal  = glm::transpose( glm::inverse( glm::dmat3( world ) ) );
+        const auto toWorld = [&]( const glm::dvec3& p ) { return glm::dvec3( world * glm::dvec4( p, 1.0 ) ); };
+        Render::ToolPreviewMesh preview;
+
+        const Geometry::DynamicMesh3* mesh = m_Session->Preview.get();
+        const auto* uvs = mesh != nullptr && mesh->HasAttributes() && mesh->Attributes()->NumUVLayers() > 0
+                               ? mesh->Attributes()->PrimaryUV()
+                               : nullptr;
+        if ( ms.UVShowChecker && uvs != nullptr )
+        {
+            const double density = static_cast<double>( ms.UVCheckerDensity );
+            struct Piece
+            {
+                ClipPolygon Polygon;
+                glm::vec4   Colour;
+                double      Depth;
+            };
+            std::vector<Piece>       pieces;
+            std::vector<ClipPolygon> strips, cells;
+            for ( int t = 0; t < mesh->MaxTriangleID(); ++t )
+            {
+                if ( !mesh->IsTriangle( t ) || !uvs->IsSetTriangle( t ) )
+                    continue;
+                const glm::dvec3 n = normal * mesh->GetTriNormal( t );
+                const glm::dvec3 c = toWorld( mesh->GetTriCentroid( t ) );
+                if ( glm::dot( n, c - eyeWorld ) >= 0.0 )
+                    continue; // back-facing: hidden behind the front of the mesh
+                // Headlight shading, so the faces of a box read apart.
+                const double nl = glm::length( n );
+                const double facing =
+                     nl > 0.0 ? std::abs( glm::dot( n / nl, glm::normalize( eyeWorld - c ) ) ) : 1.0;
+                const float shade = static_cast<float>( 0.45 + 0.55 * facing );
+
+                const auto tri = mesh->GetTriangle( t );
+                glm::vec2  a, b, d;
+                uvs->GetTriElements( t, a, b, d );
+                ClipPolygon      poly{ { glm::dvec2( a ), toWorld( mesh->GetVertex( tri.A ) ) },
+                                       { glm::dvec2( b ), toWorld( mesh->GetVertex( tri.B ) ) },
+                                       { glm::dvec2( d ), toWorld( mesh->GetVertex( tri.C ) ) } };
+                const glm::dvec2 lo    = glm::min( glm::min( poly[0].UV, poly[1].UV ), poly[2].UV );
+                const glm::dvec2 hi    = glm::max( glm::max( poly[0].UV, poly[1].UV ), poly[2].UV );
+                const glm::dvec2 span  = ( hi - lo ) * density + 1.0;
+                const double     depth = glm::length( c - eyeWorld );
+                if ( !( span.x * span.y <= kMaxCellsPerTriangle ) )
+                {
+                    pieces.push_back(
+                         { std::move( poly ), glm::vec4( glm::vec3( 0.55f * shade ), 1.0f ), depth } );
+                    continue;
+                }
+                strips.clear();
+                CutAlong( std::move( poly ), 0, density, strips );
+                for ( ClipPolygon& strip : strips )
+                {
+                    cells.clear();
+                    CutAlong( std::move( strip ), 1, density, cells );
+                    for ( ClipPolygon& cell : cells )
+                    {
+                        glm::dvec2 centre( 0.0 );
+                        for ( const ClipVertex& v : cell )
+                            centre += v.UV;
+                        centre /= static_cast<double>( cell.size() );
+                        const auto  parity = static_cast<long long>( std::floor( centre.x * density ) +
+                                                                     std::floor( centre.y * density ) );
+                        const float tone   = ( parity & 1 ) != 0 ? 0.18f : 0.82f;
+                        pieces.push_back(
+                             { std::move( cell ), glm::vec4( glm::vec3( tone * shade ), 1.0f ), depth } );
+                    }
+                }
+            }
+            // Far to near: the faces blend in the order a depth write would have kept.
+            std::stable_sort( pieces.begin(), pieces.end(),
+                              []( const Piece& x, const Piece& y ) { return x.Depth > y.Depth; } );
+            for ( const Piece& piece : pieces )
+                for ( size_t i = 1; i + 1 < piece.Polygon.size(); ++i )
+                    for ( const size_t k : { size_t( 0 ), i, i + 1 } )
+                        preview.Triangles.push_back(
+                             Vertex{ glm::vec4( glm::vec3( piece.Polygon[k].P ), 1.0f ), piece.Colour } );
+        }
+
+        if ( m_Session->Volume )
+        {
+            std::vector<std::pair<glm::dvec3, glm::dvec3>> edges;
+            VolumeEdges( *m_Session->Volume, m_Project.Type, edges );
+            const glm::vec4 colour( 1.0f, 0.55f, 0.1f, 1.0f );
+            for ( const auto& [from, to] : edges )
+            {
+                const glm::dvec3 p = toWorld( from ), q = toWorld( to );
+                preview.Edges.push_back( Vertex{ glm::vec4( glm::vec3( p ), 1.0f ), colour } );
+                preview.Edges.push_back( Vertex{ glm::vec4( glm::vec3( q ), 1.0f ), colour } );
+                // No surface under a volume edge: the one facing the eye (the pass's smallest lift).
+                const glm::dvec3 toEye = eyeWorld - ( p + q ) * 0.5;
+                const double     len   = glm::length( toEye );
+                preview.EdgeSurfaces.push_back( len > 0.0 ? glm::vec3( toEye / len ) : glm::vec3( 0, 1, 0 ) );
+            }
+        }
+        if ( preview.Triangles.empty() && preview.Edges.empty() )
+            Render::ToolPreview::Hide( scene );
+        else
+            Render::ToolPreview::Show( scene, std::move( preview ) );
+    }
+
+    std::optional<glm::mat4> UVTool::ProjectionGizmo( ::Desert::Core::Scene& scene ) const
+    {
+        if ( !m_Session || !m_Session->Volume )
+            return std::nullopt;
+        const Geometry::UVProjectionVolume& v     = *m_Session->Volume;
+        const glm::dmat4                    world = WorldOf( scene, m_Session->Entity );
+        const glm::dmat3                    basis( world );
+        const auto                          axis = [&]( const glm::dvec3& a )
+        { return glm::vec4( glm::vec3( glm::normalize( basis * a ) ), 0.0f ); };
+        return glm::mat4( axis( v.AxisX ), axis( v.AxisY ), axis( v.AxisZ ),
+                          glm::vec4( glm::vec3( world * glm::dvec4( v.Origin, 1.0 ) ), 1.0f ) );
+    }
+
+    void UVTool::ApplyProjectionGizmo( ::Desert::Core::Scene& scene, const glm::mat4& frame )
+    {
+        if ( !m_Session || !m_Session->Volume )
+            return;
+        MS&              ms      = MS::Get();
+        const glm::dmat4 toLocal = glm::inverse( WorldOf( scene, m_Session->Entity ) );
+        const glm::dmat3 basis( toLocal );
+        const glm::dvec3 origin = glm::dvec3( toLocal * glm::dvec4( glm::dvec3( frame[3] ), 1.0 ) );
+        // The bounds centre the volume was placed from: its origin less the offset it was computed with.
+        const glm::dvec3 centre = m_Session->Volume->Origin - glm::dvec3( m_Project.CenterOffset );
+        glm::dmat3       axes;
+        for ( int c = 0; c < 3; ++c )
+            axes[c] = glm::normalize( basis * glm::dvec3( frame[c] ) );
+        ms.UVProject.CenterOffset = glm::vec3( origin - centre );
+        ms.UVProject.RotationDeg  = Geometry::UVProjectionRotationDeg( axes );
     }
 
     bool UVTool::SettingsChanged( const MS& ms ) const

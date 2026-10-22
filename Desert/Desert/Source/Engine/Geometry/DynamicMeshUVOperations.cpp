@@ -261,33 +261,42 @@ namespace Desert::Geometry
                                                   : std::string() ) );
     }
 
-    Common::ResultStr<UVOutcome> ProjectUVs( const DynamicMesh3& mesh, const UVProjectSettings& settings )
+    namespace
     {
-        if ( mesh.TriangleCount() == 0 )
-            return Common::MakeError<UVOutcome>( "UV Project: the mesh has no triangle" );
+        // The volume's axes before RotationDeg: Z along the mesh's +Y (up), X along +X, Y along -Z
+        // (right-handed).
+        const glm::dmat3 kProjectionBaseAxes( glm::dvec3( 1.0, 0.0, 0.0 ), glm::dvec3( 0.0, 0.0, -1.0 ),
+                                              glm::dvec3( 0.0, 1.0, 0.0 ) );
+    } // namespace
+
+    Common::ResultStr<UVProjectionVolume> ResolveUVProjectionVolume( const DynamicMesh3&      mesh,
+                                                                     const UVProjectSettings& settings )
+    {
+        if ( mesh.VertexCount() == 0 )
+            return Common::MakeError<UVProjectionVolume>( "UV Project: the mesh has no vertex" );
         glm::dvec3 lo( std::numeric_limits<double>::max() ), hi( -std::numeric_limits<double>::max() );
         for ( const int vid : mesh.VertexIndicesItr() )
         {
             lo = glm::min( lo, mesh.GetVertex( vid ) );
             hi = glm::max( hi, mesh.GetVertex( vid ) );
         }
+        UVProjectionVolume volume;
+        const glm::dquat   turn( glm::radians( glm::dvec3( settings.RotationDeg ) ) );
+        volume.AxisX  = turn * kProjectionBaseAxes[0];
+        volume.AxisY  = turn * kProjectionBaseAxes[1];
+        volume.AxisZ  = turn * kProjectionBaseAxes[2];
+        volume.Origin = ( lo + hi ) * 0.5 + glm::dvec3( settings.CenterOffset );
 
-        // The frame: Z along the mesh's +Y (up), X along +X, Y along -Z (right-handed), turned by RotationDeg.
-        const glm::dquat turn( glm::radians( glm::dvec3( settings.RotationDeg ) ) );
-        const glm::dvec3 axisX = turn * glm::dvec3( 1.0, 0.0, 0.0 );
-        const glm::dvec3 axisY = turn * glm::dvec3( 0.0, 0.0, -1.0 );
-        const glm::dvec3 axisZ = turn * glm::dvec3( 0.0, 1.0, 0.0 );
-        const Frame3d    frame( ( lo + hi ) * 0.5 + glm::dvec3( settings.CenterOffset ), axisX, axisY, axisZ );
-
-        // Fitted dimensions: the bounds' extent along each frame axis.
+        // Fitted dimensions: the bounds' extent along each volume axis.
         glm::dvec3 dims = glm::dvec3( settings.Dimensions );
         if ( settings.FitToBounds )
         {
             glm::dvec3 flo( std::numeric_limits<double>::max() ), fhi( -std::numeric_limits<double>::max() );
             for ( const int vid : mesh.VertexIndicesItr() )
             {
-                const glm::dvec3 d = mesh.GetVertex( vid ) - frame.Origin;
-                const glm::dvec3 p( glm::dot( d, axisX ), glm::dot( d, axisY ), glm::dot( d, axisZ ) );
+                const glm::dvec3 d = mesh.GetVertex( vid ) - volume.Origin;
+                const glm::dvec3 p( glm::dot( d, volume.AxisX ), glm::dot( d, volume.AxisY ),
+                                    glm::dot( d, volume.AxisZ ) );
                 flo = glm::min( flo, p );
                 fhi = glm::max( fhi, p );
             }
@@ -296,6 +305,27 @@ namespace Desert::Geometry
         for ( int k = 0; k < 3; ++k )
             if ( !( dims[k] > 1e-6 ) )
                 dims[k] = 1.0;
+        volume.Dimensions = dims;
+        return volume;
+    }
+
+    glm::vec3 UVProjectionRotationDeg( const glm::dmat3& axes )
+    {
+        // axes = turn * base, so turn = axes * base^T (base is orthonormal).
+        const glm::dquat turn = glm::quat_cast( axes * glm::transpose( kProjectionBaseAxes ) );
+        return glm::vec3( glm::degrees( glm::eulerAngles( turn ) ) );
+    }
+
+    Common::ResultStr<UVOutcome> ProjectUVs( const DynamicMesh3& mesh, const UVProjectSettings& settings )
+    {
+        if ( mesh.TriangleCount() == 0 )
+            return Common::MakeError<UVOutcome>( "UV Project: the mesh has no triangle" );
+        auto resolved = ResolveUVProjectionVolume( mesh, settings );
+        if ( !resolved.IsSuccess() )
+            return Common::MakeError<UVOutcome>( resolved.GetError() );
+        const UVProjectionVolume& volume = resolved.GetValue();
+        const Frame3d             frame( volume.Origin, volume.AxisX, volume.AxisY, volume.AxisZ );
+        const glm::dvec3          dims = volume.Dimensions;
 
         DynamicMesh3          out = mesh;
         DynamicMeshUVOverlay& uvs = PrepareUVLayer( out );
