@@ -1,5 +1,7 @@
 #include <UI/UIFocus.hpp>
 
+#include <UI/Args/UIButtonArgs.hpp>
+#include <UI/Args/UIControlArgs.hpp>
 #include <UI/UICanvasRenderer2D.hpp>
 
 #include <algorithm>
@@ -394,5 +396,32 @@ namespace Desert::UI
         std::erase_if( memory.Restore, [&tree]( const auto& kv ) { return !tree.Valid( kv.first ); } );
         memory.Scopes = std::move( scopes );
         return result;
+    }
+
+    UIFocusCause FocusCauseOf( const FocusRecord& record, NodeId focused )
+    {
+        return ( focused != NodeId::Null && record.Node == focused ) ? record.Cause : UIFocusCause::SetDirectly;
+    }
+
+    bool ShowsFocusRing( UIFocusCause cause )
+    {
+        return cause == UIFocusCause::Navigation;
+    }
+
+    NodeId PointerFocusTarget( const IUITree& tree, const std::vector<FocusEntry>& entries, NodeId pointerTarget,
+                               NodeId prevPointerTarget, NodeId focused )
+    {
+        if ( pointerTarget == NodeId::Null || pointerTarget == prevPointerTarget )
+            return NodeId::Null;
+        if ( !tree.Valid( pointerTarget ) || !tree.Has<UIButtonData>( pointerTarget ) ||
+             tree.Get<UIButtonData>( pointerTarget )->Disabled )
+            return NodeId::Null;
+        if ( focused != NodeId::Null && tree.Valid( focused ) && tree.Has<UIInputFieldData>( focused ) )
+            return NodeId::Null;
+        // Drawn and reachable this frame: the same list keyboard navigation chooses from, so the pointer can
+        // never focus a control Tab could not (a button inside a Blocking panel is not in it).
+        const bool listed =
+             std::ranges::any_of( entries, [pointerTarget]( const FocusEntry& f ) { return f.Node == pointerTarget; } );
+        return listed ? pointerTarget : NodeId::Null;
     }
 } // namespace Desert::UI

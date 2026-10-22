@@ -388,6 +388,9 @@ namespace Desert::UI
         std::vector<Common::KeyCode> ConsumedKeys;
         // Which control each screen / overlay / canvas last had focused, and which scopes were up last frame.
         FocusMemory Focus;
+        // Why the host's focused control has it (UIFocus.hpp): written by EndUIFrame whenever it moves focus,
+        // read by the walk's focus ring.
+        FocusRecord FocusCause;
         // The scrollbar thumb the pointer is dragging (pressed on it and still held), and where on the thumb it
         // was grabbed, in the container's pixels. One per view: there is one pointer.
         struct ScrollThumbDrag
@@ -561,7 +564,8 @@ namespace Desert::UI
             NavigationBoxes.clear();
             ScrollPorts.clear();
             ConsumedKeys.clear();
-            Focus = FocusMemory{};
+            Focus      = FocusMemory{};
+            FocusCause = FocusRecord{};
             DropdownHighlight.clear();
             ThumbDrag      = ScrollThumbDrag{};
             Tint           = glm::vec4( 1.0f );
