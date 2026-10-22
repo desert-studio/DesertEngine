@@ -107,6 +107,7 @@ namespace Desert::Editor
         void DrawCreatePalette();
         void DrawPolyModelPalette();
         void DrawTriModelPalette();
+        void DrawSculptTools(); // M27's Sculpt / Dynamic Sculpt (+ Remesh), the top of the Deform palette
         void DrawTransformPalette();
         void DrawVoxOpsPalette();
         void DrawDeformPalette();

@@ -969,6 +969,19 @@ namespace Desert::Graphic
             m_RenderedAntiAliasing.Reason      = "the path tracer averages its own sub-pixel paths";
             m_AAMode                           = Common::Scalability::AntiAliasingMethod::None;
         }
+        // THE WIREFRAME VIEW RENDERS NO ANTI-ALIASING (UE EngineShowFlagOverride: "Disable AA in full wireframe
+        // mode", AntiAliasing off for VMI_Wireframe). Its image is one-pixel lines over the background: a temporal
+        // method's neighbourhood clip cannot tell a stale line from a current one beside it, so the history of a
+        // mesh replaced in place (an Undo of a sculpt stroke: same entity, same transform, zero velocity) kept the
+        // old dense lines for dozens of frames, and the jitter only made every line shimmer. No temporal method,
+        // no FXAA/SMAA, no jitter, native resolution (OnUpdate), as for the path tracer above.
+        else if ( m_DebugView.WireframeMode )
+        {
+            m_RenderedAntiAliasing.Method      = Common::Scalability::AntiAliasingMethod::None;
+            m_RenderedAntiAliasing.PostProcess = Common::Scalability::AntiAliasingMethod::None;
+            m_RenderedAntiAliasing.Reason      = "the wireframe view draws one-pixel lines, unfiltered";
+            m_AAMode                           = Common::Scalability::AntiAliasingMethod::None;
+        }
         m_GIIntensity    = post.GIIntensity;
         m_SSRIntensity   = post.SSRIntensity;
         m_SSRMaxDistance = post.SSRMaxDistance;
@@ -1367,7 +1380,8 @@ namespace Desert::Graphic
         int                settingPercent  = m_Quality.As<int>( Parameter::RenderScalePercent );
         std::optional<int> overridePercent = m_DebugView.ScreenPercentage;
         auto               upscaler        = m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler );
-        if ( PathTraced( m_RenderMethods ) )
+        // The wireframe view renders without anti-aliasing (BeginScene): no upscaler to reconstruct with.
+        if ( PathTraced( m_RenderMethods ) || m_DebugView.WireframeMode )
         {
             settingPercent  = 100;
             overridePercent = std::nullopt;

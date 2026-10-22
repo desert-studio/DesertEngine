@@ -20,6 +20,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Editor/Panels/ViewportPanel/Tools/SculptTool.hpp>
 #include <Common/Core/Units.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -164,6 +165,8 @@ namespace Desert::Editor
                 m_Category = static_cast<int>( Palette::Shapes );
             else if ( ms.ActiveTool == MS::Tool::CubeGrid || ms.ActiveTool == MS::Tool::PolyEdit )
                 m_Category = static_cast<int>( Palette::PolyModel );
+            else if ( ms.ActiveTool == MS::Tool::Sculpt )
+                m_Category = static_cast<int>( Palette::Deform );
             else if ( ms.ActiveTool == MS::Tool::ElementSelect )
                 m_Category = static_cast<int>( Palette::Selection );
             else if ( ms.ActiveTool == MS::Tool::AutoUV || ms.ActiveTool == MS::Tool::UVProject ||
@@ -613,6 +616,90 @@ namespace Desert::Editor
 
     // UE's Transform palette: Edit Pivot, Bake Transform and Split. In UE each is a tool with its own Accept;
     // here each is an operation on the scene selection's whole entities that runs on one click.
+    // UE's Deform palette, its Sculpt tool (UMeshVertexSculptTool): the brush, its size, strength and falloff.
+    // The stroke itself is the viewport's (SculptTool); Accept writes the result into the .stmesh. Drawn at the top
+    // of the Deform palette, above its preview/Accept tools.
+    void ModelingPanel::DrawSculptTools()
+    {
+        using MS          = Core::ModelingState;
+        auto&      ms     = MS::Get();
+        const bool active = ms.ActiveTool == MS::Tool::Sculpt;
+        // Sculpt (UE UMeshVertexSculptTool) and Dynamic Sculpt (UE UDynamicMeshSculptTool): one viewport tool,
+        // the second remeshing the brush's region before every stamp.
+        for ( const bool dynamic : { false, true } )
+        {
+            const bool lit = active && ms.SculptDynamic == dynamic;
+            if ( lit )
+                ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
+            if ( ImGui::Button( dynamic ? ICON_MDI_BRUSH "  Dynamic Sculpt" : ICON_MDI_BRUSH "  Sculpt",
+                                ImVec2( -1.0f, 30.0f ) ) )
+            {
+                ms.ActiveTool    = MS::Tool::Sculpt;
+                ms.SculptDynamic = dynamic;
+                Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            }
+            if ( lit )
+                ImGui::PopStyleColor();
+        }
+        // UE's Remesh tool (URemeshMeshTool): the whole selected mesh to a uniform edge length, one undo step.
+        if ( Utils::ImGuiUtilities::SectionHeader( "Remesh" ) )
+        {
+            auto& r = ms.Remesh;
+            ImGui::DragFloat( "Target Edge Length", &r.TargetEdgeLength, 0.1f, 0.01f, 1.0e4f, "%.2f cm",
+                              ImGuiSliderFlags_AlwaysClamp );
+            ImGui::SliderFloat( "Smoothing", &r.SmoothingStrength, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp );
+            ImGui::SliderInt( "Iterations", &r.Iterations, 1, 100, "%d", ImGuiSliderFlags_AlwaysClamp );
+            ImGui::Checkbox( "Flips##Remesh", &r.Flips );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Splits##Remesh", &r.Splits );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Collapses##Remesh", &r.Collapses );
+            if ( ImGui::Button( "Remesh", ImVec2( -1.0f, 0.0f ) ) && m_Scene )
+                if ( auto refused = Tools::RemeshSelected( *m_Scene, r ) )
+                    LOG_WARN( "[Remesh] {}", *refused );
+        }
+        if ( !active )
+            return;
+        if ( ms.SculptDynamic && Utils::ImGuiUtilities::SectionHeader( "Dynamic Topology" ) )
+        {
+            auto& t = ms.DynamicSculptTopology;
+            ImGui::DragFloat( "Edge Length", &t.TargetEdgeLength, 0.05f, 0.01f, 1.0e4f, "%.2f cm",
+                              ImGuiSliderFlags_AlwaysClamp );
+            ImGui::Checkbox( "Refine", &t.Splits );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Split edges under the brush longer than 4/3 of the edge length." );
+            ImGui::SameLine();
+            ImGui::Checkbox( "Collapse", &t.Collapses );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Collapse edges under the brush shorter than 2/3 of the edge length." );
+        }
+        auto& s = ms.Sculpt;
+        if ( Utils::ImGuiUtilities::SectionHeader( "Brush" ) )
+        {
+            constexpr std::array kBrushes = { Geometry::SculptBrushType::Standard, Geometry::SculptBrushType::Smooth };
+            if ( ImGui::BeginCombo( "Brush Type", Geometry::ToString( s.Brush ) ) )
+            {
+                for ( const auto brush : kBrushes )
+                    if ( ImGui::Selectable( Geometry::ToString( brush ), brush == s.Brush ) )
+                        s.Brush = brush;
+                ImGui::EndCombo();
+            }
+            ImGui::DragFloat( "Brush Size", &s.Radius, 0.5f, 0.1f, 1.0e5f, "%.1f cm", ImGuiSliderFlags_AlwaysClamp );
+            ImGui::SliderFloat( "Strength", &s.Strength, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp );
+            ImGui::SliderFloat( "Falloff", &s.Falloff, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp );
+            ImGui::SliderFloat( "Spacing", &s.Spacing, 0.01f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Distance between stamps along a stroke, as a share of the brush size." );
+            ImGui::Checkbox( "Invert", &s.Invert );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Standard pulls the surface in instead of pushing it out (Ctrl held flips it)." );
+        }
+        ImGui::Separator();
+        ImGui::TextDisabled( "Select a static mesh, then LMB-drag over it." );
+        ImGui::TextDisabled( "Shift = Smooth, Ctrl = Invert. One stroke = one undo." );
+        ImGui::TextDisabled( "Accept writes the result into the .stmesh." );
+    }
+
     void ModelingPanel::DrawTransformPalette()
     {
         auto&       ms        = Core::ModelingState::Get();
@@ -650,6 +737,7 @@ namespace Desert::Editor
     // UE's UIterativeSmoothProperties / UIterativeOffsetProperties with their ranges.
     void ModelingPanel::DrawDeformPalette()
     {
+        DrawSculptTools();
         using MS          = Core::ModelingState;
         auto&        ms   = MS::Get();
         const ImVec4 sel  = ThemeManager::GetSelectedColor();

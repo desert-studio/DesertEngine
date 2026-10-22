@@ -34,6 +34,7 @@
 #include "Tools/VertexSculptTool.hpp"
 #include "Tools/UVTool.hpp"
 #include "Tools/PolyEditTool.hpp"
+#include "Tools/SculptTool.hpp"
 #include "Tools/ToolCursor.hpp"
 #include "Tools/GizmoController.hpp"
 #include "Tools/PickingController.hpp"
@@ -440,6 +441,7 @@ namespace Desert::Editor
         Tools::FoliagePaintTool               m_FoliageTool;  // UE5-style foliage painting (extracted)
         Tools::CubeGridTool                   m_CubeGridTool; // UE5-style CubeGrid blockout (Modeling mode)
         Tools::PolyEditTool                   m_PolyEditTool; // face select + push/pull (Modeling mode)
+        Tools::SculptTool                     m_SculptTool;   // brush strokes on the selected mesh (Modeling)
         Tools::ElementSelectTool              m_ElementSelectTool; // mesh element selection (Modeling mode)
         Tools::CreateShapeTool                m_CreateShapeTool;   // Create -> shapes (Modeling mode)
         Tools::UVTool                         m_UVTool;            // UVs palette (Modeling mode)

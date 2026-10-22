@@ -1,0 +1,29 @@
+# M27 Dynamic Sculpt + Remesh: Refine under the brush adds resolution only where it strokes; undo restores the
+# uniform 32x32 sphere; Remesh at 5 cm makes the whole sphere uniformly finer, shape kept; Accept writes it
+Дано run Panel "Open Modeling"
+Дано --subject viewport set Camera.Direction 0.6,-0.53,0.6
+Дано run View "View mode: Wireframe"
+Дано run Modeling "Create shape sphere: Lat Long"
+Дано --subject modeling set CreateShape.Sphere.HorizontalSlices 32
+Дано --subject modeling set CreateShape.Sphere.VerticalSlices 32
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Sculpt "Dynamic Sculpt tool"
+Дано run Sculpt "Brush: Standard"
+Дано run Sculpt "Refine: on"
+Дано --subject modeling set DynamicSculpt.EdgeLength 2
+Дано --subject modeling set Sculpt.BrushSize 12
+Тогда-вид 0_before a uniform 32x32 lat-long wireframe sphere at the viewport centre
+Когда --subject viewport drag 650,290 780,290 20
+Когда --subject viewport drag 650,330 780,330 20
+Когда --subject viewport drag 650,370 780,370 20
+Тогда-вид 1_dyn_strokes along the three strokes the wireframe is much denser, elsewhere the original 32x32 grid
+Когда run Action "Undo"
+Когда run Action "Undo"
+Когда run Action "Undo"
+Тогда-вид 1_dyn_undo the sphere is the uniform 32x32 grid again, as in 0_before
+Когда --subject modeling set Remesh.TargetEdgeLength 5
+Когда run Modeling "Remesh: the selected mesh at the Target Edge Length"
+Тогда-вид 2_remesh the whole sphere is a uniform triangle mesh finer than 32x32, still a sphere
+Когда run Modeling "Accept: write the edit into the static mesh asset"
+Тогда 3_accept after Accept the remeshed sphere is still drawn from its .stmesh; no error toast

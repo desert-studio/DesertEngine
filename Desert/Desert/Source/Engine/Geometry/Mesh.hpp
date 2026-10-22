@@ -11,6 +11,8 @@
 #include <Engine/Assets/MeshCardRepresentation.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -22,6 +24,46 @@ namespace Desert::Graphic::RayTracing
 
 namespace Desert
 {
+    // A MESH'S RENDER IDENTITY, NEVER REUSED (UE: a render resource's own id, not its address). A cache keyed by
+    // the Mesh* (the shadow caches' static-caster signatures) took a freed mesh and a new one built at the same
+    // address for the same mesh: after Undo cleared a sculpt the reloaded asset landed where the last stroke's
+    // mesh had been, the signature matched, and its shadow pages kept the stroke's depth. Every object draws a
+    // fresh value (a copy too: it is another resource), and a content change draws another.
+    class MeshRenderRevision
+    {
+    public:
+        MeshRenderRevision() : m_Value( Next() )
+        {
+        }
+        MeshRenderRevision( const MeshRenderRevision& /*other*/ ) : m_Value( Next() )
+        {
+        }
+        MeshRenderRevision& operator=( const MeshRenderRevision& other )
+        {
+            if ( this != &other )
+                m_Value = Next();
+            return *this;
+        }
+        ~MeshRenderRevision() = default;
+
+        void Bump()
+        {
+            m_Value = Next();
+        }
+        [[nodiscard]] uint64_t Value() const
+        {
+            return m_Value;
+        }
+
+    private:
+        static uint64_t Next()
+        {
+            static std::atomic<uint64_t> next{ 1 };
+            return next.fetch_add( 1, std::memory_order_relaxed );
+        }
+        uint64_t m_Value;
+    };
+
     class Mesh
     {
     public:
@@ -132,16 +174,23 @@ namespace Desert
         {
             return m_GpuStale;
         }
+        // What a renderer cache keys this mesh's content by (MeshRenderRevision): never the address.
+        [[nodiscard]] uint64_t GetRenderRevision() const
+        {
+            return m_RenderRevision.Value();
+        }
 
     protected:
         // The CPU data changed and the GPU buffers no longer hold it (or were never made).
         void MarkGpuStale()
         {
             m_GpuStale = true;
+            m_RenderRevision.Bump();
             // A BLAS built from the old positions would let rays hit geometry the raster no longer draws.
             m_RayTracingGeometry.reset();
         }
-        bool m_GpuStale = false;
+        bool               m_GpuStale = false;
+        MeshRenderRevision m_RenderRevision;
 
         // Called by every subclass that (re)builds its LOD chain: the resolved sizes follow the level count.
         void ResolveLODScreenSizes()

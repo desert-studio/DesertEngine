@@ -198,7 +198,7 @@ namespace Desert::Graphic::System
             if ( rd.Mesh == nullptr || !rd.CastShadows )
                 continue;
             SignatureHash hash;
-            hash.Add( rd.Mesh );
+            hash.Add( rd.Mesh->GetRenderRevision() );
             hash.Add( rd.Transform );
             hash.Add( rd.HiddenSubmeshes );
             hash.Add( rd.ForcedLOD );
@@ -220,7 +220,7 @@ namespace Desert::Graphic::System
             if ( g.Mesh == nullptr || !g.CastShadows )
                 continue;
             SignatureHash hash;
-            hash.Add( g.Mesh );
+            hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
             hash.Add( g.VisibleSubmeshMask );
             hash.Add( ComputeLOD( g.Transform, g.Mesh, -1 ) );
@@ -249,7 +249,7 @@ namespace Desert::Graphic::System
             }
             // Keyed by its snapshot, as the cascades' cache is (m_VsmKeySnapshots keeps the address unique).
             SignatureHash hash;
-            hash.Add( ism.Mesh );
+            hash.Add( ism.Mesh->GetRenderRevision() );
             hash.Add( ism.Transforms.get() );
             hash.Add( ism.Transforms->size() );
             hash.Add( ism.Material.get() );

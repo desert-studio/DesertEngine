@@ -10,6 +10,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
+#include <Engine/Geometry/DynamicMeshSculpt.hpp>
 #include <Engine/Geometry/DynamicMeshUVOperations.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 #include <Engine/Geometry/MeshDeformOperations.hpp>
@@ -71,6 +72,8 @@ namespace Desert::Editor::Core
             VoxMorph,   // UE's UVoxelMorphologyMeshesTool: Dilate/Contract/Close/Open of the mesh's field -> a new
                         // entity
             VoxBlend,   // UE's UVoxelBlendMeshesTool: the two selected meshes' fields blended -> a new entity
+            // UE's Deform palette: Sculpt (UMeshVertexSculptTool) - brush strokes on the selected mesh.
+            Sculpt,
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -427,6 +430,16 @@ namespace Desert::Editor::Core
         std::string         PaintGroupsStatus;
         // What the active Deform tool's preview did (its report), or why there is none - the panel shows it.
         std::string DeformStatus;
+
+        // Sculpt tool (SculptTool, Geometry/DynamicMeshSculpt.hpp): the brush every stroke uses.
+        Geometry::SculptBrushSettings Sculpt;
+        // Dynamic Sculpt (UE's UDynamicMeshSculptTool): the same tool with the brush's region remeshed toward
+        // DynamicSculptTopology.TargetEdgeLength before every stamp (Refine = splits, Collapse = collapses).
+        bool                     SculptDynamic = false;
+        Geometry::RemeshSettings DynamicSculptTopology{ .TargetEdgeLength = 2.0f };
+        // Remesh (UE's URemeshMeshTool): the whole selected mesh to a uniform Target Edge Length, one undo step;
+        // Accept writes it into the .stmesh like any edit.
+        Geometry::RemeshSettings Remesh{ .TargetEdgeLength = 5.0f };
 
         // Create tool: the shape a click places (the palette places it at the viewport centre directly,
         // ViewportPanel::PlaceShapeInActiveViewport, so its refusal reaches the command's result).
