@@ -7,6 +7,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -124,7 +125,17 @@ namespace Desert::Graphic::API::Vulkan
             return VK_FALSE;
         }
 
-        LOG_WARN( "VulkanDebugCallback:\n  Object Type: {0}\n  Message: {1}", (int)objectType, pMessage );
+        // A create-time fault arrives before the object has a debug name: name the pipeline being created.
+        const std::string_view creating = PipelineBeingCreatedOnThisThread();
+        if ( !creating.empty() )
+        {
+            LOG_WARN( "VulkanDebugCallback:\n  Object Type: {0}\n  While creating pipeline: '{1}'\n  Message: {2}",
+                      (int)objectType, creating, pMessage != nullptr ? pMessage : "" );
+        }
+        else
+        {
+            LOG_WARN( "VulkanDebugCallback:\n  Object Type: {0}\n  Message: {1}", (int)objectType, pMessage );
+        }
         return VK_FALSE;
     }
 

@@ -403,9 +403,26 @@ namespace Common::Scalability
         bool operator==( const ParameterOverride& ) const = default;
     };
 
+    // One level per group, PERSISTED BY GROUP NAME (machine.json: {"Textures": "High", ...}), the way UE keys
+    // sg.TextureQuality & co. and the way ParameterOverride keys its parameter: a group added to or moved in the
+    // enum never shifts what a file says about the others. In memory it is indexed by Group. Its JSON form is
+    // MachineSettings.hpp's rfl::Reflector<GroupLevels>: an unknown group name or a missing group refuses the
+    // read (the machine.json loader screens both first: unknown = ERROR, missing = WARN + the group's start
+    // level; the former positional list is migrated there and the file rewritten).
+    struct GroupLevels : std::array<Level, kGroupCount>
+    {
+        GroupLevels() : std::array<Level, kGroupCount>{}
+        {
+        }
+        GroupLevels( const std::array<Level, kGroupCount>& levels ) // NOLINT(google-explicit-constructor)
+             : std::array<Level, kGroupCount>( levels )
+        {
+        }
+    };
+
     struct QualitySelection
     {
-        std::array<Level, kGroupCount> Levels{}; // per group; the UI's "Custom" is a group with an override
+        GroupLevels                    Levels; // per group; the UI's "Custom" is a group with an override
         std::vector<ParameterOverride> Overrides;
 
         bool operator==( const QualitySelection& ) const = default;

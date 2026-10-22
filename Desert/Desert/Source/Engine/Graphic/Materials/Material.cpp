@@ -153,7 +153,7 @@ namespace Desert::Graphic
         {
             if ( const auto property = m_MaterialExecutor->GetStorageBufferProperty( name ) )
             {
-                if ( const auto& buffer = property->GetStorageBuffer() )
+                if ( const auto& buffer = property->GetOwnedStorageBuffer() )
                     buffer->ClaimOwnership( owner, asset );
             }
         }

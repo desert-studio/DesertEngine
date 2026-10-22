@@ -24,6 +24,7 @@ namespace Desert::ShaderResources::API::Vulkan
          : m_Lifetime( persistent ? Persistence::AcrossFrames : Persistence::PerFrame ), m_Binding( binding ),
            m_BufferName( bufferName )
     {
+        NameLedgerRow( m_BufferName );
         if ( size == 0 )
             size = 1; // Vulkan requires size > 0; a per-frame buffer grows on its first SetData.
 

@@ -1097,7 +1097,7 @@ namespace Desert::Graphic::System
                 auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kObjectMotions );
                 const bool bound = rows != nullptr && m_ObjectMotions != nullptr;
                 DESERT_VERIFY( bound, "a skinned masked caster reads ObjectMotions but the view carries none" );
-                rows->SetBuffer( m_ObjectMotions );
+                rows->LendViewBuffer( m_ObjectMotions );
             }
             const std::optional<RDG::StorageBufferParameter> own =
                  path ? MeshPathOwnBuffer( *path ) : std::nullopt;

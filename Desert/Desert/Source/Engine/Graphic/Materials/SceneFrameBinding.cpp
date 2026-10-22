@@ -61,14 +61,14 @@ namespace Desert::Graphic
             auto*      rows  = material->Get<StorageBufferProperty>( SceneResources::kObjectMotions );
             const bool bound = rows != nullptr && ObjectMotions != nullptr;
             DESERT_VERIFY( bound, "a view-pass material reads ObjectMotions but the frame carries none" );
-            rows->SetBuffer( ObjectMotions );
+            rows->LendViewBuffer( ObjectMotions );
         }
         if ( Reads( groups, SceneRead::ObjectBones ) )
         {
             auto*      palettes = material->Get<StorageBufferProperty>( SceneResources::kObjectBones );
             const bool bound    = palettes != nullptr && ObjectBones != nullptr;
             DESERT_VERIFY( bound, "a skinned view-pass material reads ObjectBones but the frame carries none" );
-            palettes->SetBuffer( ObjectBones );
+            palettes->LendViewBuffer( ObjectBones );
         }
         // A surface that reads a world parameter with no table bound would read an unbound buffer: every view
         // writes one each frame, an empty collection included.
@@ -77,7 +77,7 @@ namespace Desert::Graphic
             auto*      table = material->Get<StorageBufferProperty>( SceneResources::kWorldParameters );
             const bool bound = table != nullptr && WorldParameters != nullptr;
             DESERT_VERIFY( bound, "a material reads WorldParameters but the frame carries none" );
-            table->SetBuffer( WorldParameters );
+            table->LendViewBuffer( WorldParameters );
         }
         // The block only: RainOcclusionMapTexture is a pass parameter, bound by the mesh node that draws these
         // materials (SceneViewInputs::RainOcclusionMap through BindSceneViewInputs).

@@ -40,7 +40,15 @@ namespace Desert::Graphic
             // SetData returned void. The refusal names the buffer itself (BaseBuffer has no GetName and
             // does not need one for this), which is what turns "the lighting looked wrong for one frame"
             // into a grep.
-            const auto wrote = m_Buffer->SetData( data, size );
+            const auto buffer = GetStorageBuffer();
+            if ( !buffer )
+            {
+                LOG_ERROR( "[SSBO] {} byte(s) were not uploaded: the view that lent this property its buffer "
+                           "has closed",
+                           size );
+                return;
+            }
+            const auto wrote = buffer->SetData( data, size );
             if ( !wrote.IsSuccess() )
                 LOG_ERROR( "[SSBO] {} byte(s) were not uploaded, the shader reads the previous frame's "
                            "contents -- {}",
@@ -55,7 +63,20 @@ namespace Desert::Graphic
         // rebinds the new VkBuffer.
         void SetBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer )
         {
-            m_Buffer  = buffer;
+            m_Buffer = buffer;
+            m_Lent.reset();
+            m_Written = true;
+            NoteWritten();
+        }
+
+        // Bind a VIEW's per-frame buffer (ObjectMotions, ObjectBones, WorldParameters — SceneFrameBinding) without
+        // taking a share of it. The material is an asset that outlives every view drawing it; holding the view's
+        // buffer here kept it (and its device memory) alive past the view's close, under the closed view's ledger
+        // name (EDITOR-LOG-CLEAN). The view owns it; the next view to draw this material lends its own.
+        void LendViewBuffer( const std::shared_ptr<ShaderResources::StorageBuffer>& buffer )
+        {
+            m_Buffer.reset();
+            m_Lent    = buffer;
             m_Written = true;
             NoteWritten();
         }
@@ -64,18 +85,26 @@ namespace Desert::Graphic
         // unwritten property holds no copy to bind, so a draw would be refused at record time; the material's
         // route fill leaves it out instead (MaterialExecutor::GetRouteFill) and the pass's setup refuses the
         // block.
+        // A lent buffer whose view has closed holds nothing to bind: unwritten until the next view lends one.
         [[nodiscard]] bool IsWritten() const noexcept
         {
-            return m_Written;
+            return m_Written && ( m_Buffer != nullptr || !m_Lent.expired() );
         }
 
-        const auto& GetStorageBuffer() const
+        [[nodiscard]] std::shared_ptr<ShaderResources::StorageBuffer> GetStorageBuffer() const
+        {
+            return m_Buffer ? m_Buffer : m_Lent.lock();
+        }
+
+        // The buffer this property owns — never a view's lent one, which its view accounts for.
+        [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetOwnedStorageBuffer() const noexcept
         {
             return m_Buffer;
         }
 
     private:
         std::shared_ptr<ShaderResources::StorageBuffer> m_Buffer;
+        std::weak_ptr<ShaderResources::StorageBuffer>   m_Lent; // LendViewBuffer: the view owns it, not this
         uint32_t                                        m_Binding = 0;
         bool                                            m_Written = false;
     };

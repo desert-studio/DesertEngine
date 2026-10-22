@@ -357,6 +357,9 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_DefaultVertexStreams == nullptr || capacity > m_DefaultVertexStreamsCapacity )
         {
             std::vector<MeshVertexStreams> defaults( capacity );
+            // The device's own, shared by every view: grown by whichever view first draws more vertices, so
+            // without this scope it was booked to THAT view and outlived its close (EDITOR-LOG-CLEAN).
+            const ResourceAttributionScope owned( ResourceOwner::Device );
             m_DefaultVertexStreams = VertexBuffer::Create(
                  defaults.data(), static_cast<uint32_t>( defaults.size() * sizeof( MeshVertexStreams ) ) );
             const auto uploaded = m_DefaultVertexStreams->RT_Invalidate();
