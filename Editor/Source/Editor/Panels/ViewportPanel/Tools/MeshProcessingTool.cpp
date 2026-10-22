@@ -20,6 +20,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <chrono>
 
 #include <format>
 #include <string>
@@ -236,6 +237,7 @@ namespace Desert::Editor::Tools
         m_Lattice                                            = ms.DeformLattice;
         m_LatticePoints                                      = ms.LatticePoints;
         const Geometry::DynamicMesh3&              input     = *m_Session->Input;
+        const auto                                 started   = std::chrono::steady_clock::now();
         Common::ResultStr<Geometry::DeformOutcome> out       = [&]
         {
             switch ( m_Session->Tool )
@@ -259,6 +261,8 @@ namespace Desert::Editor::Tools
                                                 glm::dmat4( WorldOf( scene, m_Session->Entity ) ) );
             }
         }();
+        LOG_INFO( "[Modeling] {0} recomputed in {1:.1f} ms", ToolName( m_Session->Tool ),
+                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - started ).count() );
         ECS::StaticMeshComponent*                  component = MeshOf( scene, m_Session->Entity );
         if ( !out.IsSuccess() )
         {
