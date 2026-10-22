@@ -609,7 +609,8 @@ namespace Desert::Editor
               std::initializer_list<std::pair<const char*, MS::Tool>>{ { "AutoUV", MS::Tool::AutoUV },
                                                                        { "Project", MS::Tool::UVProject },
                                                                        { "Unwrap", MS::Tool::UVUnwrap },
-                                                                       { "Layout", MS::Tool::UVLayout } } )
+                                                                       { "Layout", MS::Tool::UVLayout },
+                                                                       { "Transform", MS::Tool::UVTransform } } )
             commands.push_back( { "Modeling", std::string( "UV tool: " ) + name, [tool]
                                   {
                                       MS::Get().ActiveTool = tool;
@@ -895,5 +896,14 @@ namespace Desert::Editor
                        []( MS& ms, bool on ) { ms.UVLayout.PreserveRotation = on; } );
         modelingOnOff( "Modeling", "UV Layout: Allow Flips",
                        []( MS& ms, bool on ) { ms.UVLayout.AllowFlips = on; } );
+        for ( const Geometry::UVTransformPivot pivot :
+              { Geometry::UVTransformPivot::Origin, Geometry::UVTransformPivot::IslandCenter,
+                Geometry::UVTransformPivot::SelectionCenter, Geometry::UVTransformPivot::Manual } )
+            commands.push_back( { "Modeling", std::string( "UV Transform pivot: " ) + Geometry::ToString( pivot ),
+                                  [pivot]
+                                  {
+                                      MS::Get().UVTransform.Pivot = pivot;
+                                      return PaletteCommandDone();
+                                  } } );
     }
 } // namespace Desert::Editor

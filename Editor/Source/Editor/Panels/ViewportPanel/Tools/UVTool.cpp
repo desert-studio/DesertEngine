@@ -1,6 +1,7 @@
 #include "UVTool.hpp"
 
 #include <Editor/Core/Commands/SceneCommands.hpp>
+#include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
@@ -11,6 +12,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
 #include <Engine/Geometry/DynamicMeshUVOperations.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 
@@ -39,6 +41,8 @@ namespace Desert::Editor::Tools
                     return "UV Unwrap";
                 case MS::Tool::UVLayout:
                     return "UV Layout";
+                case MS::Tool::UVTransform:
+                    return "UV Transform";
                 default:
                     return "?";
             }
@@ -175,7 +179,7 @@ namespace Desert::Editor::Tools
     bool UVTool::IsUVTool( MS::Tool tool )
     {
         return tool == MS::Tool::AutoUV || tool == MS::Tool::UVProject || tool == MS::Tool::UVUnwrap ||
-               tool == MS::Tool::UVLayout;
+               tool == MS::Tool::UVLayout || tool == MS::Tool::UVTransform;
     }
 
     void UVTool::Update( ::Desert::Core::Scene& scene, const glm::dvec3& eyeWorld )
@@ -244,6 +248,19 @@ namespace Desert::Editor::Tools
         }
         m_Session =
              Session{ ms.ActiveTool, *selected, target.GetValue().Mesh, target.GetValue().Committed, nullptr };
+        // UV Transform works on the selected triangles of this mesh (UE's UV Editor: the selection), or on all.
+        if ( ms.ActiveTool == MS::Tool::UVTransform )
+        {
+            const auto& selection = Core::MeshElementSelection::Get();
+            if ( selection.Entity() == *selected && selection.HasMesh() && !selection.Selection().Empty() )
+            {
+                const Geometry::ElementSelection tris =
+                     Geometry::ConvertSelection( *selection.Mesh(), *selection.Topology(), selection.Selection(),
+                                                 Geometry::ElementMode::Triangle );
+                for ( const int tid : tris.Ids() )
+                    m_Session->Scope.push_back( tid );
+            }
+        }
         Recompute( scene, ms );
     }
 
@@ -266,6 +283,9 @@ namespace Desert::Editor::Tools
                 break;
             case MS::Tool::UVLayout:
                 out = Geometry::LayoutUVs( input, ms.UVLayout );
+                break;
+            case MS::Tool::UVTransform:
+                out = Geometry::TransformUVs( input, ms.UVTransform, m_Session->Scope );
                 break;
             default:
                 break;
@@ -505,6 +525,8 @@ namespace Desert::Editor::Tools
                 return !( ms.UVUnwrap == m_Unwrap );
             case MS::Tool::UVLayout:
                 return !( ms.UVLayout == m_Layout );
+            case MS::Tool::UVTransform:
+                return !( ms.UVTransform == m_Transform );
             default:
                 return false;
         }
@@ -521,5 +543,6 @@ namespace Desert::Editor::Tools
         m_Project = ms.UVProject;
         m_Unwrap  = ms.UVUnwrap;
         m_Layout  = ms.UVLayout;
+        m_Transform = ms.UVTransform;
     }
 } // namespace Desert::Editor::Tools

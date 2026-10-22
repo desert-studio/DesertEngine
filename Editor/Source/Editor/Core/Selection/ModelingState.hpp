@@ -40,6 +40,7 @@ namespace Desert::Editor::Core
             UVProject,
             UVUnwrap,
             UVLayout,
+            UVTransform, // UE's UV Editor Transform tool (UUVEditorTransformTool)
             // UE's Deform palette (MeshProcessingTool): previews on the selected mesh and commits on Accept.
             Smooth,
             Offset,
@@ -314,6 +315,7 @@ namespace Desert::Editor::Core
         Geometry::UVProjectSettings UVProject;
         Geometry::UVUnwrapSettings  UVUnwrap;
         Geometry::UVLayoutSettings  UVLayout;
+        Geometry::UVTransformSettings UVTransform;
         // What the active UV tool's preview did (its report), or why there is none - the panel shows it.
         std::string UVStatus;
         // UE's UV tools' material mode Checkerboard (UExistingMeshMaterialProperties): the previewed mesh drawn

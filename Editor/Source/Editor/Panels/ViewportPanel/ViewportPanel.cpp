@@ -2599,6 +2599,7 @@ namespace Desert::Editor
             case T::UVProject:
             case T::UVUnwrap:
             case T::UVLayout:
+            case T::UVTransform:
             case T::Smooth:
             case T::Offset:
             case T::Warp:

@@ -140,7 +140,8 @@ namespace Desert::Editor
             else if ( ms.ActiveTool == MS::Tool::ElementSelect )
                 m_Category = static_cast<int>( Palette::Selection );
             else if ( ms.ActiveTool == MS::Tool::AutoUV || ms.ActiveTool == MS::Tool::UVProject ||
-                      ms.ActiveTool == MS::Tool::UVUnwrap || ms.ActiveTool == MS::Tool::UVLayout )
+                      ms.ActiveTool == MS::Tool::UVUnwrap || ms.ActiveTool == MS::Tool::UVLayout ||
+                      ms.ActiveTool == MS::Tool::UVTransform )
                 m_Category = static_cast<int>( Palette::UVs );
             else if ( ms.ActiveTool == MS::Tool::Smooth || ms.ActiveTool == MS::Tool::Offset ||
                       ms.ActiveTool == MS::Tool::Warp || ms.ActiveTool == MS::Tool::Lattice ||
@@ -965,11 +966,12 @@ namespace Desert::Editor
             const char* Name;
             MS::Tool    Tool;
         };
-        constexpr std::array<UVToolEntry, 4> kUVTools = {
+        constexpr std::array<UVToolEntry, 5> kUVTools = {
              { { ICON_MDI_AUTO_FIX, "AutoUV", MS::Tool::AutoUV },
                { ICON_MDI_PROJECTOR, "Project", MS::Tool::UVProject },
                { ICON_MDI_CONTENT_CUT, "Unwrap", MS::Tool::UVUnwrap },
-               { ICON_MDI_VIEW_GRID_OUTLINE, "Layout", MS::Tool::UVLayout } } };
+               { ICON_MDI_VIEW_GRID_OUTLINE, "Layout", MS::Tool::UVLayout },
+               { ICON_MDI_CURSOR_MOVE, "Transform", MS::Tool::UVTransform } } };
         for ( size_t i = 0; i < kUVTools.size(); ++i )
         {
             const bool on = ms.ActiveTool == kUVTools[i].Tool;
@@ -1098,6 +1100,36 @@ namespace Desert::Editor
                 ImGui::DragFloat( "##UVLayoutTranslateU", &s.Translation.x, 0.01f, -1000.0f, 1000.0f, "%.3f" );
                 row( "Translate V" );
                 ImGui::DragFloat( "##UVLayoutTranslateV", &s.Translation.y, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                break;
+            }
+            case MS::Tool::UVTransform:
+            {
+                // UE's UV Editor Transform tool: scale, then rotate, about the pivot, then translate; on the
+                // selected triangles (Select Elements) or, with none, on every island.
+                auto&                 s         = ms.UVTransform;
+                constexpr const char* kPivots[] = { "Origin", "Island Center", "Selection Center", "Manual" };
+                int                   pivot     = static_cast<int>( s.Pivot );
+                row( "Scale U" );
+                ImGui::DragFloat( "##UVTransformScaleU", &s.Scale.x, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                row( "Scale V" );
+                ImGui::DragFloat( "##UVTransformScaleV", &s.Scale.y, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                row( "Rotation" );
+                ImGui::DragFloat( "##UVTransformRotation", &s.RotationDeg, 0.5f, -360.0f, 360.0f, "%.1f deg",
+                                  ImGuiSliderFlags_AlwaysClamp );
+                row( "Translate U" );
+                ImGui::DragFloat( "##UVTransformTranslateU", &s.Translation.x, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                row( "Translate V" );
+                ImGui::DragFloat( "##UVTransformTranslateV", &s.Translation.y, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                row( "Pivot" );
+                if ( ImGui::Combo( "##UVTransformPivot", &pivot, kPivots, 4 ) )
+                    s.Pivot = static_cast<Geometry::UVTransformPivot>( pivot );
+                if ( s.Pivot == Geometry::UVTransformPivot::Manual )
+                {
+                    row( "Pivot U" );
+                    ImGui::DragFloat( "##UVTransformPivotU", &s.ManualPivot.x, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                    row( "Pivot V" );
+                    ImGui::DragFloat( "##UVTransformPivotV", &s.ManualPivot.y, 0.01f, -1000.0f, 1000.0f, "%.3f" );
+                }
                 break;
             }
             default:

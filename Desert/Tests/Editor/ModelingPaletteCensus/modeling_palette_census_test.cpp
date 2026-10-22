@@ -193,7 +193,7 @@ namespace
         { "Combo", "\"##CollisionShape\"", Reach::Palette, { "\"Mesh To Collision \"" } },
         { "Button", "\"Mesh To Collision\"", Reach::Palette, { "Editor::ModelingPanel::MeshToCollision" } },
         // UVs
-        { "Button", "uvToolLabel", Reach::Palette, { "\"UV tool: \"", "\"AutoUV\"", "\"Project\"", "\"Unwrap\"", "\"Layout\"" } },
+        { "Button", "uvToolLabel", Reach::Palette, { "\"UV tool: \"", "\"AutoUV\"", "\"Project\"", "\"Unwrap\"", "\"Layout\"", "\"Transform\"" } },
         { "DragFloat", "\"##AutoUVDeviation\"", Reach::Set, { "AutoUV.MaxNormalDeviation" } },
         { "Checkbox", "\"Respect PolyGroups##AutoUV\"", Reach::Palette, { "\"AutoUV: Respect PolyGroups\"" } },
         { "Checkbox", "\"Auto Align##AutoUV\"", Reach::Palette, { "\"AutoUV: Auto Align\"" } },
@@ -224,6 +224,14 @@ namespace
         { "DragFloat", "\"##UVLayoutScale\"", Reach::Set, { "UVLayout.Scale" } },
         { "DragFloat", "\"##UVLayoutTranslateU\"", Reach::Set, { "UVLayout.TranslateU" } },
         { "DragFloat", "\"##UVLayoutTranslateV\"", Reach::Set, { "UVLayout.TranslateV" } },
+        { "DragFloat", "\"##UVTransformScaleU\"", Reach::Set, { "UVTransform.ScaleU" } },
+        { "DragFloat", "\"##UVTransformScaleV\"", Reach::Set, { "UVTransform.ScaleV" } },
+        { "DragFloat", "\"##UVTransformRotation\"", Reach::Set, { "UVTransform.Rotation" } },
+        { "DragFloat", "\"##UVTransformTranslateU\"", Reach::Set, { "UVTransform.TranslateU" } },
+        { "DragFloat", "\"##UVTransformTranslateV\"", Reach::Set, { "UVTransform.TranslateV" } },
+        { "Combo", "\"##UVTransformPivot\"", Reach::Palette, { "\"UV Transform pivot: \"" } },
+        { "DragFloat", "\"##UVTransformPivotU\"", Reach::Set, { "UVTransform.ManualPivotU" } },
+        { "DragFloat", "\"##UVTransformPivotV\"", Reach::Set, { "UVTransform.ManualPivotV" } },
     };
     // clang-format on
 

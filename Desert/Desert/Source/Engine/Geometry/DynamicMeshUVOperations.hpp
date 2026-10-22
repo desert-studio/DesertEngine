@@ -10,12 +10,14 @@
 #include <glm/vec3.hpp>
 
 #include <cstdint>
+#include <span>
 #include <string>
 
 namespace Desert::Geometry
 {
     // UV OPERATIONS - UE's UVs palette of Modeling Mode: AutoUV (UParameterizeMeshTool, PatchBuilder method),
-    // Project (UUVProjectionTool), Unwrap (URecomputeUVsTool) and Layout (UUVLayoutTool).
+    // Project (UUVProjectionTool), Unwrap (URecomputeUVsTool), Layout (UUVLayoutTool) and Transform (the UV
+    // Editor's UUVEditorTransformTool).
     //
     // Same contract as the other mesh operation headers (DynamicMeshXformOperations.hpp): pure functions, the
     // input is not touched, the result is a NEW mesh whose UV layer 0 is rewritten (a mesh without one gets it)
@@ -149,4 +151,33 @@ namespace Desert::Geometry
     // Refused for a mesh with no UV layer 0 or no UV-set triangle.
     [[nodiscard]] Common::ResultStr<UVOutcome> LayoutUVs( const DynamicMesh3&     mesh,
                                                           const UVLayoutSettings& settings );
+
+    // ---- Transform (UE UUVEditorTransformTool, "Transform" mode) ----
+    // Where the scale and the rotation are centred (UE EUVEditorPivotMode).
+    enum class UVTransformPivot : uint8_t
+    {
+        Origin,          // UE Origin: UV (0, 0)
+        IslandCenter,    // UE IndividualBoundingBoxCenter: each island about its own UV bounds' centre
+        SelectionCenter, // UE BoundingBoxCenter: everything transformed about the bounds of all of it
+        Manual,          // UE Manual: ManualPivot
+    };
+    [[nodiscard]] const char* ToString( UVTransformPivot pivot );
+
+    // UE applies scale, then rotation (counter-clockwise, degrees), about the pivot, then the translation.
+    struct UVTransformSettings
+    {
+        glm::vec2        Scale{ 1.0f };
+        float            RotationDeg = 0.0f;
+        glm::vec2        Translation{ 0.0f };
+        UVTransformPivot Pivot = UVTransformPivot::IslandCenter;
+        glm::vec2        ManualPivot{ 0.0f };
+
+        bool operator==( const UVTransformSettings& ) const = default;
+    };
+    // Transforms the UVs of @p triangles (all triangles when empty): every UV element they use moves once, so an
+    // element shared with a triangle outside them moves too (as in UE's UV Editor). Refused for a mesh with no
+    // UV layer 0, no UV-set triangle in the scope, or a zero scale (it would collapse the islands).
+    [[nodiscard]] Common::ResultStr<UVOutcome> TransformUVs( const DynamicMesh3&        mesh,
+                                                             const UVTransformSettings& settings,
+                                                             std::span<const int32_t>   triangles = {} );
 } // namespace Desert::Geometry

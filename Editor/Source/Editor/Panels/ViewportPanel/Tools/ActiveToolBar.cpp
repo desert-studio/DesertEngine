@@ -34,6 +34,8 @@ namespace Desert::Editor::Tools
                 return { ICON_MDI_CONTENT_CUT, "UV Unwrap", true };
             case T::UVLayout:
                 return { ICON_MDI_VIEW_GRID_OUTLINE, "UV Layout", true };
+            case T::UVTransform:
+                return { ICON_MDI_CURSOR_MOVE, "UV Transform", true };
             // UE's Deform tools preview until Accept; Cancel puts the mesh back (MeshProcessingTool).
             case T::Smooth:
                 return { ICON_MDI_BLUR, "Smooth", true };

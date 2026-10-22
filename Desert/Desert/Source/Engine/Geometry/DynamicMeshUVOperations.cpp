@@ -474,4 +474,120 @@ namespace Desert::Geometry
                        fmt::format( "{} at {} texels, scale {:.3f}", ToString( settings.Type ),
                                     settings.TextureResolution, settings.Scale ) );
     }
+
+    const char* ToString( UVTransformPivot pivot )
+    {
+        switch ( pivot )
+        {
+            case UVTransformPivot::Origin:
+                return "Origin";
+            case UVTransformPivot::IslandCenter:
+                return "Island Center";
+            case UVTransformPivot::SelectionCenter:
+                return "Selection Center";
+            case UVTransformPivot::Manual:
+                return "Manual";
+        }
+        return "?";
+    }
+
+    Common::ResultStr<UVOutcome> TransformUVs( const DynamicMesh3& mesh, const UVTransformSettings& settings,
+                                               std::span<const int32_t> triangles )
+    {
+        if ( !mesh.HasAttributes() || mesh.Attributes()->PrimaryUV() == nullptr )
+            return Common::MakeError<UVOutcome>(
+                 "UV Transform: the mesh has no UV layer - run AutoUV or Project first" );
+        if ( settings.Scale.x == 0.0f || settings.Scale.y == 0.0f )
+            return Common::MakeError<UVOutcome>( "UV Transform: a zero scale collapses the islands" );
+        DynamicMesh3          out = mesh;
+        DynamicMeshUVOverlay& uvs = *out.Attributes()->PrimaryUV();
+
+        // The islands in scope: the UV islands, restricted to the given triangles (UE transforms the selection's
+        // connected UV components).
+        std::vector<int> scope;
+        if ( triangles.empty() )
+        {
+            for ( const int tid : out.TriangleIndicesItr() )
+                if ( uvs.IsSetTriangle( tid ) )
+                    scope.push_back( tid );
+        }
+        else
+        {
+            for ( const int32_t tid : triangles )
+                if ( out.IsTriangle( tid ) && uvs.IsSetTriangle( tid ) )
+                    scope.push_back( tid );
+        }
+        if ( scope.empty() )
+            return Common::MakeError<UVOutcome>(
+                 triangles.empty() ? "UV Transform: no triangle has UVs - run AutoUV or Project first"
+                                   : "UV Transform: no selected triangle has UVs" );
+        MeshConnectedComponents components( &out );
+        components.FindConnectedTriangles( scope, [&uvs]( int32_t a, int32_t b )
+                                           { return uvs.AreTrianglesConnected( a, b ); } );
+
+        // Each island's elements, once each (an element belongs to one island: islands connect through elements).
+        std::vector<uint8_t>              seen( static_cast<size_t>( uvs.MaxElementID() ), 0 );
+        std::vector<std::vector<int32_t>> islandElements;
+        for ( int32_t i = 0; i < components.Num(); ++i )
+        {
+            std::vector<int32_t>& elements = islandElements.emplace_back();
+            for ( const int tid : components[i].Indices )
+            {
+                const Index3i tri = uvs.GetTriangle( tid );
+                for ( int k = 0; k < 3; ++k )
+                    if ( !seen[static_cast<size_t>( tri[k] )] )
+                    {
+                        seen[static_cast<size_t>( tri[k] )] = 1;
+                        elements.push_back( tri[k] );
+                    }
+            }
+        }
+        const auto boundsCentre = [&uvs]( const std::vector<int32_t>& elements, glm::vec2& lo, glm::vec2& hi )
+        {
+            for ( const int32_t eid : elements )
+            {
+                lo = glm::min( lo, uvs.GetElement( eid ) );
+                hi = glm::max( hi, uvs.GetElement( eid ) );
+            }
+        };
+        glm::vec2 allLo( std::numeric_limits<float>::max() ), allHi( -std::numeric_limits<float>::max() );
+        for ( const auto& elements : islandElements )
+            boundsCentre( elements, allLo, allHi );
+
+        const float c = std::cos( glm::radians( settings.RotationDeg ) );
+        const float s = std::sin( glm::radians( settings.RotationDeg ) );
+        for ( const auto& elements : islandElements )
+        {
+            glm::vec2 pivot( 0.0f );
+            switch ( settings.Pivot )
+            {
+                case UVTransformPivot::Origin:
+                    break;
+                case UVTransformPivot::IslandCenter:
+                {
+                    glm::vec2 lo( std::numeric_limits<float>::max() ), hi( -std::numeric_limits<float>::max() );
+                    boundsCentre( elements, lo, hi );
+                    pivot = ( lo + hi ) * 0.5f;
+                    break;
+                }
+                case UVTransformPivot::SelectionCenter:
+                    pivot = ( allLo + allHi ) * 0.5f;
+                    break;
+                case UVTransformPivot::Manual:
+                    pivot = settings.ManualPivot;
+                    break;
+            }
+            for ( const int32_t eid : elements )
+            {
+                const glm::vec2 d = ( uvs.GetElement( eid ) - pivot ) * settings.Scale;
+                uvs.SetElement( eid,
+                                pivot + glm::vec2( c * d.x - s * d.y, s * d.x + c * d.y ) + settings.Translation );
+            }
+        }
+
+        return Finish( std::move( out ), "UV Transform",
+                       fmt::format( "{} of {} triangles; scale {:.3f} x {:.3f}, rotation {:.1f} deg about {}",
+                                    scope.size(), mesh.TriangleCount(), settings.Scale.x, settings.Scale.y,
+                                    settings.RotationDeg, ToString( settings.Pivot ) ) );
+    }
 } // namespace Desert::Geometry

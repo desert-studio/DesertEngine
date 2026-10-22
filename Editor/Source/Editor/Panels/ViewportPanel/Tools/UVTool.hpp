@@ -11,6 +11,7 @@
 
 #include <memory>
 #include <optional>
+#include <vector>
 
 namespace Desert::Core
 {
@@ -19,8 +20,9 @@ namespace Desert::Core
 
 namespace Desert::Editor::Tools
 {
-    // Modeling Mode -> UVs: AutoUV, Project, Unwrap and Layout (UE's UParameterizeMeshTool, UUVProjectionTool,
-    // URecomputeUVsTool, UUVLayoutTool). Like UE's tools, each is a session on the selected entity's mesh:
+    // Modeling Mode -> UVs: AutoUV, Project, Unwrap, Layout and Transform (UE's UParameterizeMeshTool,
+    // UUVProjectionTool, URecomputeUVsTool, UUVLayoutTool, the UV Editor's UUVEditorTransformTool). Like UE's
+    // tools, each is a session on the selected entity's mesh:
     //   - start: the tool target (GetToolTargetMesh) is the input, and what the component holds is the "before";
     //   - preview: the operation runs on the input with the panel's settings, again whenever they change, and the
     //     entity draws the result (ECS::SetEditableMesh, no undo step) - the material shows the new UVs;
@@ -57,6 +59,7 @@ namespace Desert::Editor::Tools
             std::shared_ptr<const Geometry::DynamicMesh3> Preview;   // null while the settings are refused
             std::optional<Geometry::UVProjectionVolume>   Volume;    // UV Project: the volume Preview used
             glm::dmat4 MeshToWorld{ 1.0 }; // UV Project: the entity transform Preview was projected through
+            std::vector<int32_t> Scope;              // UV Transform: the selected triangles at Begin; empty = all
         };
 
         void               Begin( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
@@ -75,5 +78,6 @@ namespace Desert::Editor::Tools
         Geometry::UVProjectSettings m_Project;
         Geometry::UVUnwrapSettings  m_Unwrap;
         Geometry::UVLayoutSettings  m_Layout;
+        Geometry::UVTransformSettings m_Transform;
     };
 } // namespace Desert::Editor::Tools
