@@ -161,7 +161,8 @@
             "Scale": [1.0, 1.0, 1.0],
             "VFX": {
                 "System": "assets:VFX/RDG_LandscapeParticles_7310021749900001.dfx",
-                "AutoActivate": true
+                "AutoActivate": true,
+                "Overrides": []
             }
         },
         {
@@ -173,7 +174,8 @@
             "Scale": [1.0, 1.0, 1.0],
             "VFX": {
                 "System": "assets:VFX/RDG_LandscapeParticles_7310021749900002.dfx",
-                "AutoActivate": true
+                "AutoActivate": true,
+                "Overrides": []
             }
         },
         {
