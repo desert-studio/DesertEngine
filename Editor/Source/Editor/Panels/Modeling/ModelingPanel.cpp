@@ -1227,7 +1227,7 @@ namespace Desert::Editor
 
                  ECS::VolumeComponent component;
                  component.Data.Type        = type.Type;
-                 component.Data.HullPoints  = std::move( shape.Points );
+                 ECS::SetVolumeCorners( component.Data, shape.Points );
                  component.Data.HullIndices = std::move( shape.Indices );
                  volume.AddComponent<ECS::VolumeComponent>( std::move( component ) );
 

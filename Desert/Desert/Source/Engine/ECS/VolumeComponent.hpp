@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -39,14 +40,32 @@ namespace Desert::ECS
                            "nothing; Blocking is an invisible wall." ) )
         VolumeType Type = VolumeType::Trigger;
 
+        // x, y, z per corner, flat: the reflection serializes a vector of scalars (a std::vector<glm::vec3> field
+        // is not a container to it and would be silently dropped by save, undo and redo). Read through
+        // VolumeCornerCount / VolumeCorner below.
         PROPERTY( DisplayName( "Hull Points" ), Category( "Volume" ), Advanced, Length,
-                  Tooltip( "Body-local points (cm) whose convex hull is the volume." ) )
-        std::vector<glm::vec3> HullPoints;
+                  Tooltip( "Body-local corners of the convex hull (cm), x y z per corner." ) )
+        std::vector<float> HullPoints;
 
         PROPERTY( DisplayName( "Hull Triangles" ), Category( "Volume" ), Advanced,
                   Tooltip( "Three Hull Points indices per triangle: the outline the editor draws." ) )
         std::vector<uint32_t> HullIndices;
     };
+
+    inline size_t VolumeCornerCount( const VolumeData& volume ) { return volume.HullPoints.size() / 3; }
+
+    inline glm::vec3 VolumeCorner( const VolumeData& volume, size_t corner )
+    {
+        return { volume.HullPoints[corner * 3], volume.HullPoints[corner * 3 + 1], volume.HullPoints[corner * 3 + 2] };
+    }
+
+    inline void SetVolumeCorners( VolumeData& volume, const std::vector<glm::vec3>& corners )
+    {
+        volume.HullPoints.clear();
+        volume.HullPoints.reserve( corners.size() * 3 );
+        for ( const glm::vec3& c : corners )
+            volume.HullPoints.insert( volume.HullPoints.end(), { c.x, c.y, c.z } );
+    }
 
     struct VolumeComponent
     {

@@ -372,14 +372,14 @@ namespace Desert::ECS
             // mesh it draws.
             if ( const auto* volume = registry.try_get<VolumeComponent>( entity ) )
             {
-                if ( volume->Data.HullPoints.size() < 4 )
+                const size_t corners = VolumeCornerCount( volume->Data );
+                if ( corners < 4 )
                     return Common::MakeError<Result>( std::format(
-                         "the volume has {} hull points; a convex volume needs at least 4",
-                         volume->Data.HullPoints.size() ) );
+                         "the volume has {} hull points; a convex volume needs at least 4", corners ) );
                 ColliderMesh hull;
-                hull.Points.reserve( volume->Data.HullPoints.size() );
-                for ( const glm::vec3& point : volume->Data.HullPoints )
-                    hull.Points.push_back( point * scale );
+                hull.Points.reserve( corners );
+                for ( size_t c = 0; c < corners; ++c )
+                    hull.Points.push_back( VolumeCorner( volume->Data, c ) * scale );
                 hull.Indices = volume->Data.HullIndices;
                 return Common::MakeSuccess( Result( std::move( hull ) ) );
             }

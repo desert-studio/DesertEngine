@@ -183,14 +183,14 @@ namespace Desert::Editor::Render
                     const auto* volume = scene->GetRegistry().try_get<ECS::VolumeComponent>( entity );
                     if ( volume == nullptr )
                         break;
-                    const auto& points  = volume->Data.HullPoints;
-                    const auto& indices = volume->Data.HullIndices;
-                    const auto  world   = [&]( uint32_t i )
-                    { return transform.Translation + R * ( points[i] * transform.Scale ); };
+                    const size_t corners = ECS::VolumeCornerCount( volume->Data );
+                    const auto&  indices = volume->Data.HullIndices;
+                    const auto   world   = [&]( uint32_t i )
+                    { return transform.Translation + R * ( ECS::VolumeCorner( volume->Data, i ) * transform.Scale ); };
                     std::unordered_set<uint64_t> drawn;
                     const auto edge = [&]( uint32_t a, uint32_t b )
                     {
-                        if ( a >= points.size() || b >= points.size() )
+                        if ( a >= corners || b >= corners )
                             return;
                         const uint64_t key = ( uint64_t( std::min( a, b ) ) << 32u ) | std::max( a, b );
                         if ( drawn.insert( key ).second )
