@@ -1,8 +1,11 @@
 #include "ParticleWorldGpu.hpp"
+#include <algorithm>
+#include <bit>
 
 #include "ParticleEmitterRetire.hpp"
 
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -194,6 +197,11 @@ namespace Desert::Graphic::System
         const auto& emitter = system.Emitters[index];
         gpu.Capacity        = emitter.Enabled ? emitter.Capacity : 0u;
         gpu.Local           = emitter.Space == Assets::Serialization::VFXSimulationSpace::Local;
+        gpu.DebugEntity     = entityId;
+        gpu.DebugEmitter    = static_cast<uint32_t>( index );
+        gpu.DebugName       = emitter.Name;
+        gpu.DebugReadback.reset();
+        gpu.DebugColumns.clear();
         if ( gpu.Capacity == 0 )
             return;
         const auto refuse = [&]( const std::string& why )
@@ -224,6 +232,7 @@ namespace Desert::Graphic::System
         gpu.CurveFloats  = curves.GetValue().Floats;
         gpu.FloatColumns = compiled.GetValue().Layout.TotalFloatComponents;
         gpu.IntColumns   = compiled.GetValue().Layout.TotalIntComponents;
+        gpu.DebugColumns = compiled.GetValue().Layout.Attributes;
         if ( gpu.ParamRows.empty() )
             gpu.ParamRows.emplace_back( 0.0f );
         if ( gpu.CurveFloats.empty() )
@@ -238,6 +247,84 @@ namespace Desert::Graphic::System
         gpu.DrawLayout =
              ShaderResources::StorageBuffer::Create( "ParticleDrawLayout", kParticleDrawLayoutSize, 11 );
         gpu.NeedsReset = true;
+    }
+
+    void ParticleWorldGpu::FillDebugStats( VFX::VFXDebugStats& stats ) const
+    {
+        stats.GpuCounts = DebugReading();
+        for ( VFX::VFXSystemDebugStats& system : stats.Systems )
+            for ( VFX::VFXEmitterDebugStats& emitter : system.Emitters )
+                for ( const ParticleEmitterDebug& read : m_Debug )
+                    if ( read.EntityId == system.EntityId && read.Emitter == emitter.Emitter )
+                    {
+                        emitter.GpuRead   = read.Read;
+                        emitter.Alive     = read.Alive;
+                        emitter.Free      = read.Free;
+                        emitter.FramesOld = read.FramesOld;
+                        break;
+                    }
+    }
+
+    void ParticleWorldGpu::ReadDebugReadbacks()
+    {
+        m_Debug.clear();
+        if ( !DebugReading() )
+            return;
+        m_DebugSerial = m_DebugSerial == 0xFFFFFFFFu ? 1u : m_DebugSerial + 1u; // 0 = a copy never written
+        m_Debug.reserve( m_FrameEmitters.size() );
+        for ( const ParticleFrameEmitter& fe : m_FrameEmitters )
+        {
+            ParticleEmitterGpu&  gpu = *fe.Gpu;
+            ParticleEmitterDebug debug;
+            debug.EntityId     = fe.EntityId;
+            debug.Emitter      = gpu.DebugEmitter;
+            debug.Name         = gpu.DebugName;
+            debug.Capacity     = gpu.Range.Count;
+            debug.FloatColumns = gpu.FloatColumns;
+            debug.IntColumns   = gpu.IntColumns;
+            const uint32_t stride = 1u + gpu.FloatColumns + gpu.IntColumns;
+            const uint32_t words  = kParticleDebugHeaderUints + kParticleDebugMaxRows * stride;
+            if ( !gpu.DebugReadback )
+            {
+                // Its copies are written from this frame on; the first comes back FramesInFlight frames later.
+                gpu.DebugReadback = ShaderResources::StorageBuffer::Create( "ParticleDebugReadback", words * 4u, 3 );
+                m_Debug.push_back( std::move( debug ) );
+                continue;
+            }
+            std::vector<uint32_t> data( words, 0u );
+            if ( const Common::BoolResultStr read = gpu.DebugReadback->ReadBack( data.data(), words * 4u ); !read )
+            {
+                LOG_ERROR( "[Particles] entity {} emitter {} '{}': the debug readback was not read: {}", fe.EntityId,
+                           gpu.DebugEmitter, gpu.DebugName, read.GetError() );
+                m_Debug.push_back( std::move( debug ) );
+                continue;
+            }
+            if ( data[2] != 0u )
+            {
+                debug.Read      = true;
+                debug.Alive     = data[0];
+                debug.Free      = data[1];
+                debug.FramesOld = m_DebugSerial - data[2];
+                if ( IsDebugTable( gpu ) )
+                {
+                    const uint32_t rows = std::min( data[3], kParticleDebugMaxRows );
+                    debug.Columns       = gpu.DebugColumns;
+                    debug.RowIndex.reserve( rows );
+                    debug.Floats.reserve( std::size_t{ rows } * gpu.FloatColumns );
+                    debug.Ints.reserve( std::size_t{ rows } * gpu.IntColumns );
+                    for ( uint32_t r = 0; r < rows; ++r )
+                    {
+                        const uint32_t base = kParticleDebugHeaderUints + r * stride;
+                        debug.RowIndex.push_back( data[base] );
+                        for ( uint32_t c = 0; c < gpu.FloatColumns; ++c )
+                            debug.Floats.push_back( std::bit_cast<float>( data[base + 1u + c] ) );
+                        for ( uint32_t c = 0; c < gpu.IntColumns; ++c )
+                            debug.Ints.push_back( std::bit_cast<int32_t>( data[base + 1u + gpu.FloatColumns + c] ) );
+                    }
+                }
+            }
+            m_Debug.push_back( std::move( debug ) );
+        }
     }
 
     bool ParticleWorldGpu::EnsurePoolCapacity( const uint32_t particles )
@@ -270,8 +357,15 @@ namespace Desert::Graphic::System
     bool ParticleWorldGpu::PrepareTick( const ::Desert::Core::Scene& scene )
     {
         const VFX::VFXWorld& world = scene.GetVFXWorld();
+        m_DebugCounts              = world.GetDebugSettings().Overview;
         if ( !m_Claim.Claim( world.GetTickSerial() ) )
             return false; // another view of this scene simulates this tick; this one draws the same pool
+
+        // THE SCENE'S ROWS. The pool, the emitters' buffers and the host programs belong to the scene's VFXWorld,
+        // but this runs inside the simulating view's ledger scope (PrepareTick from the view's particle pass), so
+        // without this they carried that view's instance and outlived its close as the view's rows
+        // (VIEW-CLOSE-LEAK). Nested: the view's scope is restored when this one closes.
+        const ResourceAttributionScope sceneRows( ResourceOwner::SceneRenderer, scene.GetLedgerInstance() );
 
         m_FrameEmitters.clear();
 

@@ -4,6 +4,8 @@
 // adapted as described in ScreenProbeGather.hpp.
 #include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
 
+#include <Engine/Core/EngineContext.hpp>
+
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -219,8 +221,9 @@ namespace Desert::Graphic::GlobalIllumination
             uint32_t FarField;
         };
 
-        constexpr std::array<std::string_view, ScreenProbeLayout::kLevels> kPlaceNames{
-             "ScreenProbes: Place Uniform", "ScreenProbes: Place Adaptive 8", "ScreenProbes: Place Adaptive 4" };
+        constexpr std::array<std::string_view, ScreenProbeLayout::kMaxLevels> kPlaceNames{
+             "ScreenProbes: Place Uniform", "ScreenProbes: Place Adaptive 1", "ScreenProbes: Place Adaptive 2",
+             "ScreenProbes: Place Adaptive 3", "ScreenProbes: Place Adaptive 4" };
 
         std::shared_ptr<Image2D>
         CreateTarget( const std::string_view tag, const uint32_t width, const uint32_t height,
@@ -244,37 +247,84 @@ namespace Desert::Graphic::GlobalIllumination
     ScreenProbeGather::ScreenProbeGather()  = default;
     ScreenProbeGather::~ScreenProbeGather() = default;
 
+    namespace
+    {
+        // The layout permutation every screen-probe program is compiled under (Common/ScreenProbes.glslh
+        // SP_DOWNSAMPLE_LOG2 / SP_TRACED_TEXELS): its groupshared arrays and per-probe workgroups are SP_RES² wide.
+        std::vector<std::string> ScreenProbeLayoutDefines( const uint32_t downsample, const uint32_t tracedTexels )
+        {
+            return { std::format( "SP_DOWNSAMPLE_LOG2={}", std::countr_zero( downsample ) ),
+                     std::format( "SP_TRACED_TEXELS={}", tracedTexels ) };
+        }
+
+        // A layout-only program's permutation; cooked (ProgramVariants).
+        Core::ShaderVariant LayoutVariant( const uint32_t downsample, const uint32_t tracedTexels )
+        {
+            return Core::ShaderVariant{ .Defines       = ScreenProbeLayoutDefines( downsample, tracedTexels ),
+                                        .ShippedByCook = true };
+        }
+
+        // Trace's permutation: TracerVariant's defines, the leg, then the layout's; cooked (ProgramVariants).
+        Core::ShaderVariant TraceVariant( const Pipeline& pipeline, const std::string_view leg,
+                                          const uint32_t downsample, const uint32_t tracedTexels )
+        {
+            Core::ShaderVariant variant = TracerVariant( pipeline );
+            variant.Defines.emplace_back( leg );
+            for ( std::string& define : ScreenProbeLayoutDefines( downsample, tracedTexels ) )
+                variant.Defines.push_back( std::move( define ) );
+            variant.ShippedByCook = true;
+            return variant;
+        }
+    } // namespace
+
     Common::BoolResultStr ScreenProbeGather::Initialize()
     {
-        const auto shaders = Runtime::ResourceRegistry::GetShaderService();
+        const ScreenProbeLayout defaults;
+        return EnsureLayoutPrograms( defaults.Downsample, defaults.TracedTexels );
+    }
+
+    Common::BoolResultStr ScreenProbeGather::EnsureLayoutPrograms( const uint32_t downsample,
+                                                                   const uint32_t tracedTexels )
+    {
+        if ( downsample == m_ProgramDownsample && tracedTexels == m_ProgramTracedTexels )
+            return BOOLSUCCESS;
+        if ( !ScreenProbeLayoutSupported( downsample, tracedTexels ) )
+            return Common::MakeFormattedError<bool>(
+                 "screen probes: the layout {} px / {} texels is not one the shaders compile (8, 16, 32 or 64 px "
+                 "a probe; 4..16 traced texels a side)",
+                 downsample, tracedTexels );
+        const auto                shaders = Runtime::ResourceRegistry::GetShaderService();
+        const Core::ShaderVariant variant = LayoutVariant( downsample, tracedTexels );
         for ( uint32_t program = 0; program < ProgramCount; ++program )
         {
             if ( program == TraceNearField || program == TraceFarField )
                 continue; // tracer permutations, EnsureTraceProgram
-            m_Shaders[program] = shaders->GetByName( std::string( kScreenProbeShaderNames[program] ) );
-            if ( !m_Shaders[program] )
-                return Common::MakeFormattedError<bool>( "screen probes: shader {} not found",
-                                                         kScreenProbeShaderNames[program] );
-            auto pipeline = ComputePipeline::Create(
-                 { .Shader = m_Shaders[program], .DebugName = std::string( kScreenProbeShaderNames[program] ) } );
+            const std::string name( kScreenProbeShaderNames[program] );
+            auto              shader = shaders->AcquireVariant( name, variant );
+            if ( !shader )
+                return Common::MakeFormattedError<bool>( "screen probes: shader {} ({} px, {} texels) did not compile",
+                                                         name, downsample, tracedTexels );
+            auto pipeline = ComputePipeline::Create( { .Shader = shader, .DebugName = name } );
             if ( !pipeline )
-                return Common::MakeFormattedError<bool>( "screen probes: {}: {}", kScreenProbeShaderNames[program],
-                                                         pipeline.GetError() );
+                return Common::MakeFormattedError<bool>( "screen probes: {}: {}", name, pipeline.GetError() );
+            m_Shaders[program]   = std::move( shader );
             m_Pipelines[program] = pipeline.GetValue();
         }
+        m_ProgramDownsample   = downsample;
+        m_ProgramTracedTexels = tracedTexels;
         return BOOLSUCCESS;
     }
 
     Common::BoolResultStr ScreenProbeGather::EnsureTraceProgram( const Pipeline& pipeline )
     {
-        if ( m_Pipelines[TraceNearField] && m_Pipelines[TraceFarField] && pipeline == m_TraceProgramFor )
+        if ( m_Pipelines[TraceNearField] && m_Pipelines[TraceFarField] && pipeline == m_TraceProgramFor &&
+             m_TraceProgramDownsample == m_ProgramDownsample && m_TraceProgramTracedTexels == m_ProgramTracedTexels )
             return BOOLSUCCESS;
         for ( const auto& [program, leg] : { std::pair{ TraceNearField, kTraceNearFieldDefine },
                                              std::pair{ TraceFarField, kTraceFarFieldDefine } } )
         {
             const std::string   name( kScreenProbeShaderNames[program] );
-            Core::ShaderVariant variant = TracerVariant( pipeline );
-            variant.Defines.emplace_back( leg );
+            const Core::ShaderVariant variant = TraceVariant( pipeline, leg, m_ProgramDownsample, m_ProgramTracedTexels );
             auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, variant );
             if ( !shader )
                 return Common::MakeFormattedError<bool>( "screen probes: shader {} ({}, {}, {}) did not compile",
@@ -289,24 +339,45 @@ namespace Desert::Graphic::GlobalIllumination
             m_Shaders[program]   = std::move( shader );
             m_Pipelines[program] = compute.GetValue();
         }
-        m_TraceProgramFor = pipeline;
+        m_TraceProgramFor          = pipeline;
+        m_TraceProgramDownsample   = m_ProgramDownsample;
+        m_TraceProgramTracedTexels = m_ProgramTracedTexels;
         return BOOLSUCCESS;
+    }
+
+    std::vector<Core::CookedProgramVariant> ScreenProbeGather::ProgramVariants( const uint32_t downsample,
+                                                                              const uint32_t tracedTexels )
+    {
+        std::vector<Core::CookedProgramVariant> variants;
+        for ( uint32_t program = 0; program < ProgramCount; ++program )
+            if ( program != TraceNearField && program != TraceFarField )
+                variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
+                                      LayoutVariant( downsample, tracedTexels ) } );
+        for ( const Pipeline& tracer : kTracerPermutations )
+            for ( const auto& [program, leg] : { std::pair{ TraceNearField, kTraceNearFieldDefine },
+                                                 std::pair{ TraceFarField, kTraceFarFieldDefine } } )
+                variants.push_back( { std::string( kScreenProbeShaderNames[program] ),
+                                      TraceVariant( tracer, leg, downsample, tracedTexels ) } );
+        return variants;
     }
 
     Common::BoolResultStr ScreenProbeGather::EnsureImages( const glm::uvec2         extent,
                                                            const ScreenProbeLayout& layout )
     {
-        if ( m_Traced && extent == m_Extent && layout.AtlasRows == m_AtlasRows )
+        if ( m_Traced && extent == m_Extent && layout.AtlasRows == m_AtlasRows &&
+             layout.AtlasProbesRow == m_AtlasProbesRow && layout.TracedTexels == m_ImageTracedTexels )
             return BOOLSUCCESS;
-        constexpr uint32_t row = ScreenProbeLayout::kAtlasProbesRow;
-        constexpr uint32_t res = ScreenProbeLayout::kTracedTexels;
+        const uint32_t row = layout.AtlasProbesRow;
+        const uint32_t res = layout.TracedTexels;
         m_Traced               = CreateTarget( "ScreenProbes.Traced", row * res, layout.AtlasRows * res );
         m_Filtered = CreateTarget( "ScreenProbes.Filtered", row * ( res + 2u ), layout.AtlasRows * ( res + 2u ) );
         m_ShortRangeAO         = CreateTarget( "ScreenProbes.ShortRangeAO", extent.x, extent.y );
         if ( !m_Traced || !m_Filtered || !m_ShortRangeAO )
             return Common::MakeError<bool>( "screen probes: an image could not be created" );
         m_Extent    = extent;
-        m_AtlasRows = layout.AtlasRows;
+        m_AtlasRows         = layout.AtlasRows;
+        m_AtlasProbesRow    = layout.AtlasProbesRow;
+        m_ImageTracedTexels = layout.TracedTexels;
         return BOOLSUCCESS;
     }
 
@@ -329,6 +400,8 @@ namespace Desert::Graphic::GlobalIllumination
         if ( const std::string_view missing = SurfaceCacheFrameMissing( inputs.SurfaceCache );
              readsCards && !missing.empty() )
             return Common::MakeFormattedError<ScreenProbeGatherFrame>( "screen probes: {}", missing );
+        if ( const auto programs = EnsureLayoutPrograms( inputs.Downsample, inputs.TracedTexels ); !programs )
+            return Common::MakeError<ScreenProbeGatherFrame>( programs.GetError() );
         if ( const auto traced = EnsureTraceProgram( inputs.Tracer.Pipeline ); !traced )
             return Common::MakeError<ScreenProbeGatherFrame>( traced.GetError() );
         if ( !inputs.HZB.IsValid() || !inputs.SceneColorHistory.IsValid() )
@@ -340,7 +413,16 @@ namespace Desert::Graphic::GlobalIllumination
                  "screen probes: the view's velocity, the G-buffer's shading word or the system black texture is "
                  "missing (the temporal filter reprojects by the velocity, tells foliage by the shading word and "
                  "binds black for a history the view does not hold)" );
-        const ScreenProbeLayout layout = MakeScreenProbeLayout( inputs.Extent, inputs.AdaptiveProbePercent );
+        const uint32_t          maxImageDimension = EngineContext::GetInstance().GetCapabilities().MaxTexture2DSize;
+        const ScreenProbeLayout layout            = MakeScreenProbeLayout(
+             inputs.Extent, inputs.AdaptiveProbePercent, inputs.Downsample, inputs.TracedTexels, maxImageDimension );
+        if ( !ScreenProbeLayoutFits( layout ) )
+            return Common::MakeFormattedError<ScreenProbeGatherFrame>(
+                 "screen probes: {} uniform probes ({}x{} at {} px) with {} traced texels a side do not fit a {} px "
+                 "atlas (the device's maxImageDimension2D); raise GlobalIllumination.ScreenProbeDownsample or lower "
+                 "ScreenProbeTracedTexels",
+                 layout.UniformProbes, layout.Grid.x, layout.Grid.y, layout.Downsample, layout.TracedTexels,
+                 maxImageDimension );
         if ( const auto images = EnsureImages( inputs.Extent, layout ); !images )
             return Common::MakeError<ScreenProbeGatherFrame>( images.GetError() );
 
@@ -378,12 +460,12 @@ namespace Desert::Graphic::GlobalIllumination
              glm::vec4( inputs.PrevCameraPosition, 1.0f / std::max( inputs.PrevPreExposure, 1e-30f ) );
         params.Jitter             = glm::vec4( inputs.JitterNdc, inputs.PrevJitterNdc );
         params.Grid               = glm::uvec4( layout.Grid, layout.UniformProbes, layout.AdaptiveProbes );
-        const glm::uvec2 jitter   = ScreenProbeJitter( ++m_FrameIndex );
+        const glm::uvec2 jitter   = ScreenProbeJitter( ++m_FrameIndex, layout.Downsample );
         const uint32_t   flags    = ( historyReadable ? kScreenProbeHistoryValid : 0u ) |
                                ( inputs.ShortRangeAO ? kScreenProbeShortRangeAO : 0u ) |
                                ( inputs.SceneColorHistoryReadable ? kScreenProbeScreenTrace : 0u );
         params.Atlas =
-             glm::uvec4( ScreenProbeLayout::kAtlasProbesRow, m_FrameIndex, flags, jitter.x | ( jitter.y << 16u ) );
+             glm::uvec4( layout.AtlasProbesRow, m_FrameIndex, flags, jitter.x | ( jitter.y << 16u ) );
 
         const RDG::BufferRef paramsBuffer =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( params ) }, "ScreenProbes.Params" );
@@ -419,10 +501,10 @@ namespace Desert::Graphic::GlobalIllumination
 
         // Place: level 0 (uniform, and the tiles' adaptive counts reset), then the two adaptive levels, each
         // reading the probes the coarser ones placed.
-        for ( uint32_t level = 0; level < ScreenProbeLayout::kLevels; ++level )
+        for ( uint32_t level = 0; level < layout.Levels; ++level )
         {
             ComputePipeline* const pipeline = m_Pipelines[Place].get();
-            const uint32_t         spacing  = ScreenProbeLayout::kDownsample >> level;
+            const uint32_t         spacing  = layout.Downsample >> level;
             const glm::uvec2       groups( DivideRoundUp( DivideRoundUp( inputs.Extent.x, spacing ), 8u ),
                                            DivideRoundUp( DivideRoundUp( inputs.Extent.y, spacing ), 8u ) );
             graph.AddPass(
@@ -481,7 +563,7 @@ namespace Desert::Graphic::GlobalIllumination
         // cache and the sky over those. Each ray's state between the legs: the trace hit buffer
         // (Common/ScreenProbeTracing.glslh).
         const uint32_t       probeGroups = layout.Probes();
-        constexpr uint32_t   kTexels     = ScreenProbeLayout::kTracedTexels * ScreenProbeLayout::kTracedTexels;
+        const uint32_t       kTexels     = layout.TracedTexels * layout.TracedTexels;
         const uint64_t       rayBytes    = static_cast<uint64_t>( probeGroups ) * kTexels * sizeof( uint32_t );
         const RDG::BufferRef traceHit = graph.CreateBuffer( RDG::BufferDesc{ rayBytes }, "ScreenProbes.TraceHit" );
         {
@@ -681,9 +763,9 @@ namespace Desert::Graphic::GlobalIllumination
                          return Renderer::DispatchCompute( bindings, *pipeline, probeGroups, 1u, 1u );
                      } );
             }
-            constexpr uint32_t     res = ScreenProbeLayout::kTracedTexels;
+            const uint32_t         res = layout.TracedTexels;
             const RDG::TextureDesc atlasDesc{
-                 .Size   = { .Width = ScreenProbeLayout::kAtlasProbesRow * res, .Height = layout.AtlasRows * res },
+                 .Size   = { .Width = layout.AtlasProbesRow * res, .Height = layout.AtlasRows * res },
                  .Format = Core::Formats::ImageFormat::RGBA16F };
             for ( uint32_t pass = 0; pass < kSpatialFilterPasses; ++pass )
             {

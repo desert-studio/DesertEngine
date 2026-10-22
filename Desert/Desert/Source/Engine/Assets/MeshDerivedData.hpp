@@ -34,10 +34,11 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         10; // 10: UV weighs 0.5 in the reduction (chart borders priced, not crossed for free); 7-9 were probes;
-             // 6: LODs reduced by meshoptimizer 1.3 Permissive + Prune (seams crossed natively, small parts
-             // pruned); 5: LODs reduced over position-welded topology; 4: LODs reduced to the ratio with normal/UV
-             // attributes, no error cap; 3: vertex colour and UV1 streams; 2: sections named by slot
+         11; // 11: M23 LOD reduction and MikkTSpace tangent frames together; 10: UV weighs 0.5 in the reduction
+             // (chart borders priced, not crossed for free); 7-9 were probes; 6: LODs reduced by meshoptimizer 1.3
+             // Permissive + Prune (seams crossed natively, small parts pruned); 5: LODs reduced over position-welded
+             // topology; 4: LODs reduced to the ratio with normal/UV attributes, no error cap / MikkTSpace tangent
+             // frames (import and DynamicMesh derive); 3: vertex colour and UV1 streams; 2: sections named by slot
 
     // The settings image the key hashes (UE SerializeForKey): fixed order, little-endian, one u32 per field.
     struct MeshBuildSettings
@@ -85,7 +86,7 @@ namespace Desert::Assets
     // conversion produces different bytes for the same source file.
     // 2 (FIX8): the envelope's GUID is the source's import record's, no longer minted per import.
     // 3 (SKEL-eng3): MeshSourceAsset SRCE version 3 (the skin names its skeleton by GUID).
-    inline constexpr uint32_t kMeshSourceBuilderVersion = 3;
+    inline constexpr uint32_t kMeshSourceBuilderVersion = 4; // 4: MikkTSpace tangents (Engine/Geometry/MikkTangents.hpp), vertices split on frame seams
 
     // Reads and hashes @p file whole (Utils::PakContentHash over its bytes) - the one place both the
     // importer (keying its Put) and the loader (keying its Get) compute this, so they can never drift into

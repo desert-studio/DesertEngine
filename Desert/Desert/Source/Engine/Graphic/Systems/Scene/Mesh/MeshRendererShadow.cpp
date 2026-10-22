@@ -434,13 +434,27 @@ namespace Desert::Graphic::System
                     ShadowCasterCell::Own;
     }
 
+    bool MeshRenderer::IsTranslucentSurface( const DataDrivenMaterial* material )
+    {
+        return material != nullptr && Core::Formats::IsTranslucentBlend( material->GetSchema().Blend );
+    }
+
     MeshRenderer::SectionShading MeshRenderer::ShadingOf( const StaticMeshRenderData& data )
     {
         const SurfaceSlot slot = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
-        return { slot.Instance, slot.Surface, IsMaskedSurface( slot.Surface ) };
+        return { slot.Instance, slot.Surface, IsMaskedSurface( slot.Surface ),
+                 IsTranslucentSurface( slot.Surface ) };
     }
 
     MeshRenderer::SectionShading MeshRenderer::ShadingOf( const InstancedMeshRenderData& data )
+    {
+        MaterialInstance* instance = data.Material.get();
+        auto*             surface =
+             instance != nullptr ? dynamic_cast<DataDrivenMaterial*>( instance->GetParentMaterial() ) : nullptr;
+        return { instance, surface, IsMaskedSurface( surface ), IsTranslucentSurface( surface ) };
+    }
+
+    MeshRenderer::SectionShading MeshRenderer::ShadingOf( const GpuInstancedRenderData& data )
     {
         MaterialInstance* instance = data.Material.get();
         auto*             surface =
@@ -450,7 +464,8 @@ namespace Desert::Graphic::System
 
     MeshRenderer::SectionShading MeshRenderer::ShadingOf( const SkinnedSection& section )
     {
-        return { section.Instance, section.Material, IsMaskedSurface( section.Material ) };
+        return { section.Instance, section.Material, IsMaskedSurface( section.Material ),
+                 IsTranslucentSurface( section.Material ) };
     }
 
     DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material,

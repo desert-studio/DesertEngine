@@ -8,6 +8,8 @@
 //                metallic, roughness, emissive and the world shading normal facing the ray. No lighting here: the
 //                ray generation lights the payload (UE's hit lighting does the same), so one hit group serves
 //                every ray tracing pass;
+//                A Translucent template also writes the payload's Transmission and Ior (the path tracer's
+//                dielectric; its primitives carry RayTracingScene.hpp kMaskTranslucent alone);
 //   any hit      Masked templates only (DESERT_SURFACE_RAY_ANY_HIT): the template's OpacityMask against its clip
 //                value, ignoreIntersectionEXT below it - the same test the masked cells' DESERT_SURFACE_CLIP makes.
 //
@@ -71,6 +73,12 @@ void main()
     // surface hit from behind is shaded from that side, as UE's hit shaders do.
     payload.Normal = DesertSurfaceWorldNormal( i, s );
     payload.Flags  = gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT ? kDesertRayPayloadFrontFace : 0u;
+#ifdef DESERT_SURFACE_TRANSLUCENT
+    // A Translucent template: the dielectric interface the raster's glass pass draws (Pass_Forward_Translucent.glslh
+    // reads the same two inputs: the tint the scene behind is seen through and the IOR it bends by).
+    payload.Transmission = s.BaseColor;
+    payload.Ior          = max( s.Refraction, 1.0 );
+#endif
     DesertRayHitIdentify();
 }
 #endif

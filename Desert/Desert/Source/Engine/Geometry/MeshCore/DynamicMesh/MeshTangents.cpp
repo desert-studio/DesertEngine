@@ -1,69 +1,18 @@
-// Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/DynamicMesh/MeshTangents.cpp:186-235
-// (ComputeFaceTangent), 295-345 (CopyToOverlays, PlaneProjectionNormalized), 356-391
-// (ComputeSeparatePerTriangleTangents), adapted: UE Core as std/glm, namespace Desert::Geometry, ParallelFor
-// is a serial for loop, FVector2f -> FVector2d by components (MeshCore's TVector2 has no converting
-// constructor), instantiated for double only.
+// CopyToOverlays ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Private/DynamicMesh/MeshTangents.cpp:295-345,
+// adapted: UE Core as std/glm, namespace Desert::Geometry, instantiated for double only. The tangents themselves
+// come from the engine's one generator, MikkTSpace (Engine/Geometry/MikkTangents.hpp), the frame UE's mesh build
+// stores (ComputeMikktTangents) - not UE's per-triangle / averaged FMeshTangents paths, so a DynamicMesh edit
+// and an import agree on the frame a baked normal map expects.
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshTangents.hpp"
 #include "Engine/Geometry/MeshCore/IndexUtil.hpp"
 
 #include <algorithm>
 #include <cmath>
 
-#include <cmath>
-
-#include "Engine/Geometry/MeshCore/VectorUtil.hpp"
+#include "Engine/Geometry/MikkTangents.hpp"
 
 using namespace Desert::Geometry;
 
-namespace
-{
-    // Tangent / bitangent of one triangle from its positions and UVs.
-    void ComputeFaceTangent( const glm::dvec3 TriVertices[3], const glm::vec2 TriUVs[3], glm::dvec3& TangentOut,
-                             glm::dvec3& BitangentOut, glm::dvec2& MagnitudesOut, double& OrientationSignOut,
-                             bool& bIsDegenerateOut )
-    {
-        const glm::dvec2 UVEdge1( static_cast<double>( TriUVs[1].x ) - TriUVs[0].x,
-                                  static_cast<double>( TriUVs[1].y ) - TriUVs[0].y );
-        const glm::dvec2 UVEdge2( static_cast<double>( TriUVs[2].x ) - TriUVs[0].x,
-                                  static_cast<double>( TriUVs[2].y ) - TriUVs[0].y );
-        const glm::dvec3 TriEdge1 = TriVertices[1] - TriVertices[0];
-        const glm::dvec3 TriEdge2 = TriVertices[2] - TriVertices[0];
-
-        const glm::dvec3 TriTangent   = ( UVEdge2.y * TriEdge1 ) - ( UVEdge1.y * TriEdge2 );
-        const glm::dvec3 TriBitangent = ( -UVEdge2.x * TriEdge1 ) + ( UVEdge1.x * TriEdge2 );
-
-        double     UVArea               = ( UVEdge1.x * UVEdge2.y ) - ( UVEdge1.y * UVEdge2.x );
-        const bool bPreserveOrientation = ( UVArea >= 0 );
-
-        UVArea = std::abs( UVArea );
-
-        // if a triangle is zero-UV-area due to one edge being collapsed, we still have a
-        // valid direction on the other edge. We are going to keep those
-        const double TriTangentLength   = glm::length( TriTangent );
-        const double TriBitangentLength = glm::length( TriBitangent );
-        TangentOut    = ( TriTangentLength > 0 ) ? ( TriTangent / TriTangentLength ) : glm::dvec3( 0 );
-        BitangentOut  = ( TriBitangentLength > 0 ) ? ( TriBitangent / TriBitangentLength ) : glm::dvec3( 0 );
-        MagnitudesOut = glm::dvec2( TriTangentLength / UVArea, TriBitangentLength / UVArea );
-
-        if ( bPreserveOrientation )
-        {
-            OrientationSignOut = 1.0;
-        }
-        else
-        {
-            OrientationSignOut = -1.0;
-            TangentOut         = -TangentOut;
-            BitangentOut       = -BitangentOut;
-        }
-
-        bIsDegenerateOut = ( UVArea < ZeroTolerance<double> );
-    }
-
-    glm::dvec3 PlaneProjectionNormalized( const glm::dvec3& Vector, const glm::dvec3& PlaneNormal )
-    {
-        return Normalized( Vector - glm::dot( Vector, PlaneNormal ) * PlaneNormal );
-    }
-} // namespace
 
 namespace Desert::Geometry
 {
@@ -113,50 +62,68 @@ namespace Desert::Geometry
         return true;
     }
 
-    template <typename RealType>
-    void MeshTangents<RealType>::ComputeSeparatePerTriangleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
-                                                                     const DynamicMeshUVOverlay*     UVOverlay )
+    namespace
     {
-        const int32_t MaxTriangleID = m_Mesh->MaxTriangleID();
-        InitializeTriVertexTangents( false );
-
-        // compute per-triangle tangent and bitangent
-        for ( int32_t TriangleID = 0; TriangleID < MaxTriangleID; ++TriangleID )
+        // The DynamicMesh3 as MikkTSpace reads it: positions from the mesh, normals and UVs from the overlays,
+        // over the triangle IDs the mesh holds (the ID space may have holes).
+        template <typename RealType>
+        class OverlaySource final : public MikkTangentSource
         {
-            if ( !m_Mesh->IsTriangle( TriangleID ) || !UVOverlay->IsSetTriangle( TriangleID ) )
+        public:
+            OverlaySource( const DynamicMesh3& mesh, const DynamicMeshNormalOverlay& normals,
+                           const DynamicMeshUVOverlay& uvs, MeshTangents<RealType>& target )
+                : m_Mesh( mesh ), m_Normals( normals ), m_UVs( uvs ), m_Target( target )
             {
-                continue;
+                for ( const int tid : mesh.TriangleIndicesItr() )
+                    if ( uvs.IsSetTriangle( tid ) && normals.IsSetTriangle( tid ) )
+                        m_Triangles.push_back( tid );
             }
 
-            glm::dvec3 TriVertices[3]{};
-            m_Mesh->GetTriVertices( TriangleID, TriVertices[0], TriVertices[1], TriVertices[2] );
-            glm::vec2 TriUVs[3]{};
-            UVOverlay->GetTriElements( TriangleID, TriUVs[0], TriUVs[1], TriUVs[2] );
-            glm::vec3 TriNormals[3]{};
-            NormalOverlay->GetTriElements( TriangleID, TriNormals[0], TriNormals[1], TriNormals[2] );
-
-            glm::dvec3 Tangent{};
-            glm::dvec3 Bitangent{};
-            glm::dvec2 Magnitudes{};
-            double     OrientationSign = NAN;
-            bool       bIsDegenerate   = false;
-            ComputeFaceTangent( TriVertices, TriUVs, Tangent, Bitangent, Magnitudes, OrientationSign,
-                                bIsDegenerate );
-
-            for ( int32_t j = 0; j < 3; ++j )
+            int TriangleCount() const override
             {
-                const glm::dvec3 VtxNormal        = glm::dvec3( TriNormals[j] );
-                const glm::dvec3 ProjectedTangent = PlaneProjectionNormalized( Tangent, VtxNormal );
-
-                const double BitangentSign = VectorUtil::BitangentSign( VtxNormal, ProjectedTangent, Bitangent );
-                const glm::dvec3 ReconsBitangent =
-                     VectorUtil::Bitangent( VtxNormal, ProjectedTangent, BitangentSign );
-
-                SetPerTriangleTangent( TriangleID, j,
-                                       Normalized( static_cast<glm::vec<3, RealType>>( ProjectedTangent ) ),
-                                       Normalized( static_cast<glm::vec<3, RealType>>( ReconsBitangent ) ) );
+                return static_cast<int>( m_Triangles.size() );
             }
-        }
+            glm::vec3 Position( int t, int c ) const override
+            {
+                glm::dvec3 p[3]{};
+                m_Mesh.GetTriVertices( m_Triangles[t], p[0], p[1], p[2] );
+                return glm::vec3( p[c] );
+            }
+            glm::vec3 Normal( int t, int c ) const override
+            {
+                glm::vec3 n[3]{};
+                m_Normals.GetTriElements( m_Triangles[t], n[0], n[1], n[2] );
+                return n[c];
+            }
+            glm::vec2 TexCoord( int t, int c ) const override
+            {
+                glm::vec2 uv[3]{};
+                m_UVs.GetTriElements( m_Triangles[t], uv[0], uv[1], uv[2] );
+                return uv[c];
+            }
+            void SetFrame( int t, int c, const glm::vec3& tangent, float sign ) override
+            {
+                const glm::vec3 bitangent = MikkBitangent( Normal( t, c ), tangent, sign );
+                m_Target.SetPerTriangleTangent( m_Triangles[t], c, glm::vec<3, RealType>( tangent ),
+                                                glm::vec<3, RealType>( bitangent ) );
+            }
+
+        private:
+            const DynamicMesh3&              m_Mesh;
+            const DynamicMeshNormalOverlay&  m_Normals;
+            const DynamicMeshUVOverlay&      m_UVs;
+            MeshTangents<RealType>&          m_Target;
+            std::vector<int>                 m_Triangles;
+        };
+    } // namespace
+
+    template <typename RealType>
+    bool MeshTangents<RealType>::ComputeMikkTTangents( const DynamicMeshNormalOverlay* NormalOverlay,
+                                                       const DynamicMeshUVOverlay*     UVOverlay )
+    {
+        InitializeTriVertexTangents( true );
+        OverlaySource<RealType> source( *m_Mesh, *NormalOverlay, *UVOverlay, *this );
+        return ComputeMikkTangents( source );
     }
 
     namespace
@@ -201,6 +168,12 @@ namespace Desert::Geometry
         {
             const double L = glm::length( V );
             return L > 0 ? V / L : glm::dvec3( 0.0 );
+        }
+
+        // UE VectorUtil / FVector::PlaneProjection, normalised: @p V without its component along unit @p N.
+        glm::dvec3 PlaneProjectionNormalized( const glm::dvec3& V, const glm::dvec3& N )
+        {
+            return SafeNormalized( V - glm::dot( V, N ) * N );
         }
     } // namespace
 
@@ -378,6 +351,45 @@ namespace Desert::Geometry
                 DegenerateTris.clear(); // no progress
             else
                 std::swap( DegenerateTris, NewDegenerates );
+        }
+    }
+
+    // UE MeshTangents.cpp ComputeSeparatePerTriangleTangents: each corner's frame from its own triangle alone (the
+    // face tangent from positions and UVs), projected into the plane of the corner's overlay normal, so one vertex
+    // may carry a different frame on every triangle. Triangles unset in @p UVOverlay are left unwritten.
+    template <typename RealType>
+    void MeshTangents<RealType>::ComputeSeparatePerTriangleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
+                                                                     const DynamicMeshUVOverlay*     UVOverlay )
+    {
+        const int MaxTriangleID = m_Mesh->MaxTriangleID();
+        InitializeTriVertexTangents( false );
+        for ( int TriangleID = 0; TriangleID < MaxTriangleID; ++TriangleID )
+        {
+            if ( !m_Mesh->IsTriangle( TriangleID ) || !UVOverlay->IsSetTriangle( TriangleID ) )
+                continue;
+            const Index3i    Triangle = m_Mesh->GetTriangle( TriangleID );
+            const glm::dvec3 TriVertices[3]{ m_Mesh->GetVertex( Triangle.A ), m_Mesh->GetVertex( Triangle.B ),
+                                             m_Mesh->GetVertex( Triangle.C ) };
+            const auto       UVTriangle = UVOverlay->GetTriangle( TriangleID );
+            const glm::dvec2 TriUVs[3]{ glm::dvec2( UVOverlay->GetElement( UVTriangle[0] ) ),
+                                        glm::dvec2( UVOverlay->GetElement( UVTriangle[1] ) ),
+                                        glm::dvec2( UVOverlay->GetElement( UVTriangle[2] ) ) };
+            glm::dvec3       Tangent( 0.0 ), Bitangent( 0.0 );
+            glm::dvec2       Magnitudes( 0.0 );
+            bool             bIsDegenerate = false;
+            ComputeFaceTangentWeighted( TriVertices, TriUVs, Tangent, Bitangent, Magnitudes, bIsDegenerate );
+            for ( int Corner = 0; Corner < 3; ++Corner )
+            {
+                const glm::dvec3 Normal =
+                     NormalOverlay->IsSetTriangle( TriangleID )
+                          ? glm::dvec3( NormalOverlay->GetElement( NormalOverlay->GetTriangle( TriangleID )[Corner] ) )
+                          : TriNormalOf( *m_Mesh, TriangleID );
+                const glm::dvec3 Projected = PlaneProjectionNormalized( Tangent, Normal );
+                // UE VectorUtil::BitangentSign / Bitangent
+                const double Sign = glm::dot( glm::cross( Normal, Projected ), Bitangent ) < 0 ? -1.0 : 1.0;
+                SetPerTriangleTangent( TriangleID, Corner, glm::vec<3, RealType>( Projected ),
+                                       glm::vec<3, RealType>( SafeNormalized( Sign * glm::cross( Normal, Projected ) ) ) );
+            }
         }
     }
 

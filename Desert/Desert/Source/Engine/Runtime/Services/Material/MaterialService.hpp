@@ -255,6 +255,13 @@ namespace Desert::Runtime
         // (the skinned thumbnail).
         [[nodiscard]] Common::BoolResultStr CellOf( const Assets::AssetHandle& handle,
                                                     Graphic::MeshVertexPath path, Graphic::MeshPass pass ) const;
+        // The registered program name of that cell (the parallax cell when the material assigns its template's
+        // height map) - what CreateSurfaceMaterial builds the (path x pass) sibling from. CellOf is this, asked
+        // as a yes/no. For the cook, which enumerates the permutations of the program a material draws with
+        // (Graphic::System::MeshRenderer::MaterialProgramVariants).
+        [[nodiscard]] Common::ResultStr<std::string> CellShaderNameOf( const Assets::AssetHandle& handle,
+                                                                       Graphic::MeshVertexPath   path,
+                                                                       Graphic::MeshPass         pass ) const;
 
         // The material ASSET's name (its file's stem, "UI_Gradient" for UI_Gradient.demat) - what a person looks
         // for when a log line names a broken material; the shader name is shared by every material on it. Empty

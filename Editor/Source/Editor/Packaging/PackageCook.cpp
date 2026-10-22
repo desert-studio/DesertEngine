@@ -6,6 +6,23 @@
 #include <Engine/Core/ShaderCompiler/ShaderCompiler.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
+#include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
+#include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
+#include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+#include <Engine/Assets/Prefab/PrefabData.hpp>
+#include <Engine/Assets/Prefab/PrefabFormat.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
+#include <Engine/Core/Serialize/GenericBlock.hpp>
+#include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Graphic/View/TemporalAA.hpp>
+#include <Engine/Graphic/View/TemporalSuperResolution.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
 #include <Engine/Text/FontCache.hpp>
 #include <Engine/Vector/IconBake.hpp>
@@ -31,11 +48,13 @@
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Settings/Scalability.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <set>
 #include <span>
 #include <string>
 #include <vector>
@@ -123,6 +142,249 @@ namespace Desert::Editor
                     }
                 }
             }
+        }
+
+        // ONE COOKED PERMUTATION: @p cooked.Program ("<Shader>" or "<Shader>/<Pass>", ShaderService's names) under
+        // its variant, every stage, into the SPIR-V store under the key the runtime asks for.
+        void CookVariant( const ::Desert::Core::CookedProgramVariant& cooked, const std::vector<fs::path>& programs,
+                          bool spirvDebugInfo, CookStats& stats )
+        {
+            namespace Preprocess = ::Desert::Core::Preprocess;
+
+            const std::size_t slash  = cooked.Program.find( '/' );
+            const std::string shader = cooked.Program.substr( 0, slash );
+            const std::string pass   = slash == std::string::npos ? std::string() : cooked.Program.substr( slash + 1 );
+            const auto        file =
+                 std::ranges::find_if( programs, [&]( const fs::path& p ) { return p.stem().string() == shader; } );
+            if ( file == programs.end() )
+            {
+                LOG_ERROR( "[PackageCook] the shipped program {} is not among the packaged shaders", cooked.Program );
+                ++stats.Failures;
+                return;
+            }
+            const auto content = Common::Utils::FileSystem::ReadFileContent( *file );
+            if ( !content || content.GetValue().empty() )
+            {
+                ++stats.Failures; // the primitive logged a miss; an empty file is CookShaders' failure too
+                return;
+            }
+            const auto stages = Preprocess::ShaderPreprocess::PreProcessProgramPass( content.GetValue(), *file, pass );
+            if ( !stages.IsSuccess() )
+            {
+                LOG_ERROR( "[PackageCook] {} [{:016x}] was not cooked: {}", cooked.Program, cooked.Variant.Hash(),
+                           stages.GetError() );
+                ++stats.Failures;
+                return;
+            }
+            for ( const auto& [stage, source] : stages.GetValue() )
+            {
+                const uint64_t key = ::Desert::Core::ComputeShaderCacheKeyForProfile( stage, source, *file,
+                                                                                      spirvDebugInfo, cooked.Variant );
+                if ( ::Desert::Core::TryLoadCachedSpirv( key ) )
+                {
+                    ++stats.ShadersCached;
+                    continue;
+                }
+                if ( !::Desert::Core::ShaderCompiler::CompileGLSLToSPIRVForProfile( stage, source, file->string(),
+                                                                                   spirvDebugInfo, cooked.Variant )
+                           .IsSuccess() )
+                {
+                    ++stats.Failures;
+                    continue;
+                }
+                if ( !::Desert::Core::TryLoadCachedSpirv( key ) )
+                {
+                    LOG_ERROR( "[PackageCook] {} [{:016x}] stage {} compiled but its artifact did not reach {}",
+                               cooked.Program, cooked.Variant.Hash(), static_cast<int>( stage ),
+                               ::Desert::Core::SpirvCachePathForKey( key ).string() );
+                    ++stats.StoreFailures;
+                    continue;
+                }
+                ++stats.ShadersCompiled;
+            }
+        }
+
+        // THE PERMUTATIONS THE PACKAGE CAN SELECT (UE cooks a global shader's permutations), each system's one
+        // list - the list its runtime acquires from - so a package never compiles one (ShaderVariant::
+        // ShippedByCook refuses the miss by name):
+        //   the tracing consumers   under every tracer permutation (GlobalIllumination::kTracerPermutations):
+        //                           WorldRadianceCache, SurfaceCacheRenderer, SSRRenderer ProgramVariants;
+        //   the untraced systems    DeferredLightingRenderer, TemporalAA, TemporalSuperResolution ProgramVariants
+        //                           (and SSR's untraced front layer in SSRRenderer's);
+        //   the mesh materials      every registered `.demat` (ContentRegistry) under its forward cell's
+        //                           permutations (MeshRenderer::MaterialProgramVariants);
+        //   the shader overrides    every registered scene's and prefab's Material (Shader Override) block,
+        //                           the PrefabOverrides' too, its shader by GUID, under
+        //                           MeshRenderer::OverrideProgramVariants;
+        //   the cloud media         every registered Volume medium into each of its programs
+        //                           (CloudMediumProgramVariants);
+        //   the screen probes       every layout a Scalability.json level names - {ScreenProbeDownsample,
+        //                           ScreenProbeTracedTexels} per level - under ScreenProbeGather::ProgramVariants.
+        void CookShaderVariants( bool spirvDebugInfo, bool developerInstruments, CookStats& stats )
+        {
+            namespace Scalability = ::Common::Scalability;
+            namespace GI          = Graphic::GlobalIllumination;
+
+            std::vector<::Desert::Core::CookedProgramVariant> cooked;
+            const auto append = [&cooked]( std::vector<::Desert::Core::CookedProgramVariant> list )
+            {
+                for ( auto& entry : list )
+                    cooked.push_back( std::move( entry ) );
+            };
+            append( GI::WorldRadianceCache::ProgramVariants() );
+            append( Graphic::SurfaceCache::SurfaceCacheRenderer::ProgramVariants() );
+            append( Graphic::System::SSRRenderer::ProgramVariants() );
+            append( Graphic::System::DeferredLightingRenderer::ProgramVariants() );
+            append( Graphic::TemporalAA::ProgramVariants() );
+            append( Graphic::TemporalSuperResolution::ProgramVariants() );
+
+            if ( const auto shaders = Runtime::ResourceRegistry::GetShaderService() )
+            {
+                for ( const std::string& medium : shaders->MediumSources() )
+                    append( Graphic::CloudMediumProgramVariants( medium ) );
+
+                if ( const auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
+                {
+                    std::vector<::Common::AssetHandle> handles;
+                    for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Material ) )
+                        handles.push_back( row.Handle );
+                    append( Graphic::System::MeshRenderer::MaterialProgramVariants( *materials, *shaders, handles ) );
+                }
+                else
+                {
+                    LOG_ERROR( "[PackageCook] no material service: the mesh materials' permutations were not cooked" );
+                    ++stats.Failures;
+                }
+
+                // The Shader Override entities the package carries: every registered scene's records, every
+                // registered prefab's records (so an instance whose Material comes only from its PrefabPath is
+                // cooked through the prefab it names - a prefab the package ships is a registered row), and the
+                // Material blocks a record's PrefabOverrides restate. The shader by the GUID the block states,
+                // its compile key the shader file's stem (Assets::FindShaderNameByRef's rule).
+                const auto shaderRows = Assets::ContentRegistry::Rows( Common::Content::ContentKind::Shader );
+                std::vector<std::string> overrides;
+                const auto overrideOf = [&]( const auto& row, const ::Common::Json::KeyedValues& components )
+                {
+                    const auto found = components.get( "Material" );
+                    if ( !found.has_value() )
+                        return;
+                    ::Common::Json::Issues issues;
+                    const auto block = ::Desert::Core::Serialize::ReadBlock<Assets::MaterialComponentSer>(
+                         ::Common::Json::Root( found.value(), ::Common::Json::Path().Key( "Material" ) ), issues );
+                    if ( !block.has_value() || !block->Shader.has_value() )
+                        return; // no shader: nothing drawn forward (the scene / prefab load names a bad block)
+                    const auto shader = std::find_if( shaderRows.begin(), shaderRows.end(),
+                                                      [&]( const auto& s )
+                                                      {
+                                                          return s.Guid.has_value() &&
+                                                                 Common::Content::AssetGuidToText( *s.Guid ) ==
+                                                                      block->Shader->Guid;
+                                                      } );
+                    if ( shader == shaderRows.end() )
+                    {
+                        LOG_ERROR( "[PackageCook] {}: a Shader Override names shader {} ({}), which no "
+                                   "registered shader carries - its permutations were not cooked",
+                                   row.Key, block->Shader->Guid, block->Shader->Path );
+                        ++stats.Failures;
+                        return;
+                    }
+                    overrides.push_back( shader->Path.stem().string() );
+                };
+                const auto overridesOf = [&]( const auto& row, const std::vector<Assets::EntityData>& records )
+                {
+                    for ( const auto& record : records )
+                    {
+                        overrideOf( row, record.Components );
+                        if ( record.PrefabOverrides.has_value() )
+                            for ( const auto& changed : *record.PrefabOverrides )
+                                overrideOf( row, changed.Components );
+                    }
+                };
+                for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Scene ) )
+                {
+                    auto text  = ::Desert::Core::ExternalEntities::ReadSceneFileText( row.Path );
+                    auto scene = text ? ::Desert::Core::ParseLoadableScene( row.Path.string(), text.GetValue() )
+                                      : Common::MakeError<::Desert::Core::LoadableScene>( text.GetError() );
+                    if ( !scene )
+                    {
+                        LOG_ERROR( "[PackageCook] {}: its shader overrides' permutations were not cooked: {}",
+                                   row.Key, scene.GetError() );
+                        ++stats.Failures;
+                        continue;
+                    }
+                    overridesOf( row, scene.GetValue().Scene.Entities );
+                }
+                for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Prefab ) )
+                {
+                    auto text   = Common::Utils::FileSystem::ReadFileContent( row.Path );
+                    auto prefab = text ? Assets::ParseLoadablePrefab( row.Path.string(), text.GetValue() )
+                                       : Common::MakeError<Assets::PrefabData>( text.GetError() );
+                    if ( !prefab )
+                    {
+                        LOG_ERROR( "[PackageCook] {}: its shader overrides' permutations were not cooked: {}",
+                                   row.Key, prefab.GetError() );
+                        ++stats.Failures;
+                        continue;
+                    }
+                    overridesOf( row, prefab.GetValue().Entities );
+                }
+                append( Graphic::System::MeshRenderer::OverrideProgramVariants( *shaders, overrides ) );
+            }
+            else
+            {
+                LOG_ERROR( "[PackageCook] no shader service: the cloud media's, materials' and shader overrides' "
+                           "permutations were not cooked" );
+                ++stats.Failures;
+            }
+
+            const fs::path tableFile = ::Common::Constants::Path::CONFIG_PATH / "Scalability.json";
+            const auto     text      = Common::Utils::FileSystem::ReadFileContent( tableFile );
+            const auto     table     = text ? Scalability::ScalabilityTable::Parse( text.GetValue() )
+                                            : Common::MakeError<Scalability::ScalabilityTable>( text.GetError() );
+            if ( !table )
+            {
+                LOG_ERROR( "[PackageCook] {}: the screen-probe permutations its levels select were not cooked: {}",
+                           tableFile.string(), table.GetError() );
+                ++stats.Failures;
+            }
+            else
+            {
+                std::set<std::pair<uint32_t, uint32_t>> layouts;
+                for ( std::size_t level = 0; level < Scalability::kLevelCount; ++level )
+                {
+                    const auto at = static_cast<Scalability::Level>( level );
+                    layouts.emplace(
+                         static_cast<uint32_t>( table.GetValue().ValueAt( Scalability::Parameter::ScreenProbeDownsample, at ) ),
+                         static_cast<uint32_t>( table.GetValue().ValueAt( Scalability::Parameter::ScreenProbeTracedTexels, at ) ) );
+                }
+                for ( const auto& [downsample, tracedTexels] : layouts )
+                    append( GI::ScreenProbeGather::ProgramVariants( downsample, tracedTexels ) );
+            }
+
+            // THE CENSUS: every ShippedByCook permutation this session ACQUIRED (ShaderService::ShippedByCookRequests)
+            // must be in the cooked set, or the package refuses it by name at runtime. Named and failed here instead.
+            if ( const auto shaders = Runtime::ResourceRegistry::GetShaderService() )
+            {
+                std::set<std::pair<std::string, uint64_t>> cookedKeys;
+                for ( const auto& entry : cooked )
+                    cookedKeys.emplace( entry.Program, entry.Variant.Hash() );
+                for ( const auto& request : shaders->ShippedByCookRequests() )
+                {
+                    if ( cookedKeys.contains( { request.Program, request.Variant.Hash() } ) )
+                        continue;
+                    std::string defines;
+                    for ( const std::string& define : request.Variant.Defines )
+                        defines += ( defines.empty() ? "" : " " ) + define;
+                    LOG_ERROR( "[PackageCook] {} [{:016x}] ({}) was acquired as ShippedByCook but no cook list names "
+                               "it - the package would refuse it; add it to the acquiring system's ProgramVariants",
+                               request.Program, request.Variant.Hash(), defines );
+                    ++stats.Failures;
+                }
+            }
+
+            const std::vector<fs::path> programs = PackagedShaderPrograms( developerInstruments );
+            for ( const ::Desert::Core::CookedProgramVariant& entry : cooked )
+                CookVariant( entry, programs, spirvDebugInfo, stats );
         }
 
         void CookFonts( CookStats& stats )
@@ -465,6 +727,7 @@ namespace Desert::Editor
         std::error_code wipe;
         fs::remove_all( Common::DDC::PlatformCookedDir(), wipe );
         CookShaders( spirvDebugInfo, developerInstruments, stats );
+        CookShaderVariants( spirvDebugInfo, developerInstruments, stats );
         CookFonts( stats );
         CookIcons( stats );
         CookTextures( stats );

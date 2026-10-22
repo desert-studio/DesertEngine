@@ -7,6 +7,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/Systems/Scene/Grass/GrassBladeRayTracing.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
@@ -126,8 +127,17 @@ namespace Desert::Graphic::System
         }
 
         // Before the cascades and the geometry: the generation nodes of this frame's view, and the sections handed
-        // to @p meshes. A view that is not the main one (a capture face) grows nothing.
-        void AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes );
+        // to @p meshes. A view that is not the main one (a capture face) grows nothing. @p rayTracing: the view
+        // builds a TLAS this frame (RayTracingSceneRequired): the Blade varieties' level BLASes are prepared and
+        // handed with the sections (GrassBladeRayTracing.hpp).
+        void AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes, bool rayTracing );
+
+        // This frame's blade BLAS requests and resident BLASes (after AddFrame): the view's TLAS block hands them
+        // to the RT scene with the landscape's.
+        [[nodiscard]] const GrassBladeRayTracing& GetBladeRayTracing() const
+        {
+            return m_BladeRayTracing;
+        }
 
     private:
         struct FieldGpu
@@ -145,6 +155,7 @@ namespace Desert::Graphic::System
             std::shared_ptr<ShaderResources::StorageBuffer> Args;
             std::shared_ptr<ShaderResources::StorageBuffer> Params;
             std::shared_ptr<ShaderResources::StorageBuffer> Shape; // Kind Blade: GrassBladeShapeGpu
+            GrassBladeShapeGpu                              ShapeData{}; // Kind Blade: what Shape was written with
             uint32_t                                        Buckets     = 1;
             std::vector<uint32_t> BucketCapacities; // what Args' bucket table was written with
             // GPU-count feedback (GrassFinalize): per frame in flight, each bucket's unclamped count and a written
@@ -176,5 +187,6 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache m_GenerateLayout;
         mutable ShaderBindingLayoutCache m_FinalizeLayout;
         uint32_t                         m_NextIndex = 0;
+        GrassBladeRayTracing             m_BladeRayTracing;
     };
 } // namespace Desert::Graphic::System

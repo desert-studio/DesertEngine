@@ -37,6 +37,7 @@
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexLayout.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -356,6 +357,9 @@ namespace Desert::Graphic::API::Vulkan
         // per-frame deletion queue, so a command buffer still in flight keeps reading valid memory.
         if ( m_DefaultVertexStreams == nullptr || capacity > m_DefaultVertexStreamsCapacity )
         {
+            // THE RENDERER'S ROW (the device's own, no instance): this grows lazily inside whichever view's ledger
+            // scope drew first, and outlives that view (VIEW-CLOSE-LEAK). A category scope clears that view's instance.
+            const ResourceAttributionScope rendererRows( ResourceOwner::Device );
             std::vector<MeshVertexStreams> defaults( capacity );
             // The device's own, shared by every view: grown by whichever view first draws more vertices, so
             // without this scope it was booked to THAT view and outlived its close (EDITOR-LOG-CLEAN).
@@ -728,7 +732,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( vertexCount == 0u || instanceCount == 0u )
             return Common::MakeFormattedError( "{}: a procedural draw of {} vertices x {} instances",
                                                bindings.GetContext().GetPassName(), vertexCount, instanceCount );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound || !bound.GetValue() )
             return bound;
         // The vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex.
         DrawCounted( vertexCount, instanceCount, 0, 0 );
@@ -757,7 +761,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !buffer )
             return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
                                                buffer.GetError() );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound || !bound.GetValue() )
             return bound;
         vkCmdDrawIndirect( m_CurrentCommandBuffer, buffer.GetValue()->GetBuffer(), offset, 1,
                            static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
@@ -773,7 +777,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( indexCount == 0u )
             return Common::MakeFormattedError( "{}: an indexed draw of zero indices",
                                                bindings.GetContext().GetPassName() );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound || !bound.GetValue() )
             return bound;
         const VkDeviceSize offsets[] = { 0 };
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
@@ -802,7 +806,7 @@ namespace Desert::Graphic::API::Vulkan
                  pass );
         if ( !mesh.GetVertexBuffer() )
             return Common::MakeFormattedError( "{}: mesh has no vertex buffer", pass );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material ); !bound )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material ); !bound || !bound.GetValue() )
             return bound;
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
@@ -1051,6 +1055,10 @@ namespace Desert::Graphic::API::Vulkan
             vkUpdateDescriptorSets( device, 0, nullptr, static_cast<uint32_t>( copies.size() ), copies.data() );
         }
 
+        // A pipeline still in the driver (PSO1) is not drawn this frame and is not an error: the content gate waits
+        // for engine pipelines (BindGraphicsPipeline). Success(false) tells the draw to skip.
+        if ( graphics->GetBuildState() == VulkanPipeline::BuildState::Compiling )
+            return Common::MakeSuccess( false );
         if ( !BindGraphicsPipeline( &pipeline ) )
             return Common::MakeFormattedError( "{}: pipeline '{}' could not be bound in the open render pass",
                                                pass, pipeline.GetSpecification().DebugName );

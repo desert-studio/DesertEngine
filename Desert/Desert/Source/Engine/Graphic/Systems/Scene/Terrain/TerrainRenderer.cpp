@@ -17,9 +17,12 @@
 #include <Common/Core/Units.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <cmath>
+#include <format>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -96,6 +99,55 @@ namespace Desert::Graphic::System
             instance.InputSlices   = layers.Slices;
             instance.GroundInput.x = static_cast<float>( layers.InputOf( t.Weights.GroundLayer ) );
             return instance;
+        }
+
+        // The landscape material a tile drew with, for the landscape's ray tracing hit group: the values the
+        // ground reads (Common/LandscapeSurface.glslh LandscapeMaterial) out of the drawn @p surface's row, and
+        // each input's maps as the bindless slots of the images @p layers' arrays copied. Terrain.shader and
+        // TerrainGBuffer.shader declare every one of these parameters (the ShaderCacheKey suite holds the two
+        // Properties blocks equal); a cell without one is a broken shader, said, and its hits read zero for it.
+        TerrainFrameMaterial FrameMaterialOf( const DataDrivenMaterial& surface, const TerrainLayerInputs& layers,
+                                              const glm::vec3& viewOrigin )
+        {
+            std::string missing;
+            const auto  read = [&]( const std::string& name ) -> glm::vec4
+            {
+                const std::optional<glm::vec4> value =
+                     MaterialBinder::ReadRowParam( surface.GetMaterialLayout(), surface.GetParamRow(), name );
+                if ( !value )
+                    missing += ( missing.empty() ? "" : ", " ) + name;
+                return value.value_or( glm::vec4( 0.0f ) );
+            };
+
+            TerrainFrameMaterial material;
+            material.Tint = read( "Tint" );
+            material.Values.Tiling =
+                 glm::vec4( read( "FarTilingDistance" ).x, read( "FarTilingScale" ).x,
+                            read( "MacroVariationSize" ).x, read( "MacroVariationStrength" ).x );
+            for ( uint32_t k = 0; k < World::Landscape::kLandscapeMaxWeightLayers; ++k )
+            {
+                const std::string layer      = std::format( "Layer{}", k );
+                material.Values.LayerTint[k] = read( layer + "Tint" );
+                // LayerKBlend is an Int: the row holds its bits (MaterialRowSlotValue).
+                material.Values.LayerParams[k] = glm::vec4(
+                     read( layer + "TileSize" ).x,
+                     static_cast<float>( std::bit_cast<int32_t>( read( layer + "Blend" ).x ) ), 0.0f, 0.0f );
+                for ( uint32_t kind = 0; kind < kTerrainLayerMapKinds; ++kind )
+                {
+                    const float slice = layers.Slices[k][static_cast<glm::length_t>( kind )];
+                    if ( slice < 0.0f )
+                        continue;
+                    const Image2D* source = layers.Sources[kind][static_cast<size_t>( slice )];
+                    material.LayerMaps[k][static_cast<glm::length_t>( kind )] = source->GetBindlessSlot().Index;
+                }
+            }
+            material.ViewOrigin = glm::vec4( viewOrigin, 1.0f );
+            if ( !missing.empty() )
+                LOG_ERROR(
+                     "[TerrainRenderer] '{}' has no {} parameter(s): the landscape's ray tracing hits read zero "
+                     "for them",
+                     surface.GetShaderName(), missing );
+            return material;
         }
 
         // Which landscape and which tile of it: tiles of one root share its origin, and a tile's index is its
@@ -222,6 +274,20 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
+    // The Forward program is the only forward terrain program: it draws in "TerrainPass" of AddFrameBasePass, on
+    // the Forward render path only, and the ray-traced screen masks (sun, local lights) are made only on the
+    // Deferred path, from the G-buffer (SceneRenderer::OnUpdate's composite block). No frame offers this pass a
+    // mask, so it has no DESERT_*_SHADOW_SCREEN_MASK permutation: under HardwareTraced it reads the cascades and
+    // the atlas, and answering so here keeps them drawn (SunCascadesRead / LocalShadowMapsRead).
+    bool TerrainRenderer::ForwardReadsTexture( const std::string_view textureName ) const
+    {
+        if ( m_SceneRenderer == nullptr || m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
+             m_Queue.empty() || !m_Pipeline )
+            return false;
+        const auto& shader = m_Pipeline->GetSpecification().Shader;
+        return shader && shader->SamplesTexture( textureName );
+    }
+
     Common::BoolResultStr TerrainRenderer::Initialize()
     {
         std::string error;
@@ -284,7 +350,7 @@ namespace Desert::Graphic::System
         // The lights' draws are PrepareLocalShadowViews' (after UpdateLocalShadows gave the lights their views).
         m_LocalLightDraws.clear();
         m_FrameInstances.clear();
-        m_FrameTints.clear();
+        m_FrameMaterials.clear();
         if ( m_Queue.empty() )
             return;
 
@@ -314,7 +380,7 @@ namespace Desert::Graphic::System
         std::unordered_set<std::string>         layerKeysThisFrame;
         m_FrameDraws.reserve( m_Queue.size() );
         m_FrameInstances.reserve( m_Queue.size() );
-        m_FrameTints.reserve( m_Queue.size() );
+        m_FrameMaterials.reserve( m_Queue.size() );
 
         // Every tile's LOD first: a tile's borders take the max with its neighbours', so all must be known.
         TileLodMap tileLods;
@@ -413,15 +479,7 @@ namespace Desert::Graphic::System
                                     surface->GetParamRow().end() );
             group.Instances.push_back( instance );
             m_FrameInstances.push_back( instance );
-            // Terrain.shader and TerrainGBuffer.shader declare Tint (the ShaderCacheKey suite holds the two
-            // Properties blocks equal); a cell without it is a broken shader, said, and its hits draw untinted.
-            const std::optional<glm::vec4> tint =
-                 MaterialBinder::ReadRowParam( surface->GetMaterialLayout(), surface->GetParamRow(), "Tint" );
-            if ( !tint )
-                LOG_ERROR( "[TerrainRenderer] '{}' has no Tint parameter: the landscape's ray tracing hits shade "
-                           "untinted",
-                           surface->GetShaderName() );
-            m_FrameTints.push_back( tint.value_or( glm::vec4( 1.0f ) ) );
+            m_FrameMaterials.push_back( FrameMaterialOf( *surface, layers, frame.CameraPosition ) );
         }
 
         // ── Upload every group's buffers + the shared frame data, still before any draw ─────────────────

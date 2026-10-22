@@ -15,6 +15,10 @@
 #include <type_traits>
 #include <vector>
 
+#include <Engine/AI/AIController.hpp>
+#include <Engine/AI/AIPerceptionComponent.hpp>
+#include <Engine/AI/Perception/PerceptionTypes.hpp>
+#include <Engine/AI/StateTreeComponent.hpp>
 #include <Engine/Core/PostProcessSettings.hpp>
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -25,6 +29,7 @@
 #include <Engine/ECS/RagdollComponent.hpp>
 #include <Engine/ECS/ReflectionCaptureComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/ECS/StaticLightingSettings.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
@@ -75,6 +80,92 @@ void RegisterReflection_Engine();
 void RegisterReflection_Engine()
 {
     using namespace ::Desert::Reflection;
+    {
+        using T = ::Desert::ECS::AIPawnData;
+        TypeBuilder( "AIPawnData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "AIController", .Type = FieldType::AssetHandle, .Offset = offsetof( T, AIController ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AIController )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "AI Controller", .Category = "AI", .Tooltip = "The controller prefab spawned to possess this pawn (UE AIControllerClass): it holds the State Tree, the perception senses and the team.", .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "AutoPossess", .Type = FieldType::Enum, .Offset = offsetof( T, AutoPossess ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AutoPossess )>(), .TypeName = "AutoPossessAI", .Meta = PropertyMetadata{ .DisplayName = "Auto Possess AI", .Category = "AI", .Tooltip = "UE AutoPossessAI: when the controller prefab is spawned and possesses this pawn.", }, .EnumValues = { EnumValue{ "Disabled", 0 }, EnumValue{ "PlacedInWorld", 1 }, EnumValue{ "Spawned", 2 }, EnumValue{ "PlacedInWorldOrSpawned", 3 }, } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::AIPerceptionData;
+        TypeBuilder( "AIPerceptionData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Sight", .Type = FieldType::Struct, .Offset = offsetof( T, Sight ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Sight )>(), .TypeName = "AI::Perception::SightConfig", .Meta = PropertyMetadata{ .DisplayName = "Sight", .Category = "Perception", } } )
+                    .Field( FieldInfo{ .Name = "Hearing", .Type = FieldType::Struct, .Offset = offsetof( T, Hearing ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Hearing )>(), .TypeName = "AI::Perception::HearingConfig", .Meta = PropertyMetadata{ .DisplayName = "Hearing", .Category = "Perception", } } )
+                    .Field( FieldInfo{ .Name = "Damage", .Type = FieldType::Struct, .Offset = offsetof( T, Damage ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Damage )>(), .TypeName = "AI::Perception::DamageConfig", .Meta = PropertyMetadata{ .DisplayName = "Damage", .Category = "Perception", } } )
+                    .Field( FieldInfo{ .Name = "Team", .Type = FieldType::Int, .Offset = offsetof( T, Team ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Team )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Team", .Category = "Perception", .Tooltip = "This perceiver's team (UE FGenericTeamId). 0 = neutral.", .HasRange = true, .RangeMin = 0, .RangeMax = 255, } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::AIPerceptionStimuliSourceData;
+        TypeBuilder( "AIPerceptionStimuliSourceData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Sight", .Type = FieldType::Bool, .Offset = offsetof( T, Sight ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Sight )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Sight", .Category = "Stimuli Source", .Tooltip = "Registered as a sight source (UE RegisterAsSourceForSenses: Sight).", } } )
+                    .Field( FieldInfo{ .Name = "Hearing", .Type = FieldType::Bool, .Offset = offsetof( T, Hearing ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Hearing )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Hearing", .Category = "Stimuli Source", .Tooltip = "Noises this entity instigates are heard (a noise with no registered instigator is still heard; this filters affiliation only).", } } )
+                    .Field( FieldInfo{ .Name = "Team", .Type = FieldType::Int, .Offset = offsetof( T, Team ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Team )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Team", .Category = "Stimuli Source", .HasRange = true, .RangeMin = 0, .RangeMax = 255, } } )
+                    .Field( FieldInfo{ .Name = "TargetHeight", .Type = FieldType::Float, .Offset = offsetof( T, TargetHeight ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::TargetHeight )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Target Height", .Category = "Stimuli Source", .Tooltip = "Height above the origin the sight trace aims at (UE CanBeSeenFrom target point).", .IsLength = true, } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::AI::Perception::AffiliationFilter;
+        TypeBuilder( "AffiliationFilter", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Enemies", .Type = FieldType::Bool, .Offset = offsetof( T, Enemies ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Enemies )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enemies", .Category = "Affiliation", } } )
+                    .Field( FieldInfo{ .Name = "Neutrals", .Type = FieldType::Bool, .Offset = offsetof( T, Neutrals ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Neutrals )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Neutrals", .Category = "Affiliation", } } )
+                    .Field( FieldInfo{ .Name = "Friendlies", .Type = FieldType::Bool, .Offset = offsetof( T, Friendlies ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Friendlies )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Friendlies", .Category = "Affiliation", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::AI::Perception::SightConfig;
+        TypeBuilder( "SightConfig", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Enabled", .Type = FieldType::Bool, .Offset = offsetof( T, Enabled ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Enabled )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enabled", .Category = "Sight", } } )
+                    .Field( FieldInfo{ .Name = "SightRadius", .Type = FieldType::Float, .Offset = offsetof( T, SightRadius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::SightRadius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Sight Radius", .Category = "Sight", .Tooltip = "UE SightRadius: a target inside this distance and the cone, with a clear line, is seen.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e6f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "LoseSightRadius", .Type = FieldType::Float, .Offset = offsetof( T, LoseSightRadius ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::LoseSightRadius )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Lose Sight Radius", .Category = "Sight", .Tooltip = "UE LoseSightRadius: a SEEN target stays seen until it passes this distance (>= Sight Radius; the gap is the hysteresis).", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e6f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "PeripheralHalfAngleDegrees", .Type = FieldType::Float, .Offset = offsetof( T, PeripheralHalfAngleDegrees ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PeripheralHalfAngleDegrees )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Peripheral Vision Half Angle", .Category = "Sight", .Tooltip = "UE PeripheralVisionAngleDegrees: half-angle of the view cone.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 180.0f, .Units = "deg", } } )
+                    .Field( FieldInfo{ .Name = "AutoSuccessRange", .Type = FieldType::Float, .Offset = offsetof( T, AutoSuccessRange ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AutoSuccessRange )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Auto Success Range", .Category = "Sight", .Tooltip = "UE AutoSuccessRangeFromLastSeenLocation: a target that was seen and is still within this distance of where it was last seen stays seen without a trace. 0 = off.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e6f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "MaxAgeSeconds", .Type = FieldType::Float, .Offset = offsetof( T, MaxAgeSeconds ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MaxAgeSeconds )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Max Age", .Category = "Sight", .Tooltip = "UE MaxAge: seconds a lost stimulus is remembered. 0 = forever.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 3600.0f, .Units = "s", } } )
+                    .Field( FieldInfo{ .Name = "EyeHeight", .Type = FieldType::Float, .Offset = offsetof( T, EyeHeight ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::EyeHeight )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Eye Height", .Category = "Sight", .Tooltip = "Height of the eye above the POSSESSED PAWN's origin (UE APawn::GetActorEyesViewPoint via AAIController): the perceiver is the controller, the eyes are its pawn's.", .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "Detect", .Type = FieldType::Struct, .Offset = offsetof( T, Detect ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Detect )>(), .TypeName = "AffiliationFilter", .Meta = PropertyMetadata{ .DisplayName = "Detect", .Category = "Sight", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::AI::Perception::HearingConfig;
+        TypeBuilder( "HearingConfig", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Enabled", .Type = FieldType::Bool, .Offset = offsetof( T, Enabled ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Enabled )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enabled", .Category = "Hearing", } } )
+                    .Field( FieldInfo{ .Name = "HearingRange", .Type = FieldType::Float, .Offset = offsetof( T, HearingRange ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::HearingRange )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Hearing Range", .Category = "Hearing", .Tooltip = "UE HearingRange: a noise of loudness 1 is heard within this distance; the range scales with the noise's loudness (UE: Range * Loudness).", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 1.0e6f, .IsLength = true, } } )
+                    .Field( FieldInfo{ .Name = "MaxAgeSeconds", .Type = FieldType::Float, .Offset = offsetof( T, MaxAgeSeconds ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MaxAgeSeconds )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Max Age", .Category = "Hearing", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 3600.0f, .Units = "s", } } )
+                    .Field( FieldInfo{ .Name = "Detect", .Type = FieldType::Struct, .Offset = offsetof( T, Detect ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Detect )>(), .TypeName = "AffiliationFilter", .Meta = PropertyMetadata{ .DisplayName = "Detect", .Category = "Hearing", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::AI::Perception::DamageConfig;
+        TypeBuilder( "DamageConfig", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Enabled", .Type = FieldType::Bool, .Offset = offsetof( T, Enabled ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Enabled )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Enabled", .Category = "Damage", } } )
+                    .Field( FieldInfo{ .Name = "MaxAgeSeconds", .Type = FieldType::Float, .Offset = offsetof( T, MaxAgeSeconds ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MaxAgeSeconds )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Max Age", .Category = "Damage", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 3600.0f, .Units = "s", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::StateTreeData;
+        TypeBuilder( "StateTreeData", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "StateTree", .Type = FieldType::AssetHandle, .Offset = offsetof( T, StateTree ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::StateTree )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "State Tree", .Category = "AI", .Tooltip = "The .dstatetree asset this AI controller runs (UE UStateTreeComponent StateTreeRef).", .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "StartOnPlay", .Type = FieldType::Bool, .Offset = offsetof( T, StartOnPlay ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::StartOnPlay )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Start On Play", .Category = "AI", .Tooltip = "UE bStartLogicAutomatically: start the tree when Play begins. Off = a script or the GameMode starts it (ai.startTree(entity)).", } } )
+                    .Field( FieldInfo{ .Name = "RestartOnFinish", .Type = FieldType::Bool, .Offset = offsetof( T, RestartOnFinish ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::RestartOnFinish )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Restart On Finish", .Category = "AI", .Tooltip = "When the tree finishes (Succeeded / Failed), start it again on the next tick. Off = it stays stopped (UE default).", } } )
+            .WithDefault<T>()
+            .Register();
+    }
     {
         using T = ::Desert::Core::PostProcessSettings;
         TypeBuilder( "PostProcessSettings", sizeof( T ) )
@@ -571,6 +662,35 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "AerialPerspectiveViewDistanceScale", .Type = FieldType::Float, .Offset = offsetof( T, AerialPerspectiveViewDistanceScale ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AerialPerspectiveViewDistanceScale )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Aerial Perspective View Distance Scale", .Category = "Art Direction", .Tooltip = "Scales how quickly distance haze accumulates on geometry: above 1 the world hazes up faster than physics says, below 1 slower.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 3.0f, } } )
                     .Field( FieldInfo{ .Name = "AerialPerspectiveStartDepth", .Type = FieldType::Float, .Offset = offsetof( T, AerialPerspectiveStartDepth ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AerialPerspectiveStartDepth )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Aerial Perspective Start Depth", .Category = "Art Direction", .Tooltip = "Distance from the camera at which aerial perspective starts being applied. UE default: 0.1 km.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 100.0f, .Units = "km", } } )
                     .Field( FieldInfo{ .Name = "AerialPerspectiveDistance", .Type = FieldType::Float, .Offset = offsetof( T, AerialPerspectiveDistance ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AerialPerspectiveDistance )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Aerial Perspective Distance", .Category = "Art Direction", .Tooltip = "How far the aerial-perspective froxel volume reaches. Its 16 slices are distributed over this range, so set it near the scene's own view distance for the most resolution where geometry actually is. Beyond it the haze holds at the value it had at this distance. UE default: 96 km.", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 200.0f, .Units = "km", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::StaticLightingPrimitiveSettings;
+        TypeBuilder( "StaticLightingPrimitiveSettings", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "PrimitiveMobility", .Type = FieldType::Enum, .Offset = offsetof( T, PrimitiveMobility ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PrimitiveMobility )>(), .TypeName = "Mobility", .Meta = PropertyMetadata{ .DisplayName = "Mobility", .Category = "Static Lighting", .Tooltip = "Static: lit by its lightmap (a foliage field: the volumetric lightmap) and never moved at runtime. Movable: lit every frame by the view's methods, its indirect from the volumetric lightmap when the view's GI is Lightmaps. Stationary is a light-only mobility.", .Summary = true, }, .EnumValues = { EnumValue{ "Static", 0 }, EnumValue{ "Stationary", 1 }, EnumValue{ "Movable", 2 }, } } )
+                    .Field( FieldInfo{ .Name = "CastStaticShadow", .Type = FieldType::Bool, .Offset = offsetof( T, CastStaticShadow ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::CastStaticShadow )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Cast Static Shadow", .Category = "Static Lighting", .Tooltip = "Whether this primitive blocks light in the bake (UE: bCastStaticShadow). Separate from Cast Shadows, which is the runtime shadow passes.", } } )
+                    .Field( FieldInfo{ .Name = "DiffuseBoost", .Type = FieldType::Float, .Offset = offsetof( T, DiffuseBoost ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::DiffuseBoost )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Diffuse Boost", .Category = "Static Lighting", .Tooltip = "Multiplier on the diffuse albedo this primitive reflects in the bake's bounces (UE: FLightmassPrimitiveSettings::DiffuseBoost).", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10.0f, .Units = "x", .Advanced = true, } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::StaticLightingLightmapSettings;
+        TypeBuilder( "StaticLightingLightmapSettings", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "OverrideLightmapResolution", .Type = FieldType::Bool, .Offset = offsetof( T, OverrideLightmapResolution ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::OverrideLightmapResolution )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Override Lightmap Resolution", .Category = "Static Lighting", .Tooltip = "Off: the mesh asset's Lightmap Resolution (UE: UStaticMesh::LightMapResolution; the landscape: 4 texels per quad). On: this entity's own (UE: bOverrideLightMapRes).", } } )
+                    .Field( FieldInfo{ .Name = "LightmapResolution", .Type = FieldType::Int, .Offset = offsetof( T, LightmapResolution ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::LightmapResolution )>(), .TypeName = "int32_t", .Meta = PropertyMetadata{ .DisplayName = "Lightmap Resolution", .Category = "Static Lighting", .Tooltip = "Side of LOD 0's square lightmap region in texels (a landscape: per tile), rounded up to a multiple of 4 (the block size of the compressed lightmap). UE's default, 64.", .HasRange = true, .RangeMin = 4, .RangeMax = 4096, .Units = "texels", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::StaticLightingLightSettings;
+        TypeBuilder( "StaticLightingLightSettings", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "LightMobility", .Type = FieldType::Enum, .Offset = offsetof( T, LightMobility ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::LightMobility )>(), .TypeName = "Mobility", .Meta = PropertyMetadata{ .DisplayName = "Mobility", .Category = "Static Lighting", .Tooltip = "Static: baked only (direct, indirect and shadows), no runtime cost. Stationary: dynamic direct light, shadowed by the baked static geometry and the runtime shadows of movable objects; baked indirect. Movable: nothing baked. Changing Intensity or Color of a Static or Stationary light requires rebuilding lighting.", .Summary = true, }, .EnumValues = { EnumValue{ "Static", 0 }, EnumValue{ "Stationary", 1 }, EnumValue{ "Movable", 2 }, } } )
+                    .Field( FieldInfo{ .Name = "IndirectLightingIntensity", .Type = FieldType::Float, .Offset = offsetof( T, IndirectLightingIntensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::IndirectLightingIntensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Indirect Lighting Intensity", .Category = "Static Lighting", .Tooltip = "Scale on this light's baked bounce (UE: ULightComponent::IndirectLightingIntensity). The runtime GI methods ignore it, as UE's Lumen honours its own.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10.0f, .Units = "x", } } )
+                    .Field( FieldInfo{ .Name = "BakeShadowExponent", .Type = FieldType::Float, .Offset = offsetof( T, BakeShadowExponent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::BakeShadowExponent )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Bake Shadow Exponent", .Category = "Static Lighting", .Tooltip = "Penumbra falloff of the baked area shadow (UE: FLightmassLightSettings::ShadowExponent). The penumbra's width is the light's own Source Radius / Angle.", .HasRange = true, .RangeMin = 0.5f, .RangeMax = 8.0f, .Advanced = true, } } )
             .WithDefault<T>()
             .Register();
     }

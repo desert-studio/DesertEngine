@@ -33,6 +33,13 @@ from pathlib import Path
 SHADER_SUFFIXES = (".shader", ".glslh")
 CPP_SUFFIXES = (".cpp", ".hpp", ".h", ".inl")
 EXCLUDED_PREFIXES = ("ThirdParty/", ".claude/", ".gauntlet/")
+# Files that name the OLD spellings on purpose: the MATL 5 -> 6 migration maps a stored `u_*` key to its new name,
+# so renaming its table (or the test that feeds it a v5 material) would make the migration a no-op.
+EXCLUDED_FILES = (
+    "Tools/SceneMigrator/Source/SceneMigration.cpp",
+    "Tools/SceneMigrator/Source/SceneMigration.hpp",
+    "Desert/Tests/Tools/SceneMigratorWritePath/material_patch_strength_migration_test.cpp",
+)
 SHADER_ROOT = "Editor/Resources/Shaders"
 TOKEN = re.compile(r"(?<![A-Za-z0-9_])u_[A-Za-z0-9_]+")
 IDENT = re.compile(r"(?<![A-Za-z0-9_.])[A-Za-z_][A-Za-z0-9_]*")
@@ -54,7 +61,7 @@ def tracked_files(root):
     out = subprocess.check_output(["git", "-C", str(root), "ls-files"], text=True, encoding="utf-8")
     files = []
     for line in out.splitlines():
-        if line.startswith(EXCLUDED_PREFIXES):
+        if line.startswith(EXCLUDED_PREFIXES) or line in EXCLUDED_FILES:
             continue
         if line.endswith(SHADER_SUFFIXES) or line.endswith(CPP_SUFFIXES):
             files.append(line)

@@ -28,73 +28,29 @@ layout( std430, binding = 17 ) readonly buffer InstanceTransforms
     mat4 transforms[];
 };
 
-// Mirrors Graphic::System::GrassBladeShapeGpu (GrassRenderer.cpp), std430.
+// The blade's shape and placement: one statement for this stage and the ray tracer's blade BLAS.
+#include <Mesh/Surface/GrassBlade.glslh>
+
+// The variety's shape (GrassBladeShapeGpu), std430.
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 {
-    vec4 Size; // Height cm, Width cm, Taper, Curvature
-    vec4 Base; // BaseColor, Stiffness
-    vec4 Tip;  // TipColor, DryTipShare
-    vec4 Dry;  // DryTipColor, DryTipLength
-    vec4 Bend; // CurvatureSpread, BendSpread
-}
-Blade;
+    GrassBladeShapeData Blade;
+};
 
 #include <Common/MaterialTransport.glslh>
-#include <Common/FoliageWind.glslh>
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 DESERT_SURFACE_VARYINGS( out )
 #endif
 
-struct BladePoint
-{
-    vec3 Position;
-    vec3 Along; // d(position)/dt, up the blade
-    vec3 Right; // unit, across the blade
-};
-
-// The blade at height share @p t, @p side across: a curve from the root whose tip leans forward by the curvature
-// and sways with the wind, its upright reach shortened so the blade keeps its length as it bends. The lean grows
-// as t^bend: 2 is an even arc, a larger power a straight stalk that bends near its tip (GoT's per-blade bend).
-BladePoint BladeAt( mat4 model, float side, float t, vec4 windA, vec4 windB )
-{
-    const vec3  root    = vec3( model[3] );
-    const float heightK = length( model[1].xyz );
-    const vec3  up      = model[1].xyz / max( heightK, 1e-6 );
-    const vec3  right   = model[0].xyz / max( length( model[0].xyz ), 1e-6 );
-    const vec3  forward = model[2].xyz / max( length( model[2].xyz ), 1e-6 );
-    const float height  = Blade.Size.x * heightK;
-    const float width   = Blade.Size.y * length( model[0].xyz );
-
-    // The rest lean: the variety's curvature, varied per blade by CurvatureSpread either way. The bend's power
-    // draws from the curvature draw's low 16 bits (it is a 24-bit fraction, so they are independent of the
-    // top bits the lean mostly reads).
-    const float lean = Blade.Size.w * ( 1.0 + Blade.Bend.x * ( 2.0 * model[1].w - 1.0 ) );
-    const float bend = 2.0 + 3.0 * Blade.Bend.y * fract( model[1].w * 256.0 );
-    vec3        tip  = forward * ( height * lean );
-    // The wind at the tip, as a mesh vertex at the blade's height would sway, less what the stiffness resists.
-    tip += FoliageWindOffset( vec3( 0.0, height, 0.0 ), root, windA, windB ) * ( 1.0 - Blade.Base.w );
-    const float reach = min( length( tip ) / max( height, 1e-3 ), 0.95 );
-    const float rise  = height * sqrt( 1.0 - reach * reach );
-
-    BladePoint p;
-    p.Right    = right;
-    p.Position = root + up * ( rise * t ) + tip * pow( t, bend ) +
-                 right * ( 0.5 * width * side * ( 1.0 - Blade.Size.z * t ) );
-    p.Along    = up * rise + tip * ( bend * pow( t, bend - 1.0 ) );
-    return p;
-}
-
 void main()
 {
-    const mat4  model = transforms[gl_InstanceIndex];
-    const float side  = a_Position.x;
-    const float t     = a_Position.y;
-    const BladePoint blade = BladeAt( model, side, t, m_PushConstants.WindA, m_PushConstants.WindB );
-    // The blade's face normal, tilted across its width so the flat strip shades as a rounded blade (GoT).
-    const vec3 along  = normalize( blade.Along );
-    const vec3 face   = normalize( cross( blade.Right, along ) );
-    const vec3 normal = normalize( face + blade.Right * ( 0.45 * side ) );
+    const mat4       model  = transforms[gl_InstanceIndex];
+    const float      side   = a_Position.x;
+    const float      t      = a_Position.y;
+    const BladePoint blade  = BladeAt( Blade, model, side, t, m_PushConstants.WindA, m_PushConstants.WindB );
+    const vec3       along  = normalize( blade.Along );
+    const vec3       normal = BladeNormal( blade, side );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     // Root to tip, then the dry tip on the blades that drew one; the clump's tint varies the whole blade.
     vec3 colour = mix( Blade.Base.rgb, Blade.Tip.rgb, t );
@@ -112,7 +68,7 @@ void main()
 #ifdef DESERT_SURFACE_VIEW_PASS
     // The blade is world-static but for the wind, evaluated again at the wind clock's previous step (WindB.z,
     // Graphic::InstanceWindPush), as Vertex_Instanced.glslh.
-    const BladePoint previous = BladeAt( model, side, t, m_PushConstants.WindA,
+    const BladePoint previous = BladeAt( Blade, model, side, t, m_PushConstants.WindA,
                                          vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( blade.Position, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( previous.Position, 1.0 );

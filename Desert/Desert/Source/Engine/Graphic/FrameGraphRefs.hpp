@@ -221,6 +221,10 @@ namespace Desert::Graphic
         // SceneRenderer::AddFrameRayTracedSunShadow), read by a forward draw's DESERT_SUN_SHADOW_SCREEN_MASK
         // permutation in place of the cascades. Invalid when the sun is not ray traced (nothing then reads it).
         RDG::TextureRef SunShadowMask;
+        // "Shadows: Ray Traced Local": the view's local-light masks (SceneRenderer::AddFrameRayTracedLocalShadows, one
+        // layer per ShadowMaskSlot), read by an OPAQUE forward draw's DESERT_LOCAL_SHADOW_SCREEN_MASK permutation in
+        // place of the atlas. Invalid when the local shadows are not ray traced (the permutation is then not chosen).
+        RDG::TextureRef LocalShadowMasks;
         // The view's world radiance cache (FrameTransients::RadianceCache*, the neutral one where the view traces
         // no GI): the forward passes read their diffuse estimator from it, as the deferred composite's final
         // gather does, so a capture measured by the cache is normalised by the cache on a forward pixel too.
@@ -246,7 +250,7 @@ namespace Desert::Graphic
             add( ShadowCascades );
             for ( const RDG::TextureRef ref :
                   { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes, LocalShadowAtlas,
-                    SceneDepth, SceneShadingWord, SunShadowMask, RadianceCacheIrradiance, RadianceCacheDepth,
+                    SceneDepth, SceneShadingWord, SunShadowMask, LocalShadowMasks, RadianceCacheIrradiance, RadianceCacheDepth,
                     RainOcclusionMap } )
                 add( ref );
             for ( const RDG::TextureRef ref : MegaLightsVolume.Lighting )
@@ -271,12 +275,17 @@ namespace Desert::Graphic
     inline constexpr std::string_view kSceneViewSceneShadingWordName = "SceneShadingWordTexture";
     // DeferredLighting.shader and Mesh/Surface/Pass_Forward.glslh's DESERT_SUN_SHADOW_SCREEN_MASK branch.
     inline constexpr std::string_view kSceneViewSunShadowMaskName = "ScreenShadowMaskTexture";
+    // DeferredLighting.shader and Mesh/ForwardLocalLights.glslh's DESERT_LOCAL_SHADOW_SCREEN_MASK branch.
+    inline constexpr std::string_view kSceneViewLocalShadowMasksName = "LocalShadowMasksTexture";
     inline constexpr std::string_view kSceneViewRainOcclusionMapName = "RainOcclusionMapTexture";
     // Its own shared sampler state (SharedSamplerBinding.hpp): the G-buffer cells declare none of the others.
     inline constexpr std::string_view kSceneViewRainOcclusionSamplerName = "RainOcclusionSampler";
     // The permutation define of every program that reads kSceneViewSunShadowMaskName in place of the cascades
     // (DeferredLighting.shader, Mesh/Surface/Pass_Forward.glslh): one name for every renderer that acquires it.
     inline constexpr std::string_view kSunShadowScreenMaskDefine = "DESERT_SUN_SHADOW_SCREEN_MASK";
+    // The deferred composite's ray-traced local lights (Shadows HardwareTraced): each light with a ShadowMaskSlot
+    // reads its layer of LocalShadowMasksTexture (System::RayTracedLocalShadowRenderer) in place of its shadow map.
+    inline constexpr std::string_view kLocalShadowScreenMaskDefine = "DESERT_LOCAL_SHADOW_SCREEN_MASK";
     // The deferred composite's MegaLights program (Shadows Stochastic): the local lights from MegaLights'
     // MegaLightsDiffuseTexture / MegaLightsSpecularTexture (System::MegaLightsRenderer) in place of the light-grid loop.
     inline constexpr std::string_view kMegaLightsDefine = "DESERT_MEGALIGHTS";
@@ -311,6 +320,7 @@ namespace Desert::Graphic
     inline constexpr RDG::TextureParameter       kSceneViewSceneDepth{ kSceneViewSceneDepthName };
     inline constexpr RDG::TextureParameter       kSceneViewSceneShadingWord{ kSceneViewSceneShadingWordName };
     inline constexpr RDG::TextureParameter       kSceneViewSunShadowMask{ kSceneViewSunShadowMaskName };
+    inline constexpr RDG::TextureParameter       kSceneViewLocalShadowMasks{ kSceneViewLocalShadowMasksName };
     inline constexpr RDG::StorageBufferParameter kLightGridParamsBlock{ kLightGridParamsBlockName };
     inline constexpr RDG::StorageBufferParameter kLightGridCellsBlock{ kLightGridCellsBlockName };
     inline constexpr RDG::StorageBufferParameter kLocalShadowViewsBlock{ kLocalShadowViewsBlockName };
@@ -418,6 +428,9 @@ namespace Desert::Graphic
             // at).
             if ( inputs.SunShadowMask.IsValid() )
                 bind( kSceneViewSunShadowMask, inputs.SunShadowMask, kPoint, RDG::SamplerDesc::PointClamp() );
+            // Read with texelFetch at the fragment, layer = the light's ShadowMaskSlot.
+            if ( inputs.LocalShadowMasks.IsValid() )
+                bind( kSceneViewLocalShadowMasks, inputs.LocalShadowMasks, kPoint, RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the hit texel (an integer format is never filtered).
             bind( kSceneViewSceneShadingWord, inputs.SceneShadingWord, kPoint, RDG::SamplerDesc::PointClamp() );
             // Trilinear between froxel centres, clamped at the frustum's edges (Common/MegaLightsVolume.glslh).

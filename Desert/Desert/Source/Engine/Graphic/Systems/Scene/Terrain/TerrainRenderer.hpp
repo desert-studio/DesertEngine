@@ -98,6 +98,10 @@ namespace Desert::Graphic::System
         {
             return !m_Queue.empty();
         }
+        // The terrain part of SceneRenderer::LocalShadowMapsRead / SunCascadesRead: this frame shades a queued
+        // terrain with the Forward program (render path Forward; in Deferred the terrain is in the G-buffer and
+        // the composite reads the screen masks) and that program samples @p textureName.
+        [[nodiscard]] bool ForwardReadsTexture( std::string_view textureName ) const;
         // The tiles whose ground (XZ) footprint the light reaches, each by what its depth is made of: placement,
         // LOD (the light's, LocalShadowCasterLight — not the camera's, so a moving camera keeps the cache),
         // holes, and the revisions of its two maps' texels. Resolved by PrepareFrame for this frame's lights.
@@ -131,18 +135,19 @@ namespace Desert::Graphic::System
         {
             return m_FrameInstances;
         }
-        // ...and the material's Tint each tile drew with (its row after the defaults and the tile's overrides):
-        // the landscape's ray tracing hit group shades a hit with the raster's own tint.
-        [[nodiscard]] std::span<const glm::vec4> GetFrameTints() const
+        // ...and the landscape material each tile drew with (its row after the defaults and the tile's overrides,
+        // its layer inputs' maps): the landscape's ray tracing hit group shades a hit with the raster's own
+        // ground.
+        [[nodiscard]] std::span<const TerrainFrameMaterial> GetFrameMaterials() const
         {
-            return m_FrameTints;
+            return m_FrameMaterials;
         }
 
         void ClearQueue()
         {
             m_Queue.clear();
             m_FrameInstances.clear();
-            m_FrameTints.clear();
+            m_FrameMaterials.clear();
             m_FrameGroups.clear();
             m_FrameDraws.clear();
             m_LocalLightDraws.clear();
@@ -232,7 +237,7 @@ namespace Desert::Graphic::System
 
         std::vector<TerrainDrawData> m_Queue;
         std::vector<TerrainInstance> m_FrameInstances; // parallel to m_Queue after PrepareFrame
-        std::vector<glm::vec4>       m_FrameTints;     // parallel to m_Queue after PrepareFrame
+        std::vector<TerrainFrameMaterial> m_FrameMaterials; // parallel to m_Queue after PrepareFrame
         std::vector<FrameGroup>      m_FrameGroups;
         std::vector<FrameDraw>       m_FrameDraws;
         std::vector<LocalLightDraws> m_LocalLightDraws; // this frame's point/spot lights, PrepareFrame

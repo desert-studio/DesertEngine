@@ -67,14 +67,14 @@ TEST( StoredAssetForm, EveryAssetTypeTheEngineSerializesHasAForm )
     EXPECT_EQ( StoredFormFor( "VideoAsset" ), StoredAssetForm::StableKey );
     EXPECT_EQ( StoredFormFor( "IconAsset" ), StoredAssetForm::StableKey );
 
-    EXPECT_EQ( StoredFormFor( "MaterialAsset" ), StoredAssetForm::AssetsRelative );
-    EXPECT_EQ( StoredFormFor( "CloudModellingVolumeAsset" ), StoredAssetForm::AssetsRelative );
-    EXPECT_EQ( StoredFormFor( "ControlRigAsset" ), StoredAssetForm::AssetsRelative );
-    EXPECT_EQ( StoredFormFor( "AnimGraphAsset" ), StoredAssetForm::AssetsRelative );
-    EXPECT_EQ( StoredFormFor( "UIThemeAsset" ), StoredAssetForm::AssetsRelative );
-    EXPECT_EQ( StoredFormFor( "PrefabAsset" ), StoredAssetForm::AssetsRelative ); // SceneSettings::DefaultPawn
-    EXPECT_EQ( StoredFormFor( "WaterWavesAsset" ), StoredAssetForm::AssetsRelative ); // WaterBodyData::WaterWaves
-    EXPECT_EQ( StoredFormFor( "SoundAsset" ), StoredAssetForm::AssetsRelative );      // AudioSourceData::Sound
+    EXPECT_EQ( StoredFormFor( "MaterialAsset" ), StoredAssetForm::StableKey );
+    EXPECT_EQ( StoredFormFor( "CloudModellingVolumeAsset" ), StoredAssetForm::StableKey );
+    EXPECT_EQ( StoredFormFor( "ControlRigAsset" ), StoredAssetForm::StableKey );
+    EXPECT_EQ( StoredFormFor( "AnimGraphAsset" ), StoredAssetForm::StableKey );
+    EXPECT_EQ( StoredFormFor( "UIThemeAsset" ), StoredAssetForm::StableKey );
+    EXPECT_EQ( StoredFormFor( "PrefabAsset" ), StoredAssetForm::StableKey ); // SceneSettings::DefaultPawn
+    EXPECT_EQ( StoredFormFor( "WaterWavesAsset" ), StoredAssetForm::StableKey ); // WaterBodyData::WaterWaves
+    EXPECT_EQ( StoredFormFor( "SoundAsset" ), StoredAssetForm::StableKey );      // AudioSourceData::Sound
 
     EXPECT_EQ( StoredFormFor( "StaticMeshAsset" ), StoredAssetForm::StableKey );  // BISTRO-OPEN
     EXPECT_EQ( StoredFormFor( "SkinnedMeshAsset" ), StoredAssetForm::StableKey ); // BISTRO-OPEN
@@ -120,39 +120,22 @@ TEST( StoredAssetForm, ATaggedKeyIsWrittenVerbatimAndIsTheOnlyFormThatCanNameBot
                "engine:Fonts/Roboto-Regular.ttf" );
 }
 
-TEST( StoredAssetForm, AssetsRelativeStripsTheTagAndReproducesWhatRelativeToTheAssetsRootGave )
+TEST( StoredAssetForm, AMaterialIsStoredAsItsTaggedKeyAndExpandsBackToItsFile )
 {
     const OpenProject open( kProject );
 
+    // PATH1: the assets-relative spelling is gone with its reader, so a material is written as the key
+    // and read back by the key's exact inverse - the round trip is the relation that matters.
     const std::filesystem::path file = kProject / "Content" / "Materials" / "M_Rock.demat";
     const std::string           key  = Common::AssetHandle::StableKeyForPath( file );
     ASSERT_EQ( key, "assets:Materials/M_Rock.demat" ) << "the fixture does not sit under the assets root";
 
-    // THE RELATION, and it is the one that matters: the rendering must equal what the branch this
-    // replaces computed — `std::filesystem::relative( filepath, ASSETS_PATH ).generic_string()`.
-    std::error_code   ec;
-    const std::string wasProducedBefore =
-         std::filesystem::relative( file, Common::Constants::Path::ASSETS_PATH, ec ).generic_string();
-    ASSERT_FALSE( ec );
-
-    EXPECT_EQ( RenderStoredForm( StoredAssetForm::AssetsRelative, key ), wasProducedBefore );
-    EXPECT_EQ( RenderStoredForm( StoredAssetForm::AssetsRelative, key ), "Materials/M_Rock.demat" );
-}
-
-TEST( StoredAssetForm, AFileOutsideTheAssetsRootKeepsItsOwnSpellingInsteadOfEscapingUpwards )
-{
-    const OpenProject open( kProject );
-
-    // The branches said it out loud — "outside the project — say so plainly" — and the reason is that
-    // relative-to-the-assets-root produces a `..` chain here, which resolves against whatever the
-    // reader's assets root happens to be. A body under the ENGINE root, and a file under no root at
-    // all, both take the path rather than a `..` chain.
-    const std::string engine = RenderStoredForm( StoredAssetForm::AssetsRelative, "engine:Volumes/B.dcmv" );
-    EXPECT_EQ( engine.rfind( "..", 0 ), std::string::npos ) << engine;
-    EXPECT_EQ( engine, ( Common::Constants::Path::RESOURCE_PATH / "Volumes/B.dcmv" ).lexically_normal().string() );
-
-    const std::string outside = RenderStoredForm( StoredAssetForm::AssetsRelative, "/elsewhere/X.demat" );
-    EXPECT_EQ( outside, "/elsewhere/X.demat" );
+    const auto form = StoredFormFor( "MaterialAsset" );
+    if ( !form.has_value() )
+        FAIL() << "MaterialAsset has no stored form";
+    const std::string stored = RenderStoredForm( *form, key );
+    EXPECT_EQ( stored, key );
+    EXPECT_EQ( Common::AssetHandle::PathForStableKey( stored ).lexically_normal(), file.lexically_normal() );
 }
 
 TEST( StoredAssetForm, AMeshIsStoredAsItsStableKeyAndCarriesNoCheckoutDirectory )
@@ -185,7 +168,7 @@ TEST( StoredAssetForm, AMeshIsStoredAsItsStableKeyAndCarriesNoCheckoutDirectory 
     // Nor do the two forms beside it.
     EXPECT_EQ( RenderStoredForm( StoredAssetForm::StableKey, "assets:Textures/T.tex" ).find( kProject.string() ),
                std::string::npos );
-    EXPECT_EQ( RenderStoredForm( StoredAssetForm::AssetsRelative, "assets:Materials/M.demat" )
+    EXPECT_EQ( RenderStoredForm( StoredAssetForm::StableKey, "assets:Materials/M.demat" )
                     .find( kProject.generic_string() ),
                std::string::npos );
 }

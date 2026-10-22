@@ -12,6 +12,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialSilhouette.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
@@ -55,6 +56,13 @@
 #include <utility>
 #include <unordered_map>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
+#include <Common/Core/AssetHandle.hpp>
+
+namespace Desert::Runtime
+{
+    class MaterialService;
+    class ShaderService;
+} // namespace Desert::Runtime
 
 namespace Desert::Graphic::System
 {
@@ -316,8 +324,17 @@ namespace Desert::Graphic::System
             // GrassBlade only: the variety's shape, Vertex_GrassBlade.glslh's GrassBladeShape.
             std::shared_ptr<ShaderResources::StorageBuffer> BladeShape;
             const GpuInstanceRefs*                          Refs = nullptr; // the producer's, this frame
+            // The instances Instances holds room for (GpuInstances.hpp header word 1): the TLAS rows reserved for
+            // the producer (RayTracingGpuInstanceSource::Rows).
+            uint32_t Capacity = 0;
+            // Per bucket (a strip level for GrassBlade), the instances its record holds room for: the TLAS rows
+            // reserved for that level (RayTracingGpuInstanceSource::Rows). Owned by the producer, this frame.
+            std::span<const uint32_t> BucketCapacities;
             // Stable per section across frames: the view-variant key (several cascades: Key * kMaxCascades + c).
             uint32_t Key = 0;
+            // GrassBlade only: the shared BLAS of each strip level (GrassBladeRayTracing.hpp), indexed by submesh;
+            // empty when the view has no TLAS. Owned by the grass renderer, this frame.
+            std::span<const RayTracing::RayTracingGeometryResource* const> BladeGeometry;
             // Where Instances holds each instance's LAST frame transform: instance i's previous world sits at
             // i + PrevInstanceOffset (a producer whose instances move, e.g. particle Mesh rows). 0 = the instances
             // do not move (grass: only the wind moves them), the previous world is the world.
@@ -364,6 +381,11 @@ namespace Desert::Graphic::System
             // system's SDF font atlas. Non-owning: the producer keeps it alive for the frame.
             Graphic::Image2D* DirectTexture        = nullptr;
             std::string       DirectTextureSampler;
+
+            // The record's own hit group when its program is no surface template (3D text: TextRayHit, built by
+            // the producer from the values this draw carries). Empty Template: a ray hit shades with SlotMaterial,
+            // else the default surface. Read by the gather only when VisibleInRayTracing.
+            RayTracing::RayTracingProgramHit RayHit;
         };
 
         // THE MATERIAL A SECTION SHADES WITH, and whether it is Masked: the one answer the raster's casters
@@ -374,13 +396,19 @@ namespace Desert::Graphic::System
             MaterialInstance*            Instance = nullptr;
             Graphic::DataDrivenMaterial* Surface  = nullptr; // null: the slot holds no mesh-cell surface
             bool                         Masked   = false;
+            // The surface's template is BlendMode Translucent / Additive (the translucency pass draws it): a ray
+            // tracing primitive drawn only by such sections takes the translucent instance mask alone.
+            bool Translucent = false;
         };
         [[nodiscard]] static bool IsMaskedSurface( const Graphic::DataDrivenMaterial* material );
+        [[nodiscard]] static bool IsTranslucentSurface( const Graphic::DataDrivenMaterial* material );
         // A static entry's section: SectionSurface of its SectionSlot.
         [[nodiscard]] static SectionShading ShadingOf( const StaticMeshRenderData& data );
         // An ISM section group: its slot instance and that instance's parent surface.
         [[nodiscard]] static SectionShading ShadingOf( const InstancedMeshRenderData& data );
         [[nodiscard]] static SectionShading ShadingOf( const SkinnedSection& section );
+        // A GPU-instanced section: its slot instance and that instance's parent surface, as an ISM's.
+        [[nodiscard]] static SectionShading ShadingOf( const GpuInstancedRenderData& data );
 
         using RenderSystem::RenderSystem;
 
@@ -481,6 +509,11 @@ namespace Desert::Graphic::System
         {
             return m_InstancedQueue;
         }
+        // This frame's GPU-instanced sections (the landscape grass): their TLAS rows are written on the GPU.
+        [[nodiscard]] std::span<const GpuInstancedRenderData> GetGpuInstancedQueue() const
+        {
+            return m_GpuInstancedQueue;
+        }
         // Every queued field's per-instance GPU-scene rows, end to end (InstancedMeshRenderData::FirstMotionRow).
         [[nodiscard]] std::span<const uint32_t> GetInstancedMotionRows() const
         {
@@ -545,11 +578,24 @@ namespace Desert::Graphic::System
         };
         // @p maps is this frame's AcquireCascadeMaps.
         [[nodiscard]] ShadowCascadeFrame ShadowCascadePasses( RDG::TextureRef maps );
-        // THE ONE ANSWER TO "does a program of this frame sample the sun's cascades while the sun is ray traced":
-        // a blended draw of the generic queue, in the camera's frustum, whose program declares ShadowCascadesTexture
-        // (the opaque ones read the screen mask through their DESERT_SUN_SHADOW_SCREEN_MASK permutation, the lit
-        // queue is shaded by the composite). SceneRenderer::OnUpdate draws the low-detail cascades only when true.
+        // The mesh part of SceneRenderer::SunCascadesRead ("does a program of this frame sample the sun's cascades
+        // while the sun is a screen mask"): a blended draw of the generic queue, or a translucent section of the
+        // static queue (glass, its front layer cell), in the camera's frustum, whose program declares
+        // ShadowCascadesTexture (the opaque generic ones read the screen mask through their
+        // DESERT_SUN_SHADOW_SCREEN_MASK permutation, the lit queue is shaded by the composite).
         [[nodiscard]] bool SunCascadeReadersQueued() const;
+        // The mesh part of SceneRenderer::LocalShadowMapsRead ("does a program of this frame sample the local shadow
+        // atlas while the local shadows are ray traced"): a visible blended draw of the generic queue, or a
+        // translucent section of the static queue, whose program samples the atlas (the opaque generic ones read the
+        // ray-traced masks through their DESERT_LOCAL_SHADOW_SCREEN_MASK permutation, the lit queue is shaded by the
+        // composite).
+        [[nodiscard]] bool LocalShadowMapReadersQueued() const;
+        // The visible translucent sections of the static queue (RenderGlassManual's cells, TranslucentDrawFor) and
+        // their front layer cells (FrontLayerShaderFor) whose compiled program samples @p textureName.
+        [[nodiscard]] bool QueuedStaticTranslucentSamples( std::string_view textureName ) const;
+        // The visible queued forward draws whose compiled program samples @p textureName (blended ones only when
+        // @p blendedOnly).
+        [[nodiscard]] bool QueuedForwardDrawSamples( std::string_view textureName, bool blendedOnly ) const;
         // Every cascade's static cache marked never drawn: the next ShadowCascadePasses redraws and rebuilds each
         // fitted cascade. For a frame that draws the cascades after frames that did not (nothing kept them
         // current).
@@ -681,7 +727,7 @@ namespace Desert::Graphic::System
         // intends to ray trace the sun (SceneRenderer::SunShadowIsRayTraced), so "Deferred: Generic" shades the
         // sun-reading opaque programs through their DESERT_SUN_SHADOW_SCREEN_MASK permutation - the forward
         // pipeline whose readiness this prepass checks together with its own.
-        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun );
+        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun, bool localShadowMasks );
         [[nodiscard]] Common::BoolResultStr
         RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
@@ -1045,7 +1091,7 @@ namespace Desert::Graphic::System
             // at CloserOrEqual against its own prepassed depth.
             DeferredForward,
             // DeferredForward while the sun is ray traced: an opaque program that samples the sun shadow is shaded
-            // through its DESERT_SUN_SHADOW_SCREEN_MASK permutation (ReadsSunShadowScreenMask), which reads the
+            // through its DESERT_SUN_SHADOW_SCREEN_MASK permutation (ForwardShadowMaskVariant), which reads the
             // view's screen mask (SceneViewInputs.SunShadowMask) in place of the cascades; a blended one through
             // itself.
             DeferredForwardRayTracedSun,
@@ -1151,15 +1197,43 @@ namespace Desert::Graphic::System
              GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
         void PrecacheRequestedMaterials();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
-        // An opaque generic program that samples the sun's shadow (declares ShadowCascadesTexture): the one that gets a
-        // DESERT_SUN_SHADOW_SCREEN_MASK permutation while the sun is ray traced. A blended program (TextSDF) or
-        // one that reads no sun shadow is shaded through itself.
-        [[nodiscard]] static bool ReadsSunShadowScreenMask( const Shader& shader, bool opaque );
+    public:
+        // THE ONE PERMUTATION FUNCTION of a generic forward program on the deferred path, asked by every place
+        // that builds or cooks it: "Deferred: Generic" (BuildGenericDraws), the prepass's readiness check
+        // (GenericForwardPipelineReady) and the cook (MaterialProgramVariants, OverrideProgramVariants). An
+        // opaque program reads DESERT_SUN_SHADOW_SCREEN_MASK when @p rayTracedSun and it samples the sun's shadow
+        // (declares ShadowCascadesTexture), and DESERT_LOCAL_SHADOW_SCREEN_MASK when @p localShadowMasks (the view has
+        // SceneViewInputs.LocalShadowMasks) and it samples the local shadow atlas; defines in that order (sun,
+        // then local), ShippedByCook. A blended program (TextSDF) or one that reads neither is the default
+        // permutation (shaded through itself).
+        [[nodiscard]] static Core::ShaderVariant ForwardShadowMaskVariant( const Shader& shader, bool rayTracedSun,
+                                                                           bool localShadowMasks );
+        // The permutations the mesh path can select for @p materials (UE: a material's cooked shader map): each
+        // material's (Static x Forward) cell under every ForwardShadowMaskVariant the renderer can ask for (sun
+        // only, local only, both), defaults omitted and duplicates listed once - the list PackageCook
+        // CookShaderVariants cooks, from the same function the renderer acquires by. A material without that
+        // cell draws nothing forward (CreateSurfaceMaterial names it) and has nothing to cook. A Shader Override
+        // draw (no `.demat`) is OverrideProgramVariants'.
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant>
+             MaterialProgramVariants( const Runtime::MaterialService& materials,
+                                      const Runtime::ShaderService&   shaders,
+                                      std::span<const ::Common::AssetHandle> handles );
+        // The permutations a Shader Override draw (MaterialComponent::ShaderName, no `.demat`) can select: each
+        // named program BuildGenericDraws shades forward, under every ForwardShadowMaskVariant (sun only, local
+        // only, both), defaults omitted. A surface template's override is drawn through its (Static x GBuffer)
+        // cell, never forward, and has nothing here. PackageCook CookShaderVariants passes the overrides its
+        // cooked scenes state.
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant>
+             OverrideProgramVariants( const Runtime::ShaderService& shaders,
+                                      std::span<const std::string>  shaderNames );
+
+    private:
         // Whether the pipeline "Deferred: Generic" shades @p shader's opaque draw with is Ready, tracked (so a
-        // compiling one counts among the pending pipelines); @p rayTracedSun picks the permutation as that pass
-        // does.
+        // compiling one counts among the pending pipelines); @p rayTracedSun and @p localShadowMasks pick the
+        // permutation through ForwardShadowMaskVariant, as that pass does.
         [[nodiscard]] bool GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
-                                                        const std::string& shaderName, bool rayTracedSun );
+                                                        const std::string& shaderName, bool rayTracedSun,
+                                                        bool localShadowMasks );
         // THE ONE READINESS CHECK for an opaque generic draw on the deferred path: "Deferred: Forward
         // Depth/Normal" admits it when BOTH its depth-normal and its forward pipeline are Ready and records it
         // here; "Deferred: Generic" shades only what this frame admitted, so no draw is shaded forward against a
@@ -1169,6 +1243,8 @@ namespace Desert::Graphic::System
         std::unordered_set<const GenericMeshRenderData*> m_GenericPrepassed;
         std::optional<uint64_t>                          m_GenericPrepassFrame;
         bool                                             m_GenericPrepassRayTracedSun = false;
+        bool                                             m_GenericPrepassLocalShadowMasks = false; // the prepass's DESERT_LOCAL_SHADOW_SCREEN_MASK choice
+        bool                                             m_GenericLocalShadowMasks        = false; // "Deferred: Generic" (DeclareGenericDraws)
         std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
         // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
         // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —

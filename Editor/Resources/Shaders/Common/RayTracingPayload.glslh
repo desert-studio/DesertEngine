@@ -13,6 +13,11 @@
 //        facing the ray) and Flags bit0 = the ray met the front face; which triangle it is: the TLAS instance
 //        (gl_InstanceID), the geometry index in its BLAS and the primitive (Common/RayTracingHitTriangle.glslh
 //        DesertRayHitIdentify), what a light list keyed by triangle looks a hit up by (Common/EmissiveLights.glslh).
+//   in/out Transmission / Ior: the ray generation clears Transmission to 0 before a material ray (an opaque hit
+//        writes neither); a BlendMode Translucent surface's closest hit (Mesh/Surface/Pass_RayHit.glslh) writes its
+//        own translucent inputs, as the raster's glass pass reads them (Pass_Forward_Translucent.glslh): the
+//        transmittance colour (its BaseColor, the tint) and the index of refraction (max(Refraction, 1)).
+//        Transmission > 0 = a dielectric interface the path tracer refracts through (PathTracer.shader).
 struct DesertRayPayload
 {
     vec3  BaseColor;
@@ -27,6 +32,8 @@ struct DesertRayPayload
     uint  InstanceIndex;
     uint  GeometryIndex;
     uint  PrimitiveIndex;
+    vec3  Transmission;
+    float Ior;
 };
 
 const uint kDesertRayPayloadFrontFace = 1u;

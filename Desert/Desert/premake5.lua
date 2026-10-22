@@ -17,7 +17,8 @@ local kVendoredSources = {
     TextCore  = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp" },
     Audio     = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp" },
     -- MikkTSpace (Morten S. Mikkelsen, zlib licence, ThirdParty/mikktspace/mikktspace.h): mikktspace.c, unaltered,
-    -- compiled as C++ - UE's Modeling Tangents tool "MikkTSpace" method (DynamicMeshMikkTWrapper).
+    -- compiled as C++ - the engine's one tangent generator (Engine/Geometry/MikkTangents.cpp, the mesh build) and UE's
+    -- Modeling Tangents tool "MikkTSpace" method (DynamicMeshMikkTWrapper).
     GeometryCore = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/mikktspace/mikktspace.cpp" },
 }
 for name in pairs(kVendoredSources) do

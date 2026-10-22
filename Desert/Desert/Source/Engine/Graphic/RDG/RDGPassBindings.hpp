@@ -88,6 +88,11 @@ namespace Desert::Graphic::RDG
         BindingBlockBuilder& Sampler( SamplerParameter parameter, SamplerDesc sampler );
         BindingBlockBuilder& Storage( StorageTextureParameter parameter, TextureRef texture, Access declared,
                                       uint32_t mip = 0 );
+        // One layer of one mip of an arrayed texture: the pass declares (and RDG tracks, barriers and culls) that
+        // subresource alone, so passes writing distinct layers of one array never overwrite each other's. The
+        // view stays arrayed (a Tex2DArray's view is 2D_ARRAY of one layer): the shader addresses its layer 0.
+        BindingBlockBuilder& StorageLayer( StorageTextureParameter parameter, TextureRef texture, Access declared,
+                                           uint32_t mip, uint32_t layer );
         BindingBlockBuilder& Uniform( UniformBufferParameter parameter, BufferRef buffer );
         BindingBlockBuilder& Storage( StorageBufferParameter parameter, BufferRef buffer, Access declared );
         // A ray-queried scene: @p tlas is the buffer an acceleration-structure build wrote (RayTracingSceneFrame::

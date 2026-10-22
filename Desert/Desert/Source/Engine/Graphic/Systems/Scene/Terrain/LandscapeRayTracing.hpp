@@ -9,6 +9,7 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingScene.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/TerrainLayerInputs.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -97,8 +98,8 @@ namespace Desert::Graphic::RayTracing
         System::TerrainInstance Instance;
         // Layers and the visibility layer, recorded for ray-traced shading and the alpha test (RT-SHADOWS, GI).
         System::LandscapeWeightDraw Weights;
-        // The terrain material's Tint the raster drew the tile with (TerrainRenderer::GetFrameTints).
-        glm::vec4 Tint{ 1.0f };
+        // The landscape material the raster drew the tile with (TerrainRenderer::GetFrameMaterials).
+        System::TerrainFrameMaterial Material;
         bool      CastShadows = true;
     };
 
@@ -109,7 +110,7 @@ namespace Desert::Graphic::RayTracing
         uint32_t                    GpuSceneRow = 0;
         System::TerrainInstance     Instance; // the raster's row: layers, ground, visibility layer, pages
         System::LandscapeWeightDraw Weights;  // Weights.Weightmap null: no painted layer, no hole
-        glm::vec4                   Tint{ 1.0f };
+        System::TerrainFrameMaterial Material; // the raster's landscape material: values, layer maps, view
     };
 
     // THE LANDSCAPE'S HIT GROUP (UE: the landscape material's ray tracing hit shaders): the `RayTracing.Hit` pass
@@ -125,10 +126,19 @@ namespace Desert::Graphic::RayTracing
          .WrapV  = Core::Formats::SamplerWrap::Clamp,
          .Filter = Core::Formats::SamplerFilter::Linear };
 
+    // The sampler the hit group reads the landscape material's layer maps through: the state the raster's layer
+    // arrays are sampled with (the Texture2DArray properties name none, so SamplerState's Repeat/Repeat/Linear) -
+    // the world-aligned UVs tile.
+    inline constexpr Core::Formats::SamplerState kLandscapeLayerMapRaySampler{};
+
     // The hit group's row for one tile, as Programs/Terrain/TerrainRayHit.glslh LandscapeRayHitRow declares it:
-    // the 17 slots of TerrainInstance, the Tint, then (weightmap bindless slot, its sampler slot, 0, 0) as bits.
+    // TerrainInstance's slots, the Tint, (weightmap bindless slot, its sampler slot, the layer maps'
+    // sampler slot, 0) as bits, the 17 slots of the material's values (LandscapeMaterialValues), the eight inputs'
+    // map slots as bits, the view origin.
     inline constexpr std::size_t kLandscapeRayHitRowSlots =
-         ( sizeof( System::TerrainInstance ) / sizeof( glm::vec4 ) ) + 2u;
+         ( sizeof( System::TerrainInstance ) / sizeof( glm::vec4 ) ) + 2u +
+         ( sizeof( System::LandscapeMaterialValues ) / sizeof( glm::vec4 ) ) +
+         World::Landscape::kLandscapeMaxWeightLayers + 1u;
     [[nodiscard]] Core::Formats::MaterialParamRow
     LandscapeRayHitRow( const LandscapeRayTracingMaterial& material );
 

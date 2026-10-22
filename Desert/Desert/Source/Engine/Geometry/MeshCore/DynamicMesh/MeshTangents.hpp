@@ -1,8 +1,9 @@
-// Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/MeshTangents.h:1-259, adapted: only the
-// per-triangle path (SetMesh, InitializeTriVertexTangents, SetPerTriangleTangent, GetPerTriangleTangent,
-// ComputeSeparatePerTriangleTangents, CopyToOverlays); the averaged path (ComputeMikkTStyleTangents, MeshTangents.cpp:395-676) and FComputeTangentsOptions came
-// with M20; the MikkT library path is MeshAttributeOperations.cpp (DynamicMeshMikkTWrapper); not ported (ParallelFor is a serial for loop, so bParallel has nothing to switch). UE Core as
-// std/glm, namespace Desert::Geometry, instantiated for double only.
+// Ported from UE 5.8 Engine/Source/Runtime/GeometryCore/Public/DynamicMesh/MeshTangents.h:1-259, adapted: the
+// per-corner storage (SetMesh, InitializeTriVertexTangents, SetPerTriangleTangent, GetPerTriangleTangent,
+// CopyToOverlays); the engine's frame is MikkTSpace's (ComputeMikkTTangents, through Engine/Geometry/MikkTangents.hpp,
+// the generator the importer uses too); the averaged path (ComputeMikkTStyleTangents, MeshTangents.cpp:395-676) and
+// FComputeTangentsOptions came with M20 for the Tangents tool. UE Core as std/glm, namespace Desert::Geometry,
+// instantiated for double only.
 #pragma once
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
@@ -74,11 +75,12 @@ namespace Desert::Geometry
         }
 
         /**
-         * Calculate per-triangle tangent spaces from the triangle's UVs and positions, each projected into the
-         * plane of the corner's overlay normal. The same triangle vertex may have different tangents on
-         * different triangles. Triangles unset in UVOverlay are left unwritten.
+         * Calculate the MikkTSpace frame of every triangle corner from the mesh positions and the overlay normals
+         * and UVs: unit tangent T, bitangent sign * cross(N, T) with N the corner's overlay normal. Triangles unset
+         * in either overlay are left zero.
+         * @return false when MikkTSpace could not allocate its working set
          */
-        void ComputeSeparatePerTriangleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
+        [[nodiscard]] bool ComputeMikkTTangents( const DynamicMeshNormalOverlay* NormalOverlay,
                                                  const DynamicMeshUVOverlay*     UVOverlay );
 
         /**
@@ -100,6 +102,10 @@ namespace Desert::Geometry
                                        const DynamicMeshUVOverlay* UVOverlay, const ComputeTangentsOptions& Options );
         void ComputeMikkTStyleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
                                         const DynamicMeshUVOverlay* UVOverlay, const ComputeTangentsOptions& Options );
+        // UE ComputeSeparatePerTriangleTangents: each corner's frame from its own triangle, in the plane of the
+        // corner's overlay normal. Triangles unset in @p UVOverlay are left unwritten.
+        void ComputeSeparatePerTriangleTangents( const DynamicMeshNormalOverlay* NormalOverlay,
+                                                 const DynamicMeshUVOverlay*     UVOverlay );
         const std::vector<int>& GetDegenerateTris() const
         {
             return m_DegenerateTris;

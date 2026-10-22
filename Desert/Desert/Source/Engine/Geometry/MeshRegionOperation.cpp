@@ -48,7 +48,9 @@ namespace Desert::Geometry
             return Common::MakeFormattedError<bool>(
                  "Mesh {}: the mesh carries tangents but has no UV layer 0 to derive them from", name );
         MeshTangentsd tangents( &mesh );
-        tangents.ComputeSeparatePerTriangleTangents( attributes->PrimaryNormals(), uvs );
+        if ( !tangents.ComputeMikkTTangents( attributes->PrimaryNormals(), uvs ) )
+            return Common::MakeFormattedError<bool>( "Mesh {}: MikkTSpace could not allocate its working set",
+                                                     name );
         if ( !tangents.CopyToOverlays( mesh ) )
             return Common::MakeFormattedError<bool>(
                  "Mesh {}: tangents could not be written - {} normal layers, 3 expected", name,

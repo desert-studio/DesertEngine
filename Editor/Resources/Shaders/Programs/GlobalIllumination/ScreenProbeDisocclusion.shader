@@ -80,14 +80,16 @@ Shader "ScreenProbeDisocclusion"
             }
             barrier();
 
-            // The tile's SP_DOWNSAMPLE² pixels, a 2x2 block per thread (the grid is shifted by the jitter).
+            // The tile's SP_DOWNSAMPLE² pixels, a (SP_DOWNSAMPLE / 8)² block per thread of the 8x8 group (the grid is
+            // shifted by the jitter).
+            const int   side       = int( SP_DOWNSAMPLE / 8u );
             const ivec2 tileOrigin = SPUniformTileOf( SPProbePixelOf( state ) ) * int( SP_DOWNSAMPLE ) + ivec2( SPJitter() );
-            const ivec2 block      = tileOrigin + ivec2( gl_LocalInvocationID.xy ) * 2;
+            const ivec2 block      = tileOrigin + ivec2( gl_LocalInvocationID.xy ) * side;
             uint        surface    = 0u;
             uint        disoccluded = 0u;
-            for ( int k = 0; k < 4; ++k )
+            for ( int k = 0; k < side * side; ++k )
             {
-                const ivec2 pixel = block + ivec2( k & 1, k >> 1 );
+                const ivec2 pixel = block + ivec2( k % side, k / side );
                 if ( any( lessThan( pixel, ivec2( 0 ) ) ) || any( greaterThanEqual( pixel, ivec2( giFrame.screen.xy ) ) ) )
                     continue;
                 const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );

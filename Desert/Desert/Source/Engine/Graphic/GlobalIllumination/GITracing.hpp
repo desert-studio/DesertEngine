@@ -4,6 +4,9 @@
 #include <Common/Settings/RenderMethods.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
+
+#include <array>
+#include <vector>
 #include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
@@ -176,11 +179,35 @@ namespace Desert::Graphic::GlobalIllumination
     }
 
     // The permutation a tracing consumer program is compiled under: the tracer's define and the hit-lighting
-    // define. Every pass that traces acquires its program with this (ShaderService::AcquireVariant).
+    // define. Every pass that traces acquires its program with this (ShaderService::AcquireVariant). COOKED
+    // (ShaderVariant::ShippedByCook): each consumer lists its programs under kTracerPermutations
+    // (TracerProgramVariants), the list the package cook compiles.
     [[nodiscard]] inline Core::ShaderVariant TracerVariant( const GlobalIllumination::Pipeline& pipeline )
     {
-        return Core::ShaderVariant{ .Defines = { std::string( TracerDefine( pipeline.Tracer ) ),
-                                                 std::string( HitLightingDefine( pipeline.Hits ) ) } };
+        return Core::ShaderVariant{ .Defines       = { std::string( TracerDefine( pipeline.Tracer ) ),
+                                                       std::string( HitLightingDefine( pipeline.Hits ) ) },
+                                    .ShippedByCook = true };
+    }
+
+    // EVERY TRACER PERMUTATION A Pipeline RESOLVES TO (PipelineFor): software + surface cache, hardware +
+    // surface cache, hardware + in-place hit lighting (in-place hit lighting is hardware-only). The one list the
+    // tracing consumers' cooked variants are enumerated from.
+    inline constexpr std::array<GlobalIllumination::Pipeline, 3> kTracerPermutations{
+         GlobalIllumination::Pipeline{ .Tracer = GlobalIllumination::Tracer::SoftwareDistanceField,
+                                       .Hits   = GlobalIllumination::HitLighting::SurfaceCache },
+         GlobalIllumination::Pipeline{ .Tracer = GlobalIllumination::Tracer::HardwareRayQuery,
+                                       .Hits   = GlobalIllumination::HitLighting::SurfaceCache },
+         GlobalIllumination::Pipeline{ .Tracer = GlobalIllumination::Tracer::HardwareRayQuery,
+                                       .Hits   = GlobalIllumination::HitLighting::InPlace } };
+
+    // @p program under TracerVariant of every kTracerPermutations entry - the cooked list of a consumer whose
+    // permutation is the tracer's alone (WorldRadianceCache Trace, SurfaceCacheDirectLighting).
+    [[nodiscard]] inline std::vector<Core::CookedProgramVariant> TracerProgramVariants( const std::string_view program )
+    {
+        std::vector<Core::CookedProgramVariant> variants;
+        for ( const GlobalIllumination::Pipeline& pipeline : kTracerPermutations )
+            variants.push_back( { std::string( program ), TracerVariant( pipeline ) } );
+        return variants;
     }
 
     // THIS FRAME'S RESOURCES OF THE ACTIVE TRACER — what DeclareTracerReads binds, with the pipeline that chose

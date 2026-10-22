@@ -39,7 +39,10 @@ vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
 
 vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 {
-    const vec3 ibl = EvaluateAmbientIBL( A.Irradiance, A.Prefiltered, A.SpecularBRDF, DefaultLitF0( S ), S.BaseColor,
-                                         S.Metallic );
-    return ComposeAmbient( ibl, S.BaseColor, A.Occlusion, A.Indirect );
+    const vec3 F0       = DefaultLitF0( S );
+    const vec3 diffuse  = EvaluateAmbientIBLDiffuse( A.Irradiance, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
+    const vec3 specular = EvaluateAmbientIBLSpecular( A.Prefiltered, A.SpecularBRDF, F0 );
+    // UE ReflectionEnvironment: the reflection takes GetSpecularOcclusion( NoV, Roughness^2, AO ), the diffuse AO.
+    const float specularOcclusion = DesertSpecularOcclusion( max( dot( S.N, S.V ), 0.0 ), S.Roughness, A.Occlusion );
+    return ComposeAmbient( diffuse, specular, S.BaseColor, A.Occlusion, specularOcclusion, A.Indirect );
 }

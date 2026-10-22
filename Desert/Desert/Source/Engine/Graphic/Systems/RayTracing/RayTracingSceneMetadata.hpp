@@ -51,6 +51,7 @@ namespace Desert::Graphic::RayTracing
         // bit0 two-sided; bits1-2 channel (0 = A, 1..3 = R/G/B). bit3 = a LANDSCAPE VISIBILITY source
         // (kMaterialFlagLandscapeVisibility): the texture is a tile's stacked weightmap, the UV the tile-local
         // sample coordinate, bits4-6 the visibility layer, bit7 = two pages; the test is the raster's hole test.
+        // bit8 = a multi-channel signed distance source (kMaterialFlagSdfMedian).
         uint32_t Flags = 0;
 
         bool operator==( const RayTracingMaterialRecord& ) const = default;
@@ -70,6 +71,11 @@ namespace Desert::Graphic::RayTracing
     inline constexpr uint32_t kMaterialFlagLandscapeVisibility = 1u << 3;
     inline constexpr uint32_t kMaterialLandscapeLayerShift     = 4u;
     inline constexpr uint32_t kMaterialFlagLandscapeTwoPages   = 1u << 7;
+
+    // A MULTI-CHANNEL SIGNED DISTANCE source (3D text, TextRayTracing.hpp TextRayHit): the opacity is the median
+    // of the texel's R, G, B (Common/SdfText.glslh SdfTextMedian - the raster's own coverage, 0.5 on the outline)
+    // against OpacityCutoff; the channel bits are unused.
+    inline constexpr uint32_t kMaterialFlagSdfMedian = 1u << 8;
 
     // @p visibilityLayer: the tile's visibility layer (0..7, LandscapeWeightDraw::VisibilityLayer); @p pages: the
     // weightmap's page count (1 or 2). The ground is two-sided: a hole is open from below as from above.

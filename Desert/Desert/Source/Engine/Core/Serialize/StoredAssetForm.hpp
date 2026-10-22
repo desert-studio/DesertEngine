@@ -9,9 +9,9 @@ namespace Desert::Core::Serialize
     //
     // Three forms cover every asset type this engine serializes, and each one is exactly what that
     // type's hand-written `ToPath` branch produced before T2.4 collapsed the twelve lookups into one.
-    // They are kept apart rather than unified because the string in a `.desce` is a FORMAT: making all
-    // twelve write the tagged key would be a better format and a corpus migration, and this slice is
-    // not the one that does it. `Desert/Tests/Engine/AssetResolverCensus` asserts that every reflected
+    // The assets-relative spelling (`Materials/M_Rock.demat`) that once stood between the two is GONE
+    // (PATH1): the corpus was restated in the tagged key and its reader deleted, so every reference that
+    // can name a file outside the assets root says which root it is under. `Desert/Tests/Engine/AssetResolverCensus` asserts that every reflected
     // asset type appears below, so a new type still cannot be added without deciding.
     enum class StoredAssetForm
     {
@@ -21,11 +21,6 @@ namespace Desert::Core::Serialize
         // path made relative to the assets root comes out as a `..` chain and falls back to the
         // absolute spelling, i.e. to a developer's home directory in a committed file.
         StableKey,
-        // `Materials/M_Rock.demat` — relative to the assets root, which is where this kind of content
-        // ships. A file OUTSIDE every root has no project-relative identity, so it keeps its own
-        // spelling, exactly as the branches this replaces said in the same situation ("outside the
-        // project — say so plainly").
-        AssetsRelative,
         // `assets:Textures/HDR/Sky.detex` — the tagged key and NOTHING ELSE: a file outside every content
         // root renders as "" (the resolver names it), so this form can never carry a machine path. Skyboxes
         // (SCNE 29), whose path is only the locator beside the header GUID.

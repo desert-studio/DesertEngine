@@ -42,7 +42,10 @@ namespace Desert::Graphic::ShaderProtocols
         // UE SourceRadius (cm): the emitter sphere traced shadows aim at (MegaLights); 0 = a point.
         float SourceRadius = 0.0f; // 64
         // std430 rounds the array stride of a struct with a vec3 to 16 bytes: explicit, so sizeof matches.
-        float Pad0 = 0.0f;
+        // The light's layer in the view's ray-traced local shadow masks (System::RayTracedLocalShadowRenderer,
+        // Shadows HardwareTraced), or -1: then ShadowView is the light's shadow. Written by
+        // SceneRenderer::AssignLocalShadowMaskSlots, never by the light system.
+        int32_t ShadowMaskSlot = -1; // 68
         float Pad1 = 0.0f;
         float Pad2 = 0.0f; // -> 80
     };

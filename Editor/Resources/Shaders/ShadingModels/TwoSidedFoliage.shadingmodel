@@ -80,8 +80,14 @@ vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
 
 vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
 {
-    const vec3 F0  = DesertSpecularF0( S );
-    const vec3 ibl = EvaluateAmbientIBL( A.Irradiance, A.Prefiltered, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
+    const vec3 F0       = DesertSpecularF0( S );
+    const vec3 diffuse  = EvaluateAmbientIBLDiffuse( A.Irradiance, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
+    const vec3 specular = EvaluateAmbientIBLSpecular( A.Prefiltered, A.SpecularBRDF, F0 );
+    // The leaf's reflection of the sky and the traced gather is occluded as UE's ReflectionEnvironment occludes every
+    // model's: GetSpecularOcclusion( NoV, Roughness^2, AO ) on the specular, the AO on the diffuse. With the AO on it
+    // linearly, a leaf inside the crown seen edge-on (Fresnel near 1, the lobe leaning into the occluded hemisphere)
+    // kept most of the open sky: Bistro's sparkling, pale-blue foliage.
+    const float specularOcclusion = DesertSpecularOcclusion( max( dot( S.N, S.V ), 0.0 ), S.Roughness, A.Occlusion );
     // The light through the leaf from its far side: the irradiance from -N times SubsurfaceColor. Under the SKY
     // LIGHT it is the sky cube's (UE SkyLightingDiffuseShared.ush, TWOSIDED_FOLIAGE); under a TRACED gather the
     // gather's own backface irradiance, occluded as the trace sees it (UE DiffuseIndirectComposite.usf with
@@ -90,5 +96,5 @@ vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
     // PreintegratedTwoSidedBxDF fallback) lit a leaf seen from below with the ground under it, not the sky above:
     // the dark crown of FOLIAGE-LOOK-3.
     const vec3 through = A.BackIrradiance * TwoSidedFoliageSubsurfaceColor( P ) * A.Occlusion;
-    return ComposeAmbient( ibl, S.BaseColor, A.Occlusion, A.Indirect ) + through;
+    return ComposeAmbient( diffuse, specular, S.BaseColor, A.Occlusion, specularOcclusion, A.Indirect ) + through;
 }

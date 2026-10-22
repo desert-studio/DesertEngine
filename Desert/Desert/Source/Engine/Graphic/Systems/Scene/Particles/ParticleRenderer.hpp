@@ -96,6 +96,11 @@ namespace Desert::Graphic::System
             return m_Simulates;
         }
 
+        // The particle part of SceneRenderer::LocalShadowMapsRead / SunCascadesRead: an emitter of this view
+        // (PrepareFrame's m_ViewEmitters) draws with a sprite program that samples @p textureName. Emitters carry
+        // no bounds here, so every view emitter counts (conservative: the maps are drawn, never missed).
+        [[nodiscard]] bool ViewEmittersSample( std::string_view textureName ) const;
+
         // How many fixed steps this frame simulates: the most any declared emitter runs (0 in a view that does not
         // simulate).
         [[nodiscard]] uint32_t SimulationStepCount() const;
@@ -130,6 +135,14 @@ namespace Desert::Graphic::System
         // one Compute node per stage, after the simulation and before ParticlePass. Every view adds its own (the
         // key is the view depth), whether or not it claimed the simulation. Call after ImportFrameBuffers.
         void AddSortPasses( RDG::Builder& graph );
+
+        // VFX-16 (UE Niagara Debugger, dev only): whether an editor debugger asked for this tick's readback (the
+        // node is added only then, in the simulating view), and the node "Particles: Debug Readback": one
+        // ParticleDebugReadback dispatch per declared emitter after its last compact, copying its GPU alive / free
+        // counts and, for the requested emitter, one page of its alive particles' attributes into its readback.
+        [[nodiscard]] bool                  DebugReadbackRequested() const;
+        [[nodiscard]] Common::BoolResultStr DebugReadback( const RDG::PassContext& context );
+        void                                DeclareDebugReadbackBindings( RDG::PassBuilder& pass ) const;
 
         // VFX-09: every Mesh renderer row of a declared emitter as GPU instances (GpuInstances.hpp, UE
         // FNiagaraRendererMeshes): one "Particles: Mesh Instances {emitter}.{row}" Compute node writes a transform
@@ -265,6 +278,9 @@ namespace Desert::Graphic::System
             RDG::BufferRef              StepsRef;
             RDG::BufferRef              CountersRef; // read by ParticlePass as IndirectArgs
             RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs
+            RDG::ExternalBuffer         DebugImport; // VFX-16: the debugger's readback (simulating view only)
+            RDG::BufferRef              DebugRef;
+            bool                        Debugged = false;
             bool                        Declared = false;
             bool                        Sorted   = false; // the draw reads m_SortedRef, not AliveList
             bool                        Ribboned = false; // its ribbon link order is in m_RibbonRef
@@ -278,6 +294,8 @@ namespace Desert::Graphic::System
         bool RunsStep( const ViewEmitter& ve, uint32_t step ) const;
         // Whether compact @p compact's node dispatches @p ve (compacts 0..StepCount of a declared emitter).
         bool RunsCompact( const ViewEmitter& ve, uint32_t compact ) const;
+        // Whether the Debug Readback node dispatches @p ve.
+        bool RunsDebug( const ViewEmitter& ve ) const;
         // The sprite draw of @p cellShader in this view, built on first use (null = refused, said once by name).
         SpriteDraw* SpriteDrawFor( const std::string& cellShader );
         // The draw renderer row @p row of @p fe draws with this frame: the row's material's cell of the row's
@@ -292,6 +310,7 @@ namespace Desert::Graphic::System
 
         std::shared_ptr<ComputePipeline> m_CompactPipeline;
         std::shared_ptr<ComputePipeline> m_ArgsPipeline;
+        std::shared_ptr<ComputePipeline> m_DebugPipeline;
         std::shared_ptr<ComputePipeline> m_SortPipeline;
         std::shared_ptr<ComputePipeline> m_MeshPipeline; // ParticleMeshInstances
         mutable ShaderBindingLayoutCache m_MeshLayout;
@@ -307,6 +326,7 @@ namespace Desert::Graphic::System
         mutable std::unordered_map<const ComputePipeline*, ShaderBindingLayoutCache> m_SimLayouts;
         mutable ShaderBindingLayoutCache                                             m_CompactLayout;
         mutable ShaderBindingLayoutCache                                             m_ArgsLayout;
+        mutable ShaderBindingLayoutCache                                             m_DebugLayout;
 
         // The ParticleSpriteDefault template's ParticleSprite.Forward cell (Initialize refuses without it).
         std::string m_DefaultCell;

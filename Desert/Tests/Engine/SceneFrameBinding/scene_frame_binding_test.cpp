@@ -323,7 +323,7 @@ TEST_F( SceneFrameBindingShaderRoot, EverySceneBindingTheOneApplierFillsIsDeclar
 }
 
 // The other direction, and the one that would have caught Д15 the day it was written: a scene-level
-// resource DECLARED by a mesh shader that no applier fills. Before this task SkinnedMeshLit declared
+// resource DECLARED by a mesh shader that no applier fills. Before this task StandardSurface's Vertex_Skinned cell declared
 // ShadowUB, four cascade maps and the environment trio, and the skinned draw path wrote none of them —
 // the shader sampled the fallbacks and read as unshadowed and blown-out white.
 TEST_F( SceneFrameBindingShaderRoot, NoMeshLitShaderDeclaresASceneResourceNoApplierFills )

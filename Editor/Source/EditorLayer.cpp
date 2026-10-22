@@ -381,7 +381,7 @@ namespace Desert::Editor
         // EditorQuiescence would answer Settled() — every flag false — and the very first request of a
         // session, which is the one a client sends while the editor is still cooking, would be answered
         // from an editor that has read nothing. An unsampled census must not read as a settled editor.
-        m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling() );
+        SampleControlQuiescence();
 
         return BOOLSUCCESS;
     }
@@ -430,7 +430,7 @@ namespace Desert::Editor
         // the scene is NOT rendered — the frame is ImGui-only and the window it goes to is still hidden.
         if ( m_Startup.RunStartupFrame() )
         {
-            m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling() );
+            SampleControlQuiescence();
             return BOOLSUCCESS;
         }
 
@@ -606,7 +606,7 @@ namespace Desert::Editor
         // answer has moved on, and the question the control channel needs answered is about the picture:
         // "did this frame have everything the command asked for in it, or was some of it still queued?"
         // Editor/Core/Control/ControlPipeline.hpp is where that question is judged.
-        m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling() );
+        SampleControlQuiescence();
 
         // Multi-scene editing: drive EVERY open document each frame so all viewports render live. The active
         // one is m_Workspace.ActiveScene() (rebound on viewport focus); RigBuilder below acts on it only. The
@@ -632,6 +632,13 @@ namespace Desert::Editor
 
     // The frame is out: the start-up's reveal, then the control channel keeps its promise (ControlService) — a
     // `quit` whose reply has gone out comes back as the status to close with.
+    void EditorLayer::SampleControlQuiescence()
+    {
+        m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling(),
+                                         m_Startup.ReflectionCapturesFilling(),
+                                         Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0 );
+    }
+
     bool EditorLayer::AdmitShotFrame()
     {
         ShotFrameConditions frame;

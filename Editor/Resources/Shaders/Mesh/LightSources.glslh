@@ -25,7 +25,7 @@ struct PointLight {
     float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
     int   shadowCaster; // 1: casts shadows in this view (a -1 shadowView is then a light the maps refused)
     float sourceRadius; // UE SourceRadius (cm): the sphere traced shadows aim at (MegaLights); 0 = a point
-    float pad0;
+    int   shadowMaskSlot; // layer in the ray-traced local shadow masks (Shadows HardwareTraced), or -1
     float pad1;
     float pad2;
 };
@@ -48,7 +48,7 @@ struct SpotLight {
     int   shadowCaster; // 1: casts shadows in this view (a -1 shadowView is then a light the maps refused)
     float sourceRadius; // UE SourceRadius (cm): the sphere traced shadows aim at (MegaLights); 0 = a point
     float minRadius;    // full intensity within this distance (cm)
-    float pad1;
+    int   shadowMaskSlot; // layer in the ray-traced local shadow masks (Shadows HardwareTraced), or -1
     float pad2;
 };
 

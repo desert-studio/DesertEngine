@@ -2044,9 +2044,8 @@ namespace Desert::ECS
         std::string ScriptKey;
 
         // The file ScriptKey names, on THIS host, in THIS project, right now. One place, so no call site
-        // can forget the resolution and reintroduce the defect above; PathForStableKey returns an
-        // untagged string unchanged, so a key the tag table does not know still behaves exactly as the
-        // old rooted spelling did rather than silently becoming something else.
+        // can forget the resolution and reintroduce the defect above; PathForStableKey refuses a
+        // bare relative string by name (an empty path: no script), so no reader guesses a root for it.
         std::filesystem::path ResolvedPath() const
         {
             return Common::AssetHandle::PathForStableKey( ScriptKey );

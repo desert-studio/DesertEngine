@@ -77,4 +77,44 @@ namespace Desert::Graphic::System
     void UpdateTerrainLayerInputs( const Core::Formats::ShaderProgramMeta& schema,
                                    const MaterialOverrides& overrides, const std::string& materialTag,
                                    const std::shared_ptr<Image2D>& emptyArray, TerrainLayerInputs& inputs );
+
+    /**
+     * @brief THE LANDSCAPE MATERIAL'S VALUES the ground reads (Terrain.shader / TerrainGBuffer.shader Properties).
+     *
+     * GLSL twin: Common/LandscapeSurface.glslh `LandscapeMaterial`, the struct the one statement of the ground
+     * (EvaluateLandscapeSurface) takes - the raster builds it from its Material, the landscape's ray tracing hit
+     * group reads it from its row. vec4 slots only, so one layout in std140, std430 and here.
+     */
+    struct LandscapeMaterialValues
+    {
+        /// FarTilingDistance (cm), FarTilingScale, MacroVariationSize (cm), MacroVariationStrength.
+        glm::vec4 Tiling{ 0.0f };
+        /// Input k's LayerKTint.
+        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> LayerTint{};
+        /// Input k's (LayerKTileSize cm, LayerKBlend, 0, 0).
+        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> LayerParams{};
+    };
+    static_assert( World::Landscape::kLandscapeMaxWeightLayers == 8u,
+                   "Common/LandscapeSurface.glslh LandscapeMaterial declares eight inputs" );
+    static_assert( sizeof( LandscapeMaterialValues ) == 17u * sizeof( glm::vec4 ),
+                   "LandscapeMaterialValues is GLSL LandscapeMaterial's 17 vec4 slots" );
+
+    /**
+     * @brief A tile's landscape material as the raster drew it this frame, outside the draw
+     * (TerrainRenderer::GetFrameMaterials): what the landscape's ray tracing hit group needs to evaluate the SAME
+     * ground (UE: the landscape material's ray tracing hit shaders read the material's own parameters and
+     * textures).
+     */
+    struct TerrainFrameMaterial
+    {
+        /// The material's Tint (Terrain.shader / TerrainGBuffer.shader: the ground's albedo times it).
+        glm::vec4               Tint{ 1.0f };
+        LandscapeMaterialValues Values;
+        /// Input k's maps in the bindless table (x albedo, y normal, z ARM, w height; 0 = none): the images
+        /// the layer arrays copied slice by slice (TerrainLayerInputs::Sources), so a hit reads the raster's
+        /// pixels. Zero exactly where the input's slice of that kind is -1 (TerrainInstance::InputSlices).
+        std::array<glm::uvec4, World::Landscape::kLandscapeMaxWeightLayers> LayerMaps{};
+        /// The camera the raster drew the tile for (xyz, cm): the far tiling's distance is measured from it.
+        glm::vec4 ViewOrigin{ 0.0f };
+    };
 } // namespace Desert::Graphic::System

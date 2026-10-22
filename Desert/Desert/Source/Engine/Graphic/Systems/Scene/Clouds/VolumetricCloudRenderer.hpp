@@ -163,6 +163,16 @@ namespace Desert::Graphic::System
         // draws nothing) and drops the sky-occlusion volume rather than claim a resolve that never ran.
         void SettleFrameNodes( bool accepted );
 
+        // THE SKY-LIGHT OCCLUSION VOLUME ALONE, for a frame that draws no screen clouds (a path-traced frame,
+        // SceneRenderer::AddFramePathTracing): the volume is an input of the cloud's own lighting - the sky
+        // capture (BakeProceduralSky) marches the layer through it - not a part of the screen march, so a view
+        // that skips the march still decides and writes it, and the capture of that view does not wait on it
+        // forever (BuildEnvironmentBake: InputsPending while undecided). The node is the one DeclareFrameNodes
+        // declares (SkyOcclusionNode). SettleSkyOcclusionNodes( false ) drops the volume when the graph refused
+        // the node.
+        std::vector<ComputeNodeDeclaration> DeclareSkyOcclusionNodes();
+        void                                SettleSkyOcclusionNodes( bool accepted );
+
         // The reconstruction pair the composite samples this frame (graph refs of the transient pair the resolve
         // writes), after SettleFrameNodes. Both invalid when the frame has none (clouds off, or the nodes were
         // refused): the composite then draws nothing.
@@ -186,6 +196,9 @@ namespace Desert::Graphic::System
         // occlusion, march).
         RenderPassDeclaration::BlockDeclaration
         SampledVolumes( RenderPassDeclaration::BlockDeclaration block ) const;
+        // The sky-occlusion volume's dispatch over m_ParamsBuffer / m_AuthoredBuffer as this frame uploaded them
+        // (DeclareFrameNodes, DeclareSkyOcclusionNodes), writing m_SkyOcclusionVolume (EnsureSkyOcclusionVolume).
+        ComputeNodeDeclaration SkyOcclusionNode();
 
         /**
          * @brief Stage SM — the cloud shadow map. Must be called outside any render pass, and EARLY:

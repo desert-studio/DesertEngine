@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "da7d650c52f75b7db1b277cb6d1b723c",
         "Versions": {
-            "SCNE": 68,
+            "SCNE": 69,
             "UNIT": 1
         },
         "Dependencies": ["40e8fc4221d33289cca9e025f87dab0a"]
@@ -123,7 +123,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [10.0, 0.20000000298023224, 10.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_NormalWitness.demat"],
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
                 "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"],
                 "Primitive": "Cube"
             }
@@ -136,7 +136,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [2.200000047683716, 2.200000047683716, 2.200000047683716],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_NormalWitness.demat"],
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
                 "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"],
                 "Primitive": "Sphere"
             }
@@ -149,7 +149,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [2.200000047683716, 2.200000047683716, 2.200000047683716],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_NormalWitness.demat"],
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
                 "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"],
                 "Primitive": "Cube"
             }
@@ -162,7 +162,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "InstancedStaticMesh": {
-                "MaterialPaths": ["Materials/M_NormalWitness.demat"],
+                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
                 "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"],
                 "Primitive": "Cube",
                 "InstanceTransforms": [

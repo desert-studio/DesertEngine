@@ -6,6 +6,8 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldPartitionConversion.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
+#include <Engine/Core/Serialize/SceneDependencies.hpp>
+#include <Engine/World/Landscape/LandscapeTileFiles.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentKinds.hpp>
@@ -35,6 +37,15 @@ namespace Desert::WorldGen
         // THE SHIPPED PRESETS, NAMED IN CODE. The world-scale scene is an instrument, and an instrument
         // whose dimensions are typed on the command line each time is a different instrument every time.
         // Two numbers only ever move together with a new name.
+        // What a preset builds: primitive-cube buildings, corpus props, or a seeded landscape with grass and
+        // foliage (WG-1; Cells is then tiles per side and PerCell / CellSizeCm are unused).
+        enum class PresetKind
+        {
+            Grid,
+            Corpus,
+            Landscape,
+        };
+
         struct Preset
         {
             const char* Key;
@@ -44,7 +55,7 @@ namespace Desert::WorldGen
             int         CellSizeCm;
             // Furnished from the project's corpus list (WorldCorpus.json) instead of primitive-cube buildings, in
             // districts of this many cells per side (WorldSpec::DistrictCells).
-            bool Corpus;
+            PresetKind Kind;
             int  DistrictCells;
         };
 
@@ -66,10 +77,14 @@ namespace Desert::WorldGen
         // theme is then resident along the whole row - measured at 4000 (WP14b f6). `corpus-smoke` is its
         // suite-sized twin: same content table, four cells.
         constexpr Preset kPresets[] = {
-             { "world", "World Grid 8 km", 32, 48, 25600, false, 1 },
-             { "smoke", "World Grid Smoke", 2, 6, 25600, false, 1 },
-             { "corpus", "World Corpus Flight", 16, 9, 2000, true, 4 },
-             { "corpus-smoke", "World Corpus Smoke", 2, 4, 2000, true, 1 },
+             { "world", "World Grid 8 km", 32, 48, 25600, PresetKind::Grid, 1 },
+             { "smoke", "World Grid Smoke", 2, 6, 25600, PresetKind::Grid, 1 },
+             { "corpus", "World Corpus Flight", 16, 9, 2000, PresetKind::Corpus, 4 },
+             { "corpus-smoke", "World Corpus Smoke", 2, 4, 2000, PresetKind::Corpus, 1 },
+             // `landscape` is the grass/foliage instrument (WG-1): 8 x 8 tiles of 255 quads at 1 m (2040 m square),
+             // the FieldBarn layers, grass type and foliage types. `landscape-smoke` is its 2 x 2 suite twin.
+             { "landscape", "World Landscape Meadow", 8, 1, 25500, PresetKind::Landscape, 1 },
+             { "landscape-smoke", "World Landscape Smoke", 2, 1, 25500, PresetKind::Landscape, 1 },
         };
 
         const Preset* FindPreset( const std::string& key )
@@ -125,19 +140,32 @@ namespace Desert::WorldGen
         // the build that loads the body (AssetHeaderReadContext::RecordOnly - this tool links Common only).
         const Common::Content::AssetHeaderReadContext kRecordOnly{ {}, true };
 
+        // THE ONE SPELLING OF A CONTENT REFERENCE: "assets:<path under the assets root>" (Common::AssetHandle::
+        // StableKeyForPath, UE's /Game/... package path). Every asset this tool reads or writes into a scene is
+        // named so - a bare root-relative spelling is refused, naming the reference, never joined to a guessed root.
+        constexpr std::string_view kAssetsScheme = "assets:";
+
+        Common::ResultStr<std::filesystem::path> AssetsKeyFile( const std::filesystem::path& assetsRoot,
+                                                                const std::string& key, const std::string& where )
+        {
+            if ( !key.starts_with( kAssetsScheme ) || key.size() == kAssetsScheme.size() )
+                return Common::MakeError<std::filesystem::path>(
+                     where + " names '" + key + "', not an assets: path - the generator cannot resolve it" );
+            return Common::MakeSuccess( ( assetsRoot / key.substr( kAssetsScheme.size() ) ).lexically_normal() );
+        }
+
         // A texture slot's file, resolved and checked against the GUID the slot states.
         Common::BoolResultStr CheckTextureSlot( const std::filesystem::path& assetsRoot,
                                                 const std::string& material, const TextureSlotIdentity& slot )
         {
-            constexpr std::string_view kAssetsScheme = "assets:";
-            const std::string          where         = "material '" + material + "' slot '" + slot.Name + "'";
+            const std::string where = "material '" + material + "' slot '" + slot.Name + "'";
             // An UNBOUND slot states neither (the shader samples its default); half a reference is a defect.
             if ( slot.Path.empty() && slot.Guid.empty() )
                 return Common::MakeSuccess( true );
-            if ( !slot.Path.starts_with( kAssetsScheme ) )
-                return Common::MakeError<bool>( where + " names '" + slot.Path +
-                                                "', not an assets: path - the generator cannot resolve it" );
-            const auto file   = assetsRoot / slot.Path.substr( kAssetsScheme.size() );
+            const auto resolved = AssetsKeyFile( assetsRoot, slot.Path, where );
+            if ( !resolved )
+                return Common::MakeError<bool>( resolved.GetError() );
+            const auto& file   = resolved.GetValue();
             const auto header = Common::Content::ReadAssetHeader( file, kRecordOnly );
             if ( !header )
                 return Common::MakeError<bool>( where + " texture '" + file.generic_string() +
@@ -155,7 +183,10 @@ namespace Desert::WorldGen
         Common::ResultStr<MaterialRef> LoadMaterial( const std::filesystem::path& assetsRoot,
                                                      const std::string&           relative )
         {
-            const auto text = Common::Utils::FileSystem::ReadFileContent( assetsRoot / relative );
+            const auto file = AssetsKeyFile( assetsRoot, relative, "material" );
+            if ( !file )
+                return Common::MakeError<MaterialRef>( file.GetError() );
+            const auto text = Common::Utils::FileSystem::ReadFileContent( file.GetValue() );
             if ( !text.IsSuccess() )
                 return Common::MakeError<MaterialRef>( "material '" + relative + "': " + text.GetError() );
 
@@ -192,12 +223,12 @@ namespace Desert::WorldGen
         // function and not a constant inside the generator precisely so that the day textured materials
         // exist, this list grows and the world is regenerated, with no change to the generator.
         constexpr const char* kBuildingMaterials[] = {
-             "Materials/CB_White.demat",
-             "Materials/CB_Orange.demat",
-             "Materials/CB_Green.demat",
-             "Materials/CB_Red.demat",
+             "assets:Materials/CB_White.demat",
+             "assets:Materials/CB_Orange.demat",
+             "assets:Materials/CB_Green.demat",
+             "assets:Materials/CB_Red.demat",
         };
-        constexpr const char* kGroundMaterial = "Materials/M_CheckerFloor.demat";
+        constexpr const char* kGroundMaterial = "assets:Materials/M_CheckerFloor.demat";
 
         // A mesh file, read for what a scene must state about it: its header GUID (SCNE 28), its kind, and the
         // bounds it states (to seat it on the ground). Two on-disk forms are tracked and both are read here: an
@@ -205,10 +236,13 @@ namespace Desert::WorldGen
         // (`DESTMESH` v3, bounds in its header - the Cooked/Meshes/*.skmesh probes). Kind and GUID come from
         // ReadAssetHeader, which sniffs both - the same entry point the registry cook reads identity through.
         // Every failure names the file: no asset is a refusal, never a stand-in.
-        Common::ResultStr<MeshRef> LoadMesh( const std::filesystem::path& projectRoot, const std::string& relative,
+        Common::ResultStr<MeshRef> LoadMesh( const std::filesystem::path& assetsRoot, const std::string& relative,
                                              bool skinned )
         {
-            const auto        file   = projectRoot / relative;
+            const auto resolved = AssetsKeyFile( assetsRoot, relative, "mesh" );
+            if ( !resolved )
+                return Common::MakeError<MeshRef>( resolved.GetError() );
+            const auto&       file   = resolved.GetValue();
             const std::string where  = "mesh '" + relative + "' (" + file.generic_string() + ")";
             const auto        header = Common::Content::ReadAssetHeader( file, kRecordOnly );
             if ( !header )
@@ -321,7 +355,7 @@ namespace Desert::WorldGen
             std::vector<PropTheme> themes;
             for ( const auto& row : list.GetValue().Props )
             {
-                auto mesh = LoadMesh( projectRoot, row.Mesh, row.Skinned );
+                auto mesh = LoadMesh( assetsRoot, row.Mesh, row.Skinned );
                 if ( !mesh )
                     return Common::MakeError<std::vector<PropTheme>>( mesh.GetError() );
                 auto material = LoadMaterial( assetsRoot, row.Material );
@@ -335,6 +369,216 @@ namespace Desert::WorldGen
                 theme->Props.push_back( { mesh.GetValue(), material.GetValue(), row.ScalePercent } );
             }
             return Common::MakeSuccess( std::move( themes ) );
+        }
+
+        // ---- The `landscape` preset (WG-1) ----------------------------------------------------------------
+        // The FieldBarn content set (Projects/Desert/Content/Scenes/FIELD_Barn.desce), by assets: keys.
+        constexpr const char* kLandscapeMaterial = "assets:Materials/FieldBarn/M_FieldBarn_Landscape.demat";
+        constexpr const char* kLayerDirt        = "assets:Landscape/Layers/FieldBarn/FieldDirt.delayerinfo";
+        constexpr const char* kLayerGrass       = "assets:Landscape/Layers/FieldBarn/FieldGrass.delayerinfo";
+        constexpr const char* kLayerDry         = "assets:Landscape/Layers/FieldBarn/FieldDry.delayerinfo";
+        constexpr const char* kMeadowFoliage[]  = { "assets:Foliage/FieldBarn/FB_PathEdge.defoliage",
+                                                    "assets:Foliage/FieldBarn/FB_ShrubA.defoliage" };
+        constexpr const char* kTreeFoliage[]    = { "assets:Foliage/FieldBarn/FB_TreeA.defoliage",
+                                                    "assets:Foliage/FieldBarn/FB_TreeB.defoliage",
+                                                    "assets:Foliage/FieldBarn/FB_TreeShrub.defoliage" };
+
+        struct LayerInfoOnly
+        {
+            std::optional<Common::Content::TextAssetHeaderSerialized> Header;
+            std::optional<std::string>                                LayerName;
+            std::optional<float>                                      Hardness;
+            std::optional<bool>                                       NoWeightBlend;
+            Common::Json::KeyedValues                                 Rest;
+        };
+
+        // The scene spells an asset handle {Guid, Path relative to the assets root} (the saver's form).
+        std::string HandlePath( const std::string& key )
+        {
+            return key.substr( kAssetsScheme.size() );
+        }
+
+        Common::ResultStr<LandscapeLayerRef> LoadLayer( const std::filesystem::path& assets, const std::string& key )
+        {
+            const auto file = AssetsKeyFile( assets, key, "landscape layer" );
+            if ( !file )
+                return Common::MakeError<LandscapeLayerRef>( file.GetError() );
+            const auto text = Common::Utils::FileSystem::ReadFileContent( file.GetValue() );
+            if ( !text )
+                return Common::MakeError<LandscapeLayerRef>( "layer '" + key + "': " + text.GetError() );
+            const auto parsed = Common::Json::Read<LayerInfoOnly>( text.GetValue() );
+            if ( !parsed )
+                return Common::MakeError<LandscapeLayerRef>( "layer '" + key + "': " + parsed.GetError() );
+            const auto& info = parsed.GetValue();
+            if ( !info.Header || !info.LayerName || info.LayerName->empty() )
+                return Common::MakeError<LandscapeLayerRef>( "layer '" + key + "' states no header or LayerName" );
+            const auto guid = Common::Content::AssetGuidFromText( info.Header->Guid );
+            if ( !guid || guid.GetValue().IsNull() )
+                return Common::MakeError<LandscapeLayerRef>( "layer '" + key + "' states no GUID" );
+            return Common::MakeSuccess<LandscapeLayerRef>( { Common::Content::AssetGuidToText( guid.GetValue() ),
+                                                             HandlePath( key ), *info.LayerName,
+                                                             info.Hardness.value_or( 0.5f ),
+                                                             info.NoWeightBlend.value_or( false ) } );
+        }
+
+        Common::ResultStr<FoliageTypeRef> LoadFoliageType( const std::filesystem::path& assets, const std::string& key )
+        {
+            const auto file = AssetsKeyFile( assets, key, "foliage type" );
+            if ( !file )
+                return Common::MakeError<FoliageTypeRef>( file.GetError() );
+            const auto header = Common::Content::ReadAssetHeader( file.GetValue(), kRecordOnly );
+            if ( !header )
+                return Common::MakeError<FoliageTypeRef>( "foliage type '" + key + "': " + header.GetError() );
+            return Common::MakeSuccess<FoliageTypeRef>(
+                 { Common::Content::AssetGuidToText( header.GetValue().Guid ), HandlePath( key ) } );
+        }
+
+        int RunLandscape( const WorldSpec& spec, const std::filesystem::path& assets, const std::string& outPath,
+                          bool partition, bool verify, std::ostream& out, std::ostream& err )
+        {
+            namespace fs = std::filesystem;
+            if ( partition )
+            {
+                err << "WorldGen: a landscape preset writes no WorldPartition block; drop --partition\n";
+                return 2;
+            }
+
+            LandscapeContent content;
+            {
+                auto material = LoadMaterial( assets, kLandscapeMaterial );
+                auto dirt     = LoadLayer( assets, kLayerDirt );
+                auto grass    = LoadLayer( assets, kLayerGrass );
+                auto dry      = LoadLayer( assets, kLayerDry );
+                for ( const auto* failed : { material ? nullptr : &material.GetError(),
+                                             dirt ? nullptr : &dirt.GetError(), grass ? nullptr : &grass.GetError(),
+                                             dry ? nullptr : &dry.GetError() } )
+                    if ( failed != nullptr )
+                    {
+                        err << "WorldGen: " << *failed << "\n";
+                        return 3;
+                    }
+                content.Material = material.GetValue().Path;
+                content.Dirt     = dirt.ExtractValue();
+                content.Grass    = grass.ExtractValue();
+                content.Dry      = dry.ExtractValue();
+                const auto loadAll = [&]( std::span<const char* const> keys, std::vector<FoliageTypeRef>& into )
+                {
+                    for ( const char* key : keys )
+                    {
+                        auto type = LoadFoliageType( assets, key );
+                        if ( !type )
+                        {
+                            err << "WorldGen: " << type.GetError() << "\n";
+                            return false;
+                        }
+                        into.push_back( type.ExtractValue() );
+                    }
+                    return true;
+                };
+                if ( !loadAll( kMeadowFoliage, content.Meadow ) || !loadAll( kTreeFoliage, content.Trees ) )
+                    return 3;
+            }
+
+            LandscapeWorldSpec ls;
+            ls.Name         = spec.Name;
+            ls.TilesPerSide = spec.Cells;
+            ls.Seed         = static_cast<uint32_t>( spec.Seed );
+
+            // The tiles' content keys: the scene's directory under the assets root (LandscapeTileBlobPath).
+            const fs::path assetsAbs = fs::absolute( assets ).lexically_normal();
+            const fs::path outAbs    = fs::absolute( outPath ).lexically_normal();
+            const fs::path rel       = outAbs.parent_path().lexically_relative( assetsAbs );
+            if ( rel.empty() || *rel.begin() == ".." )
+            {
+                err << "WorldGen: --out '" << outPath << "' is not under the assets root '" << assetsAbs.generic_string()
+                    << "'; a landscape tile is named by an assets: key\n";
+                return 2;
+            }
+            const std::string dir    = rel.generic_string();
+            const std::string prefix = std::string( kAssetsScheme ) + ( dir == "." ? std::string() : dir + "/" ) +
+                                       outAbs.stem().string() + "_Landscape/";
+
+            const Common::Content::AssetGuid guid =
+                 ExistingWorldGuid( outPath ).value_or( Common::Content::AssetGuid::Generate() );
+
+            const auto build = [&]( std::string& json, WorldStats& stats, LandscapeWorld& world ) -> bool
+            {
+                auto built = BuildLandscapeWorld( ls, content, prefix, guid, stats );
+                if ( !built )
+                {
+                    err << "WorldGen: " << built.GetError() << "\n";
+                    return false;
+                }
+                world = built.ExtractValue();
+                if ( Migration::CanonicaliseSettings( world.Scene.Settings ).Refused )
+                {
+                    err << "WorldGen: the reflection table was not available, so no Settings block could be "
+                           "written.\n";
+                    return false;
+                }
+                // The dependency list the saver states (SCENE-DEPS), so the first editor save changes nothing.
+                auto gather = Core::GatherSceneDependencies(
+                     world.Scene.Entities, world.Scene.Settings.has_value() ? &*world.Scene.Settings : nullptr,
+                     assetsAbs );
+                if ( !gather.Refused.empty() )
+                {
+                    err << "WorldGen: the dependency list does not gather: " << gather.Refused.front() << "\n";
+                    return false;
+                }
+                world.Scene.Header->Dependencies = std::move( gather.Guids );
+                json                             = Common::Json::Write( world.Scene );
+                return true;
+            };
+
+            WorldStats     stats;
+            std::string    json;
+            LandscapeWorld world;
+            const auto     started = std::chrono::steady_clock::now();
+            if ( !build( json, stats, world ) )
+                return 4;
+            const auto elapsedMs =
+                 std::chrono::duration_cast<std::chrono::milliseconds>( std::chrono::steady_clock::now() - started )
+                      .count();
+            if ( verify )
+            {
+                WorldStats     again;
+                std::string    second;
+                LandscapeWorld other;
+                if ( !build( second, again, other ) )
+                    return 4;
+                bool same = second == json && other.Tiles.size() == world.Tiles.size();
+                for ( size_t i = 0; same && i < world.Tiles.size(); ++i )
+                    same = other.Tiles[i].Data.Samples() == world.Tiles[i].Data.Samples();
+                if ( !same )
+                {
+                    err << "WorldGen: NOT REPRODUCIBLE - two builds of the landscape differ. Refusing to write.\n";
+                    return 5;
+                }
+                out << "verify: two builds of the same spec are byte-identical (" << json.size() << " bytes, "
+                    << world.Tiles.size() << " tiles)\n";
+            }
+
+            // Tiles first: the scene names them, so it is written only once every file it names exists.
+            for ( const auto& tile : world.Tiles )
+                if ( const auto written = World::Landscape::WriteLandscapeTileFile(
+                          World::Landscape::LandscapeTileBlobPath( outPath, tile.Id ), tile.Data );
+                     !written )
+                {
+                    err << "WorldGen: " << written.GetError() << "\n";
+                    return 6;
+                }
+            if ( const auto written = Core::ExternalEntities::WriteSceneText( outPath, json ); !written )
+            {
+                err << "WorldGen: " << written.GetError() << "\n";
+                return 6;
+            }
+            out << "WorldGen wrote " << outPath << "\n"
+                << "  scene name   : " << spec.Name << " (landscape)\n"
+                << "  entities     : " << stats.Entities << " (" << stats.GroundTiles << " landscape tiles)\n"
+                << "  extent       : " << stats.ExtentCm / 100 << " m square, seed " << ls.Seed << "\n"
+                << "  bytes        : " << json.size() << "\n"
+                << "  generated in : " << elapsedMs << " ms\n";
+            return 0;
         }
 
         bool ParseInt( const std::string& text, int& out )
@@ -498,10 +742,10 @@ namespace Desert::WorldGen
             return 2;
         }
 
-        if ( projectRoot.empty() && ( assetsRoot.empty() || preset->Corpus ) )
+        if ( projectRoot.empty() && ( assetsRoot.empty() || ( preset->Kind == PresetKind::Corpus ) ) )
         {
             err << "WorldGen: no --project. "
-                << ( preset->Corpus
+                << ( ( preset->Kind == PresetKind::Corpus )
                           ? std::format(
                                  "Preset '{}' is furnished from "
                                  "the project's corpus list (<project>/WorldCorpus.json; the suite data project "
@@ -547,6 +791,9 @@ namespace Desert::WorldGen
             assetsRoot = ( std::filesystem::path( projectRoot ) / project.GetValue().AssetsRoot ).string();
         }
 
+        if ( preset->Kind == PresetKind::Landscape )
+            return RunLandscape( spec, std::filesystem::path( assetsRoot ), outPath, partition, verify, out, err );
+
         const std::filesystem::path assets( assetsRoot );
         std::vector<MaterialRef>    palette;
         for ( const char* relative : kBuildingMaterials )
@@ -568,7 +815,7 @@ namespace Desert::WorldGen
         }
 
         std::vector<PropTheme> themes;
-        if ( preset->Corpus )
+        if ( ( preset->Kind == PresetKind::Corpus ) )
         {
             auto loaded = LoadCorpusThemes( projectRoot, assets );
             if ( !loaded )

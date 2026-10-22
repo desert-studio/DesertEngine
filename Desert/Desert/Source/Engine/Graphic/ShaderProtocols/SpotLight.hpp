@@ -43,7 +43,8 @@ namespace Desert::Graphic::ShaderProtocols
         // std430 rounds the array stride of a struct with a vec3 to 16 bytes: explicit, so sizeof matches.
         // Full intensity within this distance (cm), the falloff measured from it (BISTRO-LIGHTS).
         float MinRadius = 0.0f; // 84
-        float Pad1 = 0.0f;
+        // The light's layer in the view's ray-traced local shadow masks, or -1 (PointLightPayload says how).
+        int32_t ShadowMaskSlot = -1; // 88
         float Pad2 = 0.0f; // -> 96
     };
     static_assert( sizeof( SpotLightPayload ) == 96, "struct SpotLight (Mesh/LightSources.glslh) is 96 bytes" );

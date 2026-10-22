@@ -13,10 +13,11 @@ Shader "ScreenProbeTraceScreen"
 {
     Compute
     {
-        LocalSize(8, 8, 1);
 
         #include <Common/GIFrame.glslh>
         #include <Common/ScreenProbes.glslh>
+        // One thread per traced texel of a probe (SP_RES², the layout permutation).
+        LocalSize(SP_TRACED_TEXELS, SP_TRACED_TEXELS, 1);
         #include <Common/RadianceCache.glslh>
 
         ReadBuffer(0) ScreenProbeParamsUB

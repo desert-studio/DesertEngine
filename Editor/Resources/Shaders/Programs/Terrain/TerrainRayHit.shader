@@ -7,10 +7,13 @@ Shader "TerrainRayHit"
     // tile's row (LandscapeRayHitRow, Programs/Terrain/TerrainRayHit.glslh); the frame's hit group table and the
     // ray tracing pipeline address it as "TerrainRayHit/RayTracing.Hit", like a surface template's cell.
     //
-    //   closest hit  the ground at the hit into the ray's payload: the painted layers over the root's ground
-    //                (Common/LandscapeSurface.glslh, the statement the G-buffer program shades with) times the
-    //                material's Tint, the matte roughness, the interpolated vertex normal facing the ray (the
-    //                raster draws the tile with Cull None). No lighting: the ray generation lights the payload;
+    //   closest hit  the ground at the hit into the ray's payload: Common/LandscapeSurface.glslh
+    //                EvaluateLandscapeSurface, the statement the G-buffer program shades with - the material's layer
+    //                inputs (albedo, normal, ARM roughness, height blend), far tiling and macro variation over the
+    //                painted weights - with the row's copy of the material's values and its layer maps through the
+    //                bindless table at the ray cone's level; the albedo times the material's Tint, metallic 0 as the
+    //                G-buffer writes it, the interpolated vertex normal facing the ray (the raster draws the tile
+    //                with Cull None) as the geometric normal. No lighting: the ray generation lights the payload;
     //   any hit      the hole test of the tile's masked segment (the cells that touch a hole): a candidate in a
     //                hole is ignored, the raster's discard (LandscapeTileIsHole). The opaque segment has no hole
     //                and never runs it.
@@ -24,25 +27,31 @@ Shader "TerrainRayHit"
 
             void main()
             {
-                LandscapeRayHitRowRef       row  = LandscapeRayHitRowRef( RayHitRecord.MaterialRow );
-                const TerrainInstance       tile = row.Tile;
-                vec4                        w0;
-                vec4                        w1;
-                LandscapeRayHitWeights( tile, row.Weightmap, LandscapeRayHitPosition(), w0, w1 );
+                LandscapeRayHitRowRef row      = LandscapeRayHitRowRef( RayHitRecord.MaterialRow );
+                g_LandscapeRayHitRow           = row;
+                const TerrainInstance tile     = row.Tile;
+                const vec3            position = LandscapeRayHitPosition();
+                vec4                  w0;
+                vec4                  w1;
+                LandscapeRayHitWeights( tile, row.Weightmap, position, w0, w1 );
 
                 // The landscape's vertices are written in world space (identity instance transform); the
                 // inverse transpose is applied all the same, as every hit group does.
                 const DesertRayHitTriangle t = DesertRayHitFetch();
-                vec3 N = normalize( ( t.Normal * gl_WorldToObjectEXT ).xyz );
-                if ( dot( N, gl_WorldRayDirectionEXT ) > 0.0 )
-                    N = -N;
+                vec3 Ng = normalize( ( t.Normal * gl_WorldToObjectEXT ).xyz );
+                if ( dot( Ng, gl_WorldRayDirectionEXT ) > 0.0 )
+                    Ng = -Ng;
+                LandscapeRayHitConeLod( Ng );
+
+                const TerrainSurface s = EvaluateLandscapeSurface(
+                     tile, row.MaterialValues, position, Ng, distance( position, row.ViewOrigin.xyz ), w0, w1 );
 
                 payload.HitT      = gl_HitTEXT;
-                payload.BaseColor = LandscapeGroundAlbedo( tile, w0, w1 ) * row.Tint.rgb;
+                payload.BaseColor = s.Albedo * row.Tint.rgb;
                 payload.Metallic  = 0.0;
-                payload.Roughness = kLandscapeRoughness;
+                payload.Roughness = s.Roughness;
                 payload.Emissive  = vec3( 0.0 );
-                payload.Normal    = N;
+                payload.Normal    = s.N;
                 payload.Flags     = gl_HitKindEXT == gl_HitKindFrontFacingTriangleEXT ? kDesertRayPayloadFrontFace : 0u;
                 DesertRayHitIdentify();
             }

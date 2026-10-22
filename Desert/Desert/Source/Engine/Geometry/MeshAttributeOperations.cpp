@@ -10,7 +10,6 @@
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshTangents.hpp"
 
-#include <mikktspace.h>
 #include "Engine/Geometry/MeshCore/IndexUtil.hpp"
 #include "Engine/Geometry/MeshCore/Polygroups/PolygroupSet.hpp"
 #include "Engine/Geometry/MeshCore/Spatial/MeshAABBTree3.hpp"
@@ -158,83 +157,6 @@ namespace Desert::Geometry
         return "?";
     }
 
-    namespace
-    {
-        // UE GeometryAlgorithms DynamicMeshMikkTWrapper.cpp (DynamicMeshMikkTInterface + ComputeTangents).
-        struct MikkTMeshInfo
-        {
-            const DynamicMesh3*             Mesh;
-            const DynamicMeshNormalOverlay* NormalOverlay;
-            const DynamicMeshUVOverlay*     UVOverlay;
-            MeshTangentsd*                  TangentsOut;
-        };
-        const MikkTMeshInfo& InfoOf( const SMikkTSpaceContext* c )
-        {
-            return *static_cast<const MikkTMeshInfo*>( c->m_pUserData );
-        }
-        int MikkGetNumFaces( const SMikkTSpaceContext* c )
-        {
-            return InfoOf( c ).Mesh->MaxTriangleID();
-        }
-        int MikkGetNumVertsOfFace( const SMikkTSpaceContext* c, const int f )
-        {
-            return InfoOf( c ).Mesh->IsTriangle( f ) ? 3 : 0;
-        }
-        void MikkGetPosition( const SMikkTSpaceContext* c, float p[3], const int f, const int v )
-        {
-            const glm::dvec3 pos = InfoOf( c ).Mesh->GetVertex( InfoOf( c ).Mesh->GetTriangle( f )[v] );
-            p[0] = float( pos.x ), p[1] = float( pos.y ), p[2] = float( pos.z );
-        }
-        glm::vec3 MikkNormal( const MikkTMeshInfo& m, int f, int v )
-        {
-            return m.NormalOverlay->IsSetTriangle( f ) ? m.NormalOverlay->GetElement( m.NormalOverlay->GetTriangle( f )[v] )
-                                                       : glm::vec3( 0.0f, 0.0f, 1.0f );
-        }
-        void MikkGetNormal( const SMikkTSpaceContext* c, float n[3], const int f, const int v )
-        {
-            const glm::vec3 nn = MikkNormal( InfoOf( c ), f, v );
-            n[0] = nn.x, n[1] = nn.y, n[2] = nn.z;
-        }
-        void MikkGetTexCoord( const SMikkTSpaceContext* c, float uv[2], const int f, const int v )
-        {
-            const MikkTMeshInfo& m = InfoOf( c );
-            if ( !m.UVOverlay->IsSetTriangle( f ) )
-            {
-                uv[0] = uv[1] = 0.0f;
-                return;
-            }
-            const glm::vec2 e = m.UVOverlay->GetElement( m.UVOverlay->GetTriangle( f )[v] );
-            uv[0] = e.x, uv[1] = e.y;
-        }
-        void MikkSetTSpaceBasic( const SMikkTSpaceContext* c, const float t[3], const float sign, const int f,
-                                 const int v )
-        {
-            const MikkTMeshInfo& m = InfoOf( c );
-            const glm::dvec3     tangent( t[0], t[1], t[2] );
-            const glm::dvec3     normal( MikkNormal( m, f, v ) );
-            // UE VectorUtil::Bitangent( Normal, Tangent, -BitangentSign )
-            m.TangentsOut->SetPerTriangleTangent( f, v, tangent, -double( sign ) * glm::cross( normal, tangent ) );
-        }
-        void ComputeMikkTTangents( const DynamicMesh3& mesh, MeshTangentsd& tangents )
-        {
-            tangents.InitializeTriVertexTangents( true );
-            MikkTMeshInfo info{ &mesh, mesh.Attributes()->PrimaryNormals(), mesh.Attributes()->GetUVLayer( 0 ),
-                                &tangents };
-            SMikkTSpaceInterface iface{};
-            iface.m_getNumFaces          = MikkGetNumFaces;
-            iface.m_getNumVerticesOfFace = MikkGetNumVertsOfFace;
-            iface.m_getPosition          = MikkGetPosition;
-            iface.m_getNormal            = MikkGetNormal;
-            iface.m_getTexCoord          = MikkGetTexCoord;
-            iface.m_setTSpaceBasic       = MikkSetTSpaceBasic;
-            iface.m_setTSpace            = nullptr;
-            SMikkTSpaceContext context{};
-            context.m_pInterface = &iface;
-            context.m_pUserData  = &info;
-            genTangSpaceDefault( &context );
-        }
-    } // namespace
-
     Common::ResultStr<DeformOutcome> ComputeTangents( const DynamicMesh3& input, const TangentsSettings& settings )
     {
         if ( input.TriangleCount() == 0 )
@@ -260,7 +182,9 @@ namespace Desert::Geometry
                                                    { .bAngleWeighted = true, .bAveraged = false } );
                 break;
             case TangentsMethod::MikkTSpace:
-                ComputeMikkTTangents( mesh, tangents );
+                // The engine's one generator (Engine/Geometry/MikkTangents.hpp), the importer's frame.
+                if ( !tangents.ComputeMikkTTangents( attributes->PrimaryNormals(), attributes->GetUVLayer( 0 ) ) )
+                    return Common::MakeError<DeformOutcome>( "Tangents: MikkTSpace could not allocate its working set" );
                 break;
         }
         if ( !tangents.CopyToOverlays( mesh ) )

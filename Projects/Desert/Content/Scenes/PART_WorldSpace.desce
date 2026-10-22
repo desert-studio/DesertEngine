@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "a818816ace4cfcadaec60e24855458b8",
         "Versions": {
-            "SCNE": 68,
+            "SCNE": 69,
             "UNIT": 1
         },
         "Dependencies": ["707b4be308bb41c990f65b7b52e1737e"]
@@ -131,7 +131,7 @@
                 ]
             },
             "VFX": {
-                "System": "VFX/Particle_World-Space_Probe_2001.dfx",
+                "System": "assets:VFX/Particle_World-Space_Probe_2001.dfx",
                 "AutoActivate": true
             }
         },

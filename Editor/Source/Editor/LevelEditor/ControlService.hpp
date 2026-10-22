@@ -67,7 +67,7 @@ namespace Desert::Editor
         // outstanding while this frame was being made". Judged later, by the gate, at OnFramePresented.
         // Also called once at the end of OnAttach: an unsampled census must not read as a settled editor.
         // @p startupLoading is the layer's start-up staging or content settle, still running.
-        void SampleFrameQuiescence( bool startupLoading );
+        void SampleFrameQuiescence( bool startupLoading, bool reflectionCapturesFilling, bool texturesStreaming );
         // CAPTURING THE COMPOSITED FRAME, in two halves, because a swapchain image may only be touched
         // between its acquire and its present.
         //

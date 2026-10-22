@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "9f6174036d8b88429df5ff712f042697",
         "Versions": {
-            "SCNE": 68,
+            "SCNE": 69,
             "UNIT": 1
         },
         "Dependencies": [
@@ -119,7 +119,7 @@
             },
             "VolumetricCloud": {
                 "Enabled": true,
-                "Material": "Materials/FieldBarn/M_FieldBarn_Clouds.demat",
+                "Material": "assets:Materials/FieldBarn/M_FieldBarn_Clouds.demat",
                 "PlanetRadius": 6360.0,
                 "LayerAltitudeOffset": 0.0,
                 "MaxViewDistance": 6000000.0,
@@ -242,20 +242,20 @@
                 "Layers": [
                     {
                         "Guid": "f1310680ea846d17141c59441b901b55",
-                        "Path": "Landscape/Layers/FieldBarn/FieldDirt.delayerinfo"
+                        "Path": "assets:Landscape/Layers/FieldBarn/FieldDirt.delayerinfo"
                     },
                     {
                         "Guid": "0e67a9bfdff1b3cd7ed50e27dadc465e",
-                        "Path": "Landscape/Layers/FieldBarn/FieldGrass.delayerinfo"
+                        "Path": "assets:Landscape/Layers/FieldBarn/FieldGrass.delayerinfo"
                     },
                     {
                         "Guid": "c39ddb7d5965f1c080b50b71c51a6db6",
-                        "Path": "Landscape/Layers/FieldBarn/FieldDry.delayerinfo"
+                        "Path": "assets:Landscape/Layers/FieldBarn/FieldDry.delayerinfo"
                     }
                 ]
             },
             "LandscapeMaterial": {
-                "Material": "Materials/FieldBarn/M_FieldBarn_Landscape.demat"
+                "Material": "assets:Materials/FieldBarn/M_FieldBarn_Landscape.demat"
             }
         },
         {
@@ -268,7 +268,7 @@
             "StaticMesh": {
                 "MeshPath": "assets:Environments/FieldBarn/Meshes/Barn/Barn.stmesh",
                 "MeshGuid": "6831a5786cc03c9521fd4e6f326f9e3c",
-                "MaterialPaths": ["Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Siding.demat", "Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Roof.demat", "Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Trim.demat"],
+                "MaterialPaths": ["assets:Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Siding.demat", "assets:Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Roof.demat", "assets:Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Trim.demat"],
                 "MaterialGuids": ["eaf8fb2f7d02639251cf1e3d8b9509e7", "cdd32b25ecbf02877d37a24a5dba1e82", "cd18c58242cd665c07470eccd72ba91d"]
             }
         },
@@ -282,7 +282,7 @@
             "StaticMesh": {
                 "MeshPath": "assets:Environments/FieldBarn/Meshes/island_tree_01/island_tree_01.stmesh",
                 "MeshGuid": "6fc7758ca71aaf424936be96d961d61e",
-                "MaterialPaths": ["Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01.demat", "Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_leaves.demat", "Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_branches.demat"],
+                "MaterialPaths": ["assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_leaves.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_branches.demat"],
                 "MaterialGuids": ["cadb04bde225c774a2597971f3d3a5db", "a2057248f4f9e4544442314944bed9a5", "a1673396e31e144dceb4cbfad89d941c"]
             }
         },
@@ -296,7 +296,7 @@
             "StaticMesh": {
                 "MeshPath": "assets:Environments/FieldBarn/Meshes/island_tree_02/island_tree_02.stmesh",
                 "MeshGuid": "544896472e3f0608af9d146f1c8cdf2b",
-                "MaterialPaths": ["Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02.demat", "Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02_leaves.demat", "Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02_branches.demat"],
+                "MaterialPaths": ["assets:Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02_leaves.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02_branches.demat"],
                 "MaterialGuids": ["55d64d107f0770cf65fbc9d9748069a8", "bd014cc93e0decb975a67d81baac6278", "40bbdf25c81a389070d22ca642d72521"]
             }
         },
@@ -310,7 +310,7 @@
             "StaticMesh": {
                 "MeshPath": "assets:Environments/FieldBarn/Meshes/island_tree_01/island_tree_01.stmesh",
                 "MeshGuid": "6fc7758ca71aaf424936be96d961d61e",
-                "MaterialPaths": ["Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01.demat", "Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_leaves.demat", "Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_branches.demat"],
+                "MaterialPaths": ["assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_leaves.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_branches.demat"],
                 "MaterialGuids": ["cadb04bde225c774a2597971f3d3a5db", "a2057248f4f9e4544442314944bed9a5", "a1673396e31e144dceb4cbfad89d941c"]
             }
         },
@@ -333,11 +333,11 @@
                 "FoliageTypes": [
                     {
                         "Guid": "29c0297bfae66c14e7be6532e7ce1963",
-                        "Path": "Foliage/FieldBarn/FB_PathEdge.defoliage"
+                        "Path": "assets:Foliage/FieldBarn/FB_PathEdge.defoliage"
                     },
                     {
                         "Guid": "ef6e7c4e137113f552595c56bedcb909",
-                        "Path": "Foliage/FieldBarn/FB_ShrubA.defoliage"
+                        "Path": "assets:Foliage/FieldBarn/FB_ShrubA.defoliage"
                     }
                 ]
             }
@@ -361,15 +361,15 @@
                 "FoliageTypes": [
                     {
                         "Guid": "0987b34baece1a37e6f3e932edfde3ee",
-                        "Path": "Foliage/FieldBarn/FB_TreeA.defoliage"
+                        "Path": "assets:Foliage/FieldBarn/FB_TreeA.defoliage"
                     },
                     {
                         "Guid": "4179fa72563a1de20aa8d5c9ed952532",
-                        "Path": "Foliage/FieldBarn/FB_TreeB.defoliage"
+                        "Path": "assets:Foliage/FieldBarn/FB_TreeB.defoliage"
                     },
                     {
                         "Guid": "89f24c160b149347c112214c4f1582bf",
-                        "Path": "Foliage/FieldBarn/FB_TreeShrub.defoliage"
+                        "Path": "assets:Foliage/FieldBarn/FB_TreeShrub.defoliage"
                     }
                 ]
             }
@@ -1143,12 +1143,12 @@
             "Scale": [1.0, 1.0, 1.0],
             "Foliage": {
                 "FoliageTypeGuid": "89f24c160b149347c112214c4f1582bf",
-                "FoliageTypePath": "Foliage/FieldBarn/FB_TreeShrub.defoliage"
+                "FoliageTypePath": "assets:Foliage/FieldBarn/FB_TreeShrub.defoliage"
             },
             "InstancedStaticMesh": {
                 "MeshPath": "assets:Environments/FieldBarn/Meshes/shrub_02/shrub_02_shrub_02_b.stmesh",
                 "MeshGuid": "3a128cc7205aa269d0fbaca6e09d04a0",
-                "MaterialPaths": ["Materials/Environments/FieldBarn/Meshes/shrub_02/shrub_02/shrub_02.demat"],
+                "MaterialPaths": ["assets:Materials/Environments/FieldBarn/Meshes/shrub_02/shrub_02/shrub_02.demat"],
                 "MaterialGuids": ["c1182528c70676f549e0667952d8daea"],
                 "InstanceTransforms": [
                     [
@@ -1286,12 +1286,12 @@
             "Scale": [1.0, 1.0, 1.0],
             "Foliage": {
                 "FoliageTypeGuid": "4179fa72563a1de20aa8d5c9ed952532",
-                "FoliageTypePath": "Foliage/FieldBarn/FB_TreeB.defoliage"
+                "FoliageTypePath": "assets:Foliage/FieldBarn/FB_TreeB.defoliage"
             },
             "InstancedStaticMesh": {
                 "MeshPath": "assets:Environments/FieldBarn/Meshes/island_tree_02/island_tree_02.stmesh",
                 "MeshGuid": "544896472e3f0608af9d146f1c8cdf2b",
-                "MaterialPaths": ["Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02.demat", "Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02_leaves.demat", "Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02_branches.demat"],
+                "MaterialPaths": ["assets:Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02_leaves.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02_branches.demat"],
                 "MaterialGuids": ["55d64d107f0770cf65fbc9d9748069a8", "bd014cc93e0decb975a67d81baac6278", "40bbdf25c81a389070d22ca642d72521"],
                 "InstanceTransforms": [
                     [
@@ -1493,12 +1493,12 @@
             "Scale": [1.0, 1.0, 1.0],
             "Foliage": {
                 "FoliageTypeGuid": "0987b34baece1a37e6f3e932edfde3ee",
-                "FoliageTypePath": "Foliage/FieldBarn/FB_TreeA.defoliage"
+                "FoliageTypePath": "assets:Foliage/FieldBarn/FB_TreeA.defoliage"
             },
             "InstancedStaticMesh": {
                 "MeshPath": "assets:Environments/FieldBarn/Meshes/island_tree_01/island_tree_01.stmesh",
                 "MeshGuid": "6fc7758ca71aaf424936be96d961d61e",
-                "MaterialPaths": ["Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01.demat", "Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_leaves.demat", "Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_branches.demat"],
+                "MaterialPaths": ["assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_leaves.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_branches.demat"],
                 "MaterialGuids": ["cadb04bde225c774a2597971f3d3a5db", "a2057248f4f9e4544442314944bed9a5", "a1673396e31e144dceb4cbfad89d941c"],
                 "InstanceTransforms": [
                     [

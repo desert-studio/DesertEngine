@@ -2,21 +2,30 @@
 #define TERRAIN_RAY_HIT_GLSLH
 
 // What the landscape's hit group (Programs/Terrain/TerrainRayHit.shader) knows at a hit: the tile's row, read
-// through the hit record's MaterialRow address, and the tile's weightmap pages at the hit point, read through the
-// bindless table. The arithmetic after the samples is Common/LandscapeSurface.glslh, the raster's own.
+// through the hit record's MaterialRow address, the tile's weightmap pages at the hit point and the landscape
+// material's layer maps, read through the bindless table. Everything after the samples is
+// Common/LandscapeSurface.glslh, the raster's own statement of the ground.
 
 #include <Common/BindlessTextures.glslh>
 #include <Common/RayTracingHitTriangle.glslh>
 #include <Common/LandscapeSurface.glslh>
 
 // The tile's hit-group row. C++ twin: Graphic/Systems/Scene/Terrain/LandscapeRayTracing.cpp LandscapeRayHitRow
-// (kLandscapeRayHitRowSlots: TerrainInstance's 17 slots, the Tint, the weightmap slots).
+// (kLandscapeRayHitRowSlots: TerrainInstance's slots, the Tint, the sampling slots, the material's 17 value slots,
+// the eight inputs' map slots, the view origin).
 layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer LandscapeRayHitRowRef
 {
-    TerrainInstance Tile;      // the raster's TerrainInstances row of the tile this frame
-    vec4            Tint;      // the terrain material's Tint the raster drew the tile with
-    uvec4           Weightmap; // x = bindless texture slot of the weightmap (0 = none), y = its bindless sampler slot
+    TerrainInstance   Tile;         // the raster's TerrainInstances row of the tile this frame
+    vec4              Tint;         // the terrain material's Tint the raster drew the tile with
+    uvec4             Weightmap;    // x = bindless slot of the weightmap (0 = none), y = its sampler slot,
+                                    // z = the layer maps' sampler slot
+    LandscapeMaterial MaterialValues; // the material's values the raster drew the tile with (the Material block's)
+    uvec4             LayerMaps[8]; // input k's maps' bindless slots: x albedo, y normal, z ARM, w height (0 = none)
+    vec4              ViewOrigin;   // xyz = the camera the raster drew the tile for (cm): the far tiling's distance
 };
+
+// The row of the hit being shaded, for LandscapeLayerMapSample (set by the closest hit before it evaluates).
+LandscapeRayHitRowRef g_LandscapeRayHitRow;
 
 // The hit point (cm): along the ray to the hit, for the closest hit and for a candidate in the any hit.
 vec3 LandscapeRayHitPosition()
@@ -40,6 +49,27 @@ void LandscapeRayHitWeights( TerrainInstance tile, uvec4 weightmap, vec3 worldPo
     w0                          = SampleBindlessLod( map, LandscapeWeightmapPageUV( g, 0.0, size, pages ), 0.0 );
     if ( pages > 1.5 )
         w1 = SampleBindlessLod( map, LandscapeWeightmapPageUV( g, 1.0, size, pages ), 0.0 );
+}
+
+// The hit group's layer map fetch (Common/LandscapeSurface.glslh): input @p k's map of @p kind, the image the
+// raster's array slice @p slice was copied from, through the bindless table at the RAY CONE's level - the hit has no
+// screen derivatives (Common/BindlessTextures.glslh RayHitTextureLod: g_DesertRayHitLod is the cone's log2 footprint
+// in cm, which @p uvPerCm turns into this fetch's uv).
+vec4 LandscapeLayerMapSample( int k, int kind, float slice, vec2 uv, float uvPerCm )
+{
+    const BindlessTexture map = BindlessTexture( g_LandscapeRayHitRow.LayerMaps[k][kind],
+                                                 g_LandscapeRayHitRow.Weightmap.z, 0u, 0u );
+    return SampleBindlessLod( map, uv, max( RayHitTextureLod( map ) + log2( uvPerCm ), 0.0 ) );
+}
+
+// The ray cone's footprint at the hit (Mesh/Surface/Pass_RayHit.glslh's, for the landscape's world-aligned UVs): the
+// cone widened to the hit, over the cosine of the ray with the surface, times the square root of the ratio of the
+// triangle's top-down area to its world area (|N.y| of the heightfield) - the uv scale is the fetch's.
+void LandscapeRayHitConeLod( vec3 N )
+{
+    const float width  = payload.ConeWidth + payload.ConeSpread * gl_HitTEXT;
+    const float cosine = max( abs( dot( gl_WorldRayDirectionEXT, N ) ), 1.0e-3 );
+    g_DesertRayHitLod  = log2( max( width, 1.0e-6 ) * sqrt( max( abs( N.y ), 1.0e-3 ) ) / cosine );
 }
 
 #endif // TERRAIN_RAY_HIT_GLSLH

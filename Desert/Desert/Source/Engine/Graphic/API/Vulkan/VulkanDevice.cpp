@@ -145,6 +145,14 @@ namespace Desert::Graphic::API::Vulkan
                                                                                            : "other";
             LOG_INFO( "[Vulkan] GPU: {} ({}, {}, {} MB VRAM)", m_Capabilities.Name, m_Capabilities.VendorName,
                       typeName, m_Capabilities.VideoMemory / ( 1024ull * 1024ull ) );
+            // WHICH driver answered (core 1.2): on macOS the ICD is the pinned MoltenVK built by
+            // scripts/MacOS/BuildMoltenVK.sh, and this line is how a run proves it was not Homebrew's.
+            VkPhysicalDeviceDriverProperties driver{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES };
+            VkPhysicalDeviceProperties2      props2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driver };
+            vkGetPhysicalDeviceProperties2( m_PhysicalDevice, &props2 );
+            LOG_INFO( "[Vulkan] Driver: {} ({}), conformance {}.{}.{}.{}", driver.driverName, driver.driverInfo,
+                      driver.conformanceVersion.major, driver.conformanceVersion.minor,
+                      driver.conformanceVersion.subminor, driver.conformanceVersion.patch );
             LOG_INFO( "[Vulkan] Caps: maxTex2D {}, colorAttachments {}, float RTs {}, "
                       "timestamps {} (period {} ns/tick)",
                       m_Capabilities.MaxTexture2DSize, m_Capabilities.MaxColorAttachments,

@@ -106,8 +106,10 @@ namespace Desert::Core
     // MigrateGridNamesV65ToV66). v67 (WP-FAR-6B): a landscape tile's HeightFile is a content key ("assets:...")
     // (Tools/SceneMigrator, MigrateLandscapeHeightKeysV66ToV67). v68 (WP22c): the HLOD layer is stated per GRID
     // (UE FRuntimePartitionDesc::HLODSetups), not once for the world - the world's DefaultHLODLayer moved onto
-    // every grid (Tools/SceneMigrator, MigrateGridHLODLayerV67ToV68).
-    inline constexpr int kSceneVersion = 68;
+    // every grid (Tools/SceneMigrator, MigrateGridHLODLayerV67ToV68). v69 (PATH1): every asset reference is a
+    // content key - the assets-relative and project-relative spellings are restated (Tools/SceneMigrator,
+    // MigrateAssetKeysV68ToV69).
+    inline constexpr int kSceneVersion = 69;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator

@@ -21,6 +21,16 @@
 // lights (NVIDIA RTXDI: one sample per light kind), and a material ray that meets emission takes the power-heuristic
 // weight against that sampler. The light ray to the point is a material ray: its closest hit is the sampled triangle
 // when nothing occludes it, and the hit group returns the material's emission there (a textured emission included).
+//
+// GLASS (UE PathTracingGlass.ush, the smooth case: the specular reflect/refract pair; PathTracingFresnel.ush
+// FresnelDielectric): a BlendMode Translucent surface's hit group writes its transmittance colour and IOR into the
+// payload (Common/RayTracingPayload.glslh, the inputs the raster's glass pass reads). There the path picks reflection
+// by the exact dielectric Fresnel term and otherwise refracts by the IOR (IOR 1: a thin sheet, straight through and
+// tinted at each crossing); inside solid glass the throughput is absorbed by Beer's law, the tint reached after
+// kPathTracingAbsorptionDistance. The interface is a delta lobe: no light sample there. Light rays walk the
+// translucent primitives (kMaskTranslucent) and are attenuated by them in a straight line instead of blocked (UE's
+// shadow any-hit transmittance: no caustics through refraction); a material ray that refracted keeps the MIS state
+// of the vertex it left, so it and that vertex's attenuated light sample stay one weighed pair.
 Shader "PathTracer"
 {
     Pass "PathTracing"
@@ -59,6 +69,18 @@ Shader "PathTracer"
             Uniform sampler LinearClampSampler;
             Uniform(8) textureCube EnvironmentSpecularTexture;
             #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+
+            // The cloud layer's shadow map (VolumetricCloudRenderer, CloudShadowMapOrWhite) and its block
+            // (CloudShadowPackUniforms): the sun's transmittance through the clouds, the receiver text every lit
+            // pass compiles (Common/CloudShadowReceiver.glslh).
+            Uniform sampler LinearRepeatSampler;
+            Uniform(16) texture2D CloudShadowMapTexture;
+            #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
+            Uniform(17) CloudShadowUB {
+                mat4 CloudShadowWorldToMap;
+                vec4 CloudShadowParams;
+            };
+            #include <Common/CloudShadowReceiver.glslh>
 
             // The scene's emissive triangles (RayTracing::EmissiveLightsFrame).
             layout(std430, binding = 9) readonly buffer EmissiveSegmentsUB
@@ -227,29 +249,107 @@ Shader "PathTracer"
                 return basis * vec3(r * cos(phi), r * sin(phi), sqrt(max(1.0 - u.x, 0.0)));
             }
 
+            // ---- Glass: the dielectric interface of a translucent hit (Transmission > 0). ----
+            // RayTracingScene.hpp kMaskOpaque / kMaskTranslucent: a primitive drawn only by translucent sections
+            // carries the translucent bit alone.
+            const uint kPathTracingMaskOpaque      = 0x01u;
+            const uint kPathTracingMaskTranslucent = 0x04u;
+            // Solid glass reaches its tint after this many centimetres inside it (Beer's law).
+            const float kPathTracingAbsorptionDistance = 100.0;
+            // A light ray crosses at most this many translucent surfaces; past them it is blocked. A bound on the
+            // walk's loop only: one ray never meets this many glass sheets in a scene.
+            const uint kPathTracingMaxTranslucentLayers = 32u;
+
+            bool PathTracingIsTransmissive()
+            {
+                return any(greaterThan(payload.Transmission, vec3(0.0)));
+            }
+
+            // UE FresnelDielectric: the unpolarised reflectance of a smooth dielectric interface for the cosine
+            // cosI on the incident side and eta = n(incident) / n(transmitted); 1 past the critical angle.
+            float PathTracingFresnelDielectric(float cosI, float eta)
+            {
+                const float sin2T = eta * eta * (1.0 - cosI * cosI);
+                if (sin2T >= 1.0)
+                    return 1.0;
+                const float cosT = sqrt(1.0 - sin2T);
+                const float rs   = (eta * cosI - cosT) / (eta * cosI + cosT);
+                const float rp   = (cosI - eta * cosT) / (cosI + eta * cosT);
+                return 0.5 * (rs * rs + rp * rp);
+            }
+
+            // The absorption coefficient (1/cm) of solid glass whose transmittance colour is @p tint.
+            vec3 PathTracingAbsorption(vec3 tint)
+            {
+                return -log(clamp(tint, vec3(1.0e-4), vec3(1.0))) / kPathTracingAbsorptionDistance;
+            }
+
             // ---- Rays. ----
-            // The material ray: the hit's surface into the payload (HitT < 0: a miss).
+            // Both rays index the hit groups per BLAS segment (sbtRecordStride 1): the table holds one record per
+            // segment record, an instance's SBT offset is its first one, and a hit's geometry index picks its
+            // segment's (RayTracingHitRecord.glslh, as SSRTrace.glslh). Stride 0 shaded every segment of a BLAS
+            // with its FIRST segment's group and record: a tree's leaves took the trunk's template (no any-hit, no
+            // mask) and the trunk's index range.
+            // The material ray: the hit's surface into the payload (HitT < 0: a miss; Transmission stays 0 unless a
+            // translucent hit group writes it).
+            void PathTracingTraceMaterialMasked(vec3 origin, float tMin, vec3 direction, float coneWidth, float distance,
+                                                uint cullMask)
+            {
+                payload.HitT         = -1.0;
+                payload.ConeWidth    = coneWidth;
+                payload.ConeSpread   = SunParams.y;
+                payload.Transmission = vec3(0.0);
+                traceRayEXT(SceneTlas, gl_RayFlagsNoneEXT, cullMask, 0u, 1u, 0u, origin, tMin, direction, distance, 0);
+            }
             void PathTracingTraceMaterialTo(vec3 origin, vec3 direction, float coneWidth, float distance)
             {
-                payload.HitT       = -1.0;
-                payload.ConeWidth  = coneWidth;
-                payload.ConeSpread = SunParams.y;
-                traceRayEXT(SceneTlas, gl_RayFlagsNoneEXT, 0xFFu, 0u, 0u, 0u, origin, 0.0, direction, distance, 0);
+                PathTracingTraceMaterialMasked(origin, 0.0, direction, coneWidth, distance, 0xFFu);
             }
             void PathTracingTraceMaterial(vec3 origin, vec3 direction, float coneWidth)
             {
                 PathTracingTraceMaterialTo(origin, direction, coneWidth, 1.0e9);
             }
 
-            // The light ray: any hit (the any-hit stages still cut masked holes) ends it; the miss stage writes
-            // HitT < 0, so an unchanged HitT means occluded.
-            bool PathTracingVisible(vec3 origin, vec3 direction, float distance)
+            // The light ray's transmittance: 0 when an opaque primitive blocks it (any hit of the opaque mask ends
+            // the ray; the any-hit stages still cut masked holes, and the miss stage writes HitT < 0, so an unchanged
+            // HitT means occluded); otherwise the product over the translucent surfaces on the segment, walked
+            // nearest first: a thin sheet's tint, a solid's Fresnel transmission at each interface and its
+            // absorption between entering and leaving it.
+            vec3 PathTracingTransmittance(vec3 origin, vec3 direction, float distance)
             {
                 payload.HitT = 1.0;
-                traceRayEXT(SceneTlas,
-                            gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFFu, 0u, 0u, 0u,
-                            origin, 0.0, direction, distance, 0);
-                return payload.HitT < 0.0;
+                traceRayEXT(SceneTlas, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT,
+                            kPathTracingMaskOpaque, 0u, 1u, 0u, origin, 0.0, direction, distance, 0);
+                if (payload.HitT >= 0.0)
+                    return vec3(0.0);
+                vec3  transmittance = vec3(1.0);
+                float start         = 0.0;
+                float entered       = 0.0; // where the ray entered the solid it is in (0: it starts inside one)
+                for (uint layer = 0u; layer < kPathTracingMaxTranslucentLayers; ++layer)
+                {
+                    PathTracingTraceMaterialMasked(origin, start, direction, 0.0, distance, kPathTracingMaskTranslucent);
+                    if (payload.HitT < 0.0)
+                        return transmittance;
+                    // A translucent primitive with no dielectric to give (an Additive surface) blocks.
+                    if (!PathTracingIsTransmissive())
+                        return vec3(0.0);
+                    const bool front = (payload.Flags & kDesertRayPayloadFrontFace) != 0u;
+                    if (payload.Ior <= 1.0)
+                        transmittance *= payload.Transmission;
+                    else
+                    {
+                        const float cosI = abs(dot(payload.Normal, direction));
+                        transmittance *= 1.0 - PathTracingFresnelDielectric(cosI, front ? 1.0 / payload.Ior : payload.Ior);
+                        if (front)
+                            entered = payload.HitT;
+                        else
+                            transmittance *= exp(-PathTracingAbsorption(payload.Transmission) * (payload.HitT - entered));
+                    }
+                    if (all(lessThanEqual(transmittance, vec3(0.0))))
+                        return vec3(0.0);
+                    start = payload.HitT + 0.05;
+                }
+                return vec3(0.0);
             }
 
             // ---- The lights (UE PathTracingLightSampling.ush). Index: 0 = the sun, 1 = the sky, 2.. = point lights,
@@ -334,22 +434,32 @@ Shader "PathTracer"
                         L        = PathTracingBasis(toSun) * vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
                         lightPdf = 1.0 / (2.0 * PI * oneMinusCos);
                     }
-                    if (dot(N, L) <= 0.0 || !PathTracingVisible(origin, L, 1.0e9))
+                    if (dot(N, L) <= 0.0)
                         return vec3(0.0);
+                    const vec3 transmittance = PathTracingTransmittance(origin, L, 1.0e9);
+                    if (all(lessThanEqual(transmittance, vec3(0.0))))
+                        return vec3(0.0);
+                    // The sun's light crosses the cloud layer on its way down: its transmittance from this vertex
+                    // (the same factor the sun disc a material ray from here meets is weighed by, PathTracingMissRadiance).
+                    const float clouds = CloudShadowFactor(origin);
                     // radiance / pdf of the cone sample is the sun's colour (the cone's radiance is normalised by
                     // its solid angle, UE DirectionalLight_SampleLight).
                     const float weight = lightPdf > 0.0
                                              ? PathTracingMISWeightPower(pickPdf * lightPdf, PathTracingBsdfPdf(m, N, V, L))
                                              : 1.0;
-                    return PathTracingBsdfCos(m, N, V, L) * giFrame.sunRadiance.rgb * weight / pickPdf;
+                    return PathTracingBsdfCos(m, N, V, L) * giFrame.sunRadiance.rgb * transmittance * (clouds * weight / pickPdf);
                 }
                 if (chosen == 1u)
                 {
                     const PathTracingSkySample s = PathTracingSkySampleLight(u, SkyParams.x, SkyParams.y);
-                    if (s.Pdf <= 0.0 || dot(N, s.Direction) <= 0.0 || !PathTracingVisible(origin, s.Direction, 1.0e9))
+                    if (s.Pdf <= 0.0 || dot(N, s.Direction) <= 0.0)
+                        return vec3(0.0);
+                    const vec3 transmittance = PathTracingTransmittance(origin, s.Direction, 1.0e9);
+                    if (all(lessThanEqual(transmittance, vec3(0.0))))
                         return vec3(0.0);
                     const float weight = PathTracingMISWeightPower(pickPdf * s.Pdf, PathTracingBsdfPdf(m, N, V, s.Direction));
-                    return PathTracingBsdfCos(m, N, V, s.Direction) * s.Radiance * weight / (pickPdf * s.Pdf);
+                    return PathTracingBsdfCos(m, N, V, s.Direction) * s.Radiance * transmittance * weight /
+                           (pickPdf * s.Pdf);
                 }
                 const uint  i = chosen - 2u;
                 DesertLight light;
@@ -364,9 +474,11 @@ Shader "PathTracer"
                     light    = DesertSpotLightAt(spotLights[i - Counts.x], P);
                     position = spotLights[i - Counts.x].position;
                 }
-                if (dot(N, light.L) <= 0.0 || !PathTracingVisible(origin, normalize(position - origin), distance(position, origin)))
+                if (dot(N, light.L) <= 0.0)
                     return vec3(0.0);
-                return PathTracingBsdfCos(m, N, V, light.L) * light.Radiance / pickPdf;
+                const vec3 transmittance =
+                    PathTracingTransmittance(origin, normalize(position - origin), distance(position, origin));
+                return PathTracingBsdfCos(m, N, V, light.L) * light.Radiance * transmittance / pickPdf;
             }
 
             // ---- The emissive triangles. ----
@@ -435,8 +547,9 @@ Shader "PathTracer"
 
             // What a material ray that left the scene sees: the sky, and the sun's disc when it has a size. Weighted
             // against the light sampler of the vertex it left (lightPickSky / lightPickSun: that vertex's choice
-            // probabilities; bsdfPdf < 0: a camera ray, nothing to weigh).
-            vec3 PathTracingMissRadiance(vec3 direction, float bsdfPdf, float lightPickSky, float lightPickSun)
+            // probabilities; bsdfPdf < 0: a camera ray, nothing to weigh). The sky carries the clouds (the sky capture
+            // marches them into the environment); the disc is seen through them from @p origin, the ray's start.
+            vec3 PathTracingMissRadiance(vec3 origin, vec3 direction, float bsdfPdf, float lightPickSky, float lightPickSun)
             {
                 vec3 radiance = vec3(0.0);
                 if (bsdfPdf < 0.0)
@@ -456,7 +569,7 @@ Shader "PathTracer"
                         const float solidAngle = 2.0 * PI * oneMinusCos;
                         const float weight =
                             bsdfPdf < 0.0 ? 1.0 : PathTracingMISWeightPower(bsdfPdf, lightPickSun / solidAngle);
-                        radiance += giFrame.sunRadiance.rgb / solidAngle * weight;
+                        radiance += giFrame.sunRadiance.rgb * (CloudShadowFactor(origin) / solidAngle * weight);
                     }
                 }
                 return radiance;
@@ -480,26 +593,67 @@ Shader "PathTracer"
                 float lightPickSky = 0.0;
                 float lightPickSun = 0.0;
                 float coneWidth    = 0.0;
+                // Glass on the path: the absorption coefficient of the solid the ray is inside (0: outside), and
+                // whether a glass interface lies between the ray and the last vertex that sampled the lights - the
+                // emissive light samples stop at glass, so emission met past it takes the whole weight.
+                vec3 absorption = vec3(0.0);
+                bool pastGlass  = false;
                 for (uint bounce = 0u;; ++bounce)
                 {
                     PathTracingTraceMaterial(origin, dir, coneWidth);
                     if (payload.HitT < 0.0)
                     {
-                        radiance += throughput * PathTracingMissRadiance(dir, bsdfPdf, lightPickSky, lightPickSun);
+                        radiance += throughput * PathTracingMissRadiance(origin, dir, bsdfPdf, lightPickSky, lightPickSun);
                         break;
                     }
+                    throughput *= exp(-absorption * payload.HitT);
                     const vec3 P = origin + dir * payload.HitT;
                     const vec3 N = payload.Normal;
                     const vec3 V = -dir;
                     // Emission the material ray met, weighed against the emissive light sampler.
                     if (any(greaterThan(payload.Emissive, vec3(0.0))))
-                        radiance += throughput * payload.Emissive * PathTracingEmissiveHitWeight(dir, bsdfPdf);
+                        radiance += throughput * payload.Emissive *
+                                    PathTracingEmissiveHitWeight(dir, pastGlass ? -1.0 : bsdfPdf);
 
-                    const PathTracingMaterial m = PathTracingMaterialOf(N, V);
                     coneWidth += SunParams.y * payload.HitT;
                     // The next rays leave the surface by an offset that grows with the distance travelled, so they do
                     // not meet the triangle they start on.
-                    const vec3  next  = P + N * (0.05 + 1.0e-5 * length(P - cameraUB.CameraPos));
+                    const float offset = 0.05 + 1.0e-5 * length(P - cameraUB.CameraPos);
+                    if (PathTracingIsTransmissive())
+                    {
+                        // A glass interface: reflect with the Fresnel probability, otherwise transmit; each choice's
+                        // weight is its probability, so the throughput keeps only the tint and the absorption.
+                        if (bounce >= Counts.w)
+                            break;
+                        const bool  front = (payload.Flags & kDesertRayPayloadFrontFace) != 0u;
+                        const bool  thin  = payload.Ior <= 1.0;
+                        const float eta   = front ? 1.0 / payload.Ior : payload.Ior;
+                        const float F     = thin ? 0.0 : PathTracingFresnelDielectric(max(dot(N, V), 0.0), eta);
+                        pastGlass         = true;
+                        if (PathTracingRandom(rng) < F)
+                        {
+                            // A mirror direction no light sample reaches: what it meets takes the whole weight.
+                            dir     = reflect(dir, N);
+                            origin  = P + N * offset;
+                            bsdfPdf = -1.0;
+                        }
+                        else if (thin)
+                        {
+                            // Straight through: the direction, and so the last vertex's MIS state, is unchanged.
+                            throughput *= payload.Transmission;
+                            origin = P - N * offset;
+                        }
+                        else
+                        {
+                            dir        = refract(dir, N, eta);
+                            origin     = P - N * offset;
+                            absorption = front ? PathTracingAbsorption(payload.Transmission) : vec3(0.0);
+                        }
+                        continue;
+                    }
+
+                    const PathTracingMaterial m = PathTracingMaterialOf(N, V);
+                    const vec3  next  = P + N * offset;
                     const float total = PathTracingEstimateTotal(P);
                     radiance += throughput * PathTracingSampleLights(m, P, N, V, next, total, rng);
                     radiance += throughput * PathTracingSampleEmissive(m, N, V, next, coneWidth, rng);
@@ -510,6 +664,7 @@ Shader "PathTracer"
                     lightPickSun = total > 0.0 ? PathTracingEstimate(0u, P) / total : 0.0;
                     const vec3 L = PathTracingSampleBsdf(m, N, V, rng);
                     bsdfPdf      = PathTracingBsdfPdf(m, N, V, L);
+                    pastGlass    = false;
                     if (bsdfPdf <= 0.0)
                         break;
                     throughput *= PathTracingBsdfCos(m, N, V, L) / bsdfPdf;

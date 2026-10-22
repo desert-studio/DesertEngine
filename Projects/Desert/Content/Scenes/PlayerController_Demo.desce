@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "dfb12e1e3c0e4e1895f0c968ae4b3a32",
         "Versions": {
-            "SCNE": 68,
+            "SCNE": 69,
             "UNIT": 1
         },
         "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "df51ca6ed9cb71779a9b5634db0863bc", "f6f923426f71eb4a270b1db46ebceeff"]
@@ -138,7 +138,7 @@
                 "CollisionProfile": "BlockAll"
             },
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
@@ -174,7 +174,7 @@
                 ]
             },
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
                 "Primitive": "Cube"
             }
@@ -210,7 +210,7 @@
                 ]
             },
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
                 "Primitive": "Cube"
             }
@@ -238,7 +238,7 @@
                 "CollisionProfile": "BlockAll"
             },
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
                 "Primitive": "Cube"
             }
@@ -289,7 +289,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.6000000238418579, 1.7999999523162842, 0.6000000238418579],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Prop.demat"],
+                "MaterialPaths": ["assets:Materials/Starter_Prop.demat"],
                 "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
                 "Primitive": "Capsule"
             }

@@ -5,6 +5,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
+#include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include "ParticleGpuLayout.hpp"
 #include "ParticlePool.hpp"
@@ -13,6 +14,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -49,6 +51,50 @@ namespace Desert::Graphic::System
     struct ParticleArgsPush
     {
         glm::uvec4 Step;
+    };
+
+    // VFX-16 (UE Niagara Debugger, dev only): ParticleDebugReadback's push constant and its readback's shape. The
+    // readback is 4 header uints (alive, free, debug serial, rows written) then per row the pool index and the
+    // emitter's float attribute components, then its int components (their bits); one page is
+    // kParticleDebugMaxRows alive particles.
+    struct ParticleDebugPush
+    {
+        glm::uvec4 Page;  // x = last compact's slot, y = first alive row, z = rows (0 = counts only), w = float columns
+        glm::uvec4 Range; // x = drawn alive half's offset, y = range count, z = pool base, w = debug serial (never 0)
+        glm::uvec4 Columns; // x = int columns; yzw = 0
+    };
+    constexpr uint32_t kParticleDebugHeaderUints = 4u;
+    constexpr uint32_t kParticleDebugMaxRows     = 64u;
+
+    // What an editor debugger asks of the scene's particles: nothing runs while Enabled is false. The attribute
+    // table is the page [FirstRow, FirstRow + kParticleDebugMaxRows) of the alive list of emitter Emitter of
+    // entity EntityId.
+    struct ParticleDebugRequest
+    {
+        bool     Enabled  = false;
+        uint32_t EntityId = 0;
+        uint32_t Emitter  = 0;
+        uint32_t FirstRow = 0;
+    };
+
+    // One emitter as the GPU last reported it (read back FramesOld simulated frames after the GPU wrote it; Read =
+    // false until the first copy came back). Columns / RowIndex / Floats / Ints only for the requested emitter.
+    struct ParticleEmitterDebug
+    {
+        uint32_t                             EntityId     = 0;
+        uint32_t                             Emitter      = 0;
+        std::string                          Name;
+        uint32_t                             Capacity     = 0;
+        uint32_t                             Alive        = 0;
+        uint32_t                             Free         = 0;
+        uint32_t                             FramesOld    = 0;
+        bool                                 Read         = false;
+        uint32_t                             FloatColumns = 0;
+        uint32_t                             IntColumns   = 0;
+        std::vector<VFX::VFXAttributeLayout> Columns;  // the compiled layout's attributes (Float/Int Start, Count)
+        std::vector<uint32_t>                RowIndex; // pool index per row
+        std::vector<float>                   Floats;   // RowIndex.size() x FloatColumns, row-major
+        std::vector<int32_t>                 Ints;     // RowIndex.size() x IntColumns, row-major
     };
 
     // One element of ParticleSimulate's step table (`struct VFXStep`).
@@ -139,6 +185,14 @@ namespace Desert::Graphic::System
         uint32_t          ChannelCapacity = 0;    // particles ChannelSpawns holds
         uint64_t          Generation      = 0;    // the VFXWorld instance generation this state belongs to
         bool              NeedsReset      = true; // compact 0 kills the range (fresh, moved, restarted, pool grew)
+
+        // VFX-16: the debugger's per-frame-in-flight readback (made on the first debugged tick, dropped when the
+        // emitter is rebuilt) and what its rows mean.
+        std::shared_ptr<ShaderResources::StorageBuffer> DebugReadback;
+        std::vector<VFX::VFXAttributeLayout>            DebugColumns;
+        std::string                                     DebugName;
+        uint32_t                                        DebugEntity  = 0;
+        uint32_t                                        DebugEmitter = 0;
     };
 
     // One enabled renderer row of an emitter this tick (UE: the FNiagaraRenderer made per
@@ -212,6 +266,42 @@ namespace Desert::Graphic::System
             return m_Pool;
         }
 
+        // VFX-16 (UE Niagara Debugger, dev only). The editor's request; while it is enabled the simulating view
+        // adds "Particles: Debug Readback" and ReadDebugReadbacks (called by that view right after PrepareTick,
+        // before the node writes this frame's copy) reads what the GPU wrote FramesInFlight frames ago - no stall,
+        // no CPU-side count.
+        void SetDebugRequest( const ParticleDebugRequest& request )
+        {
+            m_DebugRequest = request;
+        }
+        [[nodiscard]] const ParticleDebugRequest& DebugRequest() const
+        {
+            return m_DebugRequest;
+        }
+        [[nodiscard]] const std::vector<ParticleEmitterDebug>& DebugEmitters() const
+        {
+            return m_Debug;
+        }
+        [[nodiscard]] uint32_t DebugSerial() const
+        {
+            return m_DebugSerial;
+        }
+        // Whether @p gpu is the emitter whose attribute page is asked for.
+        [[nodiscard]] bool IsDebugTable( const ParticleEmitterGpu& gpu ) const
+        {
+            return m_DebugRequest.Enabled && gpu.DebugEntity == m_DebugRequest.EntityId &&
+                   gpu.DebugEmitter == m_DebugRequest.Emitter;
+        }
+        void ReadDebugReadbacks();
+
+        // Counts are read back while the panel's request is enabled or the world's debugger shows the viewport
+        // overview (VFXDebugSettings::Overview, taken at PrepareTick); the attribute table only for the request.
+        [[nodiscard]] bool DebugReading() const
+        {
+            return m_DebugRequest.Enabled || m_DebugCounts;
+        }
+        void FillDebugStats( VFX::VFXDebugStats& stats ) const override;
+
     private:
         // Grows the pool to hold @p particles (recreating it: every emitter restarts); false when it failed.
         bool EnsurePoolCapacity( uint32_t particles );
@@ -236,5 +326,9 @@ namespace Desert::Graphic::System
         ParticlePoolRanges                                             m_Ranges;
         ParticlePoolBuffers                                            m_Pool;
         ParticleTickClaim                                              m_Claim;
+        ParticleDebugRequest                                           m_DebugRequest;
+        std::vector<ParticleEmitterDebug>                              m_Debug;
+        uint32_t                                                       m_DebugSerial = 0;
+        bool                                                           m_DebugCounts = false;
     };
 } // namespace Desert::Graphic::System

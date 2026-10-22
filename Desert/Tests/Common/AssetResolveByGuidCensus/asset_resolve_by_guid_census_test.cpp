@@ -79,20 +79,20 @@ namespace
          PathOnlyRow{ ContentKind::Animation, "no header format: an .anim states no GUID (AF4 mesh programme)" },
          PathOnlyRow{ ContentKind::CloudNoiseVolume, "raw DCNV file, no DAST envelope: states no GUID (AF10e)" },
          PathOnlyRow{ ContentKind::CloudModellingVolume,
-                      "raw DCMV file, no DAST envelope; StoredFormFor(CloudModellingVolumeAsset) = AssetsRelative "
+                      "raw DCMV file, no DAST envelope; StoredFormFor(CloudModellingVolumeAsset) = StableKey "
                       "path (AF10e)" },
          PathOnlyRow{
               ContentKind::UITheme,
-              "header states a GUID but StoredFormFor(UIThemeAsset) writes AssetsRelative path only (AF10f)" },
+              "header states a GUID but StoredFormFor(UIThemeAsset) writes StableKey path only (AF10f)" },
          PathOnlyRow{
               ContentKind::ControlRig,
-              "header states a GUID but StoredFormFor(ControlRigAsset) writes AssetsRelative path only (AF10f)" },
+              "header states a GUID but StoredFormFor(ControlRigAsset) writes StableKey path only (AF10f)" },
          PathOnlyRow{
               ContentKind::AnimGraph,
-              "header states a GUID but StoredFormFor(AnimGraphAsset) writes AssetsRelative path only (AF10f)" },
+              "header states a GUID but StoredFormFor(AnimGraphAsset) writes StableKey path only (AF10f)" },
          PathOnlyRow{
               ContentKind::Retarget,
-              "header states a GUID but StoredFormFor(RetargetAsset) writes AssetsRelative path only (AF10f)" },
+              "header states a GUID but StoredFormFor(RetargetAsset) writes StableKey path only (AF10f)" },
          PathOnlyRow{ ContentKind::Prefab,
                       "header states a GUID but PrefabComponent writes PrefabPath only (PrefabData.hpp) (AF10f)" },
          PathOnlyRow{ ContentKind::VFXSystem,
@@ -112,7 +112,7 @@ namespace
                       "input component)" },
          PathOnlyRow{
               ContentKind::PhysicsAsset,
-              "RagdollData::PhysicsAsset refers by AssetHandle, stored AssetsRelative like the .dfrac above "
+              "RagdollData::PhysicsAsset refers by AssetHandle, stored StableKey like the .dfrac above "
               "(StoredAssetForm.cpp); no {Guid, Path} referrer yet" },
          PathOnlyRow{ ContentKind::WorldCell,
                       "envelope states a GUID but the index names cells by file name (AF10f, with WP)" },
@@ -142,7 +142,7 @@ namespace
          // (ComponentRegistry.cpp's LevelSequence serializer, CreateFromRegistryGuid).
          ContentKind::LevelSequence,
          // An Audio Source states its `.desound` as {Guid, Path} and ResolveGuidRef reads the GUID first
-         // (ComponentRegistry.cpp's SoundAsset branch, the AssetsRelative form in StoredAssetForm.cpp).
+         // (ComponentRegistry.cpp's SoundAsset branch, the StableKey form in StoredAssetForm.cpp).
          ContentKind::Sound };
 
     template <class Array>

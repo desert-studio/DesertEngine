@@ -121,6 +121,11 @@ namespace Desert::Graphic::GlobalIllumination
         return BOOLSUCCESS;
     }
 
+    std::vector<Core::CookedProgramVariant> WorldRadianceCache::ProgramVariants()
+    {
+        return TracerProgramVariants( kRadianceCacheShaderNames[Trace] );
+    }
+
     Common::BoolResultStr WorldRadianceCache::EnsureTraceProgram( const Pipeline& pipeline )
     {
         if ( m_Shaders[Trace] && m_Pipelines[Trace] && pipeline == m_TraceProgramFor )

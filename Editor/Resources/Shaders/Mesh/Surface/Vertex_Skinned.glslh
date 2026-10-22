@@ -1,6 +1,6 @@
 // Surface cell vertex path: skinned mesh. A view pass skins from the view's ObjectBones at its row's BoneOffset /
 // PrevBoneOffset (binding 26); a light view from its pass's BoneMatrices[BoneOffset...] (binding 1) — the
-// vertex stage of Programs/Surface/SkinnedMeshLit.shader and, for the depth cell of an opaque template,
+// vertex stage of every surface template's Skinned cells and, for the depth cell of an opaque template,
 // Programs/Shadow/Shadow_Skinned.shader.
 // GPU SKIN CACHE (RayTracing/RayTracingSkinCache.hpp, Common/SkinCacheStreams.glslh): when the primitive carries
 // a streams address - a view pass in its GpuObjectMotion row, a light view in its push block - it was skinned ONCE

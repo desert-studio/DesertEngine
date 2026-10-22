@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/LocalShadows.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
 
 #include <array>
 #include <cstdint>
@@ -47,7 +48,9 @@ namespace Desert::Graphic
             uint64_t                LastFrame      = 0; // the last frame a view asked for it
         };
 
-        LocalShadowCache();
+        // @p scene: the owning Core::Scene's ledger instance (Scene::GetLedgerInstance). The atlas is the scene's,
+        // not the view's that happened to ask first: Create opens the scene's scope (VIEW-CLOSE-LEAK).
+        explicit LocalShadowCache( ResourceOwnerInstance scene );
         ~LocalShadowCache();
         LocalShadowCache( const LocalShadowCache& )            = delete;
         LocalShadowCache& operator=( const LocalShadowCache& ) = delete;
@@ -82,6 +85,7 @@ namespace Desert::Graphic
     private:
         void Create( uint32_t side );
 
+        ResourceOwnerInstance               m_LedgerInstance; // the owning scene's
         std::unordered_map<uint64_t, Light> m_Lights; // key: SourceId * 2 + (spot ? 1 : 0)
         ShadowAtlasAllocator                m_Allocator;
         std::shared_ptr<Framebuffer>        m_Atlas;

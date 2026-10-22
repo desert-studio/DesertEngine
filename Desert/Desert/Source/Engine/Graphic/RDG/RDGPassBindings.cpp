@@ -377,6 +377,17 @@ namespace Desert::Graphic::RDG
         return *this;
     }
 
+    BindingBlockBuilder& BindingBlockBuilder::StorageLayer( const StorageTextureParameter parameter, TextureRef texture,
+                                                            Access declared, uint32_t mip, uint32_t layer )
+    {
+        m_Pass.DeclareTexture( texture, declared, SubresourceRange::MipLayer( mip, layer ), IsWriteAccess( declared ),
+                               "Bindings.StorageLayer" );
+        m_Pass.m_Builder.m_Passes[m_Ref.Pass].Blocks[m_Ref.Block].Entries.push_back(
+             { parameter.SlotName(), ShaderResourceKind::StorageTexture, ResourceKind::Texture, texture.Index,
+               declared, SubresourceRange::MipLayer( mip, layer ), std::nullopt } );
+        return *this;
+    }
+
     BindingBlockBuilder& BindingBlockBuilder::Uniform( UniformBufferParameter parameter, BufferRef buffer )
     {
         const std::string shaderName = parameter.SlotName();

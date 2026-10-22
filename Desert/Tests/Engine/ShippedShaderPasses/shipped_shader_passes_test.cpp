@@ -555,8 +555,9 @@ namespace
 // census was all there was. `Scenes/NRM_Witness.desce` is the scene that closed that: the same texture
 // rendered with and without its normal map differs over 47 % of the frame, and the pre-reconstruction
 // line restored on purpose moves 59 %. The census still earns its place — a frame cannot say "and
-// nowhere else", and TWO of the six readings are still unreachable from any scene: StaticMeshGlass
-// needs a transmissive material and SkinnedMeshLit a rigged one, neither of which any witness has.
+// nowhere else", and ONE reading is still unreachable from any scene with a bound normal map: the
+// skinned cell (Vertex_Skinned, ex-SkinnedMeshLit), whose only scenes are the Desert/Tests/Data rig
+// probes with an un-mapped material. The glass reading is drawn by `Scenes/NRM_WitnessGlass.desce`.
 TEST( ShippedShaderPasses, EveryShaderThatReadsANormalMapGoesThroughTheSharedReconstruction )
 {
     ASSERT_FALSE( ShippedShaders().empty() );

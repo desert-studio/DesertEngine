@@ -42,6 +42,11 @@ namespace Desert::Runtime
         std::shared_ptr<Graphic::Shader> AcquireVariant( const std::string&            name,
                                                          const Graphic::ShaderVariant& variant );
 
+        /// Every (name, variant) AcquireVariant was asked for with ShippedByCook this session, once each - the census
+        /// the package cook (PackageCook CookShaderVariants) checks its cooked set against: a recorded request the
+        /// cook does not ship is a permutation a package would refuse by name, so the cook fails on it instead.
+        [[nodiscard]] std::vector<Core::CookedProgramVariant> ShippedByCookRequests() const;
+
         /**
          * @brief The authored body of a Volume `Medium { ... }` shader, by asset handle — the bytes a
          *        cloud material substitutes into the four programs that sample the cloud field.
@@ -57,6 +62,9 @@ namespace Desert::Runtime
          *         that warning, and this is asked every frame.
          */
         std::string MediumSourceOf( const Assets::AssetHandle& handle );
+        /// The source of every registered Volume medium (what MediumSourceOf answers for each), for the package
+        /// cook (PackageCook CookShaderVariants: CloudMediumProgramVariants of each).
+        [[nodiscard]] std::vector<std::string> MediumSources() const;
 
         /**
          * @brief The medium's own Properties, in declaration order — the schema its authored values are
@@ -116,6 +124,9 @@ namespace Desert::Runtime
         };
         // Keyed "<name>#<16 hex digits of the variant hash>". Weak, for the reason in AcquireVariant.
         std::unordered_map<std::string, VariantEntry> m_Variants;
+        // The ShippedByCook census (ShippedByCookRequests), keyed as m_Variants is. Never pruned: a request is a
+        // fact about what the runtime selects, not about what is live.
+        std::unordered_map<std::string, Core::CookedProgramVariant> m_ShippedByCookRequests;
 
         // EVERY REGISTERED Volume MEDIUM, held as TEXT AND SCHEMA rather than as the asset it came from.
         // A medium's source is needed continuously — the cloud renderer asks for it every frame — and the

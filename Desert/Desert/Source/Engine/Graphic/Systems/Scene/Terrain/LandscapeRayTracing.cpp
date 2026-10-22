@@ -79,14 +79,22 @@ namespace Desert::Graphic::RayTracing
         Core::Formats::MaterialParamRow row( kLandscapeRayHitRowSlots );
         std::memcpy( row.data(), &material.Instance, sizeof( System::TerrainInstance ) );
         constexpr std::size_t kTintSlot = sizeof( System::TerrainInstance ) / sizeof( glm::vec4 );
-        row[kTintSlot]                  = material.Tint;
+        row[kTintSlot]                  = material.Material.Tint;
         // Slot 0 is the bindless table's missing texture: a tile without a weightmap reads none (the hit group
         // tests the slot before it samples).
         const uint32_t weightmap =
              material.Weights.Weightmap != nullptr ? material.Weights.Weightmap->GetBindlessSlot().Index : 0u;
-        const uint32_t sampler = BindlessSamplerFor( kLandscapeWeightmapRaySampler ).Index;
-        row[kTintSlot + 1u] =
-             glm::vec4( std::bit_cast<float>( weightmap ), std::bit_cast<float>( sampler ), 0.0f, 0.0f );
+        const uint32_t sampler    = BindlessSamplerFor( kLandscapeWeightmapRaySampler ).Index;
+        const uint32_t mapSampler = BindlessSamplerFor( kLandscapeLayerMapRaySampler ).Index;
+        row[kTintSlot + 1u]       = glm::vec4( std::bit_cast<float>( weightmap ), std::bit_cast<float>( sampler ),
+                                               std::bit_cast<float>( mapSampler ), 0.0f );
+        constexpr std::size_t kValuesSlot = kTintSlot + 2u;
+        std::memcpy( &row[kValuesSlot], &material.Material.Values, sizeof( System::LandscapeMaterialValues ) );
+        constexpr std::size_t kMapsSlot =
+             kValuesSlot + sizeof( System::LandscapeMaterialValues ) / sizeof( glm::vec4 );
+        for ( std::size_t k = 0; k < material.Material.LayerMaps.size(); ++k )
+            row[kMapsSlot + k] = std::bit_cast<glm::vec4>( material.Material.LayerMaps[k] );
+        row[kMapsSlot + material.Material.LayerMaps.size()] = material.Material.ViewOrigin;
         return row;
     }
 
@@ -234,7 +242,7 @@ namespace Desert::Graphic::RayTracing
             m_Frame.Materials.push_back( { .GpuSceneRow = tile.GpuSceneRow,
                                            .Instance    = tile.Instance,
                                            .Weights     = tile.Weights,
-                                           .Tint        = tile.Tint } );
+                                           .Material    = tile.Material } );
             m_Frame.Opacity.push_back( LandscapeVisibilityOpacity( m_Frame.Materials.back() ) );
             m_Frame.VertexBytes += state.Target->GetBuildInputBytes();
             m_Frame.BlasBytes += state.Target->GetMemoryBytes();

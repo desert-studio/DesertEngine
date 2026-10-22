@@ -93,16 +93,12 @@ namespace Desert::Graphic::RadianceCache
         bool operator==( const RadianceCacheInputs& ) const = default;
     };
 
-    // ProbeVolume's update budget against the screen probes' cache, as UE's two caches of the same kind:
-    // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget (200) over
-    // r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget (300).
-    inline constexpr uint32_t kIrradianceFieldBudgetNumerator   = 200;
-    inline constexpr uint32_t kIrradianceFieldBudgetDenominator = 300;
-
     // PURE. The cache of the machine's quality, for the EFFECTIVE GI method @p method. ProbeVolume reads this same
-    // cache per pixel (no screen probes in front of it, IrradianceFieldGather.hpp) and re-traces it less often:
-    // the Scalability budget scaled by UE's ratio above. The SHAPE is the same for both methods, so switching
-    // between them keeps every traced probe (WorldRadianceCache rebuilds only on a shape change).
+    // cache per pixel (no screen probes in front of it, IrradianceFieldGather.hpp) on its own update budget,
+    // Scalability GlobalIllumination.IrradianceFieldProbesPerFrame (UE r.Lumen.IrradianceFieldGather.
+    // NumProbesToTraceBudget, against the screen probes' RadianceCacheProbesPerFrame). The SHAPE is the same for
+    // both methods, so switching between them keeps every traced probe (WorldRadianceCache rebuilds only on a
+    // shape change).
     [[nodiscard]] inline RadianceCacheInputs
     MakeRadianceCacheInputs( const Common::Scalability::ResolvedQuality& quality,
                              const Common::Scalability::GIMethod         method )
@@ -110,10 +106,10 @@ namespace Desert::Graphic::RadianceCache
         using P = Common::Scalability::Parameter;
         RadianceCacheInputs inputs;
         inputs.ProbeResolution = quality.As<uint32_t>( P::RadianceCacheProbeResolution );
-        inputs.ProbesPerFrame  = quality.As<uint32_t>( P::RadianceCacheProbesPerFrame );
+        P budget = P::RadianceCacheProbesPerFrame;
         if ( method == Common::Scalability::GIMethod::ProbeVolume )
-            inputs.ProbesPerFrame = std::max( 1u, inputs.ProbesPerFrame * kIrradianceFieldBudgetNumerator /
-                                                       kIrradianceFieldBudgetDenominator );
+            budget = P::IrradianceFieldProbesPerFrame;
+        inputs.ProbesPerFrame = quality.As<uint32_t>( budget );
         return inputs;
     }
 

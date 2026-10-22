@@ -138,6 +138,10 @@ namespace Desert::Graphic::System
         RDG::TextureRef Mask;
         RDG::TextureRef ClosestOccluder;
         float           LightSourceAngleRadians = 0.0f;
+        // A local light's emitter sphere (xyz position cm, w SourceRadius cm; w 0 = not a local light): its
+        // angular size is per receiver, so the penumbra is sized from the pixel's distance to it
+        // (occluder * R / (d - occluder), a sphere light's penumbra) in place of LightSourceAngleRadians.
+        glm::vec4 LocalLight{ 0.0f };
         // The reconstruction's kernel, taps per side from the centre, spread over the penumbra (Scalability
         // Shadows.RayTracedDenoiserRadius; UE r.Shadow.Denoiser.ReconstructionSamples). 2 = 5x5.
         uint32_t ReconstructionRadius = 2;
@@ -351,14 +355,17 @@ namespace Desert::Graphic::System
         {
             if ( m_Signal != DenoiserSignal::ShadowVisibility || !m_ReconstructPipeline )
                 return {};
-            if ( in.LightSourceAngleRadians <= 0.0f )
+            if ( in.LightSourceAngleRadians <= 0.0f && in.LocalLight.w <= 0.0f )
                 return in.Mask;
             const RDG::BufferRef  uniforms = UploadViewUniforms( graph, frame );
             const RDG::TextureRef signal =
                  graph.CreateTexture( Desc( width, height, kSignalFormat ), "SSD.Signal" );
             graph.SetFaultDefault( signal, RDG::FaultDefault::Black );
-            const glm::vec4 push( std::tan( in.LightSourceAngleRadians * 0.5f ),
-                                  static_cast<float>( in.ReconstructionRadius ), 0.0f, 0.0f );
+            // SSDReconstructShadowVisibility.shader's push: Params, LocalLightSphere.
+            const std::array<glm::vec4, 2> push{
+                 glm::vec4( std::tan( std::max( in.LightSourceAngleRadians, 0.0f ) * 0.5f ),
+                            static_cast<float>( in.ReconstructionRadius ), 0.0f, 0.0f ),
+                 in.LocalLight };
             graph.AddPass(
                  "Denoise: Shadow Visibility Reconstruction", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -379,7 +386,7 @@ namespace Desert::Graphic::System
                           .Storage( ScreenSpaceDenoiserReconstructShaderParameters::ReconstructedSignalTexture,
                                     signal, RDG::Access::StorageWrite )
                           .Uniform( ScreenSpaceDenoiserReconstructShaderParameters::DenoiserViewUB, uniforms )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::vec4 ) ) );
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
                  },
                  [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {

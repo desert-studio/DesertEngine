@@ -18,7 +18,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
-                "MeshPath": "Resources/Assets/Meshes/StaticProbe.stmesh",
+                "MeshPath": "assets:Meshes/StaticProbe.stmesh",
                 "MeshGuid": "8ff4ce2763991807a6b9f5e10aa8859c"
             }
         },

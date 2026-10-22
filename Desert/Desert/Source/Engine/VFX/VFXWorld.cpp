@@ -58,6 +58,48 @@ namespace Desert::VFX
         return it != m_Systems.end() ? &it->second : nullptr;
     }
 
+    VFXDebugStats VFXWorld::GetDebugStats() const
+    {
+        VFXDebugStats stats;
+        stats.TickSerial = m_TickSerial;
+        stats.Step       = m_Clock.GetStep();
+        stats.Frozen     = m_DebugSettings.Frozen;
+        stats.Systems.reserve( m_Systems.size() );
+        for ( const auto& [uuid, system] : m_Systems )
+        {
+            VFXSystemDebugStats& out = stats.Systems.emplace_back();
+            out.EntityUuid           = uuid;
+            out.EntityId             = static_cast<std::uint32_t>( system.Entity );
+            out.Transform            = system.Transform;
+            if ( !system.System )
+                continue;
+            out.Bounds = system.System->Bounds;
+            out.Emitters.reserve( system.Emitters.size() );
+            for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+            {
+                const EmitterInstance&                       instance = system.Emitters[k];
+                const Assets::Serialization::VFXEmitterData& data     = system.System->Emitters[k];
+                VFXEmitterDebugStats&                        e        = out.Emitters.emplace_back();
+                e.Emitter  = static_cast<std::uint32_t>( k );
+                e.Name     = data.Name;
+                e.Runs     = system.Runs[k];
+                e.Capacity = data.Enabled ? static_cast<std::uint32_t>( data.Capacity ) : 0u;
+                e.Steps    = static_cast<std::uint32_t>( instance.Steps.size() );
+                for ( const EmitterStep& step : instance.Steps )
+                    e.Spawned += step.Budget;
+                e.NextId               = instance.NextId;
+                e.Channel              = instance.ChannelReport;
+                e.ChannelOverflowTotal = instance.ChannelOverflowTotal;
+            }
+        }
+        std::sort( stats.Systems.begin(), stats.Systems.end(),
+                   []( const VFXSystemDebugStats& a, const VFXSystemDebugStats& b )
+                   { return a.EntityUuid < b.EntityUuid; } );
+        if ( m_GpuState )
+            m_GpuState->FillDebugStats( stats );
+        return stats;
+    }
+
     void PlanEmitterSteps( EmitterInstance& instance, const VFXSpawnPlan& plan, const std::uint32_t stepCount,
                            const double stepSeconds, const VFXDataChannels& channels, const glm::vec3& emitterCm )
     {
@@ -100,6 +142,14 @@ namespace Desert::VFX
     void VFXWorld::Tick( entt::registry& registry, double seconds )
     {
         ++m_TickSerial;
+        if ( m_DebugSettings.Frozen )
+        {
+            // The debugger's pause: no time passes but the steps it asked for. One StepSeconds after a remainder
+            // below one step is exactly one step.
+            seconds = m_FrozenSteps > 0 ? m_Clock.GetSettings().StepSeconds : 0.0;
+            if ( m_FrozenSteps > 0 )
+                --m_FrozenSteps;
+        }
         m_Plan = m_Clock.Advance( seconds );
 
         if ( m_Plan.Reset )
@@ -193,7 +243,8 @@ namespace Desert::VFX
                                firstSight ? "spawned" : "restarted (asset changed)", count,
                                RunningPoolParticles( system ), data->Seed );
                  }
-                 system.Seen = true;
+                 system.Seen   = true;
+                 system.Entity = entity;
 
                  // The editor's Restart: this system alone starts over - a Deactivated one becomes a candidate
                  // again.
@@ -209,6 +260,7 @@ namespace Desert::VFX
                  const auto*     transform = registry.try_get<ECS::TransformComponent>( entity );
                  const glm::mat4 world = transform ? glm::mat4( transform->GetTransform() ) : glm::mat4( 1.0f );
                  const glm::vec3 emitterCm( world[3] );
+                 system.Transform = world;
                  // The world AABB of the system's fixed local bounds (Arvo: each axis of the box through the
                  // transform's linear part).
                  glm::vec3 minCm = emitterCm;

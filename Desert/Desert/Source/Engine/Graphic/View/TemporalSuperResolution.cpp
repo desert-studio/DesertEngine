@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <set>
 #include <span>
 
 namespace Desert::Graphic
@@ -414,6 +415,61 @@ namespace Desert::Graphic
         return quality.RejectionAntiAliasing >= 2 ? 8 : quality.RejectionAntiAliasing == 1 ? 3 : 0;
     }
 
+    namespace
+    {
+        // The defines of each varying TSR program at one quality - the one statement AddPasses dispatches and
+        // ProgramVariants cooks.
+        struct TsrPassDefines
+        {
+            std::string Decimate;
+            std::string Reject;
+            std::string ThinGeometry;
+            std::string Spatial;
+            std::string Update;
+        };
+
+        TsrPassDefines TsrPassDefinesFor( const TsrQuality& quality, const bool historyIsOutput )
+        {
+            TsrPassDefines defines;
+            defines.Decimate = std::format( "TSR_THIN_GEOMETRY={}", quality.ThinGeometryDetection ? 1 : 0 );
+            // UE DIM_THIN_GEOMETRY_DETECTION: RejectShading reads TSR.ThinGeometry and relaxes its clamp box by it.
+            defines.Reject = defines.Decimate;
+            // UE DIM_VARYING_RANGE_DETECTION / DIM_INTENSITY_LINE_DETECTION (TsrThinGeometryVaryingRange).
+            defines.ThinGeometry = std::format( "TSR_THIN_VARYING_RANGE={};TSR_THIN_INTENSITY_LINE={}",
+                                                TsrThinGeometryVaryingRange( quality ) ? 1 : 0,
+                                                TsrThinGeometryIntensityLines( quality ) ? 1 : 0 );
+            defines.Spatial =
+                 std::format( "TSR_SPATIAL_AA_ITERATIONS={}", TsrSpatialAntiAliasingIterations( quality ) );
+            defines.Update = std::format( "TSR_UPDATE_QUALITY={};TSR_WRITE_OUTPUT={}", quality.HistoryUpdateQuality,
+                                          historyIsOutput ? 1 : 0 );
+            return defines;
+        }
+
+        // Every program (with its defines, "" = the default program) one frame's chain dispatches.
+        std::vector<std::pair<const char*, std::string>> TsrProgramsUsed( const TsrQuality&     quality,
+                                                                          const TsrPassDefines& defines,
+                                                                          const bool            historyIsOutput,
+                                                                          const bool            recordThisFrame )
+        {
+            std::vector<std::pair<const char*, std::string>> used{ { kClearPrevTextures, "" },
+                                                                   { kDilateVelocity, "" },
+                                                                   { kDecimateHistory, defines.Decimate },
+                                                                   { kRejectShading, defines.Reject },
+                                                                   { kSpatialAntiAliasing, defines.Spatial },
+                                                                   { kUpdateHistory, defines.Update } };
+            if ( quality.ThinGeometryDetection )
+                used.emplace_back( kDetectThinGeometry, defines.ThinGeometry );
+            if ( !historyIsOutput )
+                used.emplace_back( kResolveHistory, "" );
+            if ( recordThisFrame )
+            {
+                used.emplace_back( kRecordPersistent, "TSR_RECORD_GUIDE=0" );
+                used.emplace_back( kRecordPersistent, "TSR_RECORD_GUIDE=1" );
+            }
+            return used;
+        }
+    } // namespace
+
     int TsrResurrectionSlot( const TsrHistory& previous, const uint64_t thisFrame )
     {
         // The oldest recorded frame: NextSlot when it is recorded (both are), else the other one.
@@ -716,35 +772,14 @@ namespace Desert::Graphic
         // Every pipeline this frame's chain dispatches, made now: one that does not compile, or that the device
         // refuses (VulkanShader::Reflect: shared memory above maxComputeSharedMemorySize), refuses TSR for the frame
         // by name before a pass is added, instead of failing one pass at record time.
-        const std::string decimateDefines =
-             std::format( "TSR_THIN_GEOMETRY={}", quality.ThinGeometryDetection ? 1 : 0 );
-        // UE DIM_THIN_GEOMETRY_DETECTION: RejectShading reads TSR.ThinGeometry and relaxes its clamp box by it.
-        const std::string rejectDefines = decimateDefines;
-        // UE DIM_VARYING_RANGE_DETECTION / DIM_INTENSITY_LINE_DETECTION (TsrThinGeometryVaryingRange).
-        const std::string thinGeometryDefines =
-             std::format( "TSR_THIN_VARYING_RANGE={};TSR_THIN_INTENSITY_LINE={}",
-                          TsrThinGeometryVaryingRange( quality ) ? 1 : 0, intensityLines ? 1 : 0 );
-        const std::string spatialDefines =
-             std::format( "TSR_SPATIAL_AA_ITERATIONS={}", TsrSpatialAntiAliasingIterations( quality ) );
-        const std::string updateDefines = std::format( "TSR_UPDATE_QUALITY={};TSR_WRITE_OUTPUT={}",
-                                                       quality.HistoryUpdateQuality, historyIsOutput ? 1 : 0 );
+        const TsrPassDefines passDefines         = TsrPassDefinesFor( quality, historyIsOutput );
+        const std::string&   decimateDefines     = passDefines.Decimate;
+        const std::string&   rejectDefines       = passDefines.Reject;
+        const std::string&   thinGeometryDefines = passDefines.ThinGeometry;
+        const std::string&   spatialDefines      = passDefines.Spatial;
+        const std::string&   updateDefines       = passDefines.Update;
         {
-            std::vector<std::pair<const char*, std::string>> used{
-                 { kClearPrevTextures, "" },
-                 { kDilateVelocity, "" },
-                 { kDecimateHistory, decimateDefines },
-                 { kRejectShading, rejectDefines },
-                 { kSpatialAntiAliasing, spatialDefines },
-                 { kUpdateHistory, updateDefines } };
-            if ( quality.ThinGeometryDetection )
-                used.emplace_back( kDetectThinGeometry, thinGeometryDefines );
-            if ( !historyIsOutput )
-                used.emplace_back( kResolveHistory, "" );
-            if ( recordThisFrame )
-            {
-                used.emplace_back( kRecordPersistent, "TSR_RECORD_GUIDE=0" );
-                used.emplace_back( kRecordPersistent, "TSR_RECORD_GUIDE=1" );
-            }
+            const auto used = TsrProgramsUsed( quality, passDefines, historyIsOutput, recordThisFrame );
             for ( const auto& [shader, defines] : used )
             {
                 std::string error;
@@ -1085,6 +1120,53 @@ namespace Desert::Graphic
         return Common::MakeSuccess( luma );
     }
 
+    Core::ShaderVariant TemporalSuperResolution::DefinesVariant( const std::string& defines )
+    {
+        Core::ShaderVariant variant{ .ShippedByCook = true };
+        std::size_t         begin = 0;
+        while ( begin <= defines.size() )
+        {
+            const std::size_t end = std::min( defines.find( ';', begin ), defines.size() );
+            variant.Defines.emplace_back( defines.substr( begin, end - begin ) );
+            begin = end + 1;
+        }
+        return variant;
+    }
+
+    std::vector<Core::CookedProgramVariant> TemporalSuperResolution::ProgramVariants()
+    {
+        // Every quality a level or the project can select: each row's range as its parameter spec states it (the
+        // one statement the table loader and every selector check against), the project's thin-geometry detection
+        // on and off, the history at and below the output, a recording frame.
+        namespace Scalability      = ::Common::Scalability;
+        const auto& flickeringSpec = Scalability::SpecOf( Scalability::Parameter::TsrShadingRejectionFlickering );
+        const auto& antiAliasingSpec  = Scalability::SpecOf( Scalability::Parameter::TsrRejectionAntiAliasing );
+        const auto& updateQualitySpec = Scalability::SpecOf( Scalability::Parameter::TsrHistoryUpdateQuality );
+        std::set<std::pair<std::string, std::string>> unique;
+        for ( const bool thinGeometry : { false, true } )
+            for ( auto flickering = flickeringSpec.Min; flickering <= flickeringSpec.Max; ++flickering )
+                for ( auto antiAliasing = antiAliasingSpec.Min; antiAliasing <= antiAliasingSpec.Max;
+                      ++antiAliasing )
+                    for ( auto update = updateQualitySpec.Min; update <= updateQualitySpec.Max; ++update )
+                        for ( const bool historyIsOutput : { false, true } )
+                        {
+                            TsrQuality quality;
+                            quality.ThinGeometryDetection      = thinGeometry;
+                            quality.ShadingRejectionFlickering = flickering != 0;
+                            quality.RejectionAntiAliasing      = antiAliasing;
+                            quality.HistoryUpdateQuality       = update;
+                            const TsrPassDefines defines = TsrPassDefinesFor( quality, historyIsOutput );
+                            for ( const auto& [shader, programDefines] :
+                                  TsrProgramsUsed( quality, defines, historyIsOutput, true ) )
+                                if ( !programDefines.empty() )
+                                    unique.emplace( shader, programDefines );
+                        }
+        std::vector<Core::CookedProgramVariant> variants;
+        for ( const auto& [shader, defines] : unique )
+            variants.push_back( { shader, DefinesVariant( defines ) } );
+        return variants;
+    }
+
     std::shared_ptr<ComputePipeline> TemporalSuperResolution::PipelineFor( const char*        shaderName,
                                                                            const std::string& defines,
                                                                            std::string&       error ) const
@@ -1100,22 +1182,10 @@ namespace Desert::Graphic
             error = std::format( "TSR: no shader service to compile '{}' ({})", shaderName, defines );
             return nullptr;
         }
-        // "" is the default program (AcquireVariant refuses the empty variant); otherwise one define per ';'.
-        std::shared_ptr<Shader> shader;
-        if ( defines.empty() )
-            shader = service->GetByName( shaderName );
-        else
-        {
-            Core::ShaderVariant variant;
-            std::size_t         begin = 0;
-            while ( begin <= defines.size() )
-            {
-                const std::size_t end = std::min( defines.find( ';', begin ), defines.size() );
-                variant.Defines.emplace_back( defines.substr( begin, end - begin ) );
-                begin = end + 1;
-            }
-            shader = service->AcquireVariant( shaderName, variant );
-        }
+        // "" is the default program (AcquireVariant refuses the empty variant); otherwise DefinesVariant.
+        const std::shared_ptr<Shader> shader = defines.empty()
+                                                    ? service->GetByName( shaderName )
+                                                    : service->AcquireVariant( shaderName, DefinesVariant( defines ) );
         if ( !shader )
         {
             error = std::format( "TSR: the shader '{}' ({}) did not compile — expected "

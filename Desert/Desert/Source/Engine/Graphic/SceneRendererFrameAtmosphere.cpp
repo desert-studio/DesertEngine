@@ -103,6 +103,14 @@ namespace Desert::Graphic
                  [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return particles->Compact( context, step + 1 ); } );
         }
+        // VFX-16 (UE Niagara Debugger, dev only): the GPU counts and one attribute page, after the last compact (the
+        // graph orders it from the buffers), only while an editor debugger asks.
+        if ( particles->DebugReadbackRequested() )
+            graph.AddPass(
+                 "Particles: Debug Readback", RDG::PassFlags::Compute,
+                 [particles]( RDG::PassBuilder& pass ) { particles->DeclareDebugReadbackBindings( pass ); },
+                 [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->DebugReadback( context ); } );
     }
 
     void SceneRenderer::AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures )
@@ -120,6 +128,20 @@ namespace Desert::Graphic
         clouds->SettleShadowMapNodes( AddComputeNodes( graph, textures, std::move( nodes ) ) );
         // A transient of this graph; its readers take the ref through SceneViewInputsOf (CloudShadowMapOrWhite).
         textures.Transients.CloudShadowMap = clouds->GetShadowMap();
+    }
+
+    void SceneRenderer::AddFrameCloudSkyOcclusion( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // A path-traced frame draws no screen clouds, but the layer's sky-occlusion volume is an input of the sky
+        // capture that marches the clouds into the environment the paths read (PathTracerSky "Prepare"): without
+        // it the capture waits on an undecided volume and the path-traced sky has no clouds.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
+        if ( clouds == nullptr )
+            return;
+        std::vector<ComputeNodeDeclaration> nodes = clouds->DeclareSkyOcclusionNodes();
+        clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
+        clouds->SettleSkyOcclusionNodes( AddComputeNodes( graph, textures, std::move( nodes ) ) );
     }
 
     void SceneRenderer::AddFrameSkyLight( RDG::Builder& graph, FrameTextures& textures )

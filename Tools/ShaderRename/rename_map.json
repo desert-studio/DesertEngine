@@ -15,6 +15,8 @@
     "u_Active": "Active",
     "u_AdaptSpeed": "AdaptationSpeed",
     "u_AdaptedLuminance": "AdaptedLuminanceTexture",
+    "u_AddressHi": "AddressHi",
+    "u_AddressLo": "AddressLo",
     "u_AerialPerspective": "AerialPerspectiveTexture",
     "u_AerialPerspectiveLut": "AerialPerspectiveLutTexture",
     "u_AlbedoTexture": "AlbedoTexture",
@@ -143,6 +145,7 @@
     "u_CloudWind": "CloudWind",
     "u_CocScale": "CocScale",
     "u_ColorTex": "ColorTexture",
+    "u_Columns": "Columns",
     "u_ContactShadowView": "ContactShadowView",
     "u_Content": "RetainedLayerTexture",
     "u_Copies": "Copies",
@@ -244,6 +247,7 @@
     "u_Flat": "FlattenedVelocityTexture",
     "u_FlickeringFramePeriod": "FlickeringFramePeriod",
     "u_FlickeringLuma": "FlickeringLumaTexture",
+    "u_Floats": "FloatAttributes",
     "u_FocalDistanceMm": "FocalDistanceMm",
     "u_FocalLengthMm": "FocalLengthMm",
     "u_FogAmbient": "FogAmbient",
@@ -346,6 +350,7 @@
     "u_HistorySize": "HistorySize",
     "u_HistorySurface": "HistorySurfaceTexture",
     "u_HistoryValid": "HistoryValid",
+    "u_IndexAndMask": "IndexAndMask",
     "u_Indices": "Indices",
     "u_InfluenceRadius": "InfluenceRadius",
     "u_Input": {
@@ -411,6 +416,7 @@
         }
       ]
     },
+    "u_Ints": "IntAttributes",
     "u_InvJitteredViewProjection": "InverseJitteredViewProjection",
     "u_InvLogLumRange": "InverseLogLuminanceRange",
     "u_InvPreExposure": "InversePreExposure",
@@ -467,6 +473,7 @@
     "u_LensFlareTintIntensity": "LensFlareTintIntensity",
     "u_Level": "Level",
     "u_Levels": "Levels",
+    "u_Light": "LightSphere",
     "u_LightColor": "LightColor",
     "u_LightDir": "LightDirection",
     "u_LightShaftTexture": "LightShaftTexture",
@@ -478,7 +485,9 @@
     "u_List": "ListCounts",
     "u_Lists": "Lists",
     "u_LiveLayer": "LiveLayer",
+    "u_LocalLight": "LocalLightSphere",
     "u_LocalShadowAtlas": "LocalShadowAtlasTexture",
+    "u_LocalShadowMasks": "LocalShadowMasksTexture",
     "u_LogLumRange": "LogLuminanceRange",
     "u_LowPct": "LowPercent",
     "u_MarkPointHeader": "MarkPointHeader",
@@ -543,7 +552,17 @@
     "u_ObjectGrid": "ObjectGridTexture",
     "u_ObjectRows": "ObjectRows",
     "u_OpacityTexture": "OpacityTexture",
-    "u_Out": "MorphedVertices",
+    "u_Out": {
+      "rest": "MorphedVertices",
+      "scopes": [
+        {
+          "new": "ReadbackWords",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Particles/ParticleDebugReadback.shader"
+          ]
+        }
+      ]
+    },
     "u_OutB": "OutBTexture",
     "u_OutDiffuse": "OutDiffuseTexture",
     "u_OutG": "OutGTexture",
@@ -639,7 +658,6 @@
           "new": "DestinationCubeTexture",
           "files": [
             "Editor/Resources/Shaders/Programs/Compute/SkyCapture*",
-            
             "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyCapture*"
           ]
         }
@@ -654,6 +672,7 @@
     "u_Pad0": "Pad0",
     "u_Pad1": "Pad1",
     "u_Pad2": "Pad2",
+    "u_Page": "Page",
     "u_Palettes": "Palettes",
     "u_Params": {
       "rest": "Params",
@@ -699,7 +718,17 @@
     "u_RainOcclusionParams": "RainOcclusionParams",
     "u_RainOcclusionSampler": "RainOcclusionSampler",
     "u_RainOcclusionWorldToMap": "RainOcclusionWorldToMap",
-    "u_Range": "SortRange",
+    "u_Range": {
+      "rest": "SortRange",
+      "scopes": [
+        {
+          "new": "AliveRange",
+          "files": [
+            "Editor/Resources/Shaders/Programs/Particles/ParticleDebugReadback.shader"
+          ]
+        }
+      ]
+    },
     "u_RasterLevel": "RasterLevel",
     "u_RayHitRecord": "RayHitRecord",
     "u_RayTracingGeometry": "RayTracingGeometry",
@@ -709,6 +738,7 @@
     "u_ReconstructedGuide": "ReconstructedGuideTexture",
     "u_ReconstructedScatter": "ReconstructedScatterTexture",
     "u_Reconstruction": "Reconstruction",
+    "u_Record": "Record",
     "u_ReflectionCaptureCubes": "ReflectionCaptureCubesTexture",
     "u_ReflectionCaptureHeader": "ReflectionCaptureHeader",
     "u_ReflectionCaptures": "ReflectionCaptures",
@@ -734,6 +764,8 @@
     "u_ResurrectionHistory": "ResurrectionHistoryTexture",
     "u_ResurrectionPreExposureCorrection": "ResurrectionPreExposureCorrection",
     "u_Rings": "Rings",
+    "u_RowBase": "RowBase",
+    "u_Rows": "Rows",
     "u_SDFAtlas": "SdfAtlasTexture",
     "u_SDFAtlasSampler": "SdfAtlasTextureSampler",
     "u_SSAO": "SsaoTexture",
@@ -743,6 +775,7 @@
     "u_SSRParams2": "SsrParams2",
     "u_SSRParams3": "SsrParams3",
     "u_Samples": "Samples",
+    "u_SbtAndFlags": "SbtAndFlags",
     "u_Scene": "SceneColorTexture",
     "u_SceneColor": "SceneColorTexture",
     "u_SceneColorHistory": "SceneColorHistoryTexture",
@@ -821,7 +854,6 @@
           "new": "SourceCubeMipTexture",
           "files": [
             "Editor/Resources/Shaders/Programs/Compute/SkyCapture*",
-            
             "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Skybox/SkyCapture*"
           ]
         },
@@ -839,6 +871,7 @@
     "u_SourceWidth": "SourceWidth",
     "u_SpecularAlbedo": "SpecularAlbedoTexture",
     "u_SpecularHitDistance": "SpecularHitDistanceTexture",
+    "u_Spot": "SpotCone",
     "u_SrcTexelSize": "SourceTexelSize",
     "u_Stack": "Stack",
     "u_StackCurves": "StackCurvesData",
@@ -850,6 +883,8 @@
     "u_Steps": "Steps",
     "u_Streak": "StreakParams",
     "u_Streams": "Streams",
+    "u_StripIndices": "StripIndices",
+    "u_StripVertices": "StripVertices",
     "u_SubPixelOffset": "SubPixelOffset",
     "u_Sun": "SunParams",
     "u_SunContactShadow": "SunContactShadow",
@@ -902,10 +937,12 @@
     },
     "u_TintInner": "TintInner",
     "u_TintOuter": "TintOuter",
+    "u_TlasRows": "TlasRowWords",
     "u_TonemapOperator": "TonemapOperator",
     "u_Trace": "SsrTraceTexture",
     "u_TraceParams": "TraceParams",
     "u_TraceRay": "TraceRayTexture",
+    "u_Transforms": "InstanceTransforms",
     "u_TransmittanceLut": "TransmittanceLutTexture",
     "u_Unsorted": "UnsortedData",
     "u_UnusedFrames": "UnusedFrames",
@@ -918,6 +955,7 @@
     "u_ViewOrigin": "ViewOrigin",
     "u_ViewProj": "ViewProjection",
     "u_ViewProjection": "ViewProjection",
+    "u_Visibility": "VisibilityTexture",
     "u_VolumeParams": "VolumeParams",
     "u_VoxelSize": "VoxelSize",
     "u_Weight": "StagingWeight",
