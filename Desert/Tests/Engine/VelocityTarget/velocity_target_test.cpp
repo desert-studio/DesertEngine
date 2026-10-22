@@ -291,7 +291,8 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
                  { "LightGridParamsUB", Desert::Core::kLightGridParamsBinding },
                  { "LightGridCellsUB", Desert::Core::kLightGridCellsBinding },
                  { "u_LocalShadowAtlas", Desert::Core::kLocalShadowAtlasBinding },
-                 { "LocalShadowViewsUB", Desert::Core::kLocalShadowViewsBinding } };
+                 { "LocalShadowViewsUB", Desert::Core::kLocalShadowViewsBinding },
+                 { "u_LocalShadowMasks", Desert::Core::kLocalShadowMasksBinding } };
             if ( const auto forward = forwardSceneRead.find( name ); forward != forwardSceneRead.end() )
             {
                 if ( Desert::Core::IsSceneReadBinding( binding ) )
@@ -311,7 +312,7 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-    ASSERT_EQ( sceneRead.size(), 12u );
+    ASSERT_EQ( sceneRead.size(), 13u );
     EXPECT_EQ( sceneRead["u_LocalShadowAtlas"], Desert::Core::kLocalShadowAtlasBinding );
     EXPECT_EQ( sceneRead["LocalShadowViewsUB"], Desert::Core::kLocalShadowViewsBinding );
     EXPECT_EQ( sceneRead["MegaLightsVolumeUB"], Desert::Core::kMegaLightsVolumeParamsBinding );

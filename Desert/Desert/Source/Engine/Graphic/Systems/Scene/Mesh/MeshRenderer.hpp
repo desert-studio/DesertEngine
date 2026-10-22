@@ -706,7 +706,7 @@ namespace Desert::Graphic::System
         // intends to ray trace the sun (SceneRenderer::SunShadowIsRayTraced), so "Deferred: Generic" shades the
         // sun-reading opaque programs through their DESERT_SUN_SHADOW_SCREEN_MASK permutation - the forward
         // pipeline whose readiness this prepass checks together with its own.
-        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun );
+        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun, bool localShadowMasks );
         [[nodiscard]] Common::BoolResultStr
         RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
@@ -1171,11 +1171,13 @@ namespace Desert::Graphic::System
         // DESERT_SUN_SHADOW_SCREEN_MASK permutation while the sun is ray traced. A blended program (TextSDF) or
         // one that reads no sun shadow is shaded through itself.
         [[nodiscard]] static bool ReadsSunShadowScreenMask( const Shader& shader, bool opaque );
+        [[nodiscard]] static bool ReadsLocalShadowScreenMask( const Shader& shader, bool opaque );
         // Whether the pipeline "Deferred: Generic" shades @p shader's opaque draw with is Ready, tracked (so a
         // compiling one counts among the pending pipelines); @p rayTracedSun picks the permutation as that pass
         // does.
         [[nodiscard]] bool GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
-                                                        const std::string& shaderName, bool rayTracedSun );
+                                                        const std::string& shaderName, bool rayTracedSun,
+                                                        bool localShadowMasks );
         // THE ONE READINESS CHECK for an opaque generic draw on the deferred path: "Deferred: Forward
         // Depth/Normal" admits it when BOTH its depth-normal and its forward pipeline are Ready and records it
         // here; "Deferred: Generic" shades only what this frame admitted, so no draw is shaded forward against a
@@ -1185,6 +1187,8 @@ namespace Desert::Graphic::System
         std::unordered_set<const GenericMeshRenderData*> m_GenericPrepassed;
         std::optional<uint64_t>                          m_GenericPrepassFrame;
         bool                                             m_GenericPrepassRayTracedSun = false;
+        bool                                             m_GenericPrepassLocalShadowMasks = false; // the prepass's DESERT_LOCAL_SHADOW_SCREEN_MASK choice
+        bool                                             m_GenericLocalShadowMasks        = false; // "Deferred: Generic" (DeclareGenericDraws)
         std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
         // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
         // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —

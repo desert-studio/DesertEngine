@@ -284,6 +284,8 @@ namespace Desert::Graphic::System
                     if ( slice == GenericSlice::DeferredForwardRayTracedSun &&
                          ReadsSunShadowScreenMask( *shader, opaque ) )
                         permutation.Defines = { std::string( kSunShadowScreenMaskDefine ) };
+                    if ( m_GenericLocalShadowMasks && ReadsLocalShadowScreenMask( *shader, opaque ) )
+                        permutation.Defines.push_back( std::string( kLocalShadowScreenMaskDefine ) );
                     break;
             }
             const std::shared_ptr<Shader> templateShader = shader;
@@ -374,7 +376,8 @@ namespace Desert::Graphic::System
                 if ( slice == GenericSlice::DeferredDepthNormal )
                 {
                     if ( !choice.UseOwnPipeline ||
-                         !GenericForwardPipelineReady( templateShader, shaderName, m_GenericPrepassRayTracedSun ) )
+                         !GenericForwardPipelineReady( templateShader, shaderName, m_GenericPrepassRayTracedSun,
+                                                       m_GenericPrepassLocalShadowMasks ) )
                         continue;
                     m_GenericPrepassed.insert( &g );
                 }
@@ -532,6 +535,11 @@ namespace Desert::Graphic::System
         return opaque && shader.SamplesTexture( kSceneViewShadowCascadesName );
     }
 
+    bool MeshRenderer::ReadsLocalShadowScreenMask( const Shader& shader, const bool opaque )
+    {
+        return opaque && shader.SamplesTexture( kSceneViewLocalShadowAtlasName );
+    }
+
     bool MeshRenderer::SunCascadeReadersQueued() const
     {
         return QueuedForwardDrawSamples( kSceneViewShadowCascadesName, /*blendedOnly*/ true ) ||
@@ -540,7 +548,7 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::LocalShadowMapReadersQueued() const
     {
-        return QueuedForwardDrawSamples( kSceneViewLocalShadowAtlasName, /*blendedOnly*/ false ) ||
+        return QueuedForwardDrawSamples( kSceneViewLocalShadowAtlasName, /*blendedOnly*/ true ) ||
                QueuedStaticTranslucentSamples( kSceneViewLocalShadowAtlasName );
     }
 
@@ -609,18 +617,24 @@ namespace Desert::Graphic::System
     }
 
     bool MeshRenderer::GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
-                                                    const std::string& shaderName, const bool rayTracedSun )
+                                                    const std::string& shaderName, const bool rayTracedSun,
+                                                    const bool localShadowMasks )
     {
         std::shared_ptr<Shader> program    = shader;
         std::string             programKey = shaderName;
+        // The defines in BuildGenericDraws' order (sun, then local), so the key is the forward pass's.
+        Core::ShaderVariant permutation;
         if ( rayTracedSun && ReadsSunShadowScreenMask( *shader, /*opaque*/ true ) )
+            permutation.Defines.push_back( std::string( kSunShadowScreenMaskDefine ) );
+        if ( localShadowMasks && ReadsLocalShadowScreenMask( *shader, /*opaque*/ true ) )
+            permutation.Defines.push_back( std::string( kLocalShadowScreenMaskDefine ) );
+        if ( !permutation.IsDefault() )
         {
-            Core::ShaderVariant permutation;
-            permutation.Defines = { std::string( kSunShadowScreenMaskDefine ) };
             program = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
             if ( !program || !program->IsCompiled() )
                 return false; // ShaderService named the program and its compile error once
-            std::format_to( std::back_inserter( programKey ), "|{}", kSunShadowScreenMaskDefine );
+            for ( const auto& define : permutation.Defines )
+                std::format_to( std::back_inserter( programKey ), "|{}", define );
         }
         // The spec "Deferred: Generic" builds for this program (BuildGenericDraws): the same cache entry.
         GraphicsPipelineSpecification spec = GenericPipelineSpec( program );
@@ -744,6 +758,8 @@ namespace Desert::Graphic::System
         // shadow mask exactly when the frame resolved to a ray-traced sun (SceneRenderer::AddFrameGeneric: the
         // mask, or System.White when its trace could not be declared), and the opaque programs read it in place of
         // the cascades - the same decision the depth/normal prepass was declared with.
+        // Likewise the local shadow masks, in place of the atlas (AddFrameGeneric: valid exactly when traced).
+        m_GenericLocalShadowMasks = view.LocalShadowMasks.IsValid();
         BuildGenericDraws( m_GenericDraws, view.SunShadowMask.IsValid() ? GenericSlice::DeferredForwardRayTracedSun
                                                                         : GenericSlice::DeferredForward );
         m_GenericDraws.Declare( pass, view );

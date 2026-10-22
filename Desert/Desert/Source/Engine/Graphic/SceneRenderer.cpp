@@ -1891,7 +1891,7 @@ namespace Desert::Graphic
                                                               : RDG::TextureRef{};
                 AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, localShadowMasks,
                                    megaLights, meshRenderer, lightDir, lightColor, frame );
-                AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask );
+                AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask, localShadowMasks );
 
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );

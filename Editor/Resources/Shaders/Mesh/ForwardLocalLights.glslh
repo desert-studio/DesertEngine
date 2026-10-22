@@ -11,7 +11,7 @@
 // The includer has included Common/ContactShadow.glslh with its inputs first: the lights' contact shadows are
 // applied with their shadow-map shadows. The bindings below are the light buffers' numbers every lit program
 // shares (LightsMetadata 4, PointLightsUB 6, SpotLightsUB 16: written by name by SceneFrameBinding's Lights group)
-// and the reserved scene-read range's (Core::kLightGridParamsBinding .. kLocalShadowViewsBinding,
+// and the reserved scene-read range's (Core::kLightGridParamsBinding .. kLocalShadowMasksBinding,
 // ShaderGraphBindings.hpp: bound by name from the frame graph, BindSceneViewInputs); the includer keeps them free.
 #include <Mesh/PointLight.glslh>
 #include <Mesh/Spotlight.glslh>
@@ -37,6 +37,15 @@ layout( std430, binding = 39 ) readonly buffer LocalShadowViewsUB
 {
     LocalShadowView localShadowViews[];
 };
+#ifdef DESERT_LOCAL_SHADOW_SCREEN_MASK
+// "Shadows: Ray Traced Local" (Shadows HardwareTraced), the OPAQUE forward cells: each shadowed light's ray-traced
+// screen mask, one layer per light by its shadowMaskSlot (Graphic/RayTracedLocalShadow.hpp), read before the light's
+// shadow view exactly as the deferred composite reads it (Programs/Deferred/DeferredLighting.shader). The atlas
+// above stays declared: a light with no mask slot and the subsurface transmission still read their shadow view.
+// Core::kLocalShadowMasksBinding.
+layout( binding = 40 ) uniform texture2DArray u_LocalShadowMasks;
+#define DesertLocalShadowScreenMask( slot ) texelFetch( sampler2DArray( u_LocalShadowMasks, u_PointClampSampler ), ivec3( ivec2( gl_FragCoord.xy ), slot ), 0 ).r
+#endif
 #include <Mesh/LocalLightShadow.glslh>
 
 // The lights of one pixel's froxel, in the order the full loop sums them (points, then spots). An overflowed cell

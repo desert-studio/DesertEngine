@@ -386,12 +386,14 @@ namespace Desert::Graphic
              textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderForwardDepthNormalManual( context ); },
-             [meshRenderer, rayTracedSun = SunShadowIsScreenMask()]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun ); } );
+             [meshRenderer, rayTracedSun = SunShadowIsScreenMask(),
+              localShadowMasks = LocalShadowsAreRayTraced()]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun, localShadowMasks ); } );
     }
 
     void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,
-                                         System::MeshRenderer* meshRenderer, const RDG::TextureRef sunShadowMask )
+                                         System::MeshRenderer* meshRenderer, const RDG::TextureRef sunShadowMask,
+                                         const RDG::TextureRef localShadowMasks )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
         if ( !targets || meshRenderer == nullptr )
@@ -403,6 +405,12 @@ namespace Desert::Graphic
         // declared (AddFrameRayTracedSunShadow logged it) leaves the sun unshadowed, as in the composite.
         if ( SunShadowIsScreenMask() )
             view.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : textures.GraphRefs().System.White;
+        // Under ray-traced local shadows the opaque programs read the masks in place of the atlas (the prepass chose
+        // the same permutation by LocalShadowsAreRayTraced). The masks exist whenever the frame traced them
+        // (AddFrameRayTracedLocalShadows packs at least one layer); a pack that failed (logged there) leaves them
+        // invalid and the draws on the atlas program - no stand-in array is read in place of a missing mask.
+        if ( LocalShadowsAreRayTraced() )
+            view.LocalShadowMasks = localShadowMasks;
         AddRaster(
              graph, "Deferred: Generic", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
