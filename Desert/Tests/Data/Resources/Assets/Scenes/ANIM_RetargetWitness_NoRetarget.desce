@@ -3,8 +3,9 @@
         "Kind": "Scene",
         "Guid": "f24d75a60eee26080570921beb993af9",
         "Versions": {
-            "SCNE": 64,
-            "UNIT": 1
+            "SCNE": 70,
+            "UNIT": 1,
+            "WPAR": 1
         },
         "Dependencies": ["443da08f9e394860b5c2bd3bb619e9cd", "cd8a5d3c174d4407b58719eaf92b7348", "e06572ed86a043209146d11062e05b5c"]
     },
@@ -173,7 +174,6 @@
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "ManualExposureEV100": 0.5260688662528992,
-                    "Gamma": 2.200000047683716,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
@@ -223,6 +223,7 @@
             "Path": ""
         },
         "RespawnDelay": 3.0,
+        "WorldParameters": "",
         "SplashSprite": {
             "Guid": "",
             "Path": ""

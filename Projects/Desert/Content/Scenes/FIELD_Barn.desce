@@ -4,7 +4,8 @@
         "Guid": "9f6174036d8b88429df5ff712f042697",
         "Versions": {
             "SCNE": 70,
-            "UNIT": 1
+            "UNIT": 1,
+            "WPAR": 1
         },
         "Dependencies": [
             "f1310680ea846d17141c59441b901b55", "0e67a9bfdff1b3cd7ed50e27dadc465e", "c39ddb7d5965f1c080b50b71c51a6db6", "29c0297bfae66c14e7be6532e7ce1963", "ef6e7c4e137113f552595c56bedcb909", "0987b34baece1a37e6f3e932edfde3ee", "4179fa72563a1de20aa8d5c9ed952532", "89f24c160b149347c112214c4f1582bf",
