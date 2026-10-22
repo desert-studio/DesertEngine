@@ -1,4 +1,7 @@
 #include "SceneMigration.hpp"
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Project/ProjectFormat.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Core/Serialize/SceneDependencies.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
@@ -4376,6 +4379,109 @@ namespace Desert::Migration
         return named;
     }
 
+    LandscapeHeightKeysReport MigrateLandscapeHeightKeysV66ToV67( std::vector<Assets::EntityData>& entities,
+                                                                  const std::filesystem::path&     sourceFile )
+    {
+        namespace fs = std::filesystem;
+        LandscapeHeightKeysReport report;
+        const std::string         prefix = std::string( Common::AssetHandle::AssetsTag() ) + ':';
+
+        // The project the old spelling is relative to: the nearest .deproj above the scene, read once, on the
+        // first spelling that needs it (a scene without tiles never looks for one).
+        std::optional<fs::path>    assetsRoot; // project-relative, from the .deproj
+        std::optional<std::string> noProject;
+        const auto                 findAssetsRoot = [&]() -> bool
+        {
+            if ( assetsRoot || noProject )
+                return assetsRoot.has_value();
+            std::error_code ec;
+            for ( fs::path dir = fs::absolute( sourceFile, ec ).parent_path(); !dir.empty();
+                  dir          = dir.parent_path() )
+            {
+                for ( const auto& entry : fs::directory_iterator( dir, ec ) )
+                {
+                    if ( entry.path().extension() != ".deproj" )
+                        continue;
+                    const auto json = Common::Utils::FileSystem::ReadFileContent( entry.path() );
+                    if ( !json )
+                    {
+                        noProject =
+                             std::format( "{} does not read: {}", entry.path().generic_string(), json.GetError() );
+                        return false;
+                    }
+                    const auto project = Common::Project::ReadProjectFile( json.GetValue() );
+                    if ( !project )
+                    {
+                        noProject = std::format( "{} is not a readable project: {}", entry.path().generic_string(),
+                                                 project.GetError() );
+                        return false;
+                    }
+                    assetsRoot = fs::path( project.GetValue().AssetsRoot ).lexically_normal();
+                    return true;
+                }
+                if ( dir == dir.parent_path() )
+                    break;
+            }
+            noProject = std::format( "no .deproj above {}", sourceFile.generic_string() );
+            return false;
+        };
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock(
+                 components, "LandscapeTile",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto stated = block.get( "HeightFile" );
+                     if ( !stated.has_value() )
+                         return false;
+                     const auto text = stated.value().to_string();
+                     if ( !text.has_value() )
+                     {
+                         report.Refused.push_back( std::format( "{}: LandscapeTile.HeightFile {} is not a string",
+                                                                who, rfl::json::write( stated.value() ) ) );
+                         return false;
+                     }
+                     const std::string& spelled = text.value();
+                     if ( spelled.empty() || spelled.starts_with( prefix ) )
+                         return false;
+                     if ( !findAssetsRoot() )
+                     {
+                         report.Refused.push_back(
+                              std::format( "{}: LandscapeTile.HeightFile '{}' is relative to a project, and {}",
+                                           who, spelled, *noProject ) );
+                         return false;
+                     }
+                     const std::string relative = fs::path( spelled )
+                                                       .lexically_normal()
+                                                       .lexically_relative( *assetsRoot )
+                                                       .generic_string();
+                     if ( relative.empty() || relative == "." || relative.starts_with( ".." ) )
+                     {
+                         report.Refused.push_back( std::format(
+                              "{}: LandscapeTile.HeightFile '{}' is not under the project's assets root '{}'", who,
+                              spelled, assetsRoot->generic_string() ) );
+                         return false;
+                     }
+                     DropKey( block, "HeightFile" );
+                     block["HeightFile"] = rfl::Generic( prefix + relative );
+                     ++report.Keyed;
+                     return true;
+                 } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who );
+        }
+        return report;
+    }
+
     SceneDependenciesReport MigrateSceneDependenciesV51ToV52( SceneSerialized&             scene,
                                                               const std::filesystem::path& assetsRoot )
     {
@@ -4513,6 +4619,16 @@ namespace Desert::Migration
         {
             report.GridNamesRaised = true;
             report.GridsNamed      = MigrateGridNamesV65ToV66( scene );
+        }
+        if ( statedSceneVersion < kSceneVersionLandscapeHeightKeys )
+        {
+            report.LandscapeHeightKeysRaised = true;
+            report.LandscapeHeightKeys       = MigrateLandscapeHeightKeysV66ToV67( scene.Entities, sourceFile );
+            if ( !report.LandscapeHeightKeys.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( scene.SceneName, report.LandscapeHeightKeys.Refused );
+                return report;
+            }
         }
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently

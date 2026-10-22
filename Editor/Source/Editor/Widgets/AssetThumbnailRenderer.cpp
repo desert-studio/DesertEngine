@@ -108,7 +108,7 @@ namespace Desert::Editor
             return;
 
         m_Scene           = std::make_shared<::Desert::Core::Scene>( "ThumbnailPreview", m_Renderer.get() );
-        const auto inited = m_Scene->Init();
+        const auto inited = m_Scene->Init( ::Desert::Core::Scene::InitPurpose::Offscreen );
         if ( !inited.IsSuccess() )
         {
             // `m_Inited` stays false so the next call retries, which is the whole reason this is not a

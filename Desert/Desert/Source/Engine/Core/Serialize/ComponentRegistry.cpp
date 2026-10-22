@@ -437,8 +437,9 @@ namespace Desert::Core::Serialize
                               comp.TileX, comp.TileZ );
                     return;
                 }
-                auto loaded = World::Landscape::ReadLandscapeTileFile(
-                     Common::Constants::Path::FullPath( comp.HeightFile ) );
+                // HeightFile is a content key ("assets:..."): resolved through the mounted assets root, so the
+                // same record reads in the editor and in a package (SceneSerializer's WriteLandscapeTiles).
+                auto loaded = World::Landscape::ReadLandscapeTileByKey( comp.HeightFile );
                 if ( !loaded )
                 {
                     LOG_ERROR( "[Landscape] tile ({0}, {1}) has no terrain: {2}", comp.TileX, comp.TileZ,

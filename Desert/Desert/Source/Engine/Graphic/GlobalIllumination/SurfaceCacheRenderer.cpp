@@ -540,7 +540,7 @@ namespace Desert::Graphic::SurfaceCache
                                 RDG::Access::StorageRead )
                       .Storage( ShaderProtocols::SpotLight::Parameter, inputs.Lights.Spot,
                                 RDG::Access::StorageRead )
-                      .Storage( System::kLocalShadowViewsBlock, inputs.Lights.ShadowViews,
+                      .Storage( kLocalShadowViewsBlock, inputs.Lights.ShadowViews,
                                 RDG::Access::StorageRead )
                       .Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCacheShadowUB, shadow,
                                 RDG::Access::StorageRead )

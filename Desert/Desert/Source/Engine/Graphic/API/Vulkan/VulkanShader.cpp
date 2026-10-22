@@ -88,11 +88,26 @@ namespace Desert::Graphic::API::Vulkan
         auto built = Core::BuildShaderMap(
              { asset->GetShaderContent(), m_ShaderPath, m_PassName, m_Variant, m_ShaderName } );
         if ( !built.IsSuccess() )
+        {
+            m_CompileError = built.GetError();
             return Common::MakeError( built.GetError() );
+        }
+        // A program the build answered with no stage at all is not "compiled with nothing to do": nothing would
+        // ever draw or dispatch through it. Refused by name here, so the reason is not an empty stage list.
+        if ( built.GetValue().Stages.empty() )
+        {
+            m_CompileError = std::format( "Shader '{}': the build produced no stage", m_ShaderName );
+            return Common::MakeError( m_CompileError );
+        }
         m_ProgramMeta = built.GetValue().Meta;
         auto rebuilt  = BuildFromSpirv( built.GetValue().Stages );
         if ( rebuilt )
+        {
+            m_CompileError.clear();
             BumpCodeGeneration(); // the pipelines built from the previous modules are now behind
+        }
+        else
+            m_CompileError = rebuilt.GetError();
         return rebuilt;
     }
 

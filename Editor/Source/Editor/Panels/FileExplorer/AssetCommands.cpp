@@ -59,6 +59,14 @@ namespace Desert::Editor
                                                                 "Partition window does not exist" );
                                   return WorldPartition()->ConvertSceneToWorldPartition();
                               } } );
+        // UE's Build > Build HLODs: builds every cell's HLOD of the saved world and writes them beside it.
+        commands.push_back( { "Scene", std::string( ::Desert::Core::Rules::kBuildHLODsLabel ), [this]
+                              {
+                                  if ( WorldPartition() == nullptr )
+                                      return Common::MakeError( "Build HLODs: the World Partition window does "
+                                                                "not exist" );
+                                  return WorldPartition()->BuildHLODs();
+                              } } );
 
         // The World Partition window's region buttons (UE's "Load Region from Selection" / "Unload All" /
         // "Load All" in the World Partition editor), offered unconditionally for the same reason as Convert.

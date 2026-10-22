@@ -183,6 +183,15 @@ namespace Desert::Core::Rules
         return std::format( "G{}L{}({},{})", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z );
     }
 
+    // THE NEAREST AN HLOD OF @p unit IS EVER DRAWN (UE FHLODBuildContext::MinVisibleDistance, WP-FAR-6B): the
+    // LoadingRange of its cell's grid - nearer, the cell itself is loaded. Cell units only (an always-loaded unit
+    // has no HLOD); one statement for Play and the cook, which pick the landscape HLOD's LOD from it.
+    [[nodiscard]] inline float HLODMinVisibleDistance( const WorldPartitionSerialized& partition,
+                                                       const WorldPartitionPlan& plan, std::size_t unit )
+    {
+        return partition.Grids.at( plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Grid ).LoadingRange;
+    }
+
     // Records a unit brings into the world: the members of every composite it holds.
     [[nodiscard]] inline std::size_t ResidencyUnitRecords( const WorldPartitionPlan& plan, std::size_t unit )
     {

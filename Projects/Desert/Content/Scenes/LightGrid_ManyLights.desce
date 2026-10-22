@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "bd1e6912bd313bee41785bc64c3ac6fc",
         "Versions": {
-            "SCNE": 66,
+            "SCNE": 67,
             "UNIT": 1
         },
         "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "df51ca6ed9cb71779a9b5634db0863bc"]

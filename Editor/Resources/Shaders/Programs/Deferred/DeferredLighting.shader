@@ -257,17 +257,7 @@ Shader "DeferredLighting"
         Uniform(5) texture2DArray ShadowCascadesTexture;
         #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
         #endif
-        Uniform(7) ShadowUB {
-        	mat4 LightViewProjection[4];
-        	vec4 ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
-        	vec4 DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
-        	vec4 CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
-        	vec4 CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
-        	vec4 ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
-        	vec4 SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
-        	                          // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
-        	vec4 ShadowFilter;      // x = PCSS blocker search taps, y = filter taps (sun PCSS + local lights PCF)
-        };
+        #include <Mesh/ShadowUB.glslh> // the view's ShadowUB, binding 7 (SceneResources::ShadowUBData)
 
         // The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
         // with cascades, their thickness transmittance; with a screen mask (ray-traced or virtual shadow maps) the

@@ -17,6 +17,7 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
+#include <Engine/ECS/EntityLock.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
@@ -324,6 +325,54 @@ namespace Desert::Editor::Commands
 
             Common::UUID m_Entity;
             std::string  m_OldName, m_NewName;
+        };
+
+        // A lock toggle (EntityLock.hpp) over one or more subtrees: every entity's lock state BEFORE, so undo puts
+        // a mixed subtree (a child locked on its own) back exactly, and the state every entity is set to on redo.
+        class LockCommand final : public ICommand
+        {
+        public:
+            LockCommand( std::vector<std::pair<Common::UUID, bool>> before, bool locked )
+                 : m_Before( std::move( before ) ), m_Locked( locked )
+            {
+            }
+
+            std::string GetLabel() const override
+            {
+                return m_Locked ? "Lock" : "Unlock";
+            }
+
+            bool Undo() override
+            {
+                bool any = false;
+                for ( const auto& [id, wasLocked] : m_Before )
+                    any |= Apply( id, wasLocked );
+                return any;
+            }
+            bool Redo() override
+            {
+                bool any = false;
+                for ( const auto& [id, wasLocked] : m_Before )
+                    any |= Apply( id, m_Locked );
+                return any;
+            }
+
+        private:
+            static bool Apply( const Common::UUID& id, bool locked )
+            {
+                auto e = FindEntity( id );
+                if ( !e )
+                    return false;
+                auto& registry = *e->GetRegistry();
+                if ( locked && !registry.has<ECS::LockComponent>( e->GetHandle() ) )
+                    registry.emplace<ECS::LockComponent>( e->GetHandle() );
+                else if ( !locked && registry.has<ECS::LockComponent>( e->GetHandle() ) )
+                    registry.remove<ECS::LockComponent>( e->GetHandle() );
+                return true;
+            }
+
+            std::vector<std::pair<Common::UUID, bool>> m_Before;
+            bool                                       m_Locked;
         };
 
         // An edit of an entity's editable mesh (EditableMesh.hpp), UE's FMeshReplacementChange: the two meshes BY
@@ -1165,6 +1214,45 @@ namespace Desert::Editor::Commands
 
         CommandHistory::Get().PushEntityEdit( std::make_unique<RenameCommand>( uuid, tag, newName ), { uuid } );
         tag = newName;
+    }
+
+    void SetLocked( const std::vector<Common::UUID>& roots, bool locked )
+    {
+        if ( !Ready() )
+            return;
+
+        // Every entity of every subtree, with its lock state before: the record names them all, so a
+        // partitioned save rewrites exactly their files (the lock is a field of each one's record).
+        std::vector<std::pair<Common::UUID, bool>> before;
+        std::vector<Common::UUID>                  touched;
+        for ( const auto& root : FilterTopLevel( roots ) )
+        {
+            auto e = FindEntity( root );
+            if ( !e )
+                continue;
+            auto&                     registry = *e->GetRegistry();
+            std::vector<entt::entity> pending{ e->GetHandle() };
+            while ( !pending.empty() )
+            {
+                const entt::entity entity = pending.back();
+                pending.pop_back();
+                if ( const auto* uuid = registry.try_get<ECS::UUIDComponent>( entity ) )
+                {
+                    before.emplace_back( uuid->UUID, ECS::IsLocked( registry, entity ) );
+                    touched.push_back( uuid->UUID );
+                }
+                if ( const auto* rel = registry.try_get<ECS::RelationshipComponent>( entity ) )
+                    for ( const auto child : rel->Children )
+                        if ( registry.valid( child ) )
+                            pending.push_back( child );
+            }
+        }
+        if ( before.empty() )
+            return;
+
+        auto command = std::make_unique<LockCommand>( std::move( before ), locked );
+        command->Redo();
+        CommandHistory::Get().PushEntityEdit( std::move( command ), touched );
     }
 
     void RecordMeshChange( const Common::UUID& uuid, const std::string& label,

@@ -549,8 +549,10 @@ namespace Desert::Graphic::System
         // has no cascades.
         [[nodiscard]] RDG::TextureRef AcquireCascadeMaps( RDG::Builder& graph );
         // One depth-only pass per local shadow view whose cached depth is stale this frame, each into its own
-        // tile of the atlas (it clears the tile, never the atlas). SceneRenderer::AddFrameShadowDepths adds them
-        // after the cascades, LOADING the atlas.
+        // tile of the atlas (it clears the tile, never the atlas), its mesh casters and then the non-mesh ones
+        // (IShadowCaster: the terrain). SceneRenderer::AddFrameShadowDepths adds them after the cascades, LOADING
+        // the atlas. The cache decision is made here (PlanLocalShadowCache), not in UpdateLocalShadows: a
+        // non-mesh caster's draws are resolved after that (TerrainRenderer::PrepareFrame), and its key is theirs.
         [[nodiscard]] std::vector<SystemRasterPass> LocalShadowPasses();
 
         // THE VIEW'S RAIN OCCLUSION (Graphic/RainOcclusion.hpp): a top-down depth of every caster in a box around
@@ -630,6 +632,17 @@ namespace Desert::Graphic::System
         [[nodiscard]] const std::vector<LocalShadowViewPayload>& GetLocalShadowRows() const
         {
             return m_LocalShadowRows;
+        }
+        // This frame's shadowed point/spot lights as their casters see them (LocalShadowCasterLight), in view
+        // order: what a non-mesh caster resolves its local-view draws for (TerrainRenderer::PrepareFrame), between
+        // UpdateLocalShadows and LocalShadowPasses.
+        [[nodiscard]] std::vector<LocalShadowCasterLight> GetLocalShadowCasterLights() const
+        {
+            std::vector<LocalShadowCasterLight> lights;
+            lights.reserve( m_LocalCachePlans.size() );
+            for ( const LocalShadowCachePlan& plan : m_LocalCachePlans )
+                lights.push_back( plan.Caster );
+            return lights;
         }
         // The scene's atlas depth image (D32F, Graphic/LocalShadowCache.hpp), or null while no light of the scene
         // has cast a shadow or outside a BeginScene/EndScene bracket.
@@ -1038,9 +1051,18 @@ namespace Desert::Graphic::System
         // The caster materials of shadow view @p view, made on its first use. False when the caster
         // pipeline does not exist (a renderer with no shadow budget).
         bool EnsureShadowViewMaterials( uint32_t view );
-        // A hash of every caster within @p radius of @p centre (what it draws and where), or nullopt when one of
-        // them moves by itself every frame (a skinned mesh, swaying foliage): the cache key of a local view.
+        // A hash of every caster in @p light's reach (what it draws into its views and where) - the meshes and the
+        // non-mesh casters (IShadowCaster::LocalShadowSignature) - or nullopt when one of them moves by itself
+        // every frame (a skinned mesh, swaying foliage): the cache key of a local view.
+        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const LocalShadowCasterLight& light ) const;
+        // The mesh casters alone in the sphere (@p centre, @p radius cm), or nullopt when one of them moves by itself
+        // every frame: the part of a local view's key the meshes give, and the rain occlusion map's key (the
+        // terrain under it changes only with the box, which RainOcclusionNeedsRecentre redraws on).
         [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const glm::vec3& centre, float radius ) const;
+        // The cache decision of each light given views by UpdateLocalShadows (m_LocalCachePlans): its key from
+        // its casters and its views; the views of a light whose key changed (or that has none) go to
+        // m_LocalRedraws.
+        void PlanLocalShadowCache();
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
@@ -1364,7 +1386,7 @@ namespace Desert::Graphic::System
         // The receivers sample with m_CascadeVP; the casters draw with m_CascadeCasterVP (the constant depth
         // bias folded in, CasterViewProj) and write the slope term from m_CascadeCasterBias through CameraUB.
         // Indexed by SHADOW VIEW (kMaxShadowViews): the cascades first, then the local views, whose matrices
-        // UpdateLocalShadows writes and whose bias is zero (a local view's bias is the receiver's, in texels).
+        // UpdateLocalShadows writes with the light's bias (Graphic::LocalCasterBias, texels at the caster).
         std::array<glm::mat4, kMaxShadowViews>                      m_CascadeCasterVP = IdentityShadowViews();
         CascadeCasterBias                                           m_CascadeCasterBias[kMaxShadowViews]{};
         [[nodiscard]] static std::array<glm::mat4, kMaxShadowViews> IdentityShadowViews()
@@ -1386,7 +1408,20 @@ namespace Desert::Graphic::System
             AtlasTile Tile;
         };
         std::vector<LocalShadowRedraw>    m_LocalRedraws;
+        // What PlanLocalShadowCache decides from: each light given views this frame, where it reaches.
+        struct LocalShadowCachePlan
+        {
+            uint64_t               Light = 0; // its key in the scene's LocalShadowCache
+            LocalShadowCasterLight Caster;    // its views, reach and detail view (FirstView - kMaxShadowCascades =
+                                              // its first row of m_LocalShadowRows)
+            uint64_t               Frame   = 0;     // the cache's frame the views were given in
+            bool                   Primary = false; // given by a primary view (a level's viewport)
+        };
+        std::vector<LocalShadowCachePlan> m_LocalCachePlans;
         MeshRendererDetail::MeshDrawList  m_LocalDraws[kMaxLocalShadowViews];
+        // Each local view's non-mesh casters its Declare declared, with the index of its first block (as
+        // m_CascadeCasters for a cascade).
+        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_LocalCasters[kMaxLocalShadowViews];
 
         // The rain occlusion (SetRainOcclusionQuality / UpdateRainOcclusion / RainOcclusionPass): its budget, its
         // depth target (kept across frames: redrawn only when the box moved or its casters changed), the box it

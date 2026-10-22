@@ -1737,8 +1737,14 @@ namespace Desert::Graphic::System
             return nodes;
 
         // The scale the scene colour is stored at this frame: the composite multiplies the cloud radiance by it.
+        // SetExposure only stores the value; Bind uploads it into CloudCompositeUB and flushes every in-flight
+        // copy. The composite submits the executor (DrawFullscreen), which never calls Bind -- without this the
+        // UB stays zero and the clouds composite as black (radiance x 0, transmittance intact).
         if ( m_CompositeMaterial )
+        {
             m_CompositeMaterial->SetExposure( glm::vec4( frame.PreExposure, 0.0f, 0.0f, 0.0f ) );
+            m_CompositeMaterial->Bind( nullptr );
+        }
 
         if ( !m_Present || !m_Data.Enabled )
             return nodes;

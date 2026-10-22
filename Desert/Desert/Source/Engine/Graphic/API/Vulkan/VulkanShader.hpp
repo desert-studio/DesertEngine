@@ -124,6 +124,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_DeviceRefusal;
         }
+        [[nodiscard]] std::string_view GetCompileError() const override
+        {
+            return m_CompileError;
+        }
         /**
          * The layout for @p set, as a STRONG reference.
          *
@@ -212,6 +216,8 @@ namespace Desert::Graphic::API::Vulkan
         std::string                                  m_PassName; // empty = default program
         // Set by BuildFromSpirv when a stage needs a capability this device lacks (GetDeviceRefusal).
         std::string m_DeviceRefusal;
+        // The last Reload's failure, or empty after one that succeeded (GetCompileError).
+        std::string m_CompileError;
 
         // STORED **AND** HONOURED, which is the half its predecessor never had: this reaches
         // CompileProgram below, and through it the includer and the SPIR-V cache key. A variant that

@@ -536,6 +536,10 @@ namespace
             out << " scene v" << Desert::Migration::kSceneVersionGIMethodLadder << "->v"
                 << Desert::Migration::kSceneVersionDisplayTransfer << " (" << report.DisplayTransfer.Dropped
                 << " Gamma key(s) dropped: the display transfer is the sRGB OETF)";
+        if ( report.LandscapeHeightKeysRaised && report.LandscapeHeightKeys.Keyed > 0 )
+            out << " scene v" << Desert::Migration::kSceneVersionGridNames << "->v"
+                << Desert::Migration::kSceneVersionLandscapeHeightKeys << " (" << report.LandscapeHeightKeys.Keyed
+                << " landscape height file(s) named by content key)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

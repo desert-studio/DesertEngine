@@ -284,15 +284,19 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
                                          ( entry.path().filename() == "SurfaceTypes.glslh" &&
                                            ( name == "SceneDepthTexture" || name == "SceneShadingWordTexture" ) ) ||
                                          entry.path().filename() == "MegaLightsVolume.glslh";
-            // The view's light grid: the forward cell declares its two blocks at their two numbers of the range
-            // (the deferred composite at set-0 slots 22/23 and the build shader's compute layout from 0, both
-            // outside it).
-            if ( name == "LightGridParamsUB" || name == "LightGridCellsUB" )
+            // The view's light grid and local shadows: the forward cell declares their four resources at their
+            // numbers of the range (the deferred composite at set-0 slots 13/14 and 22/23 and the grid build
+            // shader's compute layout from 0, all outside it).
+            const std::map<std::string, uint32_t> forwardSceneRead{
+                 { "LightGridParamsUB", Desert::Core::kLightGridParamsBinding },
+                 { "LightGridCellsUB", Desert::Core::kLightGridCellsBinding },
+                 { "LocalShadowAtlasTexture", Desert::Core::kLocalShadowAtlasBinding },
+                 { "LocalShadowViewsUB", Desert::Core::kLocalShadowViewsBinding } };
+            if ( const auto forward = forwardSceneRead.find( name ); forward != forwardSceneRead.end() )
             {
                 if ( Desert::Core::IsSceneReadBinding( binding ) )
                 {
-                    EXPECT_EQ( binding, name == "LightGridParamsUB" ? Desert::Core::kLightGridParamsBinding
-                                                                    : Desert::Core::kLightGridCellsBinding )
+                    EXPECT_EQ( binding, forward->second )
                          << entry.path().string() << " declares '" << name << "' at binding " << binding;
                     sceneRead[name] = binding;
                 }
@@ -307,7 +311,9 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-    ASSERT_EQ( sceneRead.size(), 10u );
+    ASSERT_EQ( sceneRead.size(), 12u );
+    EXPECT_EQ( sceneRead["LocalShadowAtlasTexture"], Desert::Core::kLocalShadowAtlasBinding );
+    EXPECT_EQ( sceneRead["LocalShadowViewsUB"], Desert::Core::kLocalShadowViewsBinding );
     EXPECT_EQ( sceneRead["MegaLightsVolumeUB"], Desert::Core::kMegaLightsVolumeParamsBinding );
     EXPECT_EQ( sceneRead["MegaLightsVolumeRTexture"], Desert::Core::kMegaLightsVolumeFirstBinding );
     EXPECT_EQ( sceneRead["MegaLightsVolumeGTexture"], Desert::Core::kMegaLightsVolumeFirstBinding + 1u );

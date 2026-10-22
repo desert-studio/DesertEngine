@@ -4117,13 +4117,13 @@ TEST( RenderGraphCompile, MeshPassBodiesReturnTheirDrawResult )
 
     const std::string shadow = stripped( "Systems/Scene/Mesh/MeshRendererShadow.cpp" );
     ASSERT_FALSE( shadow.empty() );
-    EXPECT_NE( shadow.find( "if(autocast=caster->RecordShadowCascade(context,c,firstBlock,m_CascadeCasterVP[c],"
+    EXPECT_NE( shadow.find( "if(autocast=caster->RecordShadowView(context,c,firstBlock,m_CascadeCasterVP[c],"
                             "m_CascadeCasterBias[c]);"
                             "!cast.IsSuccess()){returncast;}" ),
                std::string::npos )
          << "the cascade body drops the non-mesh caster's draw result";
     // ...and records through the blocks the caster declared on the cascade node in its setup.
-    EXPECT_NE( shadow.find( "constuint32_tdeclaredBlocks=caster->DeclareShadowCascade(declared,c);" ),
+    EXPECT_NE( shadow.find( "constuint32_tdeclaredBlocks=caster->DeclareShadowView(declared,c);" ),
                std::string::npos )
          << "the cascade's setup no longer lets the non-mesh casters declare their blocks";
     // The cascade's draw list (singles / generic / skinned / instanced, built in its Declare by

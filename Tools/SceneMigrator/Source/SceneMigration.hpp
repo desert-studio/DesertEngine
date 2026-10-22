@@ -358,7 +358,17 @@ namespace Desert::Migration
     //       none of them gains a member (MigrateGridNamesV65ToV66). Scenes only: a prefab has no WorldPartition.
     inline constexpr int kSceneVersionGridNames = 66;
 
-    static_assert( kSceneVersionGridNames == kSceneVersion,
+    //  67 - A LANDSCAPE TILE'S HeightFile IS A CONTENT KEY (WP-FAR-6B). The record names its height file as
+    //       "assets:<dir>/<scene>_Landscape/<id>.dlht" (Common::AssetHandle::StableKeyForPath, UE's /Game/...
+    //       package path), not as the project-relative folder ("Content/..."): a package mounts the assets root
+    //       under its own name, so only the key resolves there, and the load refuses any other spelling
+    //       (World::Landscape::ReadLandscapeTileByKey). The old spelling is relative to the PROJECT; the step
+    //       finds the project by the .deproj above the scene and measures against its AssetsRoot. A spelling
+    //       that is not under it is refused, naming the entity (MigrateLandscapeHeightKeysV66ToV67). Scenes
+    //       only: a landscape tile is a scene's.
+    inline constexpr int kSceneVersionLandscapeHeightKeys = 67;
+
+    static_assert( kSceneVersionLandscapeHeightKeys == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
@@ -706,6 +716,19 @@ namespace Desert::Migration
     // Names every unnamed grid of a partitioned world (kSceneVersionGridNames); how many it named.
     std::size_t MigrateGridNamesV65ToV66( SceneSerialized& scene );
 
+    // What MigrateLandscapeHeightKeysV66ToV67 did to one scene.
+    struct LandscapeHeightKeysReport
+    {
+        std::size_t              Keyed = 0; // LandscapeTile.HeightFile spellings re-stated as content keys
+        std::vector<std::string> Refused;   // a spelling with no project, or not under its assets root
+    };
+
+    // Re-states every LandscapeTile.HeightFile that is not an "assets:" key - a path relative to the project
+    // that holds @p sourceFile (the nearest .deproj above it) - as the key of that file under the project's
+    // AssetsRoot (kSceneVersionLandscapeHeightKeys), in the record and in every prefab override.
+    LandscapeHeightKeysReport MigrateLandscapeHeightKeysV66ToV67( std::vector<Assets::EntityData>& entities,
+                                                                  const std::filesystem::path&     sourceFile );
+
     // What MigrateSceneDependenciesV51ToV52 did to one scene.
     struct SceneDependenciesReport
     {
@@ -961,6 +984,8 @@ namespace Desert::Migration
         bool HLODLayerStated  = false; // a partitioned world was given the Instancing layer
         bool        GridNamesRaised = false; // below kSceneVersionGridNames
         std::size_t GridsNamed      = 0;     // grids given a name
+        bool                      LandscapeHeightKeysRaised = false; // below kSceneVersionLandscapeHeightKeys
+        LandscapeHeightKeysReport LandscapeHeightKeys;
 
         bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
         SceneDependenciesReport SceneDependencies;
@@ -1004,7 +1029,7 @@ namespace Desert::Migration
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
-                   GridNamesRaised;
+                   GridNamesRaised || LandscapeHeightKeysRaised;
         }
     };
 

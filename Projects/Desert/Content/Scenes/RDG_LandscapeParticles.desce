@@ -3,7 +3,7 @@
         "Kind": "Scene",
         "Guid": "d151afad1e7a464c9801bf8086cac8a1",
         "Versions": {
-            "SCNE": 66,
+            "SCNE": 67,
             "UNIT": 1
         },
         "Dependencies": ["0ad8fd2ac17dc6a12aad6f5fbe162b62", "183bb65c84cd4755808cd9060f7b16e4", "73198c2f4a3a3720ac16568c1e0300a7", "80a31d6cbbb94e2680f8d4fa2d3cc8a9"]
@@ -160,7 +160,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 3,
                 "TileZ": 0,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/821007510419511429.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/821007510419511429.dlht"
             }
         },
         {
@@ -171,7 +171,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 0,
                 "TileZ": 1,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/1786889910194905687.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/1786889910194905687.dlht"
             }
         },
         {
@@ -182,7 +182,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 4,
                 "TileZ": 4,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/3327386937639270483.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/3327386937639270483.dlht"
             }
         },
         {
@@ -193,7 +193,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 3,
                 "TileZ": 3,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/3779615529345712631.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/3779615529345712631.dlht"
             }
         },
         {
@@ -204,7 +204,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 2,
                 "TileZ": 4,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/3930759967389139878.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/3930759967389139878.dlht"
             }
         },
         {
@@ -215,7 +215,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 4,
                 "TileZ": 2,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/3975560381801537963.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/3975560381801537963.dlht"
             }
         },
         {
@@ -226,7 +226,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 2,
                 "TileZ": 0,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/5477478537151188644.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/5477478537151188644.dlht"
             }
         },
         {
@@ -237,7 +237,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 1,
                 "TileZ": 0,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/6731081083105531597.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/6731081083105531597.dlht"
             }
         },
         {
@@ -248,7 +248,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 0,
                 "TileZ": 4,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/7020694119001523850.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/7020694119001523850.dlht"
             }
         },
         {
@@ -259,7 +259,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 3,
                 "TileZ": 2,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/7121608721554957564.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/7121608721554957564.dlht"
             }
         },
         {
@@ -270,7 +270,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 0,
                 "TileZ": 3,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/8695778658748216640.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/8695778658748216640.dlht"
             }
         },
         {
@@ -281,7 +281,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 4,
                 "TileZ": 1,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/9056216440443355854.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/9056216440443355854.dlht"
             }
         },
         {
@@ -292,7 +292,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 2,
                 "TileZ": 3,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/10015438807432692167.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/10015438807432692167.dlht"
             }
         },
         {
@@ -303,7 +303,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 1,
                 "TileZ": 2,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/10110104546615557682.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/10110104546615557682.dlht"
             }
         },
         {
@@ -314,7 +314,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 2,
                 "TileZ": 1,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/11126006401806181125.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/11126006401806181125.dlht"
             }
         },
         {
@@ -325,7 +325,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 0,
                 "TileZ": 0,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/11626354900979982395.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/11626354900979982395.dlht"
             }
         },
         {
@@ -336,7 +336,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 3,
                 "TileZ": 1,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/11821066194761549165.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/11821066194761549165.dlht"
             }
         },
         {
@@ -347,7 +347,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 3,
                 "TileZ": 4,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/12416981232610661863.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/12416981232610661863.dlht"
             }
         },
         {
@@ -358,7 +358,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 2,
                 "TileZ": 2,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/13210505574733904040.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/13210505574733904040.dlht"
             }
         },
         {
@@ -369,7 +369,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 4,
                 "TileZ": 0,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/14124908903545180833.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/14124908903545180833.dlht"
             }
         },
         {
@@ -380,7 +380,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 1,
                 "TileZ": 3,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/14651609588595186388.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/14651609588595186388.dlht"
             }
         },
         {
@@ -391,7 +391,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 0,
                 "TileZ": 2,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/15849646365648934700.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/15849646365648934700.dlht"
             }
         },
         {
@@ -402,7 +402,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 1,
                 "TileZ": 4,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/16193500395362112396.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/16193500395362112396.dlht"
             }
         },
         {
@@ -413,7 +413,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 4,
                 "TileZ": 3,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/16785752076158628301.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/16785752076158628301.dlht"
             }
         },
         {
@@ -424,7 +424,7 @@
                 "Landscape": "7310021741200003",
                 "TileX": 1,
                 "TileZ": 1,
-                "HeightFile": "Content/Scenes/Terrain_Grass_Landscape/17759845638711099902.dlht"
+                "HeightFile": "assets:Scenes/Terrain_Grass_Landscape/17759845638711099902.dlht"
             }
         },
         {

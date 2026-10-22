@@ -115,6 +115,11 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParticleSpritePass        = "Forward";
     inline constexpr std::string_view kSurfaceParticleSpritePassInclude = "Mesh/Surface/Pass_ParticleSprite.glslh";
     inline constexpr std::string_view kSurfaceParticleSpriteDefine      = "DESERT_SURFACE_PARTICLE_SPRITE";
+    // Defined in the sprite cell's fragment stage when its surface calls DesertDepthFade (UE: the material
+    // compiler noting a scene-depth read): only then does Mesh/Surface/SurfaceTypes.glslh declare the scene depth
+    // and its point-clamped shared sampler, so a sprite that does not fade binds neither.
+    inline constexpr std::string_view kSurfaceDepthFadeDefine   = "DESERT_SURFACE_DEPTH_FADE";
+    inline constexpr std::string_view kSurfaceDepthFadeFunction = "DesertDepthFade";
     // THE RAY TRACING HIT CELL (UE: the material's hit group). Every Opaque / Masked template whose bindings are
     // all row slots gets `RayTracing.Hit` after its mesh cells: ClosestHit (the surface into the ray's payload)
     // and, Masked, AnyHit (the OpacityMask test). Its stages define DESERT_SURFACE_PASS_Hit; their material row

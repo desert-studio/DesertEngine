@@ -95,7 +95,7 @@ Shader "StandardSurface"
         // slot and a wrong normal.
         Texture2D   NormalTexture ("Normal Map", Category("Textures"), Intent(NormalMap)) = "normal"
         // Packed glTF-style: R = occlusion, G = roughness, B = metallic, each multiplying its factor; white when empty.
-        Texture2D   OrmTexture ("ORM Map", Category("Textures"), Intent(Data))
+        Texture2D   OrmTexture ("ORM Map", Category("Textures"), Intent(PackedMasks))
         Texture2D   EmissiveTexture ("Emissive Map", Category("Textures"), Intent(Colour))
         // White (the top of the relief) when empty; assigning it selects the parallax cells.
         Texture2D   Height ("Height Map", Category("Height"), Intent(Data))

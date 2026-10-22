@@ -70,6 +70,8 @@ namespace Desert::Editor::Control
         Quit,         ///< end the session with an exit status
         Drag,         ///< press, move and release the mouse over a subject's image, through ImGui's input
         Input,
+        SaveAs, ///< save the open scene under a NEW name, through File -> Save's one save path (UE "Save Current
+                ///< Level As")
     };
 
     /**
@@ -123,6 +125,7 @@ namespace Desert::Editor::Control
          { "quit", Op::Quit, RequiresReady::No },
          { "drag", Op::Drag, RequiresReady::Yes },
          { "input", Op::Input, RequiresReady::Yes },
+         { "save-as", Op::SaveAs, RequiresReady::Yes },
     };
 
     /// The table's answer for one operation. Yes for anything not in the table at all — an operation this
@@ -177,6 +180,8 @@ namespace Desert::Editor::Control
         Viewport,  ///< the editor's view: where the camera is and which way it looks
         Modeling,  ///< the Modeling panel's dragged values (Core::kModelingStateRows)
         Selection, ///< the selected entity's transform (Core/Selection/SelectionTransformProperties.hpp)
+        Entity,    ///< one entity's reflected components, addressed by 'entity' (its UUID); values as 'text'
+        World,     ///< the open scene's SceneSettings (World Settings); values as 'text'
     };
 
     struct SubjectSpec
@@ -186,10 +191,8 @@ namespace Desert::Editor::Control
     };
 
     inline constexpr SubjectSpec kSubjects[] = {
-         { "document", Subject::Document },
-         { "viewport", Subject::Viewport },
-         { "modeling", Subject::Modeling },
-         { "selection", Subject::Selection },
+         { "document", Subject::Document },   { "viewport", Subject::Viewport }, { "modeling", Subject::Modeling },
+         { "selection", Subject::Selection }, { "entity", Subject::Entity },     { "world", Subject::World },
     };
 
     [[nodiscard]] inline std::string KnownSubjectList()
@@ -224,10 +227,20 @@ namespace Desert::Editor::Control
         /// (not by its label: two properties may display the same words).
         std::string Property;
 
+        /// Subject::Entity — the entity's UUID, decimal.
+        std::string Entity;
+
+        /// Op::Set on Subject::Entity / Subject::World — the value as text, parsed by the field's own type
+        /// (Panels/PropertyEditor/ReflectedFieldText.hpp): a float array cannot carry an int64 asset id.
+        std::string Text;
+
         /// Op::Set — the value, with as many components as the property takes. The COUNT is carried rather
         /// than padded to four: a float given three numbers is a client that meant a different property,
         /// and the document refuses it instead of writing something that looks accepted.
         std::vector<float> Value;
+
+        /// Op::SaveAs — the scene's new name; the file is <scene dir>/<name with spaces as _>.desce.
+        std::string SceneName;
 
         /// Op::ShotWindow / Op::ShotViewport — where the PNG goes.
         std::string Path;
@@ -498,6 +511,13 @@ namespace Desert::Editor::Control
                 }
                 request.Whose = subject->Which;
             }
+            if ( request.Whose == Subject::Entity )
+            {
+                request.Entity = ReadString( fields, "entity" );
+                if ( request.Entity.empty() )
+                    return Common::MakeFormattedError<Request>(
+                         "'{}' on subject 'entity' needs 'entity' (the entity's UUID).", opName );
+            }
         }
 
         switch ( spec->Operation )
@@ -522,6 +542,18 @@ namespace Desert::Editor::Control
                     return Common::MakeError<Request>(
                          "'set' addresses a property of the focused document by name, and none was given. "
                          "Ask 'properties' for the ones it offers right now." );
+                }
+
+                if ( request.Whose == Subject::Entity || request.Whose == Subject::World )
+                {
+                    // A reflected field takes TEXT, parsed by its own type; absent is refused, "" is a value.
+                    if ( !fields.Find( "text" ) )
+                        return Common::MakeFormattedError<Request>(
+                             "'set' on an entity or the world needs 'text' for '{}' (the value as the field "
+                             "reads it: 7, true, Lux, 1,2,3).",
+                             request.Property );
+                    request.Text = ReadString( fields, "text" );
+                    break;
                 }
 
                 switch ( ReadFloatArray( fields, "value", request.Value ) )
@@ -561,6 +593,17 @@ namespace Desert::Editor::Control
                 break;
             }
 
+            case Op::SaveAs:
+            {
+                request.SceneName = ReadString( fields, "name" );
+                if ( request.SceneName.empty() )
+                {
+                    return Common::MakeError<Request>(
+                         "'save-as' needs the scene's new 'name'. A Save As with no name would be File -> Save "
+                         "under another word." );
+                }
+                break;
+            }
             case Op::ShotWindow:
             case Op::ShotViewport:
             {

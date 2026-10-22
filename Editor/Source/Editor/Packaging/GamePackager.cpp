@@ -22,7 +22,9 @@
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
+#include <Common/Content/ImportRecord.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
@@ -98,14 +100,25 @@ namespace Desert::Editor
                  .generic_string();
         }
 
+        // One file StageTree copied: its pak key, the copy in the cooked tree, and the file it was copied from.
+        // The source travels with the copy because a step that cooks from the staged content can need editor
+        // input the stage leaves out — a partitioned world's saved HLODs (Build HLODs) are read beside the
+        // SOURCE scene, since the stage never copies a .dhlod into the cooked tree.
+        struct StagedFile
+        {
+            std::string Key;
+            fs::path    Staged;
+            fs::path    Source;
+        };
+
         // Copies one census tree into the cooked tree at <cooked>/<PakKey>/<relative>, skipping raw mesh
         // sources and staging texture assets in their cooked form when asked (the project asset tree).
-        // `staged` receives ("<PakKey>/<relative>", staged file) for the steps that cook from the staged
-        // content (the partitioned worlds). THE SOURCE TREES ARE READ HERE AND NOWHERE ELSE on the way to an
-        // archive: the packer walks only Saved/Cooked/<Platform> (CollectCookedTree), as UE's pak step reads
+        // `staged` receives ("<PakKey>/<relative>", staged file, source file) for the steps that cook from the
+        // staged content (the partitioned worlds). THE SOURCE TREES ARE READ HERE AND NOWHERE ELSE on the way to
+        // an archive: the packer walks only Saved/Cooked/<Platform> (CollectCookedTree), as UE's pak step reads
         // only the cooker's output.
         bool StageTree( const PackagedTree& tree, const fs::path& cooked, bool developerInstruments,
-                        std::vector<std::pair<std::string, fs::path>>& staged, std::string& error )
+                        std::vector<StagedFile>& staged, std::string& error )
         {
             const fs::path& from = *tree.Tree;
             std::error_code ec;
@@ -135,6 +148,10 @@ namespace Desert::Editor
                 }
                 if ( IsLeftOutOfPackage( src, developerInstruments ) )
                     continue;
+                // A saved HLOD (Build HLODs) is editor input: it ships only as the cooked HLOD cell the world
+                // cook wraps it in, as UE ships the cooked HLOD actors and never the builder's output.
+                if ( src.extension() == ::Desert::Core::WorldCells::kBuiltHLODExtension )
+                    continue;
                 const std::string key = keyPrefix + "/" + rel.generic_string();
                 // A registry left on the disk from before the registry built itself (AF9) is not staged:
                 // the one the pak carries is written from this process's gather, under the same key, and a
@@ -160,7 +177,32 @@ namespace Desert::Editor
                         return false;
                     }
                 }
-                staged.emplace_back( key, target );
+                staged.push_back( { key, target, src } );
+
+                // A whole-file static mesh import (AF4h) has no `.stmesh` of its own and its raw source was just
+                // left out, so the asset the record stands for is staged in its cooked form beside the record
+                // (StageCookedImportedMesh) - the runtime finds the file the registry rows name, and reads it.
+                if ( tree.StripRawMeshSources && Common::Content::IsImportRecord( src ) )
+                {
+                    const fs::path meshAsset = Common::Content::MeshAssetOfImportRecord( src );
+                    const auto     wholeFile = IsWholeFileMeshImport( src );
+                    if ( !wholeFile.IsSuccess() )
+                    {
+                        error = wholeFile.GetError();
+                        return false;
+                    }
+                    // A split import's node meshes are `.stmesh` files, staged as files like any other.
+                    if ( !wholeFile.GetValue() || fs::exists( meshAsset, ec ) )
+                        continue;
+                    const fs::path meshTarget = target.parent_path() / meshAsset.filename();
+                    if ( auto written = StageCookedImportedMesh( src, meshTarget ); !written.IsSuccess() )
+                    {
+                        error = written.GetError();
+                        return false;
+                    }
+                    staged.push_back(
+                         { meshTarget.lexically_relative( cooked ).generic_string(), meshTarget, meshAsset } );
+                }
             }
             return true;
         }
@@ -193,10 +235,10 @@ namespace Desert::Editor
         // WorldCells::CookedWorldDirectory of the scene's key. Cooked here, from the scene as it is on disk, with
         // the registry the editor plans with — so the cells are the ones the editor's Play streams. A scene
         // file that states a partition and does not cook fails the package: the game would fail on it too.
-        bool CollectCookedWorlds( const std::vector<std::pair<std::string, fs::path>>& staged,
+        bool CollectCookedWorlds( const std::vector<StagedFile>&                    staged,
                                   std::vector<std::pair<std::string, std::string>>& baseBlobs, std::string& error )
         {
-            for ( const auto& [key, path] : staged )
+            for ( const auto& [key, path, source] : staged )
             {
                 if ( path.extension() != ".desce" )
                     continue;
@@ -219,12 +261,18 @@ namespace Desert::Editor
                     continue;
                 // The same mesh and landscape HLOD builders editor Play uses (WP-FAR-7, WP-FAR-6).
                 const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
-                auto       cooked     = ::Desert::Core::WorldCells::CookWorld(
-                     scene.GetValue().Scene, registries, ::Desert::Core::MakeHLODMeshBuilder( registries ),
-                     ::Desert::Core::MakeLandscapeHLODBuilder() );
+                // The HLODs Build HLODs saved beside the scene (WP-FAR-6B D1): packed, never built here. Read
+                // beside the SOURCE scene: the stage leaves every .dhlod out of the cooked tree (StageTree), so
+                // the staged copy has none. The baked HLOD materials and textures they name are ordinary
+                // content: staged with the rest of the tree, rowed in the registry gathered above, and listed
+                // in each HLOD unit's asset closure through the records' references.
+                auto hlods  = ::Desert::Core::WorldCells::ReadBuiltHLODs( source );
+                auto cooked = ::Desert::Core::WorldCells::CookWorld( scene.GetValue().Scene, registries,
+                                                                     hlods ? &hlods.GetValue() : nullptr );
                 if ( !cooked )
                 {
-                    error = "cooking the world '" + key + "': " + cooked.GetError();
+                    error = "cooking the world '" + key + "': " + cooked.GetError() +
+                            ( hlods ? "" : " (" + hlods.GetError() + ")" );
                     return false;
                 }
                 const std::string directory = ::Desert::Core::WorldCells::CookedWorldDirectory( key );
@@ -262,7 +310,7 @@ namespace Desert::Editor
                                   std::string& error )
         {
             const fs::path                                cooked = Common::DDC::PlatformCookedDir();
-            std::vector<std::pair<std::string, fs::path>> staged;
+            std::vector<StagedFile>                       staged;
             for ( const PackagedTree& tree : PackagedContentTrees() )
                 if ( !StageTree( tree, cooked, developerInstruments, staged, error ) )
                     return false;

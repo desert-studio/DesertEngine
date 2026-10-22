@@ -150,22 +150,20 @@ Shader "Terrain"
         // The view's thin-geometry coverage, slot 3 of the scene target: this pass writes the view's depth, and the
         // ground is lit as DefaultLit (the G-buffer program packs that model).
         Out(3) float oThinGeometryCoverage;
-        #include <Common/ThinGeometryCoverage.glslh>
 
         #include <Programs/Terrain/TerrainSurface.glslh>
 
         // THE CLOUD LAYER'S SHADOW ON THE WORLD. The terrain is the surface this feature is FOR — a deck
         // of cumulus drifting over open ground is the whole picture — and it is the surface that never
         // received it: the wrapper lived inside the deferred composite, and a terrain is drawn by neither
-        // render path's mesh shaders. Slots 6/7 are the first free ones in this shader's own small layout;
-        // they need not (and do not) match the mesh shaders' 20/21, because only the NAMES are shared and
-        // every material binds by name (Graphic::CloudShadowBind).
+        // render path's mesh shaders. At the mesh shaders' slots 20/21: the point and spot lights below take
+        // the lit programs' 4/6/7/16, and every material binds these by name (Graphic::CloudShadowBind).
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
         Uniform sampler LinearRepeatSampler;
-        Uniform(6) texture2D CloudShadowMapTexture;
+        Uniform(20) texture2D CloudShadowMapTexture;
         #define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
-        Uniform(7) CloudShadowUB
+        Uniform(21) CloudShadowUB
         {
         	mat4 CloudShadowWorldToMap;
         	// x = the kilometres the map's clip z spans, y = 1 when the map is real and must be read,
@@ -177,33 +175,122 @@ Shader "Terrain"
         #include <Common/CloudShadowReceiver.glslh>
         // FORWARD ONLY: in the Deferred path the composite applies it to the terrain's G-buffer texels.
 
+        // THE FORWARD GROUND IS SHADED AS A FORWARD MESH IS (Mesh/Surface/Pass_Forward.glslh), through the same
+        // headers, so the Forward and the Deferred path light one ground the same way: the sun from the scene's
+        // DirectionLightsUB with the cascades' shadow, the sun's contact shadow and the cloud layer; the point and
+        // spot lights (the MegaLights volume under Shadows Stochastic, else the pixel's froxel with their shadows);
+        // and the view's ambient (the radiance cache where the view traces GI, else the sky's cubes through the sky
+        // look; the split-sum LUT; the reflection captures over it) - Mesh/ForwardSceneLighting.glslh.
+        // Every block below is written by name by SceneFrameBinding::ApplyTo (TerrainRenderer::PrepareFrame: the
+        // Lights, Shadow, Environment and CloudShadow groups this layout declares); every map, the light grid and
+        // the captures are the view's scene/view inputs, bound by name by the terrain pass (BindSceneViewInputs).
+        // The slot numbers are this layout's own (8/9/10 are the terrain's instance rows and maps, so the
+        // environment trio takes the deferred composite's 17/18/19); nothing binds by number.
+        //
+        // The sun: the one statement of it every lit program reads (Common/DirectionLightsUB.glslh).
+        #include <Common/DirectionLightsUB.glslh>
+        // The cascaded shadow's two bindings; Mesh/CascadedShadow.glslh reads them by these names.
+        layout( binding = 5 ) uniform texture2DArray ShadowCascadesTexture;
+        #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
+        #include <Mesh/ShadowUB.glslh> // the view's ShadowUB, binding 7 (SceneResources::ShadowUBData)
+        #include <Mesh/CascadedShadow.glslh>
+        // The contact shadows' march (the Forward path has no opaque scene depth to march: ShadowUB says 0 steps).
+        // Read through the shared point-clamped state, as Mesh/Surface/SurfaceTypes.glslh reads them (the local
+        // shadow atlas below takes the same state).
+        Uniform sampler PointClampSampler;
+        layout( binding = 27 ) uniform texture2D SceneDepthTexture;          // Core::kSceneDepthBinding
+        #define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
+        layout( binding = 28 ) uniform utexture2D SceneShadingWordTexture;   // Core::kSceneShadingWordBinding
+        #define SceneShadingWordTexture usampler2D(SceneShadingWordTexture, PointClampSampler)
+        #include <ShadingModels/ShadingModelContract.glslh>
+        #define CONTACT_SHADOW_DEPTH        SceneDepthTexture
+        #define CONTACT_SHADOW_VP           u.JitteredViewProjection
+        #define CONTACT_SHADOW_INV_VP       u.InvJitteredViewProjection
+        #define CONTACT_SHADOW_SHADING_WORD SceneShadingWordTexture
+        #include <Common/ContactShadow.glslh>
+        // The point and spot lights with their shadows (Mesh/ForwardLocalLights.glslh: the light buffers 4/6/16,
+        // the grid 29/30, the local shadow atlas and views 38/39). The atlas is read through the shared
+        // point-clamped state declared above.
+        #include <Mesh/ForwardLocalLights.glslh>
+
+        // The environment: the sky's two cubes, the sky look (Common/SkyLook.glslh) and the split-sum LUT.
+        // Separate textures through the shared linear-clamped state, as Mesh/Surface/Pass_Forward.glslh reads them.
+        Uniform sampler LinearClampSampler;
+        layout( binding = 17 ) uniform textureCube EnvironmentSpecularTexture;
+        #define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+        layout( binding = 18 ) uniform textureCube EnvironmentIrradianceTexture;
+        #define EnvironmentIrradianceTexture samplerCube(EnvironmentIrradianceTexture, LinearClampSampler)
+        layout( binding = 19 ) uniform texture2D BrdfLutTexture;
+        #define BrdfLutTexture sampler2D(BrdfLutTexture, LinearClampSampler)
+        layout( binding = 22 ) uniform SkyLookUB
+        {
+            vec4 YawCosSin; // xy = (cos yaw, sin yaw) - Graphic::SkyLookGPU
+            vec4 Gain;      // rgb = tint * intensity
+        }
+        skyLook;
+        // The view's indirect light as every forward pass reads it (Mesh/Surface/ViewIndirect.glslh): the reflection
+        // captures and the view's radiance cache in set 1, as the deferred composite declares them, so the ground's
+        // ambient is the view's estimator with the captures around it on both paths.
+        #include <Mesh/Surface/ViewIndirect.glslh>
+        // The MegaLights translucency volume (Shadows Stochastic): the local lights the forward meshes take from it,
+        // shadowed, in place of the froxel loop (31..34, the reserved scene-read range; bound by name).
+        #include <Common/MegaLightsVolume.glslh>
+        // THE ambient, the same text the forward meshes and the deferred composite compile (DesertSampleAmbient).
+        #include <Mesh/AmbientIBL.glslh>
+        // THE ONE BRDF: every light and the ambient go through the shading model dispatch the forward meshes and the
+        // deferred composite call (ShadingModels/ShadingModelContract.glslh), on the surface the Deferred path's
+        // G-buffer stores for the same texel (TerrainGBuffer.shader: DefaultLit, the tinted albedo, metallic 0,
+        // the layers' roughness and occlusion).
+        #include <Generated/ShadingModels.glslh>
+        // After the dispatch, not before: it includes the generated models itself, and a model included ahead of
+        // the whole AmbientIBL text above takes its sampler-less half (DefaultLit.shadingmodel), leaving this pass
+        // without DesertSampleAmbient (as Mesh/Surface/Pass_Forward.glslh orders them).
+        #include <Common/ThinGeometryCoverage.glslh>
+        // The local lights and the ambient: the one statement every forward-lit opaque cell shades them with.
+        #include <Mesh/ForwardSceneLighting.glslh>
+
         void main()
         {
             TerrainSurface s = EvaluateTerrainSurface();
             vec3 N           = s.N;
-            vec3 albedo      = s.Albedo;
 
-            // Diffuse lighting using the SCENE directional light (dir/color/intensity). The ground is matte:
-            // no layer carries a specular term.
-            vec3 L      = normalize( -u.SunDir.xyz );          // to-light (engine stores travel direction)
-            vec3 sun    = u.SunColor.rgb * max( u.SunColor.a, 0.0001 );
+            // The eye from the view matrix (rigid: its inverse rotation is its transpose).
+            const vec3          eye     = -transpose( mat3( u.View ) ) * u.View[3].xyz;
+            const DesertSurface surface = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos,
+                                                             s.Albedo * Material.Tint.rgb, 0.0, s.Roughness,
+                                                             0.5 ); // UE's default Specular, as TerrainGBuffer packs
+            const DesertPayload payload = DesertPayload( 0.0, 0.0, 0.0, 0.0 );
 
-            float ndl = max( dot( N, L ), 0.0 );
+            // The sun, occluded by the cascades and its contact shadow, then by the cloud layer - the order
+            // Pass_Forward and the deferred composite assemble it in. The ground always receives sun shadows.
+            const vec3  sunDir = normalize( -directionLights.directionLights.Direction.xyz ); // toward the sun
+            int         cascade;
+            const float shadow = ShadowFactor( v_WorldPos, N, sunDir, cascade ) *
+                                 ContactShadowFactor( v_WorldPos, N, sunDir, SunContactShadow, -1.0 ) *
+                                 CloudShadowFactor( v_WorldPos );
 
-            // Soft sky/ground ambient (hemisphere): brighter from above, cooler/darker from below.
-            vec3  skyCol  = vec3( 0.45, 0.52, 0.62 );
-            vec3  gndCol  = vec3( 0.20, 0.18, 0.14 );
-            vec3  ambient = mix( gndCol, skyCol, N.y * 0.5 + 0.5 ) * 0.5;
+            vec3 light = vec3( 0.0 );
+            for ( uint d = 0u; d < lightsMetadata.DirectionLightCount; d++ )
+                light += DesertEvaluateShadingModel(
+                     SHADING_MODEL_INDEX_DEFAULT_LIT,
+                     DesertSunLight( directionLights.directionLights.Direction.xyz,
+                                     directionLights.directionLights.ColorIntensity.rgb *
+                                          directionLights.directionLights.ColorIntensity.a,
+                                     shadow, 1.0 ), // the ground is not a subsurface receiver
+                     surface, payload );
 
-            // The cloud layer attenuates the SUN and nothing else: the hemisphere ambient above is the
-            // whole sky dome, which a deck occludes with a different geometry than a direction. Same
-            // split the deferred composite and the mesh shaders make.
-            float cloudShadow = CloudShadowFactor( v_WorldPos );
-
-            vec3 lit = albedo * ( ambient * s.AO + sun * ndl * cloudShadow );
+            // The point and spot lights (the MegaLights volume under Shadows Stochastic, else the pixel's froxel) and
+            // the view's ambient under the layers' occlusion (the ARM maps' AO, the G-buffer's material AO on the
+            // Deferred path), as a forward mesh takes them (Mesh/ForwardSceneLighting.glslh). The ground is no
+            // subsurface receiver.
+            const DesertForwardLocalLighting local = DesertForwardLocalLights(
+                 SHADING_MODEL_INDEX_DEFAULT_LIT, gl_FragCoord.xy, v_WorldPos, N, -1.0, surface, payload );
+            light += local.Light;
+            const vec3 ambient = DesertForwardAmbient( SHADING_MODEL_INDEX_DEFAULT_LIT, surface, local.Indirect, s.AO,
+                                                       gl_FragCoord.xy, payload );
 
             // Stored pre-exposed (ViewFrame::PreExposure), like the deferred composite and the forward mesh pass.
-            o_Color   = vec4( lit * Material.Tint.rgb * u.Exposure.x, 1.0 );
+            o_Color   = vec4( ( light + ambient ) * u.Exposure.x, 1.0 );
             oVelocity = TerrainVelocity();
             oThinGeometryCoverage = DesertThinGeometryCoverage( SHADING_MODEL_INDEX_DEFAULT_LIT );
         }

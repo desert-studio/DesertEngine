@@ -7,6 +7,7 @@
 #include <Engine/Geometry/MeshTypes.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 
 #include <filesystem>
 #include <system_error>
@@ -39,8 +40,8 @@ namespace Desert::Assets
             // import record beside the source (FIX8, Common/Content/ImportRecord.hpp) - the file the content
             // registry reads for the same mesh, so the two agree. No record: no GUID, never one from the path.
             std::filesystem::path identity = m_Metadata.Filepath;
-            std::error_code       missing;
-            if ( !std::filesystem::is_regular_file( identity, missing ) )
+            // Through the file layer: a packaged mesh is in the archive, not on the disk.
+            if ( !Common::Utils::FileSystem::Exists( identity ) )
             {
                 const auto record = Common::Content::ImportRecordStandingFor( identity );
                 if ( !record )

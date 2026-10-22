@@ -928,38 +928,20 @@ namespace Desert::Graphic::API::Vulkan
         return readback->ReadRGBA8();
     }
 
-    Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::BeginReadbackRGBA8()
+    Common::ResultStr<std::shared_ptr<ImageReadback>>
+    VulkanImage2D::BeginCopyToHost( std::optional<Graphic::PackedPixelSource> source, std::string_view caller )
     {
         using Result     = std::shared_ptr<ImageReadback>;
         const uint32_t w = m_Specification.Width;
         const uint32_t h = m_Specification.Height;
+        const auto     fmt = m_Specification.Format;
         if ( w == 0 || h == 0 || m_Resource.Image == VK_NULL_HANDLE )
-            return Common::MakeFormattedError<Result>(
-                 "BeginReadbackRGBA8: the image is {}x{} and its VkImage is {}", w, h,
-                 m_Resource.Image == VK_NULL_HANDLE ? "null" : "valid" );
+            return Common::MakeFormattedError<Result>( "{}: the image is {}x{} and its VkImage is {}", caller, w,
+                                                       h, m_Resource.Image == VK_NULL_HANDLE ? "null" : "valid" );
         if ( m_Specification.ArrayLayers > 0 )
             return Common::MakeFormattedError<Result>(
-                 "BeginReadbackRGBA8: '{}' is a {}-layer array; the readback reads one 2D image",
-                 m_Specification.Tag, m_Specification.ArrayLayers );
-
-        const auto                 fmt = m_Specification.Format;
-        Graphic::PackedPixelSource source{};
-        switch ( fmt )
-        {
-            case Core::Formats::ImageFormat::RGBA8F:
-                source = Graphic::PackedPixelSource::RGBA8;
-                break;
-            case Core::Formats::ImageFormat::BGRA8F:
-                source = Graphic::PackedPixelSource::BGRA8;
-                break;
-            case Core::Formats::ImageFormat::RGBA32F:
-                source = Graphic::PackedPixelSource::RGBA32F;
-                break;
-            default:
-                return Common::MakeFormattedError<Result>(
-                     "BeginReadbackRGBA8: image format {} has no RGBA8 packing",
-                     static_cast<int>( fmt ) ); // only colour formats the pack knows
-        }
+                 "{}: '{}' is a {}-layer array; the readback reads one 2D image", caller, m_Specification.Tag,
+                 m_Specification.ArrayLayers );
 
         auto allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
@@ -971,16 +953,15 @@ namespace Desert::Graphic::API::Vulkan
                                        .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT };
         auto allocRes = allocator->RT_AllocateBuffer( "ThumbReadback", bInfo, VMA_MEMORY_USAGE_GPU_TO_CPU, staging );
         if ( !allocRes.IsSuccess() )
-            return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: {} byte readback buffer failed: {}",
-                                                       srcSize, allocRes.GetError() );
+            return Common::MakeFormattedError<Result>( "{}: {} byte readback buffer failed: {}", caller, srcSize,
+                                                       allocRes.GetError() );
         VmaAllocation stagingAlloc = allocRes.GetValue();
 
         const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
         if ( !cmdAlloc.IsSuccess() )
         {
             allocator->RT_DestroyBuffer( staging, stagingAlloc );
-            return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: no command buffer: {}",
-                                                       cmdAlloc.GetError() );
+            return Common::MakeFormattedError<Result>( "{}: no command buffer: {}", caller, cmdAlloc.GetError() );
         }
         const VkCommandBuffer cmd      = cmdAlloc.GetValue();
         const VkImageLayout   original = m_Resource.Layout;
@@ -1015,10 +996,40 @@ namespace Desert::Graphic::API::Vulkan
         if ( !submitted.IsSuccess() )
         {
             allocator->RT_DestroyBuffer( staging, stagingAlloc );
-            return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: {}", submitted.GetError() );
+            return Common::MakeFormattedError<Result>( "{}: {}", caller, submitted.GetError() );
         }
         return Common::MakeSuccess<Result>( std::make_shared<VulkanImageReadback>(
              staging, stagingAlloc, srcSize, static_cast<std::size_t>( w ) * h, source, submitted.GetValue() ) );
+    }
+
+    Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::BeginReadbackRGBA8()
+    {
+        using Result                   = std::shared_ptr<ImageReadback>;
+        const auto                 fmt = m_Specification.Format;
+        Graphic::PackedPixelSource source{};
+        switch ( fmt )
+        {
+            case Core::Formats::ImageFormat::RGBA8F:
+                source = Graphic::PackedPixelSource::RGBA8;
+                break;
+            case Core::Formats::ImageFormat::BGRA8F:
+                source = Graphic::PackedPixelSource::BGRA8;
+                break;
+            case Core::Formats::ImageFormat::RGBA32F:
+                source = Graphic::PackedPixelSource::RGBA32F;
+                break;
+            default:
+                return Common::MakeFormattedError<Result>(
+                     "BeginReadbackRGBA8: image format {} has no RGBA8 packing",
+                     static_cast<int>( fmt ) ); // only colour formats the pack knows
+        }
+
+        return BeginCopyToHost( source, "BeginReadbackRGBA8" );
+    }
+
+    Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::BeginReadbackBytes()
+    {
+        return BeginCopyToHost( std::nullopt, "BeginReadbackBytes" );
     }
 
     void VulkanImage2D::TransitionLayout( VkCommandBuffer cmd, VkImageLayout newLayout, uint32_t mip )
