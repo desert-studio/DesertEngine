@@ -57,6 +57,32 @@ namespace Desert::Geometry
 
     // UE FEditNormalsOp::CalculateResultWholeMesh. Splitting always recomputes (UE: "if you split normals you must
     // always recompute as well"). Refuses an empty mesh or a threshold outside 0..180.
+    // UE EMeshTangentsType (the computed ones; CopyExisting is UE's for a source that carries tangents).
+    enum class TangentsMethod : uint8_t
+    {
+        FastMikkTSpace, // UE default: MikkTSpace-style wedge average (MeshTangents::ComputeMikkTStyleTangents)
+        MikkTSpace,     // the MikkTSpace library (ThirdParty/mikktspace), as UE DynamicMeshMikkTWrapper
+        PerTriangle,    // per triangle corner, no averaging
+    };
+    [[nodiscard]] const char* ToString( TangentsMethod method );
+
+    // UE UMeshTangentsToolProperties (defaults as UE's). Only CalculationMethod changes the result; the rest is
+    // the preview's line display.
+    struct TangentsSettings
+    {
+        TangentsMethod CalculationMethod = TangentsMethod::FastMikkTSpace;
+        bool           ShowTangents      = true;
+        bool           ShowNormals       = false;
+        float          LineLength        = 2.0f; // cm, UE UIMin 0.01 UIMax 25
+        float          LineThickness     = 1.0f;
+        bool           operator==( const TangentsSettings& ) const = default;
+    };
+
+    // UE FCalculateTangentsOp + UMeshTangentsTool::CopyToOverlays: computes the tangent frames from the primary
+    // normals and UV layer 0 and writes them into the tangent / bitangent overlays (enabled when missing).
+    [[nodiscard]] Common::ResultStr<DeformOutcome> ComputeTangents( const DynamicMesh3&     mesh,
+                                                                    const TangentsSettings& settings );
+
     [[nodiscard]] Common::ResultStr<DeformOutcome> EditNormals( const DynamicMesh3&    mesh,
                                                                 const NormalsSettings& settings );
 } // namespace Desert::Geometry

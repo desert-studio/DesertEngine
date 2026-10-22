@@ -606,7 +606,7 @@ namespace Desert::Editor
                                       Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                       return PaletteCommandDone();
                                   } } );
-        // UE's Deform palette: Smooth, Offset and Warp (DeformTool), committed the same way as the UV tools.
+        // UE's Deform palette: Smooth, Offset and Warp (MeshProcessingTool), committed the same way as the UV tools.
         for ( const auto& [name, tool] : std::initializer_list<std::pair<const char*, MS::Tool>>{
                    { "Smooth", MS::Tool::Smooth }, { "Offset", MS::Tool::Offset }, { "Warp", MS::Tool::Warp }, { "Lattice", MS::Tool::Lattice },
                    { "Vertex Sculpt", MS::Tool::VertexSculpt } } )
@@ -616,7 +616,7 @@ namespace Desert::Editor
                                       Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                       return PaletteCommandDone();
                                   } } );
-        // UE's Attributes palette: Normals (DeformTool session) and its closed choices / toggles.
+        // UE's Attributes palette: Normals (MeshProcessingTool session) and its closed choices / toggles.
         commands.push_back( { "Modeling", "Attributes tool: Normals", []
                               {
                                   MS::Get().ActiveTool = MS::Tool::Normals;
@@ -654,6 +654,39 @@ namespace Desert::Editor
                                       value       = !value;
                                       return PaletteCommandDone();
                                   } } );
+        // UE's Attributes palette: Tangents (UMeshTangentsTool, the same session) and its choices / display.
+        commands.push_back( { "Modeling", "Attributes tool: Tangents", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Tangents;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::TangentsMethod method : { Geometry::TangentsMethod::FastMikkTSpace,
+                                                        Geometry::TangentsMethod::MikkTSpace,
+                                                        Geometry::TangentsMethod::PerTriangle } )
+            commands.push_back( { "Modeling", std::string( "Tangents calculation: " ) + Geometry::ToString( method ),
+                                  [method]
+                                  {
+                                      MS::Get().AttribTangents.CalculationMethod = method;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const auto& [name, member] :
+              std::initializer_list<std::pair<const char*, bool Geometry::TangentsSettings::*>>{
+                   { "Show Tangents", &Geometry::TangentsSettings::ShowTangents },
+                   { "Show Normals", &Geometry::TangentsSettings::ShowNormals } } )
+            commands.push_back( { "Modeling", std::string( "Tangents toggle: " ) + name, [member]
+                                  {
+                                      bool& value = MS::Get().AttribTangents.*member;
+                                      value       = !value;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const float length : { 2.0f, 5.0f, 10.0f, 25.0f } )
+            commands.push_back( { "Modeling", std::format( "Tangents line length: {}", length ), [length]
+                                  {
+                                      MS::Get().AttribTangents.LineLength = length;
+                                      return PaletteCommandDone();
+                                  } } )
+        ;
         // Vertex Sculpt's closed choices (UE UMeshVertexSculptTool brush type, USculptBrushProperties falloff).
         for ( const Geometry::SculptBrush brush : Geometry::kSculptBrushes )
             commands.push_back( { "Modeling", std::string( "Vertex Sculpt brush: " ) + Geometry::ToString( brush ),

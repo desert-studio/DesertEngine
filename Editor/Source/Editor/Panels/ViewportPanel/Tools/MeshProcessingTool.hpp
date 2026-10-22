@@ -20,7 +20,7 @@ namespace Desert::Editor::Tools
 {
     class GizmoController;
 
-    // Modeling Mode -> Deform (and Attributes -> Normals, UE UEditNormalsTool,
+    // Modeling Mode -> Deform (and Attributes -> Normals, UE UEditNormalsTool, and Tangents, UE UMeshTangentsTool,
     // Geometry/MeshAttributeOperations.hpp, the same base-mesh-processing session): Smooth, Offset and Warp (UE's
     // USmoothMeshTool, UOffsetMeshTool and UMeshSpaceDeformerTool, whose frame is the viewport gizmo on
     // ModelingState::WarpGizmo; operators in Geometry/MeshDeformOperations.hpp). The same session as UE's
@@ -32,12 +32,12 @@ namespace Desert::Editor::Tools
     //   - Cancel, or another tool / another selection: the entity goes back to what it held.
     // Accept and Cancel are the viewport tool bar's (ActiveToolBar); this tool consumes them while a Deform tool
     // is active, before CubeGrid would read them.
-    class DeformTool
+    class MeshProcessingTool
     {
     public:
         void Update( ::Desert::Core::Scene& scene );
 
-        [[nodiscard]] static bool IsDeformTool( Core::ModelingState::Tool tool );
+        [[nodiscard]] static bool IsMeshProcessingTool( Core::ModelingState::Tool tool );
         // Warp is previewing: the viewport draws its frame gizmo (ModelingState::WarpGizmo).
         [[nodiscard]] bool HasWarpSession() const
         {
@@ -49,6 +49,16 @@ namespace Desert::Editor::Tools
         {
             return m_Session.has_value() && m_Session->Lattice.has_value();
         }
+        // Tangents is previewing a mesh: the viewport draws its tangent frames as lines.
+        [[nodiscard]] bool HasTangentsSession() const
+        {
+            return m_Session.has_value() && m_Session->Tool == Core::ModelingState::Tool::Tangents &&
+                   m_Session->Preview != nullptr;
+        }
+        void DrawTangentsVisualization( ::Desert::Core::Scene& scene, const Core::ModelingState& ms,
+                                        const glm::mat4& viewProj, const glm::vec2& viewportPos,
+                                        const glm::vec2& viewportSize ) const;
+
         // UE ULatticeControlPointsMechanic: the lattice's points and edges over the viewport, a click selects
         // the point under the cursor (Shift adds, Ctrl toggles, empty space clears), and the frame gizmo on the
         // selection (ModelingState::LatticeGizmo) carries it - applied by the next Update.
@@ -89,6 +99,7 @@ namespace Desert::Editor::Tools
         Geometry::SmoothSettings m_Smooth;
         Geometry::OffsetSettings m_Offset;
         Geometry::NormalsSettings m_Normals;
+        Geometry::TangentsSettings m_Tangents;
         Geometry::WarpSettings   m_Warp;
         glm::mat4                m_WarpGizmo{ 1.0f };
         Geometry::LatticeSettings m_Lattice;

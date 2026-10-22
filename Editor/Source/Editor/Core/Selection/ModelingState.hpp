@@ -40,13 +40,14 @@ namespace Desert::Editor::Core
             UVProject,
             UVUnwrap,
             UVLayout,
-            // UE's Deform palette (DeformTool): previews on the selected mesh and commits on Accept.
+            // UE's Deform palette (MeshProcessingTool): previews on the selected mesh and commits on Accept.
             Smooth,
             Offset,
             Warp,         // UE's UMeshSpaceDeformerTool: Bend / Twist / Flare in the frame of its gizmo
             Lattice,      // UE's ULatticeDeformerTool: a control-point lattice over the mesh's bounds (FFD)
             VertexSculpt, // UE's UMeshVertexSculptTool: brush strokes on the mesh's vertices (Move, Smooth)
-            // UE's Attributes palette (same preview/Accept session as Deform, DeformTool).
+            // UE's Attributes palette (same preview/Accept session as Deform, MeshProcessingTool).
+            Tangents, // UE's UMeshTangentsTool: MikkTSpace / Fast tangent frames, previewed as lines
             Normals, // UE's UEditNormalsTool: recompute / split / invert the normal overlay
         };
 
@@ -313,7 +314,7 @@ namespace Desert::Editor::Core
         // What the active UV tool's preview did (its report), or why there is none - the panel shows it.
         std::string UVStatus;
 
-        // Deform palette (DeformTool, Geometry/MeshDeformOperations.hpp): UE's Smooth and Offset tools' property
+        // Deform palette (MeshProcessingTool, Geometry/MeshDeformOperations.hpp): UE's Smooth and Offset tools' property
         // sets; the tool previews the selected mesh with them and recomputes whenever they change.
         Geometry::SmoothSettings DeformSmooth;
         Geometry::OffsetSettings DeformOffset;
@@ -335,8 +336,10 @@ namespace Desert::Editor::Core
         // falloff. Each stroke edits a copy of the mesh and is committed at its end as ONE undo step.
         Geometry::SculptSettings DeformSculpt;
         // Attributes palette -> Normals (UE UEditNormalsProperties, Geometry/MeshAttributeOperations.hpp);
-        // previewed by DeformTool like the Deform tools, its report in DeformStatus.
+        // previewed by MeshProcessingTool like the Deform tools, its report in DeformStatus.
         Geometry::NormalsSettings AttribNormals;
+        // Attributes palette -> Tangents (UE UMeshTangentsToolProperties), the same session.
+        Geometry::TangentsSettings AttribTangents;
         // What the active Deform tool's preview did (its report), or why there is none - the panel shows it.
         std::string DeformStatus;
 

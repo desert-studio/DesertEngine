@@ -34,7 +34,7 @@ namespace Desert::Editor::Tools
                 return { ICON_MDI_CONTENT_CUT, "UV Unwrap", true };
             case T::UVLayout:
                 return { ICON_MDI_VIEW_GRID_OUTLINE, "UV Layout", true };
-            // UE's Deform tools preview until Accept; Cancel puts the mesh back (DeformTool).
+            // UE's Deform tools preview until Accept; Cancel puts the mesh back (MeshProcessingTool).
             case T::Smooth:
                 return { ICON_MDI_BLUR, "Smooth", true };
             case T::Offset:
@@ -47,9 +47,11 @@ namespace Desert::Editor::Tools
             // there is nothing for Cancel to drop - Complete is the honest button (as PolyEdit).
             case T::VertexSculpt:
                 return { ICON_MDI_BRUSH, "Vertex Sculpt", false };
-            // UE's Normals tool previews until Accept; Cancel puts the mesh back (DeformTool).
+            // UE's Normals tool previews until Accept; Cancel puts the mesh back (MeshProcessingTool).
             case T::Normals:
                 return { ICON_MDI_ARROW_TOP_RIGHT_THICK, "Normals", true };
+            case T::Tangents:
+                return { ICON_MDI_ARROW_TOP_RIGHT_THICK, "Tangents", true };
         }
         return {};
     }

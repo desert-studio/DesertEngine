@@ -1,4 +1,4 @@
-#include "DeformTool.hpp"
+#include "MeshProcessingTool.hpp"
 
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
@@ -42,6 +42,8 @@ namespace Desert::Editor::Tools
                     return "Lattice";
                 case MS::Tool::Normals:
                     return "Normals";
+                case MS::Tool::Tangents:
+                    return "Tangents";
                 default:
                     return "?";
             }
@@ -94,16 +96,16 @@ namespace Desert::Editor::Tools
         }
     } // namespace
 
-    bool DeformTool::IsDeformTool( MS::Tool tool )
+    bool MeshProcessingTool::IsMeshProcessingTool( MS::Tool tool )
     {
         return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
-               tool == MS::Tool::Lattice || tool == MS::Tool::Normals;
+               tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents;
     }
 
-    void DeformTool::Update( ::Desert::Core::Scene& scene )
+    void MeshProcessingTool::Update( ::Desert::Core::Scene& scene )
     {
         MS&        ms     = MS::Get();
-        const bool active = IsDeformTool( ms.ActiveTool );
+        const bool active = IsMeshProcessingTool( ms.ActiveTool );
 
         // The session ends without Accept when its tool is no longer the active one (the bar's Cancel ends the
         // tool and raises ReqCancel, which was this tool's) or the selection moved to another entity.
@@ -154,7 +156,7 @@ namespace Desert::Editor::Tools
         }
     }
 
-    void DeformTool::Begin( ::Desert::Core::Scene& scene, MS& ms )
+    void MeshProcessingTool::Begin( ::Desert::Core::Scene& scene, MS& ms )
     {
         m_Session.reset();
         const auto selected = Core::SelectionManager::GetSelected();
@@ -187,7 +189,7 @@ namespace Desert::Editor::Tools
         Recompute( scene, ms );
     }
 
-    void DeformTool::DrawWarpVisualization( const MS& ms, const glm::mat4& viewProj, const glm::vec2& viewportPos,
+    void MeshProcessingTool::DrawWarpVisualization( const MS& ms, const glm::mat4& viewProj, const glm::vec2& viewportPos,
                                             const glm::vec2& viewportSize )
     {
         const Geometry::WarpSettings& warp = ms.DeformWarp;
@@ -217,11 +219,12 @@ namespace Desert::Editor::Tools
         }
     }
 
-    void DeformTool::Recompute( ::Desert::Core::Scene& scene, MS& ms )
+    void MeshProcessingTool::Recompute( ::Desert::Core::Scene& scene, MS& ms )
     {
         m_Smooth                                             = ms.DeformSmooth;
         m_Offset                                             = ms.DeformOffset;
         m_Normals                                            = ms.AttribNormals;
+        m_Tangents = ms.AttribTangents;
         m_Warp                                               = ms.DeformWarp;
         m_WarpGizmo                                          = ms.WarpGizmo;
         m_Lattice                                            = ms.DeformLattice;
@@ -237,6 +240,8 @@ namespace Desert::Editor::Tools
                     return Geometry::Offset( input, ms.DeformOffset );
                 case MS::Tool::Normals:
                     return Geometry::EditNormals( input, ms.AttribNormals );
+                case MS::Tool::Tangents:
+                    return Geometry::ComputeTangents( input, ms.AttribTangents );
                 case MS::Tool::Lattice:
                     return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints,
                                                     ms.DeformLattice );
@@ -268,7 +273,7 @@ namespace Desert::Editor::Tools
         ms.DeformStatus    = std::move( report );
     }
 
-    void DeformTool::Restore( ::Desert::Core::Scene& scene )
+    void MeshProcessingTool::Restore( ::Desert::Core::Scene& scene )
     {
         ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( component == nullptr )
@@ -288,7 +293,7 @@ namespace Desert::Editor::Tools
         }
     }
 
-    bool DeformTool::Accept( ::Desert::Core::Scene& scene, MS& ms )
+    bool MeshProcessingTool::Accept( ::Desert::Core::Scene& scene, MS& ms )
     {
         const auto refuse = [&]( const std::string& why )
         {
@@ -311,7 +316,7 @@ namespace Desert::Editor::Tools
         return true;
     }
 
-    bool DeformTool::BuildLattice( MS& ms )
+    bool MeshProcessingTool::BuildLattice( MS& ms )
     {
         auto lattice = Geometry::MakeFFDLattice( *m_Session->Input, ms.DeformLattice );
         if ( !lattice.IsSuccess() )
@@ -326,7 +331,7 @@ namespace Desert::Editor::Tools
         return true;
     }
 
-    void DeformTool::ApplyLatticeGizmo( ::Desert::Core::Scene& scene, MS& ms )
+    void MeshProcessingTool::ApplyLatticeGizmo( ::Desert::Core::Scene& scene, MS& ms )
     {
         if ( ms.LatticeGizmo == m_LatticeGizmo )
             return;
@@ -345,7 +350,7 @@ namespace Desert::Editor::Tools
         m_LatticeGizmo = ms.LatticeGizmo;
     }
 
-    void DeformTool::PlaceLatticeGizmo( ::Desert::Core::Scene& scene, MS& ms )
+    void MeshProcessingTool::PlaceLatticeGizmo( ::Desert::Core::Scene& scene, MS& ms )
     {
         const glm::dmat4 world( WorldOf( scene, m_Session->Entity ) );
         glm::dvec3       centroid( 0.0 );
@@ -362,7 +367,7 @@ namespace Desert::Editor::Tools
         m_LatticeGizmo  = ms.LatticeGizmo;
     }
 
-    void DeformTool::DrawLatticeControls( ::Desert::Core::Scene& scene, GizmoController& gizmo,
+    void MeshProcessingTool::DrawLatticeControls( ::Desert::Core::Scene& scene, GizmoController& gizmo,
                                           const std::shared_ptr<::Desert::Core::Camera>& camera,
                                           const glm::mat4& viewProj, const glm::vec2& viewportPos,
                                           const glm::vec2& viewportSize, bool hovered )
@@ -471,7 +476,7 @@ namespace Desert::Editor::Tools
         PlaceLatticeGizmo( scene, ms );
     }
 
-    bool DeformTool::SettingsChanged( const MS& ms ) const
+    bool MeshProcessingTool::SettingsChanged( const MS& ms ) const
     {
         switch ( m_Session->Tool )
         {
@@ -481,12 +486,66 @@ namespace Desert::Editor::Tools
                 return !( ms.DeformOffset == m_Offset );
             case MS::Tool::Normals:
                 return !( ms.AttribNormals == m_Normals );
+            case MS::Tool::Tangents:
+                return ms.AttribTangents.CalculationMethod != m_Tangents.CalculationMethod;
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:
                 return !( ms.DeformLattice == m_Lattice ) || ms.LatticePoints != m_LatticePoints;
             default:
                 return false;
+        }
+    }
+    // UE UMeshTangentsTool::UpdateVisualization: per triangle corner, the tangent (red) and bitangent (green)
+    // lines, and the normal overlay's elements (blue), of the previewed mesh, LineLength long in world units.
+    void MeshProcessingTool::DrawTangentsVisualization( ::Desert::Core::Scene& scene, const MS& ms,
+                                                        const glm::mat4& viewProj, const glm::vec2& viewportPos,
+                                                        const glm::vec2& viewportSize ) const
+    {
+        const Geometry::TangentsSettings& s    = ms.AttribTangents;
+        const Geometry::DynamicMesh3&     mesh = *m_Session->Preview;
+        if ( !mesh.HasAttributes() )
+            return;
+        const auto* attributes = mesh.Attributes();
+        const auto* normals    = attributes->PrimaryNormals();
+        const auto* tangents   = attributes->HasTangentSpace() ? attributes->PrimaryTangents() : nullptr;
+        const auto* bitangents = attributes->HasTangentSpace() ? attributes->PrimaryBiTangents() : nullptr;
+        const glm::mat4 world  = WorldOf( scene, m_Session->Entity );
+        const glm::mat3 basis( world );
+        ImDrawList*     dl      = ::ImGui::GetWindowDrawList();
+        const auto      project = [&]( const glm::vec3& p, ImVec2& out )
+        {
+            const glm::vec4 clip = viewProj * glm::vec4( p, 1.0f );
+            if ( clip.w <= 0.0001f )
+                return false;
+            out = ImVec2( viewportPos.x + ( clip.x / clip.w * 0.5f + 0.5f ) * viewportSize.x,
+                          viewportPos.y + ( 0.5f - clip.y / clip.w * 0.5f ) * viewportSize.y );
+            return true;
+        };
+        const auto line = [&]( const glm::vec3& origin, const glm::vec3& dir, ImU32 colour )
+        {
+            const float len = glm::length( basis * dir );
+            if ( len <= 0.0f )
+                return;
+            ImVec2 a, b;
+            if ( project( origin, a ) && project( origin + basis * dir / len * s.LineLength, b ) )
+                dl->AddLine( a, b, colour, s.LineThickness );
+        };
+        for ( const int tid : mesh.TriangleIndicesItr() )
+        {
+            const Geometry::Index3i tri = mesh.GetTriangle( tid );
+            for ( int k = 0; k < 3; ++k )
+            {
+                const glm::vec3 origin = glm::vec3( world * glm::vec4( glm::vec3( mesh.GetVertex( tri[k] ) ), 1.0f ) );
+                if ( s.ShowTangents && tangents && tangents->IsSetTriangle( tid ) && bitangents->IsSetTriangle( tid ) )
+                {
+                    line( origin, tangents->GetElement( tangents->GetTriangle( tid )[k] ), IM_COL32( 240, 15, 15, 255 ) );
+                    line( origin, bitangents->GetElement( bitangents->GetTriangle( tid )[k] ),
+                          IM_COL32( 15, 240, 15, 255 ) );
+                }
+                if ( s.ShowNormals && normals && normals->IsSetTriangle( tid ) )
+                    line( origin, normals->GetElement( normals->GetTriangle( tid )[k] ), IM_COL32( 15, 15, 240, 255 ) );
+            }
         }
     }
 } // namespace Desert::Editor::Tools

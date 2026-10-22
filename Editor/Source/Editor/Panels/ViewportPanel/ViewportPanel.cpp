@@ -2047,12 +2047,12 @@ namespace Desert::Editor
                 const glm::mat4 viewProj = camera->GetProjectionMatrix() * camera->GetViewMatrix();
                 // Before CubeGrid: while a UV or Deform tool is active its Accept / Cancel requests are its own.
                 m_UVTool.Update( *m_Scene );
-                m_DeformTool.Update( *m_Scene );
+                m_MeshProcessingTool.Update( *m_Scene );
                 m_VertexSculptTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                            m_ViewportData.IsHovered );
                 // Warp's frame: UE's transform gizmo on the deformer (UMeshSpaceDeformerTool TransformProxy).
                 // Its Upper / Lower bounds: UE's interval gizmo on the frame's axis; Bend draws the bent axis.
-                if ( m_DeformTool.HasWarpSession() )
+                if ( m_MeshProcessingTool.HasWarpSession() )
                 {
                     auto& ms = Core::ModelingState::Get();
                     const bool intervalOwns = m_Gizmo.IntervalOwnsInput();
@@ -2062,16 +2062,20 @@ namespace Desert::Editor
                                          m_ViewportData.Size, Tools::GizmoController::kFrameTranslateRotate );
                     if ( intervalOwns )
                         ImGuizmo::Enable( true );
-                    Tools::DeformTool::DrawWarpVisualization( ms, viewProj, m_ViewportData.ViewportPos,
+                    Tools::MeshProcessingTool::DrawWarpVisualization( ms, viewProj, m_ViewportData.ViewportPos,
                                                               m_ViewportData.Size );
                     m_Gizmo.RenderInterval( ms.WarpGizmo, ms.DeformWarp.LowerBound, ms.DeformWarp.UpperBound,
                                             ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
                 }
                 // Lattice: its control points and the gizmo on the selected ones (UE ULatticeControlPointsMechanic).
-                if ( m_DeformTool.HasLatticeSession() )
-                    m_DeformTool.DrawLatticeControls( *m_Scene, m_Gizmo, ViewCamera(), viewProj,
+                if ( m_MeshProcessingTool.HasLatticeSession() )
+                    m_MeshProcessingTool.DrawLatticeControls( *m_Scene, m_Gizmo, ViewCamera(), viewProj,
                                                       m_ViewportData.ViewportPos, m_ViewportData.Size,
                                                       m_ViewportData.IsHovered );
+                // Tangents: the previewed frames as lines (UE UMeshTangentsTool PreviewGeometry line sets).
+                if ( m_MeshProcessingTool.HasTangentsSession() )
+                    m_MeshProcessingTool.DrawTangentsVisualization( *m_Scene, Core::ModelingState::Get(), viewProj,
+                                                                    m_ViewportData.ViewportPos, m_ViewportData.Size );
                 m_CubeGridTool.Update( *m_Scene, Core::ModelingState::Get().CubeGridAimCentre ? centreRay : ray,
                                        viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                        m_ViewportData.IsHovered );
@@ -2761,7 +2765,7 @@ namespace Desert::Editor
 
         // Lattice owns the scene's left clicks (UE: the tool's click behaviour selects control points, an empty
         // click clears them); the entity selection stays, or the session would end.
-        if ( e.GetMouseButton() == Common::MouseButton::Left && m_DeformTool.HasLatticeSession() && overImage )
+        if ( e.GetMouseButton() == Common::MouseButton::Left && m_MeshProcessingTool.HasLatticeSession() && overImage )
             return false;
         // Vertex Sculpt owns a left click on the mesh it brushes (the stroke), so the click does not reselect.
         if ( e.GetMouseButton() == Common::MouseButton::Left && m_VertexSculptTool.OwnsClick() && overImage )

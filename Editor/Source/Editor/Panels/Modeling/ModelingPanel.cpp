@@ -146,7 +146,7 @@ namespace Desert::Editor
                       ms.ActiveTool == MS::Tool::Warp || ms.ActiveTool == MS::Tool::Lattice ||
                       ms.ActiveTool == MS::Tool::VertexSculpt )
                 m_Category = static_cast<int>( Palette::Deform );
-            else if ( ms.ActiveTool == MS::Tool::Normals )
+            else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents )
                 m_Category = static_cast<int>( Palette::Attributes );
         }
 
@@ -588,7 +588,7 @@ namespace Desert::Editor
     }
 
     // UE's Deform palette: Smooth and Offset (UE's USmoothMeshTool / UOffsetMeshTool, Iterative type). Each is a
-    // tool on the selected mesh (DeformTool): the viewport previews it with the settings below, recomputed on
+    // tool on the selected mesh (MeshProcessingTool): the viewport previews it with the settings below, recomputed on
     // every change, and the tool bar's Accept (one undo step) / Cancel (the mesh as it was) end it. The fields are
     // UE's UIterativeSmoothProperties / UIterativeOffsetProperties with their ranges.
     void ModelingPanel::DrawDeformPalette()
@@ -603,25 +603,25 @@ namespace Desert::Editor
             const char* Name;
             MS::Tool    Tool;
         };
-        constexpr std::array<DeformToolEntry, 5> kDeformTools = {
+        constexpr std::array<DeformToolEntry, 5> kMeshProcessingTools = {
              { { ICON_MDI_BLUR, "Smooth", MS::Tool::Smooth },
                { ICON_MDI_ARROW_EXPAND_ALL, "Offset", MS::Tool::Offset },
                { ICON_MDI_ROTATE_ORBIT, "Warp", MS::Tool::Warp },
                { ICON_MDI_GRID, "Lattice", MS::Tool::Lattice },
                { ICON_MDI_BRUSH, "VSculpt", MS::Tool::VertexSculpt } } };
-        for ( size_t i = 0; i < kDeformTools.size(); ++i )
+        for ( size_t i = 0; i < kMeshProcessingTools.size(); ++i )
         {
-            const bool on = ms.ActiveTool == kDeformTools[i].Tool;
+            const bool on = ms.ActiveTool == kMeshProcessingTools[i].Tool;
             if ( on )
                 ImGui::PushStyleColor( ImGuiCol_Button, sel );
             if ( i % 2 == 1 )
                 ImGui::SameLine();
             char deformToolLabel[64];
-            std::snprintf( deformToolLabel, sizeof( deformToolLabel ), "%s  %s", kDeformTools[i].Icon,
-                           kDeformTools[i].Name );
+            std::snprintf( deformToolLabel, sizeof( deformToolLabel ), "%s  %s", kMeshProcessingTools[i].Icon,
+                           kMeshProcessingTools[i].Name );
             if ( ImGui::Button( deformToolLabel, ImVec2( half, 26.0f ) ) )
             {
-                ms.ActiveTool = kDeformTools[i].Tool;
+                ms.ActiveTool = kMeshProcessingTools[i].Tool;
                 Core::ViewportMode::Set( Core::EditorMode::Modeling );
             }
             if ( on )
@@ -824,29 +824,30 @@ namespace Desert::Editor
     // UE's UVs palette: AutoUV, Project, Unwrap (UE's Recompute UVs) and Layout. Each is a tool on the selected
     // mesh (UVTool): the viewport previews it with the settings below and the tool bar's Accept / Cancel end it.
     // UE's Attributes palette. Normals = UE UEditNormalsTool (UEditNormalsProperties, its defaults and ranges): a
-    // tool on the selected mesh previewed by DeformTool's session, recomputed on every change, committed by the
+    // tool on the selected mesh previewed by MeshProcessingTool's session, recomputed on every change, committed by the
     // bar's Accept as one undo step.
     void ModelingPanel::DrawAttributesPalette()
     {
         using MS         = Core::ModelingState;
         auto&       ms   = MS::Get();
-        const bool  on   = ms.ActiveTool == MS::Tool::Normals;
         const float full = ImGui::GetContentRegionAvail().x;
-        if ( on )
-            ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
-        char normalsLabel[64];
-        std::snprintf( normalsLabel, sizeof( normalsLabel ), "%s  %s", ICON_MDI_ARROW_TOP_RIGHT_THICK, "Normals" );
-        if ( ImGui::Button( normalsLabel, ImVec2( full, 26.0f ) ) )
+        // UE's Attributes palette buttons: Normals (UEditNormalsTool), Tangents (UMeshTangentsTool).
+        for ( const auto& [tool, name] : { std::pair{ MS::Tool::Normals, "Normals" },
+                                           std::pair{ MS::Tool::Tangents, "Tangents" } } )
         {
-            ms.ActiveTool = MS::Tool::Normals;
-            Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            const bool on = ms.ActiveTool == tool;
+            if ( on )
+                ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
+            char label[64];
+            std::snprintf( label, sizeof( label ), "%s  %s", ICON_MDI_ARROW_TOP_RIGHT_THICK, name );
+            if ( ImGui::Button( label, ImVec2( full, 26.0f ) ) )
+            {
+                ms.ActiveTool = tool;
+                Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            }
+            if ( on )
+                ImGui::PopStyleColor();
         }
-        if ( on )
-            ImGui::PopStyleColor();
-        if ( !on )
-            return;
-        ImGui::Separator();
-
         const auto row = []( const char* label )
         {
             ImGui::AlignTextToFramePadding();
@@ -854,6 +855,29 @@ namespace Desert::Editor
             ImGui::SameLine( 150.0f );
             ImGui::SetNextItemWidth( -1.0f );
         };
+        if ( ms.ActiveTool == MS::Tool::Tangents )
+        {
+            // UE UMeshTangentsToolProperties: Calculation Method; Display (lines, preview only).
+            ImGui::Separator();
+            Geometry::TangentsSettings&  t          = ms.AttribTangents;
+            static constexpr const char* kMethods[] = { "Fast MikkT Space", "MikkT Space", "Per Triangle" };
+            int                          method     = static_cast<int>( t.CalculationMethod );
+            row( "Calculation Method" );
+            if ( ImGui::Combo( "##TangentsMethod", &method, kMethods, 3 ) )
+                t.CalculationMethod = static_cast<Geometry::TangentsMethod>( method );
+            ImGui::Checkbox( "Show Tangents##Tangents", &t.ShowTangents );
+            ImGui::Checkbox( "Show Normals##Tangents", &t.ShowNormals );
+            row( "Line Length" );
+            ImGui::SliderFloat( "##TangentsLength", &t.LineLength, 0.01f, 25.0f, "%.2f cm" );
+            row( "Line Thickness" );
+            ImGui::SliderFloat( "##TangentsThickness", &t.LineThickness, 0.0f, 25.0f, "%.1f" );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+            return;
+        }
+        if ( ms.ActiveTool != MS::Tool::Normals )
+            return;
+        ImGui::Separator();
         Geometry::NormalsSettings& n = ms.AttribNormals;
         ImGui::Checkbox( "Recompute Normals##Normals", &n.RecomputeNormals );
         static constexpr const char* kMethods[] = { "Area Weighted", "Angle Weighted", "Area Angle Weighting" };
