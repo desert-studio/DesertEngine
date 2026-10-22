@@ -932,19 +932,24 @@ namespace Desert::Graphic
 
     std::vector<Core::CookedProgramVariant> TemporalSuperResolution::ProgramVariants()
     {
-        // Every quality a level or the project can select: the rows' ranges (Scalability.cpp
-        // TsrHistoryUpdateQuality 0..3, TsrRejectionAntiAliasing 0..2), the flickering row and the project's
-        // thin-geometry detection on and off, the history at and below the output, a recording frame.
+        // Every quality a level or the project can select: each row's range as its parameter spec states it (the
+        // one statement the table loader and every selector check against), the project's thin-geometry detection
+        // on and off, the history at and below the output, a recording frame.
+        namespace Scalability      = ::Common::Scalability;
+        const auto& flickeringSpec = Scalability::SpecOf( Scalability::Parameter::TsrShadingRejectionFlickering );
+        const auto& antiAliasingSpec  = Scalability::SpecOf( Scalability::Parameter::TsrRejectionAntiAliasing );
+        const auto& updateQualitySpec = Scalability::SpecOf( Scalability::Parameter::TsrHistoryUpdateQuality );
         std::set<std::pair<std::string, std::string>> unique;
         for ( const bool thinGeometry : { false, true } )
-            for ( const bool flickering : { false, true } )
-                for ( int antiAliasing = 0; antiAliasing <= 2; ++antiAliasing )
-                    for ( int update = 0; update <= 3; ++update )
+            for ( auto flickering = flickeringSpec.Min; flickering <= flickeringSpec.Max; ++flickering )
+                for ( auto antiAliasing = antiAliasingSpec.Min; antiAliasing <= antiAliasingSpec.Max;
+                      ++antiAliasing )
+                    for ( auto update = updateQualitySpec.Min; update <= updateQualitySpec.Max; ++update )
                         for ( const bool historyIsOutput : { false, true } )
                         {
                             TsrQuality quality;
                             quality.ThinGeometryDetection      = thinGeometry;
-                            quality.ShadingRejectionFlickering = flickering;
+                            quality.ShadingRejectionFlickering = flickering != 0;
                             quality.RejectionAntiAliasing      = antiAliasing;
                             quality.HistoryUpdateQuality       = update;
                             const TsrPassDefines defines = TsrPassDefinesFor( quality, historyIsOutput );
