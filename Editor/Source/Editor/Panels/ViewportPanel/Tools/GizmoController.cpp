@@ -620,18 +620,29 @@ namespace Desert::Editor::Tools
 
         const auto& view = mainCamera->GetViewMatrix();
         const auto& proj = mainCamera->GetProjectionMatrix();
-        // Scale on a bone's rest pose is rarely wanted; default None/Scale to Translate.
-        const auto op = ( Core::GizmoState::Get() == Operation::Rotate ) ? ImGuizmo::ROTATE : ImGuizmo::TRANSLATE;
+        // The toolbar's operation, as for the object gizmo (Persona scales bones too); None means Translate.
+        const Operation toolbarOp = Core::GizmoState::Get();
+        const Operation boneOp    = ( toolbarOp == Operation::Rotate || toolbarOp == Operation::Scale )
+                                         ? toolbarOp
+                                         : Operation::Translate;
+        const auto      op        = static_cast<ImGuizmo::OPERATION>( boneOp );
 
         // The bone gizmo honours the SAME toolbar toggle as the object gizmo — one control, both gizmos,
         // or the button would mean different things depending on a mode the user is not looking at.
-        // Asked with the operation this call actually passes (never Scale here), not with the toolbar's,
-        // so the space in force matches the handles being drawn.
-        const auto boneSpace = static_cast<ImGuizmo::MODE>( Core::GizmoState::EffectiveSpace(
-             op == ImGuizmo::ROTATE ? Operation::Rotate : Operation::Translate ) );
+        // Asked with the operation this call actually passes, so the space in force matches the handles drawn.
+        const auto boneSpace = static_cast<ImGuizmo::MODE>( Core::GizmoState::EffectiveSpace( boneOp ) );
 
+        // Scale goes through our screen-space handles, as RenderObject's: ImGuizmo's own scale hit misses
+        // an axis seen edge-on (see ScaleHandles).
+        const auto scale = ScaleHandles( "LevelBone", gizmoWorld, view, proj, viewportPos, viewportSize,
+                                         static_cast<int>( op ), nullptr );
+        if ( scale.Owns )
+            ImGuizmo::Enable( false );
         const bool boneManipulated =
-             ImGuizmo::Manipulate( &view[0][0], &proj[0][0], op, boneSpace, &gizmoWorld[0][0] );
+             ImGuizmo::Manipulate( &view[0][0], &proj[0][0], op, boneSpace, &gizmoWorld[0][0] ) || scale.Changed;
+        if ( scale.Owns )
+            ImGuizmo::Enable( true );
+        DrawScaleHandle( "LevelBone" );
 
         // Same rule as the object gizmo: picking stands down on HOVER, not only mid-drag.
         if ( ImGuizmo::IsOver() || ImGuizmo::IsUsing() )
@@ -639,7 +650,7 @@ namespace Desert::Editor::Tools
 
         // One undo entry per drag: capture the bone's pre-drag rest transform when the drag STARTS, before
         // this frame's edit is written below. Rig editing only — pose-mode edits are persisted by keying.
-        const bool usingNow = ImGuizmo::IsUsing();
+        const bool usingNow = ImGuizmo::IsUsing() || scale.Owns;
 
         // AND THE POSE BRANCH PUBLISHES THE SAME BOUNDARY IT ALREADY COMPUTES. `m_BoneDragActive` above is
         // the rig-editing half of one fact — "the bone gizmo is being held" — and the pose half of it was
