@@ -686,8 +686,7 @@ namespace Desert::Editor
                 }
                 const auto plan = Control::PointerDrag::Plan(
                      *target, { request.Value[0], request.Value[1], request.Value[2], request.Value[3] },
-                     request.Steps.value_or( Control::PointerDrag::kDefaultSteps ),
-                     ::ImGui::GetIO().DisplayFramebufferScale.x );
+                     request.Steps.value_or( Control::PointerDrag::kDefaultSteps ), target->PixelsPerPoint );
                 if ( !plan.IsSuccess() )
                     return Control::Response::Failure( request.Id, plan.GetError() );
                 if ( const auto armed = Control::PointerInjection::Arm( plan.GetValue() ); !armed.IsSuccess() )

@@ -41,6 +41,10 @@ namespace Desert::Editor::Control
         float    Height     = 0.0f;
         uint32_t ViewportId = 0;
         int32_t  Frame      = -1;
+        /// Pixels of the image the subject's shot writes per ImGui point of this rect. The scene images are
+        /// rendered at the panel's size in points, so this is the image's extent over the rect's, NOT the
+        /// display's framebuffer scale (2 on Retina): a drag scaled by that landed at half the distance.
+        float PixelsPerPoint = 1.0f;
     };
 
     class PointerDrag
@@ -51,7 +55,7 @@ namespace Desert::Editor::Control
         static constexpr uint32_t kDefaultSteps = 8;
 
         /// @p from / @p to are in the target's image PIXELS (what shot-viewport writes); @p pixelsPerPoint
-        /// converts them to ImGui points (the framebuffer scale, 2 on a Retina display).
+        /// converts them to ImGui points (the target's PointerTargetRect::PixelsPerPoint).
         [[nodiscard]] static Common::ResultStr<PointerDrag> Plan( const PointerTargetRect&    target,
                                                                   const std::array<float, 4>& fromTo,
                                                                   uint32_t steps, float pixelsPerPoint )
