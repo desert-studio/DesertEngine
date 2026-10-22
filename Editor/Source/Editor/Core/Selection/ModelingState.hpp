@@ -13,6 +13,7 @@
 #include <Engine/Geometry/MeshDeformOperations.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
+#include <Engine/Geometry/MeshAttributeOperations.hpp>
 #include <Engine/Geometry/MeshSculptBrushes.hpp>
 #include <Engine/Geometry/ShapeGenerators.hpp>
 
@@ -42,9 +43,11 @@ namespace Desert::Editor::Core
             // UE's Deform palette (DeformTool): previews on the selected mesh and commits on Accept.
             Smooth,
             Offset,
-            Warp, // UE's UMeshSpaceDeformerTool: Bend / Twist / Flare in the frame of its gizmo
-            Lattice, // UE's ULatticeDeformerTool: a control-point lattice over the mesh's bounds (FFD)
+            Warp,         // UE's UMeshSpaceDeformerTool: Bend / Twist / Flare in the frame of its gizmo
+            Lattice,      // UE's ULatticeDeformerTool: a control-point lattice over the mesh's bounds (FFD)
             VertexSculpt, // UE's UMeshVertexSculptTool: brush strokes on the mesh's vertices (Move, Smooth)
+            // UE's Attributes palette (same preview/Accept session as Deform, DeformTool).
+            Normals, // UE's UEditNormalsTool: recompute / split / invert the normal overlay
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -331,6 +334,9 @@ namespace Desert::Editor::Core
         // Vertex Sculpt (UE UMeshVertexSculptTool / USculptBrushProperties): the brush, its radius, strength and
         // falloff. Each stroke edits a copy of the mesh and is committed at its end as ONE undo step.
         Geometry::SculptSettings DeformSculpt;
+        // Attributes palette -> Normals (UE UEditNormalsProperties, Geometry/MeshAttributeOperations.hpp);
+        // previewed by DeformTool like the Deform tools, its report in DeformStatus.
+        Geometry::NormalsSettings AttribNormals;
         // What the active Deform tool's preview did (its report), or why there is none - the panel shows it.
         std::string DeformStatus;
 

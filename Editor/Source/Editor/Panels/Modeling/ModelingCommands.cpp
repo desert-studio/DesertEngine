@@ -616,6 +616,43 @@ namespace Desert::Editor
                                       Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                       return PaletteCommandDone();
                                   } } );
+        // UE's Attributes palette: Normals (DeformTool session) and its closed choices / toggles.
+        commands.push_back( { "Modeling", "Attributes tool: Normals", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Normals;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::SplitNormalMethod split :
+              { Geometry::SplitNormalMethod::UseExistingTopology, Geometry::SplitNormalMethod::FaceNormalThreshold,
+                Geometry::SplitNormalMethod::FaceGroupID, Geometry::SplitNormalMethod::PerTriangle,
+                Geometry::SplitNormalMethod::PerVertex } )
+            commands.push_back( { "Modeling", std::string( "Normals split: " ) + Geometry::ToString( split ),
+                                  [split]
+                                  {
+                                      MS::Get().AttribNormals.SplitMethod = split;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::NormalCalculationMethod method :
+              { Geometry::NormalCalculationMethod::AreaWeighted, Geometry::NormalCalculationMethod::AngleWeighted,
+                Geometry::NormalCalculationMethod::AreaAngleWeighting } )
+            commands.push_back( { "Modeling",
+                                  std::string( "Normals calculation: " ) + Geometry::ToString( method ), [method]
+                                  {
+                                      MS::Get().AttribNormals.CalculationMethod = method;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const auto& [name, member] :
+              std::initializer_list<std::pair<const char*, bool Geometry::NormalsSettings::*>>{
+                   { "Recompute Normals", &Geometry::NormalsSettings::RecomputeNormals },
+                   { "Allow Sharp Vertices", &Geometry::NormalsSettings::AllowSharpVertices },
+                   { "Invert Normals", &Geometry::NormalsSettings::InvertNormals } } )
+            commands.push_back( { "Modeling", std::string( "Normals toggle: " ) + name, [member]
+                                  {
+                                      bool& value = MS::Get().AttribNormals.*member;
+                                      value       = !value;
+                                      return PaletteCommandDone();
+                                  } } );
         // Vertex Sculpt's closed choices (UE UMeshVertexSculptTool brush type, USculptBrushProperties falloff).
         for ( const Geometry::SculptBrush brush : Geometry::kSculptBrushes )
             commands.push_back( { "Modeling", std::string( "Vertex Sculpt brush: " ) + Geometry::ToString( brush ),

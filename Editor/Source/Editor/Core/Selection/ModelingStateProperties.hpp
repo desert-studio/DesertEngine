@@ -40,7 +40,7 @@ namespace Desert::Editor::Core
     };
 
     // clang-format off
-    inline constexpr std::array<ModelingStateRow, 115> kModelingStateRows = { {
+    inline constexpr std::array<ModelingStateRow, 116> kModelingStateRows = { {
          { "CubeGrid.GridFrameOrigin",  "Grid Frame Origin",  "CubeGrid", 3, false, -1.0e6f, 1.0e6f,
            []( ModelingState& s ) { return &s.GridOrigin.x; }, nullptr },
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
@@ -276,6 +276,8 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.DeformSculpt.Strength; }, nullptr },
          { "VertexSculpt.Falloff",      "Falloff",            "VertexSculpt", 1, false, 0.0f, 1.0f,
            []( ModelingState& s ) { return &s.DeformSculpt.FalloffAmount; }, nullptr },
+         { "Normals.SharpEdgeAngleThreshold", "Sharp Edge Angle Threshold", "Normals", 1, false, 0.0f, 180.0f,
+           []( ModelingState& s ) { return &s.AttribNormals.SharpEdgeAngleThreshold; }, nullptr },
     } };
     // clang-format on
 

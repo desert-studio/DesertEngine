@@ -40,6 +40,8 @@ namespace Desert::Editor::Tools
                     return "Warp";
                 case MS::Tool::Lattice:
                     return "Lattice";
+                case MS::Tool::Normals:
+                    return "Normals";
                 default:
                     return "?";
             }
@@ -95,7 +97,7 @@ namespace Desert::Editor::Tools
     bool DeformTool::IsDeformTool( MS::Tool tool )
     {
         return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
-               tool == MS::Tool::Lattice;
+               tool == MS::Tool::Lattice || tool == MS::Tool::Normals;
     }
 
     void DeformTool::Update( ::Desert::Core::Scene& scene )
@@ -219,6 +221,7 @@ namespace Desert::Editor::Tools
     {
         m_Smooth                                             = ms.DeformSmooth;
         m_Offset                                             = ms.DeformOffset;
+        m_Normals                                            = ms.AttribNormals;
         m_Warp                                               = ms.DeformWarp;
         m_WarpGizmo                                          = ms.WarpGizmo;
         m_Lattice                                            = ms.DeformLattice;
@@ -232,6 +235,8 @@ namespace Desert::Editor::Tools
                     return Geometry::Smooth( input, ms.DeformSmooth );
                 case MS::Tool::Offset:
                     return Geometry::Offset( input, ms.DeformOffset );
+                case MS::Tool::Normals:
+                    return Geometry::EditNormals( input, ms.AttribNormals );
                 case MS::Tool::Lattice:
                     return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints,
                                                     ms.DeformLattice );
@@ -474,6 +479,8 @@ namespace Desert::Editor::Tools
                 return !( ms.DeformSmooth == m_Smooth );
             case MS::Tool::Offset:
                 return !( ms.DeformOffset == m_Offset );
+            case MS::Tool::Normals:
+                return !( ms.AttribNormals == m_Normals );
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

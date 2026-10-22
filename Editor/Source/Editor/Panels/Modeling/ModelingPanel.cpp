@@ -87,6 +87,7 @@ namespace Desert::Editor
             TriModel,
             Deform,
             Transform,
+            Attributes,
             UVs,
             Collision,
         };
@@ -95,15 +96,16 @@ namespace Desert::Editor
             const char* Icon;
             const char* Name;
         };
-        constexpr std::array<PaletteEntry, 9> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
-                                                              { ICON_MDI_SHAPE_PLUS, "Shapes" },
-                                                              { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
-                                                              { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
-                                                              { ICON_MDI_VECTOR_TRIANGLE, "TriModel" },
-                                                              { ICON_MDI_BLUR, "Deform" },
-                                                              { ICON_MDI_ARROW_ALL, "Transform" },
-                                                              { ICON_MDI_CHECKERBOARD, "UVs" },
-                                                              { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
+        constexpr std::array<PaletteEntry, 10> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
+                                                               { ICON_MDI_SHAPE_PLUS, "Shapes" },
+                                                               { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
+                                                               { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
+                                                               { ICON_MDI_VECTOR_TRIANGLE, "TriModel" },
+                                                               { ICON_MDI_BLUR, "Deform" },
+                                                               { ICON_MDI_ARROW_ALL, "Transform" },
+                                                               { ICON_MDI_PALETTE_SWATCH, "Attributes" },
+                                                               { ICON_MDI_CHECKERBOARD, "UVs" },
+                                                               { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
         static_assert( kPalettes.size() == static_cast<size_t>( Palette::Collision ) + 1,
                        "one rail entry per palette" );
     } // namespace
@@ -144,6 +146,8 @@ namespace Desert::Editor
                       ms.ActiveTool == MS::Tool::Warp || ms.ActiveTool == MS::Tool::Lattice ||
                       ms.ActiveTool == MS::Tool::VertexSculpt )
                 m_Category = static_cast<int>( Palette::Deform );
+            else if ( ms.ActiveTool == MS::Tool::Normals )
+                m_Category = static_cast<int>( Palette::Attributes );
         }
 
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 6.0f ) );
@@ -198,6 +202,9 @@ namespace Desert::Editor
                 break;
             case Palette::Transform:
                 DrawTransformPalette();
+                break;
+            case Palette::Attributes:
+                DrawAttributesPalette();
                 break;
             case Palette::UVs:
                 DrawUVsPalette();
@@ -816,6 +823,62 @@ namespace Desert::Editor
 
     // UE's UVs palette: AutoUV, Project, Unwrap (UE's Recompute UVs) and Layout. Each is a tool on the selected
     // mesh (UVTool): the viewport previews it with the settings below and the tool bar's Accept / Cancel end it.
+    // UE's Attributes palette. Normals = UE UEditNormalsTool (UEditNormalsProperties, its defaults and ranges): a
+    // tool on the selected mesh previewed by DeformTool's session, recomputed on every change, committed by the
+    // bar's Accept as one undo step.
+    void ModelingPanel::DrawAttributesPalette()
+    {
+        using MS         = Core::ModelingState;
+        auto&       ms   = MS::Get();
+        const bool  on   = ms.ActiveTool == MS::Tool::Normals;
+        const float full = ImGui::GetContentRegionAvail().x;
+        if ( on )
+            ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
+        char normalsLabel[64];
+        std::snprintf( normalsLabel, sizeof( normalsLabel ), "%s  %s", ICON_MDI_ARROW_TOP_RIGHT_THICK, "Normals" );
+        if ( ImGui::Button( normalsLabel, ImVec2( full, 26.0f ) ) )
+        {
+            ms.ActiveTool = MS::Tool::Normals;
+            Core::ViewportMode::Set( Core::EditorMode::Modeling );
+        }
+        if ( on )
+            ImGui::PopStyleColor();
+        if ( !on )
+            return;
+        ImGui::Separator();
+
+        const auto row = []( const char* label )
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted( label );
+            ImGui::SameLine( 150.0f );
+            ImGui::SetNextItemWidth( -1.0f );
+        };
+        Geometry::NormalsSettings& n = ms.AttribNormals;
+        ImGui::Checkbox( "Recompute Normals##Normals", &n.RecomputeNormals );
+        static constexpr const char* kMethods[] = { "Area Weighted", "Angle Weighted", "Area Angle Weighting" };
+        int                          method     = static_cast<int>( n.CalculationMethod );
+        row( "Normal Calculation" );
+        if ( ImGui::Combo( "##NormalsMethod", &method, kMethods, 3 ) )
+            n.CalculationMethod = static_cast<Geometry::NormalCalculationMethod>( method );
+        static constexpr const char* kSplits[] = { "Use Existing Topology", "Face Normal Threshold",
+                                                   "Face Group ID", "Per Triangle", "Per Vertex" };
+        int                          split     = static_cast<int>( n.SplitMethod );
+        row( "Split Normals" );
+        if ( ImGui::Combo( "##NormalsSplit", &split, kSplits, 5 ) )
+            n.SplitMethod = static_cast<Geometry::SplitNormalMethod>( split );
+        if ( n.SplitMethod == Geometry::SplitNormalMethod::FaceNormalThreshold )
+        {
+            row( "Sharp Edge Angle" );
+            ImGui::SliderFloat( "##NormalsThreshold", &n.SharpEdgeAngleThreshold, 0.0f, 180.0f, "%.1f deg",
+                                ImGuiSliderFlags_AlwaysClamp );
+            ImGui::Checkbox( "Allow Sharp Vertices##Normals", &n.AllowSharpVertices );
+        }
+        ImGui::Checkbox( "Invert Normals##Normals", &n.InvertNormals );
+        ImGui::Separator();
+        ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+    }
+
     void ModelingPanel::DrawUVsPalette()
     {
         using MS          = Core::ModelingState;

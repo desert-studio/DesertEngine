@@ -47,6 +47,9 @@ namespace Desert::Editor::Tools
             // there is nothing for Cancel to drop - Complete is the honest button (as PolyEdit).
             case T::VertexSculpt:
                 return { ICON_MDI_BRUSH, "Vertex Sculpt", false };
+            // UE's Normals tool previews until Accept; Cancel puts the mesh back (DeformTool).
+            case T::Normals:
+                return { ICON_MDI_ARROW_TOP_RIGHT_THICK, "Normals", true };
         }
         return {};
     }

@@ -4,6 +4,7 @@
 
 #include <Common/Core/UUID.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
+#include <Engine/Geometry/MeshAttributeOperations.hpp>
 
 #include <memory>
 #include <optional>
@@ -19,10 +20,11 @@ namespace Desert::Editor::Tools
 {
     class GizmoController;
 
-    // Modeling Mode -> Deform: Smooth, Offset and Warp (UE's USmoothMeshTool, UOffsetMeshTool and
-    // UMeshSpaceDeformerTool, whose frame is the viewport gizmo on ModelingState::WarpGizmo;
-    // operators in Geometry/MeshDeformOperations.hpp). The same session as UE's base-mesh-processing tools and
-    // our UVTool:
+    // Modeling Mode -> Deform (and Attributes -> Normals, UE UEditNormalsTool,
+    // Geometry/MeshAttributeOperations.hpp, the same base-mesh-processing session): Smooth, Offset and Warp (UE's
+    // USmoothMeshTool, UOffsetMeshTool and UMeshSpaceDeformerTool, whose frame is the viewport gizmo on
+    // ModelingState::WarpGizmo; operators in Geometry/MeshDeformOperations.hpp). The same session as UE's
+    // base-mesh-processing tools and our UVTool:
     //   - start: the tool target (GetToolTargetMesh) is the input, and what the component holds is the "before";
     //   - preview: the operator runs on the input with the panel's settings, again whenever they change, and the
     //     entity draws the result (ECS::SetEditableMesh, no undo step);
@@ -86,6 +88,7 @@ namespace Desert::Editor::Tools
         // The settings the preview was computed with.
         Geometry::SmoothSettings m_Smooth;
         Geometry::OffsetSettings m_Offset;
+        Geometry::NormalsSettings m_Normals;
         Geometry::WarpSettings   m_Warp;
         glm::mat4                m_WarpGizmo{ 1.0f };
         Geometry::LatticeSettings m_Lattice;
