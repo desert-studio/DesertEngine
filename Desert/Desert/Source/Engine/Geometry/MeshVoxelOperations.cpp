@@ -188,6 +188,6 @@ namespace Desert::Geometry
                                              ? std::format( " ({} non-manifold triangles dropped)", mc.RejectedTriangles )
                                              : std::string() );
         out.Mesh = std::move( result );
-        return out;
+        return Common::MakeSuccess( std::move( out ) );
     }
 } // namespace Desert::Geometry
