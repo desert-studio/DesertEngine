@@ -563,6 +563,32 @@ namespace Desert::Graphic::System
         return variants;
     }
 
+    std::vector<Core::CookedProgramVariant>
+    MeshRenderer::OverrideProgramVariants( const Runtime::ShaderService& shaders,
+                                           std::span<const std::string>  shaderNames )
+    {
+        const auto isRegistered = [&shaders]( std::string_view name )
+        { return shaders.GetByName( std::string( name ) ) != nullptr; };
+        std::vector<Core::CookedProgramVariant> variants;
+        std::set<std::string>                   listed;
+        for ( const std::string& shaderName : shaderNames )
+        {
+            if ( !listed.insert( shaderName ).second )
+                continue;
+            // BuildGenericDraws' surfaceOverride: drawn in the G-buffer through its cell, never forward.
+            if ( TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered ) )
+                continue;
+            const auto program = shaders.GetByName( shaderName );
+            if ( program == nullptr )
+                continue; // the scene load names an override no loaded shader has
+            Core::ShaderVariant permutation = RayTracedSunForwardVariant( *program );
+            if ( permutation.IsDefault() )
+                continue;
+            variants.push_back( { shaderName, std::move( permutation ) } );
+        }
+        return variants;
+    }
+
     bool MeshRenderer::SunCascadeReadersQueued() const
     {
         return QueuedForwardDrawSamples( kSceneViewShadowCascadesName, /*blendedOnly*/ true ) ||

@@ -13,6 +13,10 @@
 #include <Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+#include <Engine/Assets/Prefab/PrefabData.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
+#include <Engine/Core/Serialize/GenericBlock.hpp>
+#include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Graphic/View/TemporalAA.hpp>
 #include <Engine/Graphic/View/TemporalSuperResolution.hpp>
@@ -208,6 +212,8 @@ namespace Desert::Editor
         //                           (and SSR's untraced front layer in SSRRenderer's);
         //   the mesh materials      every registered `.demat` (ContentRegistry) under its forward cell's
         //                           permutations (MeshRenderer::MaterialProgramVariants);
+        //   the shader overrides    every registered scene's Material (Shader Override) block, its shader by
+        //                           GUID, under MeshRenderer::OverrideProgramVariants;
         //   the cloud media         every registered Volume medium into each of its programs
         //                           (CloudMediumProgramVariants);
         //   the screen probes       every layout a Scalability.json level names - {ScreenProbeDownsample,
@@ -247,10 +253,59 @@ namespace Desert::Editor
                     LOG_ERROR( "[PackageCook] no material service: the mesh materials' permutations were not cooked" );
                     ++stats.Failures;
                 }
+
+                // The Shader Override entities of the scenes the package carries: the shader by the GUID the
+                // block states, its compile key the shader file's stem (Assets::FindShaderNameByRef's rule).
+                const auto shaderRows = Assets::ContentRegistry::Rows( Common::Content::ContentKind::Shader );
+                std::vector<std::string> overrides;
+                for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Scene ) )
+                {
+                    auto text  = ::Desert::Core::ExternalEntities::ReadSceneFileText( row.Path );
+                    auto scene = text ? ::Desert::Core::ParseLoadableScene( row.Path.string(), text.GetValue() )
+                                      : Common::MakeError<::Desert::Core::LoadableScene>( text.GetError() );
+                    if ( !scene )
+                    {
+                        LOG_ERROR( "[PackageCook] {}: its shader overrides' permutations were not cooked: {}",
+                                   row.Key, scene.GetError() );
+                        ++stats.Failures;
+                        continue;
+                    }
+                    for ( const auto& entity : scene.GetValue().Scene.Entities )
+                    {
+                        const auto found = entity.Components.get( "Material" );
+                        if ( !found.has_value() )
+                            continue;
+                        ::Common::Json::Issues issues;
+                        const auto block = ::Desert::Core::Serialize::ReadBlock<Assets::MaterialComponentSer>(
+                             ::Common::Json::Root( found.value(), ::Common::Json::Path().Key( "Material" ) ),
+                             issues );
+                        if ( !block.has_value() || !block->Shader.has_value() )
+                            continue; // no shader: nothing drawn forward (the scene load names a bad block)
+                        const auto shader =
+                             std::find_if( shaderRows.begin(), shaderRows.end(),
+                                           [&]( const auto& s )
+                                           {
+                                               return s.Guid.has_value() &&
+                                                      Common::Content::AssetGuidToText( *s.Guid ) ==
+                                                           block->Shader->Guid;
+                                           } );
+                        if ( shader == shaderRows.end() )
+                        {
+                            LOG_ERROR( "[PackageCook] {}: a Shader Override names shader {} ({}), which no "
+                                       "registered shader carries - its permutations were not cooked",
+                                       row.Key, block->Shader->Guid, block->Shader->Path );
+                            ++stats.Failures;
+                            continue;
+                        }
+                        overrides.push_back( shader->Path.stem().string() );
+                    }
+                }
+                append( Graphic::System::MeshRenderer::OverrideProgramVariants( *shaders, overrides ) );
             }
             else
             {
-                LOG_ERROR( "[PackageCook] no shader service: the cloud media's permutations were not cooked" );
+                LOG_ERROR( "[PackageCook] no shader service: the cloud media's, materials' and shader overrides' "
+                           "permutations were not cooked" );
                 ++stats.Failures;
             }
 

@@ -1185,12 +1185,18 @@ namespace Desert::Graphic::System
         // material's (Static x Forward) cell under RayTracedSunForwardVariant, defaults omitted - the list
         // PackageCook CookShaderVariants cooks, from the same function the renderer acquires by. A material
         // without that cell draws nothing forward (CreateSurfaceMaterial names it) and has nothing to cook.
-        // Not covered: a Shader Override draw (no `.demat`, its program named by the entity) - the
-        // ShippedByCook census names it when the session drew one.
+        // A Shader Override draw (no `.demat`) is OverrideProgramVariants'.
         [[nodiscard]] static std::vector<Core::CookedProgramVariant>
              MaterialProgramVariants( const Runtime::MaterialService& materials,
                                       const Runtime::ShaderService&   shaders,
                                       std::span<const ::Common::AssetHandle> handles );
+        // The permutations a Shader Override draw (MaterialComponent::ShaderName, no `.demat`) can select: each
+        // named program BuildGenericDraws shades forward under RayTracedSunForwardVariant, defaults omitted. A
+        // surface template's override is drawn through its (Static x GBuffer) cell, never forward, and has
+        // nothing here. PackageCook CookShaderVariants passes the overrides its cooked scenes state.
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant>
+             OverrideProgramVariants( const Runtime::ShaderService& shaders,
+                                      std::span<const std::string>  shaderNames );
 
     private:
         // Whether the pipeline "Deferred: Generic" shades @p shader's opaque draw with is Ready, tracked (so a
