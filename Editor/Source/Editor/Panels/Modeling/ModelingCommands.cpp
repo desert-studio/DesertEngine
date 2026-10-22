@@ -726,6 +726,31 @@ namespace Desert::Editor
                                       MS::Get().PaintGroupsRadius = static_cast<float>( radius );
                                       return PaletteCommandDone();
                                   } } );
+        // UE's MeshOps palette: Hole Fill (UHoleFillTool, the MeshProcessingTool session), its fill type and its
+        // Select All / Clear actions.
+        commands.push_back( { "Modeling", "Mesh tool: Hole Fill", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::HoleFill;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::HoleFillType type :
+              { Geometry::HoleFillType::Trivial, Geometry::HoleFillType::Minimal, Geometry::HoleFillType::Smooth } )
+            commands.push_back( { "Modeling", std::string( "Hole Fill type: " ) + Geometry::ToString( type ), [type]
+                                  {
+                                      MS::Get().MeshHoleFill.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        commands.push_back( { "Modeling", "Hole Fill: Select All Holes", []
+                              {
+                                  MS::Get().HoleFillReqSelectAll = true;
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Modeling", "Hole Fill: Clear Selection", []
+                              {
+                                  MS::Get().HoleFillReqClear = true;
+                                  return PaletteCommandDone();
+                              } } );
         // UE's Attributes palette: Tangents (UMeshTangentsTool, the same session) and its choices / display.
         commands.push_back( { "Modeling", "Attributes tool: Tangents", []
                               {

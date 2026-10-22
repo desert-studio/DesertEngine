@@ -87,6 +87,7 @@ namespace Desert::Editor
             TriModel,
             Deform,
             Transform,
+            MeshOps,
             Attributes,
             UVs,
             Collision,
@@ -96,13 +97,14 @@ namespace Desert::Editor
             const char* Icon;
             const char* Name;
         };
-        constexpr std::array<PaletteEntry, 10> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
+        constexpr std::array<PaletteEntry, 11> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
                                                                { ICON_MDI_SHAPE_PLUS, "Shapes" },
                                                                { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
                                                                { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
                                                                { ICON_MDI_VECTOR_TRIANGLE, "TriModel" },
                                                                { ICON_MDI_BLUR, "Deform" },
                                                                { ICON_MDI_ARROW_ALL, "Transform" },
+                                                               { ICON_MDI_WRENCH, "Mesh" },
                                                                { ICON_MDI_PALETTE_SWATCH, "Attributes" },
                                                                { ICON_MDI_CHECKERBOARD, "UVs" },
                                                                { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
@@ -150,13 +152,15 @@ namespace Desert::Editor
             else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents ||
                       ms.ActiveTool == MS::Tool::EditMaterials || ms.ActiveTool == MS::Tool::PaintGroups )
                 m_Category = static_cast<int>( Palette::Attributes );
+            else if ( ms.ActiveTool == MS::Tool::HoleFill )
+                m_Category = static_cast<int>( Palette::MeshOps );
         }
 
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 6.0f ) );
         ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 8.0f, 6.0f ) );
 
         // --- Left category rail: only the palettes something of ours lives in ---
-        // UE's other palettes (MeshOps, VoxOps, Attributes, Baking, Volumes, LODs) are absent, not
+        // UE's other palettes (VoxOps, Attributes, Baking, Volumes, LODs) are absent, not
         // greyed out, until each has a tool behind it: a category that opens onto "not implemented" is a button
         // that does nothing (owner's decision: hide empty tabs until their tools exist).
         ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 6.0f, 8.0f ) );
@@ -204,6 +208,9 @@ namespace Desert::Editor
                 break;
             case Palette::Transform:
                 DrawTransformPalette();
+                break;
+            case Palette::MeshOps:
+                DrawMeshOpsPalette();
                 break;
             case Palette::Attributes:
                 DrawAttributesPalette();
@@ -828,6 +835,62 @@ namespace Desert::Editor
     // UE's Attributes palette. Normals = UE UEditNormalsTool (UEditNormalsProperties, its defaults and ranges): a
     // tool on the selected mesh previewed by MeshProcessingTool's session, recomputed on every change, committed by the
     // bar's Accept as one undo step.
+    // UE's MeshOps palette ("Mesh" on the rail). Hole Fill = UE UHoleFillTool (UHoleFillToolProperties,
+    // USmoothHoleFillProperties, its Select All / Clear actions): a tool on the selected mesh previewed by
+    // MeshProcessingTool's session, the viewport drawing the holes (selected ones highlighted, a click on a
+    // hole's edge toggles it), committed by the bar's Accept as one undo step.
+    void ModelingPanel::DrawMeshOpsPalette()
+    {
+        using MS         = Core::ModelingState;
+        auto&       ms   = MS::Get();
+        const float full = ImGui::GetContentRegionAvail().x;
+        {
+            const bool on = ms.ActiveTool == MS::Tool::HoleFill;
+            if ( on )
+                ImGui::PushStyleColor( ImGuiCol_Button, ThemeManager::GetSelectedColor() );
+            char label[64];
+            std::snprintf( label, sizeof( label ), "%s  %s", ICON_MDI_VECTOR_SQUARE_CLOSE, "Hole Fill" );
+            if ( ImGui::Button( label, ImVec2( full, 26.0f ) ) )
+            {
+                ms.ActiveTool = MS::Tool::HoleFill;
+                Core::ViewportMode::Set( Core::EditorMode::Modeling );
+            }
+            if ( on )
+                ImGui::PopStyleColor();
+        }
+        if ( ms.ActiveTool != MS::Tool::HoleFill )
+            return;
+        const auto row = []( const char* label )
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted( label );
+            ImGui::SameLine( 150.0f );
+            ImGui::SetNextItemWidth( -1.0f );
+        };
+        ImGui::Separator();
+        Geometry::HoleFillSettings& h = ms.MeshHoleFill;
+        row( "Fill Type" );
+        int type = static_cast<int>( h.Type );
+        if ( ImGui::Combo( "##HoleFillType", &type, "Trivial\0Minimal\0Smooth\0" ) )
+            h.Type = static_cast<Geometry::HoleFillType>( type );
+        if ( h.Type == Geometry::HoleFillType::Smooth )
+        {
+            row( "Fill Density" );
+            ImGui::SliderFloat( "##HoleFillDensity", &h.FillDensity, 0.1f, 4.0f, "%.2f" );
+            row( "Interior Smoothness" );
+            ImGui::SliderFloat( "##HoleFillSmoothness", &h.InteriorSmoothness, 0.0f, 1.0f, "%.2f" );
+        }
+        ImGui::Text( "Holes: %d selected of %d", static_cast<int>( ms.HoleFillSelected.size() ),
+                     ms.HoleFillLoopCount );
+        if ( ImGui::Button( "Select All##HoleFill", ImVec2( full * 0.5f - 3.0f, 0.0f ) ) )
+            ms.HoleFillReqSelectAll = true;
+        ImGui::SameLine();
+        if ( ImGui::Button( "Clear##HoleFill", ImVec2( -1.0f, 0.0f ) ) )
+            ms.HoleFillReqClear = true;
+        ImGui::Separator();
+        ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+    }
+
     void ModelingPanel::DrawAttributesPalette()
     {
         using MS         = Core::ModelingState;

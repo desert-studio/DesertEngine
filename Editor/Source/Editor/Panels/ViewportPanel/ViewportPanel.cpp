@@ -2101,6 +2101,10 @@ namespace Desert::Editor
                     m_MeshProcessingTool.DrawLatticeControls( *m_Scene, m_Gizmo, ViewCamera(), viewProj,
                                                       m_ViewportData.ViewportPos, m_ViewportData.Size,
                                                       m_ViewportData.IsHovered );
+                // Hole Fill: the holes, the selected ones highlighted; a click on one toggles it (UE UHoleFillTool).
+                if ( m_MeshProcessingTool.HasHoleFillSession() )
+                    m_MeshProcessingTool.DrawHoleFillControls( *m_Scene, viewProj, m_ViewportData.ViewportPos,
+                                                               m_ViewportData.Size, m_ViewportData.IsHovered );
                 // Tangents: the previewed frames as lines (UE UMeshTangentsTool PreviewGeometry line sets).
                 if ( m_MeshProcessingTool.HasTangentsSession() )
                     m_MeshProcessingTool.DrawTangentsVisualization( *m_Scene, Core::ModelingState::Get(), viewProj,
@@ -2623,6 +2627,7 @@ namespace Desert::Editor
             case T::Warp:
             case T::Lattice:
             case T::Normals:
+            case T::HoleFill: // picks a hole by its drawn edge, no cursor of its own
             case T::VertexSculpt: // draws its own brush ring (VertexSculptTool)
             case T::PaintGroups:  // draws its own brush ring (PaintGroupsTool)
                 return Tools::ToolCursor::None; // the UV and Deform tools take no click
@@ -2798,6 +2803,9 @@ namespace Desert::Editor
         // Lattice owns the scene's left clicks (UE: the tool's click behaviour selects control points, an empty
         // click clears them); the entity selection stays, or the session would end.
         if ( e.GetMouseButton() == Common::MouseButton::Left && m_MeshProcessingTool.HasLatticeSession() && overImage )
+            return false;
+        // Hole Fill owns the scene's left clicks likewise (a click toggles a hole; the entity selection stays).
+        if ( e.GetMouseButton() == Common::MouseButton::Left && m_MeshProcessingTool.HasHoleFillSession() && overImage )
             return false;
         // Vertex Sculpt owns a left click on the mesh it brushes (the stroke), so the click does not reselect.
         if ( e.GetMouseButton() == Common::MouseButton::Left && m_VertexSculptTool.OwnsClick() && overImage )

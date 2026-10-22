@@ -55,6 +55,16 @@ namespace Desert::Editor::Tools
             return m_Session.has_value() && m_Session->Tool == Core::ModelingState::Tool::Tangents &&
                    m_Session->Preview != nullptr;
         }
+        // Hole Fill is open on a mesh: the viewport draws its holes and a click on a hole's edge toggles it.
+        [[nodiscard]] bool HasHoleFillSession() const
+        {
+            return m_Session.has_value() && m_Session->Tool == Core::ModelingState::Tool::HoleFill;
+        }
+        // UE UHoleFillTool's boundary-loop drawing and click selection (its UPolygonSelectionMechanic over the
+        // loops): every hole of the session input as a line loop, the selected ones in the selection colour; a
+        // left click within a few pixels of a hole's edge toggles that hole in ModelingState::HoleFillSelected.
+        void DrawHoleFillControls( ::Desert::Core::Scene& scene, const glm::mat4& viewProj,
+                                   const glm::vec2& viewportPos, const glm::vec2& viewportSize, bool hovered );
         void DrawTangentsVisualization( ::Desert::Core::Scene& scene, const Core::ModelingState& ms,
                                         const glm::mat4& viewProj, const glm::vec2& viewportPos,
                                         const glm::vec2& viewportSize ) const;
@@ -80,6 +90,7 @@ namespace Desert::Editor::Tools
             std::shared_ptr<const Geometry::DynamicMesh3> Committed; // what the component held: the "before"
             std::shared_ptr<const Geometry::DynamicMesh3> Preview;   // null while the settings are refused
             std::optional<Geometry::FFDLattice>           Lattice;   // Lattice: the rest lattice over Input
+            std::vector<std::vector<int>>                 Holes;     // Hole Fill: Input's boundary loops' vertices
         };
 
         void               Begin( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
@@ -100,6 +111,8 @@ namespace Desert::Editor::Tools
         Geometry::OffsetSettings m_Offset;
         Geometry::NormalsSettings m_Normals;
         Geometry::TangentsSettings m_Tangents;
+        Geometry::HoleFillSettings m_HoleFill;
+        std::vector<int32_t>       m_HoleFillSelected;
         Geometry::WarpSettings   m_Warp;
         glm::mat4                m_WarpGizmo{ 1.0f };
         Geometry::LatticeSettings m_Lattice;

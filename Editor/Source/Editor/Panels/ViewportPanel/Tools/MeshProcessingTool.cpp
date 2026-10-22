@@ -11,7 +11,9 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
+#include <Engine/Geometry/MeshCore/MeshBoundaryLoops.hpp>
 #include <Engine/Geometry/MeshDeformOperations.hpp>
+#include <Engine/Geometry/MeshHoleFillOperation.hpp>
 #include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 
 #include <ImGui/imgui.h>
@@ -45,6 +47,8 @@ namespace Desert::Editor::Tools
                     return "Normals";
                 case MS::Tool::Tangents:
                     return "Tangents";
+                case MS::Tool::HoleFill:
+                    return "Hole Fill";
                 default:
                     return "?";
             }
@@ -100,7 +104,8 @@ namespace Desert::Editor::Tools
     bool MeshProcessingTool::IsMeshProcessingTool( MS::Tool tool )
     {
         return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
-               tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents;
+               tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents ||
+               tool == MS::Tool::HoleFill;
     }
 
     void MeshProcessingTool::Update( ::Desert::Core::Scene& scene )
@@ -140,6 +145,20 @@ namespace Desert::Editor::Tools
             }
             ApplyLatticeGizmo( scene, ms );
         }
+        if ( m_Session && m_Session->Tool == MS::Tool::HoleFill )
+        {
+            // UE UHoleFillTool's Select All / Clear actions.
+            if ( ms.HoleFillReqSelectAll )
+            {
+                ms.HoleFillSelected.clear();
+                for ( int32_t i = 0; i < static_cast<int32_t>( m_Session->Holes.size() ); ++i )
+                    ms.HoleFillSelected.push_back( i );
+            }
+            if ( ms.HoleFillReqClear )
+                ms.HoleFillSelected.clear();
+        }
+        ms.HoleFillReqSelectAll = false;
+        ms.HoleFillReqClear     = false;
         if ( m_Session && SettingsChanged( ms ) )
             Recompute( scene, ms );
 
@@ -182,6 +201,15 @@ namespace Desert::Editor::Tools
              Session{ ms.ActiveTool, *selected, target.GetValue().Mesh, target.GetValue().Committed, nullptr };
         if ( ms.ActiveTool == MS::Tool::Warp )
             PlaceWarpGizmo( *m_Session->Input, WorldOf( scene, *selected ), ms );
+        if ( ms.ActiveTool == MS::Tool::HoleFill )
+        {
+            // UE UHoleFillTool::Setup: the holes are the input's boundary loops, none selected.
+            const Geometry::MeshBoundaryLoops loops( m_Session->Input.get() );
+            for ( const Geometry::EdgeLoop& loop : loops.m_Loops )
+                m_Session->Holes.push_back( loop.Vertices );
+            ms.HoleFillLoopCount = static_cast<int32_t>( m_Session->Holes.size() );
+            ms.HoleFillSelected.clear();
+        }
         if ( ms.ActiveTool == MS::Tool::Lattice && !BuildLattice( ms ) )
         {
             m_Session.reset();
@@ -226,6 +254,8 @@ namespace Desert::Editor::Tools
         m_Offset                                             = ms.DeformOffset;
         m_Normals                                            = ms.AttribNormals;
         m_Tangents = ms.AttribTangents;
+        m_HoleFill         = ms.MeshHoleFill;
+        m_HoleFillSelected = ms.HoleFillSelected;
         m_Warp                                               = ms.DeformWarp;
         m_WarpGizmo                                          = ms.WarpGizmo;
         m_Lattice                                            = ms.DeformLattice;
@@ -243,6 +273,8 @@ namespace Desert::Editor::Tools
                     return Geometry::EditNormals( input, ms.AttribNormals );
                 case MS::Tool::Tangents:
                     return Geometry::ComputeTangents( input, ms.AttribTangents );
+                case MS::Tool::HoleFill:
+                    return Geometry::HoleFill( input, ms.HoleFillSelected, ms.MeshHoleFill );
                 case MS::Tool::Lattice:
                     return Geometry::LatticeDeform( input, *m_Session->Lattice, ms.LatticePoints,
                                                     ms.DeformLattice );
@@ -477,6 +509,62 @@ namespace Desert::Editor::Tools
         PlaceLatticeGizmo( scene, ms );
     }
 
+    void MeshProcessingTool::DrawHoleFillControls( ::Desert::Core::Scene& scene, const glm::mat4& viewProj,
+                                                   const glm::vec2& viewportPos, const glm::vec2& viewportSize,
+                                                   bool hovered )
+    {
+        if ( !HasHoleFillSession() )
+            return;
+        MS&                     ms    = MS::Get();
+        const glm::dmat4        world( WorldOf( scene, m_Session->Entity ) );
+        const auto              project = [&]( int v, ImVec2& out )
+        {
+            const glm::vec4 clip =
+                 viewProj * glm::vec4( glm::vec3( world * glm::dvec4( m_Session->Input->GetVertex( v ), 1.0 ) ), 1.0f );
+            if ( clip.w <= 0.0001f )
+                return false;
+            out = ImVec2( viewportPos.x + ( clip.x / clip.w * 0.5f + 0.5f ) * viewportSize.x,
+                          viewportPos.y + ( 0.5f - clip.y / clip.w * 0.5f ) * viewportSize.y );
+            return true;
+        };
+        const ImVec2 mouse     = ::ImGui::GetMousePos();
+        const bool   overImage = mouse.x >= viewportPos.x && mouse.y >= viewportPos.y &&
+                               mouse.x < viewportPos.x + viewportSize.x && mouse.y < viewportPos.y + viewportSize.y;
+        ImDrawList*  dl        = ::ImGui::GetWindowDrawList();
+        int          hit       = -1;
+        float        hitDist   = 8.0f; // pixels
+        for ( int h = 0; h < static_cast<int>( m_Session->Holes.size() ); ++h )
+        {
+            const std::vector<int>& loop = m_Session->Holes[static_cast<size_t>( h )];
+            const bool selected = std::find( ms.HoleFillSelected.begin(), ms.HoleFillSelected.end(), h ) !=
+                                  ms.HoleFillSelected.end();
+            for ( size_t i = 0; i < loop.size(); ++i )
+            {
+                ImVec2 a{}, b{};
+                if ( !project( loop[i], a ) || !project( loop[( i + 1 ) % loop.size()], b ) )
+                    continue;
+                dl->AddLine( a, b, selected ? IM_COL32( 255, 220, 0, 255 ) : IM_COL32( 240, 60, 60, 230 ),
+                             selected ? 3.5f : 2.5f );
+                const glm::vec2 ab( b.x - a.x, b.y - a.y ), am( mouse.x - a.x, mouse.y - a.y );
+                const float     len2 = glm::dot( ab, ab );
+                const float     t    = len2 > 0.0f ? std::clamp( glm::dot( am, ab ) / len2, 0.0f, 1.0f ) : 0.0f;
+                const float     d    = glm::length( am - ab * t );
+                if ( d < hitDist )
+                {
+                    hitDist = d;
+                    hit     = h;
+                }
+            }
+        }
+        if ( !hovered || !overImage || hit < 0 || !::ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+            return;
+        auto it = std::find( ms.HoleFillSelected.begin(), ms.HoleFillSelected.end(), hit );
+        if ( it != ms.HoleFillSelected.end() )
+            ms.HoleFillSelected.erase( it );
+        else
+            ms.HoleFillSelected.push_back( hit );
+    }
+
     bool MeshProcessingTool::SettingsChanged( const MS& ms ) const
     {
         switch ( m_Session->Tool )
@@ -489,6 +577,8 @@ namespace Desert::Editor::Tools
                 return !( ms.AttribNormals == m_Normals );
             case MS::Tool::Tangents:
                 return ms.AttribTangents.CalculationMethod != m_Tangents.CalculationMethod;
+            case MS::Tool::HoleFill:
+                return !( ms.MeshHoleFill == m_HoleFill ) || ms.HoleFillSelected != m_HoleFillSelected;
             case MS::Tool::Warp:
                 return !( ms.DeformWarp == m_Warp ) || ms.WarpGizmo != m_WarpGizmo;
             case MS::Tool::Lattice:

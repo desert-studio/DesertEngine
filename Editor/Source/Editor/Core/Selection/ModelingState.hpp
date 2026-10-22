@@ -11,6 +11,7 @@
 #include <Engine/Geometry/DynamicMeshUVOperations.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 #include <Engine/Geometry/MeshDeformOperations.hpp>
+#include <Engine/Geometry/MeshHoleFillOperation.hpp>
 #include <Engine/Geometry/MeshPlaneOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 #include <Engine/Geometry/MeshAttributeOperations.hpp>
@@ -53,6 +54,8 @@ namespace Desert::Editor::Core
             EditMaterials, // UE's UEditMeshMaterialsTool: selected triangles -> a material slot
                            // (EditMaterialsTool)
             PaintGroups, // UE's UMeshGroupPaintTool: a brush / flood fill paints triangle groups (PaintGroupsTool)
+            // UE's MeshOps palette (same preview/Accept session as Deform, MeshProcessingTool).
+            HoleFill, // UE's UHoleFillTool: the selected boundary loops closed Trivial / Minimal / Smooth
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -349,6 +352,15 @@ namespace Desert::Editor::Core
         Geometry::NormalsSettings AttribNormals;
         // Attributes palette -> Tangents (UE UMeshTangentsToolProperties), the same session.
         Geometry::TangentsSettings AttribTangents;
+        // MeshOps palette -> Hole Fill (UE UHoleFillToolProperties / USmoothHoleFillProperties), the same session.
+        // The holes are the session input's MeshBoundaryLoops, numbered as its m_Loops; the selected ones are
+        // filled in the preview. Select All / Clear are UE's tool actions; a click on a hole's edge toggles it.
+        // HoleFillLoopCount is what the tool reports for the panel (0 while no session).
+        Geometry::HoleFillSettings MeshHoleFill;
+        std::vector<int32_t>       HoleFillSelected;
+        bool                       HoleFillReqSelectAll = false;
+        bool                       HoleFillReqClear     = false;
+        int32_t                    HoleFillLoopCount    = 0;
         // Attributes palette -> Edit Materials (UE UEditMeshMaterialsTool, EditMaterialsTool): the slot Assign
         // writes, the tool's one-shot requests, and what it reports for the panel (its slots, its status).
         int                      EditMaterialsActiveSlot    = 0;
