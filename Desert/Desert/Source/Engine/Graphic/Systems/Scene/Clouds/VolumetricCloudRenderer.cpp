@@ -38,8 +38,8 @@ namespace Desert::Graphic::System
         constexpr const char* kMarchShaderName        = kCloudMaterialShaderName;
         constexpr const char* kResolveShaderName      = "CloudTemporalResolve";
         constexpr const char* kCompositeShaderName    = "CloudComposite";
-        constexpr const char* kShadowMapShaderName    = "CloudShadowMap";
-        constexpr const char* kSkyOcclusionShaderName = "CloudSkyOcclusionVolume";
+        constexpr const char* kShadowMapShaderName    = kCloudShadowMapShaderName;
+        constexpr const char* kSkyOcclusionShaderName = kCloudSkyOcclusionShaderName;
 
         constexpr uint32_t GroupCount( uint32_t extent, uint32_t groupSize )
         {
@@ -603,7 +603,7 @@ namespace Desert::Graphic::System
                 // changed sky. A refusal (missing asset, or a shader with no Medium block) comes back
                 // empty and is logged there, which leaves `next` default — the shipped medium.
                 if ( std::string source = shaderService->MediumSourceOf( m_Material.Medium ); !source.empty() )
-                    next.VirtualSources.push_back( { std::string( kCloudMediumInclude ), std::move( source ) } );
+                    next = CloudMediumVariant( std::move( source ) );
             }
         }
 

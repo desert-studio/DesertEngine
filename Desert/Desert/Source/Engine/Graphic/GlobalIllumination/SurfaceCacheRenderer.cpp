@@ -412,12 +412,22 @@ namespace Desert::Graphic::SurfaceCache
         return reads;
     }
 
+    namespace
+    {
+        constexpr std::string_view kDirectLightingShaderName = "SurfaceCacheDirectLighting";
+    } // namespace
+
+    std::vector<Core::CookedProgramVariant> SurfaceCacheRenderer::ProgramVariants()
+    {
+        return GlobalIllumination::TracerProgramVariants( kDirectLightingShaderName );
+    }
+
     Common::BoolResultStr SurfaceCacheRenderer::EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer )
     {
         if ( m_LightingPipeline && tracer == m_LightingProgramFor )
             return BOOLSUCCESS;
         auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
-             "SurfaceCacheDirectLighting", GlobalIllumination::TracerVariant( tracer ) );
+             std::string( kDirectLightingShaderName ), GlobalIllumination::TracerVariant( tracer ) );
         if ( !shader )
             return Common::MakeFormattedError<bool>(
                  "surface cache: shader SurfaceCacheDirectLighting ({}) did not "

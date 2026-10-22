@@ -57,6 +57,9 @@ namespace Desert::Runtime
          *         that warning, and this is asked every frame.
          */
         std::string MediumSourceOf( const Assets::AssetHandle& handle );
+        /// The source of every registered Volume medium (what MediumSourceOf answers for each), for the package
+        /// cook (PackageCook CookShaderVariants: CloudMediumProgramVariants of each).
+        [[nodiscard]] std::vector<std::string> MediumSources() const;
 
         /**
          * @brief The medium's own Properties, in declaration order — the schema its authored values are

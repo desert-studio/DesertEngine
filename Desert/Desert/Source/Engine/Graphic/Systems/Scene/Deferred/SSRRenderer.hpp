@@ -138,6 +138,38 @@ namespace Desert::Graphic::System
             RDG::TextureRef                                                 GBufferEmissive;
         };
 
+        // The traced permutation (cooked: TracerVariant is ShippedByCook) - the one statement EnsureTracedProgram
+        // acquires and ProgramVariants lists.
+        [[nodiscard]] static Core::ShaderVariant TracedVariant( const GlobalIllumination::Pipeline& pipeline,
+                                                                const bool hitLighting, const ReflectingSurface surface )
+        {
+            Core::ShaderVariant variant = GlobalIllumination::TracerVariant( pipeline );
+            variant.Defines.emplace_back( "DESERT_REFLECTIONS_TRACED" );
+            if ( hitLighting )
+                variant.Defines.emplace_back( "DESERT_REFLECTIONS_HIT_LIGHTING" );
+            if ( surface == ReflectingSurface::TranslucentFrontLayer )
+                variant.Defines.emplace_back( kFrontLayerDefine );
+            return variant;
+        }
+
+        // Every traced variant the renderer can acquire, cooked by the package (PackageCook CookShaderVariants):
+        // "SSR" under each tracer permutation (GlobalIllumination::kTracerPermutations) from either surface, and on
+        // the hardware tracer the hit-lit permutation with its ray generation ("SSR/HitLighting").
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
+        {
+            std::vector<Core::CookedProgramVariant> variants;
+            for ( const ReflectingSurface surface : { ReflectingSurface::Opaque, ReflectingSurface::TranslucentFrontLayer } )
+                for ( const GlobalIllumination::Pipeline& pipeline : GlobalIllumination::kTracerPermutations )
+                {
+                    variants.push_back( { "SSR", TracedVariant( pipeline, false, surface ) } );
+                    if ( pipeline.Tracer != GlobalIllumination::Tracer::HardwareRayQuery )
+                        continue;
+                    variants.push_back( { "SSR", TracedVariant( pipeline, true, surface ) } );
+                    variants.push_back( { "SSR/HitLighting", TracedVariant( pipeline, true, surface ) } );
+                }
+            return variants;
+        }
+
         // GRAPH BUILD, before DeclareTraceBindings of a traced frame: the traced permutation for @p pipeline's
         // tracer, compiled on first use and again when the tracer changes. An error: the program did not compile.
         // @p hitLighting: Reflections.HitLighting on the hardware tracer - the compute classifies only and the
@@ -148,12 +180,7 @@ namespace Desert::Graphic::System
         {
             if ( m_TracedPipeline && pipeline == m_TracedFor && hitLighting == m_TracedHitLit )
                 return BOOLSUCCESS;
-            Core::ShaderVariant variant = GlobalIllumination::TracerVariant( pipeline );
-            variant.Defines.emplace_back( "DESERT_REFLECTIONS_TRACED" );
-            if ( hitLighting )
-                variant.Defines.emplace_back( "DESERT_REFLECTIONS_HIT_LIGHTING" );
-            if ( m_Surface == ReflectingSurface::TranslucentFrontLayer )
-                variant.Defines.emplace_back( kFrontLayerDefine );
+            Core::ShaderVariant variant = TracedVariant( pipeline, hitLighting, m_Surface );
             auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSR", variant );
             if ( !shader )
                 return Common::MakeFormattedError<bool>(

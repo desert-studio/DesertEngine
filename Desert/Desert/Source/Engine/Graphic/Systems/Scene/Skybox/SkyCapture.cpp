@@ -2,6 +2,7 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
+#include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/ComputeImages.hpp> // DispatchGroupCount, kComputeImagesWorkGroupSize
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -139,7 +140,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader> shader;
         if ( clouds.Medium && !clouds.Medium->IsDefault() )
         {
-            shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "BakeProceduralSky",
+            shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( kCloudSkyBakeShaderName,
                                                                                     *clouds.Medium );
             if ( !shader )
                 LOG_ERROR( "[SkyCapture] the authored cloud medium could not be compiled into BakeProceduralSky "
@@ -147,7 +148,7 @@ namespace Desert::Graphic::System
                            "by a different sky than the one on screen." );
         }
         if ( !shader )
-            shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "BakeProceduralSky" );
+            shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( kCloudSkyBakeShaderName );
         if ( !shader )
         {
             LOG_ERROR( "[SkyCapture] the BakeProceduralSky compute shader is missing; the sky light is not "
