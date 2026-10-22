@@ -49,6 +49,7 @@ namespace Desert::Editor::Core
             // UE's Attributes palette (same preview/Accept session as Deform, MeshProcessingTool).
             Tangents, // UE's UMeshTangentsTool: MikkTSpace / Fast tangent frames, previewed as lines
             Normals, // UE's UEditNormalsTool: recompute / split / invert the normal overlay
+            EditMaterials, // UE's UEditMeshMaterialsTool: selected triangles -> a material slot (EditMaterialsTool)
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
@@ -340,6 +341,15 @@ namespace Desert::Editor::Core
         Geometry::NormalsSettings AttribNormals;
         // Attributes palette -> Tangents (UE UMeshTangentsToolProperties), the same session.
         Geometry::TangentsSettings AttribTangents;
+        // Attributes palette -> Edit Materials (UE UEditMeshMaterialsTool, EditMaterialsTool): the slot Assign
+        // writes, the tool's one-shot requests, and what it reports for the panel (its slots, its status).
+        int                      EditMaterialsActiveSlot    = 0;
+        bool                     EditMaterialsReqAssign     = false;
+        bool                     EditMaterialsReqAddSlot    = false;
+        bool                     EditMaterialsReqRemoveSlot = false;
+        std::string              EditMaterialsReqSlotMaterial; // a material asset path for the active slot
+        std::vector<std::string> EditMaterialsSlotNames;
+        std::string              EditMaterialsStatus;
         // What the active Deform tool's preview did (its report), or why there is none - the panel shows it.
         std::string DeformStatus;
 

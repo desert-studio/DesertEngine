@@ -654,6 +654,42 @@ namespace Desert::Editor
                                       value       = !value;
                                       return PaletteCommandDone();
                                   } } );
+        // UE's Attributes palette: Edit Materials (UEditMeshMaterialsTool, EditMaterialsTool) and its actions.
+        commands.push_back( { "Modeling", "Attributes tool: Edit Materials", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::EditMaterials;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const auto& [name, member] : std::initializer_list<std::pair<const char*, bool MS::*>>{
+                   { "Assign Active Material", &MS::EditMaterialsReqAssign },
+                   { "Add Slot", &MS::EditMaterialsReqAddSlot },
+                   { "Remove Last Slot", &MS::EditMaterialsReqRemoveSlot } } )
+            commands.push_back( { "Modeling", std::string( "Edit Materials: " ) + name, [member]
+                                  {
+                                      MS::Get().*member = true;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( int slot = 0; slot < 8; ++slot )
+            commands.push_back( { "Modeling", std::format( "Edit Materials active slot: {}", slot ), [slot]
+                                  {
+                                      MS::Get().EditMaterialsActiveSlot = slot;
+                                      return PaletteCommandDone();
+                                  } } );
+        // The project's materials, by name, into the active slot (the panel's slot field, for the palette).
+        {
+            std::error_code ec;
+            for ( const auto& entry :
+                  std::filesystem::directory_iterator( Common::Constants::Path::MATERIAL_PATH, ec ) )
+                if ( entry.path().extension() == Common::Constants::Extensions::MATERIAL_EXTENSION )
+                    commands.push_back( { "Modeling",
+                                          "Edit Materials slot material: " + entry.path().stem().string(),
+                                          [path = entry.path().generic_string()]
+                                          {
+                                              MS::Get().EditMaterialsReqSlotMaterial = path;
+                                              return PaletteCommandDone();
+                                          } } );
+        }
         // UE's Attributes palette: Tangents (UMeshTangentsTool, the same session) and its choices / display.
         commands.push_back( { "Modeling", "Attributes tool: Tangents", []
                               {

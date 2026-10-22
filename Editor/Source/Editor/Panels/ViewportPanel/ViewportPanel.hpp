@@ -29,6 +29,7 @@
 #include "Tools/ActiveToolBar.hpp"
 #include "Tools/ElementSelectTool.hpp"
 #include "Tools/MeshProcessingTool.hpp"
+#include "Tools/EditMaterialsTool.hpp"
 #include "Tools/VertexSculptTool.hpp"
 #include "Tools/UVTool.hpp"
 #include "Tools/PolyEditTool.hpp"
@@ -434,7 +435,8 @@ namespace Desert::Editor
         Tools::ElementSelectTool              m_ElementSelectTool; // mesh element selection (Modeling mode)
         Tools::CreateShapeTool                m_CreateShapeTool;   // Create -> shapes (Modeling mode)
         Tools::UVTool                         m_UVTool;            // UVs palette (Modeling mode)
-        Tools::MeshProcessingTool                     m_MeshProcessingTool;        // Deform palette (Modeling mode)
+        Tools::MeshProcessingTool             m_MeshProcessingTool; // Deform palette (Modeling mode)
+        Tools::EditMaterialsTool              m_EditMaterialsTool;  // Attributes -> Edit Materials
         Tools::VertexSculptTool               m_VertexSculptTool;  // Vertex Sculpt brush (Modeling mode)
         Tools::GizmoController                m_Gizmo;       // object + bone transform gizmos (extracted)
         Tools::PickingController              m_Picking;     // ray-pick + select (extracted)

@@ -2048,6 +2048,7 @@ namespace Desert::Editor
                 // Before CubeGrid: while a UV or Deform tool is active its Accept / Cancel requests are its own.
                 m_UVTool.Update( *m_Scene );
                 m_MeshProcessingTool.Update( *m_Scene );
+                m_EditMaterialsTool.Update( *m_Scene, m_AssetManager );
                 m_VertexSculptTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                            m_ViewportData.IsHovered );
                 // Warp's frame: UE's transform gizmo on the deformer (UMeshSpaceDeformerTool TransformProxy).
@@ -2579,6 +2580,7 @@ namespace Desert::Editor
                 return m_CubeGridTool.Cursor();
             case T::PolyEdit:
                 return m_PolyEditTool.Cursor();
+            case T::EditMaterials: // picks triangles with the element selection
             case T::ElementSelect:
                 return m_ElementSelectTool.Cursor();
             case T::CreateShape:

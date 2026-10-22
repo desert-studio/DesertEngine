@@ -146,7 +146,8 @@ namespace Desert::Editor
                       ms.ActiveTool == MS::Tool::Warp || ms.ActiveTool == MS::Tool::Lattice ||
                       ms.ActiveTool == MS::Tool::VertexSculpt )
                 m_Category = static_cast<int>( Palette::Deform );
-            else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents )
+            else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents ||
+                      ms.ActiveTool == MS::Tool::EditMaterials )
                 m_Category = static_cast<int>( Palette::Attributes );
         }
 
@@ -833,7 +834,8 @@ namespace Desert::Editor
         const float full = ImGui::GetContentRegionAvail().x;
         // UE's Attributes palette buttons: Normals (UEditNormalsTool), Tangents (UMeshTangentsTool).
         for ( const auto& [tool, name] : { std::pair{ MS::Tool::Normals, "Normals" },
-                                           std::pair{ MS::Tool::Tangents, "Tangents" } } )
+                                           std::pair{ MS::Tool::Tangents, "Tangents" },
+                                           std::pair{ MS::Tool::EditMaterials, "Edit Materials" } } )
         {
             const bool on = ms.ActiveTool == tool;
             if ( on )
@@ -855,6 +857,30 @@ namespace Desert::Editor
             ImGui::SameLine( 150.0f );
             ImGui::SetNextItemWidth( -1.0f );
         };
+        if ( ms.ActiveTool == MS::Tool::EditMaterials )
+        {
+            // UE UEditMeshMaterialsTool: the material list (active slot), Assign / Add / Remove, the status.
+            ImGui::Separator();
+            ImGui::TextWrapped( "Select triangles or polygroups in the viewport (Shift adds, Ctrl removes)." );
+            for ( int i = 0; i < static_cast<int>( ms.EditMaterialsSlotNames.size() ); ++i )
+            {
+                char slotLabel[160];
+                std::snprintf( slotLabel, sizeof( slotLabel ), "Slot %d: %s##EditMaterialsSlot", i,
+                               ms.EditMaterialsSlotNames[i].c_str() );
+                if ( ImGui::RadioButton( slotLabel, ms.EditMaterialsActiveSlot == i ) )
+                    ms.EditMaterialsActiveSlot = i;
+            }
+            if ( ImGui::Button( "Assign Active Material##EditMaterials", ImVec2( full, 0.0f ) ) )
+                ms.EditMaterialsReqAssign = true;
+            if ( ImGui::Button( "Add Slot##EditMaterials" ) )
+                ms.EditMaterialsReqAddSlot = true;
+            ImGui::SameLine();
+            if ( ImGui::Button( "Remove Last Slot##EditMaterials" ) )
+                ms.EditMaterialsReqRemoveSlot = true;
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.EditMaterialsStatus.c_str() );
+            return;
+        }
         if ( ms.ActiveTool == MS::Tool::Tangents )
         {
             // UE UMeshTangentsToolProperties: Calculation Method; Display (lines, preview only).

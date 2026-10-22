@@ -180,7 +180,9 @@ namespace Desert::Editor::Tools
     {
         auto& state = Core::MeshElementSelection::Get();
         m_Cursor    = ToolCursor::None;
-        if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect )
+        // Edit Materials picks its triangles with this selection too (UE UEditMeshMaterialsTool's selection).
+        if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect &&
+             Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::EditMaterials )
             return;
 
         const auto&        selected = Core::SelectionManager::GetSelected();
