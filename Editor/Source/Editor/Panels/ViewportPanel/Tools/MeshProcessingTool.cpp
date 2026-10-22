@@ -249,10 +249,10 @@ namespace Desert::Editor::Tools
         // Everything the operator reads is copied here, on the main thread: the worker never touches the scene
         // or the panel (UE's FDynamicMeshOperator gets the same snapshot from its factory, MakeNewOperator).
         // Warp: object space -> the gizmo's frame, as UE's FMeshSpaceDeformerOp::ObjectToGizmo.
-        const glm::dmat4 objectToGizmo = m_Session->Tool == MS::Tool::Warp
-                                              ? glm::inverse( glm::dmat4( ms.WarpGizmo ) ) *
-                                                     glm::dmat4( WorldOf( scene, m_Session->Entity ) )
-                                              : glm::dmat4( 1.0 );
+        const glm::dmat4 objectToGizmo =
+             m_Session->Tool == MS::Tool::Warp
+                  ? glm::inverse( glm::dmat4( ms.WarpGizmo ) ) * glm::dmat4( WorldOf( scene, m_Session->Entity ) )
+                  : glm::dmat4( 1.0 );
         std::optional<Geometry::FFDLattice> lattice = m_Session->Lattice;
         m_Session->PendingStarted                   = std::chrono::steady_clock::now();
         m_Session->Pending                          = Common::JobSystem::Get().Async(
