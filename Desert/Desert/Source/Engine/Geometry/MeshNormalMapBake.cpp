@@ -76,10 +76,10 @@ namespace Desert::Geometry
             const glm::dmat3 normal = glm::transpose( glm::inverse( glm::dmat3( m ) ) );
             const uint32_t   base   = static_cast<uint32_t>( out.Positions.size() );
             if ( static_cast<size_t>( submesh.VertexOffset ) + submesh.VertexCount > render.Vertices.size() ||
-                 static_cast<size_t>( submesh.IndexOffset ) + submesh.IndexCount > render.Indices.size() )
+                 static_cast<size_t>( submesh.IndexOffset ) + submesh.IndexCount > render.Indices.size() * 3 )
                 return Common::MakeFormattedError<BakeSurface>(
                      "submesh '{}' reaches past the arrays ({} vertices, {} indices)", submesh.Name,
-                     render.Vertices.size(), render.Indices.size() );
+                     render.Vertices.size(), render.Indices.size() * 3 );
             for ( uint32_t i = 0; i < submesh.VertexCount; ++i )
             {
                 const Vertex& v = render.Vertices[submesh.VertexOffset + i];
