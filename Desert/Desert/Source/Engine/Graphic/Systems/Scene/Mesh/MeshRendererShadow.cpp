@@ -362,6 +362,8 @@ namespace Desert::Graphic::System
         for ( const auto& gpu : m_GpuInstancedQueue )
             if ( gpu.CastShadows )
                 movable = true; // regenerated around the camera every frame
+        if ( m_GpuInstancedCastersExpected )
+            movable = true; // submitted later this frame (ExpectGpuInstancedCasters)
         return hash.Value;
     }
 
@@ -1172,8 +1174,12 @@ namespace Desert::Graphic::System
 
         // The GPU-generated sections move with the camera (and sway): every frame, over the cache. Cascades only:
         // their caster cells and light cameras are the cascades' (a virtual shadow map level draws none of them).
+        // A cached cascade draws its movers from its movable view (kCascadeMovableViewBase + cascade), the
+        // uncached one from the cascade's own: both name the same cascade.
         if ( drawMovable && c < kMaxCascades )
-            BuildGpuInstancedShadowDraws( c, list );
+            BuildGpuInstancedShadowDraws( c, c, list );
+        else if ( drawMovable && c >= kCascadeMovableViewBase && c < kCascadeMovableViewBase + kMaxCascades )
+            BuildGpuInstancedShadowDraws( c - kCascadeMovableViewBase, c, list );
     }
     RDG::TextureRef MeshRenderer::AcquireCascadeMaps( RDG::Builder& graph )
     {

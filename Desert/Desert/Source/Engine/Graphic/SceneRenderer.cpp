@@ -1033,7 +1033,36 @@ namespace Desert::Graphic
         // before the render graph, and the billboard pass draws in AddFrameTranslucency.
         // A reflection capture's face view neither draws nor simulates them (AddFrameParticlesSimulate).
         if ( !m_ViewProfile.SceneCapture )
+        {
+            // VFX-11: this view's origin and Effects particle rows go to the world's next scalability decision
+            // (VFXWorld::Tick) - the world decides once for all views, not here.
+            if ( const auto* cam = GetMainCamera() )
+            {
+                ::Desert::VFX::VFXViewReport report{
+                     .Origin          = cam->GetPosition(),
+                     .SpawnCountScale = quality.As<double>( Parameter::EffectsSpawnCountScalePercent ) / 100.0,
+                     .EffectsLevel    = quality.As<int>( Parameter::EffectsQualityLevel ),
+                     .MaxWorldParticles =
+                          static_cast<std::uint32_t>( quality.As<int>( Parameter::EffectsMaxWorldParticles ) ) };
+                // The view's frustum (Gribb-Hartmann on clip = P * V, depth 0..1): six inward planes, normalized;
+                // a degenerate plane (an infinite far plane) culls nothing.
+                const glm::mat4 clip = glm::mat4( cam->GetProjectionMatrix() ) * glm::mat4( cam->GetViewMatrix() );
+                const auto      row  = [&clip]( const int r )
+                { return glm::vec4( clip[0][r], clip[1][r], clip[2][r], clip[3][r] ); };
+                const std::array<glm::vec4, 6> planes = {
+                     row( 3 ) + row( 0 ), row( 3 ) - row( 0 ), row( 3 ) + row( 1 ), row( 3 ) - row( 1 ), row( 2 ),
+                     row( 3 ) - row( 2 ) };
+                for ( std::size_t i = 0; i < planes.size(); ++i )
+                {
+                    const float length = glm::length( glm::vec3( planes[i] ) );
+                    report.FrustumPlanes[i] =
+                         length > 1.0e-6f ? planes[i] / length : glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f );
+                }
+                report.HasFrustum = true;
+                scene.GetVFXWorld().SubmitView( report );
+            }
             UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
+        }
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
         // here: the material Time uniform and the eye adaptation step.
@@ -1259,7 +1288,13 @@ namespace Desert::Graphic
         // nothing: its Declare and record only read the matrices).
         {
             DESERT_PROFILE_PASS( "Shadow: UpdateCascades" );
-            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
+            auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            // The particles' Mesh rows submit their casters from the render graph, after this plan (VFX-09).
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+            meshes->ExpectGpuInstancedCasters( !m_ViewProfile.SceneCapture && particles != nullptr &&
+                                               particles->HasMeshRows() );
+            meshes->UpdateCascades();
         }
         // The rain occlusion's box, and whether its map is redrawn this frame (the same boundary: its pass only
         // reads the matrix).

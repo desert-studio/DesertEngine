@@ -293,6 +293,18 @@ namespace Common::Scalability
         ShadingParallaxMinSteps,    // 1..64
         ShadingParallaxMaxSteps,    // 1..128
         ShadingParallaxShadowSteps, // 0..64
+        // Particles (VFX-11; UE FNiagaraEmitterScalabilitySettings::SpawnCountScale and
+        // the effect type's level, UE fx.Niagara.QualityLevel). Each view reports
+        // them with its origin (VFXWorld::SubmitView, SceneRenderer::BeginScene); VFXWorld::Tick decides per
+        // world.
+        EffectsSpawnCountScalePercent, // births per spawn module x this / 100. 1..100
+        // UE fx.Niagara.QualityLevel: which level of every VFX effect type (.dfxtype) this view reads - the
+        // type, not this table, states MaxDistance and its own SpawnCountScale per level (VFXWorld::Tick).
+        EffectsQualityLevel, // 0..4 = Low .. Cinematic
+        // VFX-11e: the world's particle pool budget (UE Niagara's global budget, FNiagaraScalabilityManager): the
+        // pool slots (emitter Capacity) every playing system of a world may hold together; over it, the least
+        // significant systems are refused (their effect type's CullReaction). 0 = no budget.
+        EffectsMaxWorldParticles, // 0..4194304
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

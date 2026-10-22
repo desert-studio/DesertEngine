@@ -69,9 +69,14 @@ namespace Desert::Assets
     // Dependencies.
     inline constexpr uint32_t kLandscapeGrassTypeSchemaTag     = Common::Content::FourCC( "LGRT" );
     inline constexpr uint32_t kLandscapeGrassTypeSchemaVersion = 3;
-    // A .dfx: the VFX system file layout, stated in the header from its first version (VFX-02).
+    // A .dfx: the VFX system file layout, stated in the header from its first version (VFX-02); v2 (VFX-09):
+    // renderer rows state their Material / Ribbon / Mesh, those assets the Dependencies; v3 (VFX-11): the system
+    // names its EffectType.
     inline constexpr uint32_t kVFXSystemSchemaTag     = Common::Content::FourCC( "VFXS" );
-    inline constexpr uint32_t kVFXSystemSchemaVersion = 1;
+    inline constexpr uint32_t kVFXSystemSchemaVersion = 3;
+    // A .dfxtype: the VFX effect type file layout (UE UNiagaraEffectType), stated from its first version (VFX-11).
+    inline constexpr uint32_t kVFXEffectTypeSchemaTag     = Common::Content::FourCC( "VFXT" );
+    inline constexpr uint32_t kVFXEffectTypeSchemaVersion = 2;
     // A .deinputaction / .deinputcontext: UE's UInputAction / UInputMappingContext, stated in the header from
     // their first version (GP1a; Serialization/InputAssets.hpp).
     inline constexpr uint32_t kInputActionSchemaTag             = Common::Content::FourCC( "INAC" );

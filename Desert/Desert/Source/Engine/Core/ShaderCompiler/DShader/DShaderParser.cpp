@@ -1821,7 +1821,7 @@ namespace Desert::Core::Preprocess
                                               const std::string& heightFunctions, const bool weather )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
-            const bool        particle = path == kSurfaceParticleSpritePath;
+            const bool        particle = path == kSurfaceParticleSpritePath || path == kSurfaceParticleRibbonPath;
             const std::string defines  = std::format(
                  "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}{}#define {} {}\n", pass,
                  // The hit cell's two stages share one pass header; the any-hit stage is told which it is.
@@ -1994,6 +1994,7 @@ namespace Desert::Core::Preprocess
         includes.emplace_back( kSurfaceTranslucentPassInclude );
         includes.emplace_back( kSurfaceFrontLayerPassInclude );
         includes.push_back( SurfaceVertexInclude( kSurfaceParticleSpritePath ) );
+        includes.push_back( SurfaceVertexInclude( kSurfaceParticleRibbonPath ) );
         includes.emplace_back( kSurfaceParticleSpritePassInclude );
         includes.emplace_back( kSurfaceRayHitPassInclude );
         includes.emplace_back( kSurfaceRayHitRecordInclude );
@@ -2286,12 +2287,16 @@ namespace Desert::Core::Preprocess
                 const std::string stated = ReadIdent( c );
                 if ( Lower( stated ) == "particlesprites" )
                     result.Surface.UsedWithParticleSprites = true;
+                else if ( Lower( stated ) == "particleribbons" )
+                    result.Surface.UsedWithParticleRibbons = true;
                 else if ( Lower( stated ) == "grassblades" )
                     result.Surface.UsedWithGrassBlades = true;
                 else
                 {
                     // The author's spelling, not the folded one the comparison used.
-                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites, GrassBlades)", stated ) };
+                    err = { line,
+                            std::format( "unknown Usage '{}' (ParticleSprites, ParticleRibbons, GrassBlades)",
+                                         stated ) };
                     return fail();
                 }
                 surfaceSettingLine                     = surfaceSettingLine != 0 ? surfaceSettingLine : line;
@@ -2927,12 +2932,28 @@ namespace Desert::Core::Preprocess
                 cell.Name  = SurfaceCellName( kSurfaceParticleSpritePath, kSurfaceParticleSpritePass );
                 cell.State = cellState;
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                    cell.Stages.emplace(
-                         stage, AssembleSurfaceCellStage( stage, kSurfaceParticleSpritePath,
-                                                          kSurfaceParticleSpritePass, *surfaceBlock, includeBlock,
-                                                          autoDecls, result.Surface.Blend, shadingModelDefine,
-                                                          result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                          false, heightFunctions, false ) );
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                     stage, kSurfaceParticleSpritePath, kSurfaceParticleSpritePass,
+                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     shadingModelDefine, result.Surface.ResponsiveAA,
+                                                     opacityMaskFunction, false, heightFunctions, false ) );
+                result.Meta.PassNames.push_back( cell.Name );
+                result.Surface.Cells.push_back( cell.Name );
+                result.Passes.push_back( std::move( cell ) );
+            }
+
+            // `Usage ParticleRibbons`: the ribbon cell, after the sprite cell (same pass, same particle header).
+            if ( result.Surface.UsedWithParticleRibbons )
+            {
+                DShaderPass cell;
+                cell.Name  = SurfaceCellName( kSurfaceParticleRibbonPath, kSurfaceParticleSpritePass );
+                cell.State = cellState;
+                for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                     stage, kSurfaceParticleRibbonPath, kSurfaceParticleSpritePass,
+                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     shadingModelDefine, result.Surface.ResponsiveAA,
+                                                     opacityMaskFunction, false, heightFunctions, false ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );

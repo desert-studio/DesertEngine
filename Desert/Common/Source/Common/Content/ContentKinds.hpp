@@ -88,6 +88,7 @@ namespace Common::Content
         LandscapeGrassType,
         WorldParameters,
         WeatherPreset,
+        VFXEffectType,
         COUNT,
     };
 
@@ -202,6 +203,9 @@ namespace Common::Content
              /* WorldParameters      */ { "WorldParameters", ".dworldparams", &P::WORLD_PARAMETERS_PATH },
              // One weather as data (Engine/Assets/Serialization/WeatherPreset.hpp, WTH-STATE).
              /* WeatherPreset        */ { "WeatherPreset", ".dweatherpreset", &P::WEATHER_PATH },
+             // UE's UNiagaraEffectType: the scalability a family of systems shares
+             // (Engine/Assets/Serialization/VFXEffectType.hpp).
+             /* VFXEffectType        */ { "VFXEffectType", ".dfxtype", &P::VFX_PATH },
         } };
     }
 

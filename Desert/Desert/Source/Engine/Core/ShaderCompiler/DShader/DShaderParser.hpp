@@ -115,6 +115,11 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParticleSpritePass        = "Forward";
     inline constexpr std::string_view kSurfaceParticleSpritePassInclude = "Mesh/Surface/Pass_ParticleSprite.glslh";
     inline constexpr std::string_view kSurfaceParticleSpriteDefine      = "DESERT_SURFACE_PARTICLE_SPRITE";
+    // THE PARTICLE RIBBON USAGE (UE: bUsedWithNiagaraRibbons). `Usage ParticleRibbons` adds the cell
+    // `ParticleRibbon.Forward` after the sprite cell: the ribbon vertex path (Vertex_ParticleRibbon.glslh, a strip
+    // through the emitter's live particles in age order) with the SAME particle pass header and define as the
+    // sprite cell - the fragment half of a particle cell does not care which vertex factory expanded it.
+    inline constexpr std::string_view kSurfaceParticleRibbonPath = "ParticleRibbon";
     // Defined in the sprite cell's fragment stage when its surface calls DesertDepthFade (UE: the material
     // compiler noting a scene-depth read): only then does Mesh/Surface/SurfaceTypes.glslh declare the scene depth
     // and its point-clamped shared sampler, so a sprite that does not fade binds neither.
@@ -228,6 +233,7 @@ namespace Desert::Core::Preprocess
         bool                     TwoSided = false;
         SurfaceBlendMode         Blend    = SurfaceBlendMode::Opaque;
         bool UsedWithParticleSprites      = false; // `Usage ParticleSprites`: + ParticleSprite.Forward
+        bool UsedWithParticleRibbons                 = false; // `Usage ParticleRibbons`: + ParticleRibbon.Forward
         bool                     UsedWithGrassBlades = false;          // `Usage GrassBlades`: + GrassBlade.<Pass>
         // `ResponsiveAA` (UE bResponsiveAA): a Translucent / Additive template only — an opaque surface draws into
         // the G-buffer, which has no responsive slot, and writes the velocity TAA reprojects it with.

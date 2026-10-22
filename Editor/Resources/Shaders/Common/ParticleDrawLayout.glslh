@@ -6,7 +6,8 @@
 // compiled layout by ParticleWorldGpu (its kDrawnAttributes, the one table of what a renderer reads) and uploaded
 // with the emitter's range and world position every tick. A stack that does not declare an
 // attribute has PARTICLE_ATTR_NONE there and the reader gets UE's default (Position 0, Color white, SpriteSize
-// 50 x 50 cm, SpriteRotation 0, Age 0, Lifetime 0).
+// 50 x 50 cm, SpriteRotation 0, Age 0, Lifetime 0, RibbonWidth 1 (a factor on the row's Width), RibbonLinkOrder =
+// the age).
 //
 // The C++ statement is Graphic::System::ParticleDrawLayoutGpu (ParticleWorldGpu.hpp, kParticleDrawLayoutSize).
 //
@@ -21,8 +22,11 @@ struct ParticleDrawLayout
 {
     uvec4 Range;      // x = the range's particle count (the column stride), y = its pool base, z = 1 local space
     uvec4 Columns0;   // first float column of x = Position, y = SpriteSize, z = Color, w = SpriteRotation
-    uvec4 Columns1;   // first float column of x = Age, y = Lifetime; zw = PARTICLE_ATTR_NONE
+    uvec4 Columns1;   // first float column of x = Age, y = Lifetime, z = RibbonWidth, w = RibbonLinkOrder
     vec4  EmitterPos; // xyz = the emitter's world position (cm): a Local emitter's Position is relative to it
+    uvec4 Columns2;   // x = the Ribbon row's RibbonIdBinding (an Int column), y = Scale, z = MeshOrientation; w unused
+    vec4  Ribbon;     // the emitter's Ribbon row: x = Width (cm), y = UV mode (0 Stretch, 1 TileByDistance),
+                      // z = UVTileDistance (cm); zero when the emitter has no Ribbon row
 };
 
 #endif // PARTICLE_DRAW_LAYOUT_GLSLH

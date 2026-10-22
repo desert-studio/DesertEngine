@@ -270,6 +270,12 @@ namespace Common::Scalability
              { P::ShadingParallaxShadowSteps, G::Shading, "Shading.ParallaxShadowSteps", 0, 64, CL::None,
                "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxShadowSteps "
                "(Mesh/Surface/SurfaceParallax.glslh)" },
+             { P::EffectsSpawnCountScalePercent, G::Effects, "Effects.SpawnCountScalePercent", 1, 100, CL::None,
+               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> SpawnState::Step (rate and burst counts)" },
+             { P::EffectsQualityLevel, G::Effects, "Effects.QualityLevel", 0, 4, CL::None,
+               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> VFXWorld::Tick (effect type level)" },
+             { P::EffectsMaxWorldParticles, G::Effects, "Effects.MaxWorldParticles", 0, 4194304, CL::None,
+               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> EvaluateVFXScalability (world pool budget)" },
         } };
     } // namespace
 

@@ -3554,6 +3554,109 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( written ) );
     }
 
+    Assets::Serialization::VFXEffectTypeData DefaultVFXEffectTypeForV3()
+    {
+        Assets::Serialization::VFXEffectTypeData type;
+        for ( const float cm : { 5000.0f, 10000.0f, 20000.0f, 50000.0f, 0.0f } )
+            type.Levels.push_back( Assets::Serialization::VFXEffectTypeLevel{ cm, 1.0f } );
+        return type;
+    }
+
+    Common::ResultStr<std::string> MigrateVFXEffectTypeV1ToV2( const std::string& text )
+    {
+        // VFXT 2 IS VFXT 1 PLUS KEYS WITH DEFAULTS, so the v1 body reads as v2 once they are in: every level object
+        // gets the four level keys after its SpawnCountScale value, the type its two keys before `Levels`.
+        namespace S = Assets::Serialization;
+        std::string patched;
+        patched.reserve( text.size() + 1024u );
+        const std::string key = "\"SpawnCountScale\"";
+        std::size_t       from = 0;
+        for ( std::size_t at = text.find( key ); at != std::string::npos; at = text.find( key, from ) )
+        {
+            const std::size_t end = text.find_first_of( ",}\n", text.find( ':', at ) + 1u );
+            if ( end == std::string::npos )
+                return Common::MakeFormattedError<std::string>( "VFXT 1 level SpawnCountScale has no value end" );
+            patched += text.substr( from, end - from );
+            patched += ", \"MaxInstances\": 0, \"MaxSystemInstances\": 0, \"CullByViewFrustum\": false, "
+                       "\"MaxTimeWithoutRender\": 0.0";
+            from = end;
+        }
+        patched += text.substr( from );
+        const std::size_t levels = patched.find( "\"Levels\"" );
+        if ( levels == std::string::npos )
+            return Common::MakeFormattedError<std::string>( "VFXT 1 body has no Levels" );
+        patched.insert( levels, "\"CullReaction\": \"DeactivateResume\", \"Significance\": \"Distance\", " );
+
+        const auto v1 = Common::Json::Read<S::VFXEffectTypeData>( patched );
+        if ( !v1 )
+            return Common::MakeFormattedError<std::string>( "VFXT 1 body does not read: {}", v1.GetError() );
+        const S::VFXEffectTypeData& data = v1.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises VFXT 1 only" );
+        const auto stated = data.Header->Versions.find( "VFXT" );
+        if ( stated == data.Header->Versions.end() || stated->second != 1u )
+            return Common::MakeFormattedError<std::string>( "the file does not state VFXT 1, and this step raises VFXT 1 only" );
+        std::string written = S::WriteVFXEffectType( data );
+        if ( auto reread = S::ParseVFXEffectType( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as VFXT 2: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text )
+    {
+        namespace S = Assets::Serialization;
+        // VFXS 3 IS VFXS 2 IS VFXS 1 PLUS OPTIONAL KEYS, so the v1 body reads as the current type; what a v1 row
+        // lacks is filled on the typed data, not by splicing text.
+        const auto v1 = Common::Json::Read<S::VFXSystemData>( text );
+        if ( !v1 )
+            return Common::MakeFormattedError<std::string>( "VFXS 1 body does not read: {}", v1.GetError() );
+        S::VFXSystemData data = v1.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises VFXS 1 only" );
+        const auto stated = data.Header->Versions.find( "VFXS" );
+        if ( stated == data.Header->Versions.end() || ( stated->second != 1u && stated->second != 2u ) )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states VFXS {}, and this step raises VFXS 1 and 2 only",
+                 stated == data.Header->Versions.end() ? std::string( "nothing" )
+                                                       : std::to_string( stated->second ) );
+
+        const bool fromV1 = stated->second == 1u;
+        for ( S::VFXEmitterData& e : data.Emitters )
+            for ( S::VFXRendererData& r : e.Renderers )
+            {
+                if ( !fromV1 )
+                    break;
+                if ( r.Material || r.Ribbon || r.Mesh )
+                    return Common::MakeFormattedError<std::string>(
+                         "emitter '{}': a VFXS 1 renderer row states VFXS 2 keys", e.Name );
+                if ( r.Kind == S::VFXRendererKind::Ribbon )
+                    r.Ribbon = S::VFXRibbonRendererData{};
+                else if ( r.Kind == S::VFXRendererKind::Mesh )
+                    return Common::MakeFormattedError<std::string>(
+                         "emitter '{}': a VFXS 1 Mesh row names no mesh, and VFXS 2 needs one", e.Name );
+            }
+        if ( data.EffectType )
+            return Common::MakeFormattedError<std::string>(
+                 "a VFXS {} system already names EffectType '{}', a VFXS 3 key", stated->second,
+                 *data.EffectType );
+        data.EffectType = "Default";
+
+        // WriteVFXSystem stamps the header at the engine's VFXS, keeps the loaded GUID and states the
+        // Dependencies.
+        std::string written = S::WriteVFXSystem( data );
+        const auto  reread  = Common::Json::Read<S::VFXSystemData>( written );
+        if ( !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as VFXS 3: {}",
+                                                            reread.GetError() );
+        if ( auto valid = S::ValidateVFXSystemData( reread.GetValue() ); !valid )
+            return Common::MakeFormattedError<std::string>( "the raised file is not a valid VFXS 3 system: {}",
+                                                            valid.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
     namespace
     {
         // The DSL texture properties MATL 5 stored under their GLSL spelling, and the parameter name MATL 6

@@ -162,6 +162,60 @@ namespace Desert::Assets::Serialization
             }
             return BOOLSUCCESS;
         }
+
+        Common::BoolResultStr CheckRenderer( const VFXRendererData& r, const std::string& at )
+        {
+            if ( r.Material && r.Material->Guid.empty() )
+                return Common::MakeFormattedError<bool>( "{}: Material states no Guid", at );
+            if ( r.Ribbon.has_value() != ( r.Kind == VFXRendererKind::Ribbon ) )
+                return Common::MakeFormattedError<bool>( "{}: Ribbon settings are stated exactly on a Ribbon row",
+                                                         at );
+            if ( r.Mesh.has_value() != ( r.Kind == VFXRendererKind::Mesh ) )
+                return Common::MakeFormattedError<bool>( "{}: Mesh settings are stated exactly on a Mesh row",
+                                                         at );
+            if ( r.Ribbon )
+            {
+                const VFXRibbonRendererData& rb = *r.Ribbon;
+                if ( !std::isfinite( rb.Width ) || rb.Width <= 0.0f || !std::isfinite( rb.UVTileDistance ) ||
+                     rb.UVTileDistance <= 0.0f )
+                    return Common::MakeFormattedError<bool>( "{}: ribbon Width {} / UVTileDistance {} not > 0", at,
+                                                             rb.Width, rb.UVTileDistance );
+                if ( !rb.RibbonIdBinding.empty() && ( !rb.RibbonIdBinding.starts_with( kVFXParticlesPrefix ) ||
+                                                      rb.RibbonIdBinding.size() == kVFXParticlesPrefix.size() ) )
+                    return Common::MakeFormattedError<bool>(
+                         "{}: RibbonIdBinding '{}' is not Particles.<attribute>", at, rb.RibbonIdBinding );
+            }
+            if ( r.Mesh )
+            {
+                if ( r.Mesh->Mesh.Guid.empty() )
+                    return Common::MakeFormattedError<bool>( "{}: Mesh states no Guid", at );
+                const glm::vec3& sc = r.Mesh->Scale;
+                if ( !Finite( sc ) || sc.x <= 0.0f || sc.y <= 0.0f || sc.z <= 0.0f )
+                    return Common::MakeFormattedError<bool>( "{}: mesh Scale is not finite and > 0", at );
+            }
+            return BOOLSUCCESS;
+        }
+
+        // The header's Dependencies of a system: its renderer rows' materials and meshes, each once, in emitter
+        // then row order.
+        std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data )
+        {
+            std::vector<std::string> out;
+            const auto               add = [&out]( const AssetGuidRef& ref )
+            {
+                if ( std::find( out.begin(), out.end(), ref.Guid ) == out.end() )
+                    out.push_back( ref.Guid );
+            };
+            for ( const VFXEmitterData& e : data.Emitters )
+                for ( const VFXRendererData& r : e.Renderers )
+                {
+                    if ( r.Material )
+                        add( *r.Material );
+                    if ( r.Mesh )
+                        add( r.Mesh->Mesh );
+                }
+            return out;
+        }
     } // namespace
 
     uint32_t ComponentCount( const VFXValueType type )
@@ -184,6 +238,11 @@ namespace Desert::Assets::Serialization
 
     Common::BoolResultStr ValidateVFXSystemData( const VFXSystemData& data )
     {
+        if ( !data.EffectType || data.EffectType->empty() ||
+             data.EffectType->find_first_of( "/\\." ) != std::string::npos )
+            return Common::MakeFormattedError<bool>( "EffectType '{}' is not an effect type name (a .dfxtype stem "
+                                                     "in the VFX folder, e.g. \"Default\")",
+                                                     data.EffectType.value_or( "" ) );
         if ( !std::isfinite( data.Duration ) || data.Duration < 0.0f )
             return Common::MakeFormattedError<bool>( "Duration {} is not a finite non-negative time",
                                                      data.Duration );
@@ -236,6 +295,9 @@ namespace Desert::Assets::Serialization
             if ( auto ok = CheckGroup( e.Stack.ParticleUpdate, data, std::format( "{} ParticleUpdate", at ) );
                  !ok )
                 return ok;
+            for ( std::size_t i = 0; i < e.Renderers.size(); ++i )
+                if ( auto ok = CheckRenderer( e.Renderers[i], std::format( "{} renderer {}", at, i ) ); !ok )
+                    return ok;
         }
         return BOOLSUCCESS;
     }
@@ -292,11 +354,16 @@ namespace Desert::Assets::Serialization
                  "Category '{}' is not in the project's VFX category register ({})", data.Category,
                  kVFXCategoriesFileName );
 
-        // A v1 system references no other asset, so a stated Dependency is an edge to nothing it names.
-        if ( data.Header && !data.Header->Dependencies.empty() )
-            return Common::MakeFormattedError<VFXSystemData>( "the header states {} Dependencies; a VFX system "
-                                                              "references no asset",
-                                                              data.Header->Dependencies.size() );
+        // ONE REFERENCE, TWO STATEMENTS OF IT: the registry reads the edges from the header, the renderer from
+        // the rows. A file where they disagree would have the two sides load different assets.
+        const auto  expected = VFXSystemDependencies( data );
+        const auto& stated   = data.Header ? data.Header->Dependencies : std::vector<std::string>{};
+        if ( stated.size() != expected.size() ||
+             !std::is_permutation( stated.begin(), stated.end(), expected.begin() ) )
+            return Common::MakeFormattedError<VFXSystemData>(
+                 "the header states {} Dependencies; the system references exactly its {} renderer material(s) "
+                 "and mesh(es)",
+                 stated.size(), expected.size() );
         return Common::MakeSuccess( std::move( data ) );
     }
 
@@ -305,7 +372,7 @@ namespace Desert::Assets::Serialization
         VFXSystemData out = data;
         out.Header        = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::VFXSystem,
                                                      VFXSystemTextSubsystems() );
-        out.Header->Dependencies.clear();
+        out.Header->Dependencies = VFXSystemDependencies( data );
         return Common::Json::Write( out );
     }
 

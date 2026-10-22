@@ -32,6 +32,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Assets/Serialization/VFXEffectType.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <glm/glm.hpp>
 
@@ -935,6 +936,26 @@ namespace Desert::Migration
     // GUID kept. A file that does not state MATL 5, or a `u_` texture no shipped schema declared, is an error
     // naming it. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateMaterialV5ToV6( const std::string& text );
+
+    // The VFXS 3 text of a v1 or v2 `.dfx`. 1 -> 2 (VFX-09): every v1 value kept, a Ribbon row given the default
+    // ribbon settings (one ribbon per emitter, 10 cm wide, U stretched), no row a Material (v1 drew the engine's
+    // particle material); a v1 Mesh row names no mesh, so it is an error naming the emitter. 2 -> 3 (VFX-11): the
+    // system names the project's `Default` effect type (UE UNiagaraSettings::DefaultEffectType; the project's
+    // VFX/Default.dfxtype must exist for it to play). The header's GUID kept and its Dependencies stamped; a file
+    // that states neither VFXS 1 nor 2 is an error naming what it states. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text );
+
+    // The `Default` effect type the 2 -> 3 step names (VFX-11): the global distance ladder VFXS 2 culled by
+    // (the removed Effects.MaxDistance row, Low .. Cinematic 5000 / 10000 / 20000 / 50000 / 0 cm) with no spawn
+    // scaling, so a raised system plays exactly as it did. The migrator writes it as <VFX root>/Default.dfxtype
+    // beside the first system it raises when the project has none. PURE.
+    Assets::Serialization::VFXEffectTypeData DefaultVFXEffectTypeForV3();
+
+    // The VFXT 2 text of a VFXT 1 `.dfxtype` (VFX-11 p7): every v1 value kept; the type gets CullReaction
+    // DeactivateResume and Significance Distance, every level MaxInstances / MaxSystemInstances 0 (no limit),
+    // CullByViewFrustum false and MaxTimeWithoutRender 0 - what a v1 type did. The header's GUID kept; a file that
+    // does not state VFXT 1 is an error naming what it states. PURE.
+    Common::ResultStr<std::string> MigrateVFXEffectTypeV1ToV2( const std::string& text );
 
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.

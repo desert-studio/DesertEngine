@@ -204,6 +204,9 @@ namespace Desert::Graphic::System
     class MeshRenderer final : public RenderSystem
     {
     public:
+        // Releases this view's GPU-instanced material copies (MaterialService::ReleaseViewVariants).
+        ~MeshRenderer() override;
+
         struct StaticMeshRenderData
         {
             // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
@@ -310,6 +313,10 @@ namespace Desert::Graphic::System
             const GpuInstanceRefs*                          Refs = nullptr; // the producer's, this frame
             // Stable per section across frames: the view-variant key (several cascades: Key * kMaxCascades + c).
             uint32_t Key = 0;
+            // Where Instances holds each instance's LAST frame transform: instance i's previous world sits at
+            // i + PrevInstanceOffset (a producer whose instances move, e.g. particle Mesh rows). 0 = the instances
+            // do not move (grass: only the wind moves them), the previous world is the world.
+            uint32_t PrevInstanceOffset = 0;
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:
@@ -777,6 +784,10 @@ namespace Desert::Graphic::System
         void SubmitGenericMesh( const GenericMeshRenderData& data );
         void SubmitInstancedMesh( const InstancedMeshRenderData& data );
         void SubmitGpuInstanced( const GpuInstancedRenderData& data );
+        // A producer that submits its GPU-instanced casters after UpdateCascades (the particles' Mesh rows, from
+        // the render graph) says so before it: the cascade plan then keeps the movable layer for them.
+        void ExpectGpuInstancedCasters( const bool expected ) { m_GpuInstancedCastersExpected = expected; }
+        bool m_GpuInstancedCastersExpected = false;
 
         /// ISM instances the last geometry pass drew, after the frustum and the cull distance: what a
         /// foliage type's CullDistance is measured by (FO-5). The shadow cascades are not counted.
@@ -1559,7 +1570,11 @@ namespace Desert::Graphic::System
         // cell) and into a cascade's movable list (their own masked caster, or the shared instanced caster).
         void BuildGpuInstancedDraws( MeshRendererDetail::MeshDrawList& list, GraphicsPipeline* instancedPipeline,
                                      MeshPass pass, const SceneFrameBinding& frameState );
-        void BuildGpuInstancedShadowDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list );
+        // `cascade` keys the caster cell (one per section x cascade); `shadowView` is the view drawn (the cascade
+        // itself, or its movable layer kCascadeMovableViewBase + cascade over the cache) and names its light
+        // camera.
+        void BuildGpuInstancedShadowDraws( uint32_t cascade, uint32_t shadowView,
+                                           MeshRendererDetail::MeshDrawList& list );
 
     private:
         // m_StaticMaterialFallback and m_SkinnedMaterialFallback stood here. The first was constructed

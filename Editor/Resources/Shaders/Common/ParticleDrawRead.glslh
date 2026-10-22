@@ -57,4 +57,33 @@ float ParticleLifetime( uint n )
     return ParticleFloat( n, DrawLayoutData.Columns1.y, 0u, 0.0 );
 }
 
+// UE Particles.RibbonWidth: a factor on the Ribbon row's Width (UE multiplies the bound attribute in the same way).
+float ParticleRibbonWidth( uint n )
+{
+    return ParticleFloat( n, DrawLayoutData.Columns1.z, 0u, 1.0 );
+}
+
+// UE Particles.RibbonLinkOrder: the key a ribbon links its particles by, ascending from the head. Unbound = the
+// age, so the youngest particle is the head and the oldest the tail (UE's default spawn-order link).
+float ParticleRibbonLinkOrder( uint n )
+{
+    return DrawLayoutData.Columns1.w == PARTICLE_ATTR_NONE ? ParticleAge( n )
+                                                        : ParticleFloat( n, DrawLayoutData.Columns1.w, 0u, 0.0 );
+}
+
+// UE Particles.Scale: the Mesh row's per-particle scale, on top of the row's own Scale. Unbound = 1.
+vec3 ParticleMeshScale( uint n )
+{
+    const uint c = DrawLayoutData.Columns2.y;
+    return vec3( ParticleFloat( n, c, 0u, 1.0 ), ParticleFloat( n, c, 1u, 1.0 ), ParticleFloat( n, c, 2u, 1.0 ) );
+}
+
+// UE Particles.MeshOrientation: a unit quaternion (xyz, w). Unbound = identity.
+vec4 ParticleMeshOrientation( uint n )
+{
+    const uint c = DrawLayoutData.Columns2.z;
+    return vec4( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 0.0 ),
+                 ParticleFloat( n, c, 3u, 1.0 ) );
+}
+
 #endif // PARTICLE_DRAW_READ_GLSLH

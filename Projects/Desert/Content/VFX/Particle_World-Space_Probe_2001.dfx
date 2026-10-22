@@ -3,11 +3,12 @@
         "Kind": "VFXSystem",
         "Guid": "707b4be308bb41c990f65b7b52e1737e",
         "Versions": {
-            "VFXS": 1
+            "VFXS": 3
         },
         "Dependencies": []
     },
     "Category": "Converted",
+    "EffectType": "Default",
     "Tags": [],
     "Duration": 1.0,
     "Loop": true,

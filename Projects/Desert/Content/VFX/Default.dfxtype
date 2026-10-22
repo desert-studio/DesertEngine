@@ -1,0 +1,54 @@
+{
+    "Header": {
+        "Kind": "VFXEffectType",
+        "Guid": "e1b573ab028d3f93e7827bfea28f5952",
+        "Versions": {
+            "VFXT": 2
+        },
+        "Dependencies": []
+    },
+    "CullReaction": "DeactivateResume",
+    "Significance": "Distance",
+    "Levels": [
+        {
+            "MaxDistance": 5000.0,
+            "SpawnCountScale": 1.0,
+            "MaxInstances": 0,
+            "MaxSystemInstances": 0,
+            "CullByViewFrustum": false,
+            "MaxTimeWithoutRender": 0.0
+        },
+        {
+            "MaxDistance": 10000.0,
+            "SpawnCountScale": 1.0,
+            "MaxInstances": 0,
+            "MaxSystemInstances": 0,
+            "CullByViewFrustum": false,
+            "MaxTimeWithoutRender": 0.0
+        },
+        {
+            "MaxDistance": 20000.0,
+            "SpawnCountScale": 1.0,
+            "MaxInstances": 0,
+            "MaxSystemInstances": 0,
+            "CullByViewFrustum": false,
+            "MaxTimeWithoutRender": 0.0
+        },
+        {
+            "MaxDistance": 50000.0,
+            "SpawnCountScale": 1.0,
+            "MaxInstances": 0,
+            "MaxSystemInstances": 0,
+            "CullByViewFrustum": false,
+            "MaxTimeWithoutRender": 0.0
+        },
+        {
+            "MaxDistance": 0.0,
+            "SpawnCountScale": 1.0,
+            "MaxInstances": 0,
+            "MaxSystemInstances": 0,
+            "CullByViewFrustum": false,
+            "MaxTimeWithoutRender": 0.0
+        }
+    ]
+}
