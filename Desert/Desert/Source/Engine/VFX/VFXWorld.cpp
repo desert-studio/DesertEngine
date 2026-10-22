@@ -26,6 +26,21 @@ namespace Desert::VFX
         instance.Spawn      = {};
     }
 
+    namespace
+    {
+        // The pool slots a system holds while playing: its running emitters' Capacity (what the world budget
+        // counts).
+        std::uint32_t RunningPoolParticles( const SystemInstance& system )
+        {
+            std::uint32_t total = 0;
+            if ( !system.System )
+                return total;
+            for ( std::size_t k = 0; k < system.Runs.size() && k < system.System->Emitters.size(); ++k )
+                total += system.Runs[k] ? system.System->Emitters[k].Capacity : 0u;
+            return total;
+        }
+    } // namespace
+
     void VFXWorld::Clear()
     {
         m_Clock = Clock( m_Clock.GetSettings() );
@@ -142,6 +157,7 @@ namespace Desert::VFX
                  SystemInstance&     system = m_Systems[uuid];
                  if ( system.System != data )
                  {
+                     const bool firstSight = !system.System;
                      // A new system (first sight, renamed, reloaded): every emitter starts over from its plan,
                      // and so does its scalability state.
                      const std::size_t count = data->Emitters.size();
@@ -171,6 +187,11 @@ namespace Desert::VFX
                               MakeEmitterSeed( data->Seed, uuid, static_cast<std::uint32_t>( k ) );
                          ResetInstance( system.Emitters[k] );
                      }
+                     // UE: a component registered (its World Partition cell streamed in, or placed) activates a
+                     // fresh system - nothing survives an unload, the seed alone makes it the same effect again.
+                     LOG_INFO( "[VFX] entity {} system {} ({} emitter(s), {} pool particles, seed {})", uuid,
+                               firstSight ? "spawned" : "restarted (asset changed)", count,
+                               RunningPoolParticles( system ), data->Seed );
                  }
                  system.Seen = true;
 
@@ -208,10 +229,7 @@ namespace Desert::VFX
                  if ( !system.Deactivated )
                  {
                      // The pool slots it holds while playing: the running emitters' Capacity (the world budget).
-                     std::uint32_t poolParticles = 0;
-                     if ( vfx.Data.AutoActivate )
-                         for ( std::size_t k = 0; k < system.Runs.size(); ++k )
-                             poolParticles += system.Runs[k] ? data->Emitters[k].Capacity : 0u;
+                     const std::uint32_t poolParticles = vfx.Data.AutoActivate ? RunningPoolParticles( system ) : 0u;
                      candidate = candidates.size();
                      candidates.push_back( { .Type          = type,
                                              .System        = data.get(),
@@ -288,7 +306,22 @@ namespace Desert::VFX
             }
         }
 
-        std::erase_if( m_Systems, []( const auto& entry ) { return !entry.second.Seen; } );
+        // A system whose entity is gone (its World Partition cell unloaded, or destroyed) or whose slot emptied is
+        // destroyed with it, as UE destroys a component's FNiagaraSystemInstance on unregister: no state is kept
+        // for a later reload, it stops being a candidate (instance limits, world budget) from this tick, and the
+        // renderer returns its pool ranges on its next tick (ParticleWorldGpu::PrepareTick).
+        for ( auto it = m_Systems.begin(); it != m_Systems.end(); )
+        {
+            if ( it->second.Seen )
+            {
+                ++it;
+                continue;
+            }
+            LOG_INFO( "[VFX] entity {} system released (entity gone or slot emptied): {} pool particles returned, "
+                      "no longer counted in the instance limits or the world budget",
+                      it->first, RunningPoolParticles( it->second ) );
+            it = m_Systems.erase( it );
+        }
         m_Channels.ClearEntries(); // a channel holds one frame of entries (UE: a data channel is cleared per tick)
     }
 
