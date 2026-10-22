@@ -124,8 +124,14 @@ namespace Desert::Graphic::System
             // The triangles this list sends to the GPU: per draw, the index count of the LOD level it was built
             // with (clamped to the chain the submesh has, as RenderMesh draws it), for each visible submesh, times
             // its instances. A GPU-generated draw (IndirectArgs) is not counted: its instance count is the
-            // GPU's, unknown here. UE: the "Triangles drawn" of stat RHI, for one pass.
-            [[nodiscard]] uint64_t Triangles() const;
+            // GPU's, unknown here. UE: the "Triangles drawn" of stat RHI, for one pass. Counted by Add, while the
+            // frame's meshes are alive: the list outlives its frame (the status bar reads it from the UI, after a
+            // sculpt stroke or an undo may have released a mesh a command still points to), so this never
+            // dereferences a command's Mesh.
+            [[nodiscard]] uint64_t Triangles() const
+            {
+                return m_Triangles;
+            }
             // The binding blocks Declare declares (one per distinct executor + recording shader): a node declaring
             // more blocks after the list's numbers them from here.
             [[nodiscard]] uint32_t BlockCount() const
@@ -178,6 +184,7 @@ namespace Desert::Graphic::System
             std::optional<std::string>   m_Error;
             RDG::BufferRef               m_IndirectArguments; // SetIndirect; invalid: the commands' own counts
             std::vector<uint32_t>        m_FirstRecords;
+            uint64_t                     m_Triangles = 0; // Add's count of the commands' triangles (Triangles)
             // Kept across frames (Clear drops only the layouts of destroyed shaders). Mutable: Declare is const.
             mutable ShaderBindingLayoutSet m_Layouts;
         };

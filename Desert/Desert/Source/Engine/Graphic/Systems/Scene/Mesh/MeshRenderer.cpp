@@ -244,34 +244,13 @@ namespace Desert::Graphic::System
         void MeshDrawList::Clear()
         {
             m_Commands.clear();
+            m_Triangles = 0;
             m_BlockOf.clear();
             m_Blocks.clear();
             m_Error.reset();
             m_IndirectArguments = {};
             m_FirstRecords.clear();
             m_Layouts.DropExpired();
-        }
-
-        uint64_t MeshDrawList::Triangles() const
-        {
-            uint64_t total = 0;
-            for ( const MeshDrawCommand& draw : m_Commands )
-            {
-                if ( draw.IndirectArgs.IsValid() )
-                    continue; // the GPU decides its instances
-                const auto& submeshes = draw.Mesh->GetSubmeshes();
-                for ( std::size_t si = 0; si < submeshes.size(); ++si )
-                {
-                    if ( si < 64 && ( draw.HiddenSubmeshMask & ( 1ull << si ) ) != 0 )
-                        continue;
-                    const auto&              sm      = submeshes[si];
-                    uint32_t                 indices = sm.IndexCount;
-                    if ( !sm.LODs.empty() )
-                        indices = sm.LODs[std::min<std::size_t>( draw.LodLevel, sm.LODs.size() - 1 )].IndexCount;
-                    total += static_cast<uint64_t>( indices / 3 ) * draw.InstanceCount;
-                }
-            }
-            return total;
         }
 
         void MeshDrawList::SetIndirect( const RDG::BufferRef arguments, std::vector<uint32_t> firstRecords )
@@ -322,6 +301,23 @@ namespace Desert::Graphic::System
             if ( known == m_Blocks.end() )
             {
                 m_Blocks.push_back( Block{ command.Material, command.Pipeline } );
+            }
+            // Per draw: the index count of the LOD level it was built with (clamped to the chain the submesh
+            // has, as RenderMesh draws it), for each visible submesh, times its instances; a GPU-generated draw
+            // is not counted (the GPU decides its instances).
+            if ( !command.IndirectArgs.IsValid() )
+            {
+                const auto& submeshes = command.Mesh->GetSubmeshes();
+                for ( std::size_t si = 0; si < submeshes.size(); ++si )
+                {
+                    if ( si < 64 && ( command.HiddenSubmeshMask & ( 1ull << si ) ) != 0 )
+                        continue;
+                    const auto& sm      = submeshes[si];
+                    uint32_t    indices = sm.IndexCount;
+                    if ( !sm.LODs.empty() )
+                        indices = sm.LODs[std::min<std::size_t>( command.LodLevel, sm.LODs.size() - 1 )].IndexCount;
+                    m_Triangles += static_cast<uint64_t>( indices / 3 ) * command.InstanceCount;
+                }
             }
             m_Commands.push_back( std::move( command ) );
         }
