@@ -1,0 +1,28 @@
+# M25 VoxBoolean: Box + Sphere -> Union and Difference A - B; the preview hides input B, Accept creates a new entity, one Undo removes it
+Дано --subject viewport set Camera.Direction 0.6,-0.55,0.6
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 50,40,30
+Дано run Entity Box
+Дано run Entity "Add to selection Sphere"
+Дано run "Level Viewport" "Focus Selected"
+Тогда 0_inputs Box at the origin and a Sphere overlapping its top corner, both selected
+Дано run Modeling "VoxBoolean inputs: Hide Inputs"
+Дано --subject modeling set VoxBoolean.VoxelCount 64
+Когда run Modeling "VoxOps tool: VoxBoolean"
+Когда run Modeling "VoxBoolean operation: Union"
+Тогда 1_union_preview VoxBoolean bar (Accept/Cancel); the Sphere input is hidden, the Box shows the Union preview (box with the sphere bulging out of its top corner)
+Когда run Modeling "Active tool: Accept"
+Тогда 1_union a new entity "Box VoxBoolean" holds the Union; both inputs hidden; it is selected
+Когда run Action Undo
+Тогда 1_union_undo the Union entity is gone; Box and Sphere visible again
+Дано run Entity Box
+Дано run Entity "Add to selection Sphere"
+Когда run Modeling "VoxOps tool: VoxBoolean"
+Когда run Modeling "VoxBoolean operation: Difference A - B"
+Тогда 2_difference_preview the Sphere is hidden; the Box shows a spherical bite out of its top corner
+Когда run Modeling "Active tool: Cancel"
+Тогда 2_difference_cancel the tool ended; Box unchanged and the Sphere visible again
