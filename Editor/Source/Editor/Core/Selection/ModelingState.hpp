@@ -65,6 +65,12 @@ namespace Desert::Editor::Core
             Jacket,   // UE's URemoveOccludedTrianglesTool: the triangles hidden inside the mesh removed
             Project,  // UE's UProjectToTargetTool: the first selected mesh remeshed onto the second's surface
             WeldEdges, // UE's UWeldMeshEdgesTool: coincident open edges merged (FMergeCoincidentMeshEdges)
+            // UE's VoxOps palette (same preview/Accept session, MeshProcessingTool).
+            VoxWrap,    // UE's UVoxelSolidifyMeshesTool: winding-number solid of the mesh, re-meshed closed
+            VoxBoolean, // UE's UVoxelCSGMeshesTool: CSG of the two selected meshes' fields -> a new entity
+            VoxMorph,   // UE's UVoxelMorphologyMeshesTool: Dilate/Contract/Close/Open of the mesh's field -> a new
+                        // entity
+            VoxBlend,   // UE's UVoxelBlendMeshesTool: the two selected meshes' fields blended -> a new entity
         };
 
         // The shapes the Create tool places: UE's Shapes palette (EMakeMeshShapeType) plus the Pyramid. Plane
