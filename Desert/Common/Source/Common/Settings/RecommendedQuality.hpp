@@ -89,11 +89,14 @@ namespace Common::Scalability
     };
 
     // PURE. Index -> level per group through the table thresholds, then the VRAM cap (Textures and Shadows never
-    // above the level whose budget fits VideoMemory — thresholds in the table, not in code), Cinematic never.
-    // When result.Timed is false the index is replaced by DeviceClassPerfIndex(Class, VideoMemory) — the
-    // fallback is a named function, not a silent default.
-    [[nodiscard]] std::array<Level, kGroupCount> RecommendLevels( const BenchmarkResult&  result,
-                                                                  const ScalabilityTable& table );
+    // above the level whose budget fits VideoMemory — thresholds in the table, not in code) and, in the same walk
+    // down, the capability cap (never a level whose GI / reflection / shadow method ceiling `device` cannot run:
+    // RenderMethods.hpp NeedsRayQuery / NeedsRayTracingPipeline / NeedsFragmentStores / NeedsRenderArea),
+    // Cinematic never. When result.Timed is false the index is replaced by DeviceClassPerfIndex(Class,
+    // VideoMemory) — the fallback is a named function, not a silent default.
+    [[nodiscard]] std::array<Level, kGroupCount> RecommendLevels( const BenchmarkResult&   result,
+                                                                  const ScalabilityTable&  table,
+                                                                  const CapabilityCatalog& device );
 
     // The device-class stand-in perf index (Integrated low, AppleUnified scaled by VRAM, Discrete by VRAM).
     // Values come from the table's Recommend.DeviceClass section; Unknown -> the Low boundary.

@@ -1,5 +1,7 @@
 #include <Common/Settings/RecommendedQuality.hpp>
 
+#include <Common/Settings/RenderMethods.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <format>
@@ -19,6 +21,44 @@ namespace Common::Scalability
         uint64_t ToMiB( uint64_t bytes )
         {
             return bytes / ( 1024ull * 1024ull );
+        }
+
+        // Does `device` run the method a level names (RenderMethods.hpp: what each method needs from the device)?
+        template <typename Method>
+        [[nodiscard]] bool DeviceRunsMethod( Method method, const CapabilityCatalog& device )
+        {
+            if ( NeedsRayQuery( method ) && !CapabilityCatalog::Offers( device.RayTracingModes, RayTracingMode::RayQuery ) )
+                return false;
+            if ( NeedsRayTracingPipeline( method ) &&
+                 !CapabilityCatalog::Offers( device.RayTracingModes, RayTracingMode::RayTracingPipeline ) )
+                return false;
+            if ( NeedsFragmentStores( method ) && !device.FragmentStores )
+                return false;
+            return NeedsRenderArea( method ) <= device.MaxRenderArea;
+        }
+
+        // PURE. Does `device` run every render-method ceiling that `group`'s `level` sets? Only the method
+        // parameters the group OWNS (ParameterSpec::Owner) are read: the other slots of Values[group][level] are
+        // the spec Min and mean nothing.
+        [[nodiscard]] bool DeviceRunsLevelMethods( const ScalabilityTable& table, std::size_t group, std::size_t level,
+                                                   const CapabilityCatalog& device )
+        {
+            const ParameterValues& values = table.Values[group][level];
+            const auto             owned  = [&]( Parameter p ) {
+                return static_cast<std::size_t>( SpecOf( p ).Owner ) == group;
+            };
+            const auto value = [&]( Parameter p ) { return values[static_cast<std::size_t>( p )]; };
+
+            if ( owned( Parameter::GlobalIlluminationMethod ) &&
+                 !DeviceRunsMethod( static_cast<GIMethod>( value( Parameter::GlobalIlluminationMethod ) ), device ) )
+                return false;
+            if ( owned( Parameter::ReflectionsMethod ) &&
+                 !DeviceRunsMethod( static_cast<ReflectionMethod>( value( Parameter::ReflectionsMethod ) ), device ) )
+                return false;
+            if ( owned( Parameter::ShadowsMethod ) &&
+                 !DeviceRunsMethod( static_cast<ShadowMethod>( value( Parameter::ShadowsMethod ) ), device ) )
+                return false;
+            return true;
         }
     } // namespace
 
@@ -40,7 +80,8 @@ namespace Common::Scalability
         return static_cast<float>( base * scale );
     }
 
-    std::array<Level, kGroupCount> RecommendLevels( const BenchmarkResult& result, const ScalabilityTable& table )
+    std::array<Level, kGroupCount> RecommendLevels( const BenchmarkResult& result, const ScalabilityTable& table,
+                                                    const CapabilityCatalog& device )
     {
         const float index =
              result.Timed ? result.GpuPerfIndex : DeviceClassPerfIndex( result.Class, result.VideoMemory, table );
@@ -57,8 +98,12 @@ namespace Common::Scalability
                     level = i + 1;
 
             // The VRAM cap: never a level whose memory requirement this machine does not reach, whatever the
-            // index. An unknown heap size (0) reaches only the levels that require nothing.
-            while ( level > 0 && table.MinVideoMemoryMiB[g][level] > vramMiB )
+            // index. An unknown heap size (0) reaches only the levels that require nothing. The capability cap in
+            // the same walk: never a level whose render-method ceiling this device cannot run (no ray query, no
+            // ray tracing pipeline, no fragment stores, a render area too small) — the recommendation is a level
+            // the device renders AS NAMED, so the group's other parameters come from a level it can run.
+            while ( level > 0 && ( table.MinVideoMemoryMiB[g][level] > vramMiB ||
+                                   !DeviceRunsLevelMethods( table, g, level, device ) ) )
                 --level;
 
             levels[g] = static_cast<Level>( level );

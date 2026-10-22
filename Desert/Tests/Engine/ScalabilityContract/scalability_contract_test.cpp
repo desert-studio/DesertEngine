@@ -156,6 +156,18 @@ namespace
         return probe;
     }
 
+    // A device that runs every render method (RecommendLevels' capability cap lowers nothing): the recommended-
+    // settings tests below exercise the index and VRAM mapping alone.
+    CapabilityCatalog RunsEveryMethod()
+    {
+        CapabilityCatalog device;
+        device.RayTracingModes = { RayTracingMode::None, RayTracingMode::RayQuery,
+                                   RayTracingMode::RayTracingPipeline };
+        device.FragmentStores  = true;
+        device.MaxRenderArea   = kVirtualShadowMapResolution;
+        return device;
+    }
+
     Vk::CatalogProbe AmdProbe()
     {
         Vk::CatalogProbe probe                                                                  = RtxProbe();
@@ -775,8 +787,8 @@ TEST( ScalabilityContract, AFasterGpuIsNeverRecommendedLowerLevels )
     slow.VideoMemory = fast.VideoMemory = 16ull << 30;
     slow.GpuPerfIndex                   = 25.0f;
     fast.GpuPerfIndex                   = 200.0f;
-    const auto a                        = RecommendLevels( slow, table );
-    const auto b                        = RecommendLevels( fast, table );
+    const auto a                        = RecommendLevels( slow, table, RunsEveryMethod() );
+    const auto b                        = RecommendLevels( fast, table, RunsEveryMethod() );
     for ( std::size_t g = 0; g < kGroupCount; ++g )
     {
         EXPECT_LE( a[g], b[g] );
@@ -791,7 +803,8 @@ TEST( ScalabilityContract, VideoMemoryCapsTheLevelWhateverTheIndex )
     result.Class        = DeviceClass::Discrete;
     result.GpuPerfIndex = 1000.0f;
     result.VideoMemory  = 1ull << 30; // 1 GiB: below Effects' High requirement in the fixture
-    EXPECT_LT( RecommendLevels( result, Table() )[static_cast<std::size_t>( Group::Effects )], Level::High );
+    EXPECT_LT( RecommendLevels( result, Table(), RunsEveryMethod() )[static_cast<std::size_t>( Group::Effects )],
+               Level::High );
 }
 
 TEST( ScalabilityContract, AnUntimedDeviceTakesTheDeviceClassFallback )
@@ -805,7 +818,8 @@ TEST( ScalabilityContract, AnUntimedDeviceTakesTheDeviceClassFallback )
     asIndex.Timed           = true;
     asIndex.GpuPerfIndex    = DeviceClassPerfIndex( DeviceClass::AppleUnified, untimed.VideoMemory, table );
     EXPECT_GT( asIndex.GpuPerfIndex, 0.0f );
-    EXPECT_EQ( RecommendLevels( untimed, table ), RecommendLevels( asIndex, table ) );
+    EXPECT_EQ( RecommendLevels( untimed, table, RunsEveryMethod() ),
+               RecommendLevels( asIndex, table, RunsEveryMethod() ) );
 }
 
 TEST( ScalabilityContract, TheCacheIsValidOnlyForTheSameDeviceDriverAndTable )
@@ -838,9 +852,10 @@ TEST( ScalabilityContract, AnIndexOnAThresholdTakesTheLevelAboveItAndJustBelowTh
             at.GpuPerfIndex       = table.RecommendThresholds[g][i];
             BenchmarkResult below = at;
             below.GpuPerfIndex    = std::nextafter( at.GpuPerfIndex, 0.0f );
-            EXPECT_EQ( RecommendLevels( at, table )[g], static_cast<Level>( i + 1 ) )
+            EXPECT_EQ( RecommendLevels( at, table, RunsEveryMethod() )[g], static_cast<Level>( i + 1 ) )
                  << "group " << g << " t" << i;
-            EXPECT_EQ( RecommendLevels( below, table )[g], static_cast<Level>( i ) ) << "group " << g << " t" << i;
+            EXPECT_EQ( RecommendLevels( below, table, RunsEveryMethod() )[g], static_cast<Level>( i ) )
+                 << "group " << g << " t" << i;
         }
     }
 }
