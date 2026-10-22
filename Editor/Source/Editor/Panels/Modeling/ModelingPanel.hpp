@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/ECS/VolumeComponent.hpp>
 #include "../IPanel.hpp"
 
 #include <Common/Core/ResultStr.hpp>
@@ -68,10 +69,10 @@ namespace Desert::Editor
         struct VolumeTypeEntry
         {
             const char*     Name;
-            ECS::VolumeType Type;
+            ::Desert::ECS::VolumeType Type;
         };
         static constexpr std::array<VolumeTypeEntry, 2> kVolumeTypes = {
-             { { "Trigger", ECS::VolumeType::Trigger }, { "Blocking", ECS::VolumeType::Blocking } } };
+             { { "Trigger", ::Desert::ECS::VolumeType::Trigger }, { "Blocking", ::Desert::ECS::VolumeType::Blocking } } };
 
         // UE's Mesh To Volume on the selected entity: its mesh's points become a convex volume entity of @p type
         // (outline only, a Jolt hull body with the type's collision profile) that REPLACES it, one undo step.
