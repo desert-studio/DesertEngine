@@ -1025,9 +1025,8 @@ namespace Desert::Graphic
         m_RadianceCacheInputs =
              RadianceCache::MakeRadianceCacheInputs( quality, m_RenderMethods.GlobalIllumination.Effective );
 
-        // THE SHADOW BUDGET is not taken here: it follows the FRAME's sun-shadow path, which OnUpdate decides
-        // after the view's TLAS (LowerShadowsForFrame) - RebudgetShadowsFor, called there before the maps are
-        // imported.
+        // THE SHADOW BUDGET is not taken here: OnUpdate takes it at the head of the frame, before the cascades are
+        // fitted (RebudgetShadowsFor), from the m_RenderMethods resolved above.
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in AddFrameTranslucency.
@@ -1215,13 +1214,15 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
-    // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL AND THE FRAME'S SUN PATH (UE re-creates its shadow depth targets
-    // on r.Shadow.*). Asked when the quality generation or the sun path the budget was taken for moved - a level
-    // change or a sun that starts/stops being ray traced, never per frame otherwise - and the maps are
-    // re-allocated only when the budget really differs (ShadowReallocation, ViewMemory.hpp). The profile is
-    // updated with them so the view's memory census keeps describing what is allocated. The sun path is part of
-    // the budget (ShadowQualityOf): a ray-traced sun keeps only the low-detail cascades; a frame that fell back to
-    // CascadedMaps gets the full ones.
+    // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL AND THE VIEW'S RESOLVED SUN PATH (UE re-creates its shadow depth
+    // targets on r.Shadow.*, never per frame). Asked when the quality generation or the resolved sun path the
+    // budget was taken for moved - a level change or a Shadows method that starts/stops being a screen mask - and
+    // the maps are re-allocated only when the budget really differs (ShadowReallocation, ViewMemory.hpp). The
+    // profile is updated with them so the view's memory census keeps describing what is allocated. The sun path is
+    // part of the budget (ShadowQualityOf): a screen-mask sun keeps only the low-detail cascades. A frame whose
+    // TLAS is not built draws those low-detail cascades for that frame (LowerShadowsForFrame) rather than
+    // re-allocating the maps twice around it. Called at the head of OnUpdate only, before any shadow view of the
+    // frame is planned.
     void SceneRenderer::RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality,
                                             const bool                                  sunRayTraced )
     {
@@ -1283,6 +1284,15 @@ namespace Desert::Graphic
             DESERT_PROFILE_PASS( "Sky: EnsureProceduralEnv" );
             skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
         }
+
+        // THE SHADOW BUDGET, AT THE FRAME BOUNDARY: taken before ANY shadow view of this frame is planned - the
+        // cascades below, the rain occlusion's view, the local lights' views, the VSM pages - from the Shadows
+        // method the view RESOLVED (BeginScene), not the per-frame TLAS fallback (LowerShadowsForFrame, later in
+        // this function). A re-budget drains the device and re-makes the maps and the local rows
+        // (MeshRenderer::RebudgetShadows); taken in the middle of the frame, it destroyed what that frame had
+        // already planned and the frame recorded it (SHADOW-CINE-ABORT: Shadows Cinematic switched on live, the
+        // rain occlusion's view drew through a null caster material and the editor aborted).
+        RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask() );
 
         // Recompute CSM cascade matrices once per frame BEFORE the render graph records (a cascade pass computes
         // nothing: its Declare and record only read the matrices).
@@ -1700,16 +1710,6 @@ namespace Desert::Graphic
                                                             ( tlas && m_RayTracingScene.GetFrame().Built &&
                                                               EnsurePathTracerResources() ) );
             ReportRenderMethods( m_RenderMethods );
-            // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
-            // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
-            // ray traced. Taken BEFORE the local lights' views are planned: a re-budget drains the device and
-            // drops every caster material, pipeline and local view row of the renderer
-            // (MeshRenderer::RebudgetShadows), so a plan made first - its rows, its redraws, the materials
-            // EnsureShadowViewMaterials just made - was destroyed under the frame that then recorded it
-            // (SHADOW-CINE-ABORT: Shadows Cinematic switched on with GI/Reflections/Effects at High took the
-            // ray-traced sun's budget on the first frame after the local shadows were planned, and the editor
-            // aborted).
-            RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask() );
             // The point and spot lights' shadow views, once the frame's Shadows method is final (and before the
             // maps are imported): tiles of the atlas allocated (and the atlas itself, on the first light that
             // casts), each light's ShadowView written into its payload, and the views whose cached depth is stale
