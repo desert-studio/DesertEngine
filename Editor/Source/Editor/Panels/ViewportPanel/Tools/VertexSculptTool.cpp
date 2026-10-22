@@ -176,7 +176,8 @@ namespace Desert::Editor::Tools
             stroke.PlaneNormal = -glm::normalize( glm::dvec3( ray.Direction ) );
             stroke.PrevCenter  = glm::dvec3( toObject * glm::dvec4( hitWorld, 1.0 ) );
             m_Stroke           = std::move( stroke );
-            LOG_INFO( "[Modeling] Vertex Sculpt stroke began at ({0}, {1}, {2})", hitWorld.x, hitWorld.y, hitWorld.z );
+            LOG_INFO( "[Modeling] Vertex Sculpt stroke began at ({0}, {1}, {2})", hitWorld.x, hitWorld.y,
+                      hitWorld.z );
         }
 
         // The brush centre this frame (world): Move rides UE's active plane, Smooth the surface.
