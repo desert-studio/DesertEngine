@@ -168,7 +168,7 @@ namespace Desert::Editor
                 MeshLODRows::DrawLevels( *lodMesh,
                                          MeshLODRows::DrawingLevel( scene, entity, *lodMesh,
                                                                     materialComp.ForcedLOD, materialComp.LODBias ),
-                                         "drawing" );
+                                         "Drawing" );
                 MeshLODRows::DrawScreenSizes( host.MeshHandle, *lodMesh );
             }
 

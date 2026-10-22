@@ -92,7 +92,7 @@ namespace Desert::Editor::MeshLODRows
         }
         ImGui::EndTable();
         if ( marked )
-            ImGui::TextDisabled( "Highlighted: %s LOD %zu", markLabel, *marked );
+            ImGui::TextDisabled( "%s LOD %zu", markLabel, *marked );
     }
 
     void DrawScreenSizes( const Assets::AssetHandle& meshHandle, ::Desert::Mesh& mesh )

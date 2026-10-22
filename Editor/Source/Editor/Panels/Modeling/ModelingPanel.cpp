@@ -1451,7 +1451,7 @@ namespace Desert::Editor
             const auto& c = e.GetComponent<ECS::StaticMeshComponent>();
             drawing       = MeshLODRows::DrawingLevel( m_Scene.get(), e, *t.Mesh, c.ForcedLOD, c.LODBias );
         }
-        MeshLODRows::DrawLevels( *t.Mesh, drawing, ms.LODPreviewLevel >= 0 ? "previewing" : "drawing" );
+        MeshLODRows::DrawLevels( *t.Mesh, drawing, ms.LODPreviewLevel >= 0 ? "Previewing" : "Drawing" );
 
         ImGui::Spacing();
         ImGui::TextUnformatted( "Preview" );
