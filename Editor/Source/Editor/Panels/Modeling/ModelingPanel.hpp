@@ -79,6 +79,11 @@ namespace Desert::Editor
         static Common::ResultStr<bool> MeshToVolume( const std::shared_ptr<Desert::Core::Scene>& scene,
                                                      const VolumeTypeEntry&                      type );
 
+        // UE LOD Manager's preview on the selection (one static mesh with a LOD chain): `level` -1 = Auto, else
+        // the level the active viewport draws it at while the LODs tab is open. The panel's radio buttons and the
+        // control channel's "LOD Manager: preview" commands both run this; a refusal carries its reason.
+        static Common::ResultStr<bool> PreviewLOD( const std::shared_ptr<Desert::Core::Scene>& scene, int level );
+
     private:
         // The Select Elements tool's properties: mode, counts, and the selection operations.
         void DrawCreateShape();
@@ -96,6 +101,7 @@ namespace Desert::Editor
         void DrawAttributesPalette();
         void DrawUVsPalette();
         void DrawCollisionPalette();
+        void DrawLODsPalette();
         void DrawCubeGrid();
         // A mesh / XForm operation on one click; a refusal is logged with its reason.
         void Operate( Core::MeshOperation op );

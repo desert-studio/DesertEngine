@@ -218,6 +218,17 @@ namespace Desert::Graphic::System
                                     mesh->GetLODScreenSizes(), forcedLOD, lodBias );
     }
 
+    uint64_t MeshRenderer::GetViewTrianglesDrawn() const
+    {
+        // The same path test the forward list's build makes: on Deferred the forward list is cleared and the
+        // meshes are in the G-buffer list, the forward-shaded generics in the generic one.
+        const bool deferred =
+             m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_StaticGBufferPipeline;
+        if ( !deferred )
+            return m_ForwardDraws.Triangles();
+        return m_GBufferDraws.Triangles() + m_GenericDraws.Triangles();
+    }
+
     void MeshRenderer::SubmitGenericMesh( const GenericMeshRenderData& data )
     {
         // Two valid shapes: an override draw (ShaderName set) or a per-slot draw (SlotMaterial
@@ -249,6 +260,28 @@ namespace Desert::Graphic::System
             m_IndirectArguments = {};
             m_FirstRecords.clear();
             m_Layouts.DropExpired();
+        }
+
+        uint64_t MeshDrawList::Triangles() const
+        {
+            uint64_t total = 0;
+            for ( const MeshDrawCommand& draw : m_Commands )
+            {
+                if ( draw.IndirectArgs.IsValid() )
+                    continue; // the GPU decides its instances
+                const auto& submeshes = draw.Mesh->GetSubmeshes();
+                for ( std::size_t si = 0; si < submeshes.size(); ++si )
+                {
+                    if ( si < 64 && ( draw.HiddenSubmeshMask & ( 1ull << si ) ) != 0 )
+                        continue;
+                    const auto&              sm      = submeshes[si];
+                    uint32_t                 indices = sm.IndexCount;
+                    if ( !sm.LODs.empty() )
+                        indices = sm.LODs[std::min<std::size_t>( draw.LodLevel, sm.LODs.size() - 1 )].IndexCount;
+                    total += static_cast<uint64_t>( indices / 3 ) * draw.InstanceCount;
+                }
+            }
+            return total;
         }
 
         void MeshDrawList::SetIndirect( const RDG::BufferRef arguments, std::vector<uint32_t> firstRecords )

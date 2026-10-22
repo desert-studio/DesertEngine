@@ -44,83 +44,11 @@
 #include <format>
 #include <system_error>
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Editor/Widgets/MeshLODRows.hpp>
 
 namespace Desert::Editor
 {
     namespace ImGui = ::ImGui;
-
-    namespace
-    {
-        // THE PER-LOD SCREEN SIZES OF THE MESH (UE Static Mesh editor, LOD Settings: "Auto Compute LOD
-        // Distances" + each LOD's "Screen Size"). Their home is the record of the source the mesh was imported
-        // from (ImportRecordData::LodScreenSize); the drawn mesh is updated as the value is dragged, the record
-        // written when the edit ends. A mesh no record speaks for shows its computed sizes, read-only.
-        void DrawLODScreenSizes( const Assets::AssetHandle& meshHandle, ::Desert::Mesh& mesh )
-        {
-            namespace Ser                  = Assets::Serialization;
-            const Assets::MeshAsset* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
-            const auto home = asset ? Ser::LodScreenSizesHomeOf( asset->GetMetadata().Filepath ) : std::nullopt;
-
-            const auto write = [&]( const std::optional<std::vector<float>>& sizes )
-            {
-                if ( !home )
-                    return;
-                if ( const auto written =
-                          Ser::SetImportRecordLodScreenSizes( home->Source, home->MeshFile, sizes );
-                     !written )
-                    LOG_ERROR( "[Details] LOD screen sizes of '{}': {}", home->MeshFile, written.GetError() );
-            };
-
-            Utils::ImGuiUtilities::ResetPropertyRows();
-            ImGui::BeginDisabled( !home.has_value() );
-
-            bool autoCompute = !mesh.GetAuthoredLODScreenSizes().has_value();
-            Utils::ImGuiUtilities::BeginPropertyRow(
-                 "Auto Compute Screen Size",
-                 home ? "Each level's screen size computed by the engine; untick to set them per level"
-                      : "This mesh was written by no import, so its screen sizes are computed and have no home" );
-            if ( ImGui::Checkbox( "##lodautoscreen", &autoCompute ) )
-            {
-                // Unticked: the computed sizes become the authored ones (UE copies the render data's sizes into
-                // the source models when bAutoComputeLODScreenSize is turned off).
-                std::optional<std::vector<float>> next;
-                if ( !autoCompute )
-                    next = mesh.GetLODScreenSizes();
-                mesh.SetAuthoredLODScreenSizes( next );
-                write( next );
-            }
-            Utils::ImGuiUtilities::EndPropertyRow();
-
-            const std::vector<float> sizes = mesh.GetLODScreenSizes();
-            ImGui::BeginDisabled( autoCompute );
-            for ( std::size_t level = 1; level < sizes.size(); ++level )
-            {
-                // Kept between its neighbours, so a coarser level never begins at a larger size than a finer one.
-                const float       upper = sizes[level - 1];
-                const float       lower = level + 1 < sizes.size() ? sizes[level + 1] : 0.0001f;
-                float             value = sizes[level];
-                const std::string label = std::format( "LOD {} Screen Size", level );
-                Utils::ImGuiUtilities::BeginPropertyRow(
-                     label.c_str(),
-                     "The bounding sphere's diameter, as a fraction of the screen, below which this "
-                     "level is drawn" );
-                ImGui::PushID( static_cast<int>( level ) );
-                if ( ImGui::DragFloat( "##lodscreensize", &value, 0.002f, lower, upper, "%.4f",
-                                       ImGuiSliderFlags_AlwaysClamp ) )
-                {
-                    std::vector<float> next = sizes;
-                    next[level]             = value;
-                    mesh.SetAuthoredLODScreenSizes( next );
-                }
-                if ( ImGui::IsItemDeactivatedAfterEdit() )
-                    write( mesh.GetAuthoredLODScreenSizes() );
-                ImGui::PopID();
-                Utils::ImGuiUtilities::EndPropertyRow();
-            }
-            ImGui::EndDisabled();
-            ImGui::EndDisabled();
-        }
-    } // namespace
 
     MaterialComponentWidget::MaterialComponentWidget( Assets::AssetManager* assetManager )
          : m_AssetManager( assetManager )
@@ -226,11 +154,7 @@ namespace Desert::Editor
 
         if ( Utils::ImGuiUtilities::SectionHeader( ICON_MDI_LAYERS_TRIPLE "  Level of Detail", false ) )
         {
-            size_t levels = 0;
-            if ( lodMesh )
-                for ( const auto& sm : lodMesh->GetSubmeshes() )
-                    if ( sm.LODs.size() > levels )
-                        levels = sm.LODs.size();
+            const size_t levels = lodMesh ? MeshLODRows::LevelCount( *lodMesh ) : 0;
 
             if ( levels <= 1 )
             {
@@ -241,38 +165,11 @@ namespace Desert::Editor
             {
                 // Which level the current view resolves to — the renderer's own policy, so the marker
                 // can't disagree with what is on screen.
-                size_t active     = 0;
-                bool   haveActive = false;
-                if ( scene )
-                {
-                    if ( const auto& camera = scene->GetActiveCamera() )
-                    {
-                        active = std::min<size_t>(
-                             Geometry::SelectLOD(
-                                  entity.GetWorldTransform(), lodMesh->GetSubmeshes(),
-                                  Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
-                                  lodMesh->GetLODScreenSizes(), materialComp.ForcedLOD, materialComp.LODBias ),
-                             levels - 1 );
-                        haveActive = true;
-                    }
-                }
-
-                const auto& subs = lodMesh->GetSubmeshes();
-                for ( size_t l = 0; l < levels; ++l )
-                {
-                    uint32_t tris = 0;
-                    for ( const auto& sm : subs )
-                    {
-                        const size_t li = l < sm.LODs.size() ? l : sm.LODs.size() - 1;
-                        tris += sm.LODs[li].IndexCount / 3;
-                    }
-                    if ( haveActive && l == active )
-                        ImGui::BulletText( "LOD %zu \xE2\x80\x94 %u tris   (drawing)", l, tris );
-                    else
-                        ImGui::BulletText( "LOD %zu \xE2\x80\x94 %u tris", l, tris );
-                }
-
-                DrawLODScreenSizes( host.MeshHandle, *lodMesh );
+                MeshLODRows::DrawLevels( *lodMesh,
+                                         MeshLODRows::DrawingLevel( scene, entity, *lodMesh,
+                                                                    materialComp.ForcedLOD, materialComp.LODBias ),
+                                         "Drawing" );
+                MeshLODRows::DrawScreenSizes( host.MeshHandle, *lodMesh );
             }
 
             // Shared property rows: label column + full-width control, same stripe and hover as every

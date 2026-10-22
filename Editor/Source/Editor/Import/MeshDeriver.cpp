@@ -37,13 +37,21 @@ namespace Desert::Editor
 
             std::vector<float> pos;
             pos.reserve( static_cast<size_t>( sm.VertexCount ) * 3 );
+            std::vector<float> attrs;
+            attrs.reserve( static_cast<size_t>( sm.VertexCount ) * Geometry::kSimplifyAttributeCount );
             for ( uint32_t v = 0; v < sm.VertexCount; ++v )
             {
-                const glm::vec3& p = data.IsSkinned ? data.SkinnedVertices[sm.VertexOffset + v].Position
-                                                    : data.StaticVertices[sm.VertexOffset + v].Position;
-                pos.push_back( p.x );
-                pos.push_back( p.y );
-                pos.push_back( p.z );
+                const auto append = [&]( const auto& vertex )
+                {
+                    pos.push_back( vertex.Position.x );
+                    pos.push_back( vertex.Position.y );
+                    pos.push_back( vertex.Position.z );
+                    Geometry::AppendSimplifyAttributes( vertex.Normal, vertex.TexCoord, attrs );
+                };
+                if ( data.IsSkinned )
+                    append( data.SkinnedVertices[sm.VertexOffset + v] );
+                else
+                    append( data.StaticVertices[sm.VertexOffset + v] );
             }
 
             std::vector<Desert::Index> localTris;
@@ -57,7 +65,7 @@ namespace Desert::Editor
                 localTris.push_back( { idx.V1, idx.V2, idx.V3 } );
             }
 
-            const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris );
+            const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, attrs.data() );
             sm.LODs.clear();
             sm.LODs.reserve( levels.size() );
             for ( const auto& lvl : levels )

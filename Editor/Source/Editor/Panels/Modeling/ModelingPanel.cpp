@@ -14,6 +14,11 @@
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
+#include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
+#include <Editor/Widgets/MeshLODRows.hpp>
+#include <Engine/ECS/Components.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Common/Core/Units.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -22,6 +27,9 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
+#include <optional>
+#include <string>
 #include <initializer_list>
 #include <type_traits>
 
@@ -76,9 +84,9 @@ namespace Desert::Editor
             return ICON_MDI_VECTOR_SELECTION;
         }
 
-        // UE 5.8 ModelingToolsEditorModeToolkit.cpp:1717-1737 (PaletteNames_Standard), with the Selection
-        // palette first as UE inserts it while mesh selection is on (:1756): only the palettes something of
-        // ours lives in, in UE's order.
+        // UE 5.8 ModelingToolsEditorModeToolkit.cpp:1717-1737 (PaletteNames_Standard; LODs last, as there), with
+        // the Selection palette first as UE inserts it while mesh selection is on (:1756): only the palettes
+        // something of ours lives in, in UE's order.
         enum class Palette
         {
             Selection,
@@ -92,13 +100,14 @@ namespace Desert::Editor
             Attributes,
             UVs,
             Collision,
+            LODs,
         };
         struct PaletteEntry
         {
             const char* Icon;
             const char* Name;
         };
-        constexpr std::array<PaletteEntry, 11> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
+        constexpr std::array<PaletteEntry, 12> kPalettes = { { { ICON_MDI_VECTOR_SELECTION, "Selection" },
                                                                { ICON_MDI_SHAPE_PLUS, "Shapes" },
                                                                { ICON_MDI_PLUS_BOX_OUTLINE, "Create" },
                                                                { ICON_MDI_VECTOR_SQUARE, "PolyModel" },
@@ -108,8 +117,9 @@ namespace Desert::Editor
                                                                { ICON_MDI_WRENCH, "Mesh" },
                                                                { ICON_MDI_PALETTE_SWATCH, "Attributes" },
                                                                { ICON_MDI_CHECKERBOARD, "UVs" },
-                                                               { ICON_MDI_SHIELD_OUTLINE, "Collision" } } };
-        static_assert( kPalettes.size() == static_cast<size_t>( Palette::Collision ) + 1,
+                                                               { ICON_MDI_SHIELD_OUTLINE, "Collision" },
+                                                               { ICON_MDI_LAYERS_TRIPLE, "LODs" } } };
+        static_assert( kPalettes.size() == static_cast<size_t>( Palette::LODs ) + 1,
                        "one rail entry per palette" );
     } // namespace
 
@@ -158,11 +168,16 @@ namespace Desert::Editor
                 m_Category = static_cast<int>( Palette::MeshOps );
         }
 
+        if ( ms.ReqLODManager )
+        {
+            m_Category = static_cast<int>( *ms.ReqLODManager ? Palette::LODs : Palette::Selection );
+            ms.ReqLODManager.reset();
+        }
         ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing, ImVec2( 6.0f, 6.0f ) );
         ImGui::PushStyleVar( ImGuiStyleVar_FramePadding, ImVec2( 8.0f, 6.0f ) );
 
         // --- Left category rail: only the palettes something of ours lives in ---
-        // UE's other palettes (VoxOps, Attributes, Baking, Volumes, LODs) are absent, not
+        // UE's other palettes (VoxOps, Baking, Volumes) are absent, not
         // greyed out, until each has a tool behind it: a category that opens onto "not implemented" is a button
         // that does nothing (owner's decision: hide empty tabs until their tools exist).
         ImGui::PushStyleVar( ImGuiStyleVar_WindowPadding, ImVec2( 6.0f, 8.0f ) );
@@ -183,6 +198,11 @@ namespace Desert::Editor
         }
         ImGui::EndChild();
         ImGui::PopStyleVar( 2 );
+
+        // The LOD preview belongs to the LODs tab: on any other tab the view returns to Auto (and the renderer's
+        // lease, no longer renewed, lapses on its own).
+        if ( m_Category != static_cast<int>( Palette::LODs ) )
+            ms.LODPreviewLevel = -1;
 
         ImGui::SameLine();
 
@@ -222,6 +242,9 @@ namespace Desert::Editor
                 break;
             case Palette::Collision:
                 DrawCollisionPalette();
+                break;
+            case Palette::LODs:
+                DrawLODsPalette();
                 break;
         }
         ImGui::EndChild();
@@ -1973,5 +1996,136 @@ namespace Desert::Editor
         ImGui::TextDisabled( "LMB select, Shift+LMB add, Ctrl+LMB remove" );
         ImGui::TextDisabled( "Del delete, Alt+E extrude, Alt+I inset, Alt+O offset" );
         ImGui::TextDisabled( "Alt+B bevel, Alt+L edge loop, Alt+K knife (two clicks)" );
+    }
+    namespace
+    {
+        // The LOD Manager's target: the one selected entity's static mesh, with its chain.
+        struct LODTarget
+        {
+            Common::UUID        Id;
+            uint32_t            DrawEntity = 0; // the id its draws carry (DrawStaticMeshCommand::Entity)
+            ::Desert::Mesh*     Mesh       = nullptr;
+            Assets::AssetHandle MeshHandle;
+            size_t              Levels = 0;
+        };
+
+        Common::ResultStr<LODTarget> SelectedLODTarget( const std::shared_ptr<Desert::Core::Scene>& scene )
+        {
+            const auto& ids = Core::SelectionManager::GetSelection();
+            if ( !scene || ids.size() != 1 )
+                return Common::MakeFormattedError<LODTarget>( "select one entity with a static mesh ({} selected)",
+                                                              ids.size() );
+            const auto ref = scene->FindEntityByID( ids.front() );
+            if ( !ref )
+                return Common::MakeFormattedError<LODTarget>( "entity {} is not in the scene",
+                                                              static_cast<uint64_t>( ids.front() ) );
+            ECS::Entity entity = ref->get(); // a handle: the copy names the same entity
+            if ( !entity.HasComponent<ECS::StaticMeshComponent>() )
+                return Common::MakeFormattedError<LODTarget>( "entity {} has no static mesh",
+                                                              static_cast<uint64_t>( ids.front() ) );
+            const auto& c = entity.GetComponent<ECS::StaticMeshComponent>();
+            LODTarget   t;
+            t.Id         = ids.front();
+            t.DrawEntity = static_cast<uint32_t>( entity.GetHandle() );
+            t.MeshHandle = c.MeshHandle;
+            t.Mesh       = c.RuntimeMesh ? static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() )
+                                         : Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
+            if ( !t.Mesh )
+                return Common::MakeFormattedError<LODTarget>( "entity {}: its mesh is not loaded",
+                                                              static_cast<uint64_t>( ids.front() ) );
+            t.Levels = MeshLODRows::LevelCount( *t.Mesh );
+            return Common::MakeSuccess( t );
+        }
+    } // namespace
+
+    Common::ResultStr<bool> ModelingPanel::PreviewLOD( const std::shared_ptr<Desert::Core::Scene>& scene,
+                                                       const int                                   level )
+    {
+        auto& ms = Core::ModelingState::Get();
+        if ( level < 0 )
+        {
+            ms.LODPreviewLevel = -1;
+            return Common::MakeSuccess( true );
+        }
+        const auto target = SelectedLODTarget( scene );
+        if ( !target.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "LOD preview: {}", target.GetError() );
+        if ( static_cast<size_t>( level ) >= target.GetValue().Levels )
+            return Common::MakeFormattedError<bool>( "LOD preview: the mesh has {} level(s), no LOD {}",
+                                                     target.GetValue().Levels, level );
+        ms.LODPreviewLevel = level;
+        return Common::MakeSuccess( true );
+    }
+
+    // UE 5.8 LODManagerTool (Modeling -> LODs -> LOD Manager): the selected mesh's levels with their triangle
+    // counts and screen sizes, and a preview of one level in the active viewport. UE's preview is a separate
+    // actor drawing the chosen level beside the source; ours is the source itself, drawn at that level by this
+    // view only (SceneRenderer::SetLODPreview), so it is seen where it stands and no other view changes.
+    void ModelingPanel::DrawLODsPalette()
+    {
+        auto& ms = Core::ModelingState::Get();
+        ImGui::TextUnformatted( ICON_MDI_LAYERS_TRIPLE "  LOD Manager" );
+        ImGui::Separator();
+
+        const auto target = SelectedLODTarget( m_Scene );
+        if ( !target.IsSuccess() )
+        {
+            ms.LODPreviewLevel = -1;
+            ImGui::TextDisabled( "%s", target.GetError().c_str() );
+            return;
+        }
+        const LODTarget& t = target.GetValue();
+        if ( t.Levels <= 1 )
+        {
+            ms.LODPreviewLevel = -1;
+            ImGui::TextDisabled( "This mesh has a single level: no LOD chain to manage." );
+            return;
+        }
+        if ( ms.LODPreviewLevel >= static_cast<int>( t.Levels ) )
+            ms.LODPreviewLevel = -1;
+
+        // Renew the active view's lease every frame the tab shows a preview; the renderer drops it on its own
+        // the frame after this stops (tab left, panel closed, mode changed).
+        if ( ms.LODPreviewLevel >= 0 )
+            if ( const auto leased = ViewportPanel::PreviewLODInActiveViewport( t.DrawEntity, ms.LODPreviewLevel );
+                 !leased.IsSuccess() )
+                ImGui::TextDisabled( "%s", leased.GetError().c_str() );
+
+        const auto            live = m_Scene->FindEntityByID( t.Id );
+        std::optional<size_t> drawing;
+        if ( ms.LODPreviewLevel >= 0 )
+            drawing = static_cast<size_t>( ms.LODPreviewLevel );
+        else if ( live )
+        {
+            ECS::Entity e = live->get();
+            const auto& c = e.GetComponent<ECS::StaticMeshComponent>();
+            drawing       = MeshLODRows::DrawingLevel( m_Scene.get(), e, *t.Mesh, c.ForcedLOD, c.LODBias );
+        }
+        MeshLODRows::DrawLevels( *t.Mesh, drawing, ms.LODPreviewLevel >= 0 ? "Previewing" : "Drawing" );
+
+        ImGui::Spacing();
+        ImGui::TextUnformatted( "Preview" );
+        int choice = ms.LODPreviewLevel;
+        if ( ImGui::RadioButton( "Auto", choice < 0 ) )
+            choice = -1;
+        // The buttons wrap to the next line when the palette column is too narrow for all of them.
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float       right = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+        for ( int l = 0; l < static_cast<int>( t.Levels ); ++l )
+        {
+            const std::string label = std::format( "LOD{}", l );
+            const float       width =
+                 ImGui::GetFrameHeight() + style.ItemInnerSpacing.x + ImGui::CalcTextSize( label.c_str() ).x;
+            if ( ImGui::GetItemRectMax().x + style.ItemSpacing.x + width <= right )
+                ImGui::SameLine();
+            if ( ImGui::RadioButton( label.c_str(), choice == l ) )
+                choice = l;
+        }
+        if ( choice != ms.LODPreviewLevel )
+            if ( const auto done = PreviewLOD( m_Scene, choice ); !done.IsSuccess() )
+                LOG_WARN( "{}", done.GetError() );
+
+        ImGui::Spacing();
+        MeshLODRows::DrawScreenSizes( t.MeshHandle, *t.Mesh );
     }
 } // namespace Desert::Editor

@@ -107,9 +107,16 @@ REM ---------------------------------------------------------------------------
 call :clone_dep "ThirdParty\optick\src\optick.h" "ThirdParty\optick" ^
     "https://github.com/bombomby/optick.git" ""
 
-REM meshoptimizer pinned to v0.20, the version BuildScripts/ThirdParty/MeshOptimizer.lua expects.
+REM meshoptimizer pinned to v1.3, the version BuildScripts/ThirdParty/MeshOptimizer.lua checks.
+REM A tree holding another version is re-fetched.
+if exist "ThirdParty\meshoptimizer\src\meshoptimizer.h" (
+    findstr /C:"define MESHOPTIMIZER_VERSION 1030" "ThirdParty\meshoptimizer\src\meshoptimizer.h" >nul || (
+        echo --- ThirdParty\meshoptimizer: not v1.3, re-fetching
+        rmdir /s /q "ThirdParty\meshoptimizer"
+    )
+)
 call :clone_dep "ThirdParty\meshoptimizer\src\meshoptimizer.h" "ThirdParty\meshoptimizer" ^
-    "https://github.com/zeux/meshoptimizer.git" "v0.20"
+    "https://github.com/zeux/meshoptimizer.git" "v1.3"
 
 REM reflect-cpp compiled sources. The header of this script used to claim Windows needs none of this
 REM because it "links the prebuilt ThirdParty/reflect-cpp/lib". There is no such directory and there

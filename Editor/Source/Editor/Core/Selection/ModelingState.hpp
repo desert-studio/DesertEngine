@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include <string>
 #include <vector>
 
@@ -217,6 +219,12 @@ namespace Desert::Editor::Core
         // the live mesh inline), so a Static/Dynamic choice would be a knob nothing reads. It comes back
         // with the reader that makes it mean something, defaulting to Static Mesh (owner's decision).
         Tool ActiveTool = Tool::None;
+        // LOD MANAGER (UE 5.8 LODManagerTool, Modeling panel -> LODs): the level the active viewport previews the
+        // selected mesh at, -1 = Auto (the renderer's screen-size pick). A preview, not an edit: the panel renews
+        // the renderer's per-view lease each frame while its LODs tab is open, so leaving the tab returns Auto.
+        int LODPreviewLevel = -1;
+        // One-shot: the control channel's "LOD Manager: open" (true) / "close" (false) for the panel's rail.
+        std::optional<bool> ReqLODManager;
         // CubeGrid block size (Resize Grid) in world units — one unit is one centimetre, so the default
         // 100 is a one-metre block, the same default as UE.
         float CellSize = 100.0f;

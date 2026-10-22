@@ -219,6 +219,13 @@ namespace Desert::Editor
         // The palette's door to DropPrefabAsset (below), into the ACTIVE viewport, as DropMeshIntoActiveViewport.
         static Common::BoolResultStr DropPrefabIntoActiveViewport( const std::string&              path,
                                                                    const std::optional<glm::vec3>& surface );
+        // The Modeling LOD Manager's preview, into the ACTIVE viewport's renderer only
+        // (Graphic::SceneRenderer::SetLODPreview — a per-view lease the caller renews every frame; level < 0
+        // clears it). Refuses when no viewport is live.
+        static Common::BoolResultStr PreviewLODInActiveViewport( uint32_t entity, int level );
+        // The triangles the active viewport's renderer drew last frame, at the LODs it drew (a forced preview
+        // level included). Empty: no viewport or no renderer yet.
+        static std::optional<uint64_t> ActiveViewportTrianglesDrawn();
 
         bool OnMouseButtonPressed( Common::MouseButtonPressedEvent& e );
         bool OnMouseButtonReleased( Common::MouseButtonReleasedEvent& e );
