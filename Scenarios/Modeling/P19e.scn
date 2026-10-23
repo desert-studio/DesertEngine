@@ -1,0 +1,40 @@
+# P19e Voxel Blend (UE UVoxelBlendMeshesTool / FVoxelBlendMeshesOp, Engine/Geometry/MeshVoxelOperations VoxBlend):
+# two overlapping 100 cm Boxes from Modeling > Shapes (Box at the origin, Box2 offset 60,40,40 so the union has
+# concave joints), each with the UV checker, Lit, camera close. Both selected -> VoxOps VoxBlend Union, Blend
+# Falloff 20 cm, Voxel Count 128 -> Accept (waits for the background compute) -> new entity "Box VoxBlend", inputs
+# hidden -> Undo brings the two boxes back.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Direction 0.6,-0.45,0.65
+Дано run Modeling "Create shape pivot: Centre"
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Active tool: Accept"
+Дано --subject selection set Translation 0,0,0
+Дано run Modeling "Attributes tool: Edit Materials"
+Дано run Modeling "Edit Materials active slot: 0"
+Дано run Modeling "Edit Materials slot material: M_UVChecker"
+Дано run Modeling "Active tool: Accept"
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Active tool: Accept"
+Дано --subject selection set Translation 60,40,40
+Дано run Modeling "Attributes tool: Edit Materials"
+Дано run Modeling "Edit Materials active slot: 0"
+Дано run Modeling "Edit Materials slot material: M_UVChecker"
+Дано run Modeling "Active tool: Accept"
+Дано run Entity Box
+Дано run Entity "Add to selection Box2"
+Дано run "Level Viewport" "Focus Selected"
+Тогда-вид 0_inputs two overlapping checkered boxes, both selected, sharp joints between them
+Когда run Modeling "VoxBlend operation: Union"
+Когда run Modeling "VoxBlend inputs: Hide Inputs"
+Когда --subject modeling set VoxBlend.VoxelCount 128
+Когда --subject modeling set VoxBlend.BlendFalloff 20
+Когда run Modeling "VoxOps tool: VoxBlend"
+Когда run Modeling "Active tool: Accept"
+Когда state
+Тогда 0_blend one closed mesh "Box VoxBlend": the concave joints of the two boxes rounded by the blend (fillet), no holes; Box and Box2 hidden
+Когда run Action Undo
+Когда state
+Тогда 1_undo the two separate checkered boxes back with sharp joints, no blended mesh
