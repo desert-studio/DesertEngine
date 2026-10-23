@@ -1,0 +1,1151 @@
+{
+    "Header": {
+        "Kind": "VFXSystem",
+        "Guid": "5c1e7a93d40b4f28a6e2b17f09c3d854",
+        "Versions": {
+            "VFXS": 3
+        },
+        "Dependencies": ["6f2b9c41d8e04a57b3a1c0e9f5d27b86"]
+    },
+    "Category": "Fire",
+    "EffectType": "Default",
+    "Tags": ["torch", "fire", "loop"],
+    "Duration": 2.0,
+    "Loop": true,
+    "Seed": 4711,
+    "Bounds": {
+        "Min": [-80.0, 0.0, -80.0],
+        "Max": [80.0, 450.0, 80.0]
+    },
+    "UserParams": [],
+    "LocalModules": [],
+    "Emitters": [
+        {
+            "Name": "Flame",
+            "Enabled": true,
+            "Space": "World",
+            "Capacity": 256,
+            "Lifecycle": {
+                "Delay": 0.0,
+                "LoopDuration": 2.0,
+                "Loop": "Infinite",
+                "LoopCount": 1
+            },
+            "Stack": {
+                "EmitterUpdate": [
+                    {
+                        "Module": "engine:SpawnRate",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpawnRate",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [80.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleSpawn": [
+                    {
+                        "Module": "engine:ShapeSphere",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Radius",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [5.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Offset",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 4.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeLifetime",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Lifetime",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [0.5, 0.0, 0.0, 0.0],
+                                    "Max": [0.8, 0.0, 0.0, 0.0]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:AddVelocityInCone",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Speed",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [120.0, 0.0, 0.0, 0.0],
+                                    "Max": [180.0, 0.0, 0.0, 0.0]
+                                }
+                            },
+                            {
+                                "Name": "Angle",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [5.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Falloff",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Axis",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 1.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeSpriteSize",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [14.0, 14.0, 0.0, 0.0],
+                                    "Max": [22.0, 22.0, 0.0, 0.0]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeRotation",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Rotation",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [0.0, 0.0, 0.0, 0.0],
+                                    "Max": [360.0, 0.0, 0.0, 0.0]
+                                }
+                            },
+                            {
+                                "Name": "RotationRate",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [-60.0, 0.0, 0.0, 0.0],
+                                    "Max": [60.0, 0.0, 0.0, 0.0]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeColor",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Color",
+                                "Type": "Vec4",
+                                "Source": "Value",
+                                "Value": [1.0, 0.5, 0.12, 1.0]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleUpdate": [
+                    {
+                        "Module": "engine:UpdateAge",
+                        "Enabled": true,
+                        "Inputs": []
+                    },
+                    {
+                        "Module": "engine:UpdateRotation",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "RateScale",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [1.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:Drag",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Drag",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [1.8, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "RotationalDrag",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:CurlNoiseForce",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Strength",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [60.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Frequency",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.04, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Pan",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 20.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Offset",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:SolveForcesAndVelocity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpeedLimit",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:SizeOverLife",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Scale",
+                                "Type": "Vec2",
+                                "Source": "Curve",
+                                "Curve": [
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 0.8,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.2,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.1,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 0.8,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.2,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.1,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ]
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:ColorOverLife",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Scale",
+                                "Type": "Vec4",
+                                "Source": "Curve",
+                                "Curve": [
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 2.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.5,
+                                            "Value": 1.6,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.9,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 1.6,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.5,
+                                            "Value": 0.8,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.25,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.4,
+                                            "Value": 0.3,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.05,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.6,
+                                            "Value": 0.8,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ]
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            "Renderers": [
+                {
+                    "Kind": "Sprite",
+                    "Enabled": true,
+                    "Material": {
+                        "Guid": "6f2b9c41d8e04a57b3a1c0e9f5d27b86",
+                        "Path": "engine:Engine/Materials/M_ParticleAdditive.demat"
+                    }
+                }
+            ]
+        },
+        {
+            "Name": "Smoke",
+            "Enabled": true,
+            "Space": "World",
+            "Capacity": 384,
+            "Lifecycle": {
+                "Delay": 0.0,
+                "LoopDuration": 2.0,
+                "Loop": "Infinite",
+                "LoopCount": 1
+            },
+            "Stack": {
+                "EmitterUpdate": [
+                    {
+                        "Module": "engine:SpawnRate",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpawnRate",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [34.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleSpawn": [
+                    {
+                        "Module": "engine:ShapeSphere",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Radius",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [4.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Offset",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 70.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeLifetime",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Lifetime",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [2.6, 0.0, 0.0, 0.0],
+                                    "Max": [3.4, 0.0, 0.0, 0.0]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:AddVelocityInCone",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Speed",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [45.0, 0.0, 0.0, 0.0],
+                                    "Max": [70.0, 0.0, 0.0, 0.0]
+                                }
+                            },
+                            {
+                                "Name": "Angle",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [8.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Falloff",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Axis",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 1.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeSpriteSize",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [22.0, 22.0, 0.0, 0.0],
+                                    "Max": [32.0, 32.0, 0.0, 0.0]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeRotation",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Rotation",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [0.0, 0.0, 0.0, 0.0],
+                                    "Max": [360.0, 0.0, 0.0, 0.0]
+                                }
+                            },
+                            {
+                                "Name": "RotationRate",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [-30.0, 0.0, 0.0, 0.0],
+                                    "Max": [30.0, 0.0, 0.0, 0.0]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeColor",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Color",
+                                "Type": "Vec4",
+                                "Source": "Value",
+                                "Value": [0.2, 0.19, 0.18, 1.0]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleUpdate": [
+                    {
+                        "Module": "engine:UpdateAge",
+                        "Enabled": true,
+                        "Inputs": []
+                    },
+                    {
+                        "Module": "engine:UpdateRotation",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "RateScale",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [1.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:Drag",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Drag",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.4, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "RotationalDrag",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:CurlNoiseForce",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Strength",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [35.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Frequency",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.012, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Pan",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 20.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Offset",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:SolveForcesAndVelocity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpeedLimit",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:SizeOverLife",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Scale",
+                                "Type": "Vec2",
+                                "Source": "Curve",
+                                "Curve": [
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 0.6,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.3,
+                                            "Value": 1.6,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 3.4,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 0.6,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.3,
+                                            "Value": 1.6,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 3.4,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ]
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:ColorOverLife",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Scale",
+                                "Type": "Vec4",
+                                "Source": "Curve",
+                                "Curve": [
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 1.4,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 1.4,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 1.4,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 0.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.1,
+                                            "Value": 0.75,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.5,
+                                            "Value": 0.45,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ]
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            "Renderers": [
+                {
+                    "Kind": "Sprite",
+                    "Enabled": true
+                }
+            ]
+        },
+        {
+            "Name": "Embers",
+            "Enabled": true,
+            "Space": "World",
+            "Capacity": 128,
+            "Lifecycle": {
+                "Delay": 0.0,
+                "LoopDuration": 2.0,
+                "Loop": "Infinite",
+                "LoopCount": 1
+            },
+            "Stack": {
+                "EmitterUpdate": [
+                    {
+                        "Module": "engine:SpawnRate",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpawnRate",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [14.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleSpawn": [
+                    {
+                        "Module": "engine:ShapeSphere",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Radius",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [6.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Offset",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 12.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeLifetime",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Lifetime",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [1.0, 0.0, 0.0, 0.0],
+                                    "Max": [1.8, 0.0, 0.0, 0.0]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:AddVelocityInCone",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Speed",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [90.0, 0.0, 0.0, 0.0],
+                                    "Max": [170.0, 0.0, 0.0, 0.0]
+                                }
+                            },
+                            {
+                                "Name": "Angle",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [22.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Falloff",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Axis",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 1.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeSpriteSize",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [2.5, 2.5, 0.0, 0.0],
+                                    "Max": [4.0, 4.0, 0.0, 0.0]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:InitializeColor",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Color",
+                                "Type": "Vec4",
+                                "Source": "Value",
+                                "Value": [1.0, 0.45, 0.08, 1.0]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleUpdate": [
+                    {
+                        "Module": "engine:UpdateAge",
+                        "Enabled": true,
+                        "Inputs": []
+                    },
+                    {
+                        "Module": "engine:Gravity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Gravity",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, -50.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:CurlNoiseForce",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Strength",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [220.0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Frequency",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.03, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Pan",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 20.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "Offset",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:SolveForcesAndVelocity",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpeedLimit",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.0, 0.0, 0.0, 0.0]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": "engine:ColorOverLife",
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Scale",
+                                "Type": "Vec4",
+                                "Source": "Curve",
+                                "Curve": [
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 4.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.7,
+                                            "Value": 2.5,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 4.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.7,
+                                            "Value": 1.8,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 3.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.7,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ],
+                                    [
+                                        {
+                                            "Time": 0.0,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 0.8,
+                                            "Value": 1.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        },
+                                        {
+                                            "Time": 1.0,
+                                            "Value": 0.0,
+                                            "ArriveTangent": 0.0,
+                                            "LeaveTangent": 0.0,
+                                            "Interp": "Linear",
+                                            "Tangents": "Auto"
+                                        }
+                                    ]
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            "Renderers": [
+                {
+                    "Kind": "Sprite",
+                    "Enabled": true,
+                    "Material": {
+                        "Guid": "6f2b9c41d8e04a57b3a1c0e9f5d27b86",
+                        "Path": "engine:Engine/Materials/M_ParticleAdditive.demat"
+                    }
+                }
+            ]
+        }
+    ]
+}
