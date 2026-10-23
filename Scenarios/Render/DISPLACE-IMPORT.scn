@@ -1,0 +1,11 @@
+# DISPLACE-IMPORT: import the probe sources through the Import Options window (UE: the FBX/glTF factory's options) with Displacement Runtime, placed into M4_RampNormalMap, saved as DISPLACE_Probe (then sun/material/placement set in the .desce).
+# Tooling gap closed here: "Assets / Import Options: Displacement None|Runtime|Baked" (ImportOptions::SetShownDisplacement).
+Дано run Scene "Open Scene M4_RampNormalMap.desce"
+Когда run Assets "Drop into the viewport: Meshes/Displace/DisplaceSlab.gltf"
+Когда run Assets "Import Options: Displacement Runtime"
+Когда run Assets "Import Options: Import"
+Когда run Assets "Drop into the viewport: Meshes/Displace/CesiumMan.glb"
+Когда run Assets "Import Options: Displacement Runtime"
+Когда run Assets "Import Options: Import"
+Тогда 0_imported slab and CesiumMan placed in the scene, Outliner lists DisplaceSlab and CesiumMan, editor.log 0 import errors
+Когда save-as DISPLACE_Probe
