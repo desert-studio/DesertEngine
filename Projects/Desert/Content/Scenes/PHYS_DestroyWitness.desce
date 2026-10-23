@@ -149,6 +149,10 @@
             },
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "04f3bb576e64e248daad7640edbe91c5",
@@ -181,6 +185,10 @@
             },
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
@@ -213,6 +221,10 @@
             },
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "04f3bb576e64e248daad7640edbe91c5",

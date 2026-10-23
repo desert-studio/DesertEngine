@@ -20,7 +20,12 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.399999976158142, 1.399999976158142, 1.399999976158142],
             "StaticMesh": {
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": []
             }
         },
         {
@@ -32,6 +37,10 @@
             "Scale": [6.0, 6.0, 0.20000000298023224],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "04f3bb576e64e248daad7640edbe91c5",
@@ -49,6 +58,10 @@
             "Scale": [1.600000023841858, 1.600000023841858, 1.600000023841858],
             "StaticMesh": {
                 "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "b7de7b6da944bded0382e39126712944",
@@ -127,6 +140,10 @@
             "Scale": [0.20000000298023224, 6.0, 6.0],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "e04d99eaf3ddd30e0184e38e5c3bcc57",
@@ -201,6 +218,10 @@
             "Scale": [6.0, 0.20000000298023224, 6.0],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "04f3bb576e64e248daad7640edbe91c5",
@@ -218,6 +239,10 @@
             "Scale": [0.20000000298023224, 6.0, 6.0],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "91bde2ac45c15dd230d961a447b6fba7",

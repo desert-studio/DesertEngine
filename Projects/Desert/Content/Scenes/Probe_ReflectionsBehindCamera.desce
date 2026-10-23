@@ -21,6 +21,10 @@
             "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "b272c29047a884c02a065b782ae62ea5",
@@ -38,6 +42,10 @@
             "Scale": [0.6000000238418579, 1.0, 0.6000000238418579],
             "StaticMesh": {
                 "Primitive": "Cylinder",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "f6f923426f71eb4a270b1db46ebceeff",
@@ -86,6 +94,10 @@
             "Scale": [24.0, 0.20000000298023224, 24.0],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "b33524f57b8f411039fb457c1c34be51",
@@ -238,6 +250,10 @@
             "Scale": [4.0, 3.0, 0.05000000074505806],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "582f0def2b00efe8f1018b02af8340dd",
@@ -255,6 +271,10 @@
             "Scale": [0.800000011920929, 0.800000011920929, 0.800000011920929],
             "StaticMesh": {
                 "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "f6f923426f71eb4a270b1db46ebceeff",

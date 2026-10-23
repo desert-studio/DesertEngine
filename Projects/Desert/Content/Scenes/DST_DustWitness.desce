@@ -141,6 +141,10 @@
             },
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "04f3bb576e64e248daad7640edbe91c5",

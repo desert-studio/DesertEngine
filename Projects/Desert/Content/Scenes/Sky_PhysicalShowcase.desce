@@ -21,6 +21,10 @@
             "Scale": [4000.0, 0.20000000298023224, 4000.0],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "b33524f57b8f411039fb457c1c34be51",
@@ -204,6 +208,10 @@
             "Scale": [6.0, 6.0, 6.0],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "b33524f57b8f411039fb457c1c34be51",
@@ -221,6 +229,10 @@
             "Scale": [15.0, 15.0, 15.0],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "b33524f57b8f411039fb457c1c34be51",
@@ -238,6 +250,10 @@
             "Scale": [27.0, 27.0, 27.0],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "b33524f57b8f411039fb457c1c34be51",
@@ -255,6 +271,10 @@
             "Scale": [42.0, 42.0, 42.0],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "b33524f57b8f411039fb457c1c34be51",
@@ -272,6 +292,10 @@
             "Scale": [57.0, 57.0, 57.0],
             "StaticMesh": {
                 "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "MaterialSlots": [
                     {
                         "Guid": "b33524f57b8f411039fb457c1c34be51",

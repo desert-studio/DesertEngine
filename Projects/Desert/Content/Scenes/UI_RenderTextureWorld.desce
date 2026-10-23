@@ -125,7 +125,12 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.600000023841858, 1.600000023841858, 1.600000023841858],
             "StaticMesh": {
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": []
             }
         },
         {
@@ -136,7 +141,12 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [6.0, 0.4000000059604645, 6.0],
             "StaticMesh": {
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": []
             }
         },
         {

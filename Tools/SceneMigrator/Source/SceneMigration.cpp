@@ -4878,23 +4878,22 @@ namespace Desert::Migration
                                return false;
                            const bool statesSlots = block.get( "MaterialGuids" ).has_value() ||
                                                     block.get( "MaterialPaths" ).has_value();
-                           if ( !statesMesh && !statesSlots )
-                               return false;
+                           if ( !statesMesh && !statesSlots && block.get( "MeshHandle" ).has_value() )
+                               return false; // already v1
                            const std::string meshGuid = text( "MeshGuid" );
                            const std::string meshPath = text( "MeshPath" );
                            for ( const char* key : { "MeshGuid", "MeshPath", "MaterialGuids", "MaterialPaths" } )
                                DropKey( block, key );
-                           if ( statesMesh )
-                               block["MeshHandle"] = ref( meshGuid, meshPath );
-                           if ( statesSlots )
-                           {
-                               rfl::Generic::Array slots;
-                               const std::size_t   count = std::max( slotGuids.size(), slotPaths.size() );
-                               for ( std::size_t i = 0; i < count; ++i )
-                                   slots.push_back( ref( i < slotGuids.size() ? slotGuids[i] : std::string(),
-                                                         i < slotPaths.size() ? slotPaths[i] : std::string() ) );
-                               block["MaterialSlots"] = rfl::Generic( std::move( slots ) );
-                           }
+                           // Both keys always, as the save writes them (reflection states every field): a
+                           // primitive's MeshHandle is the empty {"", ""}, so a migrated scene and the same
+                           // scene saved again are byte-equal.
+                           block["MeshHandle"] = ref( meshGuid, meshPath );
+                           rfl::Generic::Array slots;
+                           const std::size_t   count = std::max( slotGuids.size(), slotPaths.size() );
+                           for ( std::size_t i = 0; i < count; ++i )
+                               slots.push_back( ref( i < slotGuids.size() ? slotGuids[i] : std::string(),
+                                                     i < slotPaths.size() ? slotPaths[i] : std::string() ) );
+                           block["MaterialSlots"] = rfl::Generic( std::move( slots ) );
                            ++report.MeshBlocks;
                            return true;
                        } );
