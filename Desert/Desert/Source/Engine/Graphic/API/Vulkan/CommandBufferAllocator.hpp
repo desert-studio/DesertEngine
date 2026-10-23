@@ -6,6 +6,9 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
+#include <source_location>
+#include <string>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -31,9 +34,17 @@ namespace Desert::Graphic::API::Vulkan
         Common::ResultStr<VkCommandBuffer> RT_AllocateCommandBufferGraphic( bool begin = false );
         Common::ResultStr<VkCommandBuffer> RT_AllocateCommandBufferTransferOps( bool begin = false );
 
-        Common::ResultStr<VkResult> RT_FlushCommandBufferCompute( VkCommandBuffer commandBuffer );
-        Common::ResultStr<VkResult> RT_FlushCommandBufferGraphic( VkCommandBuffer commandBuffer );
-        Common::ResultStr<VkResult> RT_FlushCommandBufferTransferOps( VkCommandBuffer commandBuffer );
+        /// Submits and BLOCKS until the GPU is done. @p where names the caller in the profiler: every wait is a
+        /// row "FlushOneShot wait: <file>:<line>", so a per-frame CPU stall names the call site that pays it.
+        Common::ResultStr<VkResult>
+        RT_FlushCommandBufferCompute( VkCommandBuffer      commandBuffer,
+                                      std::source_location where = std::source_location::current() );
+        Common::ResultStr<VkResult>
+        RT_FlushCommandBufferGraphic( VkCommandBuffer      commandBuffer,
+                                      std::source_location where = std::source_location::current() );
+        Common::ResultStr<VkResult>
+        RT_FlushCommandBufferTransferOps( VkCommandBuffer      commandBuffer,
+                                          std::source_location where = std::source_location::current() );
 
         /// A one-off graphics submission that nobody waited for: the buffer, the thread pool that allocated it
         /// and the fence its completion signals. The buffer is freed only by RT_ReleaseSubmitted.
@@ -79,7 +90,10 @@ namespace Desert::Graphic::API::Vulkan
         /// Allocates (and optionally begins) a primary buffer from the calling thread's pool for @p family.
         Common::ResultStr<VkCommandBuffer> AllocateOneShot( uint32_t family, bool begin );
         /// Submits @p commandBuffer, waits for it, then releases it to the pool it actually came from.
-        Common::ResultStr<VkResult> FlushOneShot( VkCommandBuffer commandBuffer, VkQueue queue );
+        Common::ResultStr<VkResult> FlushOneShot( VkCommandBuffer commandBuffer, VkQueue queue,
+                                                  const std::source_location& where );
+        /// The profiler row of one wait site; the string lives in m_WaitSites, so the name outlives the scope.
+        const char* WaitSiteName( const std::source_location& where );
         /// Frees @p commandBuffer now if the calling thread owns @p pool, else queues it for the owner.
         /// The buffer must not be pending execution. Called without m_PoolMutex held.
         void ReleaseOneShot( OneShotPool& pool, VkCommandBuffer commandBuffer );
@@ -97,6 +111,10 @@ namespace Desert::Graphic::API::Vulkan
         /// is undefined behaviour. Recording it is also what lets a flush of a buffer this allocator never
         /// handed out be REFUSED by name instead of guessed at.
         std::unordered_map<VkCommandBuffer, OneShotPool*> m_OneShotPools;
+
+        /// The profiler row names of the blocking flushes' call sites (WaitSiteName). A set's nodes never move,
+        /// so a c_str() handed to the profiler stays valid. Guarded by m_PoolMutex.
+        std::set<std::string> m_WaitSites;
 
         uint32_t m_GraphicsFamily    = 0;
         uint32_t m_ComputeFamily     = 0;

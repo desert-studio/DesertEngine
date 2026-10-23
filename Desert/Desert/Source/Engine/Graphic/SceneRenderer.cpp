@@ -1349,6 +1349,10 @@ namespace Desert::Graphic
         // every barrier and layout transition. A pass this frame does not run is not added. The lambdas run inside
         // Execute, after the whole graph is built, so a value one pass hands a later one travels through `values`,
         // which outlives Execute; everything else they need is captured by value.
+        // Every CPU stage of the graph's build and execution is a row of its own, so the body has no time that
+        // no child scope accounts for.
+        DESERT_PROFILE_PHASES( phases );
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: Frame setup" );
         RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
 
@@ -1605,6 +1609,7 @@ namespace Desert::Graphic
                      "SceneColor" } } );
         };
 
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: Grass, TLAS, shadow plan" );
         AddFrameClearMainFramebuffer( graph, textures );
 
         // The landscape grass of this view, before every node that draws it (the cascades, the geometry) and
@@ -1831,6 +1836,7 @@ namespace Desert::Graphic
         // A face view draws no particles (UE: a capture's ShowFlags.Particles = 0, "usually dynamic, and can't be
         // captured well"), and simulates none: the face views render first in a frame, and the first view to
         // prepare the tick is the one that simulates it.
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: Add passes" );
         if ( !m_ViewProfile.SceneCapture )
             AddFrameParticlesSimulate( graph );
 
@@ -2167,6 +2173,7 @@ namespace Desert::Graphic
         // the final image black for this frame.
         // A FrameFault never reaches EndFrame: the next BeginFrame still sees the last committed frame as
         // previous. A frame that executed commits as previous with what its report says it lost.
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: ExecuteGraph" );
         if ( Renderer::ExecuteGraph( graph ).IsSuccess() )
             m_ViewState.EndFrame( graph.GetExecuteReport() );
         textures.ResetInvalidatedHistories();
