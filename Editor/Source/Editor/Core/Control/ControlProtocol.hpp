@@ -5,6 +5,7 @@
 #include <Common/Json/Json.hpp>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -136,6 +137,10 @@ namespace Desert::Editor::Control
     /// 240 frames), and physics takes one 1/60 s step per frame at 60 fps or more (PhysicsWorld kFixedStepSeconds):
     /// 2 s fits 240 frames up to 120 fps; a longer wait is several `advance` steps.
     inline constexpr float kMaxAdvanceSeconds = 2.0f;
+
+    /// The most numbers one `set` carries: a curve's key list of 64 keys of a float4 (time + four values each,
+    /// VFX-13) - the widest property a document offers. A number property still takes exactly its own count.
+    inline constexpr std::size_t kMaxSetNumbers = 64 * 5;
 
     /// The table's answer for one operation. Yes for anything not in the table at all — an operation this
     /// build has never heard of is the last thing that should be run against a half-built editor.
@@ -601,13 +606,15 @@ namespace Desert::Editor::Control
                 // The count is not checked against the property here and cannot be: this parser has never
                 // heard of a shader schema. The DOCUMENT owns that check, because the document is what owns
                 // the declaration — see ISubjectDocument::SetEditableProperty. What is refused here is
-                // only what makes no sense for any property at all.
-                if ( request.Value.size() > 4 )
+                // only what makes no sense for any property at all. The widest write is a curve's key list (a
+                // VFX stack input's `.Keys`: per key its time then up to four values, VFX-13), so the bound is
+                // kMaxSetNumbers, not four - every document refuses a count its own property does not take.
+                if ( request.Value.size() > kMaxSetNumbers )
                 {
                     return Common::MakeFormattedError<Request>(
                          "the 'value' for '{}' carries {} numbers. Nothing this channel can write is wider "
-                         "than four.",
-                         request.Property, request.Value.size() );
+                         "than {} (a curve of {} keys of a float4).",
+                         request.Property, request.Value.size(), kMaxSetNumbers, kMaxSetNumbers / 5 );
                 }
                 break;
             }

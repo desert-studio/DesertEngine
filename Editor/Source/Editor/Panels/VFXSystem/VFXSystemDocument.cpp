@@ -1,4 +1,5 @@
 #include "VFXSystemDocument.hpp"
+#include "VFXCurveInputEditor.hpp"
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/CommandHistory.hpp>
@@ -135,12 +136,14 @@ namespace Desert::Editor
             return "?";
         }
 
-        // One settable number group of the stack: a Value input, or one end of a Random range.
+        // One settable number group of the stack: a Value input, one end of a Random range, or a Curve input's
+        // whole key list (VFX-13: `<input>.Keys` = per stop its time then its values, one undo step).
         enum class InputPart
         {
             Value,
             Min,
             Max,
+            Keys,
         };
 
         struct InputAddress
@@ -177,6 +180,8 @@ namespace Desert::Editor
                                 out.push_back( { base + ".Min", e, st, m, i, InputPart::Min } );
                                 out.push_back( { base + ".Max", e, st, m, i, InputPart::Max } );
                             }
+                            else if ( input.Source == S::VFXInputSource::Curve )
+                                out.push_back( { base + ".Keys", e, st, m, i, InputPart::Keys } );
                             else
                                 out.push_back( { base, e, st, m, i, InputPart::Value } );
                         }
@@ -223,6 +228,8 @@ namespace Desert::Editor
                     return input.Random ? &input.Random->Min : nullptr;
                 case InputPart::Max:
                     return input.Random ? &input.Random->Max : nullptr;
+                case InputPart::Keys:
+                    return nullptr;
             }
             return nullptr;
         }
@@ -640,8 +647,53 @@ namespace Desert::Editor
         auto&              input = InputAt( m_Working, address );
         ImGui::PushID( static_cast<int>( index ) );
         ImGui::BulletText( "%s  [%s]", input.Name.c_str(), SourceLabel( input.Source ) );
+        const std::string label     = std::format( "{}: {}", m_Working.Emitters[emitter].Name, input.Name );
+        const std::string inputName = input.Name;
+        // UE's stack input dropdown: a number input can become a curve over the normalised age and back. One
+        // undo step each; the curve starts flat at the value, the value is the curve at age 0.
+        if ( ImGui::BeginPopupContextItem( "##source" ) )
+        {
+            bool converted = false;
+            const bool number = input.Type != S::VFXValueType::Int && input.Type != S::VFXValueType::Bool;
+            if ( input.Source == S::VFXInputSource::Value && input.Value && number &&
+                 ImGui::MenuItem( "Use a curve over life" ) )
+            {
+                auto before = m_Working;
+                auto& in    = InputAt( m_Working, address );
+                std::vector<float> packed;
+                for ( const float t : { 0.0f, 1.0f } )
+                {
+                    packed.push_back( t );
+                    for ( uint32_t c = 0; c < S::ComponentCount( in.Type ); ++c )
+                        packed.push_back( ( *in.Value )[static_cast<glm::length_t>( c )] );
+                }
+                if ( auto curve = VFXCurveEdit::FromPacked( packed, S::ComponentCount( in.Type ) ) )
+                {
+                    in.Source = S::VFXInputSource::Curve;
+                    in.Curve  = std::move( curve.GetValue() );
+                    in.Value.reset();
+                    converted = true;
+                    (void)Commit( std::move( before ), std::format( "{}: use a curve", label ) );
+                }
+            }
+            if ( input.Source == S::VFXInputSource::Curve && input.Curve && ImGui::MenuItem( "Use a value" ) )
+            {
+                auto  before = m_Working;
+                auto& in     = InputAt( m_Working, address );
+                in.Value     = VFXCurveEdit::ValueAt( *in.Curve, 0.0f );
+                in.Source    = S::VFXInputSource::Value;
+                in.Curve.reset();
+                converted = true;
+                (void)Commit( std::move( before ), std::format( "{}: use a value", label ) );
+            }
+            ImGui::EndPopup();
+            if ( converted ) // a refused conversion put back a whole earlier system: `input` is not read again
+            {
+                ImGui::PopID();
+                return;
+            }
+        }
 
-        const std::string     label = std::format( "{}: {}", m_Working.Emitters[emitter].Name, input.Name );
         const S::VFXValueType type  = input.Type;
         const int             count = static_cast<int>( std::clamp( S::ComponentCount( type ), 1u, 4u ) );
 
@@ -711,6 +763,28 @@ namespace Desert::Editor
                 edit( "##max", InputPart::Max );
                 break;
             case S::VFXInputSource::Curve:
+            {
+                // The one curve editor every module's curve input shares (VFX-13): a gradient for a colour, a plot
+                // otherwise, sampled by the particle's normalised age. Edited on a copy taken before the widgets
+                // ran, so the gesture's undo step starts from what the curve was when the drag began.
+                if ( !input.Curve )
+                    break;
+                const VFXCurveEdit::Channels previous = *input.Curve;
+                const bool colour = type == S::VFXValueType::Vec4 && input.Curve->size() == 4;
+                const auto gesture = VFXCurveEdit::Draw( "##curve", *input.Curve, colour );
+                if ( gesture.Activated && !m_GestureBefore )
+                {
+                    m_GestureBefore = m_Working;
+                    InputAt( *m_GestureBefore, address ).Curve = previous;
+                }
+                if ( gesture.Deactivated && m_GestureBefore )
+                {
+                    auto before = std::move( *m_GestureBefore );
+                    m_GestureBefore.reset();
+                    (void)Commit( std::move( before ), std::format( "Edit {} curve", label ) );
+                }
+                break;
+            }
             case S::VFXInputSource::Binding:
             {
                 const std::string summary = InputSummary( input );
@@ -719,6 +793,19 @@ namespace Desert::Editor
             }
         }
         ImGui::Unindent();
+        // A `set` from the control channel brings its row into view, as UE's stack scrolls to what it selects.
+        if ( !m_Reveal.empty() && m_Reveal.starts_with( std::format( "{}.{}.", m_Working.Emitters[emitter].Name,
+                                                                     kStageKeys[stage] ) ) &&
+             m_Reveal.find( std::format( ".{}", inputName ) ) != std::string::npos )
+        {
+            const auto& modules = StageModules( m_Working.Emitters[emitter].Stack, stage );
+            if ( m_Reveal.starts_with( std::format( "{}.{}.{}.{}", m_Working.Emitters[emitter].Name,
+                                                    kStageKeys[stage], ModuleKey( modules, module ), inputName ) ) )
+            {
+                ImGui::SetScrollHereY( 0.5f );
+                m_Reveal.clear();
+            }
+        }
         ImGui::PopID();
     }
 
@@ -787,7 +874,15 @@ namespace Desert::Editor
             row.Type       = TypeWord( input.Type );
             row.Components = static_cast<int>( std::clamp( S::ComponentCount( input.Type ), 1u, 4u ) );
             auto copy      = input;
-            if ( const glm::vec4* value = PartValue( copy, address.Part ) )
+            if ( address.Part == InputPart::Keys && input.Curve )
+            {
+                // A curve row: its Value is the curve at age 0; the key list is what `set` takes.
+                row.Type = std::format( "curve:{}", TypeWord( input.Type ) );
+                const glm::vec4 start = VFXCurveEdit::ValueAt( *input.Curve, 0.0f );
+                for ( int c = 0; c < 4; ++c )
+                    row.Value[static_cast<std::size_t>( c )] = start[c];
+            }
+            else if ( const glm::vec4* value = PartValue( copy, address.Part ) )
             {
                 for ( int c = 0; c < 4; ++c )
                     row.Value[static_cast<std::size_t>( c )] = ( *value )[c];
@@ -899,6 +994,16 @@ namespace Desert::Editor
                  "the system has no stack input '{}'; ask 'properties' for the ones it offers", name );
         auto&     input = InputAt( m_Working, *found );
         const int count = static_cast<int>( std::clamp( S::ComponentCount( input.Type ), 1u, 4u ) );
+        m_Reveal        = name;
+        if ( found->Part == InputPart::Keys )
+        {
+            auto curve = VFXCurveEdit::FromPacked( value, static_cast<std::size_t>( count ) );
+            if ( !curve.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "'{}': {}", name, curve.GetError() );
+            auto before = m_Working;
+            input.Curve = std::move( curve.GetValue() );
+            return Commit( std::move( before ), std::format( "Set {}", name ) );
+        }
         if ( static_cast<int>( value.size() ) != count )
             return Common::MakeFormattedError<bool>( "'{}' is a {} and takes {} number(s), not {}", name,
                                                      TypeWord( input.Type ), count, value.size() );
