@@ -486,8 +486,9 @@ namespace Common::Scalability
 
     // THE RULES OF RESOLUTION, in order, and the reason each one writes:
     //   1. Every parameter takes its group's level value from the table.
-    //   2. An override replaces it and marks it Overridden (an override whose Key no spec has is dropped and reported — the file came
-    //      from a newer build; it stays in machine.json through the UnknownKeys carrier, not here).
+    //   2. An override replaces it and marks it Overridden (an override whose Key no spec has is dropped and
+    //      reported — the file came from a newer build; it stays in machine.json through the UnknownKeys
+    //      carrier, not here).
     //   3. A value outside its spec range is clamped ("outside the parameter's range").
     //   4. A value its catalog list does not offer walks DOWN the list to the nearest offered value below it;
     //      if none, the list's front ("not offered by this device"). MSAACounts/AnisotropyLevels: largest offered

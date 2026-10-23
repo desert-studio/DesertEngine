@@ -97,7 +97,7 @@ namespace Desert::Graphic
             if ( overridden ? ceiling != requested : ceiling < requested )
             {
                 r.Effective = ceiling;
-                r.Limit     = overridden ? MethodLimit::MachineOverride : MethodLimit::Scalability;
+                r.Limit     = overridden ? MethodLimit::Override : MethodLimit::Scalability;
             }
             WalkDown( r, device, gBuffer, refusals );
             return r;
@@ -132,7 +132,7 @@ namespace Desert::Graphic
                 case MethodLimit::Scalability:
                     scratch = std::format( "Scalability {} is {}", scalabilityKey, ceiling );
                     return scratch;
-                case MethodLimit::MachineOverride:
+                case MethodLimit::Override:
                     scratch = std::format( "machine override {} = {}", scalabilityKey, ceiling );
                     return scratch;
                 case MethodLimit::Device:
@@ -184,12 +184,14 @@ namespace Desert::Graphic
     {
         const DeviceOffers device = OffersOf( catalog );
         RenderMethods      out;
-        out.GlobalIllumination =
-             ResolveAxis( post.GlobalIlluminationMethod, quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ),
-                          OverriddenIn( quality, Parameter::GlobalIlluminationMethod ), device, gBuffer, std::span<const MethodRefusal<GIMethod>>( refusals.GlobalIllumination ) );
+        out.GlobalIllumination = ResolveAxis(
+             post.GlobalIlluminationMethod, quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ),
+             OverriddenIn( quality, Parameter::GlobalIlluminationMethod ), device, gBuffer,
+             std::span<const MethodRefusal<GIMethod>>( refusals.GlobalIllumination ) );
         out.Reflections =
              ResolveAxis( post.ReflectionsMethod, quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ),
-                          OverriddenIn( quality, Parameter::ReflectionsMethod ), device, gBuffer, std::span<const MethodRefusal<ReflectionMethod>>( refusals.Reflections ) );
+                          OverriddenIn( quality, Parameter::ReflectionsMethod ), device, gBuffer,
+                          std::span<const MethodRefusal<ReflectionMethod>>( refusals.Reflections ) );
         if ( ( out.GlobalIllumination.Effective == GIMethod::PathTraced ) !=
              ( out.Reflections.Effective == ReflectionMethod::PathTraced ) )
         {
@@ -199,7 +201,8 @@ namespace Desert::Graphic
                                      std::span<const MethodRefusal<ReflectionMethod>>( refusals.Reflections ) );
         }
         out.Shadows = ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ),
-                                   OverriddenIn( quality, Parameter::ShadowsMethod ), device, gBuffer, std::span<const MethodRefusal<ShadowMethod>>( refusals.Shadows ) );
+                                   OverriddenIn( quality, Parameter::ShadowsMethod ), device, gBuffer,
+                                   std::span<const MethodRefusal<ShadowMethod>>( refusals.Shadows ) );
         out.ContactShadows       = post.ContactShadows && kContactShadowsImplemented;
         out.DistanceFieldShadows = post.DistanceFieldShadows && kDistanceFieldShadowsImplemented;
         return out;
