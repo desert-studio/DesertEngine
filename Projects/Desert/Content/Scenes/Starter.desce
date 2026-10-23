@@ -535,68 +535,6 @@
                     "LensFlareChromaShift": 0.15000000596046448
                 }
             }
-        },
-        {
-            "id": 5150000000000000001,
-            "siblingIndex": 27,
-            "Tag": "Wall",
-            "Translation": [-450.0, 100.0, 250.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Destructible": {
-                "Source": 0,
-                "Fracture": "assets:Fractures/Wall.dfrac",
-                "RuntimeSites": 12,
-                "ImpactRadius": 50.0,
-                "ImpactShells": 3,
-                "ImpactSitesPerShell": 8,
-                "InteriorMaterial": "",
-                "DamageThreshold": [10000.0, 10000.0],
-                "AnchoredNodes": [],
-                "DensityKgPerCm3": 0.002400000113993883,
-                "Friction": 0.6000000238418579,
-                "Restitution": 0.10000000149011612,
-                "RemoveOnSleep": false,
-                "MaxSleepTime": [5.0, 10.0],
-                "SlowMovingAsSleeping": true,
-                "SlowMovingVelocityThreshold": 1.0,
-                "NotifyBreaks": true,
-                "NotifyCollisions": true,
-                "NotifyRemovals": true,
-                "CollisionEventMinImpulse": 5000.0
-            },
-            "Script": {
-                "Scripts": [{"ScriptKey": "assets:Scripts/Examples/DestructionDust.lua", "Props": []}]
-            }
-        },
-        {
-            "id": 5150000000000000002,
-            "siblingIndex": 28,
-            "Tag": "WallDust",
-            "Translation": [-450.0, 100.0, 250.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "VFX": {
-                "System": "assets:VFX/WallDust.dfx",
-                "AutoActivate": true,
-                "Overrides": []
-            }
-        },
-        {
-            "id": 5150000000000000003,
-            "siblingIndex": 29,
-            "Tag": "WallBlast",
-            "Translation": [-450.0, 100.0, 250.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "RadialImpulseField": {
-                "Magnitude": 300000.0,
-                "Radius": 300.0,
-                "Falloff": 0
-            },
-            "Script": {
-                "Scripts": [{"ScriptKey": "assets:Scripts/Examples/FireFieldAfter.lua", "Props": []}]
-            }
         }
     ],
     "Settings": {
