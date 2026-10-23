@@ -110,7 +110,7 @@ namespace Desert::Geometry
                                           const glm::dvec3& faceNormal, const glm::dvec3& centre,
                                           double attrWeight )
          : Base( faceNormal, centre ), PlaneN( faceNormal ), PlaneDist( -glm::dot( faceNormal, centre ) ),
-           AttrWeight( attrWeight )
+           A( 1.0 ), AttrWeight( attrWeight )
     {
         // Rows r0, r1, r2 of the basis; inverse(M) has the columns (r1 x r2, r2 x r0, r0 x r1) / det.
         const glm::dvec3 r0  = p[2] - p[0];
@@ -144,6 +144,7 @@ namespace Desert::Geometry
             {
                 Grad[i] = glm::dvec3( 0.0 );
                 D[i]    = attrWeight * ( n[0][i] + n[1][i] + n[2][i] ) / 3.0;
+                Base.C += D[i] * D[i];
             }
         }
     }
@@ -153,7 +154,7 @@ namespace Desert::Geometry
         Base.Add( weight, other.Base );
         PlaneN += weight * other.PlaneN;
         PlaneDist += weight * other.PlaneDist;
-        A += weight;
+        A += weight * other.A;
         AttrWeight = other.AttrWeight;
         for ( int i = 0; i < 3; ++i )
         {

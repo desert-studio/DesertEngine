@@ -17,6 +17,8 @@
 Дано run Modeling "Edit Materials slot material: M_UVChecker"
 Дано run Modeling "Active tool: Accept"
 Дано run "Level Viewport" "Focus Selected"
+# Close-up of the sphere (it sits at 140.6,0,140.6, radius 50): the 25 % facets and the UV seam must be readable.
+Дано --subject viewport set Camera.Position 45,85,45
 Когда run Modeling "Simplify type: Standard"
 Когда run Modeling "Simplify target: Percentage"
 Когда --subject modeling set Simplify.Percentage 25
