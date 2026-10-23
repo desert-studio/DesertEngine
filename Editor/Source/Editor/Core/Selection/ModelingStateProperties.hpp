@@ -56,7 +56,7 @@ namespace Desert::Editor::Core
            []( ModelingState& s, double v ) -> Common::BoolResultStr
            {
                s.SetCurrentBlockSize( static_cast<float>( v ) );
-               return true;
+               return Common::MakeSuccess( true );
            } },
          { "CubeGrid.BlocksPerStep",    "Blocks / Step",      "CubeGrid", 1, true, 1.0f, 32.0f, nullptr,
            []( ModelingState& s ) { return &s.BlocksPerStep; } },
