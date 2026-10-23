@@ -42,17 +42,17 @@ namespace Desert::Editor::Control
     /// the hardest kind to see.
     enum class PendingWork : std::size_t
     {
-        StartupLoading, ///< the staged boot is still running; the scene is not even rendered yet
-        SceneLoad,      ///< a scene load is queued for between frames
-        NewScene,       ///< Ctrl+N / File -> New, queued the same way
-        SceneView,      ///< a new scene view (viewport + renderer + slot) is being added
-        SceneStop,      ///< leaving Play, which tears down and recreates GPU render resources
-        DocumentCloses, ///< documents dismissed but not yet destroyed behind the device-idle wait
-        AssetOpens,     ///< asset documents requested but not yet built
-        OpenRefusal,    ///< an open was refused and its dialog has not been raised yet
-        ControlNudge,   ///< a control-rig nudge is queued, or has been applied but not yet drawn
-        PointerDrag,    ///< a `drag` is still feeding ImGui, or its release has not been drawn yet
-        GameTime,       ///< an `advance` is waiting for Play's simulated clock to reach its mark
+        StartupLoading,     ///< the staged boot is still running; the scene is not even rendered yet
+        SceneLoad,          ///< a scene load is queued for between frames
+        NewScene,           ///< Ctrl+N / File -> New, queued the same way
+        SceneView,          ///< a new scene view (viewport + renderer + slot) is being added
+        SceneStop,          ///< leaving Play, which tears down and recreates GPU render resources
+        DocumentCloses,     ///< documents dismissed but not yet destroyed behind the device-idle wait
+        AssetOpens,         ///< asset documents requested but not yet built
+        OpenRefusal,        ///< an open was refused and its dialog has not been raised yet
+        ControlNudge,       ///< a control-rig nudge is queued, or has been applied but not yet drawn
+        PointerDrag,        ///< a `drag` is still feeding ImGui, or its release has not been drawn yet
+        GameTime,           ///< an `advance` is waiting for Play's simulated clock to reach its mark
         ReflectionCaptures, ///< the active scene's reflection captures are still being written for the first time
         TexturesStreaming,  ///< texture loads are in flight (the frame shows placeholders where they land)
         ModelingAccept,     ///< a modeling tool's Accept is raised and waits for its background compute to land

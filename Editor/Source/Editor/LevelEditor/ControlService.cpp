@@ -4,7 +4,6 @@
 #include "Editor/Core/Commands/CommandRegistry.hpp"
 #include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
-#include "Editor/Core/Selection/ModelingState.hpp"
 #include "Editor/Core/Commands/WorldPartitionEditCommand.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp"
 #include "Editor/Core/Control/InputInjection.hpp"
