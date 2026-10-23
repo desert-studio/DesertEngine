@@ -5,6 +5,7 @@
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/MeshCore/Spatial/MeshAABBTree3.hpp"
+#include "Engine/Geometry/MeshCore/VectorUtil.hpp"
 #include "Engine/Geometry/ProgressCancel.hpp"
 
 #include <algorithm>
@@ -55,9 +56,9 @@ namespace Desert::Geometry
             glm::dvec3    p[3];
             for ( int j = 0; j < 3; ++j )
                 p[j] = tv[j] == movedVertex ? movedPos : mesh.GetVertex( tv[j] );
-            const glm::dvec3 n   = glm::cross( p[1] - p[0], p[2] - p[0] );
-            const double     len = glm::length( n );
-            return len > 1e-20 ? n / len : glm::dvec3( 0.0 );
+            // GetTriNormal's own convention (VectorUtil::Normal, UE's (V2-V0)x(V1-V0)): the opposite cross
+            // product made every collapse look like it turned its triangles over, so none was ever made.
+            return VectorUtil::Normal( p[0], p[1], p[2] );
         }
 
         // UE FRemesher::CollapseEdge's checks: not both ends fixed (a fixed end keeps its place and the free one

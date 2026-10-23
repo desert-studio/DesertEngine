@@ -55,6 +55,7 @@ namespace Desert::Editor::Control
         GameTime,       ///< an `advance` is waiting for Play's simulated clock to reach its mark
         ReflectionCaptures, ///< the active scene's reflection captures are still being written for the first time
         TexturesStreaming,  ///< texture loads are in flight (the frame shows placeholders where they land)
+        ModelingAccept,     ///< a modeling tool's Accept is raised and waits for its background compute to land
         Count
     };
 
@@ -74,6 +75,7 @@ namespace Desert::Editor::Control
          "Play's simulated time has not yet advanced as far as asked",
          "the reflection captures are still being filled for the first time",
          "textures are still streaming in",
+         "a modeling tool's Accept is waiting for its background compute",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),
