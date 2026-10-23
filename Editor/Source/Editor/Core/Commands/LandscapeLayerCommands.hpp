@@ -2,6 +2,7 @@
 
 #include <Engine/ECS/Components.hpp>
 #include <Engine/World/Landscape/LandscapeGenerator.hpp>
+#include <Engine/World/Landscape/LandscapeSplines.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
@@ -124,4 +125,16 @@ namespace Desert::Editor::Commands
     Common::BoolResultStr SetLandscapeEditLayerAlpha( const std::shared_ptr<::Desert::Core::Scene>& scene,
                                                       const Common::UUID& layer, float heightAlpha,
                                                       float weightAlpha );
+
+    /**
+     * @brief UE's Splines tool Ctrl+click: adds to landscape @p landscape a control point at @p location (world cm) with @p point's
+     * width and falloffs, joined by a segment with @p segment's Raise/Lower to control point @p joinTo when
+     * given, and re-derives the Splines edit layer — creating it on top of the stack the first time, as UE
+     * makes its splines layer. ONE undo entry (UE: one transaction per click); its undo restores the splines,
+     * the stack and the layer's data, so the ground returns byte for byte. Returns the new point's index.
+     */
+    Common::ResultStr<uint32_t> AddLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                                                         const glm::vec3& location, std::optional<uint32_t> joinTo,
+                                                         const World::Landscape::LandscapeSplineControlPoint& point,
+                                                         const World::Landscape::LandscapeSplineSegment& segment );
 } // namespace Desert::Editor::Commands

@@ -61,6 +61,7 @@ namespace Desert::Assets::Serialization
 #include <Engine/ECS/VFXUserOverride.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
+#include <Engine/World/Landscape/LandscapeSplines.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <string_view>
 
@@ -416,6 +417,10 @@ namespace Desert::ECS
         // layer's data lives on the tiles it touched (LandscapeTileData::EditLayers, in the DLHT blob), and a
         // tile's samples are their merge (MergeLandscapeEditLayers).
         World::Landscape::LandscapeEditLayerStack EditLayers;
+        // UE ULandscapeSplinesComponent: the landscape's spline control points and segments, world cm. They
+        // write the stack's Splines edit layer (RasterizeLandscapeSplines); the heights they make are that
+        // layer's data on the tiles, so a cooked landscape needs only the merged heights.
+        World::Landscape::LandscapeSplines Splines;
     };
 
     // ONE TILE OF A LANDSCAPE (UE: ALandscapeStreamingProxy of one component).

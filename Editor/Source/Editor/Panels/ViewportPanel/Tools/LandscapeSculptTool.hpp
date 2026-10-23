@@ -38,6 +38,8 @@ namespace Desert::Editor::Tools
         void UpdateRamp( ::Desert::Core::Scene& scene, const Common::Math::Ray& mouseRay, bool hovered );
         /// Serves a pending ramp request (a point, apply, reset); false when the request is not the ramp's.
         bool ServeRampRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& centreRay );
+        /// UE's Splines tool click: a control point where @p ray meets the landscape, joined to the selected one.
+        void AddSplinePoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray );
         /// Serves a Mirror or Copy/Paste request at @p ray (a point, a copy, a paste, the mirror itself).
         void ServeComponentRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
                                     ::Desert::Editor::Core::LandscapeStrokeRequest request );
