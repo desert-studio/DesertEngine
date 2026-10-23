@@ -1,0 +1,14 @@
+# VFX-SYS-REF: the VFX component's System slot (Asset<VFXSystemAsset>) is drawn as a VFX System picker over the
+# content registry's VFXSystem rows (UE TSoftObjectPtr<UNiagaraSystem>), not the Texture2D slot the property
+# builder fell into for every asset type without a branch - which asked the .dfx handle as a Texture2D every frame
+# (~100 "FindByHandle ... requested as Texture2D" errors) and showed "(missing)" while the effect played.
+# The scenario SAVES: `git checkout -- Projects/Desert/Content/Scenes/Starter.desce` after a play.
+Дано run Scene "Open Scene Starter.desce"
+Когда run Entity "Add to selection Campfire"
+Когда state
+Тогда 0_details Details shows the VFX component's System = Campfire (not "(missing)"), flames playing; editor.log has 0 Texture2D errors for the .dfx
+Когда run Action "Save Scene"
+Когда run Scene "Open Scene Starter.desce"
+Когда run Entity "Add to selection Campfire"
+Когда state
+Тогда 1_reopen after the scene is saved and reopened the same System = Campfire, flames playing
