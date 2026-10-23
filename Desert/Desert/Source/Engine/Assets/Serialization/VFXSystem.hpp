@@ -43,11 +43,11 @@ namespace Desert::Assets::Serialization
      *   4 - VFX-PORT-1 (int/vfx VFX-MODULE-ASSET): a stack row names its module as {Guid, Path} of a `.dfxmod`
      *       (the engine's module library or the project's own), the module GUIDs join the header's Dependencies,
      *       and LocalModules is gone (a system-local module is a project `.dfxmod`). Raised by
-     *       Tools/SceneMigrator (MigrateVFXSystemToModuleAssets): engine:<Name> becomes the GUID of
+     *       Tools/SceneMigrator (MigrateVFXSystem): engine:<Name> becomes the GUID of
      *       <Name>.dfxmod in the engine module library.
      *   5 - VFX-PORT-2 (int/vfx de1d65125): Bounds moved from the system into every emitter
      *       (VFXEmitterData::Bounds, UE UNiagaraEmitter::FixedBounds); each emitter is culled by its own box in
-     *       every view and every shadow view. Raised by Tools/SceneMigrator (MigrateVFXSystemToV5): the system's
+     *       every view and every shadow view. Raised by Tools/SceneMigrator (MigrateVFXSystem): the system's
      *       box is copied into each emitter.
      *
      * An unknown value is refused in both directions; a later layout raises its files through a SceneMigrator
@@ -281,10 +281,14 @@ namespace Desert::Assets::Serialization
      * Every emitter of this engine simulates on the GPU and nothing of its particles comes back to the CPU: the box
      * is all the renderer knows of where they are. It culls the emitter's draws against every view (sprite and
      * ribbon rows, Mesh rows in the geometry passes) and every shadow view (Mesh rows in the cascades), and decides
-     * whether the view's emitters sample the shadow maps (ParticleRenderer). The placement is the entity's world
-     * POSITION - the simulation reads no rotation or scale (ParticleSimPush::EmitterPos) - so the box is placed by
-     * translation alone (VFXBoundsAt), whether the emitter simulates in Local or World space. A particle outside
-     * its box is culled with it: the box must hold them all.
+     * whether the view's emitters sample the shadow maps (ParticleRenderer). The box is stated in the system's
+     * PLACEMENT FRAME (the entity's local space) and goes to the world through the entity's FULL transform -
+     * translation, rotation and scale (VFXBoundsAt; UE: FixedBounds are component-space and the component's
+     * LocalToWorld places them). One rule for both spaces, because the simulation places both through the same
+     * transform (ParticleSimPush::LocalToWorld): a Local emitter's particles live in the placement frame and are
+     * drawn through it; a World emitter's newborns are placed through it and then stay where they were born, so its
+     * box (as in UE) must also hold the trail a moving placement leaves inside it. A particle outside its box is
+     * culled with it: the box must hold them all.
      */
     struct VFXBounds
     {
@@ -294,9 +298,10 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const VFXBounds& ) const = default;
     };
 
-    /// @p bounds placed at @p placementCm, the entity's world position (VFXBounds: translation alone). THE rule
-    /// the renderer's culling, the effects world's scalability box and the debugger's "Draw bounds" share.
-    [[nodiscard]] Common::Math::AABB VFXBoundsAt( const VFXBounds& bounds, const glm::vec3& placementCm );
+    /// The world box (cm) of @p bounds through the entity's full transform @p localToWorld (VFXBounds: its 8
+    /// corners transformed, Arvo). THE rule the renderer's culling, the effects world's scalability box, the
+    /// debugger's "Draw bounds" and the editor preview's framing share.
+    [[nodiscard]] Common::Math::AABB VFXBoundsAt( const VFXBounds& bounds, const glm::mat4& localToWorld );
 
     struct VFXEmitterData
     {

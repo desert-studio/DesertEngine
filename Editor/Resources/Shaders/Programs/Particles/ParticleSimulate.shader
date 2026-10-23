@@ -108,7 +108,10 @@ Shader "ParticleSimulate"
 
         PushConstant PushConstants
         {
-            vec4  EmitterPosition; // xyz = emitter world pos (cm), w = the fixed step length (seconds)
+            // The entity's full transform (cm; UE Engine.Owner.SystemLocalToWorld): a World emitter's newborns are
+            // placed through it; a Local emitter's particles live in its frame (the renderer draws them through it).
+            mat4  LocalToWorld;
+            vec4  StepLength; // x = the fixed step length (seconds), yzw = 0
             uvec4 Counts;     // x = the range's particle count, y = step, z = the range's pool base, w = local
             uvec4 Stack;      // x = the world's serial of this tick's step 0 (the random streams' step), yzw = 0
         };
@@ -177,7 +180,7 @@ Shader "ParticleSimulate"
             const bool local = Counts.w == 1u;
 
             VFXSim sim;
-            sim.DeltaTime  = EmitterPosition.w;
+            sim.DeltaTime  = StepLength.x;
             sim.EmitterAge = 0.0;
             sim.Seed       = Steps[step].Seed;
             sim.ParticleId = id;
@@ -194,11 +197,14 @@ Shader "ParticleSimulate"
             position = ReadVec3( n, VFX_ATTR_POSITION );
             if ( spawned )
             {
-                // A newborn's Position is relative to the emitter (the shape modules place it around zero).
+                // A newborn's Position is in the placement frame (the shape modules place it around zero): a World
+                // emitter's goes to the world through the entity's full transform, a Local emitter's stays in the
+                // frame. A Spawn-from-Channel position is a world one: a Local emitter takes it into its frame.
                 if ( channel.Position.w > 0.5 )
-                    position = local ? channel.Position.xyz - EmitterPosition.xyz : channel.Position.xyz;
+                    position = local ? ( inverse( LocalToWorld ) * vec4( channel.Position.xyz, 1.0 ) ).xyz
+                                     : channel.Position.xyz;
                 else if ( !local )
-                    position += EmitterPosition.xyz;
+                    position = ( LocalToWorld * vec4( position, 1.0 ) ).xyz;
                 WriteVec3( n, VFX_ATTR_POSITION, position );
             }
 #endif

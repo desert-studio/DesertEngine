@@ -129,6 +129,9 @@ namespace Desert::Editor
         // Ends a gesture that began from @p before: one undo step labelled @p label, or - when the result is not a
         // valid system - m_Working back to @p before and the refusal shown.
         Common::BoolResultStr Commit( Assets::Serialization::VFXSystemData before, const std::string& label );
+        // Emitter @p emitter's Fixed Bounds (UE FixedBounds; the stack's "Fixed Bounds" header and
+        // `<Emitter>.Bounds.Min|Max`), one undo step; refused like any edit the format refuses.
+        Common::BoolResultStr SetEmitterBounds( std::size_t emitter, Assets::Serialization::VFXBounds bounds );
 
         // THE STACK'S STRUCTURE (12d, UE's stack: add from the module library, delete, reorder, the row's
         // enable checkbox). Each is one Commit - one undo step - and, being a change of m_Working, restarts the

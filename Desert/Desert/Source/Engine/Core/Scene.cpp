@@ -746,9 +746,9 @@ namespace Desert::Core
                 {
                     if ( emitter.Capacity == 0 )
                         continue; // disabled: draws nothing, culls nothing
-                    // The box the renderer culls the emitter by (VFXBoundsAt: placed by translation alone).
-                    const Common::Math::AABB box = Assets::Serialization::VFXBoundsAt(
-                         emitter.Bounds, glm::vec3( system.Transform[3] ) );
+                    // The box the renderer culls the emitter by (VFXBoundsAt: the entity's full transform).
+                    const Common::Math::AABB box =
+                         Assets::Serialization::VFXBoundsAt( emitter.Bounds, glm::mat4( system.Transform ) );
                     glm::vec3 corner[8];
                     for ( int i = 0; i < 8; ++i )
                         corner[i] = glm::vec3( ( i & 1 ) ? box.Max.x : box.Min.x, ( i & 2 ) ? box.Max.y : box.Min.y,

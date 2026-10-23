@@ -1552,44 +1552,6 @@ namespace Desert::Migration
                     continue;
                 }
             }
-            if ( path.extension() == ".dfx" )
-            {
-                // VFXS 1 -> 3 (VFX-MODULE-ASSET): stack rows name `.dfxmod` modules by {Guid, Path}.
-                const auto stated = ReadStatedVersion( path, text, "VFXS" );
-                if ( stated && stated.GetValue() == 1u )
-                {
-                    const auto raised = Desert::Migration::MigrateVFXSystemToModuleAssets( text );
-                    if ( !raised )
-                    {
-                        err << "FAIL   " << path.string() << " — VFXS 1 -> "
-                            << Desert::Assets::kVFXSystemSchemaVersion << ": " << raised.GetError() << "\n";
-                        ++failed;
-                        continue;
-                    }
-                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXS 1 -> "
-                        << Desert::Assets::kVFXSystemSchemaVersion << " (module assets)\n";
-                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
-                        ++failed;
-                    continue;
-                }
-                // VFXS 4 -> 5 (VFX-PORT-2): the system's Bounds move into every emitter.
-                if ( stated && stated.GetValue() == 4u )
-                {
-                    const auto raised = Desert::Migration::MigrateVFXSystemToV5( text );
-                    if ( !raised )
-                    {
-                        err << "FAIL   " << path.string() << " — VFXS 4 -> "
-                            << Desert::Assets::kVFXSystemSchemaVersion << ": " << raised.GetError() << "\n";
-                        ++failed;
-                        continue;
-                    }
-                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXS 4 -> "
-                        << Desert::Assets::kVFXSystemSchemaVersion << " (emitter bounds)\n";
-                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
-                        ++failed;
-                    continue;
-                }
-            }
             if ( path.extension() == ".danimgraph" )
             {
                 // ANGR 2 -> 3 (TAIL-ANIM): the Output Pose node's canvas position.
@@ -1658,15 +1620,15 @@ namespace Desert::Migration
                     continue;
                 }
             }
-            // VFXS 1 -> 2 (VFX-09): renderer rows state their Material / Ribbon / Mesh; 2 -> 3 (VFX-11): the
-            // system names the Default effect type.
+            // VFXS 1 .. 4 -> current, one chain on the untyped body (MigrateVFXSystem): 1 -> 2 renderer rows
+            // (VFX-09), 2 -> 3 the Default effect type (VFX-11), 3 -> 4 module assets (VFX-MODULE-ASSET), 4 -> 5
+            // emitter bounds (VFX-PORT-2).
             if ( path.extension() == Desert::Assets::Serialization::kVFXSystemExtension )
             {
                 const auto stated = ReadStatedVersion( path, text, "VFXS" );
-                // VFXS 4 has its own step above.
-                if ( stated && stated.GetValue() < 4u )
+                if ( stated && stated.GetValue() < Desert::Assets::kVFXSystemSchemaVersion )
                 {
-                    const auto raised = Desert::Migration::MigrateVFXSystemToV3( text );
+                    const auto raised = Desert::Migration::MigrateVFXSystem( text );
                     if ( !raised )
                     {
                         err << "FAIL   " << path.string() << " — VFXS " << stated.GetValue() << " -> "
@@ -1681,8 +1643,15 @@ namespace Desert::Migration
                         ++failed;
                         continue;
                     }
-                    // The step names `Default`: the project's VFX root must hold it (UE DefaultEffectType). Created
-                    // once, beside the first system raised, when the project has none; an existing one is kept.
+                    if ( stated.GetValue() >= 3u )
+                    {
+                        // Already named its effect type: the 2 -> 3 step did not run.
+                        ++vfxSystemsRaised;
+                        continue;
+                    }
+                    // The 2 -> 3 step names `Default`: the project's VFX root must hold it (UE DefaultEffectType).
+                    // Created once, beside the first system raised, when the project has none; an existing one is
+                    // kept.
                     const auto vfxRoot = Common::Constants::Path::RootForContentPath(
                          Common::Constants::Path::ContentDir::VFX, path );
                     if ( !vfxRoot )

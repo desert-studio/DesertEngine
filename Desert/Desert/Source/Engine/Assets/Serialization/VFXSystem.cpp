@@ -374,9 +374,21 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( std::move( data ) );
     }
 
-    Common::Math::AABB VFXBoundsAt( const VFXBounds& bounds, const glm::vec3& placementCm )
+    Common::Math::AABB VFXBoundsAt( const VFXBounds& bounds, const glm::mat4& localToWorld )
     {
-        return Common::Math::AABB{ bounds.Min + placementCm, bounds.Max + placementCm };
+        // Arvo: each world axis of the box is the translation plus, per local axis, the smaller / larger of the
+        // column times the local min and max - exactly the box of the 8 transformed corners.
+        glm::vec3 lo( localToWorld[3] );
+        glm::vec3 hi( localToWorld[3] );
+        for ( int axis = 0; axis < 3; ++axis )
+        {
+            const glm::vec3 column( localToWorld[axis] );
+            const glm::vec3 a = column * bounds.Min[axis];
+            const glm::vec3 b = column * bounds.Max[axis];
+            lo += glm::min( a, b );
+            hi += glm::max( a, b );
+        }
+        return Common::Math::AABB{ lo, hi };
     }
 
     std::optional<VFXBounds> VFXSystemExtent( const VFXSystemData& data )

@@ -500,6 +500,21 @@ namespace Desert::Editor
         if ( !m_Refusal.empty() )
             ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ), "%s", m_Refusal.c_str() );
         ImGui::Separator();
+        // UE emitter properties' Fixed Bounds: the box (cm, the placement frame; VFXBounds) every view and shadow
+        // view culls the emitter by. Each corner is one undo step, committed on Enter; a box the format refuses
+        // (Min above Max) is put back with the reason above.
+        if ( ImGui::CollapsingHeader( "Fixed Bounds", ImGuiTreeNodeFlags_DefaultOpen ) )
+        {
+            S::VFXBounds bounds = emitter.Bounds;
+            ImGui::PushID( "FixedBounds" );
+            const bool minSet = ImGui::InputFloat3( "Min (cm)", &bounds.Min.x, "%.1f",
+                                                    ImGuiInputTextFlags_EnterReturnsTrue );
+            const bool maxSet = ImGui::InputFloat3( "Max (cm)", &bounds.Max.x, "%.1f",
+                                                    ImGuiInputTextFlags_EnterReturnsTrue );
+            ImGui::PopID();
+            if ( minSet || maxSet )
+                (void)SetEmitterBounds( m_SelectedEmitter, bounds );
+        }
         // UE's stack order: Emitter Update runs once per tick, Particle Spawn once per new particle, Particle
         // Update per live particle per tick, then the Render rows.
         DrawStage( "Emitter Spawn", m_SelectedEmitter, 0 );
@@ -873,6 +888,16 @@ namespace Desert::Editor
         ImGui::PopID();
     }
 
+    Common::BoolResultStr VFXSystemDocument::SetEmitterBounds( const std::size_t emitter, const S::VFXBounds bounds )
+    {
+        if ( emitter >= m_Working.Emitters.size() )
+            return Common::MakeFormattedError<bool>( "the system has no emitter {}", emitter );
+        auto before                          = m_Working;
+        m_Working.Emitters[emitter].Bounds = bounds;
+        // ValidateVFXSystemData refuses a box whose Min is above its Max: put back, said in the stack.
+        return Commit( std::move( before ), std::format( "Set {} Fixed Bounds", m_Working.Emitters[emitter].Name ) );
+    }
+
     Common::BoolResultStr VFXSystemDocument::Commit( Assets::Serialization::VFXSystemData before,
                                                      const std::string&                   label )
     {
@@ -978,6 +1003,20 @@ namespace Desert::Editor
                     out.push_back( std::move( row ) );
                 }
             }
+            // The emitter's Fixed Bounds corners: `<Emitter>.Bounds.Min|Max`, three numbers (cm, placement frame).
+            for ( const bool max : { false, true } )
+            {
+                const glm::vec3& corner = max ? m_Working.Emitters[e].Bounds.Max : m_Working.Emitters[e].Bounds.Min;
+                EditableProperty row;
+                row.Name       = std::format( "{}.Bounds.{}", m_Working.Emitters[e].Name, max ? "Max" : "Min" );
+                row.Label      = max ? "Fixed Bounds Max (cm)" : "Fixed Bounds Min (cm)";
+                row.Group      = std::format( "{}.Bounds", m_Working.Emitters[e].Name );
+                row.Type       = "float3";
+                row.Components = 3;
+                for ( int c = 0; c < 3; ++c )
+                    row.Value[static_cast<std::size_t>( c )] = corner[c];
+                out.push_back( std::move( row ) );
+            }
         }
         // Each renderer row: `<Emitter>.Render.<row>.Enabled`, and a Light row's settings beside it (VFX-LIGHT).
         for ( const auto& emitter : m_Working.Emitters )
@@ -1067,6 +1106,18 @@ namespace Desert::Editor
         }
         if ( auto renderer = SetRendererProperty( name, value ) )
             return *renderer;
+        for ( std::size_t e = 0; e < m_Working.Emitters.size(); ++e )
+            for ( const bool max : { false, true } )
+            {
+                if ( name != std::format( "{}.Bounds.{}", m_Working.Emitters[e].Name, max ? "Max" : "Min" ) )
+                    continue;
+                if ( value.size() != 3 )
+                    return Common::MakeFormattedError<bool>( "'{}' is a float3 (cm) and takes 3 numbers, not {}",
+                                                             name, value.size() );
+                S::VFXBounds bounds = m_Working.Emitters[e].Bounds;
+                ( max ? bounds.Max : bounds.Min ) = glm::vec3( value[0], value[1], value[2] );
+                return SetEmitterBounds( e, bounds );
+            }
         for ( std::size_t e = 0; e < m_Working.Emitters.size(); ++e )
         {
             for ( std::size_t st = 0; st < kStageKeys.size(); ++st )

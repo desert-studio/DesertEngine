@@ -296,11 +296,10 @@ namespace Desert::VFX
                  const glm::vec3 emitterCm( world[3] );
                  system.Transform = world;
                  // The world box of the enabled emitters' fixed bounds, placed as the renderer culls them
-                 // (VFXBoundsAt: the simulation reads the placement's position alone); no enabled emitter - the
-                 // placement's point.
+                 // (VFXBoundsAt: the placement's full transform); no enabled emitter - the placement's point.
                  const auto extent = Assets::Serialization::VFXSystemExtent( *data );
                  const Common::Math::AABB placed =
-                      extent ? Assets::Serialization::VFXBoundsAt( *extent, emitterCm )
+                      extent ? Assets::Serialization::VFXBoundsAt( *extent, world )
                              : Common::Math::AABB{ emitterCm, emitterCm };
                  const glm::vec3 minCm = placed.Min;
                  const glm::vec3 maxCm = placed.Max;
