@@ -37,7 +37,7 @@ namespace Desert::Editor::Commands
             LandscapeLayersCommand( const std::shared_ptr<::Desert::Core::Scene>& scene,
                                     const Common::UUID& landscape, std::vector<Assets::AssetHandle> before,
                                     std::vector<Assets::AssetHandle> after, std::string label )
-                 : m_Scene( &scene ), m_Landscape( landscape ), m_Before( std::move( before ) ),
+                 : m_Scene( scene ), m_Landscape( landscape ), m_Before( std::move( before ) ),
                    m_After( std::move( after ) ), m_Label( std::move( label ) )
             {
             }
@@ -804,7 +804,7 @@ namespace Desert::Editor::Commands
             LandscapeSplinesCommand( ::Desert::Core::Scene& scene,
                                      const Common::UUID& landscape, LandscapeSplinesState before,
                                      LandscapeSplinesState after, std::string label )
-                 : m_Scene( scene ), m_Landscape( landscape ), m_Before( std::move( before ) ),
+                 : m_Scene( &scene ), m_Landscape( landscape ), m_Before( std::move( before ) ),
                    m_After( std::move( after ) ), m_Label( std::move( label ) )
             {
             }
