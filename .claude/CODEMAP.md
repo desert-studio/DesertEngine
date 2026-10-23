@@ -178,7 +178,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 
 ## Editor — `Editor/Source/Editor`
 - `Core` — 88 files, 19,044 lines: AssetFieldRequest, AssetFieldRequests, AssetReferenceIndex, ByteCommand, ClosedDocument, CommandHistory, CommandLineFlag, CommandLineOptions, CommandPalette, ControlNudgeRequests, CrashRecovery, DetailsNavigation, … (+65)
-- `Core/Commands` — 24 files, 7,209 lines: AnimGraphEditCommand, AnimGraphEditTransaction, AnimGraphOwner, AssetFolderMoveCommand, AssetMoveCommand, AssetTrashCommand, BindPoseGesture, BoneDelta, BoneGizmoGesture, CommandRegistry, ControlAutoKey, ControlEdit, … (+28)
+- `Core/Commands` — 24 files, 7,276 lines: AnimGraphEditCommand, AnimGraphEditTransaction, AnimGraphOwner, AssetFolderMoveCommand, AssetMoveCommand, AssetTrashCommand, BindPoseGesture, BoneDelta, BoneGizmoGesture, CommandRegistry, ControlAutoKey, ControlEdit, … (+28)
 - `Core/Control` — 9 files, 2,834 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, InputChord, InputInjection, … (+14)
 - `Core/GraphCanvas` — 4 files, 901 lines: CanvasPlan, CanvasRect, DeferredFrameAll, ElementIdMap, ElementLedger, FindPopup, PlannedLink, PlannedNode, Resolved
 - `Core/Rigging` — 4 files, 344 lines: Bone, RigBuilder
