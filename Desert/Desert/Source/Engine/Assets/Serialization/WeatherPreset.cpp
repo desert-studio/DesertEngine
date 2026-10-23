@@ -29,6 +29,20 @@ namespace Desert::Assets::Serialization
         }
         if ( data.CloudCoverage && !( *data.CloudCoverage >= 0.0f && *data.CloudCoverage <= 1.0f ) )
             return Common::MakeFormattedError<bool>( "CloudCoverage {} is outside [0, 1]", *data.CloudCoverage );
+        std::unordered_set<std::string> types;
+        for ( size_t i = 0; i < data.CloudTypes.size(); ++i )
+        {
+            const WeatherCloudTypeWeight& t = data.CloudTypes[i];
+            if ( t.Type.empty() )
+                return Common::MakeFormattedError<bool>( "CloudTypes[{}] names no cloud type", i );
+            if ( !types.insert( t.Type ).second )
+                return Common::MakeFormattedError<bool>( "CloudTypes[{}] '{}' is stated twice", i, t.Type );
+            if ( !( t.Weight >= 0.0f && t.Weight <= 1.0f ) )
+                return Common::MakeFormattedError<bool>( "CloudTypes[{}] '{}' weight {} is outside [0, 1]", i,
+                                                         t.Type, t.Weight );
+        }
+        if ( data.CloudDensity && !( *data.CloudDensity >= 0.0f && *data.CloudDensity <= 2.0f ) )
+            return Common::MakeFormattedError<bool>( "CloudDensity {} is outside [0, 2]", *data.CloudDensity );
         if ( data.FogDensity && !( *data.FogDensity >= 0.0f && *data.FogDensity <= 0.5f ) )
             return Common::MakeFormattedError<bool>( "FogDensity {} is outside [0, 0.5]", *data.FogDensity );
         if ( data.WindSpeed && !( *data.WindSpeed >= 0.0f && std::isfinite( *data.WindSpeed ) ) )

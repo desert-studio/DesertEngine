@@ -12,7 +12,9 @@
 //   and distance (the PostProcessVolume rule of Graphic/ViewSettings.cpp).
 //   Apply — the weather at the observer (the active camera) written into the consumers' OWN values: the named
 //   world parameters (Core::WorldParameterInstance), the cloud layer's material "Coverage"
-//   (VolumetricCloudData::DynamicParams), the height fog's FogDensity; and each zone's WindSpeed into the
+//   (VolumetricCloudData::DynamicParams) with its "DensityScale" and the "CloudTypeWeight<k>" of every type slot
+//   (WTH-OVERCAST: the preset names the TYPES, Apply finds which slot of the layer's material holds each), the
+//   height fog's FogDensity; and each zone's WindSpeed into the
 //   WindSource on its own entity. Nothing reads weather from here except those writes.
 
 #include <Engine/Assets/Common.hpp>
@@ -39,6 +41,9 @@ namespace Desert::Core
     {
         std::vector<Assets::Serialization::WeatherParameterValue> Parameters;
         std::optional<float>                                      CloudCoverage;
+        // The preset's CloudTypes resolved to handles (WTH-OVERCAST); empty = the layer's weights are left alone.
+        std::vector<std::pair<Assets::AssetHandle, float>>        CloudTypes;
+        std::optional<float>                                      CloudDensity;
         std::optional<float>                                      FogDensity;
         std::optional<float>                                      WindSpeed;
 
