@@ -65,11 +65,11 @@ namespace Desert::Editor
             {
                 LOG_WARN(
                      "[Recovery] not offered: '{}' states scene schema v{} / world units v{} / world "
-                     "partition v{}; this build opens v{} / v{} / v{} only. Autosaves are not migrated -- the "
-                     "file is left as it is.",
+                     "partition v{} / asset references v{}; this build opens v{} / v{} / v{} / v{} only. "
+                     "Autosaves are not migrated -- the file is left as it is.",
                      copy.Path.string(), copy.Stated.Scene, copy.Stated.Unit, copy.Stated.WorldPartition,
-                     Desert::Core::kSceneVersion, Desert::Core::kUnitVersion,
-                     Desert::Core::kWorldPartitionVersion );
+                     copy.Stated.AssetRef, Desert::Core::kSceneVersion, Desert::Core::kUnitVersion,
+                     Desert::Core::kWorldPartitionVersion, Desert::Core::kAssetRefVersion );
             }
             dock.OfferRecovery( choice.Offered );
         }
