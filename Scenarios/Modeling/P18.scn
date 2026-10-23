@@ -1,0 +1,20 @@
+# P18 CubeGrid Grid Power like UE FCubeGrid: cell = 3.125 cm * 2^power (Power 5 = 100 cm, Power 6 = 200 cm; Power up =
+# bigger cell). Starter scene, Modeling > CubeGrid at Power 5 -> Power +1 -> one 1x1 block pushed out -> Undo.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Direction 0.5,-0.6,0.6
+Дано run Modeling "CubeGrid tool"
+Дано run Modeling "Aim at the viewport centre: on"
+Дано run Modeling "Grid Power 5"
+Когда state
+Тогда 0_p5 CubeGrid active, grid cells 100 cm: the tool bar reads "Grid Power 5 - 100 cm" and the panel shows Grid Power 5 / Current Block Size 100 cm
+Когда run Modeling "Grid Power +1"
+Когда state
+Тогда 1_p6 cells twice as large: tool bar "Grid Power 6 - 200 cm", the grid lines twice as far apart, same origin
+Когда run Modeling "Select 1x1 blocks at the aim"
+Когда run Modeling "Push/Pull out (E)"
+Когда state
+Тогда 2_extrude a single 200 cm block stands on the grid where the viewport centre aims
+Когда run Action Undo
+Когда state
+Тогда 3_undo the block is gone; the tool bar still reads "Grid Power 6 - 200 cm"
