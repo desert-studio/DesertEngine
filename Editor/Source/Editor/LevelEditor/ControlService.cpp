@@ -279,7 +279,7 @@ namespace Desert::Editor
                       m_FrameQuiescence.Describe() );
             m_ControlInFlight       = request;
             m_ControlInFlightClient = m_ControlSocket.ClientGeneration();
-            m_ControlGate.ArmForReadiness( m_FrameIndex );
+            m_ControlGate.ArmForReadiness( m_FrameIndex, Control::FrameGate::Clock::now() );
             return;
         }
 
@@ -328,7 +328,7 @@ namespace Desert::Editor
         m_ControlInFlight       = request;
         m_ControlPendingReply   = std::move( response );
         m_ControlInFlightClient = m_ControlSocket.ClientGeneration();
-        m_ControlGate.ArmAfterExecution( m_FrameIndex );
+        m_ControlGate.ArmAfterExecution( m_FrameIndex, Control::FrameGate::Clock::now() );
     }
 
     /**
@@ -467,8 +467,8 @@ namespace Desert::Editor
         // The frame just presented is judged by the quiescence sampled while it was being BUILT. The gate
         // uses m_FrameIndex - 1 because the counter was advanced above: the frame that has just gone out
         // is the one that was being made when ServiceControlChannel armed the gate.
-        const Control::GateVerdict verdict =
-             m_ControlGate.ObserveFramePresented( m_FrameIndex - 1, m_FrameQuiescence );
+        const Control::GateVerdict verdict = m_ControlGate.ObserveFramePresented(
+             m_FrameIndex - 1, m_FrameQuiescence, Control::FrameGate::Clock::now() );
 
         if ( verdict == Control::GateVerdict::Waiting || verdict == Control::GateVerdict::Idle )
             return std::nullopt;
@@ -485,7 +485,8 @@ namespace Desert::Editor
             {
                 m_ControlSocket.SendResponseLine( Control::FormatResponse( Control::Response::Failure(
                      m_ControlInFlight->Id,
-                     Control::DescribeReadinessTimeout( m_FrameQuiescence, m_ControlGate.FramesWaited() ) ) ) );
+                     Control::DescribeReadinessTimeout( m_FrameQuiescence, m_ControlGate.FramesWaited(),
+                                                        m_ControlGate.Waited() ) ) ) );
                 m_ControlInFlight.reset();
             }
             return std::nullopt;
@@ -507,9 +508,10 @@ namespace Desert::Editor
 
         if ( verdict == Control::GateVerdict::TimedOut )
         {
-            reply = Control::Response::Failure(
-                 m_ControlInFlight->Id,
-                 Control::DescribeSettleTimeout( m_FrameQuiescence, m_ControlGate.FramesWaited() ) );
+            reply = Control::Response::Failure( m_ControlInFlight->Id,
+                                                Control::DescribeSettleTimeout( m_FrameQuiescence,
+                                                                                m_ControlGate.FramesWaited(),
+                                                                                m_ControlGate.Waited() ) );
         }
         else if ( Control::IsShot( m_ControlInFlight->Operation ) )
         {

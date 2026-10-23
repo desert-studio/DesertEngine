@@ -133,9 +133,10 @@ namespace Desert::Editor::Control
          { "advance", Op::Advance, RequiresReady::Yes },
     };
 
-    /// The longest `advance`. Its reply waits behind the settle gate (ControlPipeline.hpp kMaxSettleFrames,
-    /// 240 frames), and physics takes one 1/60 s step per frame at 60 fps or more (PhysicsWorld kFixedStepSeconds):
-    /// 2 s fits 240 frames up to 120 fps; a longer wait is several `advance` steps.
+    /// The longest `advance`. Its reply waits behind the settle gate (ControlPipeline.hpp
+    /// FrameGate::kSettleBudget, wall clock), which 2 s of simulated time sits far inside at any frame rate; the
+    /// cap is the documented protocol limit (DesertCtl usage: 0 < seconds <= 2), and a longer wait is several
+    /// `advance` steps.
     inline constexpr float kMaxAdvanceSeconds = 2.0f;
 
     /// The most numbers one `set` carries: a curve's key list of 64 keys of a float4 (time + four values each,
