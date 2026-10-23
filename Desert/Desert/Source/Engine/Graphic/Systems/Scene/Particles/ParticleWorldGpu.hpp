@@ -254,6 +254,9 @@ namespace Desert::Graphic::System
         // VFX-LIGHT: the emitter's first enabled Light row (null = it casts no light); the system's data holds it.
         const Assets::Serialization::VFXLightRendererData* Light = nullptr;
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
+        // VFX-PORT-2: the emitter's fixed Bounds at this tick's placement (VFXBoundsAt), cm: what every view and
+        // shadow view culls the emitter's draws by (ParticleRenderer).
+        Common::Math::AABB WorldBounds;
     };
 
     // The pool's buffers: the slots (id + alive flag per particle, Common/ParticleState.glslh), the free list (one

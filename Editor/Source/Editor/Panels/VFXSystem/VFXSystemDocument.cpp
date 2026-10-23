@@ -292,7 +292,9 @@ namespace Desert::Editor
         m_UIHelper->Init();
         m_PreviewLive = true;
         // The preview scene's own VFXComponent plays the system the VFXSystemService holds for this handle.
-        m_Preview->SetVFXSystem( Assets::AssetHandle( Subject().Owner ), m_Working.Bounds );
+        // Framed by the enabled emitters' boxes (VFXSystemExtent); a system with none frames the default box.
+        m_Preview->SetVFXSystem( Assets::AssetHandle( Subject().Owner ),
+                                 S::VFXSystemExtent( m_Working ).value_or( S::VFXBounds{} ) );
     }
 
     void VFXSystemDocument::ReleaseView()

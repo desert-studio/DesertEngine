@@ -1572,6 +1572,23 @@ namespace Desert::Migration
                         ++failed;
                     continue;
                 }
+                // VFXS 4 -> 5 (VFX-PORT-2): the system's Bounds move into every emitter.
+                if ( stated && stated.GetValue() == 4u )
+                {
+                    const auto raised = Desert::Migration::MigrateVFXSystemToV5( text );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — VFXS 4 -> "
+                            << Desert::Assets::kVFXSystemSchemaVersion << ": " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " VFXS 4 -> "
+                        << Desert::Assets::kVFXSystemSchemaVersion << " (emitter bounds)\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                        ++failed;
+                    continue;
+                }
             }
             if ( path.extension() == ".danimgraph" )
             {
@@ -1646,7 +1663,8 @@ namespace Desert::Migration
             if ( path.extension() == Desert::Assets::Serialization::kVFXSystemExtension )
             {
                 const auto stated = ReadStatedVersion( path, text, "VFXS" );
-                if ( stated && stated.GetValue() < Desert::Assets::kVFXSystemSchemaVersion )
+                // VFXS 4 has its own step above.
+                if ( stated && stated.GetValue() < 4u )
                 {
                     const auto raised = Desert::Migration::MigrateVFXSystemToV3( text );
                     if ( !raised )

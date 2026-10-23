@@ -2372,7 +2372,7 @@ namespace Desert::Migration
         // its longest life at the top speed under gravity, plus the larger sprite.
         const float reach = std::abs( speedMax ) * lifeMax + 0.5f * glm::length( d.Gravity ) * lifeMax * lifeMax +
                             std::max( std::abs( d.StartSize ), std::abs( d.EndSize ) );
-        system.Bounds = S::VFXBounds{ glm::vec3( -reach ), glm::vec3( reach ) };
+        emitter.Bounds = S::VFXBounds{ glm::vec3( -reach ), glm::vec3( reach ) };
         system.Emitters.push_back( std::move( emitter ) );
         return system;
     }
@@ -5085,6 +5085,88 @@ namespace Desert::Migration
         return outcome;
     }
 
+    namespace
+    {
+        // VFXS 4 -> 5 on the untyped body: the system's "Bounds" goes, and every emitter states it right after its
+        // Capacity (the key order of VFXEmitterData). An emitter that already states Bounds is an error.
+        Common::BoolResultStr MoveVFXSystemBoundsIntoEmitters( rfl::Generic::Object& system )
+        {
+            const auto bounds = system.get( "Bounds" );
+            if ( !bounds || !bounds.value().to_object() )
+                return Common::MakeFormattedError<bool>(
+                     "the system states no Bounds object to move into its emitters" );
+            const auto emitters = system.get( "Emitters" ).value_or( rfl::Generic() ).to_array();
+            if ( !emitters )
+                return Common::MakeFormattedError<bool>( "Emitters is not an array" );
+            rfl::Generic::Array outEmitters;
+            for ( const rfl::Generic& e : emitters.value() )
+            {
+                const auto emitter = e.to_object();
+                if ( !emitter )
+                    return Common::MakeFormattedError<bool>( "an emitter is not an object" );
+                rfl::Generic::Object out;
+                bool                 placed = false;
+                for ( const auto& [key, field] : emitter.value() )
+                {
+                    if ( key == "Bounds" )
+                        return Common::MakeFormattedError<bool>(
+                             "emitter '{}' already states Bounds, a VFXS 5 key",
+                             emitter.value().get( "Name" ).value_or( rfl::Generic() ).to_string().value_or( "?" ) );
+                    out[key] = field;
+                    if ( key == "Capacity" )
+                    {
+                        out["Bounds"] = bounds.value();
+                        placed        = true;
+                    }
+                }
+                if ( !placed )
+                    out["Bounds"] = bounds.value(); // no Capacity stated (the reader's default): after the rest
+                outEmitters.push_back( out );
+            }
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : system )
+            {
+                if ( key == "Bounds" )
+                    continue;
+                if ( key == "Emitters" )
+                    raised[key] = outEmitters;
+                else
+                    raised[key] = field;
+            }
+            system = std::move( raised );
+            return BOOLSUCCESS;
+        }
+    } // namespace
+
+    Common::ResultStr<std::string> MigrateVFXSystemToV5( const std::string& text )
+    {
+        using Result = std::string;
+        auto read    = rfl::json::read<rfl::Generic::Object>( text );
+        if ( !read )
+            return Common::MakeFormattedError<Result>( "the body does not read: {}", read.error().what() );
+        rfl::Generic::Object system = read.value();
+
+        const auto header   = system.get( "Header" ).value_or( rfl::Generic() ).to_object();
+        const auto versions = header ? header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object()
+                                     : rfl::Result<rfl::Generic::Object>( rfl::Error( "no header" ) );
+        const auto stated   = versions ? versions.value().get( "VFXS" ).value_or( rfl::Generic() ).to_int()
+                                       : rfl::Result<int>( rfl::Error( "no versions" ) );
+        if ( !stated || stated.value() != 4 )
+            return Common::MakeFormattedError<Result>( "the header states VFXS {}, and this step raises VFXS 4 only",
+                                                       stated ? std::to_string( stated.value() ) : "nothing" );
+        if ( auto moved = MoveVFXSystemBoundsIntoEmitters( system ); !moved )
+            return Common::MakeFormattedError<Result>( "{}", moved.GetError() );
+
+        // The engine's reader and writer give the VFXS 5 text: the writer stamps the current generation, keeps the
+        // GUID and states the same Dependencies (the step changes no row that names an asset).
+        auto typed = Common::Json::Read<Assets::Serialization::VFXSystemData>( rfl::json::write( system ) );
+        if ( !typed )
+            return Common::MakeFormattedError<Result>( "the raised system does not read: {}", typed.GetError() );
+        if ( auto valid = Assets::Serialization::ValidateVFXSystemData( typed.GetValue() ); !valid )
+            return Common::MakeFormattedError<Result>( "the raised system is not valid: {}", valid.GetError() );
+        return Common::MakeSuccess( Assets::Serialization::WriteVFXSystem( typed.GetValue() ) );
+    }
+
     Common::ResultStr<std::string> MigrateVFXSystemToModuleAssets( const std::string& text )
     {
         using Result = std::string;
@@ -5170,7 +5252,11 @@ namespace Desert::Migration
             raised[key] = outEmitters;
         }
 
-        // The engine's reader and writer give the VFXS 3 text: the writer stamps the current generation and
+        // VFXS 5 (MoveVFXSystemBoundsIntoEmitters): the engine reads only the current layout.
+        if ( auto moved = MoveVFXSystemBoundsIntoEmitters( raised ); !moved )
+            return Common::MakeFormattedError<Result>( "{}", moved.GetError() );
+
+        // The engine's reader and writer give the current text: the writer stamps the current generation and
         // states the header's Dependencies from the stacks (VFXSystemDependencies).
         auto typed = Common::Json::Read<Assets::Serialization::VFXSystemData>( rfl::json::write( raised ) );
         if ( !typed )

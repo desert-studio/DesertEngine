@@ -2250,6 +2250,14 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    std::span<const System::ParticleViewEmitterCull> SceneRenderer::ParticleViewEmitterCulls() const
+    {
+        const auto particles = m_RenderSystems.find( "ParticleSystem" );
+        if ( particles == m_RenderSystems.end() || !particles->second )
+            return {};
+        return static_cast<const System::ParticleRenderer*>( particles->second.get() )->ViewEmitterCulls();
+    }
+
     bool SceneRenderer::LocalShadowMapsRead() const
     {
         const auto meshes = m_RenderSystems.find( "MeshSystem" );

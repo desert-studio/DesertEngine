@@ -901,6 +901,12 @@ namespace Desert::Migration
     // module the library never had, is an error naming it. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateVFXSystemToModuleAssets( const std::string& text );
 
+    // The VFXS 5 text of a VFXS 4 `.dfx` (VFX-PORT-2, int/vfx de1d65125): the system's fixed Bounds move into every
+    // emitter (VFXEmitterData::Bounds, UE UNiagaraEmitter::FixedBounds) - each emitter gets the system's box, the
+    // one box that held all of its particles before. A file that does not state VFXS 4, has no system Bounds, or an
+    // emitter that already states Bounds is an error naming it. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateVFXSystemToV5( const std::string& text );
+
     // ANIM-SKELREF: one .skeleton as the TargetSkeleton step matches it - header GUID, path relative to its
     // `Assets` root (ReadSkeletonCandidate's form) and every bone name.
     struct TargetSkeletonRig

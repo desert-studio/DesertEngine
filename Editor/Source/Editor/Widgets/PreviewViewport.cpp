@@ -886,8 +886,8 @@ namespace Desert::Editor
         m_MeshHandle      = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         m_Fill            = Fill::Object;
         m_HasContent      = true;
-        // Framed by the system's fixed Bounds, placed at the effect's origin (no rotation or scale on the preview
-        // effect): the box the GPU emitters live in is the box the camera fits.
+        // Framed by the emitters' fixed Bounds (their union), placed at the effect's origin (VFXBoundsAt:
+        // translation alone): the box the GPU emitters live in is the box the camera fits.
         m_FrameHalfExtent = glm::max( ( bounds.Max - bounds.Min ) * 0.5f, glm::vec3( 0.0f ) );
         m_FrameRadius     = std::max( RadiusOfHalfExtent( m_FrameHalfExtent ), 1.0f );
         m_FrameIsRound    = false; // fitted by its box, as a measured mesh

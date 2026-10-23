@@ -742,21 +742,24 @@ namespace Desert::Core
         // entity's transform, as this frame's debug lines (DebugDraw ticked above, so they draw this frame).
         if ( m_VFXWorld.GetDebugSettings().DrawBounds )
             for ( const VFX::VFXSystemDebugStats& system : m_VFXWorld.GetDebugStats().Systems )
-            {
-                const glm::vec3 lo = system.Bounds.Min;
-                const glm::vec3 hi = system.Bounds.Max;
-                glm::vec3       corner[8];
-                for ( int i = 0; i < 8; ++i )
-                    corner[i] = glm::vec3( system.Transform * glm::vec4( ( i & 1 ) ? hi.x : lo.x,
-                                                                         ( i & 2 ) ? hi.y : lo.y,
-                                                                         ( i & 4 ) ? hi.z : lo.z, 1.0f ) );
-                DebugDrawStyle style;
-                style.Color = glm::vec4( 1.0f, 0.55f, 0.1f, 1.0f );
-                for ( int i = 0; i < 8; ++i )
-                    for ( int axis = 1; axis < 8; axis <<= 1 )
-                        if ( ( i & axis ) == 0 )
-                            DebugDraw::Line( *this, corner[i], corner[i | axis], style ); // the 12 edges
-            }
+                for ( const VFX::VFXEmitterDebugStats& emitter : system.Emitters )
+                {
+                    if ( emitter.Capacity == 0 )
+                        continue; // disabled: draws nothing, culls nothing
+                    // The box the renderer culls the emitter by (VFXBoundsAt: placed by translation alone).
+                    const Common::Math::AABB box = Assets::Serialization::VFXBoundsAt(
+                         emitter.Bounds, glm::vec3( system.Transform[3] ) );
+                    glm::vec3 corner[8];
+                    for ( int i = 0; i < 8; ++i )
+                        corner[i] = glm::vec3( ( i & 1 ) ? box.Max.x : box.Min.x, ( i & 2 ) ? box.Max.y : box.Min.y,
+                                               ( i & 4 ) ? box.Max.z : box.Min.z );
+                    DebugDrawStyle style;
+                    style.Color = glm::vec4( 1.0f, 0.55f, 0.1f, 1.0f );
+                    for ( int i = 0; i < 8; ++i )
+                        for ( int axis = 1; axis < 8; axis <<= 1 )
+                            if ( ( i & axis ) == 0 )
+                                DebugDraw::Line( *this, corner[i], corner[i | axis], style ); // the 12 edges
+                }
 #endif
 
         // Dir lights

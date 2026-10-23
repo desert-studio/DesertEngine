@@ -346,6 +346,11 @@ namespace Desert::Graphic::System
             // i + PrevInstanceOffset (a producer whose instances move, e.g. particle Mesh rows). 0 = the instances
             // do not move (grass: only the wind moves them), the previous world is the world.
             uint32_t PrevInstanceOffset = 0;
+            // A world box every instance lies in, cm, when the producer has one (a particle emitter's fixed
+            // Bounds placed at the emitter, VFXBoundsAt): the section is drawn only into the views and the cascades
+            // whose frustum it meets (Core::Frustum::Intersects). nullopt: the producer knows no box (the grass
+            // follows the camera), drawn into every view and cascade.
+            std::optional<Common::Math::AABB> WorldBounds{};
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:

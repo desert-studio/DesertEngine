@@ -1,0 +1,20 @@
+# VFX-PORT-2 (int/vfx de1d65125): fixed Bounds per emitter (VFXS 5, UE UNiagaraEmitter::FixedBounds). Each emitter
+# is culled by its own box (placed at the emitter's position) in every view (sprite / ribbon rows, Mesh rows in the
+# geometry passes) and in every cascade (Mesh rows). WallDust.dfx's emitters carry the system's old box
+# (+-2000 cm). The overview HUD (Particle Debugger -> Viewport overview) states "culled N" and marks each culled
+# emitter "(culled)". Camera as SLICE-02 / VFX-PORT-1. The scenario does not save the scene.
+Дано run Scene "Open Scene SLICE-02.desce"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -800,190,-60
+Дано --subject viewport set Camera.Direction 0.6,-0.17,0.78
+Когда run Action Simulate
+Когда advance 0.3
+Когда run Action "Fire Field 'WallBlast'"
+Когда advance 1.0
+Когда advance 1.0
+Тогда-вид walldust_bounds WallDust's dust and smoke visible over the broken wall exactly as VFX-PORT-1 walldust_modules (no puff cut off at a box edge); with Viewport overview on, every WallDust emitter row has no "(culled)" mark
+Когда --subject viewport set Camera.Position -800,190,-6000
+Когда --subject viewport set Camera.Direction 0,0,-1
+Когда advance 0.2
+Тогда-вид walldust_culled camera 6000 cm back and turned away from the wall (WallDust's +-2000 cm boxes wholly behind it - from the old position the boxes held the camera itself and could never be culled): the overview HUD header states culled >= 1 and every WallDust emitter row is marked "(culled)"; editor.log has 0 [error] lines
+Когда run Action Stop

@@ -256,9 +256,6 @@ namespace Desert::Assets::Serialization
         if ( data.Loop && data.Duration <= 0.0f )
             return Common::MakeFormattedError<bool>( "a looping system needs Duration > 0, has {}",
                                                      data.Duration );
-        if ( !Finite( data.Bounds.Min ) || !Finite( data.Bounds.Max ) || data.Bounds.Min.x > data.Bounds.Max.x ||
-             data.Bounds.Min.y > data.Bounds.Max.y || data.Bounds.Min.z > data.Bounds.Max.z )
-            return Common::MakeFormattedError<bool>( "Bounds are not a finite box with Min <= Max" );
 
         std::set<std::string> tags;
         for ( const std::string& tag : data.Tags )
@@ -282,6 +279,11 @@ namespace Desert::Assets::Serialization
                 return Common::MakeFormattedError<bool>( "emitter name '{}' is empty or repeated", e.Name );
             if ( e.Capacity == 0 )
                 return Common::MakeFormattedError<bool>( "emitter '{}' has Capacity 0", e.Name );
+            if ( !Finite( e.Bounds.Min ) || !Finite( e.Bounds.Max ) || e.Bounds.Min.x > e.Bounds.Max.x ||
+                 e.Bounds.Min.y > e.Bounds.Max.y || e.Bounds.Min.z > e.Bounds.Max.z )
+                return Common::MakeFormattedError<bool>(
+                     "emitter '{}' Bounds are not a finite box with Min <= Max (Min {} {} {}, Max {} {} {})", e.Name,
+                     e.Bounds.Min.x, e.Bounds.Min.y, e.Bounds.Min.z, e.Bounds.Max.x, e.Bounds.Max.y, e.Bounds.Max.z );
             const VFXEmitterLifecycle& l = e.Lifecycle;
             if ( !std::isfinite( l.Delay ) || l.Delay < 0.0f || !std::isfinite( l.LoopDuration ) ||
                  l.LoopDuration <= 0.0f )
@@ -370,6 +372,29 @@ namespace Desert::Assets::Serialization
                  "material(s) and mesh(es) - run Tools/SceneMigrator",
                  stated.size(), expected.size() );
         return Common::MakeSuccess( std::move( data ) );
+    }
+
+    Common::Math::AABB VFXBoundsAt( const VFXBounds& bounds, const glm::vec3& placementCm )
+    {
+        return Common::Math::AABB{ bounds.Min + placementCm, bounds.Max + placementCm };
+    }
+
+    std::optional<VFXBounds> VFXSystemExtent( const VFXSystemData& data )
+    {
+        std::optional<VFXBounds> extent;
+        for ( const VFXEmitterData& e : data.Emitters )
+        {
+            if ( !e.Enabled )
+                continue;
+            if ( !extent )
+                extent = e.Bounds;
+            else
+            {
+                extent->Min = glm::min( extent->Min, e.Bounds.Min );
+                extent->Max = glm::max( extent->Max, e.Bounds.Max );
+            }
+        }
+        return extent;
     }
 
     std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data )

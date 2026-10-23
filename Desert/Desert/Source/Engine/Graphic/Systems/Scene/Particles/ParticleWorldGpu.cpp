@@ -744,6 +744,7 @@ namespace Desert::Graphic::System
         fe.Pipeline        = gpu.Pipeline.get();
         fe.StepCount       = stepCount;
         fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
+        fe.WorldBounds     = Assets::Serialization::VFXBoundsAt( data.Bounds, worldPos );
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
         // The random streams' step (Stack.x + step): the emitter's own step since its reset, never the world's
         // tick - the same age draws the same numbers however it was reached (play, scrub forward, scrub back).
