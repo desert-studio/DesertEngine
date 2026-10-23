@@ -211,18 +211,27 @@ namespace Desert::Editor::Core
         static constexpr float DefaultBlockBaseSize = 3.125f;
         static constexpr int   DefaultGridPower     = 5;
         static constexpr float MaxCellSize          = 100000.0f;
-        static constexpr int   MaxGridPower         = 14; // 3.125 cm * 2^14 = 512 m, the largest step under MaxCellSize
+        static constexpr int   MaxGridPower = 14; // 3.125 cm * 2^14 = 512 m, the largest step under MaxCellSize
 
-        [[nodiscard]] float CellSize() const { return BlockBaseSize * static_cast<float>( 1 << GridPower ); }
-        void                SetGridPower( int power )
+        [[nodiscard]] float CellSize() const
+        {
+            return BlockBaseSize * static_cast<float>( 1 << GridPower );
+        }
+        void SetGridPower( int power )
         {
             GridPower = power < 0 ? 0 : ( power > MaxGridPower ? MaxGridPower : power );
             while ( GridPower > 0 && CellSize() > MaxCellSize ) // a re-based (larger) base tops out sooner
                 --GridPower;
         }
         // UE Ctrl+E / Ctrl+Q (the panel's x2 and /2, the palette's "Grid Power +1/-1"): one power step.
-        void GridPowerUp() { SetGridPower( GridPower + 1 ); }
-        void GridPowerDown() { SetGridPower( GridPower - 1 ); }
+        void GridPowerUp()
+        {
+            SetGridPower( GridPower + 1 );
+        }
+        void GridPowerDown()
+        {
+            SetGridPower( GridPower - 1 );
+        }
         // A typed Current Block Size (UE CurrentBlockSize): the power stays, the base is re-derived so
         // BlockBaseSize * 2^GridPower is exactly the size asked for — then Power up/down still doubles/halves it.
         void SetCurrentBlockSize( float size )

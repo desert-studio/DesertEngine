@@ -424,8 +424,9 @@ TEST( ModelingPaletteCensus, ASetWritesTheWidgetsFieldAndRefusesWhatTheWidgetCan
     EXPECT_FLOAT_EQ( state.ElementPlaneCutOffset, 12.5f ) << "a refused write changed nothing";
 }
 
-// Grid Power is UE FCubeGrid's: cell = base * 2^power (3.125 cm * 2^5 = 100 cm), power up = bigger cell, and a typed
-// block size re-derives the base while the power stays - one function each for the slider, buttons, shortcuts, palette.
+// Grid Power is UE FCubeGrid's: cell = base * 2^power (3.125 cm * 2^5 = 100 cm), power up = bigger cell, and a
+// typed block size re-derives the base while the power stays - one function each for the slider, buttons,
+// shortcuts, palette.
 TEST( ModelingPaletteCensus, GridPowerIsTheUeCubeGridPower )
 {
     ModelingState state;

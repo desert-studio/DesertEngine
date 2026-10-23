@@ -1813,7 +1813,8 @@ namespace Desert::Editor
             ImGui::Checkbox( "Show Gizmo", &ms.ShowGizmo );
 
             // Grid Power (UE FCubeGrid): block size = Block Base Size * 2^power, Power 5 = 100 cm at the default
-            // 3.125 cm base; power up = bigger block. Typing a Current Block Size re-derives the base, keeping the power.
+            // 3.125 cm base; power up = bigger block. Typing a Current Block Size re-derives the base, keeping the
+            // power.
             int power = ms.GridPower;
             ImGui::SetNextItemWidth( 120.0f );
             if ( ImGui::SliderInt( "Grid Power", &power, 0, MS::MaxGridPower ) )

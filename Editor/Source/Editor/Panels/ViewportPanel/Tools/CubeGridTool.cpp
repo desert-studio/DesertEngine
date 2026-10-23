@@ -434,7 +434,8 @@ namespace Desert::Editor::Tools
                 changed = true;
             }
         const int K   = std::max( 1, static_cast<int>( std::lround( gs / m_Volume.m_Unit ) ) );
-        ms.SetCurrentBlockSize( static_cast<float>( K ) * m_Volume.m_Unit ); // snap the Block Size to a base multiple
+        ms.SetCurrentBlockSize( static_cast<float>( K ) *
+                                m_Volume.m_Unit ); // snap the Block Size to a base multiple
         const float u = m_Volume.m_Unit;
 
         // Resizing the grid with a selection up but nothing pushed yet re-bases the whole volume, so the
