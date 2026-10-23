@@ -286,6 +286,9 @@ namespace Desert::Editor
         /// The player, (re)built when the sequence's range is not the one it was built for.
         Animation::Timeline::Player& LevelPlayer( const Animation::Timeline::Sequence& sequence );
         void                         JumpLevel( const Animation::Timeline::Sequence& sequence, int32_t tick );
+        /// `set Transport.Time <s>` (scrub the playhead) and `set VFX.<actor>.SectionEnd <s>` (one undo step).
+        [[nodiscard]] Common::BoolResultStr SetLevelTransportProperty( const std::string&        name,
+                                                                       const std::vector<float>& value );
         /// The pose-key lane of one binding: click selects (Shift adds), a drag on the empty lane draws a
         /// marquee, a drag on a selected key retimes the selection on the display grid — one undo step on
         /// release (`ECS::MoveEntityTransformKeys`).
