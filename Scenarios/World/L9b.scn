@@ -41,15 +41,8 @@
 Когда run Landscape "Brush radius: larger"
 Когда run Landscape "Brush radius: larger"
 Когда run Landscape "Brush radius: larger"
-Когда run Landscape "Tool strength: larger"
-Когда run Landscape "Tool strength: larger"
-Когда run Landscape "Tool strength: larger"
-Когда run Landscape "Tool strength: larger"
-Когда run Landscape "Tool strength: larger"
 Когда --subject viewport set Camera.Direction 0.001,-1,0.001
 Когда --subject viewport set Camera.Position 9282,9000,-1106
-Когда run Landscape "Stroke at the viewport centre"
-Когда run Landscape "Stroke at the viewport centre"
 Когда run Landscape "Stroke at the viewport centre"
 Когда --subject viewport set Camera.Position 9282,5000,-8000
 Когда --subject viewport set Camera.Direction 0,-0.55,0.84
