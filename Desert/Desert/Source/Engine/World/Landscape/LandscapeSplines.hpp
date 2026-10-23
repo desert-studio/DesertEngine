@@ -54,7 +54,7 @@ namespace Desert::World::Landscape
      * the shapes a StaticMeshComponent draws) — exactly one of them. `Scale` is in the mesh's own axes, applied
      * before the bend; `ForwardAxis` is the axis laid along the curve (the mesh's up is engine +Y, or +Z when
      * the forward axis is Y); `CenterH` centres the mesh's side extent on the curve (UE bCenterH), otherwise its
-     * local origin sits on it.
+     * local origin sits on it; `CenterAdjust` then moves it sideways and up (UE CenterAdjust).
      */
     struct LandscapeSplineMeshEntry
     {
@@ -63,6 +63,9 @@ namespace Desert::World::Landscape
         glm::vec3                              Scale       = glm::vec3( 1.0f );
         LandscapeSplineMeshAxis                ForwardAxis = LandscapeSplineMeshAxis::X;
         bool                                   CenterH     = true;
+        /// UE CenterAdjust: cm the bent mesh moves along the curve's right (x) and up (y), after CenterH — what
+        /// lifts a mesh whose origin is its centre onto the road.
+        glm::vec2 CenterAdjust = glm::vec2( 0.0f );
         friend bool operator==( const LandscapeSplineMeshEntry&, const LandscapeSplineMeshEntry& ) = default;
     };
 

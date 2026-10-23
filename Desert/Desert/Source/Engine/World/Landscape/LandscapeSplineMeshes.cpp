@@ -192,8 +192,8 @@ namespace Desert::World::Landscape
                         };
 
                         Vertex bent = src;
-                        bent.Position = curve.Position( t ) + up * p[ax.Up] +
-                                       right * ( glm::dot( p, ax.Side ) - extent.SideCentre );
+                        bent.Position = curve.Position( t ) + up * ( p[ax.Up] + entry.CenterAdjust.y ) +
+                                       right * ( glm::dot( p, ax.Side ) - extent.SideCentre + entry.CenterAdjust.x );
                         bent.Normal    = direction( src.Normal / entry.Scale );
                         bent.Tangent   = direction( src.Tangent * entry.Scale );
                         bent.Bitangent = direction( src.Bitangent * entry.Scale );

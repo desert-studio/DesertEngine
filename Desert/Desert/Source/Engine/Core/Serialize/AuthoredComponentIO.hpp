@@ -164,7 +164,7 @@ namespace Desert::Core::Serialize
     // written even when empty (an undo restores the whole block, and an absent key keeps the current value).
     // `Kind` is "Manual" or "Splines"; `Splines` is {ControlPoints: [{Location, Width, SideFalloff, EndFalloff,
     // LayerWidthRatio}], Segments: [{Start, End, RaiseTerrain, LowerTerrain, LayerName, SplineMeshes: [{Mesh,
-    // Primitive, Scale, ForwardAxis, CenterH}]}]} (absent SplineMeshes = none; no tag, an additive key) (UE
+    // Primitive, Scale, ForwardAxis, CenterH, CenterAdjust}]}]} (absent SplineMeshes = none; no tag, an additive key) (UE
     // ULandscapeSplinesComponent), written always.
     inline Common::Json::Object WriteComponent( const ECS::LandscapeComponent& c )
     {
@@ -210,6 +210,7 @@ namespace Desert::Core::Serialize
                           .Set( "Scale", m.Scale )
                           .Set( "ForwardAxis", std::string( World::Landscape::LandscapeSplineMeshAxisName( m.ForwardAxis ) ) )
                           .Set( "CenterH", m.CenterH )
+                          .Set( "CenterAdjust", m.CenterAdjust )
                           .Build() );
             segments.emplace_back( Common::Json::ObjectBuilder()
                                         .Set( "Start", s.Start )
@@ -279,6 +280,7 @@ namespace Desert::Core::Serialize
                                   mesh.ReadInto( "Scale", m.Scale, issues );
                                   mesh.ReadInto( "ForwardAxis", axis, issues );
                                   mesh.ReadInto( "CenterH", m.CenterH, issues );
+                                  mesh.ReadInto( "CenterAdjust", m.CenterAdjust, issues );
                                   for ( int t = 0; t < static_cast<int>( Geometry::PrimitiveType::Count ); ++t )
                                       if ( primitive == Geometry::PrimitiveTypeName( static_cast<Geometry::PrimitiveType>( t ) ) )
                                           m.Primitive = static_cast<Geometry::PrimitiveType>( t );

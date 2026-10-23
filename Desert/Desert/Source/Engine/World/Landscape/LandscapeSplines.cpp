@@ -197,6 +197,8 @@ namespace Desert::World::Landscape
                                   *entry.Primitive == Geometry::PrimitiveType::Count ) )
             return Common::MakeFormattedError<bool>( "landscape spline mesh: '{}' is not a mesh shape",
                                                      Geometry::PrimitiveTypeName( *entry.Primitive ) );
+        if ( !std::isfinite( entry.CenterAdjust.x ) || !std::isfinite( entry.CenterAdjust.y ) )
+            return Common::MakeError<bool>( "landscape spline mesh: the centre adjust must be finite" );
         if ( !Finite( entry.Scale ) || entry.Scale.x <= 0.0f || entry.Scale.y <= 0.0f || entry.Scale.z <= 0.0f )
             return Common::MakeError<bool>( "landscape spline mesh: the scale must be finite and positive" );
         return Common::MakeSuccess( true );

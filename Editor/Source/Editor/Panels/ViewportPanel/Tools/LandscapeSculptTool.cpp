@@ -397,10 +397,13 @@ namespace Desert::Editor::Tools
                 std::vector<::Desert::World::Landscape::LandscapeSplineMeshEntry> meshes;
                 if ( request == Core::LandscapeStrokeRequest::SplineMeshCubeSlab )
                 {
-                    // The engine Cube is 100 cm a side: X along the road, Y up (20 cm), Z across (400 cm).
+                    // The engine Cube is 100 cm a side: X along the road, Y up (20 cm), Z across (400 cm); its
+                    // origin is its centre, so it is lifted to lie ON the road (the raster puts the ground at the
+                    // curve within a few cm), not half buried in it.
                     ::Desert::World::Landscape::LandscapeSplineMeshEntry slab;
                     slab.Primitive = ::Desert::Geometry::PrimitiveType::Cube;
-                    slab.Scale     = glm::vec3( 1.0f, 0.2f, 4.0f );
+                    slab.Scale        = glm::vec3( 1.0f, 0.2f, 4.0f );
+                    slab.CenterAdjust = glm::vec2( 0.0f, 15.0f );
                     meshes.push_back( slab );
                 }
                 if ( auto set = Commands::SetLandscapeSplineMeshes( scene, state.SplineLandscape, meshes ); !set )
