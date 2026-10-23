@@ -180,17 +180,17 @@ namespace Desert::Editor::VFXCurveEdit
             return gesture;
 
         ImGui::PushID( id );
-        const std::vector<float> stops = StopTimes( channels );
-        const std::pair<float, float> range = TimeRange( stops );
-        const float tMin = range.first;
-        const float tMax = range.second;
-        const float  tSpan             = std::max( tMax - tMin, kStopEpsilon );
-        ImDrawList*  draw              = ImGui::GetWindowDrawList();
-        const float  width             = std::max( ImGui::GetContentRegionAvail().x, 64.0f );
-        const ImVec2 origin            = ImGui::GetCursorScreenPos();
-        const float  height            = colour ? 20.0f : 72.0f;
-        const auto   timeToX           = [&]( const float t ) { return origin.x + ( t - tMin ) / tSpan * width; };
-        const auto   xToTime           = [&]( const float x )
+        const std::vector<float>      stops  = StopTimes( channels );
+        const std::pair<float, float> range  = TimeRange( stops );
+        const float                   tMin   = range.first;
+        const float                   tMax   = range.second;
+        const float                   tSpan  = std::max( tMax - tMin, kStopEpsilon );
+        ImDrawList*                   draw   = ImGui::GetWindowDrawList();
+        const float                   width  = std::max( ImGui::GetContentRegionAvail().x, 64.0f );
+        const ImVec2                  origin = ImGui::GetCursorScreenPos();
+        const float                   height = colour ? 20.0f : 72.0f;
+        const auto timeToX = [&]( const float t ) { return origin.x + ( t - tMin ) / tSpan * width; };
+        const auto xToTime = [&]( const float x )
         { return std::clamp( tMin + ( x - origin.x ) / width * tSpan, tMin, tMax ); };
         const ImVec2  bottomRight( origin.x + width, origin.y + height );
         constexpr int kSamples = 64;

@@ -164,7 +164,7 @@ namespace Desert::Editor
         // m_Working when the active widget's gesture began (set while a drag is held).
         std::optional<Assets::Serialization::VFXSystemData> m_GestureBefore;
         // The stack input the last control-channel `set` named: its row scrolls into view on the next draw.
-        std::string m_Reveal;
+        std::string                                         m_Reveal;
         std::string                                         m_Refusal;
         std::array<char, 64>                                m_ChannelPick{}; // the picker's channel name field
         std::size_t                       m_SelectedEmitter = 0;

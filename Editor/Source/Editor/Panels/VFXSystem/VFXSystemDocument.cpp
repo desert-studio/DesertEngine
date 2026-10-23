@@ -653,13 +653,13 @@ namespace Desert::Editor
         // undo step each; the curve starts flat at the value, the value is the curve at age 0.
         if ( ImGui::BeginPopupContextItem( "##source" ) )
         {
-            bool converted = false;
-            const bool number = input.Type != S::VFXValueType::Int && input.Type != S::VFXValueType::Bool;
+            bool       converted = false;
+            const bool number    = input.Type != S::VFXValueType::Int && input.Type != S::VFXValueType::Bool;
             if ( input.Source == S::VFXInputSource::Value && input.Value && number &&
                  ImGui::MenuItem( "Use a curve over life" ) )
             {
-                auto before = m_Working;
-                auto& in    = InputAt( m_Working, address );
+                auto               before = m_Working;
+                auto&              in     = InputAt( m_Working, address );
                 std::vector<float> packed;
                 for ( const float t : { 0.0f, 1.0f } )
                 {
@@ -770,11 +770,11 @@ namespace Desert::Editor
                 if ( !input.Curve )
                     break;
                 const VFXCurveEdit::Channels previous = *input.Curve;
-                const bool colour = type == S::VFXValueType::Vec4 && input.Curve->size() == 4;
-                const auto gesture = VFXCurveEdit::Draw( "##curve", *input.Curve, colour );
+                const bool                   colour   = type == S::VFXValueType::Vec4 && input.Curve->size() == 4;
+                const auto                   gesture  = VFXCurveEdit::Draw( "##curve", *input.Curve, colour );
                 if ( gesture.Activated && !m_GestureBefore )
                 {
-                    m_GestureBefore = m_Working;
+                    m_GestureBefore                            = m_Working;
                     InputAt( *m_GestureBefore, address ).Curve = previous;
                 }
                 if ( gesture.Deactivated && m_GestureBefore )
@@ -794,13 +794,15 @@ namespace Desert::Editor
         }
         ImGui::Unindent();
         // A `set` from the control channel brings its row into view, as UE's stack scrolls to what it selects.
-        if ( !m_Reveal.empty() && m_Reveal.starts_with( std::format( "{}.{}.", m_Working.Emitters[emitter].Name,
-                                                                     kStageKeys[stage] ) ) &&
+        if ( !m_Reveal.empty() &&
+             m_Reveal.starts_with(
+                  std::format( "{}.{}.", m_Working.Emitters[emitter].Name, kStageKeys[stage] ) ) &&
              m_Reveal.find( std::format( ".{}", inputName ) ) != std::string::npos )
         {
             const auto& modules = StageModules( m_Working.Emitters[emitter].Stack, stage );
             if ( m_Reveal.starts_with( std::format( "{}.{}.{}.{}", m_Working.Emitters[emitter].Name,
-                                                    kStageKeys[stage], ModuleKey( modules, module ), inputName ) ) )
+                                                    kStageKeys[stage], ModuleKey( modules, module ),
+                                                    inputName ) ) )
             {
                 ImGui::SetScrollHereY( 0.5f );
                 m_Reveal.clear();
@@ -877,7 +879,7 @@ namespace Desert::Editor
             if ( address.Part == InputPart::Keys && input.Curve )
             {
                 // A curve row: its Value is the curve at age 0; the key list is what `set` takes.
-                row.Type = std::format( "curve:{}", TypeWord( input.Type ) );
+                row.Type              = std::format( "curve:{}", TypeWord( input.Type ) );
                 const glm::vec4 start = VFXCurveEdit::ValueAt( *input.Curve, 0.0f );
                 for ( int c = 0; c < 4; ++c )
                     row.Value[static_cast<std::size_t>( c )] = start[c];
