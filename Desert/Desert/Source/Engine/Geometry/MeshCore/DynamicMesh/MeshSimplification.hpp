@@ -192,6 +192,14 @@ namespace Desert::Geometry
         IndexPriorityQueue                     m_Queue;
     };
 
+    // The per-quadric members (UE's template<> specialisations), declared before the instantiations below.
+    template <>
+    QuadricErrord QemSimplificationT<QuadricErrord>::ComputeFaceQuadric( int tri, double& area ) const;
+    template <>
+    AttrQuadricErrord QemSimplificationT<AttrQuadricErrord>::ComputeFaceQuadric( int tri, double& area ) const;
+    template <>
+    void QemSimplificationT<AttrQuadricErrord>::UpdateVertexAttributes( int edge, int kept );
+
     extern template class QemSimplificationT<QuadricErrord>;
     extern template class QemSimplificationT<AttrQuadricErrord>;
     using QemSimplification      = QemSimplificationT<QuadricErrord>;

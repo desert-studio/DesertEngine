@@ -1,0 +1,36 @@
+# P19d Attribute-Aware Simplify (UE USimplifyMeshTool SimplifierType: Standard = FQEMSimplification, Attribute-Aware =
+# FAttrMeshSimplification): a 32x32 lat-long Sphere from Modeling > Shapes with a UV checker (M_UVChecker, tiling 8),
+# Lit. Simplify 25 % (Preserve PolyGroups off, as P19b) once Standard, once Attribute-Aware; each is Accepted (Accept
+# waits for the compute, so the frame shows the finished result) and undone before the next.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Direction 0.6,-0.53,0.6
+Дано run Modeling "Create shape pivot: Centre"
+Дано run Modeling "Create shape sphere: Lat Long"
+Дано --subject modeling set CreateShape.Sphere.HorizontalSlices 32
+Дано --subject modeling set CreateShape.Sphere.VerticalSlices 32
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Active tool: Accept"
+Дано run Modeling "Attributes tool: Edit Materials"
+Дано run Modeling "Edit Materials active slot: 0"
+Дано run Modeling "Edit Materials slot material: M_UVChecker"
+Дано run Modeling "Active tool: Accept"
+Дано run "Level Viewport" "Focus Selected"
+Когда run Modeling "Simplify type: Standard"
+Когда run Modeling "Simplify target: Percentage"
+Когда --subject modeling set Simplify.Percentage 25
+Когда run Modeling "Simplify: Preserve PolyGroups: off"
+Когда run Modeling "Mesh tool: Simplify"
+Когда run Modeling "Active tool: Accept"
+Когда state
+Тогда 0_standard coarse sphere (status "Simplify: N -> M triangles (..., Percentage, Standard)", M about N/4); the checker follows the coarse faces, normals rebuilt flat-ish from the collapsed surface
+Когда run Action Undo
+Когда run Modeling "Simplify type: Attribute-Aware"
+Когда run Modeling "Mesh tool: Simplify"
+Когда run Modeling "Active tool: Accept"
+Когда state
+Тогда 1_attr coarse sphere (status "... Attribute-Aware"), checker continuous across the UV seam, smooth shading from the carried normals - differs from 0_standard
+Когда run Action Undo
+Когда state
+Тогда 2_undo the dense 32x32 sphere back
