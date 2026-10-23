@@ -391,6 +391,7 @@ namespace Desert::Editor
                    "input mapping context" },
                  { "PhysicsAsset", K::PhysicsAsset, "##physicsasset", "None", "physics asset" },
                  { "WeatherPresetAsset", K::WeatherPreset, "##weatherpreset", "None", "weather preset" },
+                 { "StateTreeAsset", K::StateTree, "##statetree", "None (runs no tree)", "state tree" },
             };
             for ( const RegistryPickerSpec& spec : SPECS )
                 if ( spec.AssetType == assetType )

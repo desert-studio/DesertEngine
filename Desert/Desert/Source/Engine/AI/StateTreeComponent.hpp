@@ -33,7 +33,7 @@ namespace Desert::ECS
         REFLECT()
 
         PROPERTY(
-             DisplayName( "State Tree" ), Category( "AI" ), Summary,
+             DisplayName( "State Tree" ), Category( "AI" ), Summary, Asset<StateTreeAsset>,
              Tooltip( "The .dstatetree asset this AI controller runs (UE UStateTreeComponent StateTreeRef)." ) )
         Assets::AssetHandle StateTree;
 

@@ -83,6 +83,8 @@ namespace Desert::Editor::ThumbnailProducers
          Row{ FileType::LandscapeGrassType, Producer::TypeIcon,
               "UE (ULandscapeGrassType): the class icon; what it grows exists only around a camera on a painted "
               "landscape" },
+         Row{ FileType::StateTree, Producer::TypeIcon,
+              "UE (UStateTree): the class icon; states and transitions have no picture" },
          Row{ FileType::ImportSettings, Producer::TypeIcon, "import settings text beside a source file" },
          Row{ FileType::SkinnedMesh, Producer::RenderedPose, "UE (USkeletalMesh): the mesh in its bind pose" },
          Row{ FileType::Skeleton, Producer::RenderedPose,

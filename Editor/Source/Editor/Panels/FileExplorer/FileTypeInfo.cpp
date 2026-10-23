@@ -89,6 +89,8 @@ namespace Desert::Editor
                            "Landscape Grass Type",
                            { 0.35f, 0.80f, 0.35f, 1.00f },
                            ICON_MDI_GRASS },
+             FileTypeInfo{
+                  FileType::StateTree, "State Tree", { 0.30f, 0.65f, 0.95f, 1.00f }, ICON_MDI_STATE_MACHINE },
         };
 
         constexpr bool RowsAreInEnumOrder()
