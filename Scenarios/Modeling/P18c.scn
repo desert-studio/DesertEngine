@@ -17,6 +17,9 @@
 Дано run CubeGrid "Accept and Start New"
 Когда run CubeGrid "Select 1x1 blocks at the aim"
 Когда run CubeGrid "Push/Pull in (Q)"
+# Look into the pit from the side-above (its walls only show off the vertical): pit centre is (450,250,450).
+Когда --subject viewport set Camera.Position 1000,700,1000
+Когда --subject viewport set Camera.Direction -0.55,-0.45,-0.55
 Когда state
 Тогда 0_cut a 100 cm deep 100x100 cm pit cut into the centre of the 300 cm block's top, seen from above; CubeGrid tool bar still shown
 Когда run Action Undo

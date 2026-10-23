@@ -247,7 +247,7 @@ namespace Desert::Editor::Tools
         const glm::mat4 toLocal  = glm::inverse( world );
         const glm::mat3 vecLocal = glm::mat3( toLocal );
         const glm::mat3 nrmLocal = glm::transpose( glm::mat3( world ) );
-        for ( Geometry::Vertex& v : cutterQuads.Vertices )
+        for ( auto& v : cutterQuads.Vertices )
         {
             v.Position  = glm::vec3( toLocal * glm::vec4( v.Position, 1.0f ) );
             v.Normal    = glm::normalize( nrmLocal * v.Normal );
