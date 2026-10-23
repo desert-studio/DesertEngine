@@ -5,7 +5,10 @@
         "Versions": {
             "VFXS": 3
         },
-        "Dependencies": []
+        "Dependencies": [
+            "0caef28c515f4a4e93363f1616ed3ca3", "10e483e233d547108e31d1855328a54b", "240adf0c6a0f407489419764780491eb", "2d5323b9c4d349f8b91c4fc795599f4f", "37ef32a37dfc4501bb57e95fc9919372", "55923c5734e04fc78e068ad051c4772c", "8079c58d9d214db694607abaf9c1a4b2", "9488cdf80a5f4f4fba16c02d431bc8e0",
+            "bd19bb728e4646919475240f1a19369d", "d1378c9a2062498ab14e47e7ef29cccb", "dff69e4e958a45f5a4fd4f19ba7de22c"
+        ]
     },
     "Category": "Converted",
     "EffectType": "Default",
@@ -18,7 +21,6 @@
         "Max": [1248.75, 1248.75, 1248.75]
     },
     "UserParams": [],
-    "LocalModules": [],
     "Emitters": [
         {
             "Name": "Emitter",
@@ -34,7 +36,10 @@
             "Stack": {
                 "EmitterUpdate": [
                     {
-                        "Module": "engine:SpawnRate",
+                        "Module": {
+                            "Guid": "10e483e233d547108e31d1855328a54b",
+                            "Path": "engine:Engine/VFX/Modules/SpawnRate.dfxmod"
+                        },
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -48,7 +53,10 @@
                 ],
                 "ParticleSpawn": [
                     {
-                        "Module": "engine:ShapePoint",
+                        "Module": {
+                            "Guid": "8079c58d9d214db694607abaf9c1a4b2",
+                            "Path": "engine:Engine/VFX/Modules/ShapePoint.dfxmod"
+                        },
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -60,7 +68,10 @@
                         ]
                     },
                     {
-                        "Module": "engine:InitializeLifetime",
+                        "Module": {
+                            "Guid": "2d5323b9c4d349f8b91c4fc795599f4f",
+                            "Path": "engine:Engine/VFX/Modules/InitializeLifetime.dfxmod"
+                        },
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -75,7 +86,10 @@
                         ]
                     },
                     {
-                        "Module": "engine:AddVelocityInCone",
+                        "Module": {
+                            "Guid": "37ef32a37dfc4501bb57e95fc9919372",
+                            "Path": "engine:Engine/VFX/Modules/AddVelocityInCone.dfxmod"
+                        },
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -108,7 +122,10 @@
                         ]
                     },
                     {
-                        "Module": "engine:InitializeSpriteSize",
+                        "Module": {
+                            "Guid": "55923c5734e04fc78e068ad051c4772c",
+                            "Path": "engine:Engine/VFX/Modules/InitializeSpriteSize.dfxmod"
+                        },
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -120,7 +137,10 @@
                         ]
                     },
                     {
-                        "Module": "engine:InitializeColor",
+                        "Module": {
+                            "Guid": "dff69e4e958a45f5a4fd4f19ba7de22c",
+                            "Path": "engine:Engine/VFX/Modules/InitializeColor.dfxmod"
+                        },
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -134,12 +154,18 @@
                 ],
                 "ParticleUpdate": [
                     {
-                        "Module": "engine:UpdateAge",
+                        "Module": {
+                            "Guid": "0caef28c515f4a4e93363f1616ed3ca3",
+                            "Path": "engine:Engine/VFX/Modules/UpdateAge.dfxmod"
+                        },
                         "Enabled": true,
                         "Inputs": []
                     },
                     {
-                        "Module": "engine:Gravity",
+                        "Module": {
+                            "Guid": "bd19bb728e4646919475240f1a19369d",
+                            "Path": "engine:Engine/VFX/Modules/Gravity.dfxmod"
+                        },
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -151,7 +177,10 @@
                         ]
                     },
                     {
-                        "Module": "engine:SolveForcesAndVelocity",
+                        "Module": {
+                            "Guid": "d1378c9a2062498ab14e47e7ef29cccb",
+                            "Path": "engine:Engine/VFX/Modules/SolveForcesAndVelocity.dfxmod"
+                        },
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -163,7 +192,10 @@
                         ]
                     },
                     {
-                        "Module": "engine:SizeOverLife",
+                        "Module": {
+                            "Guid": "240adf0c6a0f407489419764780491eb",
+                            "Path": "engine:Engine/VFX/Modules/SizeOverLife.dfxmod"
+                        },
                         "Enabled": true,
                         "Inputs": [
                             {
@@ -212,7 +244,10 @@
                         ]
                     },
                     {
-                        "Module": "engine:ColorOverLife",
+                        "Module": {
+                            "Guid": "9488cdf80a5f4f4fba16c02d431bc8e0",
+                            "Path": "engine:Engine/VFX/Modules/ColorOverLife.dfxmod"
+                        },
                         "Enabled": true,
                         "Inputs": [
                             {

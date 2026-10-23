@@ -19,6 +19,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/Includer/ShaderIncluder.hpp>
 #include <Engine/VFX/VFXCurveLUT.hpp>
+#include <Engine/VFX/VFXModuleFormat.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -79,60 +80,97 @@ namespace
         return in;
     }
 
-    S::VFXModuleUse Use( std::string module, std::vector<S::VFXModuleInput> inputs )
+    // A project module (a `.dfxmod` the suite holds in memory): a lifetime from its input, a start velocity bound
+    // to the position, a bool. Its block, as the file states it inside `Module "Init" { ... }`.
+    const char* kInitSource = "// the declarations come first\n"
+                              "Attribute Lifetime float\n"
+                              "Attribute Velocity vec3\n"
+                              "Attribute Alive bool\n"
+                              "Attribute Spin int\n"
+                              "Input Life float\n"
+                              "Input Origin vec3\n"
+                              "Input Turns int\n"
+                              "void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )\n"
+                              "{\n"
+                              "    p.Lifetime = i.Life;\n"
+                              "    p.Velocity = i.Origin * 0.0;\n"
+                              "    p.Alive = true;\n"
+                              "    p.Spin = i.Turns;\n"
+                              "}\n";
+
+    VFX::VFXModuleDefinition InitModule( const std::string& block )
+    {
+        VFX::VFXModuleDefinition module;
+        module.Guid        = Common::Content::AssetGuid{ 0x1417000000000001ull, 0x7e57ull };
+        module.DisplayName = "Init";
+        module.Category    = "Initialize";
+        module.Stages      = static_cast<uint8_t>( VFX::VFXModuleStage::ParticleSpawn );
+        auto parsed        = VFX::ParseModuleBlock( block, "Init", true );
+        EXPECT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
+        if ( parsed.IsSuccess() )
+            module.Block = parsed.ExtractValue();
+        return module;
+    }
+
+    std::filesystem::path EngineModules()
+    {
+        return Common::Constants::Path::ENGINE_CONTENT_PATH / VFX::kVFXEngineModuleFolder;
+    }
+
+    // The engine module library read from its files, plus the suite's Init: what the compiler resolves GUIDs
+    // through here (the engine goes through the ContentRegistry instead).
+    VFX::VFXModuleLibrary& Library()
+    {
+        static VFX::VFXModuleLibrary library = []
+        {
+            VFX::VFXModuleLibrary modules;
+            const auto            added = modules.AddDirectory(
+                 EngineModules(), []( const std::filesystem::path& file ) { return file.generic_string(); } );
+            EXPECT_TRUE( added.IsSuccess() ) << added.GetError();
+            modules.Set( InitModule( kInitSource ), "test:Init.dfxmod" );
+            return modules;
+        }();
+        return library;
+    }
+
+    // A stack row naming the module whose DisplayName is @p module.
+    S::VFXModuleUse Use( const std::string& module, std::vector<S::VFXModuleInput> inputs )
     {
         S::VFXModuleUse use;
-        use.Module = std::move( module );
+        const auto      ref = Library().FindByName( module );
+        EXPECT_TRUE( ref.has_value() ) << "no module named " << module;
+        if ( ref )
+            use.Module = *ref;
         use.Inputs = std::move( inputs );
         return use;
     }
-
-    // A local (scratch pad) module: a lifetime from its input, a start velocity bound to the position, a bool.
-    const char* kInitSource = "Shader \"VFX/Local/Init\"\n{\n    Domain Particle\n    Particle\n    {\n"
-                              "        // the declarations come first\n"
-                              "        Usage ParticleSpawn\n"
-                              "        Attribute Lifetime float\n"
-                              "        Attribute Velocity vec3\n"
-                              "        Attribute Alive bool\n"
-                              "        Attribute Spin int\n"
-                              "        Input Life float = 1\n"
-                              "        Input Origin vec3 = 0 0 0\n"
-                              "        Input Turns int = 0\n"
-                              "        void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )\n"
-                              "        {\n"
-                              "            p.Lifetime = i.Life;\n"
-                              "            p.Velocity = i.Origin * 0.0;\n"
-                              "            p.Alive = true;\n"
-                              "            p.Spin = i.Turns;\n"
-                              "        }\n    }\n}\n";
 
     // Falling sparks: spawn = local Init; update = Gravity, SolveForcesAndVelocity, UpdateAge (engine library).
     S::VFXSystemData Sparks()
     {
         S::VFXSystemData system;
         system.UserParams.push_back( { "Limit", S::VFXValueType::Float, glm::vec4( 5000.0f, 0, 0, 0 ) } );
-        system.LocalModules.push_back( { "Init", "Init", kInitSource } );
         S::VFXEmitterData emitter;
         emitter.Name                = "Sparks";
         emitter.Stack.ParticleSpawn = {
-             Use( "local:Init", { RandomInput( "Life", S::VFXValueType::Float, glm::vec4( 1.25f, 0, 0, 0 ),
+             Use( "Init", { RandomInput( "Life", S::VFXValueType::Float, glm::vec4( 1.25f, 0, 0, 0 ),
                                                glm::vec4( 2.75f, 0, 0, 0 ) ),
                                   BindingInput( "Origin", S::VFXValueType::Vec3, "Particles.Position" ),
                                   RandomInput( "Turns", S::VFXValueType::Int, glm::vec4( 2, 0, 0, 0 ),
                                                glm::vec4( 7, 0, 0, 0 ) ) } ) };
         emitter.Stack.ParticleUpdate = {
-             Use( "engine:Gravity",
+             Use( "Gravity",
                   { ValueInput( "Gravity", S::VFXValueType::Vec3, glm::vec4( 0, 0, -981.25f, 0 ) ) } ),
-             Use( "engine:SolveForcesAndVelocity",
+             Use( "SolveForcesAndVelocity",
                   { BindingInput( "SpeedLimit", S::VFXValueType::Float, "User.Limit" ) } ),
-             Use( "engine:UpdateAge", {} ) };
+             Use( "UpdateAge", {} ) };
         system.Emitters.push_back( emitter );
         return system;
     }
 
     VFX::VFXCompiledEmitter Compile( const S::VFXSystemData& system )
     {
-        auto compiled = VFX::CompileEmitterStack( system, 0, VFX::EngineModuleDir() );
+        auto compiled = VFX::CompileEmitterStack( system, 0, Library() );
         EXPECT_TRUE( compiled.IsSuccess() ) << compiled.GetError();
         return compiled.IsSuccess() ? compiled.ExtractValue() : VFX::VFXCompiledEmitter{};
     }
@@ -168,7 +206,8 @@ namespace
              "    VFX_SimulateParticle( id, sim );\n}}\n",
              parsed.GetValue().Meta.ParticleSource );
 
-        const auto              path = VFX::EngineModuleDir() / "Gravity.shader";
+        // A file in the shader root, so the includer finds <Common/VFXParticleContract.glslh> as the engine does.
+        const auto              path = Common::Constants::Path::ShaderDir() / "StackCompileHost.comp";
         const shaderc::Compiler compiler;
         shaderc::CompileOptions options;
         options.SetIncluder( std::make_unique<Desert::Core::ShaderIncluder>( path ) );
@@ -183,7 +222,7 @@ namespace
 
     std::string Refusal( const S::VFXSystemData& system )
     {
-        const auto compiled = VFX::CompileEmitterStack( system, 0, VFX::EngineModuleDir() );
+        const auto compiled = VFX::CompileEmitterStack( system, 0, Library() );
         EXPECT_FALSE( compiled.IsSuccess() );
         return compiled.IsSuccess() ? std::string{} : compiled.GetError();
     }
@@ -191,13 +230,15 @@ namespace
 
 TEST( VFXStackCompile, AnEngineModuleParsesIntoDeclarationsAndBody )
 {
-    const auto          path = VFX::EngineModuleDir() / "Gravity.shader";
+    const auto          path = EngineModules() / "Gravity.dfxmod";
     const std::ifstream in( path );
     std::ostringstream  text;
     text << in.rdbuf();
-    const auto module = VFX::ParseParticleModule( text.str(), path.string() );
+    const auto module = VFX::ParseVFXModule( text.str(), path.string() );
     ASSERT_TRUE( module.IsSuccess() ) << module.GetError();
-    const auto& m = module.GetValue();
+    EXPECT_EQ( module.GetValue().DisplayName, "Gravity" );
+    EXPECT_TRUE( module.GetValue().AllowsStage( VFX::VFXModuleStage::ParticleUpdate ) );
+    const auto& m = module.GetValue().Block;
     EXPECT_EQ( m.Attributes, ( std::vector<VFX::VFXModuleDecl>{ { "PhysicsForce", S::VFXValueType::Vec3 },
                                                                 { "Mass", S::VFXValueType::Float } } ) );
     EXPECT_EQ( m.Usage, VFX::UsageBit( VFX::VFXStage::ParticleUpdate ) );
@@ -329,18 +370,27 @@ TEST( VFXStackCompile, EveryStructuralChangeMovesTheKey )
     disabled.Emitters[0].Stack.ParticleUpdate[0].Enabled = false;
     moved( disabled, "enabled" );
 
-    auto edited                   = Sparks();
-    edited.LocalModules[0].Source = std::string( kInitSource );
-    const auto at                 = edited.LocalModules[0].Source.find( "p.Alive = true;" );
-    edited.LocalModules[0].Source.replace( at, 15, "p.Alive = false;" );
-    moved( edited, "local module source" );
+    // The module's own source: the same rows, the module file edited (the library answers the edited one).
+    std::string editedSource = kInitSource;
+    editedSource.replace( editedSource.find( "p.Alive = true;" ), 15, "p.Alive = false;" );
+    Library().Set( InitModule( editedSource ), "test:Init.dfxmod" );
+    moved( Sparks(), "module source" );
+    Library().Set( InitModule( kInitSource ), "test:Init.dfxmod" );
 }
 
 TEST( VFXStackCompile, RefusalsNameWhatIsWrong )
 {
     auto missing                                       = Sparks();
-    missing.Emitters[0].Stack.ParticleUpdate[0].Module = "engine:NoSuchModule";
-    EXPECT_NE( Refusal( missing ).find( "NoSuchModule.shader" ), std::string::npos );
+    missing.Emitters[0].Stack.ParticleUpdate[0].Module = { "00000000000000000000000000000bad",
+                                                           "engine:Engine/VFX/Modules/NoSuchModule.dfxmod" };
+    const auto missingError                             = Refusal( missing );
+    EXPECT_NE( missingError.find( "NoSuchModule.dfxmod" ), std::string::npos ) << missingError;
+    EXPECT_NE( missingError.find( "00000000000000000000000000000bad" ), std::string::npos ) << missingError;
+
+    // A module in a group its file does not state as a Stage.
+    auto misplaced                                     = Sparks();
+    misplaced.Emitters[0].Stack.ParticleSpawn.push_back( misplaced.Emitters[0].Stack.ParticleUpdate[0] );
+    EXPECT_NE( Refusal( misplaced ).find( "does not state Stage ParticleSpawn" ), std::string::npos );
 
     auto unknown = Sparks();
     unknown.Emitters[0].Stack.ParticleUpdate[0].Inputs.push_back(
@@ -358,11 +408,11 @@ TEST( VFXStackCompile, RefusalsNameWhatIsWrong )
     EXPECT_NE( Refusal( mistyped ).find( "the row says float, the module declares vec3" ), std::string::npos );
 
     // Two modules disagreeing about an attribute's type.
-    auto clash                   = Sparks();
-    clash.LocalModules[0].Source = std::string( kInitSource );
-    const auto at                = clash.LocalModules[0].Source.find( "Attribute Velocity vec3" );
-    clash.LocalModules[0].Source.replace( at, 23, "Attribute Mass vec2" );
-    const auto clashError = Refusal( clash );
+    std::string clashSource = kInitSource;
+    clashSource.replace( clashSource.find( "Attribute Velocity vec3" ), 23, "Attribute Mass vec2" );
+    Library().Set( InitModule( clashSource ), "test:Init.dfxmod" );
+    const auto clashError = Refusal( Sparks() );
+    Library().Set( InitModule( kInitSource ), "test:Init.dfxmod" );
     EXPECT_NE( clashError.find( "attribute 'Mass'" ), std::string::npos ) << clashError;
 
     auto empty              = Sparks();
@@ -440,13 +490,13 @@ TEST( VFXStackCompile, TheCompiledStackCompilesInsideAHostProgram )
     }
 }
 
-// VFX-06: every module of the engine library, its inputs given as Values, compiles in a stack — once in the
-// spawn group and once in the update group — and the stack compiles inside the host program.
+// VFX-06: every GPU module of the engine library, its inputs given as Values, compiles in a stack — in each GPU
+// group its file states as a Stage — and the stack compiles inside the host program.
 TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
 {
     std::vector<std::filesystem::path> paths;
-    for ( const auto& entry : std::filesystem::directory_iterator( VFX::EngineModuleDir() ) )
-        if ( entry.path().extension() == ".shader" )
+    for ( const auto& entry : std::filesystem::directory_iterator( EngineModules() ) )
+        if ( entry.path().extension() == VFX::kVFXModuleExtension )
             paths.push_back( entry.path() );
     std::sort( paths.begin(), paths.end() );
     for ( const char* expected : { "ShapePoint", "ShapeSphere", "ShapeBox", "ShapeCone", "AddVelocityInCone",
@@ -454,7 +504,7 @@ TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
                                    "CurlNoiseForce", "InitializeColor", "ColorOverLife", "InitializeSpriteSize",
                                    "SizeOverLife", "InitializeRotation", "UpdateRotation", "SubUVAnimation" } )
         EXPECT_NE( std::find( paths.begin(), paths.end(),
-                              VFX::EngineModuleDir() / std::format( "{}.shader", expected ) ),
+                              EngineModules() / std::format( "{}{}", expected, VFX::kVFXModuleExtension ) ),
                    paths.end() )
              << expected;
 
@@ -463,22 +513,27 @@ TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
         const std::ifstream in( path );
         std::ostringstream  text;
         text << in.rdbuf();
-        const auto module = VFX::ParseParticleModule( text.str(), path.string() );
+        const auto module = VFX::ParseVFXModule( text.str(), path.string() );
         ASSERT_TRUE( module.IsSuccess() ) << module.GetError();
-
+        if ( !module.GetValue().HasParticleStage() )
+            continue; // a CPU-only module (SpawnRate, SpawnBurst): VFX/VFXEmitterSpawn's suite
+        // A module with a CPU stage gives its GLSL no inputs: the row's inputs are the CPU half's.
         std::vector<S::VFXModuleInput> inputs;
-        for ( const auto& d : module.GetValue().Inputs )
-            inputs.push_back( ValueInput( d.Name, d.Type, glm::vec4( 1.0f, 0, 0, 0 ) ) );
-        const std::string name = std::format( "engine:{}", path.stem().string() );
+        if ( !module.GetValue().HasCpuStage() )
+            for ( const auto& d : module.GetValue().Block.Inputs )
+                inputs.push_back( ValueInput( d.Name, d.Type, glm::vec4( 1.0f, 0, 0, 0 ) ) );
+        const std::string name = module.GetValue().DisplayName;
 
         S::VFXSystemData  system;
         S::VFXEmitterData emitter;
-        emitter.Name                 = path.stem().string();
-        emitter.Stack.ParticleSpawn  = { Use( name, inputs ) };
-        emitter.Stack.ParticleUpdate = { Use( name, inputs ) };
+        emitter.Name = path.stem().string();
+        if ( module.GetValue().AllowsStage( VFX::VFXModuleStage::ParticleSpawn ) )
+            emitter.Stack.ParticleSpawn = { Use( name, inputs ) };
+        if ( module.GetValue().AllowsStage( VFX::VFXModuleStage::ParticleUpdate ) )
+            emitter.Stack.ParticleUpdate = { Use( name, inputs ) };
         system.Emitters.push_back( emitter );
 
-        const auto compiled = VFX::CompileEmitterStack( system, 0, VFX::EngineModuleDir() );
+        const auto compiled = VFX::CompileEmitterStack( system, 0, Library() );
         ASSERT_TRUE( compiled.IsSuccess() ) << name << ": " << compiled.GetError();
         EXPECT_EQ( HostCompileError( compiled.GetValue() ), "" ) << name;
     }
@@ -492,14 +547,14 @@ TEST( VFXStackCompile, EveryModuleCallHasItsOwnRandomKey )
     S::VFXEmitterData emitter;
     emitter.Name = "Two spheres";
     const auto sphere =
-         Use( "engine:ShapeSphere", { ValueInput( "Radius", S::VFXValueType::Float, glm::vec4( 10.0f, 0, 0, 0 ) ),
+         Use( "ShapeSphere", { ValueInput( "Radius", S::VFXValueType::Float, glm::vec4( 10.0f, 0, 0, 0 ) ),
                                       ValueInput( "Offset", S::VFXValueType::Vec3, glm::vec4( 0.0f ) ) } );
-    emitter.Stack.ParticleSpawn  = { sphere, sphere };
-    emitter.Stack.ParticleUpdate = { sphere };
+    // ShapeSphere states ParticleSpawn only, so all three calls are in the spawn group.
+    emitter.Stack.ParticleSpawn = { sphere, sphere, sphere };
     system.Emitters.push_back( emitter );
     const auto compiled = Compile( system );
     for ( const char* key :
-          { "i.VFXModuleKey = 2147483648u;", "i.VFXModuleKey = 2147483664u;", "i.VFXModuleKey = 2147549184u;" } )
+          { "i.VFXModuleKey = 2147483648u;", "i.VFXModuleKey = 2147483664u;", "i.VFXModuleKey = 2147483680u;" } )
         EXPECT_NE( compiled.ShaderText.find( key ), std::string::npos ) << key << "\n" << compiled.ShaderText;
 }
 
@@ -526,20 +581,24 @@ TEST( VFXStackCompile, EveryOverLifeAndForceModuleWritesItsAttributes )
          { "SolveForcesAndVelocity", { { "PhysicsDrag", T::Float }, { "PhysicsRotationalDrag", T::Float } } } };
     for ( const Row& row : rows )
     {
-        const auto          path = VFX::EngineModuleDir() / std::format( "{}.shader", row.Module );
+        const auto          path = EngineModules() / std::format( "{}{}", row.Module, VFX::kVFXModuleExtension );
         const std::ifstream in( path );
         std::ostringstream  text;
         text << in.rdbuf();
-        const auto module = VFX::ParseParticleModule( text.str(), path.string() );
+        const auto module = VFX::ParseVFXModule( text.str(), path.string() );
         ASSERT_TRUE( module.IsSuccess() ) << row.Module << ": " << module.GetError();
 
         std::vector<S::VFXModuleInput> inputs;
-        for ( const auto& d : module.GetValue().Inputs )
+        for ( const auto& d : module.GetValue().Block.Inputs )
             inputs.push_back( ValueInput( d.Name, d.Type, glm::vec4( 1.0f ) ) );
         S::VFXSystemData  system;
         S::VFXEmitterData emitter;
-        emitter.Name                 = row.Module;
-        emitter.Stack.ParticleUpdate = { Use( std::string( "engine:" ) + row.Module, inputs ) };
+        emitter.Name = row.Module;
+        // In the group the module states (an Initialize* module spawns, the rest update).
+        if ( module.GetValue().AllowsStage( VFX::VFXModuleStage::ParticleUpdate ) )
+            emitter.Stack.ParticleUpdate = { Use( row.Module, inputs ) };
+        else
+            emitter.Stack.ParticleSpawn = { Use( row.Module, inputs ) };
         system.Emitters.push_back( emitter );
         const auto compiled = Compile( system );
         for ( const auto& [name, type] : row.Writes )
@@ -571,22 +630,22 @@ TEST( VFXStackCompile, OverLifeScalesAreCurvesOverTheNormalisedAge )
     S::VFXEmitterData emitter;
     emitter.Name                = "Puffs";
     emitter.Stack.ParticleSpawn = {
-         Use( "engine:InitializeLifetime",
+         Use( "InitializeLifetime",
               { ValueInput( "Lifetime", S::VFXValueType::Float, glm::vec4( 2.0f ) ) } ),
-         Use( "engine:InitializeColor", { ValueInput( "Color", S::VFXValueType::Vec4, glm::vec4( 1.0f ) ) } ),
-         Use( "engine:InitializeSpriteSize", { ValueInput( "Size", S::VFXValueType::Vec2, glm::vec4( 20.0f ) ) } ),
-         Use( "engine:InitializeRotation",
+         Use( "InitializeColor", { ValueInput( "Color", S::VFXValueType::Vec4, glm::vec4( 1.0f ) ) } ),
+         Use( "InitializeSpriteSize", { ValueInput( "Size", S::VFXValueType::Vec2, glm::vec4( 20.0f ) ) } ),
+         Use( "InitializeRotation",
               { RandomInput( "Rotation", S::VFXValueType::Float, glm::vec4( 0.0f ), glm::vec4( 360.0f ) ),
                 ValueInput( "RotationRate", S::VFXValueType::Float, glm::vec4( 90.0f ) ) } ) };
     emitter.Stack.ParticleUpdate = {
-         Use( "engine:ColorOverLife", { curve( "Scale", S::VFXValueType::Vec4, 4 ) } ),
-         Use( "engine:SizeOverLife", { curve( "Scale", S::VFXValueType::Vec2, 2 ) } ),
-         Use( "engine:Drag", { ValueInput( "Drag", S::VFXValueType::Float, glm::vec4( 0.5f ) ),
+         Use( "ColorOverLife", { curve( "Scale", S::VFXValueType::Vec4, 4 ) } ),
+         Use( "SizeOverLife", { curve( "Scale", S::VFXValueType::Vec2, 2 ) } ),
+         Use( "Drag", { ValueInput( "Drag", S::VFXValueType::Float, glm::vec4( 0.5f ) ),
                                ValueInput( "RotationalDrag", S::VFXValueType::Float, glm::vec4( 0.25f ) ) } ),
-         Use( "engine:UpdateRotation", { curve( "RateScale", S::VFXValueType::Float, 1 ) } ),
-         Use( "engine:SolveForcesAndVelocity",
+         Use( "UpdateRotation", { curve( "RateScale", S::VFXValueType::Float, 1 ) } ),
+         Use( "SolveForcesAndVelocity",
               { ValueInput( "SpeedLimit", S::VFXValueType::Float, glm::vec4( 0.0f ) ) } ),
-         Use( "engine:UpdateAge", {} ) };
+         Use( "UpdateAge", {} ) };
     system.Emitters.push_back( emitter );
     const auto compiled = Compile( system );
     for ( const char* sample :

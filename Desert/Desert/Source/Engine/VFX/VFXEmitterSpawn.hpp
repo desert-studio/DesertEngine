@@ -12,12 +12,14 @@
 // (Amount = floor(LoopDuration * Rate), :887); our simulation is stateful, so the rate goes through the per-step
 // SpawnAccumulator instead (the fraction carries to the next step) — over N steps the same floor(N * dt * Rate).
 //
-// Engine CPU modules (the Emitter groups; EmitterSpawn takes SpawnBurst only, fired ONCE when the instance starts
-// — UE's Emitter Spawn script runs once per emitter spawn — EmitterUpdate takes all three):
-//   engine:SpawnRate   Input SpawnRate float  — particles per second while a loop is active
-//   engine:SpawnBurst  Input SpawnCount int, Input SpawnTime float — SpawnCount particles once per loop, at
+// Engine CPU modules, each a `.dfxmod` of the engine module library that a row names by GUID (its `Usage` states
+// the Emitter groups: EmitterSpawn takes SpawnBurst only, fired ONCE when the instance starts — UE's Emitter
+// Spawn script runs once per emitter spawn — EmitterUpdate takes all three); a row whose module has no behaviour
+// here is refused naming its GUID and path:
+//   SpawnRate          Input SpawnRate float  — particles per second while a loop is active
+//   SpawnBurst         Input SpawnCount int, Input SpawnTime float — SpawnCount particles once per loop, at
 //                      SpawnTime seconds into it (0 <= SpawnTime < LoopDuration)
-//   engine:SpawnFromChannel (VFX-10, UE "Spawn From Data Channel"; VFX/VFXDataChannel.hpp)
+//   SpawnFromChannel   (VFX-10, UE "Spawn From Data Channel"; VFX/VFXDataChannel.hpp)
 //                      Channel           Binding DataChannel.<channel>
 //                      ParticlesPerEntry Int >= 1, MaxEntriesPerFrame Int >= 1, MaxDistance Float cm >= 0
 //                      (optional) Position / Direction Vec3 Binding DataChannel.<channel>.<field> (optional)
@@ -40,9 +42,35 @@
 
 namespace Desert::VFX
 {
-    inline constexpr std::string_view kVFXSpawnRateModule  = "engine:SpawnRate";
-    inline constexpr std::string_view kVFXSpawnBurstModule = "engine:SpawnBurst";
-    inline constexpr std::string_view kVFXSpawnFromChannelModule = "engine:SpawnFromChannel";
+    /// An engine module whose EmitterUpdate stage is C++ below: the GUID its `.dfxmod` header states (the file
+    /// in the engine module library, Editor/Resources/Engine/VFX/Modules) and that file's stable key. A stack
+    /// row reaches the behaviour through the GUID alone; the key is what a row the engine writes states as Path.
+    struct VFXEngineCpuModule
+    {
+        Common::Content::AssetGuid Guid;
+        std::string_view           Name;
+        std::string_view           Path;
+    };
+
+    inline constexpr VFXEngineCpuModule kVFXSpawnRateModule{ { 0x10e483e233d54710ull, 0x8e31d1855328a54bull },
+                                                             "SpawnRate",
+                                                             "engine:Engine/VFX/Modules/SpawnRate.dfxmod" };
+    inline constexpr VFXEngineCpuModule kVFXSpawnBurstModule{ { 0x02637a2ef2774901ull, 0xa0a88452af542abdull },
+                                                              "SpawnBurst",
+                                                              "engine:Engine/VFX/Modules/SpawnBurst.dfxmod" };
+    inline constexpr VFXEngineCpuModule kVFXSpawnFromChannelModule{
+         { 0xc3e1a7d94b2f4e6aull, 0x8d05f1b97a6e2c48ull },
+         "SpawnFromChannel",
+         "engine:Engine/VFX/Modules/SpawnFromChannel.dfxmod" };
+
+    /// The stack row reference to @p module ({Guid, Path}).
+    [[nodiscard]] Assets::AssetGuidRef ModuleRef( const VFXEngineCpuModule& module );
+
+    /// Whether the engine has C++ for the EmitterUpdate stage of the module of @p guid (one of the three above).
+    [[nodiscard]] bool HasCpuBehaviour( const Common::Content::AssetGuid& guid );
+
+    /// Whether @p use names @p module (by GUID; the Path is not compared).
+    [[nodiscard]] bool UsesModule( const Assets::Serialization::VFXModuleUse& use, const VFXEngineCpuModule& module );
 
     /// The Emitter-group (CPU) modules the stack editor may add (UE's Emitter Spawn / Emitter Update module
     /// pickers, filtered by EmitterModuleUsage), in picker order.

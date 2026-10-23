@@ -894,6 +894,13 @@ namespace Desert::Migration
     // ANGR 2, or whose body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateAnimGraphV2ToV3( const std::string& text );
 
+    // The VFXS 3 text of a VFXS 1 `.dfx` (VFX-MODULE-ASSET): every stack row's `engine:<Name>` becomes {Guid, Path}
+    // of <Name>.dfxmod in the engine module library (the step's frozen kEngineVFXModulesV3), LocalModules goes (an
+    // empty list; a non-empty one is an error - a local module becomes a project .dfxmod by hand), and the
+    // header states the modules' GUIDs as its Dependencies. A file that does not state VFXS 1, or a row naming a
+    // module the library never had, is an error naming it. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateVFXSystemToModuleAssets( const std::string& text );
+
     // ANIM-SKELREF: one .skeleton as the TargetSkeleton step matches it - header GUID, path relative to its
     // `Assets` root (ReadSkeletonCandidate's form) and every bone name.
     struct TargetSkeletonRig

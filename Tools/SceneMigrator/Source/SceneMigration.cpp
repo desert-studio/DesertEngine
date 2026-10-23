@@ -2198,6 +2198,48 @@ namespace Desert::Migration
         }
 
         // One channel per component, Linear keys at the given times.
+        // THE ENGINE MODULE LIBRARY AS VFXS 3 FOUND IT (VFX-MODULE-ASSET): every `engine:<Name>` a VFXS 1 stack row
+        // or the v51 scene step could name, with the GUID its `.dfxmod` states (Editor/Resources/Engine/VFX/
+        // Modules). Frozen, as a step is: the files may move or be renamed later, and a reference written by this
+        // step follows them through the GUID.
+        struct EngineVFXModuleV3
+        {
+            std::string_view Name;
+            std::string_view Guid;
+        };
+        constexpr std::array kEngineVFXModulesV3{
+             EngineVFXModuleV3{ "AddVelocityInCone", "37ef32a37dfc4501bb57e95fc9919372" },
+             EngineVFXModuleV3{ "ColorOverLife", "9488cdf80a5f4f4fba16c02d431bc8e0" },
+             EngineVFXModuleV3{ "CurlNoiseForce", "13cdf49c6bf0428790436694facfc331" },
+             EngineVFXModuleV3{ "Drag", "a0f042db0b6248cab1bcf38605abbf78" },
+             EngineVFXModuleV3{ "Gravity", "bd19bb728e4646919475240f1a19369d" },
+             EngineVFXModuleV3{ "InitializeColor", "dff69e4e958a45f5a4fd4f19ba7de22c" },
+             EngineVFXModuleV3{ "InitializeLifetime", "2d5323b9c4d349f8b91c4fc795599f4f" },
+             EngineVFXModuleV3{ "InitializeRotation", "e64f581d72684d28ab4dc2f70e9c807a" },
+             EngineVFXModuleV3{ "InitializeSpriteSize", "55923c5734e04fc78e068ad051c4772c" },
+             EngineVFXModuleV3{ "ShapeBox", "022360554da04ff3b498ee101948b24a" },
+             EngineVFXModuleV3{ "ShapeCone", "faf8cbc20f5b43a4b3d6ecd7d35047d5" },
+             EngineVFXModuleV3{ "ShapePoint", "8079c58d9d214db694607abaf9c1a4b2" },
+             EngineVFXModuleV3{ "ShapeSphere", "3435fcff54c84b3499fa6ed992a4bfd3" },
+             EngineVFXModuleV3{ "SizeOverLife", "240adf0c6a0f407489419764780491eb" },
+             EngineVFXModuleV3{ "SolveForcesAndVelocity", "d1378c9a2062498ab14e47e7ef29cccb" },
+             EngineVFXModuleV3{ "SpawnBurst", "02637a2ef2774901a0a88452af542abd" },
+             EngineVFXModuleV3{ "SpawnFromChannel", "c3e1a7d94b2f4e6a8d05f1b97a6e2c48" },
+             EngineVFXModuleV3{ "SpawnRate", "10e483e233d547108e31d1855328a54b" },
+             EngineVFXModuleV3{ "SubUVAnimation", "7abfca5b622c4e59b6862841e67c01c8" },
+             EngineVFXModuleV3{ "UpdateAge", "0caef28c515f4a4e93363f1616ed3ca3" },
+             EngineVFXModuleV3{ "UpdateRotation", "94456c88cf0e495e9396474e052d53bd" },
+        };
+
+        std::optional<Assets::AssetGuidRef> EngineVFXModuleRefV3( std::string_view name )
+        {
+            for ( const EngineVFXModuleV3& row : kEngineVFXModulesV3 )
+                if ( row.Name == name )
+                    return Assets::AssetGuidRef{ std::string( row.Guid ),
+                                                 std::format( "engine:Engine/VFX/Modules/{}.dfxmod", row.Name ) };
+            return std::nullopt;
+        }
+
         S::VFXModuleInput CurveInput( const char* name, S::VFXValueType type,
                                       const std::vector<std::vector<S::VFXCurveKey>>& channels )
         {
@@ -2218,10 +2260,11 @@ namespace Desert::Migration
             return key;
         }
 
+        // Every name the v51 step uses is a row of kEngineVFXModulesV3 (the step's own constant list).
         S::VFXModuleUse Use( const char* module, std::vector<S::VFXModuleInput> inputs )
         {
             S::VFXModuleUse use;
-            use.Module = std::string( S::kVFXEnginePrefix ) + module;
+            use.Module = EngineVFXModuleRefV3( module ).value();
             use.Inputs = std::move( inputs );
             return use;
         }
@@ -5042,4 +5085,98 @@ namespace Desert::Migration
         return outcome;
     }
 
+    Common::ResultStr<std::string> MigrateVFXSystemToModuleAssets( const std::string& text )
+    {
+        using Result = std::string;
+        auto read    = rfl::json::read<rfl::Generic::Object>( text );
+        if ( !read )
+            return Common::MakeFormattedError<Result>( "the body does not read: {}", read.error().what() );
+        const rfl::Generic::Object& old = read.value();
+
+        const auto header   = old.get( "Header" ).value_or( rfl::Generic() ).to_object();
+        const auto versions = header ? header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object()
+                                     : rfl::Result<rfl::Generic::Object>( rfl::Error( "no header" ) );
+        const auto stated   = versions ? versions.value().get( "VFXS" ).value_or( rfl::Generic() ).to_int()
+                                       : rfl::Result<int>( rfl::Error( "no versions" ) );
+        if ( !stated || stated.value() != 1 )
+            return Common::MakeFormattedError<Result>( "the header states VFXS {}, and this step raises VFXS 1 only",
+                                                       stated ? std::to_string( stated.value() ) : "nothing" );
+
+        rfl::Generic::Object raised;
+        for ( const auto& [key, field] : old )
+        {
+            if ( key == "LocalModules" )
+            {
+                const auto local = field.to_array();
+                if ( local && !local.value().empty() )
+                    return Common::MakeFormattedError<Result>(
+                         "the system states {} LocalModules; VFXS 3 has none - each becomes a project .dfxmod "
+                         "by hand (the corpus had none)",
+                         local.value().size() );
+                continue;
+            }
+            if ( key != "Emitters" )
+            {
+                raised[key] = field;
+                continue;
+            }
+            const auto emitters = field.to_array();
+            if ( !emitters )
+                return Common::MakeFormattedError<Result>( "Emitters is not an array" );
+            rfl::Generic::Array outEmitters;
+            for ( const rfl::Generic& e : emitters.value() )
+            {
+                auto emitter = e.to_object();
+                if ( !emitter )
+                    return Common::MakeFormattedError<Result>( "an emitter is not an object" );
+                auto stack = emitter.value().get( "Stack" ).value_or( rfl::Generic() ).to_object();
+                if ( stack )
+                {
+                    for ( const char* group : { "EmitterUpdate", "ParticleSpawn", "ParticleUpdate" } )
+                    {
+                        const auto uses = stack.value().get( group ).value_or( rfl::Generic() ).to_array();
+                        if ( !uses )
+                            continue;
+                        rfl::Generic::Array outUses;
+                        for ( const rfl::Generic& u : uses.value() )
+                        {
+                            auto use = u.to_object();
+                            if ( !use )
+                                return Common::MakeFormattedError<Result>( "a {} row is not an object", group );
+                            const auto module = use.value().get( "Module" ).value_or( rfl::Generic() ).to_string();
+                            constexpr std::string_view kEngine = "engine:";
+                            if ( !module || !module.value().starts_with( kEngine ) )
+                                return Common::MakeFormattedError<Result>(
+                                     "a {} row's Module '{}' is not engine:<Name>", group,
+                                     module ? module.value() : std::string( "?" ) );
+                            const auto ref =
+                                 EngineVFXModuleRefV3( std::string_view( module.value() ).substr( kEngine.size() ) );
+                            if ( !ref )
+                                return Common::MakeFormattedError<Result>(
+                                     "a {} row names '{}', which the engine module library never had", group,
+                                     module.value() );
+                            rfl::Generic::Object moduleRef;
+                            moduleRef["Guid"]     = ref->Guid;
+                            moduleRef["Path"]     = ref->Path;
+                            use.value()["Module"] = moduleRef;
+                            outUses.push_back( use.value() );
+                        }
+                        stack.value()[group] = outUses;
+                    }
+                    emitter.value()["Stack"] = stack.value();
+                }
+                outEmitters.push_back( emitter.value() );
+            }
+            raised[key] = outEmitters;
+        }
+
+        // The engine's reader and writer give the VFXS 3 text: the writer stamps the current generation and
+        // states the header's Dependencies from the stacks (VFXSystemDependencies).
+        auto typed = Common::Json::Read<Assets::Serialization::VFXSystemData>( rfl::json::write( raised ) );
+        if ( !typed )
+            return Common::MakeFormattedError<Result>( "the raised system does not read: {}", typed.GetError() );
+        if ( auto valid = Assets::Serialization::ValidateVFXSystemData( typed.GetValue() ); !valid )
+            return Common::MakeFormattedError<Result>( "the raised system is not valid: {}", valid.GetError() );
+        return Common::MakeSuccess( Assets::Serialization::WriteVFXSystem( typed.GetValue() ) );
+    }
 } // namespace Desert::Migration
