@@ -34,6 +34,8 @@ project "DesertCtl"
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/spdlog/include",
+        -- Common/Json/Document.hpp (reached through Json.cpp -> Template.hpp) reads glm vectors.
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/glm/",
     }
 
     -- ON EVERY PLATFORM, which it was not before. The Windows build of this tool used to be a dozen lines

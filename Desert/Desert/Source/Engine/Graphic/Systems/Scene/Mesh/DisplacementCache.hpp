@@ -29,6 +29,7 @@
 #include <Engine/Geometry/DisplacementTessellation.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
@@ -66,6 +67,26 @@ namespace Desert::Graphic::System
     inline constexpr std::string_view kDisplacementSkinnedShader   = "DisplacementSkinned";
     inline constexpr std::string_view kDisplacementPosePassName    = "Displacement: Pose";
     inline constexpr std::string_view kDisplacementSkinnedPassName = "Displacement: Skinned";
+
+    // The displacement compute passes' storage blocks, one C++ spelling each (static and skinned paths).
+    inline constexpr RDG::StorageBufferParameter kDisplacementSourceVerticesBlock   { "DisplacementSourceVertices" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementSourceStreamsBlock    { "DisplacementSourceStreams" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementTopologyBlock         { "DisplacementTopology" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementMaterialsBlock        { "DisplacementMaterials" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementPointsBlock           { "DisplacementPoints" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementSamplesBlock          { "DisplacementSamples" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementDispatchBlock         { "DisplacementDispatch" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementPositionsBlock        { "DisplacementPositions" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementVerticesBlock         { "DisplacementVertices" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementOutputVerticesBlock   { "DisplacementOutputVertices" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementOutputStreamsBlock    { "DisplacementOutputStreams" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementOutputSkinRecordsBlock{ "DisplacementOutputSkinRecords" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementBaseStreamsBlock      { "DisplacementBaseStreams" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementWeldCopiesBlock       { "DisplacementWeldCopies" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementPosedWeldsBlock       { "DisplacementPosedWelds" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementSkinRecordsBlock      { "DisplacementSkinRecords" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementCornersBlock          { "DisplacementCorners" };
+    inline constexpr RDG::StorageBufferParameter kDisplacementSkinnedStreamsBlock   { "DisplacementSkinnedStreams" };
     inline constexpr uint32_t         kDisplacementGroupSize       = 64; // LocalSize of the four programs
 
     // The Scalability rows' values (ViewDistance.DisplacementDicingRate / DisplacementPoolMiB; Low turns runtime

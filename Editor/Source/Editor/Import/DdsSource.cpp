@@ -24,6 +24,7 @@
 #endif
 
 #include <glm/gtc/packing.hpp>
+#include <glm/packing.hpp>
 
 #include <algorithm>
 #include <array>

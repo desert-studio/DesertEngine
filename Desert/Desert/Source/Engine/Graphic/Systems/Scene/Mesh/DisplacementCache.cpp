@@ -484,14 +484,14 @@ namespace Desert::Graphic::System
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( heightsLayout, heightsFill )
-                      .Storage( "DisplacementSourceVertices", baseVerticesRef, RDG::Access::StorageRead )
-                      .Storage( "DisplacementSourceStreams", baseStreamsRef, RDG::Access::StorageRead )
-                      .Storage( "DisplacementTopology", topologyRef, RDG::Access::StorageRead )
-                      .Storage( "DisplacementMaterials", materialsRef, RDG::Access::StorageRead )
-                      .Storage( "DisplacementPoints", pointsRef, RDG::Access::StorageRead )
-                      .Storage( "DisplacementSamples", samplesRef, RDG::Access::StorageRead )
-                      .Storage( "DisplacementDispatch", heightsArgs, RDG::Access::StorageRead )
-                      .Storage( "DisplacementPositions", positionsRef, RDG::Access::StorageWrite );
+                      .Storage( kDisplacementSourceVerticesBlock, baseVerticesRef, RDG::Access::StorageRead )
+                      .Storage( kDisplacementSourceStreamsBlock, baseStreamsRef, RDG::Access::StorageRead )
+                      .Storage( kDisplacementTopologyBlock, topologyRef, RDG::Access::StorageRead )
+                      .Storage( kDisplacementMaterialsBlock, materialsRef, RDG::Access::StorageRead )
+                      .Storage( kDisplacementPointsBlock, pointsRef, RDG::Access::StorageRead )
+                      .Storage( kDisplacementSamplesBlock, samplesRef, RDG::Access::StorageRead )
+                      .Storage( kDisplacementDispatchBlock, heightsArgs, RDG::Access::StorageRead )
+                      .Storage( kDisplacementPositionsBlock, positionsRef, RDG::Access::StorageWrite );
              },
              [heights, pointGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -503,16 +503,16 @@ namespace Desert::Graphic::System
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( emitLayout, emitFill )
-                      .Storage( "DisplacementSourceVertices", baseVerticesRef, RDG::Access::StorageRead )
-                      .Storage( "DisplacementSourceStreams", baseStreamsRef, RDG::Access::StorageRead )
-                      .Storage( "DisplacementTopology", topologyRef, RDG::Access::StorageRead )
-                      .Storage( "DisplacementVertices", recordsRef, RDG::Access::StorageRead )
-                      .Storage( "DisplacementPositions", positionsRef, RDG::Access::StorageRead )
-                      .Storage( "DisplacementDispatch", emitArgs, RDG::Access::StorageRead )
-                      .Storage( "DisplacementOutputVertices", outVerticesRef, RDG::Access::StorageWrite )
-                      .Storage( "DisplacementOutputStreams", outStreamsRef, RDG::Access::StorageWrite )
-                      .Storage( "DisplacementOutputSkinRecords", noSkinRecordsRef, RDG::Access::StorageWrite )
-                      .Storage( "DisplacementPoints", pointsRef, RDG::Access::StorageRead );
+                      .Storage( kDisplacementSourceVerticesBlock, baseVerticesRef, RDG::Access::StorageRead )
+                      .Storage( kDisplacementSourceStreamsBlock, baseStreamsRef, RDG::Access::StorageRead )
+                      .Storage( kDisplacementTopologyBlock, topologyRef, RDG::Access::StorageRead )
+                      .Storage( kDisplacementVerticesBlock, recordsRef, RDG::Access::StorageRead )
+                      .Storage( kDisplacementPositionsBlock, positionsRef, RDG::Access::StorageRead )
+                      .Storage( kDisplacementDispatchBlock, emitArgs, RDG::Access::StorageRead )
+                      .Storage( kDisplacementOutputVerticesBlock, outVerticesRef, RDG::Access::StorageWrite )
+                      .Storage( kDisplacementOutputStreamsBlock, outStreamsRef, RDG::Access::StorageWrite )
+                      .Storage( kDisplacementOutputSkinRecordsBlock, noSkinRecordsRef, RDG::Access::StorageWrite )
+                      .Storage( kDisplacementPointsBlock, pointsRef, RDG::Access::StorageRead );
              },
              [emit, vertexGroups]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

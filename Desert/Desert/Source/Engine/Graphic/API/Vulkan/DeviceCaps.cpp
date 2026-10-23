@@ -199,21 +199,17 @@ namespace Desert::Graphic::API::Vulkan
             // BindlessCapacityCeiling's rule: the table keeps at most half the ceiling for itself.
             if ( limits.SampledImageCeiling() < 2 * kBindlessInitialTextureCapacity )
             {
-                if ( !missing.empty() )
-                    missing += ", ";
-                missing += std::format( "{} update-after-bind sampled images (per stage {}, per set {})",
+                missing.push_back( std::format( "{} update-after-bind sampled images (per stage {}, per set {})",
                                         2 * kBindlessInitialTextureCapacity,
                                         limits.MaxPerStageUpdateAfterBindSampledImages,
-                                        limits.MaxSetUpdateAfterBindSampledImages );
+                                        limits.MaxSetUpdateAfterBindSampledImages ) );
             }
             if ( limits.SamplerCeiling() < ::Desert::Core::kBindlessSamplerStateCount )
             {
-                if ( !missing.empty() )
-                    missing += ", ";
-                missing += std::format( "{} update-after-bind samplers (per stage {}, per set {})",
+                missing.push_back( std::format( "{} update-after-bind samplers (per stage {}, per set {})",
                                         ::Desert::Core::kBindlessSamplerStateCount,
                                         limits.MaxPerStageUpdateAfterBindSamplers,
-                                        limits.MaxSetUpdateAfterBindSamplers );
+                                        limits.MaxSetUpdateAfterBindSamplers ) );
             }
         }
         if ( missing.empty() )

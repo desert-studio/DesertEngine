@@ -289,7 +289,7 @@ namespace Desert::Editor
                     return Common::MakeFormattedError<std::string>( "displaced mesh: section {} height: {}", s,
                                                                     platform.GetError() );
                 std::vector<Geometry::DisplacementHeightImage::Mip> mips;
-                for ( TextureImporter::PlatformMip& mip : platform.GetValue() )
+                for ( TextureImporter::PlatformMip& mip : platform.ExtractValue() )
                     mips.push_back( { mip.Width, mip.Height, std::move( mip.Texels ) } );
                 auto made = Geometry::MakeDisplacementHeightImage( std::move( mips ) );
                 if ( !made.IsSuccess() )

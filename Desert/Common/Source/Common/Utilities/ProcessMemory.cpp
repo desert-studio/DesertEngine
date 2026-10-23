@@ -24,8 +24,9 @@
 #include <mach/task.h>
 #elif defined( __linux__ )
 #include <cstdio>
-#include <format>
 #endif
+
+#include <format>
 
 namespace Common::Utils
 {
