@@ -4,3 +4,4 @@
 Дано: BistroFoliageProj, B16_Bistro_Street_v70.desce, camera -20,170,330 look -126,-93,-154, daytime, Lit.
 Когда: shoot after 90 frames.
 Тогда 0_bistro textured facades, leaves alpha-cut (no squares), editor.log material errors 0
+# RESULT 10-23: PASS — frame DesertEngine-scratch/BISTRO-MAT-V6/frames/0_bistro.png (textured pavement/facade/moped, bush leaves alpha-cut); editor.log 0 [error] lines, 0 material errors. Migrated files live only in /Users/daniilsavcenko/Desktop/Programming/C++/BistroFoliageProj/Content/Materials (not a git repo, 8.4 GB local clone); v5 backup DesertEngine-scratch/BISTRO-MAT-V6/Materials.v5.backup.tgz.
