@@ -36,7 +36,9 @@ namespace Desert::Assets
     // clear share of the sky (W = 1 elsewhere, Assets::CloudWeatherPresence), was the slope of a ramp that
     // emptied 1 - 1/(2s); Tools/SceneMigrator raises v4 by s -> max(0, 1 - 1/(2s)), the clear share kept.
     inline constexpr uint32_t kMaterialSchemaTag     = Common::Content::FourCC( "MATL" );
-    inline constexpr uint32_t kMaterialSchemaVersion = 6;
+    // v6 (BISTRO-MAT-V6). v7 (SSS-PROFILE): the optional SubsurfaceProfile reference (UE
+    // UMaterial::SubsurfaceProfile); additive, Tools/SceneMigrator raises v6 by stamping the tag only.
+    inline constexpr uint32_t kMaterialSchemaVersion = 7;
     // A .decloudtype: the cloud type file layout, stated in the header since v4 (AF7v; v1-v3 had a
     // top-level FormatVersion and no header). Here rather than beside CloudTypeData so the migrator can
     // state it without the cloud maths. v5 (T7h): the noise volume is named by {Guid, Path} and stated as
@@ -105,6 +107,9 @@ namespace Desert::Assets
     // Serialization/WeatherPreset.hpp).
     inline constexpr uint32_t kWeatherPresetSchemaTag     = Common::Content::FourCC( "WTHP" );
     inline constexpr uint32_t kWeatherPresetSchemaVersion = 1;
+    // A .dsssprofile: one Burley subsurface profile (SSS-PROFILE; Serialization/SubsurfaceProfile.hpp).
+    inline constexpr uint32_t kSubsurfaceProfileSchemaTag     = Common::Content::FourCC( "SSSP" );
+    inline constexpr uint32_t kSubsurfaceProfileSchemaVersion = 1;
     // A <name>.<ext>.deimport: an imported source's record (its asset's GUID), stated from its first version
     // (FIX8; Serialization/ImportRecord.hpp).
     inline constexpr uint32_t kImportRecordSchemaTag     = Common::Content::FourCC( "DIMP" );

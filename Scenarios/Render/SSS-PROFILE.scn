@@ -1,0 +1,8 @@
+# SSS-PROFILE: UE Subsurface Profile (Burley). Test object = CONTRACT §9 Q7 (a scanned head with the default skin
+# profile + a Bistro plant given a profile); hard side light, Lit.
+Дано: the Q7 test object under a hard side light, Lit; material without a profile.
+Тогда 1_no_profile hard terminator, no bleed — same as dev.
+Когда: the material names the default skin profile (.dsssprofile).
+Тогда 2_profile light bleeds past the terminator with red-shifted falloff, thin parts glow, no screen-edge or depth-edge halos onto the background.
+Когда: PPV SubsurfaceScattering off.
+Тогда 3_ppv_off identical to frame 1.

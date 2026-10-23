@@ -141,6 +141,9 @@ namespace Desert::Assets
         // SpawnCountScale) a family of VFX systems shares; a `.dfx` names it by stem. See
         // Engine/Assets/VFXEffectTypeAsset.hpp.
         VFXEffectType,
+        // A SUBSURFACE PROFILE (`.dsssprofile`): UE USubsurfaceProfile - the Burley parameters a material of the
+        // SubsurfaceProfile shading model names. See Engine/Assets/SubsurfaceProfileAsset.hpp.
+        SubsurfaceProfile,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -265,6 +268,8 @@ namespace Desert::Assets
             case AssetTypeID::WorldParameters:
             // A WEATHER PRESET IS SCENE-SCOPED likewise: weather zones name it by `AssetHandle`.
             case AssetTypeID::WeatherPreset:
+            // A SUBSURFACE PROFILE is held by the renderer's registry for as long as a material names it.
+            case AssetTypeID::SubsurfaceProfile:
             case AssetTypeID::Count:
                 return false;
         }
@@ -355,6 +360,8 @@ namespace Desert::Assets
                 return "WeatherPreset";
             case AssetTypeID::VFXEffectType:
                 return "VFXEffectType";
+            case AssetTypeID::SubsurfaceProfile:
+                return "SubsurfaceProfile";
             case AssetTypeID::Count:
                 return "Count";
         }

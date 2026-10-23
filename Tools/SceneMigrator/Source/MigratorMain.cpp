@@ -1154,16 +1154,21 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( stated.GetValue() == 5u )
+            if ( stated.GetValue() == 5u || stated.GetValue() == 6u )
             {
-                const auto raised = Desert::Migration::MigrateMaterialV5ToV6( source );
+                // The chain: 5 -> 6 (SHADER-NAMING), 6 -> 7 (SSS-PROFILE).
+                auto raised = stated.GetValue() == 5u ? Desert::Migration::MigrateMaterialV5ToV6( source )
+                                                      : Common::MakeSuccess( std::string( source ) );
+                if ( raised )
+                    raised = Desert::Migration::MigrateMaterialV6ToV7( raised.GetValue() );
                 if ( !raised )
                 {
-                    err << "FAIL   " << path.string() << " — MATL 5 -> 6: " << raised.GetError() << "\n";
+                    err << "FAIL   " << path.string() << " — MATL " << stated.GetValue() << " -> 7: "
+                        << raised.GetError() << "\n";
                     ++failed;
                     continue;
                 }
-                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL 5 -> "
+                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL " << stated.GetValue() << " -> "
                     << Desert::Assets::kMaterialSchemaVersion << "\n";
                 if ( !check && !WriteText( path, raised.GetValue(), err ) )
                 {

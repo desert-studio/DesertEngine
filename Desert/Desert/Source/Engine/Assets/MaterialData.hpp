@@ -76,6 +76,13 @@ namespace Desert::Assets
         // the handle a shader registers under.
         std::vector<MaterialAssetRef> CloudAssets;
 
+        // THE SUBSURFACE PROFILE (MATL 7, SSS-PROFILE; UE UMaterial::SubsurfaceProfile): the `.dsssprofile` a material
+        // of the SubsurfaceProfile shading model scatters its diffuse light with, by header GUID (a header
+        // Dependency like every reference). On an instance a present value overrides the parent's (UE
+        // bOverrideSubsurfaceProfile), an absent one inherits it. MaterialService resolves it to the profile's row
+        // in Graphic::SubsurfaceProfileRegistry and writes that row into the template's SubsurfaceProfileIndex.
+        std::optional<AssetGuidRef> SubsurfaceProfile;
+
         // HOW THIS MATERIAL IS PHOTOGRAPHED (UE: UMaterial::ThumbnailInfo, a USceneThumbnailInfoWithPrimitive
         // stored in the package): the primitive, its own preview mesh instead of it, and the orbit — the one home
         // of all three (ThumbnailInfo.hpp). Absent = the default info (the sphere, straight on), and so is every
@@ -316,6 +323,8 @@ namespace Desert::Assets
                 add( *parent );
             if ( Shader.has_value() )
                 add( Shader->Guid );
+            if ( SubsurfaceProfile.has_value() )
+                add( SubsurfaceProfile->Guid );
             for ( const auto& r : Textures )
                 add( r.Guid );
             for ( const auto& r : CloudAssets )
