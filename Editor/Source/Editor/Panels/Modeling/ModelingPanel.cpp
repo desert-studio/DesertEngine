@@ -1135,11 +1135,20 @@ namespace Desert::Editor
         };
         if ( ms.ActiveTool == MS::Tool::Simplify )
         {
-            // UE USimplifyMeshToolProperties: Target Mode (Percentage / Triangle Count / Vertex Count / Edge
-            // Length) and its number, the boundary constraints, Discard Attributes; the preview until Accept (one
-            // undo step). The status reads the triangle counts before and after.
+            // UE USimplifyMeshToolProperties: Simplifier Type (Standard / Attribute-Aware), Target Mode
+            // (Percentage / Triangle Count / Vertex Count / Edge Length) and its number, the boundary constraints,
+            // Discard Attributes; the preview until Accept (one undo step). The status reads the triangle counts
+            // before and after.
             ImGui::Separator();
             Geometry::SimplifySettings& p = ms.MeshSimplify;
+            row( "Simplifier Type" );
+            if ( ImGui::BeginCombo( "##SimplifierType", Geometry::ToString( p.Simplifier ) ) )
+            {
+                for ( const Geometry::SimplifierType type : Geometry::kSimplifierTypes )
+                    if ( ImGui::Selectable( Geometry::ToString( type ), p.Simplifier == type ) )
+                        p.Simplifier = type;
+                ImGui::EndCombo();
+            }
             row( "Target Mode" );
             if ( ImGui::BeginCombo( "##SimplifyTarget", Geometry::ToString( p.Target ) ) )
             {

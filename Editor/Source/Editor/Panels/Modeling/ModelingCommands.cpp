@@ -554,6 +554,13 @@ namespace Desert::Editor
                                   Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                   return PaletteCommandDone();
                               } } );
+        // UE SimplifierType: Standard (QEM) or Attribute-Aware.
+        for ( const Geometry::SimplifierType type : Geometry::kSimplifierTypes )
+            commands.push_back( { "Modeling", std::string( "Simplify type: " ) + Geometry::ToString( type ), [type]
+                                  {
+                                      MS::Get().MeshSimplify.Simplifier = type;
+                                      return PaletteCommandDone();
+                                  } } );
         for ( const Geometry::SimplifyTarget target : Geometry::kSimplifyTargets )
             commands.push_back( { "Modeling", std::string( "Simplify target: " ) + Geometry::ToString( target ),
                                   [target]
