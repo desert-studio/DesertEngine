@@ -843,6 +843,34 @@ namespace Desert::Editor::Commands
             LandscapeSplinesState                m_After;
             std::string                          m_Label;
         };
+
+        /// Applies @p after's splines and stack, re-derives the Splines layer, and records ONE undo entry from
+        /// @p before to what the tiles then hold (UE: one FScopedTransaction per spline edit). On a refusal the
+        /// landscape is put back to @p before.
+        Common::BoolResultStr CommitSplinesEdit( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                                                 LandscapeSplinesState before, LandscapeSplinesState after,
+                                                 std::string label )
+        {
+            auto& registry = scene.GetRegistry();
+            if ( auto valid = WL::ValidateLandscapeSplines( after.Splines ); !valid )
+                return Common::MakeError<bool>( valid.GetError() );
+            auto applied = ApplySplinesState( registry, landscape, { after.Splines, after.Stack, before.Planes } );
+            if ( applied )
+                applied = RasterizeSplinesLayer( registry, landscape );
+            if ( !applied )
+            {
+                if ( auto restored = ApplySplinesState( registry, landscape, before ); !restored )
+                    return Common::MakeFormattedError<bool>( "{} (and restoring failed: {})", applied.GetError(),
+                                                             restored.GetError() );
+                return Common::MakeError<bool>( applied.GetError() );
+            }
+            auto rasterized = SplinesStateOf( registry, landscape );
+            if ( !rasterized )
+                return Common::MakeError<bool>( rasterized.GetError() );
+            CommandHistory::Get().PushCommand( std::make_unique<LandscapeSplinesCommand>(
+                 scene, landscape, std::move( before ), rasterized.ExtractValue(), std::move( label ) ) );
+            return BOOLSUCCESS;
+        }
     } // namespace
 
     Common::ResultStr<uint32_t> AddLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
@@ -851,8 +879,7 @@ namespace Desert::Editor::Commands
                                                          const WL::LandscapeSplineControlPoint& point,
                                                          const WL::LandscapeSplineSegment&      segment )
     {
-        auto& registry = scene.GetRegistry();
-        auto       before    = SplinesStateOf( registry, landscape );
+        auto before = SplinesStateOf( scene.GetRegistry(), landscape );
         if ( !before )
             return Common::MakeError<uint32_t>( before.GetError() );
 
@@ -871,25 +898,90 @@ namespace Desert::Editor::Commands
             joined.End                        = index;
             after.Splines.Segments.push_back( joined );
         }
-        if ( auto valid = WL::ValidateLandscapeSplines( after.Splines ); !valid )
-            return Common::MakeError<uint32_t>( valid.GetError() );
-
-        // Apply the new splines and stack, derive the layer, then read back what the tiles now hold.
-        auto applied = ApplySplinesState( registry, landscape, { after.Splines, after.Stack, before.GetValue().Planes } );
-        if ( applied )
-            applied = RasterizeSplinesLayer( registry, landscape );
-        if ( !applied )
-        {
-            if ( auto restored = ApplySplinesState( registry, landscape, before.GetValue() ); !restored )
-                return Common::MakeFormattedError<uint32_t>( "{} (and restoring failed: {})", applied.GetError(),
-                                                             restored.GetError() );
-            return Common::MakeError<uint32_t>( applied.GetError() );
-        }
-        auto rasterized = SplinesStateOf( registry, landscape );
-        if ( !rasterized )
-            return Common::MakeError<uint32_t>( rasterized.GetError() );
-        CommandHistory::Get().PushCommand( std::make_unique<LandscapeSplinesCommand>(
-             scene, landscape, before.ExtractValue(), rasterized.ExtractValue(), "Add landscape spline point" ) );
+        if ( auto committed = CommitSplinesEdit( scene, landscape, before.ExtractValue(), std::move( after ),
+                                                 "Add landscape spline point" );
+             !committed )
+            return Common::MakeError<uint32_t>( committed.GetError() );
         return Common::MakeSuccess( index );
+    }
+
+    Common::BoolResultStr MoveLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                                                    uint32_t point, const glm::vec3& location )
+    {
+        auto before = SplinesStateOf( scene.GetRegistry(), landscape );
+        if ( !before )
+            return Common::MakeError<bool>( before.GetError() );
+        LandscapeSplinesState after = before.GetValue();
+        if ( point >= after.Splines.ControlPoints.size() )
+            return Common::MakeFormattedError<bool>( "landscape splines: no control point {} (the landscape has {})",
+                                                     point, after.Splines.ControlPoints.size() );
+        if ( after.Stack.FindSplinesLayer() == nullptr )
+            return Common::MakeError<bool>( "landscape splines: the stack has no Splines layer" );
+        after.Splines.ControlPoints[point].Location = location;
+        return CommitSplinesEdit( scene, landscape, before.ExtractValue(), std::move( after ),
+                                  "Move landscape spline point" );
+    }
+
+    Common::BoolResultStr RemoveLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                                                      uint32_t point )
+    {
+        auto before = SplinesStateOf( scene.GetRegistry(), landscape );
+        if ( !before )
+            return Common::MakeError<bool>( before.GetError() );
+        LandscapeSplinesState after = before.GetValue();
+        auto&                 splines = after.Splines;
+        if ( point >= splines.ControlPoints.size() )
+            return Common::MakeFormattedError<bool>( "landscape splines: no control point {} (the landscape has {})",
+                                                     point, splines.ControlPoints.size() );
+        if ( after.Stack.FindSplinesLayer() == nullptr )
+            return Common::MakeError<bool>( "landscape splines: the stack has no Splines layer" );
+
+        // The point's segments go with it; a point joining exactly two segments is bridged, so deleting a
+        // middle point keeps one spline through its neighbours.
+        std::vector<WL::LandscapeSplineSegment> kept;
+        std::vector<WL::LandscapeSplineSegment> touching;
+        for ( const auto& segment : splines.Segments )
+            ( segment.Start == point || segment.End == point ? touching : kept ).push_back( segment );
+        if ( touching.size() == 2u )
+        {
+            const auto other = [point]( const WL::LandscapeSplineSegment& s ) { return s.Start == point ? s.End : s.Start; };
+            WL::LandscapeSplineSegment bridge = touching[0];
+            bridge.Start                      = other( touching[0] );
+            bridge.End                        = other( touching[1] );
+            if ( bridge.Start != bridge.End )
+                kept.push_back( bridge );
+        }
+        for ( auto& segment : kept )
+        {
+            segment.Start -= segment.Start > point ? 1u : 0u;
+            segment.End -= segment.End > point ? 1u : 0u;
+        }
+        splines.Segments = std::move( kept );
+        splines.ControlPoints.erase( splines.ControlPoints.begin() + point );
+        return CommitSplinesEdit( scene, landscape, before.ExtractValue(), std::move( after ),
+                                  "Delete landscape spline point" );
+    }
+
+    Common::BoolResultStr ReapplyLandscapeSplinesBelow( entt::registry& registry, const Common::UUID& landscape,
+                                                        const Common::UUID& editedLayer )
+    {
+        const auto rootEntity = ECS::FindLandscapeRootEntity( registry, landscape );
+        if ( rootEntity == entt::null )
+            return Common::MakeError<bool>( "landscape splines: the landscape root is not loaded" );
+        const auto& layers  = registry.get<ECS::LandscapeComponent>( rootEntity ).EditLayers.Layers;
+        const auto  indexOf = [&layers]( auto&& match )
+        {
+            for ( size_t i = 0; i < layers.size(); ++i )
+                if ( match( layers[i] ) )
+                    return std::optional<size_t>( i );
+            return std::optional<size_t>();
+        };
+        const auto splines = indexOf( []( const WL::LandscapeEditLayer& l )
+                                      { return l.Kind == WL::LandscapeEditLayerKind::Splines; } );
+        const auto edited  = indexOf( [&editedLayer]( const WL::LandscapeEditLayer& l ) { return l.Guid == editedLayer; } );
+        // The Splines layer reads only the ground below it: an edit above it (or no Splines layer) changes nothing.
+        if ( !splines || !edited || *edited >= *splines )
+            return BOOLSUCCESS;
+        return RasterizeSplinesLayer( registry, landscape );
     }
 } // namespace Desert::Editor::Commands
