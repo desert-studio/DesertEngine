@@ -224,14 +224,11 @@
             "id": 1414213562373095048,
             "siblingIndex": 26,
             "Tag": "Campfire",
-            "Translation": [0.0, 0.0, 350.0],
+            "Translation": [300.0, 0.0, 250.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "VFX": {
-                "System": {
-                    "Guid": "bfdbe8fc2f9659966ee41bdf8e39019f",
-                    "Path": "assets:VFX/Campfire.dfx"
-                },
+                "System": "assets:VFX/Campfire.dfx",
                 "AutoActivate": true,
                 "Overrides": []
             }
