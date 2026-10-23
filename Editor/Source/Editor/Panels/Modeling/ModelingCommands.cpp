@@ -333,14 +333,14 @@ namespace Desert::Editor
                                       MS::Get().SetGridPower( power );
                                       return PaletteCommandDone();
                                   } } );
-        commands.push_back( { "CubeGrid", "Block Size /2", []
+        commands.push_back( { "CubeGrid", "Grid Power -1", []
                               {
-                                  MS::Get().HalveBlockSize();
+                                  MS::Get().GridPowerDown();
                                   return PaletteCommandDone();
                               } } );
-        commands.push_back( { "CubeGrid", "Block Size x2", []
+        commands.push_back( { "CubeGrid", "Grid Power +1", []
                               {
-                                  MS::Get().DoubleBlockSize();
+                                  MS::Get().GridPowerUp();
                                   return PaletteCommandDone();
                               } } );
         for ( const int div : { 2, 4, 10 } )

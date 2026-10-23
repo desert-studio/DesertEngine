@@ -204,34 +204,40 @@ namespace Desert::Editor::Core
 
         // Smallest CubeGrid block, in world units (= 1 cm). Both the panel and the tool clamp to it.
         static constexpr float MinCellSize = 1.0f;
-        // Grid Power 0 is a one-metre block; each step halves it (Power 2 = 25 cm), like UE's Grid Power.
-        static constexpr float BaseBlockSize = 100.0f;
-        static constexpr int   MaxGridPower  = 6;
-        static constexpr float MaxCellSize   = 100000.0f;
+        // CUBEGRID GRID POWER = UE FCubeGrid (CubeGrid.cpp; UCubeGridToolProperties::GridPower/BlockBaseSize,
+        // CubeGridTool.h): the cell is BlockBaseSize * 2^GridPower, so Power up = a BIGGER cell. The default base
+        // 3.125 cm at Power 5 is UE's one-metre block. GridPower and BlockBaseSize are the only stored values; the
+        // cell size is derived from them everywhere (panel, tool, overlay, control channel).
+        static constexpr float DefaultBlockBaseSize = 3.125f;
+        static constexpr int   DefaultGridPower     = 5;
+        static constexpr float MaxCellSize          = 100000.0f;
+        static constexpr int   MaxGridPower = 14; // 3.125 cm * 2^14 = 512 m, the largest step under MaxCellSize
 
-        // Grid Power, the step the block size is nearest to: the slider shows it, and a free Current Block
-        // Size still wins because only a write through SetGridPower snaps the size.
-        [[nodiscard]] int GridPower() const
+        [[nodiscard]] float CellSize() const
         {
-            int power = 0;
-            for ( float sz = BaseBlockSize; power < MaxGridPower && sz > CellSize + 0.01f; ++power )
-                sz *= 0.5f;
-            return power;
+            return BlockBaseSize * static_cast<float>( 1 << GridPower );
         }
         void SetGridPower( int power )
         {
-            power    = power < 0 ? 0 : ( power > MaxGridPower ? MaxGridPower : power );
-            CellSize = BaseBlockSize / static_cast<float>( 1 << power );
-            CellSize = CellSize < MinCellSize ? MinCellSize : CellSize;
+            GridPower = power < 0 ? 0 : ( power > MaxGridPower ? MaxGridPower : power );
+            while ( GridPower > 0 && CellSize() > MaxCellSize ) // a re-based (larger) base tops out sooner
+                --GridPower;
         }
-        // The panel's /2 and x2, the Ctrl+Q / Ctrl+E shortcuts and the palette entries are these two.
-        void HalveBlockSize()
+        // UE Ctrl+E / Ctrl+Q (the panel's x2 and /2, the palette's "Grid Power +1/-1"): one power step.
+        void GridPowerUp()
         {
-            CellSize = CellSize * 0.5f < MinCellSize ? MinCellSize : CellSize * 0.5f;
+            SetGridPower( GridPower + 1 );
         }
-        void DoubleBlockSize()
+        void GridPowerDown()
         {
-            CellSize = CellSize * 2.0f > MaxCellSize ? MaxCellSize : CellSize * 2.0f;
+            SetGridPower( GridPower - 1 );
+        }
+        // A typed Current Block Size (UE CurrentBlockSize): the power stays, the base is re-derived so
+        // BlockBaseSize * 2^GridPower is exactly the size asked for — then Power up/down still doubles/halves it.
+        void SetCurrentBlockSize( float size )
+        {
+            size          = size < MinCellSize ? MinCellSize : ( size > MaxCellSize ? MaxCellSize : size );
+            BlockBaseSize = size / static_cast<float>( 1 << GridPower );
         }
 
         // Panel -> tool
@@ -245,9 +251,10 @@ namespace Desert::Editor::Core
         int LODPreviewLevel = -1;
         // One-shot: the control channel's "LOD Manager: open" (true) / "close" (false) for the panel's rail.
         std::optional<bool> ReqLODManager;
-        // CubeGrid block size (Resize Grid) in world units — one unit is one centimetre, so the default
-        // 100 is a one-metre block, the same default as UE.
-        float CellSize = 100.0f;
+        // CubeGrid grid (UE FCubeGrid): cell = BlockBaseSize * 2^GridPower in world units (1 unit = 1 cm); the
+        // defaults give UE's one-metre block. Write them through SetGridPower / SetCurrentBlockSize.
+        int   GridPower     = DefaultGridPower;
+        float BlockBaseSize = DefaultBlockBaseSize;
         int   BlocksPerStep = 1; // cells extruded/removed per Push/Pull (UE "Blocks Per Step")
 
         // --- Grid frame (UE "Grid Reinitialization" / "Options") ---
