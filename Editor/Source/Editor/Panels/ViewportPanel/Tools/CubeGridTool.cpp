@@ -17,6 +17,7 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
+#include <Engine/Geometry/MeshBooleanOperation.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
@@ -189,11 +190,84 @@ namespace Desert::Editor::Tools
         if ( !material )
             return;
         const int steps = std::max( 1, Core::ModelingState::Get().BlocksPerStep );
+        // Into a mesh this session did not build: the boolean cut (UE CubeGridBooleanOp), not the voxels.
+        if ( dir < 0 && m_SelEntity != Common::UUID::Null() && m_SelEntity != m_Entity )
+        {
+            PushIntoMesh( scene, m_SelEntity, K * steps );
+            return;
+        }
         // One block = K base cells tall; x Blocks Per Step. One undo step (nested in a drag's, when dragging).
         BeginChange();
         m_Volume.PushPull( m_Plane, m_Sel, dir, K * steps, *material );
         RegenMesh( scene );
         EndChange( dir > 0 ? "CubeGrid Push" : "CubeGrid Pull" );
+    }
+
+    void CubeGridTool::PushIntoMesh( ::Desert::Core::Scene& scene, const Common::UUID& target, int height )
+    {
+        auto refuse = [&]( const std::string& why )
+        {
+            LOG_WARN( "[CubeGrid] Push into the mesh refused: {}", why );
+            ToastManager::Push( "CubeGrid Push refused: " + why, ToastLevel::Warning, 8.0f );
+        };
+        auto ref = scene.FindEntityByID( target );
+        if ( !ref )
+            return refuse( "the targeted entity is no longer in the scene" );
+        ECS::Entity e = ref->get();
+        if ( !e.HasComponent<ECS::StaticMeshComponent>() )
+            return refuse( "the targeted entity has no static mesh" );
+        auto& smc   = e.GetComponent<ECS::StaticMeshComponent>();
+        auto  input = GetToolTargetMesh( smc );
+        if ( !input.IsSuccess() )
+            return refuse( input.GetError() );
+
+        // The pushed box as cells of the active lattice (UE builds it from the grid frame and the selection's
+        // box): `height` cells inside the face, plus the one just outside it (air above the face the selection
+        // lies on) so the cutter crosses the surface instead of sharing its plane.
+        const auto& ms = Core::ModelingState::Get();
+        Volume      box;
+        box.m_Unit   = m_Volume.m_Unit;
+        box.m_Frame  = MakeGridFrame( ms.GridOrigin, ms.GridRotation );
+        const int na = m_Plane.Na;
+        const int ua = ( na + 1 ) % 3;
+        const int va = ( na + 2 ) % 3;
+        for ( int cu = m_Sel.UMin; cu <= m_Sel.UMax; ++cu )
+            for ( int cv = m_Sel.VMin; cv <= m_Sel.VMax; ++cv )
+                for ( int s = -1; s < height; ++s )
+                {
+                    glm::ivec3 c{ 0 };
+                    c[na]                  = m_Plane.Cell - m_Plane.Sign * ( 1 + s );
+                    c[ua]                  = cu;
+                    c[va]                  = cv;
+                    box.m_Cells[Pack( c )] = Cell{};
+                }
+        Geometry::RenderMeshData cutterQuads = box.Bake();
+        // The bake is in the world; the boolean runs in the target's space.
+        const glm::mat4 world    = e.GetWorldTransform();
+        const glm::mat4 toLocal  = glm::inverse( world );
+        const glm::mat3 vecLocal = glm::mat3( toLocal );
+        const glm::mat3 nrmLocal = glm::transpose( glm::mat3( world ) );
+        for ( auto& v : cutterQuads.Vertices )
+        {
+            v.Position  = glm::vec3( toLocal * glm::vec4( v.Position, 1.0f ) );
+            v.Normal    = glm::normalize( nrmLocal * v.Normal );
+            v.Tangent   = glm::normalize( vecLocal * v.Tangent );
+            v.Bitangent = glm::normalize( vecLocal * v.Bitangent );
+        }
+        auto cutter = Geometry::DynamicMeshFromRenderMesh( cutterQuads );
+        if ( !cutter.IsSuccess() )
+            return refuse( "the pushed box did not become a mesh: " + cutter.GetError() );
+        auto cut = Geometry::RunMeshBoolean( Geometry::BooleanOperation::Difference, *input.GetValue().Mesh,
+                                             cutter.GetValue().Mesh );
+        if ( !cut.IsSuccess() )
+            return refuse( cut.GetError() );
+        if ( auto set = ECS::SetEditableMesh( smc, cut.GetValue().Mesh ); !set.IsSuccess() )
+            return refuse( set.GetError() );
+        Commands::RecordMeshChange( target, "CubeGrid Push", input.GetValue().Committed );
+        // The selection goes down with the cut, so the next Push deepens the same hole (the voxel path's
+        // plane moves with the edit the same way).
+        m_Plane.Cell -= m_Plane.Sign * height;
+        LOG_INFO( "[CubeGrid] Push cut {} cells into '{}'", height, target.ToString() );
     }
 
     void CubeGridTool::SlideSelection( int dir, int K )
@@ -279,6 +353,7 @@ namespace Desert::Editor::Tools
         m_Volume.m_Cells.clear();
         m_Volume.m_Frozen.clear();
         m_HasSel = m_Selecting = m_CornerMode = m_DragExtrude = false;
+        m_HoverEntity = m_SelEntity = Common::UUID::Null();
         m_Volume.m_Unit = m_BakedUnit = -1.0f;
         m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
         m_Materials.assign( 1, Common::AssetHandle{} );
@@ -632,8 +707,9 @@ namespace Desert::Editor::Tools
             // on top of an imported prop. Bounding-box level (Scene::Raycast), which is all a work-plane
             // needs; it never wins over a nearer blockout face.
             const float cellT    = bestT; // nearest blockout face (FLT_MAX when the cursor missed them all)
-            bool        sceneHit = false;
-            float       sceneT   = FLT_MAX;
+            bool         sceneHit    = false;
+            float        sceneT      = FLT_MAX;
+            Common::UUID sceneEntity = Common::UUID::Null();
             if ( ms.HitUnrelated )
             {
                 ::Desert::Core::RaycastHit rh;
@@ -641,13 +717,15 @@ namespace Desert::Editor::Tools
                                  rh.Entity != m_Entity; // never target the live blockout's own mesh
                 if ( got )
                 {
-                    sceneHit = true;
-                    sceneT   = rh.Distance;
+                    sceneHit    = true;
+                    sceneT      = rh.Distance;
+                    sceneEntity = rh.Entity;
                     // Snap the hit surface onto the lattice, then work from there.
                     snapToLattice( frame.ToFramePoint( rh.Point ), frame.ToFrameVector( rh.Normal ) );
                 }
             }
 
+            m_HoverEntity = ( sceneHit && !( hit && cellT <= sceneT ) ) ? sceneEntity : Common::UUID::Null();
             if ( hit && cellT <= sceneT )
             {
                 bestT = cellT;
@@ -1034,6 +1112,7 @@ namespace Desert::Editor::Tools
                 m_Plane.Sign = tSign;
                 m_Plane.Cell = tPlaneCell;
                 m_Anchor     = { tU, tV };
+                m_SelEntity  = m_HoverEntity;
                 m_Sel.UMin   = FloorDiv( tU, K ) * K;
                 m_Sel.UMax   = m_Sel.UMin + n * K - 1;
                 m_Sel.VMin   = FloorDiv( tV, K ) * K;
@@ -1124,6 +1203,7 @@ namespace Desert::Editor::Tools
             m_Plane.Sign = tSign;
             m_Plane.Cell = tPlaneCell;
             m_Anchor    = { tU, tV };
+            m_SelEntity  = m_HoverEntity;
         }
 
         if ( m_Selecting )
