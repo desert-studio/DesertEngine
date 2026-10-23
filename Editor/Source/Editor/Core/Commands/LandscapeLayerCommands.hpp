@@ -137,4 +137,27 @@ namespace Desert::Editor::Commands
                                                          const glm::vec3& location, std::optional<uint32_t> joinTo,
                                                          const World::Landscape::LandscapeSplineControlPoint& point,
                                                          const World::Landscape::LandscapeSplineSegment& segment );
+
+    /// UE: a control point dragged by the transform gizmo. Control point @p point of landscape @p landscape goes
+    /// to @p location (world cm), its segments' curves follow, and the Splines layer is re-derived, so the old
+    /// band leaves the ground. ONE undo entry for the whole drag (the caller commits on release).
+    Common::BoolResultStr MoveLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                                                    uint32_t point, const glm::vec3& location );
+
+    /**
+     * @brief UE: Delete with a control point selected. The point and its segments leave the splines and the
+     * Splines layer is re-derived; ONE undo entry. Later points' indices drop by one. A point joining exactly
+     * two segments is bridged by one segment between its neighbours (the first segment's Raise/Lower) so
+     * deleting a middle point keeps the spline — UE drops both segments and leaves two pieces; bridging is the
+     * owner's L9b spec ("a 2-point road").
+     */
+    Common::BoolResultStr RemoveLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                                                      uint32_t point );
+
+    /// UE: the splines layer re-renders when a layer below it changed. After a brush wrote layer
+    /// @p editedLayer, re-derives the Splines layer on every loaded tile when it sits ABOVE @p editedLayer;
+    /// otherwise (no Splines layer, an edit above it) changes nothing. Not an undo entry: the brush's own
+    /// entry calls it again on undo and redo, and the layer is a pure function of the ground below.
+    Common::BoolResultStr ReapplyLandscapeSplinesBelow( entt::registry& registry, const Common::UUID& landscape,
+                                                        const Common::UUID& editedLayer );
 } // namespace Desert::Editor::Commands

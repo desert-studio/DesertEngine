@@ -230,10 +230,18 @@ namespace Desert::Editor::Core
         None,
         Raise,
         Lower,
-        /// UE's Ctrl+click with the Splines tool: a control point at the viewport centre, joined to the selected one.
+        /// UE's Ctrl+click with the Splines tool: a control point at the viewport centre, joined to the selected
+        /// one.
         SplinePoint,
         /// UE's Escape with the Splines tool: nothing selected, so the next point starts a new spline.
         SplineDeselect,
+        /// UE's click on a control point: selects the point nearest the viewport centre's landscape hit.
+        SplineSelect,
+        /// UE's gizmo drag of the selected control point, as one move: the point goes to the viewport centre's
+        /// hit.
+        SplineMoveSelected,
+        /// UE's Delete with a control point selected.
+        SplineDeleteSelected,
         RampStart,
         RampEnd,
         RampApply,
@@ -628,6 +636,21 @@ namespace Desert::Editor::Core
                               LandscapeStrokeRequest::SplinePoint } );
         controls.push_back(
              { "Spline: deselect", "Spline", {}, splines, LandscapeStrokeRequest::SplineDeselect } );
+        controls.push_back( { "Spline: select control point at viewport centre",
+                              "Spline",
+                              {},
+                              splines,
+                              LandscapeStrokeRequest::SplineSelect } );
+        controls.push_back( { "Spline: move selected control point to viewport centre",
+                              "Spline",
+                              {},
+                              splines,
+                              LandscapeStrokeRequest::SplineMoveSelected } );
+        controls.push_back( { "Spline: delete selected control point",
+                              "Spline",
+                              {},
+                              splines,
+                              LandscapeStrokeRequest::SplineDeleteSelected } );
         return controls;
     }
 

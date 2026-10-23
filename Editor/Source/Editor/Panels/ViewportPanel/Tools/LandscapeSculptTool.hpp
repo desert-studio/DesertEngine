@@ -40,6 +40,16 @@ namespace Desert::Editor::Tools
         bool ServeRampRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& centreRay );
         /// UE's Splines tool click: a control point where @p ray meets the landscape, joined to the selected one.
         void AddSplinePoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray );
+        /// UE's click on a control point: selects the point under @p ray; false when none is there.
+        bool SelectSplinePoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray );
+        /// UE's gizmo move of the selected control point to where @p ray meets its landscape, as one undo step.
+        void MoveSelectedSplinePoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray );
+        /// UE's Delete with a control point selected.
+        void DeleteSelectedSplinePoint( ::Desert::Core::Scene& scene );
+        /// The Splines tool in the viewport: Ctrl+click adds, a click selects a point and the drag moves it
+        /// (committed on release as one undo step), a click elsewhere deselects, Delete deletes the selected
+        /// point.
+        void UpdateSplines( ::Desert::Core::Scene& scene, const Common::Math::Ray& mouseRay, bool hovered );
         /// Serves a Mirror or Copy/Paste request at @p ray (a point, a copy, a paste, the mirror itself).
         void ServeComponentRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,
                                     ::Desert::Editor::Core::LandscapeStrokeRequest request );
@@ -50,6 +60,15 @@ namespace Desert::Editor::Tools
         bool                                                   m_Failed = false;
         /// The ramp points when the held press began; set from the press to the release.
         std::optional<World::Landscape::LandscapeRampPoints> m_RampAtPress;
+        /// The control point being dragged and where it was at the press; the drag previews the location on the
+        /// splines and commits one MoveLandscapeSplinePoint on release.
+        struct SplineDrag
+        {
+            Common::UUID Landscape;
+            uint32_t     Point = 0u;
+            glm::vec3    From  = glm::vec3( 0.0f );
+        };
+        std::optional<SplineDrag> m_SplineDrag;
         /// The undo entry's name, fixed when the stroke begins.
         const char* m_ToolName = "";
     };
