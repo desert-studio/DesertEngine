@@ -1,0 +1,41 @@
+# P18d CubeGrid: a Pull on a mesh the session did not build unions into THAT mesh (UE CubeGridBooleanOp, Union),
+# a Push cuts it (Difference), and the box's faces take the Quick Material. Pull builds a 300 cm block (3x3 blocks,
+# 3 high), Accept and Start New; Quick Material = CB_Red (the 5th project material by key: CB_Glass, CB_GraphMatch, CB_Green, CB_Orange, CB_Red); one 1x1 Pull on
+# the block's top centre raises a 100 cm red bump in the same entity; two Pushes on it leave a 100 cm pit with red
+# walls; Undo brings the bump back with the selection highlight on its top.
+# The camera looks down from 8 m along (-1,-3,-1); the 3x3 block grows +X,+Z from the aimed ground cell, so 300 cm
+# up the same ray meets the block top on its centre cell.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 600,800,600
+Дано --subject viewport set Camera.Direction -0.3,-0.9,-0.3
+Дано run CubeGrid "CubeGrid tool"
+Дано run CubeGrid "Aim at the viewport centre: on"
+Дано run CubeGrid "Grid Power 5"
+Дано run CubeGrid "Select 3x3 blocks at the aim"
+Дано run CubeGrid "Push/Pull out (E)"
+Дано run CubeGrid "Push/Pull out (E)"
+Дано run CubeGrid "Push/Pull out (E)"
+Дано run CubeGrid "Accept and Start New"
+Дано run CubeGrid "Quick Material: engine default"
+Дано run CubeGrid "Quick Material: next project material"
+Дано run CubeGrid "Quick Material: next project material"
+Дано run CubeGrid "Quick Material: next project material"
+Дано run CubeGrid "Quick Material: next project material"
+Дано run CubeGrid "Quick Material: next project material"
+Когда run CubeGrid "Select 1x1 blocks at the aim"
+Когда run CubeGrid "Push/Pull out (E)"
+# Look at the top from the side-above (a bump's / pit's walls only show off the vertical): centre (450,350,450).
+Когда --subject viewport set Camera.Position 1000,800,1000
+Когда --subject viewport set Camera.Direction -0.55,-0.45,-0.55
+Когда state
+Тогда 0_union a 100 cm red bump stands on the centre of the 300 cm block's top, part of the same object (Outliner entity count as before the Pull); CubeGrid tool bar still shown
+Когда run CubeGrid "Push/Pull in (Q)"
+Когда run CubeGrid "Push/Pull in (Q)"
+Когда state
+Тогда 1_pit in the bump's place a 100 cm deep 100x100 cm pit in the block's top, its walls red
+# Each Push is its own undo step: two Undos take both back to the bump.
+Когда run Action Undo
+Когда run Action Undo
+Когда state
+Тогда 2_undo the red bump is back on the block's top and the selection highlight sits on the bump's top face

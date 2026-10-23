@@ -75,12 +75,15 @@ namespace Desert::Editor::Tools
         void RegenMesh( ::Desert::Core::Scene& scene );                // rebuild the blockout mesh from the volume
         void Cancel( ::Desert::Core::Scene& scene );                   // delete the in-progress blockout
         void PushPull( ::Desert::Core::Scene& scene, int dir, int K ); // extrude the selection out/in
-        // UE CubeGridBooleanOp (CubeGridTool ApplyPushPull): a Push into a mesh the session did not build - an
-        // accepted piece, an imported prop - subtracts the pushed box (the selection x `height` base cells, one
-        // cell past the face so no cutter face is coplanar with it) from that entity's mesh with MeshBoolean
-        // Difference, as ONE scene undo step (RecordMeshChange). The selection follows the cut down. Refused,
+        // UE CubeGridBooleanOp (CubeGridTool ApplyPushPull): a Push/Pull on a mesh the session did not build - an
+        // accepted piece, an imported prop - edits THAT entity's mesh with MeshBoolean, as ONE scene undo step
+        // (RecordMeshChange): a Push (dir < 0) subtracts the pushed box (the selection x `height` base cells, one
+        // cell past the face so no cutter face is coplanar with it), a Pull (dir > 0) unions the pulled box (one
+        // cell into the face for the same reason) into the same mesh - no new entity. The box's faces take the
+        // Quick Material (a slot of the target, added when it has none), so pit walls and bumps are painted as
+        // UE's new faces are. The selection follows the edit; Undo / Redo put it back with the mesh. Refused,
         // logged and toasted by reason (no mesh, a boolean that could not close its seam).
-        void PushIntoMesh( ::Desert::Core::Scene& scene, const Common::UUID& target, int height );
+        void PushPullMesh( ::Desert::Core::Scene& scene, const Common::UUID& target, int dir, int height );
         void RefineBy( int F ); // subdivide the base grid by F (split every cell + the selection xF)
         void FreezeActive();    // commit the volume being worked on into an immutable layer
         // Write the Corner Mode heights into the top layer of cells under the selection.
@@ -135,9 +138,12 @@ namespace Desert::Editor::Tools
         bool      m_GroundToPivot = false;   // Ctrl+MMB moved the pivot: next frame's ground goes through it
         bool      m_HoverValid = false;   // last frame's cursor targeting hit something
         // The scene entity (not this session's blockout) whose surface last frame's targeting snapped to, and
-        // the one the selection was made on: a Push there cuts that entity's mesh (PushIntoMesh).
+        // the one the selection was made on: a Push/Pull there edits that entity's mesh (PushPullMesh).
         Common::UUID m_HoverEntity = Common::UUID::Null();
         Common::UUID m_SelEntity   = Common::UUID::Null();
+        // Outlives nothing but the tool: a scene-mesh undo step (PushPullMesh) holds it weakly, so its selection
+        // half is skipped once the tool is gone, while the mesh half stays undoable.
+        std::shared_ptr<int> m_Alive = std::make_shared<int>( 0 );
 
         // Work-plane (in BASE cells): locked while selecting and kept for the active selection.
         Geometry::VoxelBlockout::WorkPlane m_Plane;
