@@ -4,6 +4,7 @@
 # undo step; the set is saved in the scene (VFXComponentData::PointSets) and reopens identical.
 # The order differs from the brief: the .dfx edit comes FIRST so that Undo after the strokes takes the second
 # stroke, not the document edit (a reopen starts a fresh history, so Undo is played before the save, then Redo).
+# Drag coordinates are viewport POINTS (the viewport is ~717x428 pt; its shot is in pixels, 2x).
 # The scenario SAVES: `git checkout -- Projects/Desert/Content/Scenes/Starter.desce Projects/Desert/Content/VFX/Campfire.dfx` after a play.
 Дано run Open "VFX/Campfire.dfx"
 Дано run Document "Campfire.dfx: Spawn Flames from point set PaintedPoints"
@@ -16,8 +17,8 @@
 Дано run VFX "VFX Paint mode"
 Дано run VFX "VFX Paint: radius 100 cm"
 Дано run VFX "VFX Paint: density high"
-Когда --subject viewport drag 420,420 860,420 30
-Когда --subject viewport drag 420,560 860,620 30
+Когда --subject viewport drag 120,200 330,200 30
+Когда --subject viewport drag 150,350 440,370 30
 Когда state
 Тогда-вид 0_points blue painted point markers along two strokes on the ground (a straight one above, a slanted one below), flames rising from them
 Когда run Foliage "Foliage mode"
