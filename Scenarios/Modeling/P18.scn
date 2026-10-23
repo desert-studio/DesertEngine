@@ -3,16 +3,16 @@
 Дано run Panel "Open Modeling"
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Direction 0.5,-0.6,0.6
-Дано run Modeling "CubeGrid tool"
-Дано run Modeling "Aim at the viewport centre: on"
-Дано run Modeling "Grid Power 5"
+Дано run CubeGrid "CubeGrid tool"
+Дано run CubeGrid "Aim at the viewport centre: on"
+Дано run CubeGrid "Grid Power 5"
 Когда state
 Тогда 0_p5 CubeGrid active, grid cells 100 cm: the tool bar reads "Grid Power 5 - 100 cm" and the panel shows Grid Power 5 / Current Block Size 100 cm
-Когда run Modeling "Grid Power +1"
+Когда run CubeGrid "Grid Power +1"
 Когда state
 Тогда 1_p6 cells twice as large: tool bar "Grid Power 6 - 200 cm", the grid lines twice as far apart, same origin
-Когда run Modeling "Select 1x1 blocks at the aim"
-Когда run Modeling "Push/Pull out (E)"
+Когда run CubeGrid "Select 1x1 blocks at the aim"
+Когда run CubeGrid "Push/Pull out (E)"
 Когда state
 Тогда 2_extrude a single 200 cm block stands on the grid where the viewport centre aims
 Когда run Action Undo
