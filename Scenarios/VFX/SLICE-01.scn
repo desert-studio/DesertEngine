@@ -1,0 +1,29 @@
+# SLICE-01 "Torch": a torch effect authored on the new VFX system (Content/VFX/Torch.dfx, three emitters - Flame
+# (additive, size and colour over life by curves), Smoke (translucent, grows and fades by curves, curl noise),
+# Embers (additive, curl noise, colour over life)) placed on the Starter scene's Campfire entity (300, 0, 250) in
+# place of Campfire.dfx, simulated 3 s, shot from three angles; then Stop, Simulate again and the same 3 s must
+# give the same side frame (the system Seed 4711 + entity UUID fix every emitter's random stream).
+# The scenario does NOT save the scene: the System change is an unsaved edit of Starter.desce.
+Дано run Scene "Open Scene Starter.desce"
+Дано run View "View mode: Lit"
+Дано set 1414213562373095048 VFX.System assets:VFX/Torch.dfx
+Когда run Action Simulate
+Когда advance 1.5
+Когда advance 1.5
+Когда --subject viewport set Camera.Position 300,110,-200
+Когда --subject viewport set Camera.Direction 0,-0.02,1
+Тогда-вид 0_side a torch flame (narrow, tall, yellow-white core to orange tips) with a grey smoke column rising above it and small orange embers drifting up - not the wide campfire
+Когда --subject viewport set Camera.Position 300,418,-68
+Когда --subject viewport set Camera.Direction 0,-0.707,0.707
+Тогда-вид 1_above the same effect from 45 degrees above, the smoke column readable over the flame
+Когда --subject viewport set Camera.Position 300,550,252
+Когда --subject viewport set Camera.Direction 0,-1,0.01
+Тогда-вид 2_top the flame seen from the top: a bright round core with smoke spreading around it
+Когда run Action Stop
+Когда run Action Simulate
+Когда advance 1.5
+Когда advance 1.5
+Когда --subject viewport set Camera.Position 300,110,-200
+Когда --subject viewport set Camera.Direction 0,-0.02,1
+Тогда-вид 3_replay the same frame as 0_side after Stop and a second Simulate of the same 3 s
+Когда run Action Stop
