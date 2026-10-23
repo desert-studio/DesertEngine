@@ -6,7 +6,10 @@
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WeatherZoneComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
+#include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Material/MaterialService.hpp>
+#include <Engine/Runtime/Services/Weather/WeatherPresetService.hpp>
 
 #include <Common/Core/Logger.hpp>
 
@@ -23,6 +26,18 @@ namespace Desert::Core
             if ( a && b )
                 return *a + ( *b - *a ) * t;
             return a ? a : b;
+        }
+
+        void SetDynamicParam( std::vector<std::pair<std::string, glm::vec4>>& params, const std::string& name,
+                              const float value )
+        {
+            const auto      it = std::find_if( params.begin(), params.end(),
+                                               [&name]( const auto& kv ) { return kv.first == name; } );
+            const glm::vec4 v( value, 0.0f, 0.0f, 0.0f );
+            if ( it == params.end() )
+                params.emplace_back( name, v );
+            else
+                it->second = v;
         }
 
         glm::vec3 PositionOf( entt::registry& registry, const entt::entity entity )
@@ -45,6 +60,18 @@ namespace Desert::Core
         WeatherValues values;
         values.Parameters    = preset.Parameters;
         values.CloudCoverage = preset.CloudCoverage;
+        values.CloudDensity  = preset.CloudDensity;
+        for ( const auto& type : preset.CloudTypes )
+        {
+            const auto handle =
+                 Runtime::ResourceRegistry::GetWeatherPresetService()->CloudTypeHandleForPath( type.Type );
+            if ( !handle )
+            {
+                LOG_ERROR( "[Weather] a preset's cloud type '{}' is not shown: {}", type.Type, handle.GetError() );
+                continue;
+            }
+            values.CloudTypes.emplace_back( handle.GetValue(), type.Weight );
+        }
         values.FogDensity    = preset.FogDensity;
         values.WindSpeed     = preset.WindSpeed;
         return values;
@@ -70,6 +97,28 @@ namespace Desert::Core
             if ( a.Find( p.Name ) == nullptr )
                 out.Parameters.push_back( p );
         out.CloudCoverage = LerpOptional( a.CloudCoverage, b.CloudCoverage, t );
+        out.CloudDensity  = LerpOptional( a.CloudDensity, b.CloudDensity, t );
+        // Per type, as D-14 has it: a side that states a set states every type it leaves out at 0, so Clear's
+        // cumulus fades out while Rain's stratus fades in. A side that states no set holds the other's.
+        if ( a.CloudTypes.empty() || b.CloudTypes.empty() )
+            out.CloudTypes = a.CloudTypes.empty() ? b.CloudTypes : a.CloudTypes;
+        else
+        {
+            const auto weightIn = []( const WeatherValues& v, const Assets::AssetHandle& type )
+            {
+                for ( const auto& [handle, weight] : v.CloudTypes )
+                    if ( handle == type )
+                        return weight;
+                return 0.0f;
+            };
+            out.CloudTypes = a.CloudTypes;
+            for ( const auto& [handle, weight] : b.CloudTypes )
+                if ( std::none_of( a.CloudTypes.begin(), a.CloudTypes.end(),
+                                   [&handle]( const auto& kv ) { return kv.first == handle; } ) )
+                    out.CloudTypes.emplace_back( handle, 0.0f );
+            for ( auto& [handle, weight] : out.CloudTypes )
+                weight += ( weightIn( b, handle ) - weight ) * t;
+        }
         out.FogDensity    = LerpOptional( a.FogDensity, b.FogDensity, t );
         out.WindSpeed     = LerpOptional( a.WindSpeed, b.WindSpeed, t );
         return out;
@@ -210,18 +259,49 @@ namespace Desert::Core
                 LOG_ERROR( "[Weather] world parameter '{}': {}", p.Name, written.GetError() );
         }
 
-        if ( here.CloudCoverage )
-            for ( const entt::entity entity : registry.view<ECS::VolumetricCloudComponent>() )
+        for ( const entt::entity entity : registry.view<ECS::VolumetricCloudComponent>() )
+        {
+            auto& data = registry.get<ECS::VolumetricCloudComponent>( entity ).Data;
+            if ( here.CloudCoverage )
+                SetDynamicParam( data.DynamicParams, "Coverage", *here.CloudCoverage );
+            if ( here.CloudDensity )
+                SetDynamicParam( data.DynamicParams, "DensityScale", *here.CloudDensity );
+            if ( here.CloudTypes.empty() )
+                continue;
+            // WHICH SLOT HOLDS EACH TYPE is the layer material's answer (CloudType1..4 of its chain), so a preset
+            // names types and works on any sky that has them; a slot whose type the weather does not state is at
+            // 0.
+            Graphic::MaterialOverrides overrides;
+            if ( !Runtime::ResourceRegistry::GetMaterialService()->ResolveOverrides( data.Material, overrides ) )
+                continue;
+            std::vector<bool> placed( here.CloudTypes.size(), false );
+            for ( uint32_t slot = 0; slot < ECS::kCloudTypeSlots; ++slot )
             {
-                auto&           params = registry.get<ECS::VolumetricCloudComponent>( entity ).Data.DynamicParams;
-                const auto      it     = std::find_if( params.begin(), params.end(),
-                                                       []( const auto& kv ) { return kv.first == "Coverage"; } );
-                const glm::vec4 value( *here.CloudCoverage, 0.0f, 0.0f, 0.0f );
-                if ( it == params.end() )
-                    params.emplace_back( "Coverage", value );
-                else
-                    it->second = value;
+                const std::string slotName = "CloudType" + std::to_string( slot + 1u );
+                const auto        held     = std::find_if( overrides.Textures.begin(), overrides.Textures.end(),
+                                                           [&slotName]( const auto& kv ) { return kv.first == slotName; } );
+                if ( held == overrides.Textures.end() || held->second == 0u )
+                    continue;
+                float weight = 0.0f;
+                for ( size_t i = 0; i < here.CloudTypes.size(); ++i )
+                    if ( static_cast<uint64_t>( here.CloudTypes[i].first ) == held->second )
+                    {
+                        weight    = here.CloudTypes[i].second;
+                        placed[i] = true;
+                    }
+                SetDynamicParam( data.DynamicParams, "CloudTypeWeight" + std::to_string( slot + 1u ), weight );
             }
+            for ( size_t i = 0; i < here.CloudTypes.size(); ++i )
+                if ( !placed[i] && here.CloudTypes[i].second > 0.0f &&
+                     m_Reported
+                          .insert( "cloudtype:" +
+                                   std::to_string( static_cast<uint64_t>( here.CloudTypes[i].first ) ) )
+                          .second )
+                    LOG_ERROR(
+                         "[Weather] the weather shows cloud type {}, which no type slot of the cloud layer's "
+                         "material holds; that share of the sky is not drawn",
+                         static_cast<uint64_t>( here.CloudTypes[i].first ) );
+        }
 
         if ( here.FogDensity )
             for ( const entt::entity entity : registry.view<ECS::ExponentialHeightFogComponent>() )
