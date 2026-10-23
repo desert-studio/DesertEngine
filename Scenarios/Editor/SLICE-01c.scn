@@ -24,5 +24,5 @@
 Когда --subject viewport set Camera.Direction 0,-0.236,-1
 Тогда-вид 3_reopen same as 1_swapped after the reopen (the saved mesh + material round-trip)
 # A click on the box at the viewport's centre selects the entity.
-Когда drag 717,428 717,428
+Когда --subject viewport drag 717,428 717,428
 Тогда 4_details the Details panel's Static Mesh row is an asset slot naming Blockout (the Preview thumbnail above it), no "(no Details slot ...)"
