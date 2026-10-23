@@ -7,8 +7,8 @@
 #   Тогда 2_awning_after   awning interior readable, the street not blown, no halos at the awning edge
 # Frame 3 is live, on the Desert project's Starter scene (its unbound PostProcessVolume 17921165617746467452).
 Дано run View "View mode: Lit"
-Когда set 17921165617746467452 PostProcessVolume.Settings.LocalExposureHighlightContrastScale 0.8
-Когда set 17921165617746467452 PostProcessVolume.Settings.LocalExposureShadowContrastScale 0.8
+Когда set 17921165617746467452 PostProcessVolumeData.Settings.LocalExposureHighlightContrastScale 0.8
+Когда set 17921165617746467452 PostProcessVolumeData.Settings.LocalExposureShadowContrastScale 0.8
 Тогда 2b_starter_lit Starter, Lit, Highlight/Shadow 0.8: the picture renders (no black/NaN), contrast slightly flatter
 Когда run View "View mode: Local Exposure"
 Тогда 3_visualize the Local Exposure view mode shows per-pixel exposure (not flat): shaded and lit areas differ
