@@ -1,0 +1,11 @@
+# LOCAL-EXPOSURE: UE Local Exposure (Bilateral) — grid + blurred log luminance, applied per pixel in the tonemap.
+# Headless shots (render). Project = APFS clone DesertEngine-scratch/LOCAL-EXPOSURE/BistroClone (raised by migrate.sh;
+# the owner's BistroFoliageProj does not load on dev until BISTRO-MAT-V6).
+# Editor --project <BistroClone>/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce --camera 450,160,640 --look <sun-facing> --shot-frames 90
+Дано Bistro clone, daytime, Lit; camera at the café terrace under the awnings (450,160,640) looking out to the sunlit street
+Когда local exposure identity (engine defaults: Highlight 1 / Shadow 1 / Detail 1)
+Тогда 1_awning_before shade under the awnings crushed and/or the street blown; identical to dev (identity = no change)
+Когда Bistro's PPV Highlight 0.8 / Shadow 0.8
+Тогда 2_awning_after awning interior readable and the street not blown, no halos at the awning edge
+Когда view mode Local Exposure
+Тогда 3_visualize the Local Exposure view mode shows the per-pixel exposure
