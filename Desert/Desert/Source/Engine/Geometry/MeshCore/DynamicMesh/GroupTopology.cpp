@@ -8,6 +8,7 @@
 #include "Engine/Geometry/MeshCore/VectorTypes.hpp"
 
 #include <algorithm>
+#include <format>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -155,7 +156,7 @@ bool GroupTopology::GenerateBoundaryAndGroupEdges(
     MeshRegionBoundaryLoops BdryLoops( m_Mesh, Group.Triangles, true );
     if ( BdryLoops.m_bFailed )
     {
-        m_FailureReason = "group " + std::to_string( Group.GroupID ) + ": " + BdryLoops.m_FailureReason;
+        m_FailureReason = std::format( "group {}: {}", Group.GroupID, BdryLoops.m_FailureReason );
         return false;
     }
 

@@ -1,5 +1,6 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 
+#include <format>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 
 #include <Common/Core/Core.hpp>
@@ -194,7 +195,7 @@ namespace Desert::Core::ExternalEntities
     std::filesystem::path FileOf( const std::filesystem::path& scenePath, Common::UUID id )
     {
         return DirectoryOf( scenePath ) / fmt::format( "{:02x}", Bits( id ) & 0xFFu ) /
-               ( std::to_string( Bits( id ) ) + std::string( kExtension ) );
+               ( std::format( "{}{}", Bits( id ), kExtension ) );
     }
 
     bool IsHeader( const Common::Json::TextDocument& document )
@@ -270,7 +271,7 @@ namespace Desert::Core::ExternalEntities
                      "'{}': entity {}: its file states {} - a file is the record it is named for. Nothing was "
                      "loaded.",
                      source, Bits( id ),
-                     stated ? "id " + std::to_string( Bits( stated.GetValue() ) ) : stated.GetError() ) );
+                     stated ? std::format( "id {}", Bits( stated.GetValue() ) ) : stated.GetError() ) );
             records.push_back( record.ExtractValue() );
         }
 

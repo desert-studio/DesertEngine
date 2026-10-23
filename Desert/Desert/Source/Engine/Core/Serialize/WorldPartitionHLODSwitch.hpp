@@ -38,11 +38,13 @@
 
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <map>
 #include <span>
 #include <string>
@@ -82,17 +84,16 @@ namespace Desert::Core::Rules
             {
                 const std::size_t unit = unitOfHLOD[hlod];
                 if ( unit >= units )
-                    return Common::MakeError<HLODRuntime>( "HLOD " + std::to_string( hlod ) +
-                                                           " stands in for unit " + std::to_string( unit ) +
-                                                           " of " + std::to_string( units ) );
+                    return Common::MakeError<HLODRuntime>(
+                         std::format( "HLOD {} stands in for unit {} of {}", hlod, unit, units ) );
                 if ( unit < plan.AlwaysLoaded.size() )
                     return Common::MakeError<HLODRuntime>(
-                         "HLOD " + std::to_string( hlod ) + " stands in for always-loaded unit " +
-                         DescribeResidencyUnit( plan, unit ) + ", which is never hidden" );
+                         std::format( "HLOD {} stands in for always-loaded unit {}, which is never hidden", hlod,
+                                      DescribeResidencyUnit( plan, unit ) ) );
                 if ( runtime.m_HLODOfUnit[unit] != kNoRecord )
-                    return Common::MakeError<HLODRuntime>(
-                         "cell " + DescribeResidencyUnit( plan, unit ) + " has two HLODs (" +
-                         std::to_string( runtime.m_HLODOfUnit[unit] ) + " and " + std::to_string( hlod ) + ")" );
+                    return Common::MakeError<HLODRuntime>( std::format( "cell {} has two HLODs ({} and {})",
+                                                                        DescribeResidencyUnit( plan, unit ),
+                                                                        runtime.m_HLODOfUnit[unit], hlod ) );
                 runtime.m_HLODOfUnit[unit] = hlod;
             }
             return Common::MakeSuccess( std::move( runtime ) );
@@ -105,8 +106,8 @@ namespace Desert::Core::Rules
         {
             if ( state.Units.size() != m_HLODOfUnit.size() )
                 return Common::MakeError<std::size_t>(
-                     "the HLOD switch was made for " + std::to_string( m_HLODOfUnit.size() ) +
-                     " unit(s), the residency has " + std::to_string( state.Units.size() ) );
+                     std::format( "the HLOD switch was made for {} unit(s), the residency has {}",
+                                  m_HLODOfUnit.size(), state.Units.size() ) );
             std::size_t switched = 0;
             for ( std::size_t hlod = 0; hlod < m_UnitOfHLOD.size(); ++hlod )
             {
@@ -168,9 +169,13 @@ namespace Desert::Core::Rules
         std::map<std::string, std::size_t> counts;
         for ( const HLODExclusion reason : reasons )
             ++counts[std::string( rfl::enum_to_string( reason ) )];
-        std::string text;
+        static const TextTemplate kHoles(
+             "HLODHoles",
+             "{% for h in holes %}{% if not loop.first %}, {% endif %}{{ h.count }} {{ h.name }}{% endfor %}" );
+        Common::Json::Value::Array holes;
         for ( const auto& [name, count] : counts )
-            text += ( text.empty() ? "" : ", " ) + std::to_string( count ) + " " + name;
-        return text;
+            holes.emplace_back( Common::Json::ObjectBuilder().Set( "name", name ).Set( "count", count ).Build() );
+        return kHoles.RenderOrLog( Common::Json::Value(
+             Common::Json::ObjectBuilder().Set( "holes", Common::Json::Value( std::move( holes ) ) ).Build() ) );
     }
 } // namespace Desert::Core::Rules
