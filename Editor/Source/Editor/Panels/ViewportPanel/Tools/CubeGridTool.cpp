@@ -263,7 +263,7 @@ namespace Desert::Editor::Tools
         const Layer&         last = m_Volume.m_Frozen.back();
         ms.GridOrigin             = last.Frame.Origin;
         ms.GridRotation           = glm::degrees( glm::eulerAngles( last.Frame.Rotation ) );
-        ms.CellSize               = last.Unit;
+        ms.SetCurrentBlockSize( last.Unit );
         m_Volume.m_Frame          = MakeGridFrame( ms.GridOrigin, ms.GridRotation );
         m_Volume.m_Unit = m_BakedUnit = -1.0f;
         LOG_INFO( "[CubeGrid] editing '{}': {} layer(s)", name, m_Volume.m_Frozen.size() );
@@ -321,7 +321,7 @@ namespace Desert::Editor::Tools
             EditSelected( scene );
         }
 
-        const float gs = std::max( ms.CellSize, Core::ModelingState::MinCellSize );
+        const float gs = std::max( ms.CellSize(), Core::ModelingState::MinCellSize );
 
         // "Reset Grid from Actor": drop the grid frame onto the selected entity's own origin AND orientation
         // (UE 5.8 CubeGridTool.cpp:2560-2566: the actor's transform with its scale removed).
@@ -434,7 +434,7 @@ namespace Desert::Editor::Tools
                 changed = true;
             }
         const int K   = std::max( 1, static_cast<int>( std::lround( gs / m_Volume.m_Unit ) ) );
-        ms.CellSize   = static_cast<float>( K ) * m_Volume.m_Unit; // snap the shown Block Size to a base multiple
+        ms.SetCurrentBlockSize( static_cast<float>( K ) * m_Volume.m_Unit ); // snap the Block Size to a base multiple
         const float u = m_Volume.m_Unit;
 
         // Resizing the grid with a selection up but nothing pushed yet re-bases the whole volume, so the
@@ -823,7 +823,7 @@ namespace Desert::Editor::Tools
             if ( ::ImGui::IsKeyPressed( ImGuiKey_E, false ) )
             {
                 if ( ctrl ) // Ctrl+E — coarser grid
-                    ms.DoubleBlockSize();
+                    ms.GridPowerUp();
                 else if ( shift ) // Shift+E — slide the selection back (out of the surface), UE SlideBack
                     SlideSelection( +1, K );
                 else
@@ -832,7 +832,7 @@ namespace Desert::Editor::Tools
             if ( ::ImGui::IsKeyPressed( ImGuiKey_Q, false ) )
             {
                 if ( ctrl ) // Ctrl+Q — finer grid
-                    ms.HalveBlockSize();
+                    ms.GridPowerDown();
                 else if ( shift ) // Shift+Q — slide the selection forward (into the surface), UE SlideForward
                     SlideSelection( -1, K );
                 else
@@ -1211,12 +1211,12 @@ namespace Desert::Editor::Tools
                 // Block Size readout in centimetres (UE numbers: 100 cm = one metre = the default block).
                 ::ImGui::SameLine( 0.0f, 14.0f );
                 if ( ::ImGui::Button( ICON_MDI_MINUS "##grid_dn" ) )
-                    ms.CellSize = std::max( ms.CellSize * 0.5f, Core::ModelingState::MinCellSize );
+                    ms.GridPowerDown();
                 ::ImGui::SameLine();
-                ::ImGui::Text( "Grid %.0f cm", static_cast<float>( K ) * u );
+                ::ImGui::Text( "Grid Power %d - %g cm", ms.GridPower, static_cast<double>( K ) * u );
                 ::ImGui::SameLine();
                 if ( ::ImGui::Button( ICON_MDI_PLUS "##grid_up" ) )
-                    ms.CellSize = std::min( ms.CellSize * 2.0f, 100000.0f );
+                    ms.GridPowerUp();
             }
             ::ImGui::End();
             ::ImGui::PopStyleVar( 3 );

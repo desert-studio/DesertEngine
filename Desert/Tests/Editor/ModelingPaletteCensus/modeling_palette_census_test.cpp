@@ -74,8 +74,8 @@ namespace
         { "Checkbox", "\"Hit Unrelated Geometry\"", Reach::Palette, { "\"Hit Unrelated Geometry\"" } },
         { "Checkbox", "\"Generate Collision\"", Reach::Palette, { "\"Generate Collision\"" } },
         { "DragFloat", "\"Current Block Size\"", Reach::Set, { "CubeGrid.CurrentBlockSize" } },
-        { "SmallButton", "\"/2##bs\"", Reach::Palette, { "\"Block Size /2\"" } },
-        { "SmallButton", "\"x2##bs\"", Reach::Palette, { "\"Block Size x2\"" } },
+        { "SmallButton", "\"/2##bs\"", Reach::Palette, { "\"Grid Power -1\"" } },
+        { "SmallButton", "\"x2##bs\"", Reach::Palette, { "\"Grid Power +1\"" } },
         { "SliderInt", "\"Blocks / Step\"", Reach::Set, { "CubeGrid.BlocksPerStep" } },
         // Two panel buttons read "Clear": CubeGrid's and the element selection's.
         { "Button", "\"Clear\"", Reach::Palette, { "{ \"Clear\", &MS::ReqClear }", "SelectionOp::Clear" } },
@@ -424,21 +424,25 @@ TEST( ModelingPaletteCensus, ASetWritesTheWidgetsFieldAndRefusesWhatTheWidgetCan
     EXPECT_FLOAT_EQ( state.ElementPlaneCutOffset, 12.5f ) << "a refused write changed nothing";
 }
 
-// Grid Power and the block-size steps are one function each for the slider, the buttons, the shortcuts and the
-// palette; they must invert each other.
-TEST( ModelingPaletteCensus, GridPowerRoundTripsThroughTheBlockSize )
+// Grid Power is UE FCubeGrid's: cell = base * 2^power (3.125 cm * 2^5 = 100 cm), power up = bigger cell, and a typed
+// block size re-derives the base while the power stays - one function each for the slider, buttons, shortcuts, palette.
+TEST( ModelingPaletteCensus, GridPowerIsTheUeCubeGridPower )
 {
     ModelingState state;
+    EXPECT_EQ( state.GridPower, 5 );
+    EXPECT_FLOAT_EQ( state.CellSize(), 100.0f );
     for ( int power = 0; power <= ModelingState::MaxGridPower; ++power )
     {
         state.SetGridPower( power );
-        EXPECT_EQ( state.GridPower(), power );
+        EXPECT_EQ( state.GridPower, power );
+        EXPECT_FLOAT_EQ( state.CellSize(), 3.125f * static_cast<float>( 1 << power ) );
     }
-    state.SetGridPower( 2 );
-    EXPECT_FLOAT_EQ( state.CellSize, 25.0f );
-    state.DoubleBlockSize();
-    EXPECT_EQ( state.GridPower(), 1 );
-    state.CellSize = ModelingState::MinCellSize;
-    state.HalveBlockSize();
-    EXPECT_FLOAT_EQ( state.CellSize, ModelingState::MinCellSize );
+    state.SetGridPower( 5 );
+    state.GridPowerUp();
+    EXPECT_FLOAT_EQ( state.CellSize(), 200.0f );
+    state.SetCurrentBlockSize( 150.0f );
+    EXPECT_EQ( state.GridPower, 6 );
+    EXPECT_FLOAT_EQ( state.CellSize(), 150.0f );
+    state.GridPowerDown();
+    EXPECT_FLOAT_EQ( state.CellSize(), 75.0f );
 }

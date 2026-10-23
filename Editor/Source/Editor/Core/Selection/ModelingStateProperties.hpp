@@ -51,7 +51,13 @@ namespace Desert::Editor::Core
          { "CubeGrid.GridFrameOrientation", "Grid Frame Orientation", "CubeGrid", 3, false, -180.0f, 180.0f,
            []( ModelingState& s ) { return &s.GridRotation.x; }, nullptr },
          { "CubeGrid.CurrentBlockSize", "Current Block Size", "CubeGrid", 1, false, ModelingState::MinCellSize,
-           ModelingState::MaxCellSize, []( ModelingState& s ) { return &s.CellSize; }, nullptr },
+           ModelingState::MaxCellSize, nullptr, nullptr,
+           []( ModelingState& s ) { return static_cast<double>( s.CellSize() ); },
+           []( ModelingState& s, double v ) -> Common::BoolResultStr
+           {
+               s.SetCurrentBlockSize( static_cast<float>( v ) );
+               return true;
+           } },
          { "CubeGrid.BlocksPerStep",    "Blocks / Step",      "CubeGrid", 1, true, 1.0f, 32.0f, nullptr,
            []( ModelingState& s ) { return &s.BlocksPerStep; } },
          { "CreateShape.Box.Width", "Width", "Create Shape", 1, false, Geometry::Detail::kMinExtent, 1.0e6f,
