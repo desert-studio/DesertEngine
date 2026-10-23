@@ -28,13 +28,18 @@
 Когда --subject viewport set Camera.Direction 0,-0.55,0.84
 Когда state
 Тогда-вид 0_road a flat road-like band follows the spline through the hill, smooth falloff at the sides; the spline (centre, edges, falloff lines, 3 points) is drawn
-Когда run Scene "Save Scene"
+# Undo runs before the save: reopening a scene starts a fresh history (UE: loading a map clears the transaction buffer).
+Когда run Action "Undo"
+Когда run Action "Undo"
+Когда run Action "Undo"
+Когда state
+Тогда-вид 2_undo the hill is back to the original, no band, no spline drawn
+Когда run Action "Redo"
+Когда run Action "Redo"
+Когда run Action "Redo"
+Когда run Action "Save Scene"
 Когда run Scene "Open Scene G3_TwoTerrains.desce"
 Когда --subject viewport set Camera.Position 9282,5000,-8000
 Когда --subject viewport set Camera.Direction 0,-0.55,0.84
 Когда state
 Тогда-вид 1_reopen after reopen the spline and the deformed band are identical to 0_road
-Когда run Action "Undo"
-Когда run Action "Undo"
-Когда run Action "Undo"
-Тогда-вид 2_undo the hill is back to the original, no band, no spline drawn
