@@ -30,7 +30,11 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, DestinationMipTexture );
         DESERT_SHADER_PARAMETER( Texture, LumBilateralGrid );
         DESERT_SHADER_PARAMETER( Texture, BlurredLogLuminance );
-        static constexpr std::array kAll{ RDG::Erase( SourceMipTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( PointClampSampler ), RDG::Erase( AdaptedLuminanceTexture ), RDG::Erase( DestinationMipTexture ), RDG::Erase( LumBilateralGrid ), RDG::Erase( BlurredLogLuminance ) };
+        static constexpr std::array kAll{
+             RDG::Erase( SourceMipTexture ),      RDG::Erase( LinearClampSampler ),
+             RDG::Erase( PointClampSampler ),     RDG::Erase( AdaptedLuminanceTexture ),
+             RDG::Erase( DestinationMipTexture ), RDG::Erase( LumBilateralGrid ),
+             RDG::Erase( BlurredLogLuminance ) };
     };
 
     // The Upsample shader's parameters: the one spelling the pass binds and Initialize checks.

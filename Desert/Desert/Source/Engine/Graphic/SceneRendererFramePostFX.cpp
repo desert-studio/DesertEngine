@@ -283,9 +283,9 @@ namespace Desert::Graphic
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
         if ( tonemap != nullptr )
             bloom->SetLocalExposure( tonemap->GetLocalExposure(), tonemap->GetExposure() );
-        const RDG::TextureRef leGrid = textures.Transients.LocalExposureGrid.IsValid()
-                                            ? textures.Transients.LocalExposureGrid
-                                            : textures.System.Black3D;
+        const RDG::TextureRef leGrid    = textures.Transients.LocalExposureGrid.IsValid()
+                                               ? textures.Transients.LocalExposureGrid
+                                               : textures.System.Black3D;
         const RDG::TextureRef leBlurred = textures.Transients.BlurredLogLuminance.IsValid()
                                                ? textures.Transients.BlurredLogLuminance
                                                : textures.System.Black;

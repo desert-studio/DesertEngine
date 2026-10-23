@@ -117,10 +117,10 @@ namespace Desert::Graphic::System
             block.Texture( BloomDownsampleShaderParameters::SourceMipTexture, chain, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) );
         block.Sampler( BloomDownsampleShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
              .Sampler( BloomDownsampleShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
-             .Texture( BloomDownsampleShaderParameters::AdaptedLuminanceTexture, adaptedLuminance, RDG::Access::SampledCompute,
-                       RDG::SubresourceRange::All() )
-             .Texture( BloomDownsampleShaderParameters::LumBilateralGrid, localExposureGrid, RDG::Access::SampledCompute,
-                       RDG::SubresourceRange::All() )
+             .Texture( BloomDownsampleShaderParameters::AdaptedLuminanceTexture, adaptedLuminance,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Texture( BloomDownsampleShaderParameters::LumBilateralGrid, localExposureGrid,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
              .Texture( BloomDownsampleShaderParameters::BlurredLogLuminance, blurredLogLuminance,
                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
         block.Storage( BloomDownsampleShaderParameters::DestinationMipTexture, chain, RDG::Access::StorageWrite, mip )
@@ -164,9 +164,11 @@ namespace Desert::Graphic::System
              m_ManualExposure,
              1.0f / std::max( m_PreExposure, 1e-30f ),
              glm::vec4( p.HighlightContrast, p.ShadowContrast, p.DetailStrength, p.BlurredLumBlend ),
-             glm::vec4( p.HighlightThreshold, p.ShadowThreshold, p.HighlightThresholdStrength, p.ShadowThresholdStrength ),
+             glm::vec4( p.HighlightThreshold, p.ShadowThreshold, p.HighlightThresholdStrength,
+                                              p.ShadowThresholdStrength ),
              glm::vec4( le.GridUVScale, le.BlurUVScale ),
-             glm::vec4( le.LogMiddleGrey, le.SliceLogMin, 1.0f / kLocalExposureSliceEV, le.Produced ? 1.0f : 0.0f ) };
+             glm::vec4( le.LogMiddleGrey, le.SliceLogMin, 1.0f / kLocalExposureSliceEV,
+                        le.Produced ? 1.0f : 0.0f ) };
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &push, sizeof( push ) );
