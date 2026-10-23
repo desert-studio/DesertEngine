@@ -147,7 +147,8 @@ namespace Desert::Editor::Autosave
              static_cast<int>( Common::Content::TextHeaderVersion( header.GetValue(), unitTag ).value_or( 0 ) ),
              static_cast<int>(
                   Common::Content::TextHeaderVersion( header.GetValue(), worldPartitionTag ).value_or( 0 ) ),
-             static_cast<int>( Common::Content::TextHeaderVersion( header.GetValue(), assetRefTag ).value_or( 0 ) ) };
+             static_cast<int>(
+                  Common::Content::TextHeaderVersion( header.GetValue(), assetRefTag ).value_or( 0 ) ) };
     }
 
     struct NotOfferedCopy
