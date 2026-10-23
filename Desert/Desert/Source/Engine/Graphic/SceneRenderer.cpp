@@ -1,3 +1,5 @@
+#include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
+#include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
@@ -566,6 +568,10 @@ namespace Desert::Graphic
                     LOG_ERROR(
                          "[SceneRenderer] auto-exposure did not initialise; exposure stays at its default." );
                 tonemapSystem->SetAutoExposureImage( autoExposureSystem->GetAdaptedLuminanceImage() );
+                // Local exposure (UE Bilateral): grid + blurred log luminance the tonemap and the bloom read.
+                RegisterSystem<System::LocalExposureRenderer>( "LocalExposureSystem", this, m_TargetFramebuffer );
+                if ( const auto le = m_RenderSystems["LocalExposureSystem"]->Initialize(); !le )
+                    LOG_ERROR( "[SceneRenderer] local exposure did not initialise: {}", le.GetError() );
                 return "AutoExposure";
             }
             case 21:
@@ -1123,7 +1129,23 @@ namespace Desert::Graphic
                 m_LastExposure  = lum > 0.0f ? post.AutoExposureKey / std::max( lum, 1e-4f ) : 0.0f;
                 LOG_TRACE( "[PreExposure] {}: read-back adapted luminance {} -> exposure {}",
                            m_ViewResources.GetName(), lum, m_LastExposure );
+                // UE UpdatePreExposure x AverageLocalExposure (PostProcessEyeAdaptation.cpp:1559,1587): the
+                // tonemap scales the scene term by local exposure, so the stored range follows it.
+                m_LastAverageLocalExposure = ae->GetLastAverageLocalExposure();
             }
+        }
+        if ( !post.AutoExposure || m_ViewProfile.SceneCapture )
+            m_LastAverageLocalExposure = 1.0f;
+        {
+            const LocalExposureParams localExposure = ResolveLocalExposure( post );
+            const float               logMiddleGrey = LocalExposureLogMiddleGrey(
+                 post.AutoExposureKey, localExposure.MiddleGreyBiasEV, !post.AutoExposure );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( auto* le = UNIQUE_GET_AS( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] ) )
+                le->SetParams( localExposure, logMiddleGrey, m_LastExposure > 0.0f ? m_LastExposure : manualExposure );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( auto* ae = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
+                ae->SetLocalExposure( localExposure, logMiddleGrey, post.AutoExposureKey );
         }
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
         // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
@@ -1443,7 +1465,7 @@ namespace Desert::Graphic
                                    ? glm::vec3( 0.0f )
                                    : glm::normalize( -glm::vec3( m_DirectionLights.DirectionLights[0].Direction ) );
         m_LastRenderScalePercent                 = inputs.RenderScalePercent;
-        inputs.LastExposure                      = m_LastExposure;
+        inputs.LastExposure                      = m_LastExposure * m_LastAverageLocalExposure;
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
         if ( !begun )
         {
@@ -1461,6 +1483,9 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
             autoExp->SetPreExposure( frame.PreExposure );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* le = UNIQUE_GET_AS( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] ) )
+            le->SetPreExposure( frame.PreExposure );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* bloom = UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] ) )
             bloom->SetPreExposure( frame.PreExposure );
@@ -2135,6 +2160,7 @@ namespace Desert::Graphic
             const RDG::TextureRef postSource = postInput.empty() ? RDG::TextureRef{} : postInput.front();
             const RDG::TextureRef outlined   = AddFrameJumpFlood( graph, textures, postSource );
             AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
+            AddFrameLocalExposure( graph, textures, postInput );
             if ( m_BloomEnabled )
             {
                 AddFrameBloom( graph, textures, postInput );
