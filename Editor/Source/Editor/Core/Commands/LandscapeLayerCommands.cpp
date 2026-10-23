@@ -1057,7 +1057,8 @@ namespace Desert::Editor::Commands
                                   "Set landscape spline paint layer" );
     }
 
-    Common::ResultStr<std::string> NextLandscapeSplineLayer( entt::registry& registry, const Common::UUID& landscape )
+    Common::ResultStr<std::string> NextLandscapeSplineLayer( entt::registry&     registry,
+                                                             const Common::UUID& landscape )
     {
         const auto root = ECS::FindLandscapeRootEntity( registry, landscape );
         if ( root == entt::null )

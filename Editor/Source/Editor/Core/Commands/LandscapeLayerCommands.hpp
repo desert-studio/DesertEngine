@@ -164,7 +164,8 @@ namespace Desert::Editor::Commands
 
     /// The paint layer after the one the first segment paints, in the landscape's layer order, and "" after the
     /// last (and from ""  the first): what the palette's "Spline paint layer: next" sets.
-    Common::ResultStr<std::string> NextLandscapeSplineLayer( entt::registry& registry, const Common::UUID& landscape );
+    Common::ResultStr<std::string> NextLandscapeSplineLayer( entt::registry&     registry,
+                                                             const Common::UUID& landscape );
 
     /// UE: the splines layer re-renders when a layer below it changed. After a brush wrote layer
     /// @p editedLayer, re-derives the Splines layer on every loaded tile when it sits ABOVE @p editedLayer;

@@ -162,8 +162,9 @@ namespace Desert::Core::Serialize
     // asset manager — the registry's Landscape serializer (ComponentRegistry.cpp) writes and reads it.
     // `EditLayers` is the stack as [{Guid, Name, Visible, Locked, HeightAlpha, WeightAlpha, Kind}], bottom first,
     // written even when empty (an undo restores the whole block, and an absent key keeps the current value).
-    // `Kind` is "Manual" or "Splines"; `Splines` is {ControlPoints: [{Location, Width, SideFalloff, EndFalloff, LayerWidthRatio}],
-    // Segments: [{Start, End, RaiseTerrain, LowerTerrain, LayerName}]} (UE ULandscapeSplinesComponent), written always.
+    // `Kind` is "Manual" or "Splines"; `Splines` is {ControlPoints: [{Location, Width, SideFalloff, EndFalloff,
+    // LayerWidthRatio}], Segments: [{Start, End, RaiseTerrain, LowerTerrain, LayerName}]} (UE
+    // ULandscapeSplinesComponent), written always.
     inline Common::Json::Object WriteComponent( const ECS::LandscapeComponent& c )
     {
         Common::Json::Object block = Common::Json::ObjectBuilder()

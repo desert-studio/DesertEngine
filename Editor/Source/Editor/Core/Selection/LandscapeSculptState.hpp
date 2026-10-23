@@ -656,10 +656,16 @@ namespace Desert::Editor::Core
                               {},
                               splines,
                               LandscapeStrokeRequest::SplineDeleteSelected } );
-        controls.push_back(
-             { "Spline paint layer: next", "Spline paint layer", {}, splines, LandscapeStrokeRequest::SplineLayerNext } );
-        controls.push_back(
-             { "Spline paint layer: none", "Spline paint layer", {}, splines, LandscapeStrokeRequest::SplineLayerNone } );
+        controls.push_back( { "Spline paint layer: next",
+                              "Spline paint layer",
+                              {},
+                              splines,
+                              LandscapeStrokeRequest::SplineLayerNext } );
+        controls.push_back( { "Spline paint layer: none",
+                              "Spline paint layer",
+                              {},
+                              splines,
+                              LandscapeStrokeRequest::SplineLayerNone } );
         return controls;
     }
 

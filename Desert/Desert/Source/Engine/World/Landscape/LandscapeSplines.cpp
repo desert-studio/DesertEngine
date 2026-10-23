@@ -127,10 +127,11 @@ namespace Desert::World::Landscape
                 return Common::MakeFormattedError<bool>( "landscape spline point {}: location is not finite", i );
             if ( !NonNegative( p.Width ) || !NonNegative( p.SideFalloff ) || !NonNegative( p.EndFalloff ) ||
                  !NonNegative( p.LayerWidthRatio ) )
-                return Common::MakeFormattedError<bool>(
-                     "landscape spline point {}: width {} / side falloff {} / end falloff {} / layer width ratio {} "
-                     "must be finite and not negative",
-                     i, p.Width, p.SideFalloff, p.EndFalloff, p.LayerWidthRatio );
+                return Common::MakeFormattedError<bool>( "landscape spline point {}: width {} / side falloff {} / "
+                                                         "end falloff {} / layer width ratio {} "
+                                                         "must be finite and not negative",
+                                                         i, p.Width, p.SideFalloff, p.EndFalloff,
+                                                         p.LayerWidthRatio );
         }
         for ( size_t i = 0; i < splines.Segments.size(); ++i )
         {
@@ -277,7 +278,8 @@ namespace Desert::World::Landscape
                                        [&]( const LandscapeWeightLayer& w ) { return w.Name == name; } );
             if ( found == paint.end() )
             {
-                paint.push_back( { name, std::vector<uint8_t>( static_cast<size_t>( samplesX ) * samplesZ, 0u ) } );
+                paint.push_back(
+                     { name, std::vector<uint8_t>( static_cast<size_t>( samplesX ) * samplesZ, 0u ) } );
                 found = paint.end() - 1;
             }
             paintOf[i] = static_cast<size_t>( found - paint.begin() );
@@ -329,8 +331,9 @@ namespace Desert::World::Landscape
             }
 
         // Only a plane that carries paint here goes on the tile (a tile holds at most eight weight layers).
-        std::erase_if( paint, []( const LandscapeWeightLayer& w )
-                       { return std::all_of( w.Weights.begin(), w.Weights.end(), []( uint8_t v ) { return v == 0u; } ); } );
+        std::erase_if(
+             paint, []( const LandscapeWeightLayer& w )
+             { return std::all_of( w.Weights.begin(), w.Weights.end(), []( uint8_t v ) { return v == 0u; } ); } );
         const bool painted = !paint.empty();
 
         const LandscapeEditLayerTileData* held = tile.FindEditLayer( layer );
