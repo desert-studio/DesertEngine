@@ -160,7 +160,7 @@ namespace Desert::Graphic::System
                  "ParticleSteps", std::max( 1u, stepCapacity ) * kParticleStepStride, 1 );
         }
         return e.Steps && e.Counters && e.DispatchArgs && e.ChannelSpawns && e.AttributeFloats &&
-               e.AttributeInts && e.Params && e.Curves && e.DrawLayout;
+               e.AttributeInts && e.Params && e.Curves && e.PointSets && e.DrawLayout;
     }
 
     std::shared_ptr<ComputePipeline> ParticleWorldGpu::ProgramFor( const uint64_t key, const std::string& name,
@@ -235,15 +235,10 @@ namespace Desert::Graphic::System
                  slot.SlotKind == VFX::VFXParamSlot::Kind::User )
                 gpu.UserRows.emplace_back( static_cast<uint32_t>( s ), slot.User );
         gpu.PointSetRows.clear();
-        for ( std::size_t s = 0; s < compiled.GetValue().Slots.size(); s += VFX::kVFXPointSetRows )
-        {
-            // A PointSet binding's rows are contiguous (VFXStackCompiler); step to the first of the next run.
-            while ( s < compiled.GetValue().Slots.size() &&
-                    compiled.GetValue().Slots[s].SlotKind != VFX::VFXParamSlot::Kind::PointSet )
-                ++s;
-            if ( s < compiled.GetValue().Slots.size() )
-                gpu.PointSetRows.emplace_back( static_cast<uint32_t>( s ), compiled.GetValue().Slots[s].User );
-        }
+        for ( std::size_t s = 0; s < compiled.GetValue().Slots.size(); ++s )
+            if ( const VFX::VFXParamSlot& slot = compiled.GetValue().Slots[s];
+                 slot.SlotKind == VFX::VFXParamSlot::Kind::PointSet )
+                gpu.PointSetRows.emplace_back( static_cast<uint32_t>( s ), slot.User );
         gpu.CurveFloats  = curves.GetValue().Floats;
         gpu.FloatColumns = compiled.GetValue().Layout.TotalFloatComponents;
         gpu.IntColumns   = compiled.GetValue().Layout.TotalIntComponents;
@@ -258,6 +253,8 @@ namespace Desert::Graphic::System
              "VFXStackParams", static_cast<uint32_t>( gpu.ParamRows.size() * sizeof( glm::vec4 ) ), 8 );
         gpu.Curves = ShaderResources::StorageBuffer::Create(
              "VFXStackCurves", static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ), 9 );
+        gpu.PointSetData.assign( 1, glm::vec4( 0.0f ) );
+        gpu.PointSets   = ShaderResources::StorageBuffer::Create( "VFXPointSets", sizeof( glm::vec4 ), 10 );
         gpu.DrawColumns = DrawColumnsOf( compiled.GetValue(), entityId, emitter.Name, emitter.Renderers );
         gpu.DrawLayout =
              ShaderResources::StorageBuffer::Create( "ParticleDrawLayout", kParticleDrawLayoutSize, 11 );
@@ -370,12 +367,14 @@ namespace Desert::Graphic::System
     void ParticleWorldGpu::ApplyPointSets( ParticleSystemGpu& system, const std::vector<ECS::VFXPointSet>& sets,
                                            const glm::mat3& basis, const uint32_t entityId )
     {
-        // UE ArrayPosition read by a weighted pick: the set's inverse weight CDF, kVFXPointSetRows evenly spaced
-        // fractions, so a uniform random row is a point in proportion to its weight (VFXStackCompiler).
+        // UE ArrayPosition: the set is the emitter's own buffer, every painted point in it (no cap), each with the
+        // set's cumulative weight so a particle picks a point in proportion to its weight (VFX_PointSet).
         system.PointSets     = sets;
         system.PointSetBasis = basis;
         for ( ParticleEmitterGpu& gpu : system.Emitters )
-            for ( const auto& [first, name] : gpu.PointSetRows )
+        {
+            gpu.PointSetData.clear();
+            for ( const auto& [row, name] : gpu.PointSetRows )
             {
                 const auto set = std::find_if( sets.begin(), sets.end(),
                                                [&]( const ECS::VFXPointSet& s ) { return s.Name == name; } );
@@ -383,26 +382,38 @@ namespace Desert::Graphic::System
                 if ( set != sets.end() )
                     for ( const glm::vec4& p : set->Points )
                         total += std::max( p.w, 0.0f );
+                const auto first = static_cast<uint32_t>( gpu.PointSetData.size() );
                 if ( total <= 0.0 )
                 {
                     LOG_WARN( "[VFX] entity {} emitter '{}': PointSet.{} {} - its particles are born at the "
                               "placement",
                               entityId, gpu.DebugName, name,
                               set == sets.end() ? "is not painted on this placement" : "holds no weighted point" );
-                    for ( uint32_t r = 0; r < VFX::kVFXPointSetRows && first + r < gpu.ParamRows.size(); ++r )
-                        gpu.ParamRows[first + r] = glm::vec4( 0.0f );
+                    if ( row < gpu.ParamRows.size() )
+                        gpu.ParamRows[row] = glm::vec4( 0.0f );
                     continue;
                 }
-                std::size_t point = 0;
-                double      cumulative = std::max( set->Points[0].w, 0.0f );
-                for ( uint32_t r = 0; r < VFX::kVFXPointSetRows && first + r < gpu.ParamRows.size(); ++r )
+                double cumulative = 0.0;
+                for ( const glm::vec4& p : set->Points )
                 {
-                    const double at = ( static_cast<double>( r ) + 0.5 ) / VFX::kVFXPointSetRows * total;
-                    while ( cumulative < at && point + 1 < set->Points.size() )
-                        cumulative += std::max( set->Points[++point].w, 0.0f );
-                    gpu.ParamRows[first + r] = glm::vec4( basis * glm::vec3( set->Points[point] ), 0.0f );
+                    if ( p.w <= 0.0f )
+                        continue; // a zero-weight point is never picked
+                    cumulative += p.w;
+                    gpu.PointSetData.emplace_back( basis * glm::vec3( p ),
+                                                   static_cast<float>( cumulative / total ) );
                 }
+                gpu.PointSetData.back().w = 1.0f; // the last point takes u up to 1 whatever the rounding
+                if ( row < gpu.ParamRows.size() )
+                    gpu.ParamRows[row] =
+                         glm::vec4( static_cast<float>( first ),
+                                    static_cast<float>( gpu.PointSetData.size() - first ), 0.0f, 0.0f );
             }
+            if ( gpu.PointSetData.empty() )
+                gpu.PointSetData.emplace_back( 0.0f );
+            const auto bytes = static_cast<uint32_t>( gpu.PointSetData.size() * sizeof( glm::vec4 ) );
+            if ( !gpu.PointSets || gpu.PointSets->GetSize() < bytes )
+                gpu.PointSets = ShaderResources::StorageBuffer::Create( "VFXPointSets", bytes, 10 );
+        }
     }
 
     bool ParticleWorldGpu::EnsurePoolCapacity( const uint32_t particles )
@@ -567,12 +578,16 @@ namespace Desert::Graphic::System
                  table.data(), stepCount * static_cast<uint32_t>( sizeof( ParticleStepGpu ) ) );
             const auto params = gpu.Params->SetData(
                  gpu.ParamRows.data(), static_cast<uint32_t>( gpu.ParamRows.size() * sizeof( glm::vec4 ) ) );
-            const auto curves = gpu.Curves->SetData(
-                 gpu.CurveFloats.data(), static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ) );
+            auto curves = gpu.Curves->SetData( gpu.CurveFloats.data(),
+                                               static_cast<uint32_t>( gpu.CurveFloats.size() * sizeof( float ) ) );
+            if ( curves.IsSuccess() )
+                curves = gpu.PointSets->SetData(
+                     gpu.PointSetData.data(),
+                     static_cast<uint32_t>( gpu.PointSetData.size() * sizeof( glm::vec4 ) ) );
             if ( !uploaded.IsSuccess() || !params.IsSuccess() || !curves.IsSuccess() )
             {
-                LOG_ERROR( "[Particles] emitter {} does not simulate this tick, its step table, parameters "
-                           "or curves did not upload: {}",
+                LOG_ERROR( "[Particles] emitter {} does not simulate this tick, its step table, parameters, "
+                           "curves or point sets did not upload: {}",
                            entityId,
                            !uploaded.IsSuccess()
                                 ? uploaded.GetError()

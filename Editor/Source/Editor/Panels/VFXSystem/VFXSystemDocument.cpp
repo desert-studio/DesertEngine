@@ -1190,16 +1190,17 @@ namespace Desert::Editor
                                                  return;
                                              }
                                      } } );
-            out.push_back( { std::format( "Spawn {} from point set PaintedPoints", name ), [this, name]
-                             {
-                                 for ( std::size_t em = 0; em < m_Working.Emitters.size(); ++em )
-                                     if ( m_Working.Emitters[em].Name == name )
-                                     {
-                                         (void)SpawnFromPointSet( em, "PaintedPoints" );
-                                         return;
-                                     }
-                             } } );
         }
+        // Once per emitter, not per stage: the spawn location is one module of the spawn group (VFX-15).
+        out.push_back( { std::format( "Spawn {} from point set PaintedPoints", name ), [this, name]
+                         {
+                             for ( std::size_t em = 0; em < m_Working.Emitters.size(); ++em )
+                                 if ( m_Working.Emitters[em].Name == name )
+                                 {
+                                     (void)SpawnFromPointSet( em, "PaintedPoints" );
+                                     return;
+                                 }
+                         } } );
         return out;
     }
 
