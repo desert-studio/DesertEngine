@@ -317,13 +317,15 @@ namespace Desert::Editor::ImportOptions
         settings.CombineMeshes = on;
     }
 
-    Common::BoolResultStr SetDisplacement( Assets::SourceImportSettings& settings,
+    Common::BoolResultStr SetDisplacement( Assets::SourceImportSettings&      settings,
                                            const Assets::MeshDisplacementMode mode, const ImportContentKind kind )
     {
-        // CONTRACT-DISPLACE §9.8: a skeletal mesh is displaced over its skinned pose each frame; a bake is one pose.
+        // CONTRACT-DISPLACE §9.8: a skeletal mesh is displaced over its skinned pose each frame; a bake is one
+        // pose.
         if ( kind == ImportContentKind::SkeletalMesh && mode == Assets::MeshDisplacementMode::Baked )
-            return Common::MakeFormattedError<bool>( "Displacement {}: a skeletal mesh is displaced None or Runtime",
-                                                     Assets::MeshDisplacementModeName( mode ) );
+            return Common::MakeFormattedError<bool>(
+                 "Displacement {}: a skeletal mesh is displaced None or Runtime",
+                 Assets::MeshDisplacementModeName( mode ) );
         settings.Mesh.Displacement = mode;
         return BOOLSUCCESS;
     }

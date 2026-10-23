@@ -301,10 +301,10 @@ namespace Desert::Editor
                                   [on] { return ImportOptions::SetShownCombineMeshes( on ); } } );
         for ( const auto mode : { Assets::MeshDisplacementMode::None, Assets::MeshDisplacementMode::Runtime,
                                   Assets::MeshDisplacementMode::Baked } )
-            commands.push_back( { "Assets",
-                                  std::format( "Import Options: Displacement {}",
-                                               Assets::MeshDisplacementModeName( mode ) ),
-                                  [mode] { return ImportOptions::SetShownDisplacement( mode ); } } );
+            commands.push_back(
+                 { "Assets",
+                   std::format( "Import Options: Displacement {}", Assets::MeshDisplacementModeName( mode ) ),
+                   [mode] { return ImportOptions::SetShownDisplacement( mode ); } } );
         // UE's Content Browser > Asset Actions > Reimport (and the Import Settings fields Reimport imports with):
         // over the assets SELECTED IN THE CONTENT BROWSER, the RMB item's and the Import Settings button's own
         // ImportOptions bodies. Without a selected asset each is unavailable and says why; an asset with no import
