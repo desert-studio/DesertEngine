@@ -5,10 +5,12 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
+#include <Engine/Geometry/PrimitiveType.hpp>
 
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -33,7 +35,54 @@ namespace Desert::World::Landscape
         /// UE LayerWidthRatio: the painted band's half-width is Width * this, with the same SideFalloff past it
         /// (LandscapeSplineSegment.cpp UpdateSplinePoints: LayerLeft/LayerRight). Goes linearly along a segment.
         float LayerWidthRatio = 1.0f;
+        friend bool operator==( const LandscapeSplineControlPoint&, const LandscapeSplineControlPoint& ) = default;
     };
+
+    /// UE ESplineMeshAxis: the mesh's local axis laid along the spline.
+    enum class LandscapeSplineMeshAxis : uint8_t
+    {
+        X = 0,
+        Y,
+        Z
+    };
+
+    /**
+     * @brief One mesh a segment lays along itself (UE 5.8: FLandscapeSplineMeshEntry,
+     * Classes/LandscapeSplineSegment.h:110-160).
+     *
+     * The mesh is a static mesh asset (`Mesh`, its asset id) or one of the engine's built-in shapes (`Primitive`,
+     * the shapes a StaticMeshComponent draws) — exactly one of them. `Scale` is in the mesh's own axes, applied
+     * before the bend; `ForwardAxis` is the axis laid along the curve (the mesh's up is engine +Y, or +Z when
+     * the forward axis is Y); `CenterH` centres the mesh's side extent on the curve (UE bCenterH), otherwise its
+     * local origin sits on it; `CenterAdjust` then moves it sideways and up (UE CenterAdjust).
+     */
+    struct LandscapeSplineMeshEntry
+    {
+        Common::UUID                           Mesh;
+        std::optional<Geometry::PrimitiveType> Primitive;
+        glm::vec3                              Scale       = glm::vec3( 1.0f );
+        LandscapeSplineMeshAxis                ForwardAxis = LandscapeSplineMeshAxis::X;
+        bool                                   CenterH     = true;
+        /// UE CenterAdjust: cm the bent mesh moves along the curve's right (x) and up (y), after CenterH — what
+        /// lifts a mesh whose origin is its centre onto the road.
+        glm::vec2 CenterAdjust = glm::vec2( 0.0f );
+        friend bool operator==( const LandscapeSplineMeshEntry&, const LandscapeSplineMeshEntry& ) = default;
+    };
+
+    /// The axis' name as the scene file spells it ("X", "Y", "Z").
+    constexpr const char* LandscapeSplineMeshAxisName( LandscapeSplineMeshAxis axis )
+    {
+        switch ( axis )
+        {
+            case LandscapeSplineMeshAxis::X:
+                return "X";
+            case LandscapeSplineMeshAxis::Y:
+                return "Y";
+            case LandscapeSplineMeshAxis::Z:
+                return "Z";
+        }
+        return "X";
+    }
 
     /**
      * @brief One segment between two control points (UE 5.8: ULandscapeSplineSegment,
@@ -48,6 +97,10 @@ namespace Desert::World::Landscape
         /// UE LayerName: the landscape paint layer the segment writes along its band (weight = the band's alpha
         /// over Width * LayerWidthRatio + SideFalloff) into the Splines edit layer; empty paints nothing.
         std::string LayerName;
+        /// UE SplineMeshes: the meshes laid along the segment, one after another along its length, each
+        /// repeated as many times as fit (LandscapeSplineMeshes.hpp, BuildLandscapeSplineSegmentMesh).
+        std::vector<LandscapeSplineMeshEntry> SplineMeshes;
+        friend bool operator==( const LandscapeSplineSegment&, const LandscapeSplineSegment& ) = default;
     };
 
     /**
@@ -70,6 +123,26 @@ namespace Desert::World::Landscape
     /// Refuses a non-finite location, a negative or non-finite width / falloff, a segment naming a point that
     /// does not exist or joining a point to itself — naming it.
     Common::BoolResultStr ValidateLandscapeSplines( const LandscapeSplines& splines );
+
+    /// A segment's curve (UE: the FInterpCurveVector of ULandscapeSplineSegment::SplineInfo): the cubic Hermite
+    /// between the two points, each end's tangent along the point's auto-calculated rotation with the length of
+    /// the chord. The one curve the raster, the overlay and the spline meshes all read.
+    struct LandscapeSplineCurve
+    {
+        glm::vec3 P0 = glm::vec3( 0.0f ), M0 = glm::vec3( 0.0f ), P1 = glm::vec3( 0.0f ), M1 = glm::vec3( 0.0f );
+
+        [[nodiscard]] glm::vec3 Position( float t ) const;
+        [[nodiscard]] glm::vec3 Derivative( float t ) const;
+        /// The curve's right vector on the ground plane at @p t (UE: the spline's right), +Z for a vertical one.
+        [[nodiscard]] glm::vec3 Right( float t ) const;
+    };
+
+    /// Segment @p segment's curve; the segment must name existing points (ValidateLandscapeSplines).
+    LandscapeSplineCurve LandscapeSplineSegmentCurve( const LandscapeSplines& splines, size_t segment );
+
+    /// Refuses an entry naming both or neither of a mesh asset and a built-in shape, a built-in shape the
+    /// mesh path does not build (Terrain, LightCube), and a non-finite or non-positive scale — naming it.
+    Common::BoolResultStr ValidateLandscapeSplineMeshEntry( const LandscapeSplineMeshEntry& entry );
 
     /// UE's FLandscapeSplineInterpPoint (LandscapeSplineSegment.h:22): the centre of the band, its left and
     /// right edges (Width), and the edges of the falloff (Width + SideFalloff), world cm.

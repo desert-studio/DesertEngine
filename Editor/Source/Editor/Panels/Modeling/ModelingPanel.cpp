@@ -184,8 +184,8 @@ namespace Desert::Editor
                       ms.ActiveTool == MS::Tool::EditMaterials || ms.ActiveTool == MS::Tool::PaintGroups )
                 m_Category = static_cast<int>( Palette::Attributes );
             else if ( ms.ActiveTool == MS::Tool::HoleFill || ms.ActiveTool == MS::Tool::Remesh ||
-                      ms.ActiveTool == MS::Tool::Jacket || ms.ActiveTool == MS::Tool::Project ||
-                      ms.ActiveTool == MS::Tool::WeldEdges )
+                      ms.ActiveTool == MS::Tool::Simplify || ms.ActiveTool == MS::Tool::Jacket ||
+                      ms.ActiveTool == MS::Tool::Project || ms.ActiveTool == MS::Tool::WeldEdges )
                 m_Category = static_cast<int>( Palette::MeshOps );
             else if ( ms.ActiveTool == MS::Tool::VoxWrap || ms.ActiveTool == MS::Tool::VoxBoolean ||
                       ms.ActiveTool == MS::Tool::VoxMorph || ms.ActiveTool == MS::Tool::VoxBlend )
@@ -513,34 +513,6 @@ namespace Desert::Editor
             ImGui::Checkbox( "New PolyGroups", &subdivide.NewPolyGroups );
             if ( ImGui::Button( Core::ToString( MO::Subdivide ), ImVec2( -1.0f, 0.0f ) ) )
                 operate( MO::Subdivide );
-        }
-        if ( Utils::ImGuiUtilities::SectionHeader( "Simplify" ) )
-        {
-            const float half = ( ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x ) * 0.5f;
-            using MO         = Core::MeshOperation;
-            // UE's Simplify tool settings (SimplifyMeshTool.h): the target is a percentage of the triangles or a
-            // vertex count; polygroup borders are held Fixed (UE's FullyConstrained) unless unticked.
-            Geometry::SimplifySettings&                 simplify = ms.ElementSimplify;
-            int                                         target   = static_cast<int>( simplify.Target );
-            static constexpr std::array<const char*, 2> kTargets = { "Percentage", "Vertex Count" };
-            ImGui::SetNextItemWidth( half );
-            if ( ImGui::Combo( "##ElementSimplifyTarget", &target, kTargets.data(),
-                               static_cast<int>( kTargets.size() ) ) )
-                simplify.Target = static_cast<Geometry::SimplifyTarget>( target );
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth( half );
-            if ( simplify.Target == Geometry::SimplifyTarget::Percentage )
-                ImGui::SliderFloat( "##ElementSimplifyPercentage", &simplify.Percentage, 1.0f, 100.0f, "%.0f %%" );
-            else
-                ImGui::DragInt( "##ElementSimplifyVertexCount", &simplify.VertexCount, 1.0f, 3, 1000000,
-                                "%d vertices" );
-            ImGui::Checkbox( "Preserve PolyGroups", &simplify.PreserveGroupBoundaries );
-            ImGui::Checkbox( "Preserve Sharp Edges", &simplify.PreserveSharpEdges );
-            if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "If enabled, UV and normal seams (hard edges) are kept: they never collapse\n"
-                                   "and their vertices never move." );
-            if ( ImGui::Button( Core::ToString( MO::Simplify ), ImVec2( -1.0f, 0.0f ) ) )
-                Operate( MO::Simplify );
         }
         ImGui::Separator();
         if ( active )
@@ -1111,6 +1083,7 @@ namespace Desert::Editor
         };
         toolButton( MS::Tool::HoleFill, ICON_MDI_VECTOR_SQUARE_CLOSE, "Hole Fill" );
         toolButton( MS::Tool::Remesh, ICON_MDI_VECTOR_TRIANGLE, "Remesh" );
+        toolButton( MS::Tool::Simplify, ICON_MDI_TRIANGLE_OUTLINE, "Simplify" );
         toolButton( MS::Tool::Jacket, ICON_MDI_LAYERS_MINUS, "Jacket" );
         toolButton( MS::Tool::Project, ICON_MDI_VECTOR_COMBINE, "Project" );
         toolButton( MS::Tool::WeldEdges, ICON_MDI_VECTOR_LINK, "Weld Edges" );
@@ -1160,6 +1133,48 @@ namespace Desert::Editor
             ImGui::Checkbox( "Preserve Sharp Edges", &p.PreserveSharpEdges );
             ImGui::Checkbox( "Discard Attributes", &p.DiscardAttributes );
         };
+        if ( ms.ActiveTool == MS::Tool::Simplify )
+        {
+            // UE USimplifyMeshToolProperties: Target Mode (Percentage / Triangle Count / Vertex Count / Edge
+            // Length) and its number, the boundary constraints, Discard Attributes; the preview until Accept (one
+            // undo step). The status reads the triangle counts before and after.
+            ImGui::Separator();
+            Geometry::SimplifySettings& p = ms.MeshSimplify;
+            row( "Target Mode" );
+            if ( ImGui::BeginCombo( "##SimplifyTarget", Geometry::ToString( p.Target ) ) )
+            {
+                for ( const Geometry::SimplifyTarget target : Geometry::kSimplifyTargets )
+                    if ( ImGui::Selectable( Geometry::ToString( target ), p.Target == target ) )
+                        p.Target = target;
+                ImGui::EndCombo();
+            }
+            switch ( p.Target )
+            {
+                case Geometry::SimplifyTarget::Percentage:
+                    row( "Target Percentage" );
+                    ImGui::SliderFloat( "##SimplifyPercentage", &p.Percentage, 1.0f, 100.0f, "%.0f %%" );
+                    break;
+                case Geometry::SimplifyTarget::TriangleCount:
+                case Geometry::SimplifyTarget::VertexCount:
+                    row( "Target Count" );
+                    ImGui::DragInt( "##SimplifyCount", &p.TargetCount, 10.0f, 3, 1000000 );
+                    break;
+                case Geometry::SimplifyTarget::EdgeLength:
+                    row( "Target Edge Length (cm)" );
+                    ImGui::DragFloat( "##SimplifyEdge", &p.TargetEdgeLength, 0.1f, 0.01f, 10000.0f, "%.2f" );
+                    break;
+            }
+            ImGui::Checkbox( "Preserve Boundaries", &p.PreserveBoundaries );
+            ImGui::Checkbox( "Preserve PolyGroups", &p.PreserveGroupBoundaries );
+            ImGui::Checkbox( "Preserve Sharp Edges", &p.PreserveSharpEdges );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "If enabled, UV and normal seams (hard edges) are kept: they never collapse\n"
+                                   "and their vertices never move." );
+            ImGui::Checkbox( "Discard Attributes", &p.DiscardAttributes );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+            return;
+        }
         if ( ms.ActiveTool == MS::Tool::Remesh )
         {
             // UE URemeshMeshTool: the selected mesh remeshed whole to an even triangulation, projected back onto

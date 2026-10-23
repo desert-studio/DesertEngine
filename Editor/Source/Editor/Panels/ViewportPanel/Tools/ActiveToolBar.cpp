@@ -78,6 +78,9 @@ namespace Desert::Editor::Tools
             // UE's Remesh previews the remeshed mesh until Accept; Cancel puts it back (MeshProcessingTool).
             case T::Remesh:
                 return { ICON_MDI_VECTOR_TRIANGLE, "Remesh", true };
+            // UE's Simplify previews the reduced mesh until Accept; Cancel puts it back (MeshProcessingTool).
+            case T::Simplify:
+                return { ICON_MDI_TRIANGLE_OUTLINE, "Simplify", true };
             // UE's Jacket previews the removal until Accept; Cancel puts the mesh back (MeshProcessingTool).
             case T::Jacket:
                 return { ICON_MDI_LAYERS_MINUS, "Jacket", true };
