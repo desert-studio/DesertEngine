@@ -1,0 +1,24 @@
+# SLICE-02 asset authoring (run once; its outputs are committed): the wall's mesh and its 2-level fracture.
+# Modeling > Shapes Box 300 x 200 x 25 cm (centre pivot) -> its .stmesh; Fracture mode, two Uniform levels (the
+# panel's default level + Add Level), Generate from the selected mesh -> Fractures/Fracture.dfrac, then moved by
+# hand to Meshes/Modeling/Wall.stmesh and Fractures/Wall.dfrac (the GUIDs in their headers keep every reference).
+Дано run Scene "Open Scene Starter.desce"
+Дано run View "View mode: Lit"
+Дано run Panel "Open Modeling"
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape pivot: Centre"
+Дано --subject modeling set CreateShape.Box.Width 300
+Дано --subject modeling set CreateShape.Box.Height 200
+Дано --subject modeling set CreateShape.Box.Depth 40
+Дано --subject viewport set Camera.Position -450,400,-100
+Дано --subject viewport set Camera.Direction 0,-0.8,0.6
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation -450,100,250
+Дано run Modeling "Active tool: Accept"
+Когда run Fracture "Fracture mode"
+Когда run Fracture "Add Level"
+Когда run Fracture "Random Seed: next"
+Когда run Fracture "Generate from the selected static mesh"
+Когда --subject viewport set Camera.Position -450,150,-150
+Когда --subject viewport set Camera.Direction 0,-0.1,1
+Тогда-вид 0_baked the 300 x 200 cm wall with its fracture's pieces outlined
