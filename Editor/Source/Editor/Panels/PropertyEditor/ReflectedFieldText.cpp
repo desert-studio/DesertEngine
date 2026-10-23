@@ -107,10 +107,11 @@ namespace Desert::Editor
         }
 
         // AN ASSET REFERENCE SPELLED AS ITS PATH (UE: a soft object path is the text form of TSoftObjectPtr<T>,
-        // and both the Details panel and the console take it). Resolved exactly as the Details picker resolves a
-        // dropped file - RegistryPickerForAssetType names the slot's content kind, ContentRegistry::RowAtPath the
-        // row - so the two accept the same things. A path of another kind, or one no row answers for, is refused
-        // by name: an empty handle written in its place would be a reference silently lost.
+        // and both the Details panel and the console take it). The slot's content kind is the census's answer
+        // for its Asset<T> (ContentKindForAssetType - every kind, meshes, materials and textures included, not a
+        // list of some), the row is ContentRegistry::RowAtPath's, as the Details pickers resolve a dropped file.
+        // A path of another kind, or one no row answers for, is refused by name: an empty handle written in its
+        // place would be a reference silently lost.
         Common::ResultStr<Value> ParseAssetPath( const FieldInfo& field, std::string_view text )
         {
             const std::size_t colon = text.find( ':' );
@@ -119,23 +120,24 @@ namespace Desert::Editor
                      std::format( "'{}' is neither a handle (an unsigned decimal integer) nor a content path "
                                   "(\"assets:<path>\") (field '{}', Asset<{}>)",
                                   text, field.Name, field.Meta.AssetType ) );
-            const RegistryPickerSpec* spec = RegistryPickerForAssetType( field.Meta.AssetType );
-            if ( spec == nullptr )
+            const auto want = ContentKindForAssetType( field.Meta.AssetType );
+            if ( !want )
                 return Common::MakeError<Value>(
-                     std::format( "field '{}' is Asset<{}>, which has no content-registry kind, so a path cannot "
-                                  "name it here; give the asset's handle",
+                     std::format( "field '{}' is Asset<{}>, which is no content-registry kind (not registry "
+                                  "content), so a path cannot name it here; give the asset's handle",
                                   field.Name, field.Meta.AssetType ) );
+            const std::string_view      noun = Common::Content::KindName( *want );
             const std::filesystem::path path{ std::string( text ) };
-            if ( const auto row = Assets::ContentRegistry::RowAtPath( spec->Kind, path ) )
+            if ( const auto row = Assets::ContentRegistry::RowAtPath( *want, path ) )
                 return Common::MakeSuccess( Value::UInt( static_cast<std::uint64_t>( row->Handle ) ) );
-            if ( const auto kind = Assets::ContentRegistry::KindForFile( path ); kind && *kind != spec->Kind )
-                return Common::MakeError<Value>( std::format(
-                     "'{}' is a {}, not a {}: field '{}' takes only Asset<{}>", text,
-                     Common::Content::KindName( *kind ), spec->Noun, field.Name, field.Meta.AssetType ) );
+            if ( const auto kind = Assets::ContentRegistry::KindForFile( path ); kind && *kind != *want )
+                return Common::MakeError<Value>(
+                     std::format( "'{}' is a {}, not a {}: field '{}' takes only Asset<{}>", text,
+                                  Common::Content::KindName( *kind ), noun, field.Name, field.Meta.AssetType ) );
             return Common::MakeError<Value>(
                  std::format( "no {} at '{}' in the content registry (field '{}', Asset<{}>); the file is "
                               "missing, or was added after the editor gathered the content roots",
-                              spec->Noun, text, field.Name, field.Meta.AssetType ) );
+                              noun, text, field.Name, field.Meta.AssetType ) );
         }
 
         Common::ResultStr<Value> Parse( const FieldInfo& field, std::string_view text )

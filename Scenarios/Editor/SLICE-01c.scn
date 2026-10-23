@@ -1,0 +1,15 @@
+# SLICE-01c: DesertCtl `set` names ANY Asset<T> reference by its `assets:` path - the slot's content kind is derived from
+# the content census (ContentKindForAssetType: <KindName>Asset), not a hand list - and a path of the wrong kind is
+# refused with its reason (--expect-refusal; the reason lands in editor.log as "[Control] set ... refused").
+# The cube (Primitive Cube, slot 0 = Starter_Prop) gets another mesh and another material, then a texture as its material.
+Дано run Scene "Open Scene Starter.desce"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,60,450
+Дано --subject viewport set Camera.Direction 0,-0.1,-1
+Когда set 6018453462564557835 StaticMesh.Mesh assets:Meshes/Modeling/Blockout.stmesh
+Когда set 6018453462564557835 StaticMesh.Materials assets:Materials/CB_Red.demat
+Когда advance 1
+Тогда-вид 0_swapped the cube entity shows the other mesh in the red CB material, not the grey Starter_Prop cube
+Когда --expect-refusal set 6018453462564557835 StaticMesh.Materials assets:Textures/T_Checker.detex
+Когда advance 1
+Тогда-вид 1_refused unchanged from 0_swapped; editor.log has "[Control] set ... refused: 'assets:Textures/T_Checker.detex' is a Texture, not a Material"
