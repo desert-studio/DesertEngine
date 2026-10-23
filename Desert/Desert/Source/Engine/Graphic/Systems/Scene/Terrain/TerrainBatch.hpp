@@ -13,9 +13,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include <Common/Json/Template.hpp>
 
 namespace Desert::Graphic
 {
@@ -279,16 +282,14 @@ namespace Desert::Graphic::System
         parts.reserve( overrides.Textures.size() + 2 );
         for ( const auto& [name, handle] : overrides.Textures )
             if ( handle != 0 )
-                parts.push_back( name + "=" + std::to_string( handle ) );
+                parts.push_back( std::format( "{}={}", name, handle ) );
         if ( heightmap != nullptr )
-            parts.push_back( "HeightmapTexture=@" + std::to_string( std::bit_cast<uintptr_t>( heightmap ) ) );
+            parts.push_back( std::format( "HeightmapTexture=@{}", std::bit_cast<uintptr_t>( heightmap ) ) );
         if ( weightmap != nullptr )
-            parts.push_back( "WeightmapTexture=@" + std::to_string( std::bit_cast<uintptr_t>( weightmap ) ) );
+            parts.push_back( std::format( "WeightmapTexture=@{}", std::bit_cast<uintptr_t>( weightmap ) ) );
         std::sort( parts.begin(), parts.end() );
 
-        std::string key;
-        for ( const auto& part : parts )
-            key += "|" + part;
-        return key;
+        // Every part is led by '|', so a key with no parts is empty.
+        return parts.empty() ? std::string() : std::format( "|{}", Common::Text::Join( parts, "|" ) );
     }
 } // namespace Desert::Graphic::System

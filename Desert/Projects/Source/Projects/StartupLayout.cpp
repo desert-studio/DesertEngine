@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include <Common/Json/Template.hpp>
+
 namespace Desert::Project
 {
     namespace
@@ -130,13 +132,8 @@ namespace Desert::Project
                  "run script passes the flag. Pass: --project <path/to/.deproj>",
                  directory.string() );
 
-        std::string names;
-        for ( const std::string& one : descriptors )
-        {
-            if ( !names.empty() )
-                names += ", ";
-            names += fs::path( one ).filename().string();
-        }
+        const std::string names = Common::Text::Join( descriptors, ", ", []( const std::string& one )
+                                                      { return fs::path( one ).filename().string(); } );
         // NOT "take the first one". Two descriptors beside one executable is a question this process
         // has no way to answer, and answering it anyway would open a project the person is not
         // looking at while everything downstream - the title bar, the recent list, the scene - agreed

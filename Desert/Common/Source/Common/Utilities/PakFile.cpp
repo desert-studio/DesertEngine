@@ -9,7 +9,9 @@
 #include <bit>
 #include <climits>
 #include <cstring>
+#include <format>
 #include <fstream>
+#include <iterator>
 #include <system_error>
 #include <vector>
 
@@ -379,8 +381,7 @@ namespace Common::Utils
             if ( c >= 0x20 && c < 0x7f )
                 out += static_cast<char>( c );
             else
-                out += "\\x" + std::string( 1, "0123456789abcdef"[c >> 4] ) +
-                       std::string( 1, "0123456789abcdef"[c & 0xf] );
+                std::format_to( std::back_inserter( out ), "\\x{:02x}", c );
         }
         return out + "\"";
     }

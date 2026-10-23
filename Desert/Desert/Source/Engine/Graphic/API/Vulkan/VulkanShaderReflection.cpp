@@ -91,46 +91,37 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         const auto& image = type.image;
 
         // SPIR-V's `sampled`: 1 = read through a sampler, 2 = read/written as a storage image.
-        std::string described = image.sampled == 2 ? "image" : "sampler";
-
+        std::string dim;
         switch ( image.dim )
         {
             case spv::Dim1D:
-                described += "1D";
+                dim = "1D";
                 break;
             case spv::Dim2D:
-                described += "2D";
+                dim = "2D";
                 break;
             case spv::Dim3D:
-                described += "3D";
+                dim = "3D";
                 break;
             case spv::DimCube:
-                described += "Cube";
+                dim = "Cube";
                 break;
             case spv::DimRect:
-                described += "2DRect";
+                dim = "2DRect";
                 break;
             case spv::DimBuffer:
-                described += "Buffer";
+                dim = "Buffer";
                 break;
             case spv::DimSubpassData:
-                described += "SubpassData";
+                dim = "SubpassData";
                 break;
             default:
-                described += std::format( "<dim {}>", (int)image.dim );
+                dim = std::format( "<dim {}>", (int)image.dim );
                 break;
         }
 
-        if ( image.ms )
-        {
-            described += "MS";
-        }
-        if ( image.arrayed )
-        {
-            described += "Array";
-        }
-
-        return described;
+        return std::format( "{}{}{}{}", image.sampled == 2 ? "image" : "sampler", dim, image.ms ? "MS" : "",
+                            image.arrayed ? "Array" : "" );
     }
 
     std::vector<std::string> ReflectStage( const std::vector<uint32_t>& spirv, Core::Formats::ShaderStage stage,

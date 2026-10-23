@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
+#include <format>
 #include <fstream>
 #include <system_error>
 
@@ -177,7 +178,7 @@ namespace Common::Utils
         std::string_view header;
         if ( !nextLine( header ) )
             return Common::MakeError<ContentManifest>( "the manifest is empty — its header line is missing" );
-        const std::string expected = std::string( kMagic ) + " " + std::to_string( kFormatVersion );
+        const std::string expected = std::format( "{} {}", kMagic, kFormatVersion );
         if ( header != expected )
             return Common::MakeFormattedError<ContentManifest>(
                  "not a Desert content manifest: line 1 is \"{}\", expected \"{}\"", std::string( header ),
