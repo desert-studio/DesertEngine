@@ -1,0 +1,25 @@
+# P19b Simplify (UE USimplifyMeshTool / FSimplifyMeshOp, QEM; MeshOps palette "Mesh"): a 32x32 lat-long Sphere
+# from Modeling > Shapes, Wireframe; Mesh tool: Simplify, Target Mode Percentage at 25 % (Preserve PolyGroups
+# off - UE's own default Ignore - so the shape's per-face groups do not pin every edge) -> Accept (one undo
+# step, Accept waits for the compute) -> Undo.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Wireframe"
+Дано --subject viewport set Camera.Direction 0.6,-0.53,0.6
+Дано run Modeling "Create shape pivot: Centre"
+Дано run Modeling "Create shape sphere: Lat Long"
+Дано --subject modeling set CreateShape.Sphere.HorizontalSlices 32
+Дано --subject modeling set CreateShape.Sphere.VerticalSlices 32
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Active tool: Accept"
+Дано run "Level Viewport" "Focus Selected"
+Когда run Modeling "Simplify target: Percentage"
+Когда --subject modeling set Simplify.Percentage 25
+Когда run Modeling "Simplify: Preserve PolyGroups: off"
+Когда run Modeling "Mesh tool: Simplify"
+Когда run Modeling "Active tool: Accept"
+Когда state
+Тогда 0_simplified about a quarter of the triangles (the status reads "Simplify: N -> M triangles ..." with M about N/4), still a sphere silhouette, no holes
+Когда run Action Undo
+Когда state
+Тогда 1_undo the original 32x32 UV-sphere triangulation back (pole fans, latitude rings)

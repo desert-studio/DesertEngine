@@ -1511,7 +1511,10 @@ namespace Desert::Editor::Tools
 
         // Accept ("Accept and Start New" in UE's panel): keep the built mesh, select it, and hand the tool
         // a clean slate — the grid frame and Block Size stay so you carry straight on with the next piece.
-        if ( ms.ReqAccept )
+        // Only CubeGrid's own Accept: ReqAccept is shared by every Modeling tool, and a MeshOps tool (Remesh,
+        // Simplify, ...) keeps its request raised across frames while its background compute lands - this
+        // Update runs after theirs, so an ungated check swallowed that Accept (scripted Accept committed nothing).
+        if ( ms.ReqAccept && toolActive )
         {
             ms.ReqAccept         = false;
             const bool endTool   = ms.ReqAcceptEndsTool;

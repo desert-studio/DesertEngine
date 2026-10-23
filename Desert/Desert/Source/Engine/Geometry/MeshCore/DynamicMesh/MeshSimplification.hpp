@@ -16,6 +16,7 @@
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshConstraints.hpp"
 #include "Engine/Geometry/MeshCore/IndexPriorityQueue.hpp"
 
+#include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 
 #include <algorithm>
@@ -74,6 +75,10 @@ namespace Desert::Geometry
         void SimplifyToTriangleCount( int count );
         // Collapse until the mesh has at most @p count vertices (clamped to >= 3), or no edge may collapse.
         void SimplifyToVertexCount( int count );
+        // UE TMeshSimplification::SimplifyToEdgeLength (ETargetModes::MinEdgeLength): every edge shorter than
+        // @p minEdgeLength collapses, lowest error first, until the queue runs dry; longer edges are skipped.
+        // The length is measured after @p toWorld (the editor's lengths are world cm, like Remesh).
+        void SimplifyToEdgeLength( double minEdgeLength, const glm::dmat4& toWorld = glm::dmat4( 1.0 ) );
 
         [[nodiscard]] int CollapseCount() const
         {
@@ -85,6 +90,7 @@ namespace Desert::Geometry
         {
             TriangleCount,
             VertexCount,
+            MinEdgeLength,
         };
         enum class CollapseResult : uint8_t
         {
@@ -126,6 +132,8 @@ namespace Desert::Geometry
         std::optional<MeshConstraints> m_Constraints;
         TargetMode                     m_Mode         = TargetMode::TriangleCount;
         int                            m_Target       = 0;
+        double                         m_MinEdgeLength = 0.0;
+        glm::dmat4                     m_ToWorld{ 1.0 };
         int                            m_Collapses    = 0;
         bool                           m_HaveBoundary = false;
         std::vector<bool>              m_IsBoundaryVertex;

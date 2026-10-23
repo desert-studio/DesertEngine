@@ -11,6 +11,7 @@
 // a mesh; so the result's tangents are recomputed from its normals and UV layer 0 (FMeshTangents, per triangle).
 
 #include "Engine/Geometry/DynamicMeshSelection.hpp"
+#include "Engine/Geometry/MeshDeformOperations.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/Operations/SubdividePoly.hpp"
 
@@ -115,34 +116,52 @@ namespace Desert::Geometry
     [[nodiscard]] Common::ResultStr<RegionOutcome>
     SubdivideMesh( const DynamicMesh3& before, const SubdivideSettings& settings, ElementMode mode );
 
-    // Simplify, as UE's USimplifyMeshTool runs FSimplifyMeshOp with the QEM simplifier (SimplifyMeshOp.cpp:33-143,
-    // 261): Percentage keeps max(4, Percentage% of the triangles) (SimplifyMeshOp.cpp:119-123), VertexCount stops
-    // at that many vertices. PreserveGroupBoundaries is UE's GroupBoundaryConstraint = Fixed (every edge between
-    // two polygroups and its vertices stay exactly as they are); off, it is UE's Ignore. Open borders use UE's
-    // Free (they collapse along themselves only); seams never collapse (Preserve Sharp Edges). UE's own tool
-    // defaults to Ignore; the editor defaults to preserving, because a PolyEdit mesh without its group borders
-    // loses its faces. Mesh-wide; leaves an empty selection in @p mode. A tangent space is rebuilt.
-    // Refused, by name and numbers: an empty mesh, a percentage outside (0, 100], a vertex target below 3, a
-    // target the mesh already meets, PreserveGroupBoundaries on a mesh with no polygroups, or no edge that
-    // could collapse under the constraints.
+    // UE USimplifyMeshTool / FSimplifyMeshOp with the QEM simplifier (SimplifyMeshOp.cpp:33-143, 261), the
+    // Modeling MeshOps palette's Simplify (a preview until Accept, one undo step). USimplifyMeshToolProperties:
+    //   Target Mode - Percentage keeps max(4, Percentage% of the triangles) (SimplifyMeshOp.cpp:119-123);
+    //   Triangle Count / Vertex Count stop at Target Count; Edge Length collapses every edge shorter than
+    //   Target Edge Length (world cm, as Remesh measures it; UE SimplifyToEdgeLength);
+    //   Preserve Boundaries - UE MeshBoundaryConstraint Fixed (open borders stay exactly) vs Free (they collapse
+    //   along themselves only);
+    //   Preserve PolyGroups - UE GroupBoundaryConstraint Fixed vs Ignore. UE's own default is Ignore; the editor
+    //   keeps them, because a PolyEdit mesh without its group borders loses its faces;
+    //   Preserve Sharp Edges (UE bPreserveSharpEdges, default off) - on, a seam (hard edge / UV split) never
+    //   collapses and its vertices never move; off, a seam collapses along its own line;
+    //   Discard Attributes (UE bDiscardAttributes) - the UV / normal / colour overlays are dropped first (no seam
+    //   holds the collapse) and per-vertex normals rebuilt on the result.
+    // UE's Attribute-Aware simplifier (FAttrMeshSimplification) is not ported; the QEM one is the only type.
     enum class SimplifyTarget : uint8_t
     {
         Percentage,
+        TriangleCount,
         VertexCount,
+        EdgeLength,
     };
     [[nodiscard]] const char* ToString( SimplifyTarget target );
+    inline constexpr SimplifyTarget kSimplifyTargets[] = {
+         SimplifyTarget::Percentage, SimplifyTarget::TriangleCount, SimplifyTarget::VertexCount,
+         SimplifyTarget::EdgeLength };
 
     struct SimplifySettings
     {
         SimplifyTarget Target                  = SimplifyTarget::Percentage;
-        float          Percentage              = 50.0f; // UE's TargetPercentage default
-        int            VertexCount             = 1000;  // UE's TargetVertexCount default
+        float          Percentage              = 50.0f; // UE TargetPercentage default
+        int32_t        TargetCount             = 1000;  // UE TargetCount default (triangles or vertices)
+        float          TargetEdgeLength        = 5.0f;  // UE TargetEdgeLength default, cm
+        bool           PreserveBoundaries      = false; // UE MeshBoundaryConstraint default Free
         bool           PreserveGroupBoundaries = true;
-        // UE's bPreserveSharpEdges (default off): on, a seam (hard edge / UV split) never collapses and its
-        // vertices never move; off, a seam collapses along its own line.
-        bool PreserveSharpEdges = false;
+        bool           PreserveSharpEdges      = false;
+        bool           DiscardAttributes       = false;
+
+        bool operator==( const SimplifySettings& ) const = default;
     };
 
-    [[nodiscard]] Common::ResultStr<RegionOutcome>
-    SimplifyMesh( const DynamicMesh3& before, const SimplifySettings& settings, ElementMode mode );
+    // The input simplified into a copy (DeformOutcome::Mesh, in the input's object space); @p localToWorld only
+    // measures Edge Length. Normals recomputed (per-vertex when the attributes were discarded), tangents
+    // rebuilt; DeformOutcome::Report reads "Simplify: N -> M triangles (K collapses)". Refused, by name and
+    // numbers: an empty mesh, a target out of range, a target the mesh already meets, Preserve PolyGroups on a
+    // mesh with no polygroups, or no edge that could collapse under the constraints.
+    [[nodiscard]] Common::ResultStr<DeformOutcome> SimplifyMeshOperation( const DynamicMesh3&     input,
+                                                                          const glm::dmat4&       localToWorld,
+                                                                          const SimplifySettings& settings );
 } // namespace Desert::Geometry

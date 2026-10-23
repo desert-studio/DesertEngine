@@ -201,8 +201,7 @@ namespace Desert::Editor
                 Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
                 Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean,
                 Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror, Core::MeshOperation::PlaneCut,
-                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Simplify,
-                Core::MeshOperation::Disconnect } )
+                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Disconnect } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ),
                                   [&scene, op]
@@ -546,17 +545,30 @@ namespace Desert::Editor
                                   } } );
         modelingOnOff( "Modeling", "Subdivide: New PolyGroups",
                        []( MS& ms, bool on ) { ms.ElementSubdivide.NewPolyGroups = on; } );
-        modelingOnOff( "Modeling", "Simplify: Preserve Sharp Edges",
-                       []( MS& ms, bool on ) { ms.ElementSimplify.PreserveSharpEdges = on; } );
-        for ( const auto target : { Geometry::SimplifyTarget::Percentage, Geometry::SimplifyTarget::VertexCount } )
+        // UE's MeshOps palette: Simplify (USimplifyMeshTool, the MeshProcessingTool session: preview, Accept = one
+        // undo step) and its switches (USimplifyMeshToolProperties); the numbers are ModelingState rows
+        // (Simplify.*).
+        commands.push_back( { "Modeling", "Mesh tool: Simplify", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Simplify;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::SimplifyTarget target : Geometry::kSimplifyTargets )
             commands.push_back( { "Modeling", std::string( "Simplify target: " ) + Geometry::ToString( target ),
                                   [target]
                                   {
-                                      MS::Get().ElementSimplify.Target = target;
+                                      MS::Get().MeshSimplify.Target = target;
                                       return PaletteCommandDone();
                                   } } );
+        modelingOnOff( "Modeling", "Simplify: Preserve Boundaries",
+                       []( MS& ms, bool on ) { ms.MeshSimplify.PreserveBoundaries = on; } );
         modelingOnOff( "Modeling", "Simplify: Preserve PolyGroups",
-                       []( MS& ms, bool on ) { ms.ElementSimplify.PreserveGroupBoundaries = on; } );
+                       []( MS& ms, bool on ) { ms.MeshSimplify.PreserveGroupBoundaries = on; } );
+        modelingOnOff( "Modeling", "Simplify: Preserve Sharp Edges",
+                       []( MS& ms, bool on ) { ms.MeshSimplify.PreserveSharpEdges = on; } );
+        modelingOnOff( "Modeling", "Simplify: Discard Attributes",
+                       []( MS& ms, bool on ) { ms.MeshSimplify.DiscardAttributes = on; } );
         static constexpr std::array<const char*, 3> kAxisNames = { "X", "Y", "Z" };
         for ( int axis = 0; axis < 3; ++axis )
         {

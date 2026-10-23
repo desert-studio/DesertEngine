@@ -207,10 +207,6 @@ namespace Desert::Editor::Core
                s.ElementSubdivide.Scheme = static_cast<Geometry::SubdivisionScheme>( static_cast<int>( v ) );
                return Common::MakeSuccess( true );
            } },
-         { "Element.SimplifyPercentage", "Percentage",        "Select Elements", 1, false, 1.0f, 100.0f,
-           []( ModelingState& s ) { return &s.ElementSimplify.Percentage; }, nullptr },
-         { "Element.SimplifyVertexCount", "Vertex Count",     "Select Elements", 1, true, 3.0f, 1.0e6f, nullptr,
-           []( ModelingState& s ) { return &s.ElementSimplify.VertexCount; } },
          { "PlaneCut.Offset",           "Offset",             "Plane Cut", 1, false, -100000.0f, 100000.0f,
            []( ModelingState& s ) { return &s.ElementPlaneCutOffset; }, nullptr },
          { "XForm.PivotWorldPoint",     "World Point",        "XForm", 3, false, -1.0e6f, 1.0e6f,
@@ -415,6 +411,12 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.Sculpt.Spacing; }, nullptr },
          { "DynamicSculpt.EdgeLength",  "Edge Length",        "Sculpt", 1, false, 0.01f, 1.0e4f,
            []( ModelingState& s ) { return &s.DynamicSculptTopology.TargetEdgeLength; }, nullptr },
+         { "Simplify.Percentage",       "Percentage",         "Simplify", 1, false, 1.0f, 100.0f,
+           []( ModelingState& s ) { return &s.MeshSimplify.Percentage; }, nullptr },
+         { "Simplify.TargetCount",      "Target Count",       "Simplify", 1, true, 3.0f, 1.0e6f, nullptr,
+           []( ModelingState& s ) { return &s.MeshSimplify.TargetCount; } },
+         { "Simplify.TargetEdgeLength", "Target Edge Length", "Simplify", 1, false, 0.01f, 1.0e4f,
+           []( ModelingState& s ) { return &s.MeshSimplify.TargetEdgeLength; }, nullptr },
          { "Remesh.TargetTriangleCount", "Target Triangle Count", "Remesh", 1, true, 1.0f, 1.0e6f, nullptr,
            []( ModelingState& s ) { return &s.MeshRemesh.TargetTriangleCount; } },
          { "Remesh.TargetEdgeLength",   "Target Edge Length", "Remesh", 1, false, 0.01f, 1.0e4f,
