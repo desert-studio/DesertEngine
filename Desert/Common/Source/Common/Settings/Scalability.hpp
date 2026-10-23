@@ -476,6 +476,11 @@ namespace Common::Scalability
         std::vector<Fallback> Fallbacks; // every value that differs from the request, in Parameter order
         ScaleMode             Scale      = ScaleMode::Native;
         uint64_t              Generation = 0; // bumped by every Apply that changed Values; renderers compare it
+        // Per parameter: a ParameterOverride replaced the group level's value (Resolve step 2). For the three
+        // *.Method parameters this is the user's explicit choice: it REPLACES the view's PostProcessSettings
+        // request (UE: r.DynamicGlobalIlluminationMethod set by hand) instead of only capping it the way a level
+        // does (ResolveRenderMethods).
+        std::array<bool, kParameterCount> Overridden{};
 
         template <typename T>
         [[nodiscard]] T As( Parameter parameter ) const
@@ -488,8 +493,9 @@ namespace Common::Scalability
 
     // THE RULES OF RESOLUTION, in order, and the reason each one writes:
     //   1. Every parameter takes its group's level value from the table.
-    //   2. An override replaces it (an override whose Key no spec has is dropped and reported — the file came
-    //      from a newer build; it stays in machine.json through the UnknownKeys carrier, not here).
+    //   2. An override replaces it and marks it Overridden (an override whose Key no spec has is dropped and
+    //      reported — the file came from a newer build; it stays in machine.json through the UnknownKeys
+    //      carrier, not here).
     //   3. A value outside its spec range is clamped ("outside the parameter's range").
     //   4. A value its catalog list does not offer walks DOWN the list to the nearest offered value below it;
     //      if none, the list's front ("not offered by this device"). MSAACounts/AnisotropyLevels: largest offered

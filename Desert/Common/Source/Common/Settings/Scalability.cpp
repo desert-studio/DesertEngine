@@ -673,6 +673,7 @@ namespace Common::Scalability
             ParameterValues                               Requested{};
             ParameterValues                               Values{};
             std::array<std::string_view, kParameterCount> Reasons{};
+            std::array<bool, kParameterCount>             Overridden{};
 
             [[nodiscard]] ParameterValue Get( Parameter p ) const
             {
@@ -975,7 +976,10 @@ namespace Common::Scalability
         // 2. Overrides on top; a key no spec has is not applied (QualityState::Apply logs it).
         for ( const ParameterOverride& o : selection.Overrides )
             if ( const ParameterSpec* spec = FindSpec( o.Key ) )
-                r.Requested[static_cast<std::size_t>( spec->Id )] = o.Value;
+            {
+                r.Requested[static_cast<std::size_t>( spec->Id )]  = o.Value;
+                r.Overridden[static_cast<std::size_t>( spec->Id )] = true;
+            }
         r.Values = r.Requested;
 
         // 3. The spec range. 4. The device's list.
@@ -1036,7 +1040,8 @@ namespace Common::Scalability
             r.Set( Parameter::AntiAliasingMethod, static_cast<ParameterValue>( AntiAliasingMethod::FXAA ),
                    "MSAA renders at native scale only" );
 
-        resolved.Values = r.Values;
+        resolved.Values     = r.Values;
+        resolved.Overridden = r.Overridden;
         for ( std::size_t i = 0; i < kParameterCount; ++i )
             if ( r.Values[i] != r.Requested[i] )
                 resolved.Fallbacks.push_back(

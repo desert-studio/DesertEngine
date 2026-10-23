@@ -84,19 +84,28 @@ namespace Desert::Graphic
             }
         }
 
-        // The one rule, per axis: min( request, ceiling ), then down the ladder (the enum's order): WalkDown.
+        // The one rule, per axis: a Scalability LEVEL is a ceiling, min( request, ceiling ); an explicit machine
+        // override of "<Group>.Method" is the user's choice and REPLACES the request (UE: the console variable set
+        // by hand beats the post-process volume). Either way the result then walks down the ladder (the enum's
+        // order): WalkDown, so an override still yields to the device, the render path and a refused program.
         template <typename Method>
-        ResolvedMethod<Method> ResolveAxis( Method requested, Method ceiling, const DeviceOffers device,
-                                            const bool gBuffer, std::span<const MethodRefusal<Method>> refusals )
+        ResolvedMethod<Method> ResolveAxis( Method requested, Method ceiling, const bool overridden,
+                                            const DeviceOffers device, const bool gBuffer,
+                                            std::span<const MethodRefusal<Method>> refusals )
         {
             ResolvedMethod<Method> r{ .Requested = requested, .Ceiling = ceiling, .Effective = requested };
-            if ( ceiling < requested )
+            if ( overridden ? ceiling != requested : ceiling < requested )
             {
                 r.Effective = ceiling;
-                r.Limit     = MethodLimit::Scalability;
+                r.Limit     = overridden ? MethodLimit::Override : MethodLimit::Scalability;
             }
             WalkDown( r, device, gBuffer, refusals );
             return r;
+        }
+
+        [[nodiscard]] bool OverriddenIn( const ResolvedQuality& quality, const Parameter parameter )
+        {
+            return quality.Overridden[static_cast<std::size_t>( parameter )];
         }
 
         // The path tracer is ONE integrator for GI and reflections: an axis that resolved to PathTraced while the
@@ -122,6 +131,9 @@ namespace Desert::Graphic
                     return {};
                 case MethodLimit::Scalability:
                     scratch = std::format( "Scalability {} is {}", scalabilityKey, ceiling );
+                    return scratch;
+                case MethodLimit::Override:
+                    scratch = std::format( "machine override {} = {}", scalabilityKey, ceiling );
                     return scratch;
                 case MethodLimit::Device:
                     return "the device offers no ray query";
@@ -172,12 +184,14 @@ namespace Desert::Graphic
     {
         const DeviceOffers device = OffersOf( catalog );
         RenderMethods      out;
-        out.GlobalIllumination =
-             ResolveAxis( post.GlobalIlluminationMethod, quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ),
-                          device, gBuffer, std::span<const MethodRefusal<GIMethod>>( refusals.GlobalIllumination ) );
+        out.GlobalIllumination = ResolveAxis(
+             post.GlobalIlluminationMethod, quality.As<GIMethod>( Parameter::GlobalIlluminationMethod ),
+             OverriddenIn( quality, Parameter::GlobalIlluminationMethod ), device, gBuffer,
+             std::span<const MethodRefusal<GIMethod>>( refusals.GlobalIllumination ) );
         out.Reflections =
-             ResolveAxis( post.ReflectionsMethod, quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ), device,
-                          gBuffer, std::span<const MethodRefusal<ReflectionMethod>>( refusals.Reflections ) );
+             ResolveAxis( post.ReflectionsMethod, quality.As<ReflectionMethod>( Parameter::ReflectionsMethod ),
+                          OverriddenIn( quality, Parameter::ReflectionsMethod ), device, gBuffer,
+                          std::span<const MethodRefusal<ReflectionMethod>>( refusals.Reflections ) );
         if ( ( out.GlobalIllumination.Effective == GIMethod::PathTraced ) !=
              ( out.Reflections.Effective == ReflectionMethod::PathTraced ) )
         {
@@ -186,8 +200,9 @@ namespace Desert::Graphic
             LowerUnpairedPathTraced( out.Reflections, device, gBuffer,
                                      std::span<const MethodRefusal<ReflectionMethod>>( refusals.Reflections ) );
         }
-        out.Shadows = ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ), device,
-                                   gBuffer, std::span<const MethodRefusal<ShadowMethod>>( refusals.Shadows ) );
+        out.Shadows = ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ),
+                                   OverriddenIn( quality, Parameter::ShadowsMethod ), device, gBuffer,
+                                   std::span<const MethodRefusal<ShadowMethod>>( refusals.Shadows ) );
         out.ContactShadows       = post.ContactShadows && kContactShadowsImplemented;
         out.DistanceFieldShadows = post.DistanceFieldShadows && kDistanceFieldShadowsImplemented;
         return out;
