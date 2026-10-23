@@ -801,6 +801,10 @@ namespace Desert::Migration
                 const auto asset = Desert::Assets::DecodeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) );
                 if ( !asset )
                 {
+                    // An MSAS 1 asset is raised by the DISPLACE pass below; only a file no version reads fails
+                    // here.
+                    if ( Desert::Assets::UpgradeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) ) )
+                        continue;
                     err << "FAIL   " << path.string() << " — neither a cooked DESTMESH mesh nor a readable mesh "
                         << "asset: " << asset.GetError() << "\n";
                     ++failed;
