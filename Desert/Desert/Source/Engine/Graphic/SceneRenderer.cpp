@@ -570,7 +570,9 @@ namespace Desert::Graphic
                 tonemapSystem->SetAutoExposureImage( autoExposureSystem->GetAdaptedLuminanceImage() );
                 // Local exposure (UE Bilateral): grid + blurred log luminance the tonemap and the bloom read.
                 RegisterSystem<System::LocalExposureRenderer>( "LocalExposureSystem", this, m_TargetFramebuffer );
-                if ( const auto le = m_RenderSystems["LocalExposureSystem"]->Initialize(); !le )
+                if ( const auto le =
+                          SP_CAST( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] )->Initialize();
+                     !le )
                     LOG_ERROR( "[SceneRenderer] local exposure did not initialise: {}", le.GetError() );
                 return "AutoExposure";
             }
