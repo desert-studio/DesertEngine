@@ -593,9 +593,6 @@
                 "Magnitude": 300000.0,
                 "Radius": 300.0,
                 "Falloff": 0
-            },
-            "Script": {
-                "Scripts": [{"ScriptKey": "assets:Scripts/Examples/FireFieldAfter.lua", "Props": []}]
             }
         }
     ],

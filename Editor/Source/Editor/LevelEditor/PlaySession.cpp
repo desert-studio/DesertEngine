@@ -21,6 +21,9 @@
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include <Engine/UI/Ecs/UICanvasRendererEcs.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/DestructionFieldComponents.hpp>
+#include <Engine/ECS/System/DestructionFields.hpp>
+#include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <ImGui/imgui.h>
 
 #include <algorithm>
@@ -552,6 +555,37 @@ namespace Desert::Editor
                        return PaletteCommandOutcome( editing && scene->GetState() != SceneState::Edit,
                                                      "the scene is not playing; either it was already playing "
                                                      "or Play refused (the log says why)." );
+                   } } );
+        }
+        // Fire one TAGGED field placed in the scene, now (UE: the event that calls ApplyPhysicsField on a Field
+        // System Actor). The control channel's way to break something at a chosen step of a scenario instead of
+        // racing a script timer against the shots; the same firing path as Destruction.applyField.
+        for ( const auto entity : registry.view<ECS::TagComponent>() )
+        {
+            if ( !registry.any_of<ECS::RadialImpulseFieldComponent, ECS::StrainFieldComponent,
+                                  ECS::KillFieldComponent, ECS::AnchorFieldComponent>( entity ) )
+                continue;
+            const std::string tag = registry.get<ECS::TagComponent>( entity ).Tag;
+            if ( tag.empty() )
+                continue;
+            commands.push_back(
+                 { "Action", std::format( "Fire Field '{}'", tag ), [this, entity]
+                   {
+                       const auto& scene = m_Workspace.ActiveScene();
+                       auto&       reg   = scene->GetRegistry();
+                       if ( !reg.valid( entity ) )
+                           return PaletteCommandOutcome( false, "that field no longer exists." );
+                       const auto*                    physics = scene->FindSystem<ECS::PhysicsECSSystem>();
+                       Destruction::DestructionWorld* world =
+                            physics != nullptr ? physics->GetDestructionWorld() : nullptr;
+                       if ( world == nullptr )
+                           return PaletteCommandOutcome(
+                                false, "fields fire in Play or Simulate: the scene has no destruction world." );
+                       const auto fired = ECS::FireDestructionField( reg, entity, *world );
+                       if ( !fired )
+                           return PaletteCommandOutcome( false, fired.GetError() );
+                       LOG_INFO( "[Play] Fire Field: acted on {} bodies/pieces", fired.GetValue() );
+                       return PaletteCommandOutcome( true, "" );
                    } } );
         }
     }
