@@ -162,8 +162,9 @@ namespace Desert::Core::Serialize
     // asset manager — the registry's Landscape serializer (ComponentRegistry.cpp) writes and reads it.
     // `EditLayers` is the stack as [{Guid, Name, Visible, Locked, HeightAlpha, WeightAlpha, Kind}], bottom first,
     // written even when empty (an undo restores the whole block, and an absent key keeps the current value).
-    // `Kind` is "Manual" or "Splines"; `Splines` is {ControlPoints: [{Location, Width, SideFalloff, EndFalloff}],
-    // Segments: [{Start, End, RaiseTerrain, LowerTerrain}]} (UE ULandscapeSplinesComponent), written always.
+    // `Kind` is "Manual" or "Splines"; `Splines` is {ControlPoints: [{Location, Width, SideFalloff, EndFalloff,
+    // LayerWidthRatio}], Segments: [{Start, End, RaiseTerrain, LowerTerrain, LayerName}]} (UE
+    // ULandscapeSplinesComponent), written always.
     inline Common::Json::Object WriteComponent( const ECS::LandscapeComponent& c )
     {
         Common::Json::Object block = Common::Json::ObjectBuilder()
@@ -193,6 +194,7 @@ namespace Desert::Core::Serialize
                                       .Set( "Width", p.Width )
                                       .Set( "SideFalloff", p.SideFalloff )
                                       .Set( "EndFalloff", p.EndFalloff )
+                                      .Set( "LayerWidthRatio", p.LayerWidthRatio )
                                       .Build() );
         Common::Json::Value::Array segments;
         for ( const World::Landscape::LandscapeSplineSegment& s : c.Splines.Segments )
@@ -201,6 +203,7 @@ namespace Desert::Core::Serialize
                                         .Set( "End", s.End )
                                         .Set( "RaiseTerrain", s.RaiseTerrain )
                                         .Set( "LowerTerrain", s.LowerTerrain )
+                                        .Set( "LayerName", s.LayerName )
                                         .Build() );
         Common::Json::Object splines;
         splines["ControlPoints"] = Common::Json::Value( std::move( points ) );
@@ -231,6 +234,7 @@ namespace Desert::Core::Serialize
                      element.ReadInto( "Width", p.Width, issues );
                      element.ReadInto( "SideFalloff", p.SideFalloff, issues );
                      element.ReadInto( "EndFalloff", p.EndFalloff, issues );
+                     element.ReadInto( "LayerWidthRatio", p.LayerWidthRatio, issues );
                      read.ControlPoints.push_back( p );
                  } );
         if ( const auto segments = value->Find( "Segments" );
@@ -245,6 +249,7 @@ namespace Desert::Core::Serialize
                      element.ReadInto( "End", s.End, issues );
                      element.ReadInto( "RaiseTerrain", s.RaiseTerrain, issues );
                      element.ReadInto( "LowerTerrain", s.LowerTerrain, issues );
+                     element.ReadInto( "LayerName", s.LayerName, issues );
                      read.Segments.push_back( s );
                  } );
         if ( issues.size() != before )

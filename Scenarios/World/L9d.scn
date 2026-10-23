@@ -1,0 +1,54 @@
+# L9d (L9-PAINT): a landscape spline paints a weight layer under the road (UE ULandscapeSplineSegment::LayerName +
+# ULandscapeSplineControlPoint::LayerWidthRatio): the Splines edit layer carries the paint, merged OVER the paint below.
+# Start: L9.scn's road - three points across the TerrainPlain hill at (6300|9282|12300, -1906), Width 400, falloff 300.
+# The landscape has one paint layer (Ground); 'Create Layer Info' adds 'Layer N' (a swatch colour, no albedo -> its
+# LayerUsageDebugColor draws flat). 'Spline paint layer: next' walks the landscape's layers: Ground, then Layer N.
+# The scenario SAVES: `git checkout -- Projects/Desert/Content/Scenes/G3_TwoTerrains*` and delete the new Layer N
+# .delayerinfo after a play.
+Дано run Scene "Open Scene G3_TwoTerrains.desce"
+Дано run Landscape "Sculpt mode"
+Дано run Landscape "Tool: Splines"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано --subject viewport set Camera.Direction 0.001,-1,0.001
+Дано --subject viewport set Camera.Position 6300,9000,-1906
+Дано run Landscape "Spline: add control point at viewport centre"
+Дано --subject viewport set Camera.Position 9282,9000,-1906
+Дано run Landscape "Spline: add control point at viewport centre"
+Дано --subject viewport set Camera.Position 12300,9000,-1906
+Дано run Landscape "Spline: add control point at viewport centre"
+Дано run Landscape "Create Layer Info"
+Дано run Landscape "Sculpt mode"
+Дано run Landscape "Tool: Splines"
+Дано --subject viewport set Camera.Position 9282,5000,-8000
+Дано --subject viewport set Camera.Direction 0,-0.55,0.84
+Дано state
+Тогда-вид base the road band through the hill in the base material, no paint on it
+Когда run Landscape "Spline paint layer: next"
+Когда run Landscape "Spline paint layer: next"
+Когда state
+Тогда-вид 0_painted the road band shows the new layer's swatch colour, its edges fading softly over the side falloff
+# Undo before the save (reopening a scene starts a fresh history), then Redo to save the painted road.
+Когда run Action "Undo"
+Когда run Action "Undo"
+Когда state
+Тогда-вид 2_undo the road keeps its shape but shows the base material again (identical to base)
+Когда run Action "Redo"
+Когда run Action "Redo"
+Когда run Action "Save Scene"
+Когда run Scene "Open Scene G3_TwoTerrains.desce"
+Когда --subject viewport set Camera.Position 9282,5000,-8000
+Когда --subject viewport set Camera.Direction 0,-0.55,0.84
+Когда state
+Тогда-вид 1_reopen identical to 0_painted after the saved scene is reopened

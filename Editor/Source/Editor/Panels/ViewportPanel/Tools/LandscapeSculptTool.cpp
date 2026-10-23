@@ -382,6 +382,13 @@ namespace Desert::Editor::Tools
                 state.Request = Core::LandscapeStrokeRequest::None;
                 DeleteSelectedSplinePoint( scene );
                 return true;
+            case Core::LandscapeStrokeRequest::SplineLayerNext:
+            case Core::LandscapeStrokeRequest::SplineLayerNone:
+            {
+                state.Request = Core::LandscapeStrokeRequest::None;
+                SetSplineLayer( scene, request == Core::LandscapeStrokeRequest::SplineLayerNext );
+                return true;
+            }
             case Core::LandscapeStrokeRequest::RampReset:
             {
                 state.Request     = Core::LandscapeStrokeRequest::None;
@@ -632,6 +639,24 @@ namespace Desert::Editor::Tools
             return;
         }
         state.SelectedSplinePoint.reset();
+    }
+
+    void LandscapeSculptTool::SetSplineLayer( ::Desert::Core::Scene& scene, bool next )
+    {
+        auto&       state = Core::LandscapeSculptState::Get();
+        std::string name;
+        if ( next )
+        {
+            auto chosen = Commands::NextLandscapeSplineLayer( scene.GetRegistry(), state.SplineLandscape );
+            if ( !chosen )
+            {
+                ToastManager::Push( chosen.GetError(), ToastLevel::Error, 6.0f );
+                return;
+            }
+            name = chosen.ExtractValue();
+        }
+        if ( auto set = Commands::SetLandscapeSplineLayer( scene, state.SplineLandscape, name ); !set )
+            ToastManager::Push( set.GetError(), ToastLevel::Error, 6.0f );
     }
 
     void LandscapeSculptTool::UpdateSplines( ::Desert::Core::Scene& scene, const Common::Math::Ray& mouseRay,
