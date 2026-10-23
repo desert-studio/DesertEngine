@@ -2,6 +2,7 @@
 
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/Physics/RagdollDescBuilder.hpp>
 #include <Engine/Physics/RagdollPose.hpp>
 
 #include <Common/Core/Logger.hpp>

@@ -31,6 +31,7 @@
 #include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
+#include <Engine/Assets/MeshDisplacementTopology.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
@@ -233,6 +234,10 @@ namespace Desert::Editor
                    Assets::SetMeshDistanceFieldBuilder( &Assets::BuildMeshDistanceFieldBytes );
                    // Its surface-cache cards, the same way (UE CARDREPRESENTATION_DERIVEDDATA_VER).
                    Assets::SetMeshCardsBuilder( &Assets::BuildMeshCardsBytes );
+                   // A Runtime-displaced mesh's cooked topology (clusters, welds), the same way.
+                   Assets::SetDisplacementTopologyBuilder( &Assets::BuildDisplacementTopologyBytes );
+                   // A displaced mesh's bake-level surface (Baked draw, collision; CPU height decode is editor-only).
+                   Assets::SetDisplacedMeshBuilder( &Editor::BuildDisplacedMeshBytes );
                    (void)m_ImportManager->ImportLooseTextures( SplashItems() );
                },
                kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr, 0 } );

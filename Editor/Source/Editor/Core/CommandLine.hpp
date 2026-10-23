@@ -4,6 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Editor/Core/ShotOptions.hpp>
+#include <Editor/Core/TextList.hpp>
 #include <Engine/Localization/LocaleFormat.hpp>
 
 #include <charconv>
@@ -263,14 +264,8 @@ namespace Desert::Editor
         /// rather than written out, so a flag added above appears here without anyone remembering to.
         inline std::string KnownFlagList()
         {
-            std::string list;
-            for ( const CommandLineFlag& flag : kCommandLineFlags )
-            {
-                if ( !list.empty() )
-                    list += ", ";
-                list += flag.Name;
-            }
-            return list;
+            return TextTemplates::JoinList( kCommandLineFlags, ", ",
+                                            []( const CommandLineFlag& flag ) { return flag.Name; } );
         }
     } // namespace CommandLineDetail
 
@@ -381,15 +376,10 @@ namespace Desert::Editor
                 // of the one that was asked for. That is the same silent-fallback shape `--sceen` had.
                 if ( Localization::FindLocale( value ) == nullptr )
                 {
-                    std::string known;
-                    for ( const Localization::LocaleRow& row : Localization::Locales() )
-                    {
-                        if ( !known.empty() )
-                            known += ", ";
-                        known += std::string( row.Tag );
-                    }
                     return Common::MakeFormattedError<CommandLineOptions>(
-                         "--language '{}' is not a language this build knows; it knows: {}", value, known );
+                         "--language '{}' is not a language this build knows; it knows: {}", value,
+                         TextTemplates::JoinList( Localization::Locales(), ", ",
+                                                  []( const Localization::LocaleRow& row ) { return row.Tag; } ) );
                 }
                 options.Language = value;
             }

@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "4bfb3eba91034778ae690c9988341395",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -151,9 +152,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/M_Dielectric_R0.demat"],
-                "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f19593762f19be4d47cadcb269c4e878",
+                        "Path": "assets:Materials/M_Dielectric_R0.demat"
+                    }
+                ]
             }
         },
         {
@@ -164,9 +173,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Prop.demat"],
-                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
             }
         },
         {
@@ -177,9 +194,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/M_Dielectric_R0.demat"],
-                "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f19593762f19be4d47cadcb269c4e878",
+                        "Path": "assets:Materials/M_Dielectric_R0.demat"
+                    }
+                ]
             }
         },
         {

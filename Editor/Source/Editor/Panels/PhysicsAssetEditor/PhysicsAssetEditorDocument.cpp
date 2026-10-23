@@ -18,6 +18,7 @@
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Physics/PhysicsAssetGeneration.hpp>
+#include <Engine/Physics/RagdollDescBuilder.hpp>
 #include <Engine/Physics/RagdollPose.hpp>
 
 #include <Common/Content/ContentKinds.hpp>

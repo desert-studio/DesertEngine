@@ -41,11 +41,17 @@ namespace Common::Content
         // at the origin — which is why the flag, and not the numbers, is what says a box is present.
         float    BoundsMin[3];
         float    BoundsMax[3];
-        uint64_t Reserved; // zero; pads the header to 80 bytes (a multiple of 16)
+        // THE SKINNED MESH'S DISPLACEMENT MODE (version 6, CONTRACT-DISPLACE §9.8): Assets::MeshDisplacementMode as
+        // its byte. A skinned mesh has no source envelope - the .skmesh is the asset - so its import setting lives
+        // here; a static mesh states it in its source's IMPT and writes 0 (None) here, refused otherwise. Version 5
+        // wrote zero in these bytes, so a v5 file is a v6 file with mode None (SceneMigrator raises the version).
+        uint8_t DisplacementMode;
+        uint8_t Reserved[7]; // zero; pads the header to 80 bytes (a multiple of 16)
     };
     static_assert( sizeof( AssetGuid ) == 16 && std::is_trivially_copyable_v<AssetGuid> );
     static_assert( offsetof( MeshBinaryFileHeader, SkeletonGuid ) == 32 );
     static_assert( offsetof( MeshBinaryFileHeader, BoundsMin ) == 48 );
+    static_assert( offsetof( MeshBinaryFileHeader, DisplacementMode ) == 72 );
     static_assert( sizeof( MeshBinaryFileHeader ) == 80 );
     static_assert( alignof( MeshBinaryFileHeader ) == 8 );
 
@@ -54,7 +60,8 @@ namespace Common::Content
     /// as "states no box", so both directions keep loading.
     /// Version 5 (SKEL-TREE) states the skeleton by GUID in an 80-byte header; versions 1-4 are refused by
     /// name and raised by Tools/SceneMigrator (bone hash -> the one .skeleton with it).
-    inline constexpr uint32_t kMeshBinaryVersion = 5; // 5: SkeletonGuid in the header
+    /// Version 6 (DISPLACE-5) gives the skinned mesh's displacement mode the header byte v5 wrote as zero.
+    inline constexpr uint32_t kMeshBinaryVersion = 6; // 6: skinned DisplacementMode; 5: SkeletonGuid
 
     // THE MESH'S IDENTITY (version 3, AF7): the asset GUID follows the header as {Hi u64, Lo u64} - at byte 80
     // since version 5 - and the section table follows it at byte 96: kMeshBinaryPrefixSize, the header plus the

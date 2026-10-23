@@ -127,6 +127,13 @@ namespace Common::Scalability
         // compute, the raster fetches it and the TLAS traces it; 0 = the raster skins in the vertex stage, no
         // skinned TLAS geometry. Values: 0/1
         SkinCache,
+        // Mesh displacement (Graphic::System::DisplacementCache, CONTRACT-DISPLACE §1f): pixels a diced edge
+        // covers on screen (UE r.Nanite.DicingRate); 0 = runtime displacement off, the surfaces keep their parallax
+        // (the counted Low downgrade, §9.10). 0..8
+        DisplacementDicingRate,
+        // The displaced geometry pool, MiB: when the requested levels do not fit, levels are lowered from the
+        // smallest screen size up and counted (DisplacementStats::LevelsLowered). 64..1024
+        DisplacementPoolMiB,
         // The view's light grid (Graphic::LightGridQuality, "Deferred: LightGrid"): what the per-pixel light loop
         // costs against what building the grid costs. The image is the same at every value (a cell whose list is
         // full is shaded by every light), so these are cost knobs only - UE's r.Forward.LightGrid* cvars.
@@ -469,6 +476,11 @@ namespace Common::Scalability
         std::vector<Fallback> Fallbacks; // every value that differs from the request, in Parameter order
         ScaleMode             Scale      = ScaleMode::Native;
         uint64_t              Generation = 0; // bumped by every Apply that changed Values; renderers compare it
+        // Per parameter: a ParameterOverride replaced the group level's value (Resolve step 2). For the three
+        // *.Method parameters this is the user's explicit choice: it REPLACES the view's PostProcessSettings
+        // request (UE: r.DynamicGlobalIlluminationMethod set by hand) instead of only capping it the way a level
+        // does (ResolveRenderMethods).
+        std::array<bool, kParameterCount> Overridden{};
 
         template <typename T>
         [[nodiscard]] T As( Parameter parameter ) const
@@ -481,8 +493,9 @@ namespace Common::Scalability
 
     // THE RULES OF RESOLUTION, in order, and the reason each one writes:
     //   1. Every parameter takes its group's level value from the table.
-    //   2. An override replaces it (an override whose Key no spec has is dropped and reported — the file came
-    //      from a newer build; it stays in machine.json through the UnknownKeys carrier, not here).
+    //   2. An override replaces it and marks it Overridden (an override whose Key no spec has is dropped and
+    //      reported — the file came from a newer build; it stays in machine.json through the UnknownKeys
+    //      carrier, not here).
     //   3. A value outside its spec range is clamped ("outside the parameter's range").
     //   4. A value its catalog list does not offer walks DOWN the list to the nearest offered value below it;
     //      if none, the list's front ("not offered by this device"). MSAACounts/AnisotropyLevels: largest offered

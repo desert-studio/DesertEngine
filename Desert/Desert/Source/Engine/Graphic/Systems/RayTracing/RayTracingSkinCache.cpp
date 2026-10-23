@@ -5,6 +5,7 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Render/RayTracingMeshInput.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/DisplacementCache.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -103,7 +104,7 @@ namespace Desert::Graphic::RayTracing
     {
         Touch( entry );
         if ( !entry.StreamsRef )
-            entry.StreamsRef = graph.RegisterExternal( entry.Streams->GetBuffer(), "SkinCache.Streams" );
+            entry.StreamsRef = graph.RegisterExternal( DrawnStreams( entry ).GetBuffer(), "SkinCache.Streams" );
         return *entry.StreamsRef;
     }
 
@@ -136,7 +137,9 @@ namespace Desert::Graphic::RayTracing
                 entry.StreamsReady = false;
                 if ( !entry.Streams )
                     entry.Streams = CreateSkinCacheStreams();
-                const Common::ResultStr<bool> prepared = entry.Streams->Prepare( record.Mesh->GetVertexCount() );
+                // A displaced record skins its base (SkinSource) and draws the twin (Mesh): two stream sets.
+                const SkinnedMesh*            source   = record.SkinSource != nullptr ? record.SkinSource : record.Mesh;
+                const Common::ResultStr<bool> prepared = entry.Streams->Prepare( source->GetVertexCount() );
                 if ( !prepared )
                 {
                     if ( !entry.RefusalLogged )
@@ -148,11 +151,32 @@ namespace Desert::Graphic::RayTracing
                     entry.HasSkinned    = false;
                     continue;
                 }
-                if ( prepared.GetValue() || entry.Mesh != record.Mesh )
+                if ( prepared.GetValue() || entry.Source != source )
                     entry.HasSkinned = false; // new buffer or another mesh: no previous pose to rotate
-                entry.Mesh = record.Mesh;
+                if ( record.SkinSource == nullptr )
+                    entry.Displaced.reset();
+                else
+                {
+                    if ( !entry.Displaced )
+                        entry.Displaced = CreateSkinCacheStreams();
+                    const Common::ResultStr<bool> twin = entry.Displaced->Prepare( record.Mesh->GetVertexCount() );
+                    if ( !twin )
+                    {
+                        if ( !entry.RefusalLogged )
+                            LOG_ERROR( "[SkinCache] entity {}: no displaced streams, it skins in the vertex stage "
+                                       "and is not in the TLAS: {}",
+                                       record.Entity, twin.GetError() );
+                        entry.RefusalLogged = true;
+                        entry.HasSkinned    = false;
+                        continue;
+                    }
+                    if ( twin.GetValue() || entry.Mesh != record.Mesh )
+                        entry.DisplacedFresh = true;
+                }
+                entry.Mesh   = record.Mesh;
+                entry.Source = source;
                 if ( const auto imported =
-                          Renderer::ImportVertexBuffer( record.Mesh->GetVertexBuffer(), entry.VerticesImport );
+                          Renderer::ImportVertexBuffer( source->GetVertexBuffer(), entry.VerticesImport );
                      !imported )
                 {
                     if ( !entry.RefusalLogged )
@@ -168,7 +192,7 @@ namespace Desert::Graphic::RayTracing
             }
             if ( !entry.StreamsReady )
                 continue;
-            const uint64_t   address = entry.Streams->GetDeviceAddress();
+            const uint64_t   address = DrawnStreams( entry ).GetDeviceAddress();
             GpuObjectMotion& row     = rows[record.MotionRow];
             row.SkinCacheAddressLo   = static_cast<uint32_t>( address & 0xffffffffu );
             row.SkinCacheAddressHi   = static_cast<uint32_t>( address >> 32u );
@@ -219,7 +243,7 @@ namespace Desert::Graphic::RayTracing
             // A morphed record reads the twin's output through the external the morph graph wrote it through
             // (MeshRenderer::UpdateMorphTargets): one resource, so its carried VertexIndex state barriers this
             // read.
-            RDG::ExternalBuffer* const morphed = meshes.FindMorphOutput( record.Entity, record.Mesh );
+            RDG::ExternalBuffer* const morphed = meshes.FindMorphOutput( record.Entity, entry.Source );
             RDG::ExternalBuffer* const source  = morphed != nullptr ? morphed : &entry.VerticesImport;
             auto [vertexRef, fresh]            = vertexRefs.try_emplace( source );
             if ( fresh )
@@ -228,7 +252,7 @@ namespace Desert::Graphic::RayTracing
             // The shader's SkinCacheDispatch: x = vertex count, y = the first bone of this frame's palette, z = 1
             // when the streams' current positions are last frame's pose (rotate them into the previous positions).
             const bool                    history     = entry.HasSkinned && entry.SkinnedFrame + 1u == frame;
-            const uint32_t                vertexCount = record.Mesh->GetVertexCount();
+            const uint32_t                vertexCount = entry.Source->GetVertexCount();
             const std::array<uint32_t, 4> dispatch    = { vertexCount, rows[record.MotionRow].BoneOffset,
                                                        history ? 1u : 0u, 0u };
             const RDG::BufferRef          dispatchRef =
@@ -258,6 +282,38 @@ namespace Desert::Graphic::RayTracing
                      const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      return Renderer::DispatchCompute( bindings, *pipeline, groups, 1, 1 );
                  } );
+            if ( entry.Displaced )
+            {
+                // The displaced twin's pose from the base just skinned, in this graph (CONTRACT-DISPLACE §9.8).
+                const RDG::BufferRef displaced =
+                     graph.RegisterExternal( entry.Displaced->GetBuffer(), "SkinCache.DisplacedStreams" );
+                Common::BoolResultStr added = BOOLSUCCESS;
+                if ( m_Displacement == nullptr )
+                    added = Common::MakeError( "the skin cache has no displacement cache (SetDisplacement)" );
+                else
+                {
+                    const auto slot             = static_cast<uint32_t>( m_RecordKeys[i] & 0xffffffffu );
+                    const bool displacedHistory = history && !entry.DisplacedFresh;
+                    added = m_Displacement->AddSkinnedPasses( graph, record.Entity, slot, streams, vertexCount,
+                                                              displaced, displacedHistory, vertexRefs );
+                }
+                if ( !added )
+                {
+                    // Nothing writes the drawn streams: the row loses its address (the vertex stage skins the
+                    // twin's rest vertices) and the entry is not marked skinned this frame.
+                    if ( !entry.RefusalLogged )
+                        LOG_ERROR( "[SkinCache] entity {}: its displaced pose is not written, it skins in the vertex "
+                                   "stage and is not in the TLAS: {}",
+                                   record.Entity, added.GetError() );
+                    entry.RefusalLogged      = true;
+                    entry.StreamsReady       = false;
+                    GpuObjectMotion& row     = rows[record.MotionRow];
+                    row.SkinCacheAddressLo   = 0;
+                    row.SkinCacheAddressHi   = 0;
+                    row.SkinCacheVertexCount = 0;
+                    continue;
+                }
+            }
             skinned.push_back( &entry );
             skinnedRecords.push_back( i );
         }
@@ -287,8 +343,9 @@ namespace Desert::Graphic::RayTracing
         }
         for ( Entry* entry : skinned )
         {
-            entry->SkinnedFrame = frame;
-            entry->HasSkinned   = true;
+            entry->SkinnedFrame   = frame;
+            entry->HasSkinned     = true;
+            entry->DisplacedFresh = false;
         }
         return BOOLSUCCESS;
     }
@@ -368,7 +425,7 @@ namespace Desert::Graphic::RayTracing
                     const RayTracingGeometryResource* shared = entry.Geometry.get();
                     RayTracingPrimitive&              target = primitives[request.Primitive];
                     target.Geometry                          = shared;
-                    target.DeformedPositionsAddress          = entry.Streams->GetDeviceAddress();
+                    target.DeformedPositionsAddress          = DrawnStreams( entry ).GetDeviceAddress();
                     target.DeformedPositions                 = StreamsIn( graph, entry );
                     blasOut.push_back( StorageIn( graph, entry ) );
                 }
@@ -401,7 +458,7 @@ namespace Desert::Graphic::RayTracing
             const RayTracingGeometryResource* blas   = entry.Geometry.get();
             RayTracingPrimitive&              target = primitives[request.Primitive];
             target.Geometry                          = blas;
-            target.DeformedPositionsAddress          = entry.Streams->GetDeviceAddress();
+            target.DeformedPositionsAddress          = DrawnStreams( entry ).GetDeviceAddress();
             target.DeformedPositions                 = StreamsIn( graph, entry );
         }
         return BOOLSUCCESS;

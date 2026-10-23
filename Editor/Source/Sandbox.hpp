@@ -10,10 +10,10 @@
 #include <Editor/Core/StartupRefusal.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 #include <Editor/Core/ProjectContext.hpp>
-#include <Engine/Project/EngineRegistration.hpp>
+#include <Projects/EngineRegistration.hpp>
 #include <Editor/Core/ShotOptions.hpp>
 #include <Editor/Core/Control/ControlChannelOptions.hpp>
-#include <Engine/Project/StartupLayout.hpp>
+#include <Projects/StartupLayout.hpp>
 #include <Editor/Splash/SplashImage.hpp>
 #include <Editor/Splash/SplashScreen.hpp>
 #include <Common/Core/Version.hpp>

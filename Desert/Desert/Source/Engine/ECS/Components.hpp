@@ -30,7 +30,7 @@
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 
 #include <CoreReflection/ReflectionMacros.hpp>
@@ -163,8 +163,9 @@ namespace Desert::ECS
     // UE's UStaticMeshComponent: the two authored references (UPROPERTY StaticMesh, OverrideMaterials) are
     // REFLECTED, so Details draws the mesh row from them and DesertCtl `set` addresses them (StaticMesh.MeshHandle,
     // StaticMesh.MaterialSlots[0]); an edit re-states what depends on them through ECS::PostEditStaticMesh (UE
-    // PostEditChangeProperty). On disk they are still the mirror's MeshGuid/MeshPath + MaterialGuids/MaterialPaths
-    // (Assets::StaticMeshComponentSer), read by World Partition, HLOD and WorldGen from raw records as well.
+    // PostEditChangeProperty). On disk they are these two fields' own keys, written by reflection as {Guid, Path}
+    // (asset references v1, Assets::kAssetRefSchemaTag); World Partition, HLOD and WorldGen read the same keys from
+    // raw records through Assets::StaticMeshComponentSer.
     struct StaticMeshComponent
     {
         REFLECT()
@@ -255,6 +256,9 @@ namespace Desert::ECS
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<Graphic::MaterialInstancePtr>
                  RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
+        // The displaced (base-cell) siblings of the same slots, drawn over the displaced twin (CONTRACT-DISPLACE
+        // §9.8); built when the mesh is displaced, empty otherwise. Transient like the cache above.
+        std::vector<Graphic::MaterialInstancePtr> RuntimeDisplacedInstances;
         uint32_t SeenMaterialsVersion = 0; // see StaticMeshComponent
         bool     CastShadows          = true; // false = skipped by the shadow (depth) passes, like the static twin
 
@@ -297,6 +301,8 @@ namespace Desert::ECS
         std::optional<Geometry::PrimitiveType>    Primitive;
         std::shared_ptr<DynamicMesh>              RuntimeMesh;
         std::vector<Graphic::MaterialInstancePtr> RuntimeMaterialInstances;
+        // The displaced siblings of the same slots (built when the mesh is displaced, empty otherwise).
+        std::vector<Graphic::MaterialInstancePtr> RuntimeDisplacedInstances;
         uint32_t                                  SeenMaterialsVersion = 0; // see StaticMeshComponent
 
         // `InstancesDirty` STOOD HERE, WRITTEN BY FIVE PLACES AND READ BY NONE. Every one of the five was

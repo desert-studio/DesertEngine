@@ -538,8 +538,9 @@ namespace Desert::UI
         std::string       out;
         const std::size_t n = CountCodepoints( text, 0, text.size() );
         out.reserve( n * 3 );
+        constexpr std::string_view kBullet = "\xE2\x80\xA2"; // U+2022 BULLET, the glyph UE's password run draws
         for ( std::size_t i = 0; i < n; ++i )
-            out += "\xE2\x80\xA2"; // U+2022 BULLET, the glyph UE's password run draws
+            out.append( kBullet );
         return out;
     }
 

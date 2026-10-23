@@ -377,7 +377,8 @@ namespace Desert::Graphic
                                   uint64_t                                             hiddenSubmeshes,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                   bool castShadows, bool castContactShadow,
-                                  const InstanceCullDistance& cullDistance, const InstanceWind& wind );
+                                  const InstanceCullDistance& cullDistance, const InstanceWind& wind,
+                                  const MaterialInstancePtr& displacedMaterial );
 
         void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look );
 
@@ -1476,6 +1477,10 @@ namespace Desert::Graphic
         // view's request to its scene's pool (DistanceFieldSceneData::BeginViewFrame) - a scene budget, counted
         // once in the scene's ledger rows, not per view.
         uint32_t m_DistanceFieldPoolMiB = 256;
+        // Mesh displacement (Scalability ViewDistance.DisplacementDicingRate / DisplacementPoolMiB), handed to the
+        // scene's DisplacementCache before this view requests levels. Rate 0 = runtime displacement off.
+        int      m_DisplacementDicingRate = 2;
+        uint32_t m_DisplacementPoolMiB    = 256;
         int m_SSAOSamples = 16;
         // Adaptive screen probes per uniform one, percent (Scalability GlobalIllumination.
         // AdaptiveProbeAllocationPercent, UE r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction), refreshed

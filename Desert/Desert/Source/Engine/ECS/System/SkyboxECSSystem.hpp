@@ -16,9 +16,11 @@
 #include <Engine/Graphic/SunLightFx.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Json/Template.hpp>
 
 #include <glm/glm.hpp>
 
+#include <format>
 #include <optional>
 #include <string>
 #include <vector>
@@ -204,16 +206,13 @@ namespace Desert::ECS
         static std::string OtherSkyNames( entt::registry& registry, const std::vector<entt::entity>& entities,
                                           size_t chosen )
         {
-            std::string names;
+            std::vector<std::string> names;
             for ( size_t i = 0; i < entities.size(); ++i )
             {
-                if ( i == chosen )
-                    continue;
-                if ( !names.empty() )
-                    names += ", ";
-                names += '\'' + EntityName( registry, entities[i] ) + '\'';
+                if ( i != chosen )
+                    names.push_back( std::format( "'{}'", EntityName( registry, entities[i] ) ) );
             }
-            return names;
+            return Common::Text::Join( names, ", " );
         }
 
         // Direction TOWARD the sun for this frame, or nothing when the scene has no sun. The choice of WHICH

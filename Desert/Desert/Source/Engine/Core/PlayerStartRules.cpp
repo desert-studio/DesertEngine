@@ -4,6 +4,7 @@
 #include "PlayerStart.hpp"
 
 #include <Engine/Assets/Prefab/PrefabOverrides.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #include <algorithm>
 #include <format>
@@ -87,16 +88,22 @@ namespace Desert::Core
         std::string NameList( std::span<const PlayerStartCandidate> starts,
                               const std::vector<std::size_t>&       picked )
         {
-            std::string out;
+            static const TextTemplate kList(
+                 "PlayerStartNameList", "{% for s in starts %}{% if not loop.first %}, {% endif %}'{{ s.name }}'"
+                                        "{% if s.tag %} (tag '{{ s.tag }}'){% endif %}{% endfor %}" );
+            Common::Json::Value::Array named;
             for ( const std::size_t i : picked )
             {
-                if ( !out.empty() )
-                    out += ", ";
-                out += "'" + starts[i].Name + "'";
+                Common::Json::ObjectBuilder start;
+                start.Set( "name", starts[i].Name );
                 if ( !starts[i].Tag.empty() )
-                    out += " (tag '" + starts[i].Tag + "')";
+                    start.Set( "tag", starts[i].Tag );
+                named.emplace_back( start.Build() );
             }
-            return out;
+            return kList.RenderOrLog(
+                 Common::Json::Value( Common::Json::ObjectBuilder()
+                                           .Set( "starts", Common::Json::Value( std::move( named ) ) )
+                                           .Build() ) );
         }
 
     } // namespace
@@ -122,12 +129,12 @@ namespace Desert::Core
             if ( tagged.size() == 1 )
                 return Common::MakeSuccess( static_cast<std::size_t>( tagged.front() ) );
             if ( tagged.empty() )
-                return Common::MakeError<std::size_t>( "no PlayerStart carries the tag '" +
-                                                       std::string( requestedTag ) + "'; the level has " +
-                                                       NameList( starts, all ) );
+                return Common::MakeError<std::size_t>(
+                     std::format( "no PlayerStart carries the tag '{}'; the level has {}", requestedTag,
+                                  NameList( starts, all ) ) );
             return Common::MakeError<std::size_t>(
-                 std::to_string( tagged.size() ) + " PlayerStarts carry the tag '" + std::string( requestedTag ) +
-                 "': " + NameList( starts, tagged ) + " - a tag must name one start" );
+                 std::format( "{} PlayerStarts carry the tag '{}': {} - a tag must name one start", tagged.size(),
+                              requestedTag, NameList( starts, tagged ) ) );
         }
 
         if ( starts.size() == 1 )
@@ -141,11 +148,12 @@ namespace Desert::Core
             return Common::MakeSuccess( static_cast<std::size_t>( untagged.front() ) );
         if ( untagged.empty() )
             return Common::MakeError<std::size_t>(
-                 "every PlayerStart is tagged and none was asked for: " + NameList( starts, all ) +
-                 " - leave one untagged as the default start, or ask for a tag" );
-        return Common::MakeError<std::size_t>(
-             std::to_string( untagged.size() ) + " PlayerStarts have no tag: " + NameList( starts, untagged ) +
-             " - either could be the start; tag all but one (or remove the extra)" );
+                 std::format( "every PlayerStart is tagged and none was asked for: {} - leave one untagged as the "
+                              "default start, or ask for a tag",
+                              NameList( starts, all ) ) );
+        return Common::MakeError<std::size_t>( std::format(
+             "{} PlayerStarts have no tag: {} - either could be the start; tag all but one (or remove the extra)",
+             untagged.size(), NameList( starts, untagged ) ) );
     }
 
     Common::ResultStr<ViewTargetChoice> ChooseViewTarget( const ViewTargetInputs& in )
@@ -154,23 +162,29 @@ namespace Desert::Core
             return Common::MakeSuccess( ViewTargetChoice{ ViewTargetKind::PawnCamera } );
         if ( in.AutoActivateCameras.size() > 1 )
         {
-            std::string names;
+            static const TextTemplate kCameras(
+                 "AutoActivateCameras",
+                 "{% for n in names %}{% if not loop.first %}, {% endif %}'{{ n }}'{% endfor %}" );
+            Common::Json::Value::Array cameras;
             for ( const auto& n : in.AutoActivateCameras )
-                names += ( names.empty() ? "'" : ", '" ) + n + "'";
+                cameras.emplace_back( n );
+            const std::string names = kCameras.RenderOrLog(
+                 Common::Json::Value( Common::Json::ObjectBuilder()
+                                           .Set( "names", Common::Json::Value( std::move( cameras ) ) )
+                                           .Build() ) );
             return Common::MakeError<ViewTargetChoice>(
-                 "level '" + in.Level + "': " + std::to_string( in.AutoActivateCameras.size() ) +
-                 " cameras have Auto Activate for Player (" + names +
-                 ") - Play would have to pick one by entity order; clear it on all but one" );
+                 std::format( "level '{}': {} cameras have Auto Activate for Player ({}) - Play would have to "
+                              "pick one by entity order; clear it on all but one",
+                              in.Level, in.AutoActivateCameras.size(), names ) );
         }
         if ( in.AutoActivateCameras.size() == 1 )
             return Common::MakeSuccess( ViewTargetChoice{ ViewTargetKind::AutoActivateCamera, 0 } );
         if ( in.PlayFromHere )
             return Common::MakeSuccess( ViewTargetChoice{ ViewTargetKind::EditorCamera } );
-        return Common::MakeError<ViewTargetChoice>(
-             "level '" + in.Level + "' has no view for the player: " +
-             ( in.PawnSpawned ? "the pawn has no CameraComponent, and " : "it spawns no pawn, and " ) +
-             "no camera has Auto Activate for Player. Give the pawn a camera, tick the flag on one scene "
-             "camera, or use Play from Here to look through the editor camera" );
+        return Common::MakeError<ViewTargetChoice>( std::format(
+             "level '{}' has no view for the player: {}no camera has Auto Activate for Player. Give the pawn a "
+             "camera, tick the flag on one scene camera, or use Play from Here to look through the editor camera",
+             in.Level, in.PawnSpawned ? "the pawn has no CameraComponent, and " : "it spawns no pawn, and " ) );
     }
 
     Common::ResultStr<PlayRequest> PlayRequestFromArgs( std::span<const std::string> args )

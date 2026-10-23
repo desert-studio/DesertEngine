@@ -25,6 +25,7 @@
 #include <array>
 #include <bit>
 #include <cstring>
+#include <format>
 #include <map>
 #include <tuple>
 #include <optional>
@@ -54,7 +55,7 @@ namespace Desert::ECS
                                                            const Graphic::ResourceOwnerInstance scene )
         {
             Core::Formats::Image2DSpecification spec = {
-                 .Tag        = "LandscapeTile(" + std::to_string( tileX ) + "," + std::to_string( tileZ ) + ")",
+                 .Tag        = std::format( "LandscapeTile({},{})", tileX, tileZ ),
                  .Width      = tile.SamplesX() + 2u,
                  .Height     = tile.SamplesZ() + 2u,
                  .Format     = Core::Formats::ImageFormat::R16_UNORM,
@@ -82,7 +83,7 @@ namespace Desert::ECS
                                                            const Graphic::ResourceOwnerInstance scene )
         {
             Core::Formats::Image2DSpecification spec = {
-                 .Tag     = "LandscapeWeights(" + std::to_string( tileX ) + "," + std::to_string( tileZ ) + ")",
+                 .Tag     = std::format( "LandscapeWeights({},{})", tileX, tileZ ),
                  .Width   = tile.SamplesX(),
                  .Height  = tile.SamplesZ() * Landscape::LandscapeWeightmapPageCount( tile.WeightLayers().size() ),
                  .Format  = Core::Formats::ImageFormat::RGBA8F,

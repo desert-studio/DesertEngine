@@ -117,6 +117,7 @@ namespace
     constexpr uint32_t kScene = Common::Content::FourCC( "SCNE" );
     constexpr uint32_t kUnit  = Common::Content::FourCC( "UNIT" );
     constexpr uint32_t kWorldPartition = Common::Content::FourCC( "WPAR" );
+    constexpr uint32_t kAssetRef       = Common::Content::FourCC( "AREF" );
     // The generation this "build" opens; the suite does not link the engine, so the numbers are its own.
     constexpr AS::StatedGenerations kCurrent{ 39, 1 };
 
@@ -151,9 +152,10 @@ TEST( AutosavePaths, StatedInReadsBothGenerationsFromTheHeader )
 {
     const fs::path copy = TempProject( "Stated" ) / "A_autosave.desce";
     WriteCopy( copy, 38, 1 );
-    EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit, kWorldPartition ), ( AS::StatedGenerations{ 38, 1 } ) );
+    EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit, kWorldPartition, kAssetRef ),
+               ( AS::StatedGenerations{ 38, 1 } ) );
     std::ofstream( copy ) << "{}";
-    EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit, kWorldPartition ), ( AS::StatedGenerations{ 0, 0 } ) )
+    EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit, kWorldPartition, kAssetRef ), ( AS::StatedGenerations{ 0, 0 } ) )
          << "absent is 0";
 }
 
@@ -167,7 +169,8 @@ TEST( AutosavePaths, RecoveryOffersTheNewestCopyAtTheCurrentVersion )
     fs::last_write_time( older, fs::file_time_type::clock::now() - std::chrono::hours( 1 ) );
     WriteCopy( AS::Dir() / "Scenes" / "NotACopy.desce", kCurrent.Scene, kCurrent.Unit );
 
-    const AS::RecoveryChoice choice = AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition );
+    const AS::RecoveryChoice choice =
+         AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef );
     EXPECT_EQ( choice.Offered, newer );
     EXPECT_TRUE( choice.NotOffered.empty() );
     EXPECT_FALSE( IsUnder( Path::ASSETS_PATH, choice.Offered ) );
@@ -191,7 +194,8 @@ TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
     const auto        before     = FilesUnder( project );
     const std::string staleBytes = BytesOf( stale );
 
-    const AS::RecoveryChoice choice = AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition );
+    const AS::RecoveryChoice choice =
+         AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef );
     EXPECT_EQ( choice.Offered, current )
          << "the newest file on disk is at an older version and must not be offered";
     ASSERT_EQ( choice.NotOffered.size(), 2u );
@@ -213,7 +217,8 @@ TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
 
     // Only older copies left: nothing is offered at all.
     fs::remove( current );
-    EXPECT_TRUE( AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition ).Offered.empty() );
+    EXPECT_TRUE(
+         AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef ).Offered.empty() );
 }
 
 namespace

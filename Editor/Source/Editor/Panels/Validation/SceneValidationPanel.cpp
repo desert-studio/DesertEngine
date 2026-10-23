@@ -12,6 +12,7 @@
 #include <Engine/Assets/Skybox/SkyboxAsset.hpp>
 
 #include <ImGui/imgui.h>
+#include <format>
 
 namespace Desert::Editor
 {
@@ -68,9 +69,9 @@ namespace Desert::Editor
             }
         }
 
-        ToastManager::Push( m_Issues.empty() ? "Scene validation: no broken references"
-                                             : "Scene validation: " + std::to_string( m_Issues.size() ) +
-                                                    " issue(s) found",
+        ToastManager::Push( m_Issues.empty()
+                                 ? "Scene validation: no broken references"
+                                 : std::format( "Scene validation: {} issue(s) found", m_Issues.size() ),
                             m_Issues.empty() ? ToastLevel::Success : ToastLevel::Warning );
     }
 

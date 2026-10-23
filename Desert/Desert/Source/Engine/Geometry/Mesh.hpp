@@ -5,10 +5,13 @@
 #include <Engine/Graphic/VertexBuffer.hpp>
 #include "Errors/MeshError.hpp"
 #include "MeshTypes.hpp"
+#include <Engine/Geometry/DisplacementTessellation.hpp>
 #include <Engine/Geometry/LODSelection.hpp>
 
 #include <Common/Core/ResultWithCodes.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
+#include <Engine/Assets/MeshDisplacementBake.hpp>
+#include <Engine/Assets/MeshDisplacementTopology.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 
 #include <atomic>
@@ -128,6 +131,41 @@ namespace Desert
             m_RayTracingGeometry = std::move( geometry );
         }
 
+        // THE MESH'S DISPLACEMENT TOPOLOGY (Geometry/DisplacementTessellation.hpp): welded LOD0, clusters, built at
+        // cook from the render data and attached by the loader when a section's material declares a Height and the
+        // asset's displacement mode is Runtime; null otherwise. DisplacementCache tessellates from it - the CPU
+        // vertex data is not kept by the mesh, so the topology is the displaced path's only source.
+        // The topology arrives on a worker (Assets::DisplacementTopologySlot); null until it lands.
+        [[nodiscard]] std::shared_ptr<const Geometry::DisplacementTopology> GetDisplacementTopology() const
+        {
+            return m_DisplacementTopology ? m_DisplacementTopology->Get() : nullptr;
+        }
+        void SetDisplacementTopology( std::shared_ptr<const Assets::DisplacementTopologySlot> slot )
+        {
+            m_DisplacementTopology = std::move( slot );
+        }
+        // THE BAKE-LEVEL DISPLACED SURFACE (Assets/MeshDisplacementBake.hpp), any displacement mode: the Baked
+        // mode draws it (StaticMesh::GetBakedDisplaced), collision reads it in both modes. Null until it lands.
+        [[nodiscard]] std::shared_ptr<const Assets::DisplacedMeshData> GetDisplacedMeshData() const
+        {
+            return m_DisplacedMesh ? m_DisplacedMesh->Get() : nullptr;
+        }
+        void SetDisplacedMesh( std::shared_ptr<const Assets::DisplacedMeshSlot> slot )
+        {
+            m_DisplacedMesh = std::move( slot );
+        }
+        // Baked mode: a displaced surface with no runtime topology (Runtime mode has both).
+        [[nodiscard]] bool IsBakedDisplaced() const
+        {
+            return m_DisplacedMesh != nullptr && m_DisplacementTopology == nullptr;
+        }
+        // The mesh is displaced (its import settings chose a displacement mode): its draws over displaced geometry
+        // take the displaced material slots (MaterialSlotBinding::Displaced), even before the geometry lands.
+        [[nodiscard]] bool IsDisplaced() const
+        {
+            return m_DisplacementTopology != nullptr || m_DisplacedMesh != nullptr;
+        }
+
         [[nodiscard]] virtual Common::BoolResultWithCodes<MeshError> Invalidate() = 0;
 
         // The mesh's signed distance field (Assets::MeshDistanceFieldData) once it has landed in the slot shared
@@ -225,5 +263,17 @@ namespace Desert
         std::vector<Submesh>                    m_Submeshes;
         std::shared_ptr<const Assets::MeshDistanceFieldSlot> m_DistanceField;
         std::shared_ptr<const Assets::MeshCardsSlot>         m_Cards;
+        std::shared_ptr<const Assets::DisplacementTopologySlot> m_DisplacementTopology;
+
+    protected:
+        std::shared_ptr<const Assets::DisplacedMeshSlot> m_DisplacedMesh;
+        [[nodiscard]] const std::shared_ptr<const Assets::MeshDistanceFieldSlot>& DistanceFieldSlot() const
+        {
+            return m_DistanceField;
+        }
+        [[nodiscard]] const std::shared_ptr<const Assets::MeshCardsSlot>& CardsSlot() const
+        {
+            return m_Cards;
+        }
     };
 } // namespace Desert

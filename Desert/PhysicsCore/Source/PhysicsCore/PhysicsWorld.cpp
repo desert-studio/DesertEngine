@@ -31,8 +31,8 @@
 #include <Jolt/Skeleton/Skeleton.h>
 #include <Jolt/RegisterTypes.h>
 
-#include <Engine/Physics/PhysicsWorld.hpp>
-#include <Engine/Physics/RagdollDesc.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
+#include <PhysicsCore/RagdollDesc.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -258,17 +258,15 @@ namespace Desert::Physics
         {
             const uint32_t n = desc.SampleCount;
             if ( n % kHeightFieldBlockSize != 0u || n / kHeightFieldBlockSize < 2u )
-                return Common::MakeError<JPH::Ref<JPH::HeightFieldShape>>(
-                     "heightfield of " + std::to_string( n ) + " samples per side: must be a multiple of " +
-                     std::to_string( kHeightFieldBlockSize ) + " and at least two blocks" );
+                return Common::MakeError<JPH::Ref<JPH::HeightFieldShape>>( std::format(
+                     "heightfield of {} samples per side: must be a multiple of {} and at least two blocks", n,
+                     kHeightFieldBlockSize ) );
             if ( desc.HeightsCm.size() != static_cast<size_t>( n ) * n )
                 return Common::MakeError<JPH::Ref<JPH::HeightFieldShape>>(
-                     "heightfield of " + std::to_string( n ) + "² samples was given " +
-                     std::to_string( desc.HeightsCm.size() ) + " heights" );
+                     std::format( "heightfield of {}² samples was given {} heights", n, desc.HeightsCm.size() ) );
             if ( !( desc.SpacingCm > 0.0f ) || !std::isfinite( desc.SpacingCm ) )
-                return Common::MakeError<JPH::Ref<JPH::HeightFieldShape>>( "heightfield spacing " +
-                                                                           std::to_string( desc.SpacingCm ) +
-                                                                           " cm is not positive and finite" );
+                return Common::MakeError<JPH::Ref<JPH::HeightFieldShape>>(
+                     std::format( "heightfield spacing {:f} cm is not positive and finite", desc.SpacingCm ) );
 
             // The range holes leave: Jolt ignores cNoCollisionValue in its own range scan
             // (HeightFieldShapeSettings::DetermineMinAndMaxSample), and a tile that is all hole encodes 0.
@@ -1357,8 +1355,8 @@ namespace Desert::Physics
         const JPH::BodyID id = m_Impl->Bodies->CreateAndAddBody( settings, JPH::EActivation::DontActivate );
         if ( id.IsInvalid() )
             return Common::MakeError<BodyHandle>(
-                 "Jolt refused the heightfield body: " + std::to_string( GetBodyCount() ) +
-                 " bodies exist, the world's limit is reached" );
+                 std::format( "Jolt refused the heightfield body: {} bodies exist, the world's limit is reached",
+                              GetBodyCount() ) );
         const BodyHandle handle      = id.GetIndexAndSequenceNumber();
         m_Impl->HeightFields[handle] = shape.GetValue();
         const float extent             = static_cast<float>( desc.SampleCount - 1u ) * desc.SpacingCm;
@@ -1379,20 +1377,17 @@ namespace Desert::Physics
             return Common::MakeError<HeightFieldUpdate>( "the physics world is not initialised" );
         const auto found = m_Impl->HeightFields.find( handle );
         if ( found == m_Impl->HeightFields.end() )
-            return Common::MakeError<HeightFieldUpdate>( "body " + std::to_string( handle ) +
-                                                         " is not a heightfield" );
+            return Common::MakeError<HeightFieldUpdate>( std::format( "body {} is not a heightfield", handle ) );
         JPH::HeightFieldShape& shape = *found->second;
         const uint32_t         n     = desc.SampleCount;
         if ( n != shape.GetSampleCount() || desc.HeightsCm.size() != static_cast<size_t>( n ) * n )
             return Common::MakeError<HeightFieldUpdate>(
-                 "heightfield " + std::to_string( handle ) + " has " + std::to_string( shape.GetSampleCount() ) +
-                 " samples per side; the update carries " + std::to_string( n ) + " and " +
-                 std::to_string( desc.HeightsCm.size() ) + " heights" );
+                 std::format( "heightfield {} has {} samples per side; the update carries {} and {} heights",
+                              handle, shape.GetSampleCount(), n, desc.HeightsCm.size() ) );
         if ( !( x0 < x1 && z0 < z1 && x1 <= n && z1 <= n ) )
             return Common::MakeError<HeightFieldUpdate>(
-                 "update rectangle [" + std::to_string( x0 ) + ", " + std::to_string( x1 ) + ") x [" +
-                 std::to_string( z0 ) + ", " + std::to_string( z1 ) + ") is empty or leaves the " +
-                 std::to_string( n ) + "-sample grid" );
+                 std::format( "update rectangle [{}, {}) x [{}, {}) is empty or leaves the {}-sample grid", x0, x1,
+                              z0, z1, n ) );
 
         const JPH::BodyID id( handle );
         const float       lowest  = shape.GetMinHeightValue();

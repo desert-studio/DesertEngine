@@ -808,7 +808,7 @@ namespace Desert::Graphic::System
         }
         GraphicsPipelineSpecification spec = pipeline->GetSpecification();
         spec.CullMode                      = CullMode::None;
-        spec.DebugName += "_TwoSided";
+        spec.DebugName                     = std::format( "{}_TwoSided", spec.DebugName );
         const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !built )
         {

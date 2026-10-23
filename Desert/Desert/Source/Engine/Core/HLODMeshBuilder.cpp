@@ -243,13 +243,9 @@ namespace Desert::Core
                                         { return !slot.first.empty() || !slot.second.empty(); } );
         if ( named )
         {
-            block.MaterialGuids = std::vector<std::string>{};
-            block.MaterialPaths = std::vector<std::string>{};
+            block.MaterialSlots = std::vector<Assets::AssetGuidRef>{};
             for ( const auto& [guid, path] : slots )
-            {
-                block.MaterialGuids->push_back( guid );
-                block.MaterialPaths->push_back( path );
-            }
+                block.MaterialSlots->push_back( Assets::AssetGuidRef{ guid, path } );
         }
         return Common::MakeSuccess( std::move( block ) );
     }

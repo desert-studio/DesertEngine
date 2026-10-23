@@ -6,8 +6,8 @@
 
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Physics/PhysicsAssetFormat.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsAssetFormat.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../../Engine/PhysicsFixture.hpp"
 

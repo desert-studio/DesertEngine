@@ -674,8 +674,8 @@ namespace Desert::Editor
                     if ( id && static_cast<uint64_t>( tile.Tile ) == static_cast<uint64_t>( *id ) )
                     {
                         ::Desert::Assets::StaticMeshComponentSer block = mesh.GetValue();
-                        block.MaterialGuids = std::vector<std::string>{ tile.MaterialGuid };
-                        block.MaterialPaths = std::vector<std::string>{ tile.MaterialPath };
+                        block.MaterialSlots = std::vector<::Desert::Assets::AssetGuidRef>{
+                             ::Desert::Assets::AssetGuidRef{ tile.MaterialGuid, tile.MaterialPath } };
                         return Common::MakeSuccess( std::move( block ) );
                     }
                 return mesh;

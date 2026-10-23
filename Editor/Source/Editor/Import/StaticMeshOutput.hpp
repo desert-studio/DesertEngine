@@ -10,6 +10,7 @@
 
 #include <cctype>
 #include <filesystem>
+#include <format>
 #include <span>
 #include <string>
 #include <string_view>
@@ -52,7 +53,7 @@ namespace Desert::Editor
         const std::string     name = StaticMeshAssetName( baseName );
         std::filesystem::path path = folder / ( name + ".stmesh" );
         for ( int n = 1; std::filesystem::exists( path ); ++n )
-            path = folder / ( name + "_" + std::to_string( n ) + ".stmesh" );
+            path = folder / std::format( "{}_{}.stmesh", name, n );
         return path;
     }
 
@@ -93,7 +94,7 @@ namespace Desert::Editor
         asset.Source.Models.push_back( { Geometry::ToSerialized( mesh ) } );
         asset.Source.MaterialSlots.reserve( slotMaterials.size() );
         for ( std::size_t k = 0; k < slotMaterials.size(); ++k )
-            asset.Source.MaterialSlots.push_back( { "Slot" + std::to_string( k ), slotMaterials[k] } );
+            asset.Source.MaterialSlots.push_back( { std::format( "Slot{}", k ), slotMaterials[k] } );
 
         std::error_code ec;
         std::filesystem::create_directories( folder, ec );

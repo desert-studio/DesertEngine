@@ -11,7 +11,7 @@
 
 #include <Engine/Core/LevelTravel.hpp>
 #include <Editor/Core/PlayWorldTravel.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 #include <Engine/Scripting/ScriptEngine.hpp>
 
 #include <gtest/gtest.h>

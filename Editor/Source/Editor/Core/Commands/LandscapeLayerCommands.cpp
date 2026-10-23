@@ -128,8 +128,7 @@ namespace Desert::Editor::Commands
                 {
                     const auto& generated = m_Generated.Tiles[i];
                     auto&       entity    = scene->CreateEntityWithUUID(
-                         m_Tiles[i], "Landscape Tile " + std::to_string( generated.TileX ) + "_" +
-                                          std::to_string( generated.TileZ ) );
+                         m_Tiles[i], std::format( "Landscape Tile {}_{}", generated.TileX, generated.TileZ ) );
                     auto& tile     = entity.AddComponent<ECS::LandscapeTileComponent>();
                     tile.Landscape = m_Root;
                     tile.TileX     = generated.TileX;
@@ -204,7 +203,7 @@ namespace Desert::Editor::Commands
         std::string name;
         for ( size_t n = 1;; ++n )
         {
-            name = "Layer " + std::to_string( n );
+            name = std::format( "Layer {}", n );
             std::error_code ec;
             if ( !std::filesystem::exists( dir / ( name + Assets::Serialization::kLandscapeLayerInfoExtension ),
                                            ec ) )

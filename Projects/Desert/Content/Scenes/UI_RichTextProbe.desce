@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "aa11bb22cc33dd44ee55ff6677889900",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -68,7 +69,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,

@@ -3,6 +3,7 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Json/Document.hpp>
+#include <Common/Json/Template.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
@@ -90,10 +91,7 @@ namespace Common::Settings
                 return "reserialized";
             }
 
-            std::string list = changed.front();
-            for ( std::size_t i = 1; i < changed.size(); ++i )
-                list += ", " + changed[i];
-            return list;
+            return Common::Text::Join( changed, ", " );
         }
 
         // ONE ENTRY OF THE FILE THAT WAS NOT TAKEN AS WRITTEN, as the sentence the log prints after the file name.
@@ -531,9 +529,8 @@ namespace Common::Settings
         // about whether to go and look for the build that wrote them.
         if ( !Get().UnknownKeys.empty() )
         {
-            std::string names = Get().UnknownKeys.begin()->first;
-            for ( auto it = std::next( Get().UnknownKeys.begin() ); it != Get().UnknownKeys.end(); ++it )
-                names += ", " + it->first;
+            const std::string names = Common::Text::Join( Get().UnknownKeys, ", ",
+                                                          []( const auto& unknown ) { return unknown.first; } );
 
             LOG_WARN( "[Machine] {} holds {} key(s) this build does not know ({}); they belong to another "
                       "build and are preserved on save, not dropped.",

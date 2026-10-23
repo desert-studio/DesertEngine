@@ -247,8 +247,7 @@ namespace Desert::Editor
                     const uint64_t bit     = ( 1ull << i );
                     bool           visible = ( materialComp.HiddenSubmeshes & bit ) == 0;
                     const auto&    sm      = lodMesh->GetSubmeshes()[i];
-                    const std::string label =
-                         sm.Name.empty() ? ( "Submesh " + std::to_string( i ) ) : sm.Name;
+                    const std::string label   = sm.Name.empty() ? std::format( "Submesh {}", i ) : sm.Name;
                     ImGui::PushID( static_cast<int>( i ) );
                     if ( ImGui::Checkbox( label.c_str(), &visible ) )
                         materialComp.HiddenSubmeshes =
@@ -301,7 +300,7 @@ namespace Desert::Editor
 
         std::filesystem::path path = dir / ( base + ext );
         for ( int n = 1; std::filesystem::exists( path, ec ); ++n )
-            path = dir / ( base + "_" + std::to_string( n ) + ext );
+            path = dir / std::format( "{}_{}{}", base, n, ext );
 
         // Write the file FIRST (defaults + a freshly minted header GUID), then create-with-load: the
         // asset adopts its stable in-file GUID as the internal handle during Load, so the handle the
@@ -346,7 +345,7 @@ namespace Desert::Editor
         const std::string     base = std::filesystem::path( parent.GetMetadata().Filepath ).stem().string() + "_Inst";
         std::filesystem::path path = dir / ( base + ext );
         for ( int n = 1; std::filesystem::exists( path, ec ); ++n )
-            path = dir / ( base + "_" + std::to_string( n ) + ext );
+            path = dir / std::format( "{}_{}{}", base, n, ext );
 
         {
             Assets::MaterialData data;
@@ -549,7 +548,7 @@ namespace Desert::Editor
         ImGui::SetColumnWidth( 0, Utils::ImGuiUtilities::PropertyLabelWidth() );
         ImGui::AlignTextToFramePadding();
 
-        const std::string label = "Element " + std::to_string( row.Index );
+        const std::string label = std::format( "Element {}", row.Index );
         ImGui::TextUnformatted( label.c_str() );
         // The mesh's own name for the element, beside the index — UE's "Slot" field. The INDEX is what
         // the renderer maps materials by, so it stays the identity and the name is the hint.
@@ -667,7 +666,7 @@ namespace Desert::Editor
         // so a collapsed section still says how many elements this mesh has.
         const size_t      submeshCount = GetSubmeshCount( host );
         const size_t      rowCount     = std::max( submeshCount, host.Slots->size() );
-        const std::string slotDetail   = std::to_string( rowCount ) + ( rowCount == 1 ? " element" : " elements" );
+        const std::string slotDetail   = std::format( "{} {}", rowCount, rowCount == 1 ? "element" : "elements" );
 
         const bool materialsOpen = Utils::ImGuiUtilities::SectionHeader(
              ICON_MDI_PALETTE "  Material Slots", overriddenByShader.empty(), slotDetail.c_str() );
@@ -764,7 +763,7 @@ namespace Desert::Editor
 
                 std::string dropped;
                 SlotAction  action = DrawSlotRow( row, dropped );
-                if ( TakeDetailsPickerRequest( "Material slot " + std::to_string( i ) ) )
+                if ( TakeDetailsPickerRequest( std::format( "Material slot {}", i ) ) )
                     action = SlotAction::Pick;
 
                 // Drop an existing material asset on the row to assign it (creates the slot if needed).

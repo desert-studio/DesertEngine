@@ -23,7 +23,7 @@
 // NOT HERE: CLO1 — the Jolt SoftBody backend (factory "JoltSoftBody"), where the registry lives (the physics
 // world is the expected owner), and the ECS system that steps simulations at the physics fixed step.
 
-#include <Engine/Physics/Cloth/ClothingAsset.hpp>
+#include <PhysicsCore/Cloth/ClothingAsset.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

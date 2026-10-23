@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <format>
 
 namespace Desert::Animation
 {
@@ -400,8 +401,8 @@ namespace Desert::Animation
             {
                 if ( m_StructureError.empty() )
                 {
-                    m_StructureError = "control '" + element.Name + "': parent space " + std::to_string( i ) +
-                                       " cannot be blended — " + decomposed.GetError();
+                    m_StructureError = std::format( "control '{}': parent space {} cannot be blended — {}",
+                                                    element.Name, i, decomposed.GetError() );
                 }
                 return glm::mat4( 1.0F );
             }
@@ -569,10 +570,10 @@ namespace Desert::Animation
                     // A CONTROL NAMES ITS BONE BY INDEX, so the same rig over a shorter skeleton would
                     // resolve that space to identity and park the control at the origin — a wrong answer
                     // with no bad value in it, which is the only kind that has to be SAID.
-                    m_StructureError = "control '" + element.Name + "' is parented to bone " +
-                                       std::to_string( space.Index ) + ", and this skeleton has " +
-                                       std::to_string( bones ) +
-                                       " — the rig was built against a different skeleton";
+                    m_StructureError =
+                         std::format( "control '{}' is parented to bone {}, and this skeleton has {} "
+                                      "— the rig was built against a different skeleton",
+                                      element.Name, space.Index, bones );
                     return;
                 }
                 m_BoneSpace[space.Index] = pose.Get( space.Index );

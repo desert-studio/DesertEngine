@@ -654,7 +654,7 @@ namespace Desert::Graphic
                 kind = "preview";
             else if ( profile == kThumbnailViewProfile )
                 kind = "thumbnail";
-            return std::string( kind ) + " #" + std::to_string( number );
+            return std::format( "{} #{}", kind, number );
         }
 
         // Every live renderer, so the view budget can name what each holds. Guarded: views are built and
@@ -993,6 +993,8 @@ namespace Desert::Graphic
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
         m_SSRRaysPerPixel      = quality.As<int>( Parameter::ReflectionRaysPerPixel );
         m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
+        m_DisplacementDicingRate = quality.As<int>( Parameter::DisplacementDicingRate );
+        m_DisplacementPoolMiB    = static_cast<uint32_t>( quality.As<int>( Parameter::DisplacementPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
         m_ScreenProbeAdaptivePercent = quality.As<uint32_t>( Parameter::ScreenProbeAdaptiveAllocation );
         m_ScreenProbeShortRangeAO    = quality.As<int>( Parameter::ScreenProbeShortRangeAO ) != 0;
@@ -1613,6 +1615,19 @@ namespace Desert::Graphic
                 m_FrameRayTracingCache->BeginViewFrame( frameNumber );
                 skinCache = &m_FrameRayTracingCache->GetSkinCache();
                 skinCache->SetEnabled( meshes->IsSkinCacheEnabled() );
+                skinCache->SetDisplacement( &m_FrameRayTracingCache->GetDisplacement() );
+                // Mesh displacement (DisplacementCache.hpp): this view's level requests, the frame's one
+                // displacement (first view), and the twins every pass of this view draws.
+                System::DisplacementCache& displacement = m_FrameRayTracingCache->GetDisplacement();
+                displacement.SetQuality( System::DisplacementQuality{
+                     .Enabled          = m_DisplacementDicingRate > 0,
+                     .DicingRatePixels = static_cast<float>( std::max( m_DisplacementDicingRate, 1 ) ),
+                     .PoolBytes        = static_cast<uint64_t>( m_DisplacementPoolMiB ) << 20u } );
+                if ( const auto* viewCamera = GetMainCamera(); viewCamera != nullptr )
+                    meshes->ApplyDisplacement(
+                         displacement,
+                         Geometry::LODView{ viewCamera->GetPosition(), viewCamera->GetProjectionMatrix() },
+                         static_cast<float>( m_ViewExtent.Height ), frameNumber, !m_ViewProfile.SceneCapture );
             }
             if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions(
                       m_ViewState.Motion(), m_ScratchTileMotions, skinCache, frameNumber );
@@ -3082,7 +3097,8 @@ namespace Desert::Graphic
                                              const MaterialInstancePtr& material, uint64_t hiddenSubmeshes,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                              bool castShadows, bool castContactShadow,
-                                             const InstanceCullDistance& cullDistance, const InstanceWind& wind )
+                                             const InstanceCullDistance& cullDistance, const InstanceWind& wind,
+                                             const MaterialInstancePtr& displacedMaterial )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -3096,6 +3112,7 @@ namespace Desert::Graphic
              ->SubmitInstancedMesh( { .Entity            = entity,
                                       .Mesh              = mesh,
                                       .Material          = material,
+                                      .DisplacedMaterial = displacedMaterial,
                                       .HiddenSubmeshes   = hiddenSubmeshes,
                                       .Transforms        = transforms,
                                       .CastShadows       = castShadows,

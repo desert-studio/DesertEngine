@@ -3,6 +3,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm> // std::find, deduplicating the claimed extensions
+#include <format>
 
 namespace Desert::Editor
 {
@@ -81,8 +82,7 @@ namespace Desert::Editor
 
         // The number is kept, not swallowed: this string is what a refusal and a census print, and a
         // subject nothing is registered for is exactly the case a reader has to be able to chase.
-        return std::string( "unregistered " ) + SubjectDomainName( type.Domain ) + " subject (facet " +
-               std::to_string( type.Facet ) + ")";
+        return std::format( "unregistered {} subject (facet {})", SubjectDomainName( type.Domain ), type.Facet );
     }
 
     std::vector<SubjectTypeKey> SubjectEditorRegistry::RegisteredTypes() const

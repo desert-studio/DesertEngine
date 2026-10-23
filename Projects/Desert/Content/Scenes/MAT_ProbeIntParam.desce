@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "35bb0ef210164119a602b99001933529",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -131,7 +132,12 @@
                 "Params": []
             },
             "StaticMesh": {
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": []
             }
         },
         {
@@ -154,7 +160,12 @@
                 ]
             },
             "StaticMesh": {
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": []
             }
         },
         {
@@ -177,7 +188,12 @@
                 ]
             },
             "StaticMesh": {
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": []
             }
         },
         {
@@ -200,7 +216,12 @@
                 ]
             },
             "StaticMesh": {
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": []
             }
         },
         {
@@ -227,7 +248,12 @@
                 ]
             },
             "StaticMesh": {
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": []
             }
         },
         {

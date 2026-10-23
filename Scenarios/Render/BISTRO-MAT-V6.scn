@@ -1,0 +1,12 @@
+# BISTRO-MAT-V6: BistroFoliageProj materials were MATL v5 (engine reads v6 only) -> ~1270 material load errors, everything grey, leaves solid squares. Raised by scripts/Dev/migrate.sh --write <BistroFoliageProj>/Content/Materials (214 raised, 0 failed).
+# Headless render shot (the project is outside the repo, play_scenario opens Projects/Desert only), run from DesertEngine-scratch/SSS-PROFILE:
+# Editor --project BistroFoliageProj/Desert.deproj --scene B16_Bistro_Street_v70.desce --camera -20,170,330 --look -126,-93,-154 --shot-frames 90
+Дано: BistroFoliageProj, B16_Bistro_Street_v70.desce, camera -20,170,330 look -126,-93,-154, daytime, Lit.
+Когда: shoot after 90 frames.
+Тогда 0_bistro textured facades, leaves alpha-cut (no squares), editor.log material errors 0
+# RESULT 10-23: PASS — frame DesertEngine-scratch/BISTRO-MAT-V6/frames/0_bistro.png (textured pavement/facade/moped, bush leaves alpha-cut); editor.log 0 [error] lines, 0 material errors. Migrated files live only in /Users/daniilsavcenko/Desktop/Programming/C++/BistroFoliageProj/Content/Materials (not a git repo, 8.4 GB local clone); v5 backup DesertEngine-scratch/BISTRO-MAT-V6/Materials.v5.backup.tgz.
+# p2: the rest of BistroFoliageProj Content (76 scenes incl. the original B16_Bistro_Street.desce SCNE 64, 3 prefabs, 2 VFX) raised by scripts/Dev/migrate.sh --write <BistroFoliageProj>/Content, 0 failed. Prefabs/UI_Card.deprefab PrefabPath repointed Resources/Assets/Prefabs/UI_CardStripe.deprefab -> assets:Prefabs/UI_CardStripe.deprefab (the stripe already lives in Content/Prefabs).
+Дано: BistroFoliageProj after migrate.sh --write over the whole Content.
+Когда: open Content/Scenes/B16_Bistro_Street.desce (the original, not _v70), camera -20,170,330 look -126,-93,-154, daytime, Lit, 90 frames.
+Тогда 1_bistro_original the original scene loads (no version refusal), textured facades, leaves alpha-cut; editor.log 0 load errors
+# RESULT p2 10-23: PASS — frame DesertEngine-scratch/BISTRO-MAT-V6/frames/p2/1_bistro_original.png (original B16_Bistro_Street.desce loads; textured pavement/facade/moped/planter, bush leaves alpha-cut); editor.log 0 [error] lines. Run: Editor --project BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce --camera -20,170,330 --look -126,-93,-154 --shot <png> --shot-frames 90. Backup of pre-write Scenes/Prefabs/VFX: DesertEngine-scratch/BISTRO-MAT-V6/Content.p2.prewrite.backup.tgz.

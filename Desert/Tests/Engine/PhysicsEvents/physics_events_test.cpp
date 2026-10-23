@@ -18,8 +18,8 @@
 
 #include <Engine/Destruction/DestructionWorld.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
-#include <Engine/Physics/CollisionProfiles.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"
 

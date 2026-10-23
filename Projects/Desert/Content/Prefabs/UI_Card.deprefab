@@ -3,6 +3,7 @@
         "Kind": "Prefab",
         "Guid": "37d52634d940d6c1be0f623515668528",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -45,7 +46,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "Circle": false,
                 "RingWidth": 0.0,

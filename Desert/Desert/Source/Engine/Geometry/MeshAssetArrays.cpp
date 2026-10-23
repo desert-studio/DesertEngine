@@ -1,5 +1,6 @@
 #include "MeshAssetArrays.hpp"
 
+#include <format>
 #include <string>
 
 namespace Desert::Geometry
@@ -26,7 +27,7 @@ namespace Desert::Geometry
         {
             const Submesh&   from = render.Submeshes[k];
             Ser::SubmeshData to;
-            to.Name         = from.Name.empty() ? "Section" + std::to_string( k ) : from.Name;
+            to.Name         = from.Name.empty() ? std::format( "Section{}", k ) : from.Name;
             to.VertexOffset = from.VertexOffset;
             to.VertexCount  = from.VertexCount;
             to.IndexOffset  = from.IndexOffset;

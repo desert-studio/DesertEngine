@@ -34,6 +34,7 @@
 #include <array>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <string>
 
 namespace Desert::Editor
@@ -195,13 +196,11 @@ namespace Desert::Editor
             return;
         auto& s = Core::LandscapeSculptState::Get().NewLandscape;
         ImGui::DragFloat3( "Location (cm)", &s.LocationCm.x, 100.0f );
-        if ( ImGui::BeginCombo( "Section Size", ( std::to_string( s.QuadsPerTile ) + "x" +
-                                                  std::to_string( s.QuadsPerTile ) + " Quads" )
-                                                     .c_str() ) )
+        if ( ImGui::BeginCombo( "Section Size",
+                                std::format( "{}x{} Quads", s.QuadsPerTile, s.QuadsPerTile ).c_str() ) )
         {
             for ( const uint32_t q : L::kLandscapeTileQuadsValues )
-                if ( ImGui::Selectable( ( std::to_string( q ) + "x" + std::to_string( q ) + " Quads" ).c_str(),
-                                        q == s.QuadsPerTile ) )
+                if ( ImGui::Selectable( std::format( "{}x{} Quads", q, q ).c_str(), q == s.QuadsPerTile ) )
                     s.QuadsPerTile = q;
             ImGui::EndCombo();
         }
@@ -252,9 +251,8 @@ namespace Desert::Editor
         if ( Commands::IsCreatingLandscape() )
         {
             const float fraction = Commands::CreateLandscapeFraction();
-            ImGui::ProgressBar(
-                 fraction, ImVec2( -FLT_MIN, 0.0f ),
-                 ( "Generating " + std::to_string( static_cast<int>( fraction * 100.0f ) ) + " %" ).c_str() );
+            ImGui::ProgressBar( fraction, ImVec2( -FLT_MIN, 0.0f ),
+                                std::format( "Generating {} %", static_cast<int>( fraction * 100.0f ) ).c_str() );
             ImGui::BeginDisabled();
             ImGui::Button( ICON_MDI_CHECK "  Create", ImVec2( -FLT_MIN, 0.0f ) );
             ImGui::EndDisabled();

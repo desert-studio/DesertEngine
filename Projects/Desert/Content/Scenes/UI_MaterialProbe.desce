@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "0c42ee850e95277f8d732c3c69595870",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -74,7 +75,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -187,7 +191,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "assets:Materials/UI_RadialWipe.demat",
+                "Material": {
+                    "Guid": "53e7930a82e65578715e5c2659a4ae9f",
+                    "Path": "assets:Materials/UI_RadialWipe.demat"
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -247,7 +254,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "assets:Materials/UI_RadialWipe.demat",
+                "Material": {
+                    "Guid": "53e7930a82e65578715e5c2659a4ae9f",
+                    "Path": "assets:Materials/UI_RadialWipe.demat"
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -307,7 +317,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -367,7 +380,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "assets:Materials/CB_Orange.demat",
+                "Material": {
+                    "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                    "Path": "assets:Materials/CB_Orange.demat"
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,

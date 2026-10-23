@@ -16,6 +16,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <format>
 #include <functional>
 #include <fstream>
 #include <iostream>
@@ -292,7 +293,7 @@ namespace FbxSplit
             out.close();
             if ( !out )
             {
-                error = "could not write " + std::to_string( content.size() ) + " bytes to " + path.string();
+                error = std::format( "could not write {} bytes to {}", content.size(), path.string() );
                 return false;
             }
             return true;
@@ -474,11 +475,11 @@ namespace FbxSplit
             if ( !mesh || mesh->mNumVertices == 0 || mesh->mNumFaces == 0 )
                 continue;
 
-            std::string rawName = mesh->mName.length > 0 ? mesh->mName.C_Str() : "mesh_" + std::to_string( i );
+            std::string rawName = mesh->mName.length > 0 ? mesh->mName.C_Str() : std::format( "mesh_{}", i );
             std::string base    = Sanitize( rawName );
             std::string name    = base;
             for ( int n = 1; usedNames.count( name ); ++n ) // de-dup repeated mesh names
-                name = base + "_" + std::to_string( n );
+                name = std::format( "{}_{}", base, n );
             usedNames.insert( name );
 
             const std::filesystem::path objPath = meshDir / ( name + ".obj" );

@@ -1,0 +1,15 @@
+# STATICMESH-FORMAT: the Static Mesh's MeshHandle / MaterialSlots are saved by reflection as {Guid, Path} (asset
+# references v1, header tag AREF); Starter.desce was migrated on disk by SceneMigrator's AREF step.
+# Bistro (brief's [2_bistro]) has no scene in this repository (only ~/.desert-test-assets/Bistro) - see REMAINDER.
+Дано run Scene "Open Scene Starter.desce"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,130,360
+Дано --subject viewport set Camera.Direction 0,-0.38,-1
+Тогда-вид 0_starter the migrated Starter as before: the grey Starter_Prop cube centred, meshes and materials, no grey/missing
+Когда set 6018453462564557835 StaticMeshComponent.MeshHandle assets:Meshes/Modeling/Blockout.stmesh
+Когда set 6018453462564557835 StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Red.demat
+Когда run Action "Save Scene"
+Когда run Scene "Open Scene Starter.desce"
+Когда --subject viewport set Camera.Position 100,330,900
+Когда --subject viewport set Camera.Direction 0,-0.236,-1
+Тогда-вид 1_reopen the red Blockout box, whole, centred, after the save + reopen ({Guid, Path} round-trip)

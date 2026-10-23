@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <format>
 #include <utility>
 
 namespace Desert::UI
@@ -450,12 +451,12 @@ namespace Desert::UI
 
     std::string OverlayToastTextKey( int slot )
     {
-        return "overlay.toast." + std::to_string( slot ) + ".text";
+        return std::format( "overlay.toast.{}.text", slot );
     }
 
     std::string OverlayToastVisibleKey( int slot )
     {
-        return "overlay.toast." + std::to_string( slot ) + ".visible";
+        return std::format( "overlay.toast.{}.visible", slot );
     }
 
     void CloseAllOverlays( UIViewContext& view, IUITree& tree )

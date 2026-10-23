@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <format>
 
 namespace Desert::Editor
 {
@@ -69,7 +70,7 @@ namespace Desert::Editor
         {
             const PaletteCommand& c        = *hits[i].Command;
             const bool            selected = ( i == m_Selected );
-            if ( ImGui::Selectable( ( c.Label + "##" + std::to_string( i ) ).c_str(), selected ) )
+            if ( ImGui::Selectable( std::format( "{}##{}", c.Label, i ).c_str(), selected ) )
             {
                 // The outcome is CAPTURED rather than returned from here: the popup still has to be
                 // closed and EndChild/EndPopup still have to be called, and an early return would leave

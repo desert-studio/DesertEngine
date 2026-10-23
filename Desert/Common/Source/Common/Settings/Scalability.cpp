@@ -80,6 +80,10 @@ namespace Common::Scalability
              { P::SkinCache, G::Effects, "Effects.SkinCache", 0, 1, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::SetSkinCacheEnabled -> "
                "RayTracingSkinCache::SetEnabled" },
+             { P::DisplacementDicingRate, G::ViewDistance, "ViewDistance.DisplacementDicingRate", 0, 8, CL::None,
+               "SceneRenderer::BeginScene -> DisplacementCache::SetQuality (0 = runtime displacement off)" },
+             { P::DisplacementPoolMiB, G::ViewDistance, "ViewDistance.DisplacementPoolMiB", 64, 1024, CL::None,
+               "SceneRenderer::BeginScene -> DisplacementCache::SetQuality - the displaced geometry pool" },
              { P::LightGridPixelSize, G::Shadows, "Shadows.LightGridPixelSize", 16, 256, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" tiles)" },
              { P::LightGridSlices, G::Shadows, "Shadows.LightGridSlices", 8, 128, CL::None,
@@ -669,6 +673,7 @@ namespace Common::Scalability
             ParameterValues                               Requested{};
             ParameterValues                               Values{};
             std::array<std::string_view, kParameterCount> Reasons{};
+            std::array<bool, kParameterCount>             Overridden{};
 
             [[nodiscard]] ParameterValue Get( Parameter p ) const
             {
@@ -971,7 +976,10 @@ namespace Common::Scalability
         // 2. Overrides on top; a key no spec has is not applied (QualityState::Apply logs it).
         for ( const ParameterOverride& o : selection.Overrides )
             if ( const ParameterSpec* spec = FindSpec( o.Key ) )
-                r.Requested[static_cast<std::size_t>( spec->Id )] = o.Value;
+            {
+                r.Requested[static_cast<std::size_t>( spec->Id )]  = o.Value;
+                r.Overridden[static_cast<std::size_t>( spec->Id )] = true;
+            }
         r.Values = r.Requested;
 
         // 3. The spec range. 4. The device's list.
@@ -1032,7 +1040,8 @@ namespace Common::Scalability
             r.Set( Parameter::AntiAliasingMethod, static_cast<ParameterValue>( AntiAliasingMethod::FXAA ),
                    "MSAA renders at native scale only" );
 
-        resolved.Values = r.Values;
+        resolved.Values     = r.Values;
+        resolved.Overridden = r.Overridden;
         for ( std::size_t i = 0; i < kParameterCount; ++i )
             if ( r.Values[i] != r.Requested[i] )
                 resolved.Fallbacks.push_back(

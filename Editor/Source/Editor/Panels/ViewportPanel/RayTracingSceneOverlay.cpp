@@ -53,6 +53,14 @@ namespace Desert::Editor
         rows.push_back( std::format( "  Traced BLAS: {}", FormatMiB( locale, stats.TracedBlasBytes ) ) );
         rows.push_back( std::format( "  Variant BLAS: {}", FormatMiB( locale, stats.VariantBlasBytes ) ) );
         rows.push_back( std::format( "  Procedural BLAS: {}", FormatMiB( locale, stats.ProceduralBlasBytes ) ) );
+        rows.push_back( std::format( "  Displaced: {} entries, {} geometries, buffers: {}, topology: {}, "
+                                     "levels lowered: {} (this frame {})",
+                                     Localization::FormatInteger( locale, stats.DisplacedEntries ),
+                                     Localization::FormatInteger( locale, stats.DisplacedGeometries ),
+                                     FormatMiB( locale, stats.DisplacedBufferBytes ),
+                                     FormatMiB( locale, stats.DisplacedTopologyBytes ),
+                                     Localization::FormatInteger( locale, stats.DisplacedLevelsHeld ),
+                                     Localization::FormatInteger( locale, stats.DisplacedLevelsLowered ) ) );
         rows.push_back( std::format( "  Skin cache: {} entries, BLAS: {}, positions: {}",
                                      Localization::FormatInteger( locale, stats.SkinCacheEntries ),
                                      FormatMiB( locale, stats.SkinCacheBlasBytes ),

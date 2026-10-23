@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "9a3c51e07d2b4f8e86c0d4b1e5f27a63",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -139,9 +140,17 @@
                 "CollisionProfile": "BlockAll"
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
             }
         },
         {
@@ -158,7 +167,10 @@
                 "ImpactRadius": 60.0,
                 "ImpactShells": 3,
                 "ImpactSitesPerShell": 10,
-                "InteriorMaterial": "assets:Materials/CB_Red.demat",
+                "InteriorMaterial": {
+                    "Guid": "e04d99eaf3ddd30e0184e38e5c3bcc57",
+                    "Path": "assets:Materials/CB_Red.demat"
+                },
                 "DamageThreshold": [50000.0, 50000.0],
                 "AnchoredNodes": [],
                 "DensityKgPerCm3": 0.002400000113993883,
@@ -174,9 +186,17 @@
                 "CollisionEventMinImpulse": 1000.0
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
             }
         },
         {
@@ -193,7 +213,10 @@
                 "ImpactRadius": 60.0,
                 "ImpactShells": 3,
                 "ImpactSitesPerShell": 10,
-                "InteriorMaterial": "assets:Materials/CB_Red.demat",
+                "InteriorMaterial": {
+                    "Guid": "e04d99eaf3ddd30e0184e38e5c3bcc57",
+                    "Path": "assets:Materials/CB_Red.demat"
+                },
                 "DamageThreshold": [50000.0, 50000.0],
                 "AnchoredNodes": [],
                 "DensityKgPerCm3": 0.002400000113993883,
@@ -209,9 +232,17 @@
                 "CollisionEventMinImpulse": 1000.0
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
             }
         },
         {
@@ -228,7 +259,10 @@
                 "ImpactRadius": 60.0,
                 "ImpactShells": 3,
                 "ImpactSitesPerShell": 10,
-                "InteriorMaterial": "assets:Materials/CB_Red.demat",
+                "InteriorMaterial": {
+                    "Guid": "e04d99eaf3ddd30e0184e38e5c3bcc57",
+                    "Path": "assets:Materials/CB_Red.demat"
+                },
                 "DamageThreshold": [50000.0, 50000.0],
                 "AnchoredNodes": [],
                 "DensityKgPerCm3": 0.002400000113993883,
@@ -244,9 +278,17 @@
                 "CollisionEventMinImpulse": 1000.0
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
             }
         },
         {
