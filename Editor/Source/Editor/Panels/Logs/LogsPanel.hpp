@@ -54,7 +54,8 @@ namespace Desert::Editor
 
     private:
         std::vector<LogEntry>                    m_Entries;
-        std::filesystem::file_time_type          m_LastWriteTime{};
+        std::uintmax_t                           m_ReadOffset = 0; // bytes of the log file already parsed
+        std::string                              m_PendingLine;    // a line read before its '\n' was written
         bool                                     m_ScrollToBottom = true;
         bool                                     m_ShowInfo       = true;
         bool                                     m_ShowWarnings   = true;

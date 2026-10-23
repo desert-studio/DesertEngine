@@ -70,4 +70,7 @@ namespace Desert::Editor
         std::string LastTime;
     };
     std::vector<LogRepeatRun> CollapseRepeats( const std::vector<std::pair<std::string, int>>& lines );
+    // One line onto an existing run list - the step CollapseRepeats takes per line, so a panel that receives
+    // lines as they are written extends its rows instead of collapsing the whole log again.
+    void AppendCollapsed( std::vector<LogRepeatRun>& runs, std::string text, int level );
 } // namespace Desert::Editor

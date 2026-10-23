@@ -174,6 +174,16 @@ namespace Desert::Graphic::API::Vulkan
             m_DepthFormat           = FindDepthFormat();
     }
 
+    void VulkanPhysicalDevice::ProbeSurface( VkSurfaceKHR surface )
+    {
+        if ( m_SurfaceProbed || surface == VK_NULL_HANDLE )
+            return;
+        m_SurfaceProbed        = true;
+        m_Capabilities.Catalog = BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, surface, m_DeviceCaps ) );
+        LOG_INFO( "[Vulkan] with the surface: {}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
+        Common::Scalability::QualityState::ReplaceCatalog( m_Capabilities.Catalog );
+    }
+
     Common::ResultStr<std::shared_ptr<VulkanPhysicalDevice>> VulkanPhysicalDevice::Create( ProbedDevice probed )
     {
         auto device = std::make_shared<VulkanPhysicalDevice>( std::move( probed ) );

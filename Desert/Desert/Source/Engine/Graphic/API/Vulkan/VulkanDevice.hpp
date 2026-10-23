@@ -90,6 +90,11 @@ namespace Desert::Graphic::API::Vulkan
             return m_Capabilities;
         }
 
+        // The surface half of the catalog (display outputs, present modes beyond FIFO). The device is chosen
+        // before any window surface exists, so the constructor's catalog lists FIFO alone; the first swapchain
+        // calls this with its surface and the catalog is rebuilt from both halves, once.
+        void ProbeSurface( VkSurfaceKHR surface );
+
         [[nodiscard]] const DeviceCaps& GetDeviceCaps() const
         {
             return m_DeviceCaps;
@@ -117,6 +122,7 @@ namespace Desert::Graphic::API::Vulkan
         VkFormat m_DepthFormat = VK_FORMAT_UNDEFINED;
 
         Engine::DeviceCapabilities m_Capabilities;
+        bool                       m_SurfaceProbed = false;
 
         std::shared_ptr<vkb::PhysicalDevice> m_Bootstrap;
         DeviceCaps                           m_DeviceCaps;
