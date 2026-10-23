@@ -117,10 +117,10 @@ namespace Common::Json
                          yyjson_obj_getn( frame.Fresh, yyjson_get_str( key ), yyjson_get_len( key ) );
                     if ( inFresh == nullptr )
                     {
-                        const bool cleared =
-                             frame.Top ? ours( KeyOf( key ) )
-                                       : !frame.Member.empty() && memberOurs != nullptr && *memberOurs &&
-                                              ( *memberOurs )( frame.Member, KeyOf( key ) );
+                        const bool cleared = frame.Top ? ours( KeyOf( key ) )
+                                                       : !frame.Member.empty() && memberOurs != nullptr &&
+                                                              *memberOurs &&
+                                                              ( *memberOurs )( frame.Member, KeyOf( key ) );
                         if ( !cleared )
                             Add( doc, frame.Merged, key, Copy( doc, sourceValue ) );
                         continue;
@@ -133,8 +133,8 @@ namespace Common::Json
                     {
                         yyjson_mut_val* nested = Allocated( yyjson_mut_obj( doc ) );
                         Add( doc, frame.Merged, key, nested );
-                        stack.push_back(
-                             Frame{ inFresh, sourceValue, nested, false, frame.Top ? KeyOf( key ) : std::string{} } );
+                        stack.push_back( Frame{ inFresh, sourceValue, nested, false,
+                                                frame.Top ? KeyOf( key ) : std::string{} } );
                     }
                     else
                     {
@@ -184,7 +184,8 @@ namespace Common::Json
                 if ( match == sourceById.end() || match->first.empty() )
                     element = Copy( doc, record );
                 else
-                    element = MergeLevel( doc, record, match->second, ours, {}, nullptr, &rule.RecordMemberKeyIsOurs );
+                    element =
+                         MergeLevel( doc, record, match->second, ours, {}, nullptr, &rule.RecordMemberKeyIsOurs );
                 if ( !yyjson_mut_arr_append( merged, element ) )
                     throw std::bad_alloc();
             }
