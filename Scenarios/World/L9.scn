@@ -1,0 +1,40 @@
+# L9: Landscape Splines like UE (ULandscapeSplinesComponent + the procedural Splines edit layer). Three control points
+# across the TerrainPlain hill at (9282, -1906) (peak 1566 cm), Width 400 (UE half-width), side falloff 300, Raise+Lower.
+# The camera looks straight down at each point, so 'add control point at viewport centre' lands on it.
+Дано run Scene "Open Scene G3_TwoTerrains.desce"
+Дано run Landscape "Sculpt mode"
+Дано run Landscape "Tool: Splines"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано --subject viewport set Camera.Direction 0.001,-1,0.001
+Когда --subject viewport set Camera.Position 6300,9000,-1906
+Когда run Landscape "Spline: add control point at viewport centre"
+Когда --subject viewport set Camera.Position 9282,9000,-1906
+Когда run Landscape "Spline: add control point at viewport centre"
+Когда --subject viewport set Camera.Position 12300,9000,-1906
+Когда run Landscape "Spline: add control point at viewport centre"
+Когда --subject viewport set Camera.Position 9282,5000,-8000
+Когда --subject viewport set Camera.Direction 0,-0.55,0.84
+Когда state
+Тогда-вид 0_road a flat road-like band follows the spline through the hill, smooth falloff at the sides; the spline (centre, edges, falloff lines, 3 points) is drawn
+Когда run Scene "Save Scene"
+Когда run Scene "Open Scene G3_TwoTerrains.desce"
+Когда --subject viewport set Camera.Position 9282,5000,-8000
+Когда --subject viewport set Camera.Direction 0,-0.55,0.84
+Когда state
+Тогда-вид 1_reopen after reopen the spline and the deformed band are identical to 0_road
+Когда run Action "Undo"
+Когда run Action "Undo"
+Когда run Action "Undo"
+Тогда-вид 2_undo the hill is back to the original, no band, no spline drawn
