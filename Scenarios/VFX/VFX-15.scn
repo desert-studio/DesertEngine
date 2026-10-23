@@ -6,7 +6,7 @@
 # stroke, not the document edit (a reopen starts a fresh history, so Undo is played before the save, then Redo).
 # The scenario SAVES: `git checkout -- Projects/Desert/Content/Scenes/Starter.desce Projects/Desert/Content/VFX/Campfire.dfx` after a play.
 Дано run Open "VFX/Campfire.dfx"
-Дано run Document "Spawn Flames from point set PaintedPoints"
+Дано run Document "Campfire.dfx: Spawn Flames from point set PaintedPoints"
 Дано run Document "Save this document"
 Дано run Document "Close Campfire.dfx"
 Дано run Scene "Open Scene Starter.desce"
