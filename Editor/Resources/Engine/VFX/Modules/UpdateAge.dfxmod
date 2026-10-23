@@ -1,9 +1,9 @@
 // DesertAsset {"Kind":"VFXModule","Guid":"0caef28c515f4a4e93363f1616ed3ca3","Versions":{"VFXM":1},"Dependencies":[]}
 Module "UpdateAge"
 {
-    Stage ParticleUpdate
     Category Lifetime
     Description "Ages the particle and kills it past its lifetime."
+    Usage ParticleUpdate
     Attribute Age float
     Attribute Lifetime float
 

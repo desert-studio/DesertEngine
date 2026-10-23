@@ -32,9 +32,8 @@ namespace Desert::Editor
         constexpr std::array<ValueType, 6> kValueTypes = { ValueType::Float, ValueType::Vec2, ValueType::Vec3,
                                                            ValueType::Vec4,  ValueType::Int,  ValueType::Bool };
 
-        constexpr std::array<VFX::VFXModuleStage, 3> kStages = { VFX::VFXModuleStage::EmitterUpdate,
-                                                                 VFX::VFXModuleStage::ParticleSpawn,
-                                                                 VFX::VFXModuleStage::ParticleUpdate };
+        constexpr std::array<VFX::VFXStage, 4> kStages = { VFX::VFXStage::EmitterSpawn, VFX::VFXStage::EmitterUpdate,
+                                                           VFX::VFXStage::ParticleSpawn, VFX::VFXStage::ParticleUpdate };
 
         // ImGui's std::string binding (imgui_stdlib's InputText): the buffer grows with the text.
         int ResizeString( ImGuiInputTextCallbackData* data )
@@ -61,9 +60,33 @@ namespace Desert::Editor
                  ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_AllowTabInput, ResizeString, &text );
         }
 
-        std::vector<VFX::VFXModuleDecl>& DeclsOf( VFX::VFXModuleDefinition& module, const bool inputs )
+        // The two declaration tables hold different rows (an input carries its default, VFXModuleInputDecl); the
+        // table UI edits what they share, Name and Type.
+        std::size_t CountOf( const VFX::VFXModuleDefinition& module, const bool inputs )
         {
-            return inputs ? module.Block.Inputs : module.Block.Attributes;
+            return inputs ? module.Block.Inputs.size() : module.Block.Attributes.size();
+        }
+        std::string& NameOf( VFX::VFXModuleDefinition& module, const bool inputs, const std::size_t i )
+        {
+            return inputs ? module.Block.Inputs[i].Name : module.Block.Attributes[i].Name;
+        }
+        ValueType& TypeOf( VFX::VFXModuleDefinition& module, const bool inputs, const std::size_t i )
+        {
+            return inputs ? module.Block.Inputs[i].Type : module.Block.Attributes[i].Type;
+        }
+        void EraseAt( VFX::VFXModuleDefinition& module, const bool inputs, const std::size_t i )
+        {
+            if ( inputs )
+                module.Block.Inputs.erase( module.Block.Inputs.begin() + static_cast<std::ptrdiff_t>( i ) );
+            else
+                module.Block.Attributes.erase( module.Block.Attributes.begin() + static_cast<std::ptrdiff_t>( i ) );
+        }
+        bool Declares( VFX::VFXModuleDefinition& module, const bool inputs, const std::string& name )
+        {
+            for ( std::size_t i = 0; i < CountOf( module, inputs ); ++i )
+                if ( NameOf( module, inputs, i ) == name )
+                    return true;
+            return false;
         }
 
         /// The module compiled in a one-emitter stack, in each GPU group it states, its inputs given as zero
@@ -73,7 +96,7 @@ namespace Desert::Editor
             if ( !module.HasParticleStage() )
                 return VFX::HasCpuBehaviour( module.Guid )
                             ? std::string(
-                                   "Runs on the CPU only (EmitterUpdate): the engine's C++ for this module "
+                                   "Runs on the CPU only (Emitter groups): the engine's C++ for this module "
                                    "runs it; there is no GLSL to check." )
                             : std::format(
                                    "No GLSL to check, and the engine has no C++ for GUID {}: a stack using "
@@ -86,7 +109,7 @@ namespace Desert::Editor
             S::VFXModuleUse use;
             use.Module = { Common::Content::AssetGuidToText( module.Guid ), file.generic_string() };
             if ( !module.HasCpuStage() )
-                for ( const VFX::VFXModuleDecl& in : module.Block.Inputs )
+                for ( const VFX::VFXModuleInputDecl& in : module.Block.Inputs )
                 {
                     S::VFXModuleInput value;
                     value.Name   = in.Name;
@@ -98,9 +121,9 @@ namespace Desert::Editor
             S::VFXSystemData  system;
             S::VFXEmitterData emitter;
             emitter.Name = "Check";
-            if ( module.AllowsStage( VFX::VFXModuleStage::ParticleSpawn ) )
+            if ( module.AllowsStage( VFX::VFXStage::ParticleSpawn ) )
                 emitter.Stack.ParticleSpawn.push_back( use );
-            if ( module.AllowsStage( VFX::VFXModuleStage::ParticleUpdate ) )
+            if ( module.AllowsStage( VFX::VFXStage::ParticleUpdate ) )
                 emitter.Stack.ParticleUpdate.push_back( use );
             system.Emitters.push_back( std::move( emitter ) );
             const auto compiled = VFX::CompileEmitterStack( system, 0, library );
@@ -202,7 +225,7 @@ namespace Desert::Editor
         m_Drafts.Description = m_Working.Description;
         m_Drafts.Body        = m_Working.Block.Body;
         m_Drafts.Inputs.clear();
-        for ( const VFX::VFXModuleDecl& d : m_Working.Block.Inputs )
+        for ( const VFX::VFXModuleInputDecl& d : m_Working.Block.Inputs )
             m_Drafts.Inputs.push_back( d.Name );
         m_Drafts.Attributes.clear();
         for ( const VFX::VFXModuleDecl& d : m_Working.Block.Attributes )
@@ -227,8 +250,8 @@ namespace Desert::Editor
         text( "Category", m_Drafts.Category, &VFX::VFXModuleDefinition::Category );
         text( "Description", m_Drafts.Description, &VFX::VFXModuleDefinition::Description );
 
-        ImGui::TextUnformatted( "Stages" );
-        for ( const VFX::VFXModuleStage stage : kStages )
+        ImGui::TextUnformatted( "Usage" );
+        for ( const VFX::VFXStage stage : kStages )
         {
             ImGui::SameLine();
             bool       on   = m_Working.AllowsStage( stage );
@@ -237,9 +260,9 @@ namespace Desert::Editor
                 Edit( std::format( "{} stage {}", on ? "Allow" : "Disallow", name ),
                       [stage, on]( VFX::VFXModuleDefinition& m )
                       {
-                          const auto bit = static_cast<uint8_t>( stage );
-                          m.Stages       = on ? static_cast<uint8_t>( m.Stages | bit )
-                                              : static_cast<uint8_t>( m.Stages & ~bit );
+                          const auto bit = VFX::UsageBit( stage );
+                          m.Block.Usage  = on ? static_cast<uint8_t>( m.Block.Usage | bit )
+                                              : static_cast<uint8_t>( m.Block.Usage & ~bit );
                           return BOOLSUCCESS;
                       } );
         }
@@ -248,9 +271,9 @@ namespace Desert::Editor
 
     void VFXModuleDocument::DrawDeclarations( const char* id, const bool inputs )
     {
-        std::vector<VFX::VFXModuleDecl>& decls  = DeclsOf( m_Working, inputs );
-        std::vector<std::string>&        drafts = inputs ? m_Drafts.Inputs : m_Drafts.Attributes;
-        const char*                      what   = inputs ? "input" : "attribute";
+        const std::size_t         count  = CountOf( m_Working, inputs );
+        std::vector<std::string>& drafts = inputs ? m_Drafts.Inputs : m_Drafts.Attributes;
+        const char*               what   = inputs ? "input" : "attribute";
 
         constexpr ImGuiTableFlags kTable = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg;
         if ( !ImGui::BeginTable( id, 3, kTable ) )
@@ -259,8 +282,8 @@ namespace Desert::Editor
         ImGui::TableSetupColumn( "Type", ImGuiTableColumnFlags_WidthFixed, 110.0f );
         ImGui::TableSetupColumn( "", ImGuiTableColumnFlags_WidthFixed );
         ImGui::TableHeadersRow();
-        std::size_t remove = decls.size();
-        for ( std::size_t i = 0; i < decls.size() && i < drafts.size(); ++i )
+        std::size_t remove = count;
+        for ( std::size_t i = 0; i < count && i < drafts.size(); ++i )
         {
             ImGui::PushID( static_cast<int>( i ) );
             ImGui::TableNextRow();
@@ -268,25 +291,26 @@ namespace Desert::Editor
             ImGui::SetNextItemWidth( -FLT_MIN );
             InputString( "##name", drafts[i] );
             if ( ImGui::IsItemDeactivatedAfterEdit() )
-                Edit( std::format( "Rename {} {}", what, decls[i].Name ),
+                Edit( std::format( "Rename {} {}", what, NameOf( m_Working, inputs, i ) ),
                       [&, i]( VFX::VFXModuleDefinition& m )
                       {
-                          DeclsOf( m, inputs )[i].Name = drafts[i];
+                          NameOf( m, inputs, i ) = drafts[i];
                           return BOOLSUCCESS;
                       } );
             ImGui::TableNextColumn();
             ImGui::SetNextItemWidth( -FLT_MIN );
-            const std::string current( VFX::GlslTypeName( decls[i].Type ) );
+            const ValueType   currentType = TypeOf( m_Working, inputs, i );
+            const std::string current( VFX::GlslTypeName( currentType ) );
             if ( ImGui::BeginCombo( "##type", current.c_str() ) )
             {
                 for ( const ValueType type : kValueTypes )
                 {
                     const std::string name( VFX::GlslTypeName( type ) );
-                    if ( ImGui::Selectable( name.c_str(), type == decls[i].Type ) && type != decls[i].Type )
-                        Edit( std::format( "Retype {} {}", what, decls[i].Name ),
+                    if ( ImGui::Selectable( name.c_str(), type == currentType ) && type != currentType )
+                        Edit( std::format( "Retype {} {}", what, NameOf( m_Working, inputs, i ) ),
                               [&, i, type]( VFX::VFXModuleDefinition& m )
                               {
-                                  DeclsOf( m, inputs )[i].Type = type;
+                                  TypeOf( m, inputs, i ) = type;
                                   return BOOLSUCCESS;
                               } );
                 }
@@ -298,25 +322,24 @@ namespace Desert::Editor
             ImGui::PopID();
         }
         ImGui::EndTable();
-        if ( remove < decls.size() )
-            Edit( std::format( "Remove {} {}", what, decls[remove].Name ),
+        if ( remove < count )
+            Edit( std::format( "Remove {} {}", what, NameOf( m_Working, inputs, remove ) ),
                   [&, remove]( VFX::VFXModuleDefinition& m )
                   {
-                      auto& list = DeclsOf( m, inputs );
-                      list.erase( list.begin() + static_cast<std::ptrdiff_t>( remove ) );
+                      EraseAt( m, inputs, remove );
                       return BOOLSUCCESS;
                   } );
         if ( ImGui::SmallButton( inputs ? ICON_MDI_PLUS " Add input" : ICON_MDI_PLUS " Add attribute" ) )
             Edit( std::format( "Add {}", what ),
                   [&]( VFX::VFXModuleDefinition& m )
                   {
-                      auto&       list = DeclsOf( m, inputs );
                       std::string name = inputs ? "NewInput" : "NewAttribute";
-                      for ( int n = 1; std::any_of( list.begin(), list.end(), [&]( const VFX::VFXModuleDecl& d )
-                                                    { return d.Name == name; } );
-                            ++n )
+                      for ( int n = 1; Declares( m, inputs, name ); ++n )
                           name = std::format( "{}{}", inputs ? "NewInput" : "NewAttribute", n );
-                      list.push_back( { name, ValueType::Float } );
+                      if ( inputs )
+                          m.Block.Inputs.push_back( { name, ValueType::Float } );
+                      else
+                          m.Block.Attributes.push_back( { name, ValueType::Float } );
                       return BOOLSUCCESS;
                   } );
     }

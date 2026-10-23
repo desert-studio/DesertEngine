@@ -1,18 +1,18 @@
 // DesertAsset {"Kind":"VFXModule","Guid":"7abfca5b622c4e59b6862841e67c01c8","Versions":{"VFXM":1},"Dependencies":[]}
 Module "SubUVAnimation"
 {
-    Stage ParticleUpdate
     Category Render
     Description "Advances the sub-UV frame over the particle's life."
+    Usage ParticleUpdate
     Attribute SubImageIndex float
     Attribute Age float
     Attribute Lifetime float
-    Input Mode int
-    Input NumFrames int
-    Input StartFrame int
-    Input EndFrame int
-    Input LoopsPerSecond float
-    Input RandomChangeInterval float
+    Input Mode int = 0
+    Input NumFrames int = 1
+    Input StartFrame int = 0
+    Input EndFrame int = 0
+    Input LoopsPerSecond float = 1
+    Input RandomChangeInterval float = 0
 
     // Engine VFX module SubUVAnimation (port of UE NiagaraStatelessModule_SubUVAnimation.ush:12-28 and its
     // parameter build, NiagaraStatelessModule_SubUVAnimation.cpp:82-150): writes SubImageIndex, the float frame of a

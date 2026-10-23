@@ -65,5 +65,7 @@ namespace Desert::Assets
     public:
         [[nodiscard]] Common::ResultStr<VFX::VFXModuleDefinition>
         Resolve( const Common::Content::AssetGuid& guid ) const override;
+        /// The registry's VFXModule rows that state a GUID, as {Guid, stable key}, sorted by key.
+        [[nodiscard]] std::vector<AssetGuidRef> List() const override;
     };
 } // namespace Desert::Assets

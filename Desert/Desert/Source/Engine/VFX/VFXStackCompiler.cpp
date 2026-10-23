@@ -332,6 +332,7 @@ namespace Desert::VFX
             VFXValueType type = VFXValueType::Float;
             bool         ok   = IsIdentifier( name ) && ParseType( typeWord, type );
             glm::vec4    initial( 0.0f );
+            bool         bindingRequired = false;
             std::string  extra;
             if ( ok && isInput )
             {
@@ -340,7 +341,18 @@ namespace Desert::VFX
                 words >> equals;
                 ok = equals == "=";
                 const uint32_t components = S::ComponentCount( type );
-                for ( uint32_t c = 0; ok && c < components; ++c )
+                // `= Binding`: no Value default; a new row binds the input to what the user picks.
+                if ( ok && words.peek() != EOF )
+                {
+                    const std::streampos at = words.tellg();
+                    std::string          word;
+                    words >> word;
+                    if ( word == "Binding" )
+                        bindingRequired = true;
+                    else
+                        words.seekg( at );
+                }
+                for ( uint32_t c = 0; ok && !bindingRequired && c < components; ++c )
                 {
                     std::string number;
                     words >> number;
@@ -357,7 +369,7 @@ namespace Desert::VFX
             words >> extra;
             if ( ( !ok || !extra.empty() ) && isInput )
                 return Common::MakeFormattedError<VFXParticleModule>(
-                     "{}: '{}' is not `Input <Name> <float|vec2|vec3|vec4|int|bool> = <one number per component>`",
+                     "{}: '{}' is not `Input <Name> <float|vec2|vec3|vec4|int|bool> = <one number per component | Binding>`",
                      where, line );
             if ( !ok || !extra.empty() )
                 return Common::MakeFormattedError<VFXParticleModule>(
@@ -367,7 +379,7 @@ namespace Desert::VFX
                 return Common::MakeFormattedError<VFXParticleModule>( "{}: {} '{}' is declared twice", where,
                                                                       keyword, name );
             if ( isInput )
-                module.Inputs.push_back( { name, type, initial } );
+                module.Inputs.push_back( { name, type, initial, bindingRequired } );
             else
                 module.Attributes.push_back( { name, type } );
             bodyStart = std::string::npos;

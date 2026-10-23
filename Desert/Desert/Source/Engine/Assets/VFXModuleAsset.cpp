@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <Engine/Assets/VFXModuleAsset.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextAssetHeaderIdentity.hpp>
@@ -82,6 +83,16 @@ namespace Desert::Assets
         ContentRegistry::NoteFile( filepath );
         LOG_INFO( "[VFX] Module written: '{}' ({}).", filepath.string(), module.DisplayName );
         return BOOLSUCCESS;
+    }
+
+    std::vector<AssetGuidRef> RegistryVFXModuleResolver::List() const
+    {
+        std::vector<AssetGuidRef> out;
+        for ( const ContentRegistry::PickerRow& row : ContentRegistry::Rows( Common::Content::ContentKind::VFXModule ) )
+            if ( row.Guid )
+                out.push_back( { Common::Content::AssetGuidToText( *row.Guid ), row.Key } );
+        std::sort( out.begin(), out.end(), []( const AssetGuidRef& a, const AssetGuidRef& b ) { return a.Path < b.Path; } );
+        return out;
     }
 
     Common::ResultStr<VFX::VFXModuleDefinition>

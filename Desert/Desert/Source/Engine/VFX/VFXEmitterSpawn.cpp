@@ -242,28 +242,22 @@ namespace Desert::VFX
         }
     } // namespace
 
-    std::vector<std::string_view> EmitterModules()
+    uint8_t EmitterModuleUsage( const Common::Content::AssetGuid& module )
     {
-        return { kVFXSpawnRateModule, kVFXSpawnBurstModule, kVFXSpawnFromChannelModule };
-    }
-
-    uint8_t EmitterModuleUsage( const std::string_view module )
-    {
-        if ( module == kVFXSpawnBurstModule )
-            return static_cast<uint8_t>( UsageBit( VFXStage::EmitterSpawn ) |
-                                         UsageBit( VFXStage::EmitterUpdate ) );
-        if ( module == kVFXSpawnRateModule || module == kVFXSpawnFromChannelModule )
+        if ( module == kVFXSpawnBurstModule.Guid )
+            return static_cast<uint8_t>( UsageBit( VFXStage::EmitterSpawn ) | UsageBit( VFXStage::EmitterUpdate ) );
+        if ( module == kVFXSpawnRateModule.Guid || module == kVFXSpawnFromChannelModule.Guid )
             return UsageBit( VFXStage::EmitterUpdate );
         return 0;
     }
 
-    const std::vector<VFXModuleInputDecl>* EmitterModuleInputs( const std::string_view module )
+    const std::vector<VFXModuleInputDecl>* EmitterModuleInputs( const Common::Content::AssetGuid& module )
     {
-        if ( module == kVFXSpawnRateModule )
+        if ( module == kVFXSpawnRateModule.Guid )
             return &kSpawnRateInputs;
-        if ( module == kVFXSpawnBurstModule )
+        if ( module == kVFXSpawnBurstModule.Guid )
             return &kSpawnBurstInputs;
-        if ( module == kVFXSpawnFromChannelModule )
+        if ( module == kVFXSpawnFromChannelModule.Guid )
             return &kSpawnFromChannelInputs;
         return nullptr;
     }
@@ -289,11 +283,11 @@ namespace Desert::VFX
             const S::VFXModuleUse& use = spawnGroup[m];
             if ( !use.Enabled )
                 continue;
-            const std::string where =
-                 std::format( "emitter '{}' EmitterSpawn module {} '{}'", emitter.Name, m, use.Module );
-            if ( ( EmitterModuleUsage( use.Module ) & UsageBit( VFXStage::EmitterSpawn ) ) == 0 )
+            const std::string where = std::format( "emitter '{}' EmitterSpawn module {} '{}' ({})", emitter.Name, m,
+                                                   use.Module.Path, use.Module.Guid );
+            if ( !UsesModule( use, kVFXSpawnBurstModule ) )
                 return Common::MakeFormattedError<Result>(
-                     "{}: EmitterSpawn runs once on the CPU and knows only {}", where, kVFXSpawnBurstModule );
+                     "{}: EmitterSpawn runs once on the CPU and knows only {}", where, kVFXSpawnBurstModule.Name );
             auto in = ReadInputs( system, overrides, use, kSpawnBurstInputs, where );
             if ( !in.IsSuccess() )
                 return Common::MakeError<Result>( in.GetError() );

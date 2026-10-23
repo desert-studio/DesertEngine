@@ -3,12 +3,9 @@
         "Kind": "VFXSystem",
         "Guid": "707b4be308bb41c990f65b7b52e1737e",
         "Versions": {
-            "VFXS": 3
+            "VFXS": 4
         },
-        "Dependencies": [
-            "0caef28c515f4a4e93363f1616ed3ca3", "10e483e233d547108e31d1855328a54b", "240adf0c6a0f407489419764780491eb", "2d5323b9c4d349f8b91c4fc795599f4f", "37ef32a37dfc4501bb57e95fc9919372", "55923c5734e04fc78e068ad051c4772c", "8079c58d9d214db694607abaf9c1a4b2", "9488cdf80a5f4f4fba16c02d431bc8e0",
-            "bd19bb728e4646919475240f1a19369d", "d1378c9a2062498ab14e47e7ef29cccb", "dff69e4e958a45f5a4fd4f19ba7de22c"
-        ]
+        "Dependencies": ["0caef28c515f4a4e93363f1616ed3ca3", "10e483e233d547108e31d1855328a54b", "240adf0c6a0f407489419764780491eb", "2d5323b9c4d349f8b91c4fc795599f4f", "37ef32a37dfc4501bb57e95fc9919372", "55923c5734e04fc78e068ad051c4772c", "8079c58d9d214db694607abaf9c1a4b2", "9488cdf80a5f4f4fba16c02d431bc8e0", "bd19bb728e4646919475240f1a19369d", "d1378c9a2062498ab14e47e7ef29cccb", "dff69e4e958a45f5a4fd4f19ba7de22c"]
     },
     "Category": "Converted",
     "EffectType": "Default",

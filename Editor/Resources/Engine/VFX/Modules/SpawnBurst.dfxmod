@@ -1,9 +1,12 @@
 // DesertAsset {"Kind":"VFXModule","Guid":"02637a2ef2774901a0a88452af542abd","Versions":{"VFXM":1},"Dependencies":[]}
 Module "SpawnBurst"
 {
-    Stage EmitterUpdate
     Category Spawn
     Description "Spawns SpawnCount particles once per loop, SpawnTime seconds into it."
-    Input SpawnCount int
-    Input SpawnTime float
+    Usage EmitterSpawn EmitterUpdate
+    Input SpawnCount int = 10
+    Input SpawnTime float = 0
+
+    // Engine CPU module SpawnBurst (UE SpawnBurst_Instantaneous): SpawnCount particles once per loop, SpawnTime
+    // seconds into it; in Emitter Spawn, once when the instance starts. Engine C++ (VFX/VFXEmitterSpawn.cpp).
 }

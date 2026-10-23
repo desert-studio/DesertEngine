@@ -72,18 +72,13 @@ namespace Desert::VFX
     /// Whether @p use names @p module (by GUID; the Path is not compared).
     [[nodiscard]] bool UsesModule( const Assets::Serialization::VFXModuleUse& use, const VFXEngineCpuModule& module );
 
-    /// The Emitter-group (CPU) modules the stack editor may add (UE's Emitter Spawn / Emitter Update module
-    /// pickers, filtered by EmitterModuleUsage), in picker order.
-    [[nodiscard]] std::vector<std::string_view> EmitterModules();
+    /// The inputs the C++ behaviour of CPU module @p module reads (its contract; the `.dfxmod` of the same GUID
+    /// declares the same inputs with the defaults a new row starts from); nullptr for any other module.
+    [[nodiscard]] const std::vector<VFXModuleInputDecl>* EmitterModuleInputs( const Common::Content::AssetGuid& module );
 
-    /// An Emitter-group module's inputs with their defaults - the one table CompileSpawnPlan reads the row by and
-    /// the stack editor starts a new row from (SpawnFromChannel's Channel is BindingRequired); nullptr for any
-    /// other module.
-    [[nodiscard]] const std::vector<VFXModuleInputDecl>* EmitterModuleInputs( std::string_view module );
-
-    /// The Emitter groups an Emitter-group module may sit in (UsageBit of EmitterSpawn / EmitterUpdate); 0 for any
-    /// other module.
-    [[nodiscard]] uint8_t EmitterModuleUsage( std::string_view module );
+    /// The Emitter groups the C++ behaviour of CPU module @p module may run in (UsageBit of EmitterSpawn /
+    /// EmitterUpdate); 0 for any other module.
+    [[nodiscard]] uint8_t EmitterModuleUsage( const Common::Content::AssetGuid& module );
 
     /// UE FNiagaraStatelessSpawnInfo, Type Burst.
     struct VFXSpawnBurst

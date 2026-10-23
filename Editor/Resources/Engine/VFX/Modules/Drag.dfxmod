@@ -1,13 +1,13 @@
 // DesertAsset {"Kind":"VFXModule","Guid":"a0f042db0b6248cab1bcf38605abbf78","Versions":{"VFXM":1},"Dependencies":[]}
 Module "Drag"
 {
-    Stage ParticleUpdate
     Category Forces
     Description "Adds linear and rotational drag, per second."
+    Usage ParticleUpdate
     Attribute PhysicsDrag float
     Attribute PhysicsRotationalDrag float
-    Input Drag float
-    Input RotationalDrag float
+    Input Drag float = 1
+    Input RotationalDrag float = 0
 
     // Engine VFX module Drag (UE Niagara Content/Modules/Update/Forces/Drag): adds a linear drag and a
     // rotational drag, both per second, to the particle's accumulators for this step. SolveForcesAndVelocity turns the

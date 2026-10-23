@@ -1,15 +1,15 @@
 // DesertAsset {"Kind":"VFXModule","Guid":"13cdf49c6bf0428790436694facfc331","Versions":{"VFXM":1},"Dependencies":[]}
 Module "CurlNoiseForce"
 {
-    Stage ParticleUpdate
     Category Forces
     Description "Adds a divergence-free curl-noise force."
+    Usage ParticleUpdate
     Attribute Position vec3
     Attribute PhysicsForce vec3
-    Input Strength float
-    Input Frequency float
-    Input Pan vec3
-    Input Offset vec3
+    Input Strength float = 100
+    Input Frequency float = 0.02
+    Input Pan vec3 = 0 0 0
+    Input Offset vec3 = 0 0 0
 
     // Engine VFX module CurlNoiseForce (UE Niagara Content/Modules/Update/Forces/CurlNoiseForce): adds
     // Strength times the curl of a vector simplex noise field to the particle's force. The field is sampled at

@@ -11,22 +11,22 @@
 //     // free comment lines
 //     Module "Gravity"
 //     {
-//         Stage ParticleUpdate
 //         Category Forces
 //         Description "Adds a constant acceleration to the accumulated force."
+//         Usage ParticleUpdate
 //         Attribute PhysicsForce vec3
-//         Input Gravity vec3
+//         Input Gravity vec3 = 0 -981 0
 //
 //         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i ) { ... }
 //     }
 //
 // The header is the shader header's first-line comment form (ShaderAssetHeader.hpp), since the body is not JSON.
-// `Stage` names the stack groups the module may be added to (one or more of EmitterUpdate, ParticleSpawn,
-// ParticleUpdate). The stage decides what runs where: EmitterUpdate runs on the CPU, as engine C++ registered
-// under the module's GUID (VFXEmitterSpawn), and a file stating EmitterUpdate whose GUID the engine has no
-// behaviour for is refused where the stack resolves it; ParticleSpawn and ParticleUpdate run the block's GLSL on
-// the GPU. A module may state both (SpawnFromChannel: the CPU gathers the channel's entries, the GLSL applies
-// them to the newborns), so a block has GLSL exactly when it states a particle stage.
+// `Usage` (dev VFX-12, UE Module Usage) names the stack groups the module may be added to, and it decides what
+// runs where: EmitterSpawn / EmitterUpdate run on the CPU, as engine C++ registered under the module's GUID
+// (VFXEmitterSpawn) - such a module declares Inputs only, and one whose GUID the engine has no behaviour for is
+// refused where the stack resolves it; ParticleSpawn / ParticleUpdate run the block's GLSL on the GPU. One module
+// is one or the other (ParseModuleBlock). An `Input` states the default a new stack row starts from
+// (`= <numbers>`), or `= Binding` for one the user must bind (SpawnFromChannel's Channel).
 
 #include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
@@ -51,8 +51,8 @@ namespace Desert::VFX
 {
     inline constexpr const char*      kVFXModuleExtension = ".dfxmod";
     /// The header's Versions key and the layout generation it states.
-    ///   1 - VFX-MODULE-ASSET: Module "<DisplayName>" block with Stage / Category / Description, the declarations
-    ///       and the GLSL body.
+    ///   1 - VFX-PORT-1 (int/vfx VFX-MODULE-ASSET on dev): Module "<DisplayName>" block with Category /
+    ///       Description, then the stack compiler's Usage / Attribute / Input declarations and the GLSL body.
 
     /// The header's stated subsystem: the file layout's generation (Assets::kVFXModuleSchemaTag).
     [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> VFXModuleTextSubsystems()
@@ -62,14 +62,6 @@ namespace Desert::VFX
         return versions;
     }
 
-    /// The stack groups, as a module's `Stage` line names them.
-    enum class VFXModuleStage : uint8_t
-    {
-        EmitterUpdate  = 1u << 0,
-        ParticleSpawn  = 1u << 1,
-        ParticleUpdate = 1u << 2,
-    };
-
     /// One parsed `.dfxmod`.
     struct VFXModuleDefinition
     {
@@ -77,25 +69,15 @@ namespace Desert::VFX
         std::string                DisplayName; ///< the `Module "<name>"` string
         std::string                Category;    ///< an id of the project's VFXCategories.json register
         std::string                Description;
-        uint8_t                    Stages = 0; ///< VFXModuleStage bits
-        VFXParticleModule          Block;      ///< declarations + GLSL (GLSL empty for a CPU module)
+        VFXParticleModule          Block; ///< Usage, declarations + GLSL (GLSL empty for a CPU module)
 
         [[nodiscard]] bool operator==( const VFXModuleDefinition& ) const = default;
 
-        [[nodiscard]] bool AllowsStage( VFXModuleStage stage ) const
-        {
-            return ( Stages & static_cast<uint8_t>( stage ) ) != 0;
-        }
-        /// EmitterUpdate: engine C++ registered under Guid runs it on the CPU.
-        [[nodiscard]] bool HasCpuStage() const
-        {
-            return AllowsStage( VFXModuleStage::EmitterUpdate );
-        }
-        /// ParticleSpawn or ParticleUpdate: the block's GLSL runs it on the GPU.
-        [[nodiscard]] bool HasParticleStage() const
-        {
-            return AllowsStage( VFXModuleStage::ParticleSpawn ) || AllowsStage( VFXModuleStage::ParticleUpdate );
-        }
+        [[nodiscard]] bool AllowsStage( VFXStage stage ) const { return ( Block.Usage & UsageBit( stage ) ) != 0; }
+        /// EmitterSpawn / EmitterUpdate: engine C++ registered under Guid runs it on the CPU (VFXEmitterSpawn).
+        [[nodiscard]] bool HasCpuStage() const { return ( Block.Usage & kVFXCpuUsage ) != 0; }
+        /// ParticleSpawn / ParticleUpdate: the block's GLSL runs it on the GPU.
+        [[nodiscard]] bool HasParticleStage() const { return ( Block.Usage & kVFXParticleUsage ) != 0; }
     };
 
     /// Parses a whole `.dfxmod` text. @p where names the file in every error.
@@ -107,9 +89,6 @@ namespace Desert::VFX
     /// The format's rules for a definition held in memory (an editor's working copy): its canonical text parses
     /// back to the same definition. The refusal is the reader's own, naming the module.
     Common::BoolResultStr ValidateVFXModule( const VFXModuleDefinition& module );
-
-    /// The stage names of the file format ("EmitterUpdate", "ParticleSpawn", "ParticleUpdate").
-    [[nodiscard]] std::string_view StageName( VFXModuleStage stage );
 
     /**
      * @brief What the stack compiler asks for a module: the definition a GUID names.
@@ -123,6 +102,9 @@ namespace Desert::VFX
         virtual ~VFXModuleResolver() = default;
         [[nodiscard]] virtual Common::ResultStr<VFXModuleDefinition>
         Resolve( const Common::Content::AssetGuid& guid ) const = 0;
+        /// Every module this resolver can resolve, as the {Guid, Path} a stack row states, sorted by Path: the
+        /// VFX System editor's module picker (UE's module list, filtered there by Usage).
+        [[nodiscard]] virtual std::vector<Assets::AssetGuidRef> List() const = 0;
     };
 
     /// Where the engine's module library lies under the engine content mount (Constants::Path::
@@ -148,6 +130,7 @@ namespace Desert::VFX
 
         [[nodiscard]] Common::ResultStr<VFXModuleDefinition>
         Resolve( const Common::Content::AssetGuid& guid ) const override;
+        [[nodiscard]] std::vector<Assets::AssetGuidRef> List() const override;
 
         /// The row reference to the module whose DisplayName is @p name, if exactly one module has it.
         [[nodiscard]] std::optional<Assets::AssetGuidRef> FindByName( std::string_view name ) const;

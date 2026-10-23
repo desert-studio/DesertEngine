@@ -1,8 +1,11 @@
 // DesertAsset {"Kind":"VFXModule","Guid":"10e483e233d547108e31d1855328a54b","Versions":{"VFXM":1},"Dependencies":[]}
 Module "SpawnRate"
 {
-    Stage EmitterUpdate
     Category Spawn
     Description "Spawns particles at a rate per second while a loop is active."
-    Input SpawnRate float
+    Usage EmitterUpdate
+    Input SpawnRate float = 10
+
+    // Engine CPU module SpawnRate (UE SpawnRate): particles per second while a loop is active. Its behaviour is
+    // engine C++ under this GUID (VFX/VFXEmitterSpawn.cpp).
 }

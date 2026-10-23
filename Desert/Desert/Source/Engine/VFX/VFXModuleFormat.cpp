@@ -18,18 +18,6 @@ namespace Desert::VFX
 {
     namespace
     {
-        struct StageName
-        {
-            std::string_view Word;
-            VFXModuleStage   Stage;
-        };
-
-        constexpr std::array kStageNames{
-             StageName{ "EmitterUpdate", VFXModuleStage::EmitterUpdate },
-             StageName{ "ParticleSpawn", VFXModuleStage::ParticleSpawn },
-             StageName{ "ParticleUpdate", VFXModuleStage::ParticleUpdate },
-        };
-
         std::string_view Trim( std::string_view s )
         {
             const auto first = s.find_first_not_of( " \t\r" );
@@ -112,24 +100,8 @@ namespace Desert::VFX
             {
             }
             else if ( word == "Stage" )
-            {
-                if ( module.Stages != 0 )
-                    return Common::MakeFormattedError<Result>( "{}: a second Stage line", where );
-                std::istringstream words{ std::string( rest ) };
-                std::string        stage;
-                while ( words >> stage )
-                {
-                    const auto it = std::find_if( kStageNames.begin(), kStageNames.end(),
-                                                  [&]( const StageName& s ) { return s.Word == stage; } );
-                    if ( it == kStageNames.end() )
-                        return Common::MakeFormattedError<Result>(
-                             "{}: Stage '{}' is not EmitterUpdate, ParticleSpawn or ParticleUpdate", where,
-                             stage );
-                    module.Stages |= static_cast<uint8_t>( it->Stage );
-                }
-                if ( module.Stages == 0 )
-                    return Common::MakeFormattedError<Result>( "{}: the Stage line names no stage", where );
-            }
+                return Common::MakeFormattedError<Result>(
+                     "{}: `Stage` is VFX-MODULE-ASSET's draft spelling; the stack groups are the `Usage` line", where );
             else if ( word == "Category" )
             {
                 module.Category = std::string( Trim( rest ) );
@@ -148,24 +120,15 @@ namespace Desert::VFX
                 break;
             pos = end + 1;
         }
-        if ( module.Stages == 0 )
-            return Common::MakeFormattedError<Result>( "{}: module '{}' states no Stage", where,
-                                                       module.DisplayName );
         if ( module.Category.empty() )
             return Common::MakeFormattedError<Result>( "{}: module '{}' states no Category", where,
                                                        module.DisplayName );
 
         const std::string declarations( pos < inside.size() ? inside.substr( pos ) : std::string_view{} );
-        auto              block = ParseModuleBlock( declarations, where, module.HasParticleStage() );
+        auto              block = ParseModuleBlock( declarations, where );
         if ( !block )
             return Common::MakeError<Result>( block.GetError() );
         module.Block = block.ExtractValue();
-        if ( !module.HasParticleStage() &&
-             ( !module.Block.Attributes.empty() || !Trim( module.Block.Body ).empty() ) )
-            return Common::MakeFormattedError<Result>( "{}: module '{}' states no particle stage (ParticleSpawn or "
-                                                       "ParticleUpdate), so it has no GLSL to run: it declares "
-                                                       "Inputs only - no Attribute, no GLSL",
-                                                       where, module.DisplayName );
         return Common::MakeSuccess( std::move( module ) );
     }
 
@@ -173,17 +136,28 @@ namespace Desert::VFX
     {
         std::string out = Common::Content::WriteShaderHeaderLine( Common::Content::MakeTextHeader(
              Common::Content::ContentKind::VFXModule, module.Guid, VFXModuleTextSubsystems() ) );
-        std::format_to( std::back_inserter( out ), "Module \"{}\"\n{{\n    Stage", module.DisplayName );
-        for ( const StageName& s : kStageNames )
-            if ( module.AllowsStage( s.Stage ) )
-                std::format_to( std::back_inserter( out ), " {}", s.Word );
-        std::format_to( std::back_inserter( out ), "\n    Category {}\n", module.Category );
+        std::format_to( std::back_inserter( out ), "Module \"{}\"\n{{\n    Category {}\n", module.DisplayName,
+                        module.Category );
         if ( !module.Description.empty() )
             std::format_to( std::back_inserter( out ), "    Description \"{}\"\n", module.Description );
+        out += "    Usage";
+        for ( const VFXStage stage :
+              { VFXStage::EmitterSpawn, VFXStage::EmitterUpdate, VFXStage::ParticleSpawn, VFXStage::ParticleUpdate } )
+            if ( module.AllowsStage( stage ) )
+                std::format_to( std::back_inserter( out ), " {}", StageName( stage ) );
+        out += '\n';
         for ( const VFXModuleDecl& a : module.Block.Attributes )
             std::format_to( std::back_inserter( out ), "    Attribute {} {}\n", a.Name, GlslTypeName( a.Type ) );
-        for ( const VFXModuleDecl& in : module.Block.Inputs )
-            std::format_to( std::back_inserter( out ), "    Input {} {}\n", in.Name, GlslTypeName( in.Type ) );
+        for ( const VFXModuleInputDecl& in : module.Block.Inputs )
+        {
+            std::format_to( std::back_inserter( out ), "    Input {} {} =", in.Name, GlslTypeName( in.Type ) );
+            if ( in.BindingRequired )
+                out += " Binding";
+            else
+                for ( uint32_t c = 0; c < Assets::Serialization::ComponentCount( in.Type ); ++c )
+                    std::format_to( std::back_inserter( out ), " {}", in.Default[static_cast<int>( c )] );
+            out += '\n';
+        }
         // The body carries its own leading blank or comment lines (ParseModuleBlock keeps them with the GLSL).
         out += module.Block.Body;
         if ( !out.ends_with( '\n' ) )
@@ -203,14 +177,6 @@ namespace Desert::VFX
                                                      "description with a quote or a line break?)",
                                                      where );
         return BOOLSUCCESS;
-    }
-
-    std::string_view StageName( const VFXModuleStage stage )
-    {
-        for ( const auto& s : kStageNames )
-            if ( s.Stage == stage )
-                return s.Word;
-        return {};
     }
 
     Common::BoolResultStr VFXModuleLibrary::AddDirectory(
@@ -261,6 +227,15 @@ namespace Desert::VFX
             return Common::MakeFormattedError<VFXModuleDefinition>( "no VFX module states GUID {}",
                                                                     Common::Content::AssetGuidToText( guid ) );
         return Common::MakeSuccess( it->second.Module );
+    }
+
+    std::vector<Assets::AssetGuidRef> VFXModuleLibrary::List() const
+    {
+        std::vector<Assets::AssetGuidRef> out;
+        for ( const auto& [key, entry] : m_Modules )
+            out.push_back( { Common::Content::AssetGuidToText( entry.Module.Guid ), entry.Path } );
+        std::sort( out.begin(), out.end(), []( const auto& a, const auto& b ) { return a.Path < b.Path; } );
+        return out;
     }
 
     std::optional<Assets::AssetGuidRef> VFXModuleLibrary::FindByName( const std::string_view name ) const

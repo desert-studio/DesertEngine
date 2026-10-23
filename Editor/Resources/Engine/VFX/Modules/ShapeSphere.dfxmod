@@ -1,12 +1,12 @@
 // DesertAsset {"Kind":"VFXModule","Guid":"3435fcff54c84b3499fa6ed992a4bfd3","Versions":{"VFXM":1},"Dependencies":[]}
 Module "ShapeSphere"
 {
-    Stage ParticleSpawn
     Category Location
     Description "Places a newborn inside or on a sphere."
+    Usage ParticleSpawn
     Attribute Position vec3
-    Input Radius float
-    Input Offset vec3
+    Input Radius float = 50
+    Input Offset vec3 = 0 0 0
 
     // Engine VFX module ShapeSphere (port of UE NiagaraStatelessModule_ShapeLocation.ush:97-108, Sphere): a
     // uniformly random direction (RandomUnitFloat3) times Radius. Radius is an ordinary input, so UE's
