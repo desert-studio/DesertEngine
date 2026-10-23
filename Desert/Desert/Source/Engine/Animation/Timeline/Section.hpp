@@ -128,9 +128,23 @@ namespace Desert::Animation::Timeline
         FrameNumber                FadeOut; ///< ticks before End over which the gain ramps 1 → 0
     };
 
+    /**
+     * @brief A VFX life-cycle section (UE: UMovieSceneNiagaraSystemSpawnSection with the DesiredAge template,
+     * MovieSceneNiagaraSystemTrackTemplate.cpp): while the playhead is inside [Start, End] the bound entity's
+     * effect is ACTIVE at age `( t - Start + StartOffset ) / TickRate` seconds; outside every section of the
+     * track it is inactive with no live particles (UE's SetSystemInactiveImmediately at both ends - an age
+     * outside the section is not a state the effect was ever in, so scrubbing there shows nothing). The age is
+     * reached by replaying the effect's fixed steps from its seed (VFX::Clock), so a scrub to an age is the
+     * picture playing to it gives - the same every time.
+     */
+    struct VFXSectionContent
+    {
+        FrameNumber StartOffset; ///< sequence ticks of effect age already elapsed at the section's start
+    };
+
     /// What a section holds. A track's sections all hold the same alternative (`Validate` refuses a mix).
     using SectionContent = std::variant<Channel, AnimationSectionContent, CameraCutSectionContent,
-                                        AudioSectionContent, SubsequenceSectionContent>;
+                                        AudioSectionContent, SubsequenceSectionContent, VFXSectionContent>;
 
     /**
      * @brief One section.

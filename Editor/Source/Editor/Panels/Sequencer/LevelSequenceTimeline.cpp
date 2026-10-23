@@ -244,6 +244,20 @@ namespace Desert::Editor
                                 ToastLevel::Error, 6.0f );
     }
 
+    void SequencerPanel::AddLevelVFXTrack( const LevelTL::BindingGuid& binding )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return;
+        LevelTL::Sequence&       sequence = asset->EditSequence();
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        // UE adds the Niagara system track's spawn section over the range; here from the playhead, as a Camera
+        // Cut is, so "the effect starts here" is one click at the frame it should start.
+        if ( const auto added = ECS::AddVFXTrack( sequence, binding, m_LevelTick, sequence.End ); !added.IsSuccess() )
+            ToastManager::Push( std::format( "+ Track → VFX refused: {}", added.GetError() ), ToastLevel::Error,
+                                6.0f );
+    }
+
     void SequencerPanel::KeyLevelVisibility( const LevelTL::BindingGuid& binding, const bool visible )
     {
         const auto asset = ResolveLevelAsset();
@@ -413,7 +427,78 @@ namespace Desert::Editor
         const auto asset = IsLevelTimeline() ? ResolveLevelAsset() : nullptr;
         if ( !asset )
             return {};
-        return LevelMaterialEdit::Describe( asset->GetSequence(), m_LevelTick, LevelMaterialSchema() );
+        std::vector<EditableProperty> out =
+             LevelMaterialEdit::Describe( asset->GetSequence(), m_LevelTick, LevelMaterialSchema() );
+        const LevelTL::Sequence& sequence = asset->GetSequence();
+        // The playhead: the window's, not the asset's - setting it is a scrub, never an undo step.
+        EditableProperty time;
+        time.Name       = "Transport.Time";
+        time.Label      = "Time (s; a scrub of the playhead)";
+        time.Group      = "Transport";
+        time.Type       = "float";
+        time.Components = 1;
+        time.Value[0]   = static_cast<float>( SecondsAt( sequence, m_LevelTick.Value ) );
+        out.push_back( std::move( time ) );
+        // Each VFX track's section end (UE: dragging the life-cycle section's right edge) - one undo step.
+        for ( const auto& binding : sequence.Bindings )
+            if ( const LevelTL::Track* track = LevelTL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceVFXProperty );
+                 track != nullptr && !track->Sections.empty() )
+            {
+                EditableProperty end;
+                end.Name       = std::format( "VFX.{}.SectionEnd", binding.Label );
+                end.Label      = std::format( "{} VFX section end (s)", binding.Label );
+                end.Group      = "VFX";
+                end.Type       = "float";
+                end.Components = 1;
+                end.Value[0]   = static_cast<float>( SecondsAt( sequence, track->Sections.front().End.Value ) );
+                out.push_back( std::move( end ) );
+            }
+        return out;
+    }
+
+    Common::BoolResultStr SequencerPanel::SetLevelTransportProperty( const std::string&        name,
+                                                                     const std::vector<float>& value )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return Common::MakeError<bool>( "the Level Sequence this window edits is no longer loaded." );
+        if ( value.size() != 1 )
+            return Common::MakeFormattedError<bool>( "'{}' takes one number, not {}", name, value.size() );
+        const double       seconds  = value[0];
+        const auto&        current  = asset->GetSequence();
+        const double       rawTicks = seconds * current.TickRate.Numerator / current.TickRate.Denominator;
+        const int32_t      tick     = SnapToDisplayFrame( current, rawTicks );
+        if ( tick < current.Start.Value || tick > current.End.Value )
+            return Common::MakeFormattedError<bool>( "'{}' is {} s, outside the sequence's range {} .. {} s", name,
+                                                     seconds, SecondsAt( current, current.Start.Value ),
+                                                     SecondsAt( current, current.End.Value ) );
+        if ( name == "Transport.Time" )
+        {
+            JumpLevel( current, tick );
+            return BOOLSUCCESS;
+        }
+        for ( const auto& binding : current.Bindings )
+        {
+            if ( name != std::format( "VFX.{}.SectionEnd", binding.Label ) )
+                continue;
+            const LevelTL::Track* track = LevelTL::FindTrack( current, binding.Guid, ECS::kLevelSequenceVFXProperty );
+            if ( track == nullptr || track->Sections.empty() )
+                return Common::MakeFormattedError<bool>( "'{}' has no VFX section", binding.Label );
+            if ( tick <= track->Sections.front().Start.Value )
+                return Common::MakeFormattedError<bool>( "'{}' would end the section at or before its start", name );
+            LevelTL::Sequence edited = current;
+            for ( auto& t : edited.Tracks )
+                if ( t.Binding == binding.Guid && t.Property == ECS::kLevelSequenceVFXProperty )
+                    t.Sections.front().End = Animation::FrameNumber{ tick };
+            if ( const auto valid = LevelTL::Validate( edited ); !valid )
+                return Common::MakeFormattedError<bool>( "'{}': {}", name, valid.GetError() );
+            const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+            LevelTL::Sequence&       sequence = asset->EditSequence();
+            edited.Revision                   = sequence.Revision + 1;
+            sequence                          = std::move( edited );
+            return BOOLSUCCESS;
+        }
+        return Common::MakeFormattedError<bool>( "the Sequencer has no '{}'", name );
     }
 
     Common::BoolResultStr SequencerPanel::SetEditableProperty( const std::string&        name,
@@ -424,6 +509,8 @@ namespace Desert::Editor
         const auto asset = ResolveLevelAsset();
         if ( !asset )
             return Common::MakeError<bool>( "the Level Sequence this window edits is no longer loaded." );
+        if ( name.starts_with( "Transport." ) || name.starts_with( "VFX." ) )
+            return SetLevelTransportProperty( name, value );
         // The row's field, by name: checked against the same census `properties` lists, then keyed at the
         // playhead through the one setter the field calls.
         const auto write = LevelMaterialEdit::Resolve( asset->GetSequence(), LevelMaterialSchema(), name, value );
@@ -711,6 +798,10 @@ namespace Desert::Editor
                     }
                     ImGui::EndMenu();
                 }
+                if ( entity && entity->HasComponent<ECS::VFXComponent>() &&
+                     ImGui::MenuItem( ICON_MDI_FIRE " VFX", nullptr, false,
+                                      !ECS::HasVFXTrack( sequence, binding.Guid ) ) )
+                    AddLevelVFXTrack( binding.Guid );
                 if ( entity && entity->HasComponent<ECS::SkinnedMeshComponent>() &&
                      entity->HasComponent<ECS::AnimationComponent>() && ImGui::BeginMenu( "Animation" ) )
                 {
@@ -792,6 +883,30 @@ namespace Desert::Editor
                         draw->AddPolyline( diamond, 4, IM_COL32( 230, 230, 230, 255 ), ImDrawFlags_Closed, 1.5f );
                 }
                 ImGui::SetCursorScreenPos( ImVec2( contentX0, visY + rowH + 4.0f ) );
+            }
+
+            // The VFX track, a row under its actor (UE: the Niagara system track's life-cycle section): one bar
+            // per section - the effect is active (and ages from 0) from the bar's start to its end.
+            if ( const LevelTL::Track* track =
+                      LevelTL::FindTrack( sequence, binding.Guid, ECS::kLevelSequenceVFXProperty );
+                 track != nullptr && shows( ECS::kLevelSequenceVFXProperty ) )
+            {
+                const float vfxY = ImGui::GetCursorScreenPos().y;
+                ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, vfxY ) );
+                DrawLevelRowLabel( ICON_MDI_FIRE " VFX", contentX0, contentX0 + 16.0f );
+                for ( const auto& section : track->Sections )
+                {
+                    if ( std::get_if<LevelTL::VFXSectionContent>( &section.Content ) == nullptr )
+                        continue;
+                    const float x0 = xOf( section.Start.Value );
+                    const float x1 = xOf( section.End.Value );
+                    draw->AddRectFilled( ImVec2( x0, vfxY + 2 ), ImVec2( x1, vfxY + rowH - 2 ),
+                                         IM_COL32( 190, 100, 40, 255 ), 3.0f );
+                    const std::string label = std::format( "{:.2f} - {:.2f} s", SecondsAt( sequence, section.Start.Value ),
+                                                           SecondsAt( sequence, section.End.Value ) );
+                    draw->AddText( ImVec2( x0 + 4, vfxY + 3 ), IM_COL32( 240, 240, 240, 255 ), label.c_str() );
+                }
+                ImGui::SetCursorScreenPos( ImVec2( contentX0, vfxY + rowH + 4.0f ) );
             }
 
             // The Material Parameter tracks, a row each under the actor (UE: the material track nested in the
@@ -1982,6 +2097,13 @@ namespace Desert::Editor
                                                    [this, guid] { KeyLevelVisibility( guid, true ); } } );
                 actions.push_back( DocumentAction{ std::format( "Key Hidden {}", binding.Label ),
                                                    [this, guid] { KeyLevelVisibility( guid, false ); } } );
+            }
+            if ( !ECS::HasVFXTrack( asset->GetSequence(), guid ) )
+            {
+                const auto entity = BoundEntity( *scene, binding );
+                if ( entity && entity->HasComponent<ECS::VFXComponent>() )
+                    actions.push_back( DocumentAction{ std::format( "Add VFX Track {}", binding.Label ),
+                                                       [this, guid] { AddLevelVFXTrack( guid ); } } );
             }
             if ( !ECS::HasEventTrack( asset->GetSequence(), guid ) )
                 actions.push_back( DocumentAction{ std::format( "Add Event Track {}", binding.Label ),

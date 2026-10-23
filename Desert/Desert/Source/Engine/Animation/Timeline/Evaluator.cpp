@@ -211,6 +211,7 @@ namespace Desert::Animation::Timeline
                 case TrackKind::CameraCut:
                 case TrackKind::Subsequence:
                 case TrackKind::Audio:
+                case TrackKind::VFX:
                     return false;
             }
             return false;
@@ -452,6 +453,7 @@ namespace Desert::Animation::Timeline
         out.Values.clear();
         out.Events.clear();
         out.Animations.clear();
+        out.Effects.clear();
         out.Subsequences.clear();
         out.Sounds.clear();
         out.ActiveCamera.reset();
@@ -502,6 +504,24 @@ namespace Desert::Animation::Timeline
                                   section.Blend, WeightAt( section, at, rate ), anim->Loop } );
                          } );
                     break;
+                case TrackKind::VFX:
+                {
+                    // The last covering section in fold order sets the age (one effect has one age).
+                    VFXSample sample{ ti, false, 0.0 };
+                    ForEachCovering( track, at,
+                                     [&]( const Section& section )
+                                     {
+                                         if ( const auto* vfx = std::get_if<VFXSectionContent>( &section.Content ) )
+                                         {
+                                             const double into =
+                                                  at.AsTicks() - section.Start.Value + vfx->StartOffset.Value;
+                                             sample.Active     = true;
+                                             sample.AgeSeconds = into / rate.AsDouble();
+                                         }
+                                     } );
+                    out.Effects.push_back( sample );
+                    break;
+                }
                 case TrackKind::Audio:
                     // Every covering section sounds — overlapping rows MIX, they do not fold (UE).
                     for ( uint32_t si = 0; si < track.Sections.size(); ++si )
@@ -648,6 +668,14 @@ namespace Desert::Animation::Timeline
             if ( const auto* target = resolvedOf( track.Binding ); target != nullptr && target->has_value() )
             {
                 host.PlayAnimation( **target, sample );
+            }
+        }
+        for ( const VFXSample& sample : frame.Effects )
+        {
+            const Track& track = sequence.Tracks[sample.TrackIndex];
+            if ( const auto* target = resolvedOf( track.Binding ); target != nullptr && target->has_value() )
+            {
+                host.DriveEffect( **target, sample );
             }
         }
         for ( const FiredEvent& event : frame.Events )

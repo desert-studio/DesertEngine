@@ -221,6 +221,8 @@ namespace Desert::Editor
         /// "+ Track ▸ Visibility" on any actor: the Bool "Visible" track, keyed at the range start with the
         /// actor's current visibility (ECS::AddVisibilityTrack), one undo step.
         void AddLevelVisibilityTrack( const Animation::Timeline::BindingGuid& binding );
+        /// "+ Track ▸ VFX" on an actor with a VFX component: one life-cycle section from the playhead to the end.
+        void AddLevelVFXTrack( const Animation::Timeline::BindingGuid& binding );
         /// A Visibility key @p visible at the playhead on @p binding's track, one undo step.
         void KeyLevelVisibility( const Animation::Timeline::BindingGuid& binding, bool visible );
         /// One parameter "+ Track ▸ Material Parameter ▸ <slot>" offers: a Float / Float3 / Float4 of the slot
@@ -284,6 +286,9 @@ namespace Desert::Editor
         /// The player, (re)built when the sequence's range is not the one it was built for.
         Animation::Timeline::Player& LevelPlayer( const Animation::Timeline::Sequence& sequence );
         void                         JumpLevel( const Animation::Timeline::Sequence& sequence, int32_t tick );
+        /// `set Transport.Time <s>` (scrub the playhead) and `set VFX.<actor>.SectionEnd <s>` (one undo step).
+        [[nodiscard]] Common::BoolResultStr SetLevelTransportProperty( const std::string&        name,
+                                                                       const std::vector<float>& value );
         /// The pose-key lane of one binding: click selects (Shift adds), a drag on the empty lane draws a
         /// marquee, a drag on a selected key retimes the selection on the display grid — one undo step on
         /// release (`ECS::MoveEntityTransformKeys`).

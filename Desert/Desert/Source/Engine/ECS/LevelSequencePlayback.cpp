@@ -296,6 +296,18 @@ namespace Desert::ECS
         animator.SetTick( sample.ClipTime );
     }
 
+    void LevelSequenceEntityHost::DriveEffect( const T::ResolvedBinding& target, const T::VFXSample& sample )
+    {
+        const entt::entity entity = EntityOf( target );
+        auto*              vfx    = m_Registry.valid( entity ) ? m_Registry.try_get<VFXComponent>( entity ) : nullptr;
+        if ( vfx == nullptr )
+        {
+            m_Refusals.push_back( "VFX track: the bound entity has no VFX component" );
+            return;
+        }
+        vfx->SequencerDrive = VFXSequencerDrive{ sample.Active, sample.Active ? sample.AgeSeconds : 0.0 };
+    }
+
     namespace
     {
         [[nodiscard]] std::string SequenceName( const LevelSequenceSubsequenceSource& source,

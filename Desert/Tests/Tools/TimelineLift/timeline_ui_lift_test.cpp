@@ -49,6 +49,9 @@ namespace
         void PlayAnimation( const TL::ResolvedBinding&, const TL::AnimationSample& ) override
         {
         }
+        void DriveEffect( const TL::ResolvedBinding&, const TL::VFXSample& ) override
+        {
+        }
     };
 
     RecordingHost EvaluateAt( const TL::Sequence& sequence, const double seconds )
