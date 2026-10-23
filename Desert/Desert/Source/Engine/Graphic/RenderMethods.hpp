@@ -12,8 +12,9 @@
 // WHAT A VIEW RENDERS: THE ONE RESOLUTION OF THE THREE RENDER METHODS (Common/Settings/RenderMethods.hpp).
 //
 //   effective = the highest IMPLEMENTED method at or below
-//               min( the view's request (PostProcessSettings, blended from its volumes),
-//                    the machine's ceiling (Scalability *.Method, ResolvedQuality),
+//               min( the view's request (PostProcessSettings, blended from its volumes) — REPLACED by an explicit
+//                    machine.json override of *.Method (ResolvedQuality::Overridden; MethodLimit::MachineOverride),
+//                    the machine's ceiling (Scalability *.Method level, ResolvedQuality),
 //                    what the device can run (CapabilityCatalog: ray query for the traced methods,
 //                    the ray tracing pipeline for PathTraced),
 //                    what the view's renderers built on it (ProgramRefusals: a program only that method needs),
@@ -29,6 +30,7 @@ namespace Desert::Graphic
     {
         None = 0,       // rendered as requested
         Scalability,    // the machine's ceiling (Scalability "<Group>.Method") is lower
+        MachineOverride, // machine.json overrides "<Group>.Method" explicitly: it replaces the request, up or down
         Device,         // the device cannot run it (no ray query in the CapabilityCatalog)
         DevicePipeline, // the device has no ray tracing pipeline (CapabilityCatalog RayTracingPipeline): PathTraced
         PathTracerPair, // PathTraced on one of GI / reflections only: the path tracer is one integrator for both
@@ -44,7 +46,7 @@ namespace Desert::Graphic
     struct ResolvedMethod
     {
         Method      Requested{}; // the view's PostProcessSettings
-        Method      Ceiling{};   // the machine's Scalability value
+        Method      Ceiling{};   // the machine's Scalability value (a level's ceiling, or an override's choice)
         Method      Effective{}; // what the frame renders
         MethodLimit Limit = MethodLimit::None;
         // Limit == Program: the program that did not build (MethodRefusal::Program, static storage).
