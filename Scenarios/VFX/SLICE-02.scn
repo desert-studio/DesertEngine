@@ -3,7 +3,9 @@
 # WallBlast, a Radial Impulse Field at the wall's centre, fired as an explicit step AFTER the intact shot (palette
 # "Fire Field 'WallBlast'", the same path as Destruction.applyField; UE: an event calling ApplyPhysicsField) --
 # not by a script timer, which raced the shot: Simulate's reply waits for the editor to settle, so a 1 s timer
-# had already fired before the first advance began. The wall's breaks / collisions / removals reach its script
+# had already fired before the first advance began. Its base level-1 nodes are anchored (Destructible Anchored
+# Nodes 5,11-14,17, UE anchor field): unanchored, the resting contact with the ground broke them on Simulate's first
+# step, raising sparks before any field fired. The wall's breaks / collisions / removals reach its script
 # (DestructionDust.lua, UE OnChaosBreakEvent / OnChaosPhysicsCollision / OnChaosRemovalEvent), which writes them
 # into the VFX data channels BreakDust / ImpactDust / SettleDust (UE: write to a Niagara Data Channel); WallDust's
 # emitters (VFX/WallDust.dfx: BreakDust, BreakSmoke, BreakSparks, LandingDust) spawn from those entries at the

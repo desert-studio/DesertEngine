@@ -562,8 +562,10 @@ namespace Desert::Editor
         // racing a script timer against the shots; the same firing path as Destruction.applyField.
         for ( const auto entity : registry.view<ECS::TagComponent>() )
         {
-            if ( !registry.any_of<ECS::RadialImpulseFieldComponent, ECS::StrainFieldComponent,
-                                  ECS::KillFieldComponent, ECS::AnchorFieldComponent>( entity ) )
+            if ( registry.try_get<ECS::RadialImpulseFieldComponent>( entity ) == nullptr &&
+                 registry.try_get<ECS::StrainFieldComponent>( entity ) == nullptr &&
+                 registry.try_get<ECS::KillFieldComponent>( entity ) == nullptr &&
+                 registry.try_get<ECS::AnchorFieldComponent>( entity ) == nullptr )
                 continue;
             const std::string tag = registry.get<ECS::TagComponent>( entity ).Tag;
             if ( tag.empty() )
