@@ -80,10 +80,11 @@ namespace Desert::Editor
 
     Autosave::RecoveryChoice CrashRecovery::ChooseAutosave()
     {
-        return Autosave::ChooseRecovery(
-             AutosaveDir(),
-             { Desert::Core::kSceneVersion, Desert::Core::kUnitVersion, Desert::Core::kWorldPartitionVersion },
-             Desert::Assets::kSceneSchemaTag, Desert::Assets::kUnitSchemaTag,
-             Desert::Assets::kWorldPartitionSchemaTag );
+        return Autosave::ChooseRecovery( AutosaveDir(),
+                                         { Desert::Core::kSceneVersion, Desert::Core::kUnitVersion,
+                                           Desert::Core::kWorldPartitionVersion, Desert::Core::kAssetRefVersion },
+                                         Desert::Assets::kSceneSchemaTag, Desert::Assets::kUnitSchemaTag,
+                                         Desert::Assets::kWorldPartitionSchemaTag,
+                                         Desert::Assets::kAssetRefSchemaTag );
     }
 } // namespace Desert::Editor

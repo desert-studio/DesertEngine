@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "d911e1788ca30dfafe332f0910cc045d",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -145,7 +146,10 @@
                 ]
             },
             "LandscapeMaterial": {
-                "Material": "assets:Materials/M_G3_TerrainChecker.demat"
+                "Material": {
+                    "Guid": "c2407e5571ff7898af741eafd1abdfeb",
+                    "Path": "assets:Materials/M_G3_TerrainChecker.demat"
+                }
             }
         },
         {
@@ -177,7 +181,10 @@
                 ]
             },
             "LandscapeMaterial": {
-                "Material": "assets:Materials/M_G3_TerrainPlain.demat"
+                "Material": {
+                    "Guid": "239102b0b0735153c9b59f5e6558ca50",
+                    "Path": "assets:Materials/M_G3_TerrainPlain.demat"
+                }
             }
         },
         {
@@ -188,7 +195,12 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.15000000596046448, 1.7999999523162842, 0.15000000596046448],
             "StaticMesh": {
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": []
             }
         },
         {

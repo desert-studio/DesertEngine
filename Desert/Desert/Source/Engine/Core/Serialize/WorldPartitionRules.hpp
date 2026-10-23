@@ -663,12 +663,30 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kLandscapeRootComponent = "Landscape";
     inline constexpr std::string_view kLandscapeTileComponent = "LandscapeTile";
 
-    // THE MESH BLOCKS THAT NAME A MESH ASSET, and the two fields a reference is written as
-    // (StaticMeshComponentSer / SkinnedMeshComponentSer in PrefabData.hpp): the mesh's header GUID as text
-    // (SCNE 28), and the path beside it.
+    // THE MESH BLOCKS THAT NAME A MESH ASSET, and where each states its reference (PrefabData.hpp): the Static
+    // Mesh in its reflected `MeshHandle` object {Guid, Path} (asset references v1), the Skinned Mesh in the
+    // block's own MeshGuid / MeshPath (SCNE 28). The GUID is the header GUID as text, the path beside it.
     inline constexpr std::array<std::string_view, 2> kMeshAssetComponents = { "StaticMesh", "SkinnedMesh" };
-    inline constexpr std::string_view                kMeshHandleField     = "MeshGuid";
-    inline constexpr std::string_view                kMeshPathField       = "MeshPath";
+
+    // The node holding @p component's mesh reference, and its GUID / path field names; nullopt = none stated.
+    struct MeshReferenceNode
+    {
+        Common::Json::Node Node;
+        std::string_view   GuidField;
+        std::string_view   PathField;
+    };
+    [[nodiscard]] inline std::optional<MeshReferenceNode> MeshReferenceOf( const Common::Json::Node& block,
+                                                                           std::string_view          component )
+    {
+        if ( component == "StaticMesh" )
+        {
+            auto handle = block.Find( "MeshHandle" );
+            if ( !handle.has_value() )
+                return std::nullopt;
+            return MeshReferenceNode{ std::move( handle.value() ), "Guid", "Path" };
+        }
+        return MeshReferenceNode{ block, "MeshGuid", "MeshPath" };
+    }
 
     // WHAT THE PARTITIONER MAY KNOW FROM OUTSIDE THE FILE: a mesh asset's box around its own origin, asked
     // by the GUID its block names (null when it names none) and the path beside it.
@@ -966,12 +984,15 @@ namespace Desert::Core::Rules
 
             for ( const std::string_view key : kMeshAssetComponents )
             {
-                const auto mesh = BlockOf( record, key, issues );
+                const auto block = BlockOf( record, key, issues );
+                if ( !block.has_value() )
+                    continue;
+                const auto mesh = MeshReferenceOf( *block, key );
                 if ( !mesh.has_value() )
                     continue;
-                const Common::Content::AssetGuid guid = ReadGuid( *mesh, kMeshHandleField, issues );
+                const Common::Content::AssetGuid guid = ReadGuid( mesh->Node, mesh->GuidField, issues );
                 std::string                      text;
-                mesh->ReadInto( kMeshPathField, text, issues );
+                mesh->Node.ReadInto( mesh->PathField, text, issues );
                 if ( guid.IsNull() && text.empty() )
                     continue;
                 if ( const auto box = bounds( guid, text ); box.has_value() )
@@ -1224,12 +1245,15 @@ namespace Desert::Core::Rules
                                  [&]( const Common::Math::AABB& box ) { out.Boxes.push_back( box ); } );
         for ( const std::string_view key : kMeshAssetComponents )
         {
-            const auto mesh = Detail::BlockOf( record, key, issues );
+            const auto block = Detail::BlockOf( record, key, issues );
+            if ( !block.has_value() )
+                continue;
+            const auto mesh = MeshReferenceOf( *block, key );
             if ( !mesh.has_value() )
                 continue;
             DescriptorMesh                   named;
-            const Common::Content::AssetGuid guid = Detail::ReadGuid( *mesh, kMeshHandleField, issues );
-            mesh->ReadInto( kMeshPathField, named.Path, issues );
+            const Common::Content::AssetGuid guid = Detail::ReadGuid( mesh->Node, mesh->GuidField, issues );
+            mesh->Node.ReadInto( mesh->PathField, named.Path, issues );
             if ( guid.IsNull() && named.Path.empty() )
                 continue;
             if ( !guid.IsNull() )

@@ -118,19 +118,20 @@ namespace Desert::Editor::Autosave
                ( stem + std::string( Common::Constants::Extensions::SCENE_EXTENSION ) );
     }
 
-    // The three generations a scene file states in its header (absent = 0, never "current" -- the same rule
+    // The four generations a scene file states in its header (absent = 0, never "current" -- the same rule
     // the loader's gate applies). Reads the header object only, not the scene body.
     struct StatedGenerations
     {
         int Scene          = 0;
         int Unit           = 0;
         int WorldPartition = 0;
+        int AssetRef       = 0;
 
         bool operator==( const StatedGenerations& ) const = default;
     };
 
     inline StatedGenerations StatedIn( const std::filesystem::path& copy, uint32_t sceneTag, uint32_t unitTag,
-                                       uint32_t worldPartitionTag )
+                                       uint32_t worldPartitionTag, uint32_t assetRefTag )
     {
         std::ifstream in( copy, std::ios::binary );
         if ( !in )
@@ -145,7 +146,9 @@ namespace Desert::Editor::Autosave
              static_cast<int>( Common::Content::TextHeaderVersion( header.GetValue(), sceneTag ).value_or( 0 ) ),
              static_cast<int>( Common::Content::TextHeaderVersion( header.GetValue(), unitTag ).value_or( 0 ) ),
              static_cast<int>(
-                  Common::Content::TextHeaderVersion( header.GetValue(), worldPartitionTag ).value_or( 0 ) ) };
+                  Common::Content::TextHeaderVersion( header.GetValue(), worldPartitionTag ).value_or( 0 ) ),
+             static_cast<int>(
+                  Common::Content::TextHeaderVersion( header.GetValue(), assetRefTag ).value_or( 0 ) ) };
     }
 
     struct NotOfferedCopy
@@ -165,7 +168,8 @@ namespace Desert::Editor::Autosave
     // converted -- autosaves are never migrated (no legacy path; nothing is written anywhere) -- it is
     // returned in NotOffered so the caller can name its path and version.
     inline RecoveryChoice ChooseRecovery( const std::filesystem::path& dir, StatedGenerations current,
-                                          uint32_t sceneTag, uint32_t unitTag, uint32_t worldPartitionTag )
+                                          uint32_t sceneTag, uint32_t unitTag, uint32_t worldPartitionTag,
+                                          uint32_t assetRefTag )
     {
         namespace fs = std::filesystem;
         RecoveryChoice     choice;
@@ -182,7 +186,7 @@ namespace Desert::Editor::Autosave
                 ec.clear();
                 continue;
             }
-            const StatedGenerations stated = StatedIn( p, sceneTag, unitTag, worldPartitionTag );
+            const StatedGenerations stated = StatedIn( p, sceneTag, unitTag, worldPartitionTag, assetRefTag );
             if ( stated != current )
             {
                 choice.NotOffered.push_back( { p, stated } );

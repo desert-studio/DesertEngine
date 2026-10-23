@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "5d1e7c0a2b9f4e3c8a6d1f0b7e2c9a41",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -139,9 +140,17 @@
                 "CollisionProfile": "BlockAll"
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
             }
         },
         {
@@ -158,7 +167,10 @@
                 "ImpactRadius": 50.0,
                 "ImpactShells": 3,
                 "ImpactSitesPerShell": 8,
-                "InteriorMaterial": "",
+                "InteriorMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "DamageThreshold": [50000.0, 50000.0],
                 "AnchoredNodes": [],
                 "DensityKgPerCm3": 0.002400000113993883,
@@ -192,7 +204,8 @@
             "VFX": {
                 "System": "assets:VFX/DestructionDust.dfx",
                 "AutoActivate": true,
-                "Overrides": []
+                "Overrides": [],
+                "PointSets": []
             }
         },
         {
