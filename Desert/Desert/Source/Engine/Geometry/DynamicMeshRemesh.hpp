@@ -29,6 +29,7 @@
 namespace Desert::Geometry
 {
     class DynamicMesh3;
+    class ProgressCancel;
 
     // UE URemeshProperties (the pass switches) / the Dynamic Sculpt's remesh toggles.
     struct RemeshSettings
@@ -86,11 +87,10 @@ namespace Desert::Geometry
     // (per-vertex normals when the attributes were discarded). DeformOutcome::MovedVertices carries the result's
     // vertex count. Refused when a setting is out of its range, a mesh has no triangle, or the edge length would
     // ask for more than a million triangles. `toolName` heads the report and the refusals.
-    [[nodiscard]] Common::ResultStr<DeformOutcome> RemeshMeshOperation( const DynamicMesh3&       input,
-                                                                        const glm::dmat4&         localToWorld,
-                                                                        const RemeshMeshSettings& settings,
-                                                                        const DynamicMesh3* projectTo = nullptr,
-                                                                        const char*         toolName  = "Remesh" );
+    [[nodiscard]] Common::ResultStr<DeformOutcome>
+    RemeshMeshOperation( const DynamicMesh3& input, const glm::dmat4& localToWorld,
+                         const RemeshMeshSettings& settings, const DynamicMesh3* projectTo = nullptr,
+                         const char* toolName = "Remesh", const ProgressCancel* cancel = nullptr );
 
     // Split / collapse / flip of the edges whose midpoint lies within `radius` of `centreWorld`, repeated until
     // nothing changes (or `settings.Iterations` passes). Returns every vertex that was created or moved, plus the

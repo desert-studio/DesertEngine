@@ -444,7 +444,8 @@ namespace Desert::Editor::Tools
                      case MS::Tool::WeldEdges:
                          return Geometry::WeldMeshEdges( *input, weldEdges );
                      case MS::Tool::Remesh:
-                         return Geometry::RemeshMeshOperation( *input, objectToWorld, remesh );
+                         return Geometry::RemeshMeshOperation( *input, objectToWorld, remesh, nullptr, "Remesh",
+                                                                                        cancel.get() );
                      case MS::Tool::Project:
                          return Geometry::ProjectToTarget( *input, *targetMesh, targetToInput, project );
                      case MS::Tool::Lattice:

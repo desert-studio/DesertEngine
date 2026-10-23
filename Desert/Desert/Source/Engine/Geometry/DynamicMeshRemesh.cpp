@@ -5,6 +5,7 @@
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/MeshCore/Spatial/MeshAABBTree3.hpp"
+#include "Engine/Geometry/ProgressCancel.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -210,7 +211,8 @@ namespace Desert::Geometry
     {
         // UE FRemesher::BasicRemeshPass + FullSmoothPass_Buffer + FullProjectionPass, `settings.Iterations` times.
         RemeshCounts RemeshPasses( DynamicMesh3& mesh, const glm::dmat4& localToWorld,
-                                   const RemeshSettings& settings, const DynamicMesh3& projectTo )
+                                   const RemeshSettings& settings, const DynamicMesh3& projectTo,
+                                   const ProgressCancel* cancel )
         {
             DynamicMeshAABBTree3 tree( &projectTo );
             const Frame          f{ mesh, localToWorld };
@@ -219,6 +221,9 @@ namespace Desert::Geometry
             RemeshCounts         counts;
             for ( int pass = 0; pass < settings.Iterations; ++pass )
             {
+                // UE FRemesher polls its FProgressCancel every pass: a superseded compute frees its worker.
+                if ( cancel != nullptr && cancel->Cancelled() )
+                    break;
                 touched.clear();
                 TopologyPass( f, settings, AllEdges( mesh ), touched, counts );
 
@@ -287,7 +292,8 @@ namespace Desert::Geometry
     Common::ResultStr<DeformOutcome> RemeshMeshOperation( const DynamicMesh3&       input,
                                                           const glm::dmat4&         localToWorld,
                                                           const RemeshMeshSettings& settings,
-                                                          const DynamicMesh3* projectTo, const char* toolName )
+                                                          const DynamicMesh3* projectTo, const char* toolName,
+                                                          const ProgressCancel* cancel )
     {
         if ( settings.TargetTriangleCount < 1 || !( settings.TargetEdgeLength > 0.0f ) ||
              settings.SmoothingStrength < 0.0f || settings.SmoothingStrength > 1.0f ||
@@ -329,7 +335,8 @@ namespace Desert::Geometry
                                    .Iterations         = settings.RemeshIterations,
                                    .Reproject          = settings.Reproject,
                                    .PreserveSharpEdges = settings.PreserveSharpEdges };
-        const RemeshCounts   counts = RemeshPasses( mesh, localToWorld, pass, projectTo ? *projectTo : original );
+        const RemeshCounts   counts =
+             RemeshPasses( mesh, localToWorld, pass, projectTo ? *projectTo : original, cancel );
 
         // The overlays follow the new surface: per-vertex normals for a mesh without attributes (UE: the discarded
         // attributes come back as a normal overlay only), recomputed normals otherwise.

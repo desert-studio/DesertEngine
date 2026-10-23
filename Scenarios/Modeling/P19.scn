@@ -13,10 +13,10 @@
 Дано run Modeling "Create shape: place at the viewport centre"
 Дано run Modeling "Active tool: Accept"
 Дано run "Level Viewport" "Focus Selected"
-Когда run Modeling "Mesh tool: Remesh"
 Когда run Modeling "Remesh: Use Target Edge Length: on"
 Когда --subject modeling set Remesh.TargetEdgeLength 20
 Когда run Modeling "Remesh: Preserve Sharp Edges: off"
+Когда run Modeling "Mesh tool: Remesh"
 Когда run Modeling "Active tool: Accept"
 Когда state
 Тогда 0_remesh an even isotropic triangle mesh (uniform triangles about 20 cm, no long slivers or fans at the poles), the shape still a sphere; the status reads "Remesh: N triangles, edge length 20.00 cm ..."
