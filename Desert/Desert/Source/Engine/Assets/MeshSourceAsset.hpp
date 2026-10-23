@@ -23,6 +23,7 @@
 // from SRCE + settings under a DDC key, exactly as a texture's mips are built from its SRCE.
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/MeshDisplacementSettings.hpp>
 #include <Engine/Geometry/SavedMeshForm.hpp>
 
 #include <cstddef>
@@ -38,7 +39,9 @@ namespace Desert::Assets
 {
     // The envelope's subsystem stamp for the IMPT and SRCE layouts below (UE custom version).
     inline constexpr uint32_t kMeshAssetSubsystemTag     = Common::Content::FourCC( "MSAS" );
-    inline constexpr uint32_t kMeshAssetSubsystemVersion = 1;
+    // 2 (DISPLACE): IMPT states the mesh's displacement mode and bake settings; Tools/SceneMigrator raises a
+    // version-1 asset (UpgradeMeshSourceAsset: mode None, default bake settings).
+    inline constexpr uint32_t kMeshAssetSubsystemVersion = 2;
 
     // The header read context a mesh asset is judged with (its one known subsystem).
     Common::Content::AssetHeaderReadContext MeshAssetHeaderReadContext();
@@ -105,7 +108,11 @@ namespace Desert::Assets
         float            UniformScale = 1.0f; // applied on import, source units -> cm; finite and > 0
         MeshSourceUpAxis UpAxis       = MeshSourceUpAxis::FromFile;
         MeshLodPolicy    LodPolicy    = MeshLodPolicy::Generate;
-        bool             operator==( const MeshImportSettings& ) const = default;
+        // Not in the render-data key (SerializeMeshSettingsForKey): the base render data does not depend on it;
+        // the displacement buckets key on it themselves.
+        MeshDisplacementMode         Displacement = MeshDisplacementMode::None;
+        MeshDisplacementBakeSettings DisplacementBake;
+        bool                         operator==( const MeshImportSettings& ) const = default;
     };
 
     // THE OPTIONS A USER SETS PER IMPORTED FILE (UE: UFbxImportUI + UFbxStaticMeshImportData, the FBX Import
@@ -222,11 +229,17 @@ namespace Desert::Assets
     Common::ResultStr<MeshSourceAsset>        ReadMeshSourceAssetFile( const std::filesystem::path& file );
     Common::BoolResultStr                     WriteMeshSourceAssetFile( const std::filesystem::path& file,
                                                                         const MeshSourceAsset&       asset );
+    // SceneMigrator's step for an MSAS 1 asset (IMPT without displacement): the same asset at the current version
+    // with Displacement = None and default bake settings. nullopt = already current; an error = not a mesh asset
+    // or unreadable at either version.
+    Common::ResultStr<std::optional<std::vector<std::byte>>> UpgradeMeshSourceAsset( std::span<const std::byte> file );
 
     std::string_view                    MeshSourceUpAxisName( MeshSourceUpAxis axis );
     std::optional<MeshSourceUpAxis>     MeshSourceUpAxisFromName( std::string_view name );
     std::string_view                    MeshLodPolicyName( MeshLodPolicy policy );
     std::optional<MeshLodPolicy>        MeshLodPolicyFromName( std::string_view name );
+    std::string_view                    MeshDisplacementModeName( MeshDisplacementMode mode );
+    std::optional<MeshDisplacementMode> MeshDisplacementModeFromName( std::string_view name );
     std::string_view                    FbxSpecularMapName( FbxSpecularMap meaning );
     std::optional<FbxSpecularMap>       FbxSpecularMapFromName( std::string_view name );
     std::string_view                    MeshFileUnitName( MeshFileUnit unit );

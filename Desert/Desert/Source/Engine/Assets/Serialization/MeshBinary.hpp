@@ -98,7 +98,9 @@ namespace Desert::Assets::Serialization
     /// They are separate streams and not vertex fields so a mesh without them pays nothing. A v3 file IS a v4
     /// file with both absent, read by the same function; no corpus migration exists or is needed.
     /// Version 5 (SKEL-TREE) states the mesh's skeleton by GUID in an 80-byte header (the bone-hash
-    /// `SkeletonSignature` is gone); the reader reads version 5 only, Tools/SceneMigrator raises 3 and 4.
+    /// `SkeletonSignature` is gone); Tools/SceneMigrator raises 3 and 4.
+    /// Version 6 (DISPLACE-5) states a skinned mesh's displacement mode in the header byte v5 wrote as zero
+    /// (MeshBinaryHeader.hpp); the reader reads version 6 only, the migrator raises 5 by its version field.
     using Common::Content::kMeshBinaryVersion; // the header layout lives in Common (MeshBinaryHeader.hpp)
 
     using Common::Content::kMeshBinaryMagic;

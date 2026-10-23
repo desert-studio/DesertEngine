@@ -727,9 +727,12 @@ namespace Desert::Migration
                  bytes.size() >= 16 &&
                  std::string_view( bytes ).starts_with( std::string_view(
                       Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
-                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u ) )
+                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u || stated == 5u ) )
             {
-                const auto raised = Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
+                // 3/4 are re-stated at the current version by the SkeletonGuid raise; 5 only gains the version.
+                const auto raised = stated == 5u
+                                         ? Desert::Migration::MigrateMeshBinaryV5ToV6( path.string(), bytes )
+                                         : Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
                 if ( !raised )
                 {
                     err << "FAIL   " << raised.GetError() << "\n";
@@ -1772,6 +1775,37 @@ namespace Desert::Migration
             if ( const Layout layout = RelayOutIfNeeded( path, text, check, out, err );
                  layout != Layout::Canonical )
                 ++( layout == Layout::Failed ? failed : relaid );
+        }
+
+        // THE MESH ASSETS (DISPLACE): MSAS 1 -> 2 states the displacement mode and bake settings in IMPT. The step
+        // is the engine's own UpgradeMeshSourceAsset (one statement of the format): nullopt = already current; a
+        // cooked MeshBinary is the mesh pass's above; a file neither reads FAILS by name and is left untouched.
+        for ( const auto& path : meshes )
+        {
+            const std::string bytes = ReadAll( path );
+            if ( std::string_view( bytes ).starts_with( std::string_view(
+                      Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) )
+                continue;
+            const auto raised = Desert::Assets::UpgradeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) );
+            if ( !raised )
+            {
+                err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( !raised.GetValue() )
+                continue;
+            out << ( check ? "would raise " : "raised " ) << path.string() << " MSAS 1 -> "
+                << Desert::Assets::kMeshAssetSubsystemVersion << "\n";
+            if ( check )
+                continue;
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, *raised.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+            }
         }
 
         // THE SKINNED IMPORTS' SOURCE HASH (SKEL-fixa, ImportRecordSourceHash.hpp): a `.skmesh` with its raw

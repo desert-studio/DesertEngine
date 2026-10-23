@@ -66,6 +66,7 @@ namespace Desert::Runtime
 
 namespace Desert::Graphic::System
 {
+    class DisplacementCache;
     namespace MeshRendererDetail
     {
         // One draw of a lit mesh node, chosen when the frame's draw list is BUILT (the node's setup, before any
@@ -273,6 +274,9 @@ namespace Desert::Graphic::System
             // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
             uint32_t                   MotionRow = 0;
             class Desert::SkinnedMesh* Mesh      = nullptr;
+            // The mesh the skin cache skins when Mesh is a displaced twin (ApplyDisplacement, CONTRACT-DISPLACE
+            // §9.8): the base (or its morph twin); the twin's streams are then written from that pose. Null = Mesh.
+            class Desert::SkinnedMesh* SkinSource = nullptr;
             glm::mat4                  Transform = glm::mat4( 1.0f );
             // The binding every section's instance below was selected FROM, carried so that it keeps those
             // instances alive: the entity that authored it can be destroyed between the record and this queue
@@ -299,6 +303,12 @@ namespace Desert::Graphic::System
             uint32_t                                      Entity = 0;
             class Desert::Mesh*                           Mesh   = nullptr;
             MaterialInstancePtr                           Material; // the section group's slot (a mesh cell)
+            // The same slot for displaced geometry (MaterialService displaced sibling: base cells, no parallax
+            // march); null when the mesh is not displaced. ApplyDisplacement draws the twins' groups with it.
+            MaterialInstancePtr DisplacedMaterial;
+            // The component's instance index of each transform when ApplyDisplacement split the record by twin
+            // (null = the transforms ARE the component's, in order): the GPU-scene row stays {Entity, index + 1}.
+            std::shared_ptr<const std::vector<uint32_t>> InstanceIds;
             uint64_t                                      HiddenSubmeshes = 0; // the other slots' sections
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;
@@ -438,6 +448,17 @@ namespace Desert::Graphic::System
         {
             m_ParallaxQuality = parallax;
         }
+
+        // MESH DISPLACEMENT (DisplacementCache.hpp), after the queues are built and before BuildObjectMotions: asks
+        // @p cache for the levels of every static record whose mesh carries a displacement topology (per submesh, the
+        // height inputs of its effective material row, a section without an assigned Height moving by 0), lets the
+        // first view of @p frame displace, then points each record whose twin is ready at the twin - every pass of
+        // this view (GBuffer, forward, depth, velocity, cascades, VSM) draws the displaced surface. A record whose
+        // twin is not ready draws its base mesh. Errors are logged; the view still draws.
+        // @p requestLevels: only CAMERA views ask for levels (§4); a capture face (ViewProfile::SceneCapture) is a
+        // consumer like the shadows - it draws the twins the cameras asked for and never raises a level itself.
+        void ApplyDisplacement( DisplacementCache& cache, const Geometry::LODView& view, float viewHeightPixels,
+                                uint64_t frame, bool requestLevels );
 
         // The view's motion rows for this frame — UE's GPUScene primitive data: ONE GpuObjectMotion per drawn
         // primitive (key {Entity, slot}; the static, generic and slot-material records of one entity share

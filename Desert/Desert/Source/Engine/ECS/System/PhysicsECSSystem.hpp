@@ -421,6 +421,26 @@ namespace Desert::ECS
                         return Common::MakeError<Result>(
                              "the StaticMesh's asset is skinned: a skinned mesh has no rest "
                              "collision, use a Box/Sphere/Capsule" );
+                    // A displaced mesh collides with its bake-level surface in BOTH modes (CONTRACT-DISPLACE §9.9):
+                    // one fixed level, so the ground does not change with the camera. Not landed yet = still
+                    // loading; a failed derive was logged naming the mesh and keeps the base, as that log says.
+                    if ( const auto& slot = staticAsset->GetDisplacedMesh(); slot && !slot->Failed() )
+                    {
+                        const auto surface = slot->Get();
+                        if ( !surface )
+                            return Common::MakeSuccess( Result{} );
+                        // The surface's indices are submesh-local (VertexOffset); the collider reads one list.
+                        std::vector<Index> global;
+                        global.reserve( surface->Indices.size() );
+                        for ( const Submesh& sm : surface->Submeshes )
+                            for ( uint32_t t = 0; t < sm.IndexCount / 3; ++t )
+                            {
+                                const Index& tri = surface->Indices[sm.IndexOffset / 3 + t];
+                                global.push_back( { tri.V1 + sm.VertexOffset, tri.V2 + sm.VertexOffset,
+                                                    tri.V3 + sm.VertexOffset } );
+                            }
+                        return Common::MakeSuccess( Result( BuildColliderMesh( surface->Vertices, global, scale ) ) );
+                    }
                     return Common::MakeSuccess( Result(
                          BuildColliderMesh( staticAsset->GetVertices(), staticAsset->GetIndices(), scale ) ) );
                 }

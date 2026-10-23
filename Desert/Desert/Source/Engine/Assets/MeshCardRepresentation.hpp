@@ -134,11 +134,14 @@ namespace Desert::Assets
     [[nodiscard]] Common::ResultStr<std::string> BuildMeshCardsBytes( const MeshDistanceFieldBuildInput& input,
                                                                       const MeshDistanceFieldCancel&     cancel );
 
-    // A cancelled build (@p cancel) returns an error containing kMeshCardsCancelled and measures no coverage.
+    // @p input is called only on a miss of the cards or of their coverage (as LoadMeshDistanceField's): a
+    // displaced mesh's input is its displaced surface, built only when a bucket needs it. A cancelled build
+    // (@p cancel) returns an error containing kMeshCardsCancelled and measures no coverage.
     [[nodiscard]] Common::ResultStr<std::shared_ptr<const MeshCardsBuildData>>
     LoadMeshCards( const std::filesystem::path& asset, uint64_t renderDataKey,
-                   const std::vector<uint8_t>& submeshTwoSided, const MeshDistanceFieldBuildInput& input,
-                   const MeshDistanceFieldCancel& cancel );
+                   const std::vector<uint8_t>&                                            submeshTwoSided,
+                   const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input,
+                   const MeshDistanceFieldCancel&                                         cancel );
 
     // THE COVERAGE (not in UE): the share of the mesh's surface, by area, that its cards hold the way the runtime
     // lookup reads them (Common/SurfaceCacheSampling.glslh) - a surface point is HELD when a card facing one of

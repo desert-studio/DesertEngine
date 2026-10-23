@@ -74,9 +74,11 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( m_Usage == BufferUsage::GpuWritten )
         {
-            // Device-local, filled by a compute pass (the morph update) and read as vertices: nothing to upload.
+            // Device-local, filled by a compute pass (the morph update, the displacement emit) and read as vertices:
+            // nothing to upload. MeshBufferUsage's flags, as an uploaded mesh's: a displaced twin's vertices are also
+            // the input of its BLAS where the device builds one.
             const VkBufferCreateInfo bufferInfo = CreateVertexBufferInfo(
-                 m_Size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                 m_Size, MeshBufferUsage( MeshBufferRole::Vertex, allocator->GetDeviceCaps() ),
                  VK_SHARING_MODE_EXCLUSIVE );
             const auto allocation = allocator->RT_AllocateBuffer( "GpuWrittenVertexBuffer", bufferInfo,
                                                                   VMA_MEMORY_USAGE_GPU_ONLY, m_VulkanBuffer );

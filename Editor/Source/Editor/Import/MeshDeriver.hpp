@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Assets/MeshDisplacementBake.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
 
@@ -24,4 +25,11 @@ namespace Desert::Editor
     void BakeMeshLODs( Assets::Serialization::MeshAssetData& data );
 
     Common::ResultStr<std::string> BuildMeshPlatformData( const Assets::MeshSourceAsset& asset );
+
+    // THE DISPLACED MESH BUILDER, registered with Assets::SetDisplacedMeshBuilder (CONTRACT-DISPLACE §1g): every
+    // section's height map decoded from its texture asset's platform data (TextureImporter::DecodePlatformMips), the
+    // surface tessellated and displaced on the CPU exactly as the GPU pair does (Geometry::BuildDisplacedSurface)
+    // at the input's level, bitwise-equal vertices welded (a cluster border is emitted by both clusters), then
+    // with BakeLODs the LOD chain (BakeMeshLODs), encoded as the MeshBinary container.
+    Common::ResultStr<std::string> BuildDisplacedMeshBytes( const Assets::DisplacedMeshBuildInput& input );
 } // namespace Desert::Editor

@@ -11,6 +11,7 @@
 
 #include <Common/Core/UUID.hpp>
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Assets/MeshDisplacementSettings.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 
 namespace Desert::Assets::Serialization
@@ -96,6 +97,9 @@ namespace Desert::Assets::Serialization
         std::vector<SubmeshData>       Submeshes;
         // THE MESH'S SKELETON (MeshBinary v5, SKEL-TREE): the .skeleton's header GUID; null for a static mesh.
         Common::Content::AssetGuid Skeleton;
+        // THE SKINNED MESH'S DISPLACEMENT MODE (MeshBinary v6, CONTRACT-DISPLACE §9.8): its import setting, kept in
+        // its own file (no source envelope). None for every static mesh: its mode is its source's IMPT.
+        MeshDisplacementMode Displacement = MeshDisplacementMode::None;
         // Blendshapes (empty for meshes without morph targets). New field — meshes cooked before this exists
         // are read with rfl::DefaultIfMissing so they simply come back with an empty list.
         std::vector<MorphTargetData>   MorphTargets;
