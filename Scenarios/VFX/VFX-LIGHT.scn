@@ -1,9 +1,9 @@
-# VFX-LIGHT Light Renderer (UE Niagara Light Renderer): Torch.dfx's Flame emitter has a Light row - up to 8 of its alive flame particles each cast a point light (colour = particle colour x alpha, radius = sprite size x 30, 10 cd inverse-square) into the scene's local-light path. Starter at night (sun and both fill lights at 0), the torch on the Cylinder pole, the Cube stretched into a wall 70 cm behind it; simulated 2 s and shot from the side; then the Light row is disabled in the .dfx editor (Flame.Render.1.Enabled 0, saved: the level effect restarts with it) and the same view is shot again. The scenario re-enables and saves the row at the end; it does NOT save the scene.
+# VFX-LIGHT Light Renderer (UE Niagara Light Renderer): Torch.dfx's Flame emitter has a Light row - up to 8 of its alive flame particles each cast a point light (colour = particle colour x alpha, radius = sprite size x 30, 1.5 cd inverse-square) into the scene's local-light path. Starter at night (sun and both fill lights at 0), the torch on the Cylinder pole, the Cube stretched into a wall 70 cm behind it; simulated 2 s and shot from the side; then the Light row is disabled in the .dfx editor (Flame.Render.1.Enabled 0, saved: the level effect restarts with it) and the same view is shot again. The scenario re-enables and saves the row at the end; it does NOT save the scene.
 Дано run Scene "Open Scene Starter.desce"
 Дано run View "View mode: Lit"
-Дано set 13376537502658031226 DirectionLight.Intensity 0
-Дано set 17693095525329290091 PointLight.Intensity 0
-Дано set 17729774111420330691 PointLight.Intensity 0
+Дано set 13376537502658031226 DirectionalLightData.Intensity 0
+Дано set 17693095525329290091 PointLightData.Intensity 0
+Дано set 17729774111420330691 PointLightData.Intensity 0
 # VFX.System takes the asset handle: HandleForGuid(5c1e7a93d40b4f28a6e2b17f09c3d854) = Torch.dfx
 Дано set 1414213562373095048 VFX.System 241330729926691968
 Дано run Entity "Cube"
