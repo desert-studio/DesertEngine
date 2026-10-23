@@ -1,0 +1,18 @@
+{
+    "Header": {
+        "Kind": "StaticMesh",
+        "Guid": "d15c0de0a5713e5d15c0de0a5713e502",
+        "Versions": {
+            "DIMP": 2
+        },
+        "Dependencies": []
+    },
+    "Source": "DisplaceSlab.gltf",
+    "Settings": {
+        "CombineMeshes": false,
+        "UniformScale": 1.0,
+        "UpAxis": "FromFile",
+        "LodPolicy": "Generate",
+        "Displacement": "Runtime"
+    }
+}
