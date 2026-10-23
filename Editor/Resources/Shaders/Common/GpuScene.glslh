@@ -1,0 +1,146 @@
+// GPU-DRIVEN contract (C0): the rows of the scene's persistent GPU tables and of the culled-draw tables.
+//
+// C++ twin: Engine/Graphic/GpuDriven/GpuSceneLayout.hpp (std430; every offset below is a static_assert there).
+// UE: FPrimitiveSceneShaderData / FInstanceSceneShaderData (SceneData.ush) and the InstanceCulling draw records.
+//
+// Readers: the instance cull (Programs/GpuDriven/InstanceCull.shader) and, through VisibleInstances[gl_InstanceIndex],
+// the vertex stage of every binned mesh pass — which then reads World / PrevWorld / bones / material row from these
+// rows instead of the push block's Transform / MaterialIndex / PrimitiveIndex (Common/MaterialTransport.glslh) and
+// instead of the per-view ObjectMotions rows (Common/ObjectMotion.glslh), which this header retires.
+//
+// The buffer declarations (binding numbers in the scene-read range, Core/ShaderCompiler/ShaderGraphBindings.hpp)
+// are added with the first reader; this header fixes the row layouts.
+
+#ifndef DESERT_GPU_SCENE_GLSLH
+#define DESERT_GPU_SCENE_GLSLH
+
+// GpuDriven::PrimitiveFlags
+#define DESERT_GPU_PRIMITIVE_CASTS_SHADOW        1u
+#define DESERT_GPU_PRIMITIVE_WORLD_BOUNDS        2u
+#define DESERT_GPU_PRIMITIVE_SKINNED             4u
+#define DESERT_GPU_PRIMITIVE_NO_CONTACT_SHADOW   8u
+#define DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION      16u
+
+// GpuDriven::CullViewFlags
+#define DESERT_GPU_CULL_VIEW_ORTHOGRAPHIC  1u
+#define DESERT_GPU_CULL_VIEW_TEST_HZB      2u
+#define DESERT_GPU_CULL_VIEW_SHADOW_CASTER 4u
+
+#define DESERT_GPU_INVALID_INDEX 0xFFFFFFFFu
+
+// One per primitive of the scene; stable index for its life. 224 bytes.
+struct GpuScenePrimitive
+{
+    mat4  LocalToWorld;         // offset 0
+    mat4  PrevLocalToWorld;     // offset 64
+    vec4  LocalBoundsCenter;    // offset 128 — xyz cm, w = wind reach past the bounds (cm)
+    vec4  LocalBoundsExtent;    // offset 144 — xyz cm, w = 0
+    uint  FirstInstance;        // offset 160
+    uint  InstanceCount;        // offset 164
+    uint  FirstLodScreenSize;   // offset 168 — into LodScreenSizes[]
+    uint  LodCount;             // offset 172
+    int   LodBias;              // offset 176
+    int   ForcedLod;            // offset 180 — -1 = auto
+    uint  Flags;                // offset 184 — DESERT_GPU_PRIMITIVE_*
+    uint  Entity;               // offset 188
+    uint  BoneOffset;           // offset 192 — skinned: this frame's palette in ObjectBones
+    uint  PrevBoneOffset;       // offset 196 — skinned: last frame's palette
+    uint  SkinCacheAddressLo;   // offset 200 — skinned, skin cache on; 0 = skin in the vertex stage
+    uint  SkinCacheAddressHi;   // offset 204
+    uint  SkinCacheVertexCount; // offset 208
+    uint  Pad0;                 // offset 212
+    uint  Pad1;                 // offset 216
+    uint  Pad2;                 // offset 220
+};
+
+// One per instance (one for a non-instanced primitive, one per ISM instance). 80 bytes.
+struct GpuSceneInstance
+{
+    mat4  InstanceToPrimitive; // offset 0
+    uint  Primitive;           // offset 64
+    float CullDistanceStart;   // offset 68 — cm; 0/0 = no distance cull
+    float CullDistanceEnd;     // offset 72
+    uint  WorldBoundsRow;      // offset 76 — DESERT_GPU_INVALID_INDEX unless the primitive has WORLD_BOUNDS
+};
+
+// A per-frame world box replacing the local bounds of one instance (skinned pose). 32 bytes.
+struct GpuSceneWorldBounds
+{
+    vec4 Min; // offset 0
+    vec4 Max; // offset 16
+};
+
+// Per (primitive, pass): slot of (lod, submesh) = FirstDrawSlot + lod * SubmeshCount + submesh. 16 bytes.
+struct GpuPrimitivePassDraws
+{
+    uint FirstDrawSlot; // offset 0
+    uint SubmeshCount;  // offset 4 — 0 = not drawn in this pass
+    uint LodCount;      // offset 8
+    uint Pad;           // offset 12
+};
+
+// Per cached draw of a pass. 16 bytes.
+struct GpuDrawSlot
+{
+    uint Bin;         // offset 0
+    uint MaterialRow; // offset 4 — row in Materials[]
+    uint Pad0;        // offset 8
+    uint Pad1;        // offset 12
+};
+
+// Per bin of a pass (pass x pipeline x mesh x submesh x LOD). 32 bytes.
+struct GpuDrawBin
+{
+    uint IndexCount;   // offset 0
+    uint FirstIndex;   // offset 4
+    int  VertexOffset; // offset 8
+    uint FirstVisible; // offset 12
+    uint Capacity;     // offset 16
+    uint Group;        // offset 20
+    uint Pad0;         // offset 24
+    uint Pad1;         // offset 28
+};
+
+// VkDrawIndexedIndirectCommand + its bin, 32-byte stride. Written by the cull / compact.
+struct GpuIndirectDraw
+{
+    uint IndexCount;    // offset 0
+    uint InstanceCount; // offset 4
+    uint FirstIndex;    // offset 8
+    int  VertexOffset;  // offset 12
+    uint FirstInstance; // offset 16 — the bin's FirstVisible
+    uint Bin;           // offset 20
+    uint Pad0;          // offset 24
+    uint Pad1;          // offset 28
+};
+
+// VisibleInstances[gl_InstanceIndex] in a binned draw. 8 bytes.
+struct GpuVisibleInstance
+{
+    uint Instance; // offset 0
+    uint DrawSlot; // offset 4
+};
+
+// Phase 1 rejected by the previous frame's HZB, re-tested by phase 2. 8 bytes.
+struct GpuOccludedInstance
+{
+    uint Instance; // offset 0
+    uint View;     // offset 4
+};
+
+// Per (view x pass) the cull serves. 256 bytes.
+struct GpuCullView
+{
+    mat4  ViewProjection;     // offset 0   — unjittered
+    mat4  PrevViewProjection; // offset 64
+    mat4  LodProjection;      // offset 128 — Geometry::LODView::Projection
+    vec4  LodOrigin;          // offset 192 — xyz = LODView::Origin, w = LOD distance scale
+    vec4  CullOrigin;         // offset 208 — xyz = ISM distance-cull origin
+    uvec4 HzbExtent;          // offset 224 — xy = mip-0 size, z = mip count (0 = no HZB)
+    uint  Pass;               // offset 240 — GpuDriven::MeshPass
+    uint  Flags;              // offset 244 — DESERT_GPU_CULL_VIEW_*
+    uint  Pad0;               // offset 248
+    uint  Pad1;               // offset 252
+};
+
+#endif
