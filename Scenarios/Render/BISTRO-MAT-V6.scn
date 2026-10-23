@@ -1,0 +1,6 @@
+# BISTRO-MAT-V6: BistroFoliageProj materials were MATL v5 (engine reads v6 only) -> ~1270 material load errors, everything grey, leaves solid squares. Raised by scripts/Dev/migrate.sh --write <BistroFoliageProj>/Content/Materials (214 raised, 0 failed).
+# Headless render shot (the project is outside the repo, play_scenario opens Projects/Desert only), run from DesertEngine-scratch/SSS-PROFILE:
+# Editor --project BistroFoliageProj/Desert.deproj --scene B16_Bistro_Street_v70.desce --camera -20,170,330 --look -126,-93,-154 --shot-frames 90
+Дано: BistroFoliageProj, B16_Bistro_Street_v70.desce, camera -20,170,330 look -126,-93,-154, daytime, Lit.
+Когда: shoot after 90 frames.
+Тогда 0_bistro textured facades, leaves alpha-cut (no squares), editor.log material errors 0
