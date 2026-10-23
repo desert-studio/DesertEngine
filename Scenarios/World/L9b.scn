@@ -32,10 +32,15 @@
 Когда run Landscape "Spline: select control point at viewport centre"
 Когда --subject viewport set Camera.Position 9282,9000,-1106
 Когда run Landscape "Spline: move selected control point to viewport centre"
-Когда --subject viewport set Camera.Position 9282,5000,-8000
-Когда --subject viewport set Camera.Direction 0,-0.55,0.84
+Когда --subject viewport set Camera.Position 7840,3100,-1106
+Когда --subject viewport set Camera.Direction 0.5,-0.866,0.001
 Когда state
 Тогда 0_drag the road bends through the moved middle point (800 cm further from the camera), the old straight band is gone
+# The same low view along the road BEFORE the stroke, to compare with 1b_sculpt_side.
+Когда --subject viewport set Camera.Position 6900,1400,-1106
+Когда --subject viewport set Camera.Direction 1,-0.22,0.001
+Когда state
+Тогда 0b_drag_side seen along the road before the stroke: the flat road and the untouched ground beside it
 # Sculpt on the BASE layer (the editing layer; the Splines layer sits above it) right under the moved road.
 Когда run Landscape "Tool: Sculpt"
 Когда run Landscape "Brush radius: larger"
@@ -44,18 +49,25 @@
 Когда --subject viewport set Camera.Direction 0.001,-1,0.001
 Когда --subject viewport set Camera.Position 9282,9000,-1106
 Когда run Landscape "Stroke at the viewport centre"
-Когда --subject viewport set Camera.Position 9282,5000,-8000
-Когда --subject viewport set Camera.Direction 0,-0.55,0.84
+Когда --subject viewport set Camera.Position 7840,3100,-1106
+Когда --subject viewport set Camera.Direction 0.5,-0.866,0.001
 Когда state
 Тогда 1_sculpt_below the ground beside the road is raised into a bump, the road band stays flat across it
+# Same state from low along the road (the apex runs along X): the bump's profile with the road's flat notch through it.
+Когда --subject viewport set Camera.Position 6900,1400,-1106
+Когда --subject viewport set Camera.Direction 1,-0.22,0.001
+Когда state
+Тогда 1b_sculpt_side seen along the road: the bump rises on both sides, the road crosses it as a flat level notch
+Когда --subject viewport set Camera.Position 7840,3100,-1106
+Когда --subject viewport set Camera.Direction 0.5,-0.866,0.001
 # Delete the middle point (UE: Delete with the point selected): its two segments bridge the neighbours.
 Когда run Landscape "Tool: Splines"
 Когда --subject viewport set Camera.Direction 0.001,-1,0.001
 Когда --subject viewport set Camera.Position 9282,9000,-1106
 Когда run Landscape "Spline: select control point at viewport centre"
 Когда run Landscape "Spline: delete selected control point"
-Когда --subject viewport set Camera.Position 9282,5000,-8000
-Когда --subject viewport set Camera.Direction 0,-0.55,0.84
+Когда --subject viewport set Camera.Position 7840,3100,-1106
+Когда --subject viewport set Camera.Direction 0.5,-0.866,0.001
 Когда state
 Тогда 2_delete a straight 2-point road from (6300,-1906) to (12300,-1906); the bend is gone, the bump shows again where it was flattened
 Когда run Action "Undo"
