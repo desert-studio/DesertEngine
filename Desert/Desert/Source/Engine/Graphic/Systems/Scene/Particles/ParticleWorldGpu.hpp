@@ -2,6 +2,7 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <Engine/ECS/VFXPointSet.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
@@ -170,6 +171,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<ShaderResources::StorageBuffer> AttributeInts;
         std::shared_ptr<ShaderResources::StorageBuffer> Params;
         std::shared_ptr<ShaderResources::StorageBuffer> Curves;
+        // VFX-15: the placement's point sets this emitter's PointSet.* bindings read, back to back (PointSetData).
+        std::shared_ptr<ShaderResources::StorageBuffer> PointSets;
         // Where the sprite draw and the sort read the drawn attributes in AttributeFloats (VFX-SPRITE-DRAW): its
         // columns are the compiled layout's, its range and emitter position are re-uploaded every tick.
         std::shared_ptr<ShaderResources::StorageBuffer> DrawLayout;
@@ -178,6 +181,12 @@ namespace Desert::Graphic::System
         // The ParamRows a User.* binding fills (row, user parameter name): the placement's overrides replace
         // these rows, every other row is the stack's own.
         std::vector<std::pair<uint32_t, std::string>> UserRows;
+        // The ParamRow of each PointSet.* binding (row, set name): (first, count) of the placement's set in
+        // PointSetData (ApplyPointSets).
+        std::vector<std::pair<uint32_t, std::string>> PointSetRows;
+        // The PointSets buffer's contents: xyz = point turned by the placement's transform (cm), w = the set's
+        // cumulative weight through it, normalised to 1 (the weighted pick's search key). Never empty.
+        std::vector<glm::vec4>                          PointSetData;
         std::vector<float>                              CurveFloats;
         uint32_t                                        Capacity     = 0;
         uint32_t                                        FloatColumns = 0;
@@ -250,6 +259,9 @@ namespace Desert::Graphic::System
         std::vector<ParticleEmitterGpu>                             Emitters;
         // The VFXComponent overrides the emitters' User rows were last filled from (UE OverrideParameters).
         std::vector<ECS::VFXUserOverride> Overrides;
+        // The point sets and the transform the emitters' PointSet rows were last filled from (VFX-15).
+        std::vector<ECS::VFXPointSet> PointSets;
+        glm::mat3                     PointSetBasis = glm::mat3( 0.0f );
     };
 
     class ParticleWorldGpu final : public VFX::WorldGpuState
@@ -325,6 +337,11 @@ namespace Desert::Graphic::System
         // Fills every emitter's User rows of @p system from the placement's @p overrides (else the defaults).
         static void ApplyUserOverrides( ParticleSystemGpu& system, const std::vector<ECS::VFXUserOverride>& overrides,
                                         uint32_t entityId );
+        // Fills every emitter's PointSetData (and its PointSet rows' first/count) from the placement's @p sets,
+        // each point turned by @p basis (the placement's rotation and scale; the emitter position adds the
+        // translation); a buffer too small for the points is made anew.
+        static void ApplyPointSets( ParticleSystemGpu& system, const std::vector<ECS::VFXPointSet>& sets,
+                                    const glm::mat3& basis, uint32_t entityId );
         // The host program for one compiled stack, by its key (null = refused, said once).
         std::shared_ptr<ComputePipeline> ProgramFor( uint64_t key, const std::string& name,
                                                      const std::string& hostSource );

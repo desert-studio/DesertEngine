@@ -68,6 +68,7 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, AttributeInts );
         DESERT_SHADER_PARAMETER( StorageBuffer, StackParams );
         DESERT_SHADER_PARAMETER( StorageBuffer, StackCurves );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PointSets );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -420,6 +421,7 @@ namespace Desert::Graphic::System
                  .Storage( ParticleSimulateShaderParameters::AttributeInts, ve.IntsRef, RDG::Access::StorageWrite )
                  .Storage( ParticleSimulateShaderParameters::StackParams, ve.ParamsRef, RDG::Access::StorageRead )
                  .Storage( ParticleSimulateShaderParameters::StackCurves, ve.CurvesRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::PointSets, ve.PointSetsRef, RDG::Access::StorageRead )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
             pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
         }
@@ -485,6 +487,8 @@ namespace Desert::Graphic::System
                 Common::BoolResultStr       stack = Renderer::ImportBuffer( gpu.Params, ve.ParamsImport );
                 if ( stack )
                     stack = Renderer::ImportBuffer( gpu.Curves, ve.CurvesImport );
+                if ( stack )
+                    stack = Renderer::ImportBuffer( gpu.PointSets, ve.PointSetsImport );
                 if ( !steps || !args || !chan || !stack )
                 {
                     LOG_ERROR(
@@ -501,6 +505,7 @@ namespace Desert::Graphic::System
                 ve.ArgsRef   = graph.RegisterExternal( ve.ArgsImport, std::format( "ParticleDispatchArgs{}", i ) );
                 ve.ParamsRef = graph.RegisterExternal( ve.ParamsImport, std::format( "VFXStackParams{}", i ) );
                 ve.CurvesRef = graph.RegisterExternal( ve.CurvesImport, std::format( "VFXStackCurves{}", i ) );
+                ve.PointSetsRef = graph.RegisterExternal( ve.PointSetsImport, std::format( "VFXPointSets{}", i ) );
                 if ( gpu.DebugReadback && m_World->DebugReading() )
                 {
                     const Common::BoolResultStr debug = Renderer::ImportBuffer( gpu.DebugReadback, ve.DebugImport );

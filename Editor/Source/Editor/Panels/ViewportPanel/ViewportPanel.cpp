@@ -2055,6 +2055,25 @@ namespace Desert::Editor
             }
         }
 
+        // --- VFX Paint mode (VFX-15): LMB paints the selected VFX entity's point set, one stroke one undo ---
+        if ( Core::ViewportMode::Get() == Core::EditorMode::VFXPaint )
+        {
+            m_VFXPaintTool.DrawPanel( *m_Scene, m_ViewportData.ViewportPos );
+            const bool pressing = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !Tools::WidgetClaimsMouse() &&
+                                  ( m_ViewportData.IsHovered || m_VFXPaintTool.IsStroking() );
+            if ( const auto camera = ViewCamera() )
+            {
+                auto [mx, my]  = GetMouseViewportSpace();
+                const auto ray = Common::Math::Ray::FromScreenPosition(
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
+                     static_cast<uint32_t>( m_ViewportData.Size.x ),
+                     static_cast<uint32_t>( m_ViewportData.Size.y ) );
+                m_VFXPaintTool.Update( *m_Scene, ray, pressing );
+                Tools::VFXPaintTool::DrawPoints( *m_Scene, camera->GetProjectionMatrix() * camera->GetViewMatrix(),
+                                                 m_ViewportData.ViewportPos, m_ViewportData.Size );
+            }
+        }
+
         // --- Landscape mode: LMB strokes, Shift lowers (LandscapeSculptTool); its settings are the Landscape
         // panel ---
         if ( landscapeMode )

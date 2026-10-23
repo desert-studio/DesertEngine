@@ -629,7 +629,18 @@ namespace Desert::VFX
                             expr = RandomExpr( slot, d.Type );
                             break;
                         case S::VFXInputSource::Binding:
-                            if ( in.Binding->starts_with( S::kVFXUserPrefix ) )
+                            if ( in.Binding->starts_with( S::kVFXPointSetPrefix ) )
+                            {
+                                // VFX-15: one row naming where the placement's set sits in the emitter's own
+                                // point-set buffer (first, count); the particle picks a point by its weight
+                                // there (VFX_PointSet: binary search of the set's cumulative weights).
+                                const std::string set = in.Binding->substr( S::kVFXPointSetPrefix.size() );
+                                compiled.Slots.push_back(
+                                     { VFXParamSlot::Kind::PointSet, group, index, d.Name, set } );
+                                expr = std::format( "VFX_PointSet( VFX_Param( {0}u ), VFX_Random( sim, {0}u ).x )",
+                                                    slot );
+                            }
+                            else if ( in.Binding->starts_with( S::kVFXUserPrefix ) )
                             {
                                 const std::string user    = in.Binding->substr( S::kVFXUserPrefix.size() );
                                 const auto [it, inserted] = userSlots.emplace( user, slot );
@@ -762,6 +773,11 @@ namespace Desert::VFX
                     return Common::MakeFormattedError<Result>(
                          "slot {}: no UserParams row '{}' - recompile the stack", s, slot.User );
                 rows.push_back( it->Default );
+                continue;
+            }
+            if ( slot.SlotKind == VFXParamSlot::Kind::PointSet )
+            {
+                rows.emplace_back( 0.0f ); // the placement's set (first, count), written by the GPU world (VFX-15)
                 continue;
             }
             const auto&              uses = GroupOf( emitter, slot.Group );

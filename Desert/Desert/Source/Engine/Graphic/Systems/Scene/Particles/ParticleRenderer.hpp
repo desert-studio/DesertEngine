@@ -269,12 +269,14 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer         IntsImport;
             RDG::ExternalBuffer         ParamsImport;
             RDG::ExternalBuffer         CurvesImport;
+            RDG::ExternalBuffer         PointSetsImport;  // VFX-15: the placement's painted point sets
             RDG::ExternalBuffer         DrawLayoutImport; // where the sort and the draw read the drawn attributes
             RDG::BufferRef              DrawLayoutRef;
             RDG::BufferRef              FloatsRef;
             RDG::BufferRef              IntsRef;
             RDG::BufferRef              ParamsRef;
             RDG::BufferRef              CurvesRef;
+            RDG::BufferRef              PointSetsRef;
             RDG::BufferRef              StepsRef;
             RDG::BufferRef              CountersRef; // read by ParticlePass as IndirectArgs
             RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs

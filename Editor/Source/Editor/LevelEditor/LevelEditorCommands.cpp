@@ -1,4 +1,5 @@
 #include "Editor/LevelEditor/LevelEditorCommands.hpp"
+#include <Editor/Panels/ViewportPanel/Tools/VFXPaintTool.hpp>
 
 #include "Editor/Core/CommandHistory.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
@@ -127,6 +128,7 @@ namespace Desert::Editor
                                  AppendFoliageCommands( out, workspace.ActiveScene(), m_Modules.AssetsSlot,
                                                         m_AssetFiles.Files() );
                              } );
+        m_Commands.Register( "VFX Paint", []( Out& out ) { Tools::VFXPaintTool::AppendCommands( out ); } );
         m_Commands.Register( "Open", [this, &documents]( Out& out )
                              { documents.AppendOpenCommands( out, m_AssetFiles.Files() ); } );
         m_Commands.Register( "Assets (folders)",

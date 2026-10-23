@@ -1191,7 +1191,47 @@ namespace Desert::Editor
                                              }
                                      } } );
         }
+        // Once per emitter, not per stage: the spawn location is one module of the spawn group (VFX-15).
+        out.push_back( { std::format( "Spawn {} from point set PaintedPoints", name ), [this, name]
+                         {
+                             for ( std::size_t em = 0; em < m_Working.Emitters.size(); ++em )
+                                 if ( m_Working.Emitters[em].Name == name )
+                                 {
+                                     (void)SpawnFromPointSet( em, "PaintedPoints" );
+                                     return;
+                                 }
+                         } } );
         return out;
+    }
+
+    Common::BoolResultStr VFXSystemDocument::SpawnFromPointSet( const std::size_t emitter, const std::string& set )
+    {
+        std::size_t spawn = kStageKeys.size();
+        for ( std::size_t st = 0; st < kStageKeys.size(); ++st )
+            if ( std::string_view( kStageKeys[st] ) == "ParticleSpawn" )
+                spawn = st;
+        if ( emitter >= m_Working.Emitters.size() || spawn == kStageKeys.size() || set.empty() ||
+             set.find( '.' ) != std::string::npos )
+        {
+            m_Refusal = std::format( "Spawn from point set '{}': no such emitter or not a set name", set );
+            return Common::MakeError<bool>( m_Refusal );
+        }
+        auto before = m_Working;
+        auto& modules = StageModules( m_Working.Emitters[emitter].Stack, spawn );
+        for ( S::VFXModuleUse& use : modules )
+            if ( use.Module.starts_with( "engine:Shape" ) )
+                use.Enabled = false;
+        S::VFXModuleUse use;
+        use.Module = "engine:ShapePointSet";
+        S::VFXModuleInput location;
+        location.Name    = "Location";
+        location.Type    = S::VFXValueType::Vec3;
+        location.Source  = S::VFXInputSource::Binding;
+        location.Binding = std::format( "{}{}", S::kVFXPointSetPrefix, set );
+        use.Inputs.push_back( std::move( location ) );
+        modules.push_back( std::move( use ) );
+        return Commit( std::move( before ), std::format( "Spawn {} from PointSet.{}",
+                                                         m_Working.Emitters[emitter].Name, set ) );
     }
 
     SubjectEditorRegistry::PathOpenOutcome RequestVFXSystemDocument( Assets::AssetManager*        assets,

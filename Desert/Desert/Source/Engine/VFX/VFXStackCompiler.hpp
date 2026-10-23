@@ -151,6 +151,8 @@ namespace Desert::VFX
             RandomMax, ///< the input's Random.Max
             User,      ///< the system's UserParams row named User
             Curve,     ///< the input's LUT in the system's curve atlas: CurveParamRow (VFXCurveLUT.hpp)
+            PointSet,  ///< the placement's point set named User: (first, count) in the emitter's point-set buffer
+                       ///< (VFX-15)
         };
 
         Kind          SlotKind = Kind::Value;

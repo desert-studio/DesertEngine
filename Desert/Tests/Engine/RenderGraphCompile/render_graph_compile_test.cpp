@@ -3505,6 +3505,7 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
               ".Storage(ParticleSimulateShaderParameters::AttributeInts,ve.IntsRef,RDG::Access::StorageWrite)"
               ".Storage(ParticleSimulateShaderParameters::StackParams,ve.ParamsRef,RDG::Access::StorageRead)"
               ".Storage(ParticleSimulateShaderParameters::StackCurves,ve.CurvesRef,RDG::Access::StorageRead)"
+              ".Storage(ParticleSimulateShaderParameters::PointSets,ve.PointSetsRef,RDG::Access::StorageRead)"
               ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleSimPush)));"
               "pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
          std::string::npos );

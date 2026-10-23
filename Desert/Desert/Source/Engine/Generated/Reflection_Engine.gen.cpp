@@ -31,6 +31,7 @@
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/ECS/StaticLightingSettings.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
+#include <Engine/ECS/VFXPointSet.hpp>
 #include <Engine/ECS/VFXUserOverride.hpp>
 #include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
@@ -54,6 +55,12 @@
 
 namespace Desert::Reflection
 {
+template <>
+struct ReflectedStruct<::Desert::ECS::VFXPointSet>
+{
+    static constexpr const char* Name = "VFXPointSet";
+    static constexpr auto Members = std::tuple{ StructMember{ "Name", &::Desert::ECS::VFXPointSet::Name }, StructMember{ "Points", &::Desert::ECS::VFXPointSet::Points }, };
+};
 template <>
 struct ReflectedStruct<::Desert::ECS::VFXUserOverride>
 {
@@ -378,6 +385,7 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "System", .Type = FieldType::AssetHandle, .Offset = offsetof( T, System ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::System )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "System", .Category = "VFX", .Tooltip = "The .dfx effect this entity plays", .IsAsset = true, .AssetType = "VFXSystemAsset", } } )
                     .Field( FieldInfo{ .Name = "AutoActivate", .Type = FieldType::Bool, .Offset = offsetof( T, AutoActivate ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::AutoActivate )>(), .TypeName = "bool", .Meta = PropertyMetadata{ .DisplayName = "Auto Activate", .Category = "VFX", } } )
                     .Field( FieldInfo{ .Name = "Overrides", .Type = FieldType::Struct, .Offset = offsetof( T, Overrides ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Overrides )>(), .TypeName = "std::vector<VFXUserOverride>", .Meta = PropertyMetadata{ .DisplayName = "User Parameters", .Category = "VFX", .Tooltip = "This placement's values for the system's User parameters", .Hidden = true, }, .IsContainer = true, .SerializeContainer = ::Desert::Reflection::WriteContainer<decltype( T::Overrides )>, .DeserializeContainer = ::Desert::Reflection::ReadContainer<decltype( T::Overrides )>, .ElementType = FieldType::Struct, .ContainerSize = ::Desert::Reflection::ContainerSize<decltype( T::Overrides )>, .ContainerResize = ::Desert::Reflection::ContainerResize<decltype( T::Overrides )>, .ContainerGet = ::Desert::Reflection::ContainerGet<decltype( T::Overrides )>, .ContainerSet = ::Desert::Reflection::ContainerSet<decltype( T::Overrides )> } )
+                    .Field( FieldInfo{ .Name = "PointSets", .Type = FieldType::Struct, .Offset = offsetof( T, PointSets ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::PointSets )>(), .TypeName = "std::vector<VFXPointSet>", .Meta = PropertyMetadata{ .DisplayName = "Point Sets", .Category = "VFX", .Tooltip = "The point sets painted for this placement (VFX Paint mode)", .Hidden = true, }, .IsContainer = true, .SerializeContainer = ::Desert::Reflection::WriteContainer<decltype( T::PointSets )>, .DeserializeContainer = ::Desert::Reflection::ReadContainer<decltype( T::PointSets )>, .ElementType = FieldType::Struct, .ContainerSize = ::Desert::Reflection::ContainerSize<decltype( T::PointSets )>, .ContainerResize = ::Desert::Reflection::ContainerResize<decltype( T::PointSets )>, .ContainerGet = ::Desert::Reflection::ContainerGet<decltype( T::PointSets )>, .ContainerSet = ::Desert::Reflection::ContainerSet<decltype( T::PointSets )> } )
             .WithDefault<T>()
             .Register();
     }
@@ -719,6 +727,15 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "Month", .Type = FieldType::Int, .Offset = offsetof( T, Month ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Month )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Month", .Category = "Time Of Day", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 12.0f, .EditCondition = "DriveSunFromTimeOfDay", } } )
                     .Field( FieldInfo{ .Name = "Day", .Type = FieldType::Int, .Offset = offsetof( T, Day ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Day )>(), .TypeName = "int", .Meta = PropertyMetadata{ .DisplayName = "Day", .Category = "Time Of Day", .Tooltip = "Day of the month; a date the calendar does not have (30 February) stops the clock with an error.", .HasRange = true, .RangeMin = 1.0f, .RangeMax = 31.0f, .EditCondition = "DriveSunFromTimeOfDay", } } )
                     .Field( FieldInfo{ .Name = "NorthOffset", .Type = FieldType::Float, .Offset = offsetof( T, NorthOffset ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::NorthOffset )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "North Offset", .Category = "Time Of Day", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 360.0f, .Units = "deg", .EditCondition = "DriveSunFromTimeOfDay", } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::VFXPointSet;
+        TypeBuilder( "VFXPointSet", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "Name", .Type = FieldType::String, .Offset = offsetof( T, Name ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Name )>(), .TypeName = "std::string", .Meta = PropertyMetadata{ .DisplayName = "Name", .Tooltip = "What a PointSet.<name> stack binding reads", } } )
+                    .Field( FieldInfo{ .Name = "Points", .Type = FieldType::Struct, .Offset = offsetof( T, Points ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::Points )>(), .TypeName = "std::vector<glm::vec4>", .Meta = PropertyMetadata{ .DisplayName = "Points", .Tooltip = "xyz local position (cm), w weight", } } )
             .WithDefault<T>()
             .Register();
     }

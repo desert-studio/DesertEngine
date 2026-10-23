@@ -98,6 +98,14 @@ Shader "ParticleSimulate"
             float StackCurvesData[];
         };
 
+        // VFX-15: the placement's painted point sets this emitter spawns from, back to back, its own buffer (UE
+        // ArrayPosition's buffer, no cap on the points): xyz = the point relative to the placement turned by its
+        // transform (cm), w = the set's cumulative weight through this point, normalised to 1 at its last point.
+        ReadBuffer(10) PointSets
+        {
+            vec4 PointSetsData[];
+        };
+
         PushConstant PushConstants
         {
             vec4  EmitterPosition; // xyz = emitter world pos (cm), w = the fixed step length (seconds)
@@ -130,6 +138,25 @@ Shader "ParticleSimulate"
         float VFX_CurveLUT( uint index )
         {
             return StackCurvesData[index];
+        }
+        vec3 VFX_PointSet( vec4 row, float u )
+        {
+            const uint first = uint( row.x );
+            const uint count = uint( row.y );
+            if ( count == 0u )
+                return vec3( 0.0 );
+            // The first point whose cumulative weight passes u (the weighted pick, O(log n) per particle).
+            uint lo = 0u;
+            uint hi = count - 1u;
+            while ( lo < hi )
+            {
+                const uint mid = ( lo + hi ) / 2u;
+                if ( PointSetsData[first + mid].w <= u )
+                    lo = mid + 1u;
+                else
+                    hi = mid;
+            }
+            return PointSetsData[first + lo].xyz;
         }
 
         vec3 ReadVec3( uint n, uint c )
