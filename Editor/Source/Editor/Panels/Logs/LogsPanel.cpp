@@ -71,18 +71,40 @@ namespace Desert::Editor
         if ( logFile.empty() || !std::filesystem::exists( logFile, ec ) )
             return;
 
-        auto writeTime = std::filesystem::last_write_time( logFile, ec );
-        if ( writeTime == m_LastWriteTime )
+        // TAILED, not re-read: only the bytes written since the last call are parsed. Re-reading the whole
+        // file on every change made this panel O(log size) per frame - the logger writes every frame, so a
+        // 28k-line Bistro session spent 110 ms of a 233 ms frame here. A file shorter than what was already
+        // read was truncated (Clear, or a new session reusing the name): start over from its first byte.
+        const std::uintmax_t size = std::filesystem::file_size( logFile, ec );
+        if ( ec || size == m_ReadOffset )
             return;
-
-        m_LastWriteTime = writeTime;
-        m_Entries.clear();
-        m_CountInfo = m_CountWarning = m_CountError = 0;
-
-        std::ifstream file( logFile );
-        std::string   line;
-        while ( std::getline( file, line ) )
+        if ( size < m_ReadOffset )
         {
+            m_Entries.clear();
+            m_PendingLine.clear();
+            m_ReadOffset = 0;
+            m_CountInfo = m_CountWarning = m_CountError = 0;
+            s_SessionTail.clear();
+        }
+
+        std::ifstream file( logFile, std::ios::binary );
+        file.seekg( static_cast<std::streamoff>( m_ReadOffset ) );
+        std::string chunk( static_cast<std::size_t>( size - m_ReadOffset ), '\0' );
+        file.read( chunk.data(), static_cast<std::streamsize>( chunk.size() ) );
+        chunk.resize( static_cast<std::size_t>( file.gcount() ) );
+        m_ReadOffset += chunk.size();
+
+        // A line the logger is still writing has no '\n' yet; it waits in m_PendingLine for the rest.
+        const std::size_t firstNew = m_Entries.size();
+        std::size_t       begin    = 0;
+        for ( std::size_t end = chunk.find( '\n' ); end != std::string::npos; end = chunk.find( '\n', begin ) )
+        {
+            std::string line = std::move( m_PendingLine );
+            m_PendingLine.clear();
+            line.append( chunk, begin, end - begin );
+            begin = end + 1;
+            if ( !line.empty() && line.back() == '\r' )
+                line.pop_back();
             if ( line.empty() )
                 continue;
 
@@ -109,19 +131,21 @@ namespace Desert::Editor
 
             m_Entries.push_back( { std::move( line ), level } );
         }
+        m_PendingLine.append( chunk, begin, std::string::npos );
+        if ( m_Entries.size() == firstNew )
+            return;
 
         s_SessionWarnings = m_CountWarning;
         s_SessionErrors   = m_CountError;
         s_SessionInfo     = m_CountInfo;
 
-        // Rebuilt from the entries just parsed rather than appended to as lines arrive: Refresh re-reads
-        // the WHOLE file whenever it changes, so an appended tail would accumulate every line several
-        // times over and the channel would report a log the editor never wrote.
-        s_SessionTail.clear();
-        const std::size_t tailStart =
-             m_Entries.size() > kTailCapacity ? m_Entries.size() - kTailCapacity : std::size_t{ 0 };
-        for ( std::size_t i = tailStart; i < m_Entries.size(); ++i )
+        // Extended by the lines just parsed - each line is read once now, so appending cannot repeat one -
+        // and trimmed back to the newest kTailCapacity.
+        for ( std::size_t i = firstNew; i < m_Entries.size(); ++i )
             s_SessionTail.push_back( m_Entries[i].Text );
+        if ( s_SessionTail.size() > kTailCapacity )
+            s_SessionTail.erase( s_SessionTail.begin(),
+                                 s_SessionTail.end() - static_cast<std::ptrdiff_t>( kTailCapacity ) );
 
         m_ScrollToBottom = true;
     }
@@ -189,11 +213,13 @@ namespace Desert::Editor
         if ( ImGui::Button( ICON_MDI_DELETE_SWEEP_OUTLINE ) )
         {
             m_Entries.clear();
+            m_PendingLine.clear();
             m_CountInfo = m_CountWarning = m_CountError = 0;
             s_SessionWarnings = s_SessionErrors = 0;
+            s_SessionTail.clear();
             if ( const std::filesystem::path logFile = Common::Logger::LogFilePath(); !logFile.empty() )
                 std::ofstream( logFile, std::ios::trunc ).close();
-            m_LastWriteTime = {};
+            m_ReadOffset = 0;
         }
         if ( ImGui::IsItemHovered() )
             ImGui::SetTooltip( "Clear the log" );
@@ -303,45 +329,39 @@ namespace Desert::Editor
         // O(visible) even for a huge log; all rows are single-line, so it is exact.
         // Rebuild the row list ONLY when something it depends on changed — see the note on m_Rows. Doing
         // this per frame cost more than rendering the scene.
-        const bool viewDirty = m_RowsBuiltFromCount != m_Entries.size() || m_RowsInfo != m_ShowInfo ||
-                               m_RowsWarnings != m_ShowWarnings || m_RowsErrors != m_ShowErrors ||
-                               m_RowsCollapse != m_Collapse ||
-                               std::strncmp( m_RowsFilter, m_Filter, sizeof( m_RowsFilter ) ) != 0;
-        if ( viewDirty )
+        // A filter change rebuilds the rows; new log lines only extend them (the collapse folds a new line into
+        // the last run exactly as a rebuild would), so the cost per frame is the lines written that frame.
+        const bool filtersChanged = m_RowsInfo != m_ShowInfo || m_RowsWarnings != m_ShowWarnings ||
+                                    m_RowsErrors != m_ShowErrors || m_RowsCollapse != m_Collapse ||
+                                    std::strncmp( m_RowsFilter, m_Filter, sizeof( m_RowsFilter ) ) != 0;
+        if ( filtersChanged || m_RowsBuiltFromCount > m_Entries.size() )
         {
-            std::vector<std::pair<std::string, int>> filtered;
-            filtered.reserve( m_Entries.size() );
-            for ( const auto& entry : m_Entries )
-            {
-                if ( entry.Level == 0 && !m_ShowInfo )     continue;
-                if ( entry.Level == 1 && !m_ShowWarnings ) continue;
-                if ( entry.Level == 2 && !m_ShowErrors )   continue;
-                if ( !LogMatches( entry.Text, m_Filter ) ) continue;
-                filtered.emplace_back( entry.Text, entry.Level );
-            }
-
+            m_Rows.clear();
+            m_RowsBuiltFromCount = 0;
+        }
+        for ( std::size_t i = m_RowsBuiltFromCount; i < m_Entries.size(); ++i )
+        {
+            const LogEntry& entry = m_Entries[i];
+            if ( entry.Level == 0 && !m_ShowInfo )     continue;
+            if ( entry.Level == 1 && !m_ShowWarnings ) continue;
+            if ( entry.Level == 2 && !m_ShowErrors )   continue;
+            if ( !LogMatches( entry.Text, m_Filter ) ) continue;
             if ( m_Collapse )
             {
-                m_Rows = CollapseRepeats( filtered );
+                AppendCollapsed( m_Rows, entry.Text, entry.Level );
             }
             else
             {
-                m_Rows.clear();
-                m_Rows.reserve( filtered.size() );
-                for ( auto& [text, level] : filtered )
-                {
-                    const std::string time( ParseLogLine( text ).Time );
-                    m_Rows.push_back( { std::move( text ), level, 1, time, time } );
-                }
+                const std::string time( ParseLogLine( entry.Text ).Time );
+                m_Rows.push_back( { entry.Text, entry.Level, 1, time, time } );
             }
-
-            m_RowsBuiltFromCount = m_Entries.size();
-            m_RowsInfo           = m_ShowInfo;
-            m_RowsWarnings       = m_ShowWarnings;
-            m_RowsErrors         = m_ShowErrors;
-            m_RowsCollapse       = m_Collapse;
-            std::memcpy( m_RowsFilter, m_Filter, sizeof( m_RowsFilter ) );
         }
+        m_RowsBuiltFromCount = m_Entries.size();
+        m_RowsInfo           = m_ShowInfo;
+        m_RowsWarnings       = m_ShowWarnings;
+        m_RowsErrors         = m_ShowErrors;
+        m_RowsCollapse       = m_Collapse;
+        std::memcpy( m_RowsFilter, m_Filter, sizeof( m_RowsFilter ) );
 
         const std::vector<LogRepeatRun>& rows = m_Rows;
 

@@ -9,7 +9,8 @@ The owner: «Заставь агентов выполнять это». So the r
      discovery goes to an Explore sub-agent, whose reading stays in its own context;
   2. at most 60 tool calls per worker, a HARD cap no extension lifts (ledger 09-29: a call costs 8k at <=30 calls and
      19k past 90; agents past 90 were 45 % of all spend) — from call 45 every result carries a stop reminder,
-     past the limit everything is refused except git, SendMessage and writing the REMAINDER/report;
+     past the limit everything is refused except git, SendMessage and writing the REMAINDER/report (10-23: 80 + 20 calls
+     for the final step only — scenario, frames, commit; no edits, no code search, no command thrice in a row);
   3. no `sleep` longer than 270 s in one call (the prompt cache expires at 5 minutes);
   4. at most two editor builds per worker;
   5. one `make` on the machine at a time, at most -j4 (16 GB RAM; 2026-09-24 parallel builds OOM-killed it);
@@ -34,7 +35,10 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
 STATE_DIR = os.path.expanduser("~/.claude/agent-guard")  # survives a reboot: /tmp reset the 80-call budget
 TURN_WARN = 72
 TURN_LIMIT = 80  # owner 10-22 «применяй все четыре»: 40 → 80, a 40-call pass re-read brief+map+code twice as often; owner 10-20: «запиши это все в хуки» — an agent's cost grows with the square of its length (PT-LANDSCAPE 135 calls = 20.6M re-read); one cause per agent, the rest to a fresh agent
-TURN_HARD_CAP = 80  # owner 10-22: 40 → 80; owner 2026-10-20 (150 on 10-10, 60 on 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
+TURN_FINISH = 20  # owner 10-23: p2 of SLICE-01c hit 80 two steps from the end and a fresh agent re-read everything; after
+# TURN_LIMIT only the FINAL step may run (scenario replay, frames, commit, REMAINDER) for TURN_FINISH more calls — no edits,
+# no code search — and the same command three times in a row there is a loop and is refused
+TURN_HARD_CAP = 100  # owner 10-23: soft 80 + 20 finishing; owner 10-22: 40 → 80; owner 2026-10-20 (150 on 10-10, 60 on 09-29): the rest goes to a FRESH agent with REMAINDER file:line, never an extension
 # Owner 10-15 «давай»: three of six agents that day ran out at 150 mid-build and handed over unchecked code, each
 # costing a fresh agent 1.5-3 h. So 300 through Monday 2026-10-19, then 150 again by itself; and a blocking wait on a
 # build or background job (build_wait.sh / wait_bg.sh) is not counted — waiting is not work.
@@ -588,7 +592,7 @@ def main():
 
     # A continued agent (the lead resumed it with SendMessage for the next step in the same code) gets a larger
     # budget from ~/.claude/tools/agent_extend.py: re-reading the same files in a fresh agent was 40-60 % of a step.
-    limit = state.get("limit", TURN_LIMIT)
+    limit = state.get("limit", TURN_LIMIT + TURN_FINISH)
     if not state.get("cap_exempt"):  # set by hand only for an agent launched before the 09-29 cap
         limit = min(limit, TURN_HARD_CAP)
     if event == "PostToolUse":
@@ -625,10 +629,10 @@ def main():
                   "~/.claude/tools/build_wait.sh <лог>; прочее — ~/.claude/tools/wait_bg.sh " + bg_out(data) + "."}})
             sys.exit(0)
         calls = state.get("calls", 0)
-        if calls >= limit - (TURN_LIMIT - TURN_WARN):
+        if calls >= min(limit, TURN_LIMIT) - (TURN_LIMIT - TURN_WARN):
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-                  f"[agent_guard] Вызов {calls}/{limit}, осталось {limit - calls}. Доделай ТЕКУЩИЙ шаг, "
-                  f"новый крупный не начинай; закоммить, запушь и отчитайся до {limit}. Не останавливайся "
+                  f"[agent_guard] Вызов {calls}/{TURN_LIMIT} (+{limit - TURN_LIMIT} только на финальный шаг: сценарий, кадры, "
+                  f"коммит; без правок и поиска). Доделай ТЕКУЩИЙ шаг, новый крупный не начинай; закоммить, запушь и отчитайся. Не останавливайся "
                   f"раньше времени. Остаток — в REMAINDER.md в своём скретче (файл:строка, что заменить на что, что проверено): "
                   f"продлений нет, его доделает свежий агент по этому списку."}})
         sys.exit(0)
@@ -641,6 +645,16 @@ def main():
         state["calls"] = state.get("calls", 0) + 1
     calls = state["calls"] = state.get("calls", 0)
 
+    finish = TURN_LIMIT < calls <= limit and not state.get("limit")  # the owner's finishing window, 10-23
+    if finish:
+        same = bool(cmd) and state.get("finish_last") == cmd
+        state["finish_rep"] = state.get("finish_rep", 1) + 1 if same else 1
+        state["finish_last"] = cmd
+        if tool in ("Edit", "MultiEdit", "NotebookEdit", "Grep", "Glob", "Agent") or state["finish_rep"] >= 3:
+            save_state(state, path)
+            deny(f"[agent_guard] Вызов {calls}: после {TURN_LIMIT} — только финальный шаг до {limit} (прогон сценария, "
+                 f"кадры, коммит, пуш, REMAINDER); правки, поиск по коду и одна команда трижды подряд запрещены. "
+                 f"Не доделывается — REMAINDER.md (файл:строка) и отчёт тимлиду.", data, agent)
     if calls > limit:
         allowed = tool in ("SendMessage", "Write") or (tool == "Bash" and ALWAYS_ALLOWED_AFTER_LIMIT.match(cmd))
         if not allowed:

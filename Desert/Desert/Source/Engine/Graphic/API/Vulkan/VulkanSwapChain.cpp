@@ -86,6 +86,9 @@ namespace Desert::Graphic::API::Vulkan
 
         auto oldSwapchain = m_SwapChain;
 
+        // Before the present mode is resolved below: until a surface was probed the catalog offers FIFO alone,
+        // and VSync Off silently fell back to it.
+        vkLogicalDevice->GetPhysicalDevice()->ProbeSurface( m_Surface );
         const auto& pDevice = vkLogicalDevice->GetPhysicalDevice()->GetVulkanPhysicalDevice();
         
         VkSurfaceCapabilitiesKHR surfCaps;

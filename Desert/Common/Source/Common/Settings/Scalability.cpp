@@ -1201,7 +1201,9 @@ namespace Common::Scalability
     {
         State& s  = S();
         s.Catalog = std::move( catalog );
-        Publish( Resolve( s.Selection, s.Table, s.Catalog ) );
+        // Before Initialize there is no table to resolve against; Initialize takes the device's catalog then.
+        if ( s.Initialized )
+            Publish( Resolve( s.Selection, s.Table, s.Catalog ) );
     }
 
     QualityState::ApplyReport QualityState::Apply( const QualitySelection& selection )
