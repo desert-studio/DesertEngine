@@ -2,6 +2,7 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <Engine/ECS/VFXPointSet.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
