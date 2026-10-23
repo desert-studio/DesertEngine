@@ -1,0 +1,24 @@
+# P18c CubeGrid: a Push into a mesh the session did not build cuts it with a boolean (UE CubeGridBooleanOp on
+# FMeshBoolean): Pull builds a 300 cm block (3x3 blocks, 3 high), Accept and Start New, then one 1x1 Push on its
+# top centre cuts a 100 cm pit; Undo puts the top back and the tool stays open.
+# The camera looks down from 8 m along (-1,-3,-1); the 3x3 block grows +X,+Z from the aimed ground cell, so 300 cm
+# up the same ray meets the block top on its centre cell.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 600,800,600
+Дано --subject viewport set Camera.Direction -0.3,-0.9,-0.3
+Дано run CubeGrid "CubeGrid tool"
+Дано run CubeGrid "Aim at the viewport centre: on"
+Дано run CubeGrid "Grid Power 5"
+Дано run CubeGrid "Select 3x3 blocks at the aim"
+Дано run CubeGrid "Push/Pull out (E)"
+Дано run CubeGrid "Push/Pull out (E)"
+Дано run CubeGrid "Push/Pull out (E)"
+Дано run CubeGrid "Accept and Start New"
+Когда run CubeGrid "Select 1x1 blocks at the aim"
+Когда run CubeGrid "Push/Pull in (Q)"
+Когда state
+Тогда 0_cut a 100 cm deep 100x100 cm pit cut into the centre of the 300 cm block's top, seen from above; CubeGrid tool bar still shown
+Когда run Action Undo
+Когда state
+Тогда 1_undo the block's top is flat again (no pit); the CubeGrid tool bar is still shown (tool active)
