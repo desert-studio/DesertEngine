@@ -3,6 +3,9 @@
 # Start: L9.scn's road - three points across the TerrainPlain hill at (6300|9282|12300, -1906).
 # The bent meshes are derived from the splines (ECS::LandscapeSplineMeshDraw), so drag/undo/reopen re-bend them.
 # The scenario SAVES: `git checkout -- Projects/Desert/Content/Scenes/G3_TwoTerrains*` after a play.
+# The view mode is a MACHINE preference that persists between runs (M28_Jacket.scn leaves it on Wireframe):
+# state it, or the slab is drawn as triangle outlines (meshes honour Wireframe, the landscape does not).
+Дано run View "View mode: Lit"
 Дано run Scene "Open Scene G3_TwoTerrains.desce"
 Дано run Landscape "Sculpt mode"
 Дано run Landscape "Tool: Splines"
