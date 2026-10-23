@@ -91,6 +91,10 @@ namespace Desert::Graphic::System
         {
             m_LocalExposure = frame;
         }
+        [[nodiscard]] const LocalExposureFrame& GetLocalExposure() const
+        {
+            return m_LocalExposure;
+        }
         // SETUP of "PostFX: Tonemap", first: the material's values, from this frame's settings and @p inputs'
         // effect flags (an effect that did not run draws with intensity 0). Filled before DeclareBindings so the
         // setup validates the block against the route fill the draw will use.
@@ -109,6 +113,11 @@ namespace Desert::Graphic::System
         void SetParams( float exposure )
         {
             m_Exposure = exposure;
+        }
+        // The manual exposure (the bloom's local exposure uses it when auto-exposure is off).
+        [[nodiscard]] float GetExposure() const
+        {
+            return m_Exposure;
         }
 
         // The scene's tonemapping curve. ACES is the default and the one the sky programme measures

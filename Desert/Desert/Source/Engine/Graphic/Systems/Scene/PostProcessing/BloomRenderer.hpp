@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/Systems/Scene/PostProcessing/TonemapRenderer.hpp>
 
 #include <algorithm>
 #include <memory>
@@ -27,7 +28,9 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
         DESERT_SHADER_PARAMETER( Texture, AdaptedLuminanceTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, DestinationMipTexture );
-        static constexpr std::array kAll{ RDG::Erase( SourceMipTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( PointClampSampler ), RDG::Erase( AdaptedLuminanceTexture ), RDG::Erase( DestinationMipTexture ) };
+        DESERT_SHADER_PARAMETER( Texture, LumBilateralGrid );
+        DESERT_SHADER_PARAMETER( Texture, BlurredLogLuminance );
+        static constexpr std::array kAll{ RDG::Erase( SourceMipTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( PointClampSampler ), RDG::Erase( AdaptedLuminanceTexture ), RDG::Erase( DestinationMipTexture ), RDG::Erase( LumBilateralGrid ), RDG::Erase( BlurredLogLuminance ) };
     };
 
     // The Upsample shader's parameters: the one spelling the pass binds and Initialize checks.
@@ -54,8 +57,11 @@ namespace Desert::Graphic::System
         // mip i-1, both LinearClamp. SETUP declares that block (block 0); the EXEC dispatches from it.
         // @p adaptedLuminance is this frame's auto-exposure adapted luminance (1x1), or the system white when
         // there is none: with auto-exposure on, the threshold is stated after exposure, as it is in manual.
+        // @p localExposureGrid / @p blurredLogLuminance: FrameTransients' when the local exposure ran, else
+        // System.Black3D / System.Black (SetLocalExposure's frame then says not produced).
         void DeclareDownsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneColor, RDG::TextureRef chain,
-                                        RDG::TextureRef adaptedLuminance, uint32_t mip ) const;
+                                        RDG::TextureRef adaptedLuminance, RDG::TextureRef localExposureGrid,
+                                        RDG::TextureRef blurredLogLuminance, uint32_t mip ) const;
         [[nodiscard]] Common::BoolResultStr RecordDownsample( const RDG::PassContext& context,
                                                               const RDG::TextureDesc& chainDesc, uint32_t mip );
         // Additive upsample: samples @p mip (>= 1) of @p chain (LinearClamp) and accumulates into mip - 1.
@@ -82,6 +88,14 @@ namespace Desert::Graphic::System
         }
         // The chain's mip count cap, PostProcess.BloomMips (Scalability; High = 6, the former constant). Read per
         // frame by GetChainDesc, so a change applies on the next frame's graph.
+        // This frame's local exposure (UE r.Bloom.ApplyLocalExposure): mip 0 multiplies each tap by it, with the
+        // manual @p exposure the composite uses when auto-exposure is off.
+        void SetLocalExposure( const TonemapRenderer::LocalExposureFrame& frame, float exposure )
+        {
+            m_LocalExposure  = frame;
+            m_ManualExposure = exposure;
+        }
+
         void SetMaxMips( uint32_t mips )
         {
             m_MaxMips = std::max( 1u, mips );
@@ -101,6 +115,8 @@ namespace Desert::Graphic::System
         float    m_PreExposure  = 1.0f;
         bool     m_AutoExposure = false;
         float    m_ExposureKey  = 0.18f;
+        TonemapRenderer::LocalExposureFrame m_LocalExposure;
+        float                               m_ManualExposure = 1.0f;
         uint32_t m_MaxMips   = 6; // until the first SetMaxMips: the High table value
     };
 } // namespace Desert::Graphic::System

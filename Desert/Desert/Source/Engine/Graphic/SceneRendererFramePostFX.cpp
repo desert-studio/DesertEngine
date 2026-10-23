@@ -277,6 +277,18 @@ namespace Desert::Graphic
              autoExp ? textures.Import( autoExp->GetAdaptedLuminanceImage(), "AutoExposure.Adapted" )
                      : RDG::TextureRef{};
         const RDG::TextureRef adapted = adaptedImport.IsValid() ? adaptedImport : textures.System.White;
+        // Local exposure (UE r.Bloom.ApplyLocalExposure): AddFrameLocalExposure ran first and handed the tonemap
+        // this frame's numbers; the bloom's mip 0 applies the same ones, so the bloom is exposed like its source.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+        if ( tonemap != nullptr )
+            bloom->SetLocalExposure( tonemap->GetLocalExposure(), tonemap->GetExposure() );
+        const RDG::TextureRef leGrid = textures.Transients.LocalExposureGrid.IsValid()
+                                            ? textures.Transients.LocalExposureGrid
+                                            : textures.System.Black3D;
+        const RDG::TextureRef leBlurred = textures.Transients.BlurredLogLuminance.IsValid()
+                                               ? textures.Transients.BlurredLogLuminance
+                                               : textures.System.Black;
 
         // Downsample: scene -> mip 0 (Karis + threshold), then mip i-1 -> mip i. One node per dispatch, each
         // declaring the one mip it samples and the one it writes.
@@ -284,7 +296,7 @@ namespace Desert::Graphic
             graph.AddPass(
                  std::format( "PostFX: BloomDownsample{}", mip ), RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
-                 { bloom->DeclareDownsampleBindings( pass, scene, chain, adapted, mip ); },
+                 { bloom->DeclareDownsampleBindings( pass, scene, chain, adapted, leGrid, leBlurred, mip ); },
                  [bloom, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return bloom->RecordDownsample( context, chainDesc, mip ); } );
         // Upsample (additive): mip i -> mip i-1, walking back to mip 0 (read-modify-write of the target mip).
