@@ -1,6 +1,6 @@
 #include "IconBake.hpp"
 
-#include <Engine/Vector/VectorImage.hpp>
+#include <TextCore/Vector/VectorImage.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>

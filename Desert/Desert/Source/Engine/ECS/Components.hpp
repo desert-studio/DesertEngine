@@ -30,7 +30,7 @@
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 
 #include <CoreReflection/ReflectionMacros.hpp>

@@ -12,7 +12,7 @@
 // Key and path used to be private to FontService.cpp, and the load a raw std::ifstream — so even a
 // pak that shipped the atlases had them rebaked at every startup.
 
-#include <Engine/Text/FontBaker.hpp>
+#include <TextCore/Text/FontBaker.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

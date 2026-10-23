@@ -8,8 +8,8 @@
 // QueryOnly, PhysicsOnly, IgnoreAll (simulated, ignores every channel) and Trigger (overlaps every channel).
 // Included by relative path; header-only.
 
-#include <Engine/Physics/CollisionProfiles.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <gtest/gtest.h>
 

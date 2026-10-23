@@ -10,7 +10,7 @@
 
 #include <Engine/ECS/System/ColliderFit.hpp>
 #include <Engine/ECS/System/ColliderMesh.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"
 

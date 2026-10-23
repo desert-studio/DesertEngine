@@ -13,8 +13,8 @@
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
-#include <Engine/Physics/CollisionProfiles.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Engine/Destruction/DestructionWorld.hpp>
 #include <Engine/Water/WaterBodyQuery.hpp>

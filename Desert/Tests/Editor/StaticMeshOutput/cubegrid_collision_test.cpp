@@ -13,7 +13,7 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../../Engine/PhysicsFixture.hpp"
 

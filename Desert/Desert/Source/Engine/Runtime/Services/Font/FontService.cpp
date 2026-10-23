@@ -2,7 +2,7 @@
 
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
-#include <Engine/Text/FontCache.hpp>
+#include <TextCore/Text/FontCache.hpp>
 
 #include <Common/Core/AssetPathIndex.hpp>
 #include <Common/Core/Constants.hpp>

@@ -4,7 +4,7 @@
 
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
 #include <Engine/ECS/Components.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"
 

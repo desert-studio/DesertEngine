@@ -28,7 +28,7 @@
 // renderer, cloth lifetime) and the Lua bindings of these mechanisms. No ECS component is declared, so no
 // reflection, serialization or scene format moves with CLO0.
 
-#include <Engine/Physics/Cloth/ClothingSimulation.hpp>
+#include <PhysicsCore/Cloth/ClothingSimulation.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ResultStr.hpp>

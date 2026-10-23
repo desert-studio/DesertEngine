@@ -12,7 +12,7 @@
 // Unlike ToolMain.hpp this header is NOT dependency-free: only a tool that compiles
 // Engine/Project/StartupLayout.cpp and links Common may include it.
 
-#include <Engine/Project/StartupLayout.hpp>
+#include <Projects/StartupLayout.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>

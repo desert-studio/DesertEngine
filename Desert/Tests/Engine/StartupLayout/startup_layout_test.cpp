@@ -13,7 +13,7 @@
 // NO DEVICE, NO WINDOW, NO EDITOR. Paths and a filesystem, which is the whole point of the
 // derivations being functions instead of statements inside CreateApplication().
 
-#include <Engine/Project/StartupLayout.hpp>
+#include <Projects/StartupLayout.hpp>
 
 #include <Common/Core/Constants.hpp>
 
