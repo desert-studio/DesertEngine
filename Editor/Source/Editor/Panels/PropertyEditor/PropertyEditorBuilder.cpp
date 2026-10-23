@@ -364,41 +364,6 @@ namespace Desert::Editor
             }
         }
 
-        struct RegistryPickerSpec
-        {
-            std::string_view             AssetType;
-            Common::Content::ContentKind Kind;
-            const char*                  Id;
-            const char*                  NoneLabel;
-            const char*                  Noun;
-        };
-
-        // The reflected asset types (PROPERTY Asset<T>) whose target is a content-registry row of one kind and
-        // that need nothing beyond picking that row. A type with a richer slot (fonts, themes, rigs, clouds,
-        // textures) keeps its own branch in DrawField.
-        const RegistryPickerSpec* RegistryPickerForAssetType( std::string_view assetType )
-        {
-            using K = Common::Content::ContentKind;
-            static constexpr RegistryPickerSpec SPECS[] = {
-                 { "VFXSystemAsset", K::VFXSystem, "##vfxsystem", "None (plays nothing)", "VFX system" },
-                 { "WorldParametersAsset", K::WorldParameters, "##worldparams", "None (no world parameters)",
-                   "world parameter collection" },
-                 { "PrefabAsset", K::Prefab, "##prefab", "None (no player pawn)", "prefab" },
-                 { "FoliageTypeAsset", K::FoliageType, "##foliagetype", "None", "foliage type" },
-                 { "FractureAsset", K::Fracture, "##fracture", "None", "fracture" },
-                 { "WaterWavesAsset", K::WaterWaves, "##waterwaves", "None", "water waves asset" },
-                 { "InputMappingContextAsset", K::InputMappingContext, "##inputmapping", "None",
-                   "input mapping context" },
-                 { "PhysicsAsset", K::PhysicsAsset, "##physicsasset", "None", "physics asset" },
-                 { "WeatherPresetAsset", K::WeatherPreset, "##weatherpreset", "None", "weather preset" },
-                 { "StateTreeAsset", K::StateTree, "##statetree", "None (runs no tree)", "state tree" },
-            };
-            for ( const RegistryPickerSpec& spec : SPECS )
-                if ( spec.AssetType == assetType )
-                    return &spec;
-            return nullptr;
-        }
-
         // A TYPED SOFT REFERENCE OVER THE CONTENT REGISTRY (UE TSoftObjectPtr<T> in the Details panel): the
         // slot lists only the rows of ONE kind, and a dragged file is accepted only when it is a row of that
         // kind - so the handle is never asked for as another asset class. A set handle no row names reads
@@ -1205,7 +1170,8 @@ namespace Desert::Editor
                 // EVERY REFERENCE WHOSE TARGET IS A CONTENT-REGISTRY ROW (UE TSoftObjectPtr<T>): one picker over the
                 // rows of the slot's own kind - the `.dfx` systems for a VFX component's System, the `.dworldparams`
                 // collections for the scene's world parameters, and so on (RegistryPickerForAssetType).
-                if ( const RegistryPickerSpec* picker = RegistryPickerForAssetType( field.Meta.AssetType ) )
+                if ( const ::Desert::Editor::RegistryPickerSpec* picker =
+                          ::Desert::Editor::RegistryPickerForAssetType( field.Meta.AssetType ) )
                 {
                     changed = DrawRegistryRowPicker( static_cast<uint64_t*>( p ), picker->Kind, picker->Id,
                                                      picker->NoneLabel, picker->Noun );

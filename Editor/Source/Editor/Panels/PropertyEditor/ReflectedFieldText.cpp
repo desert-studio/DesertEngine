@@ -1,5 +1,6 @@
 #include "ReflectedFieldText.hpp"
 
+#include <Editor/Core/AssetPickerRows.hpp>
 #include <Editor/Core/CommandHistory.hpp>
 #include <Engine/Reflection/FieldValue.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
@@ -8,6 +9,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <format>
 #include <vector>
 
@@ -104,6 +106,39 @@ namespace Desert::Editor
             return end == owned.c_str() + owned.size();
         }
 
+        // AN ASSET REFERENCE SPELLED AS ITS PATH (UE: a soft object path is the text form of TSoftObjectPtr<T>, and
+        // both the Details panel and the console take it). Resolved exactly as the Details picker resolves a
+        // dropped file - RegistryPickerForAssetType names the slot's content kind, ContentRegistry::RowAtPath the
+        // row - so the two accept the same things. A path of another kind, or one no row answers for, is refused
+        // by name: an empty handle written in its place would be a reference silently lost.
+        Common::ResultStr<Value> ParseAssetPath( const FieldInfo& field, std::string_view text )
+        {
+            const std::size_t colon = text.find( ':' );
+            if ( colon == std::string_view::npos || colon == 0 || colon + 1 == text.size() )
+                return Common::MakeError<Value>(
+                     std::format( "'{}' is neither a handle (an unsigned decimal integer) nor a content path "
+                                  "(\"assets:<path>\") (field '{}', Asset<{}>)",
+                                  text, field.Name, field.Meta.AssetType ) );
+            const RegistryPickerSpec* spec = RegistryPickerForAssetType( field.Meta.AssetType );
+            if ( spec == nullptr )
+                return Common::MakeError<Value>(
+                     std::format( "field '{}' is Asset<{}>, which has no content-registry kind, so a path cannot "
+                                  "name it here; give the asset's handle",
+                                  field.Name, field.Meta.AssetType ) );
+            const std::filesystem::path path{ std::string( text ) };
+            if ( const auto row = Assets::ContentRegistry::RowAtPath( spec->Kind, path ) )
+                return Common::MakeSuccess( Value::UInt( static_cast<std::uint64_t>( row->Handle ) ) );
+            if ( const auto kind = Assets::ContentRegistry::KindForFile( path ); kind && *kind != spec->Kind )
+                return Common::MakeError<Value>(
+                     std::format( "'{}' is a {}, not a {}: field '{}' takes only Asset<{}>", text,
+                                  Common::Content::KindName( *kind ), spec->Noun, field.Name,
+                                  field.Meta.AssetType ) );
+            return Common::MakeError<Value>(
+                 std::format( "no {} at '{}' in the content registry (field '{}', Asset<{}>); the file is "
+                              "missing, or was added after the editor gathered the content roots",
+                              spec->Noun, text, field.Name, field.Meta.AssetType ) );
+        }
+
         Common::ResultStr<Value> Parse( const FieldInfo& field, std::string_view text )
         {
             const auto refuse = [&]( std::string_view shape )
@@ -140,8 +175,14 @@ namespace Desert::Editor
                         return refuse( "a decimal integer" );
                     return Common::MakeSuccess( Value::Int( v ) );
                 }
-                case FieldType::UInt:
                 case FieldType::AssetHandle:
+                {
+                    std::uint64_t v = 0;
+                    if ( ParseInteger( text, v ) )
+                        return Common::MakeSuccess( Value::UInt( v ) );
+                    return ParseAssetPath( field, text );
+                }
+                case FieldType::UInt:
                 {
                     std::uint64_t v = 0;
                     if ( !ParseInteger( text, v ) )

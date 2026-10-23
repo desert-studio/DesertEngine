@@ -15,6 +15,10 @@
 //   1  the editor refused, and said why (the reply is on stdout, the reason on stderr)
 //   2  this tool could not reach the editor at all — a different thing entirely, and worth its own code
 //
+// --expect-refusal turns the first two round for a step whose PROOF is the refusal (a scenario line saying "a
+// path of the wrong type is refused"): 0 when the editor refused, with the reason on stdout, 1 when it did it.
+// An unreachable editor stays 2 — not reaching the editor proves nothing either way.
+//
 // ONE REQUEST PER RUN, deliberately. The editor answers a command only after a frame that already reflects
 // it, so a reply arriving IS the synchronisation: `desertctl run ... && desertctl shot-window ...` needs no
 // sleep between the two, and a sleep is what every one of these scripts used to be full of.
@@ -105,6 +109,10 @@ namespace
                       "\n"
                       "Units: every coordinate this tool sends is ImGui POINTS -- one unit for drag and\n"
                       "input. shot-viewport frames are already in points; shot-window frames are not.\n"
+                      "\n"
+                      "  --expect-refusal  the request must be REFUSED: exit 0 when the editor refuses\n"
+                      "                    (reason on stdout), 1 when it does it. For a scenario step\n"
+                      "                    whose proof is the refusal.\n"
                       "\n"
                       "Exit status: 0 the editor did it, 1 it refused (reason on stderr), 2 unreachable.\n" );
     }
@@ -341,7 +349,8 @@ static int RunTool( int argc, char** argv )
 {
     std::string              socketPath;
     std::string              subject;
-    double                   waitSeconds = 0.0;
+    double                   waitSeconds   = 0.0;
+    bool                     expectRefusal = false;
     std::vector<std::string> rest;
 
     for ( int i = 1; i < argc; ++i )
@@ -361,6 +370,10 @@ static int RunTool( int argc, char** argv )
             // subjects and refuses an unknown one by name; a second list here would be the copy that falls
             // behind the day a third subject is added, and it would refuse a subject the editor supports.
             subject = argv[++i];
+        }
+        else if ( arg == "--expect-refusal" )
+        {
+            expectRefusal = true;
         }
         else if ( arg == "-h" || arg == "--help" )
         {
@@ -589,19 +602,27 @@ static int RunTool( int argc, char** argv )
         return kNoEditor;
     }
     if ( succeeded.value() )
-        return kOk;
+    {
+        if ( !expectRefusal )
+            return kOk;
+        std::fprintf( stderr, "desertctl: expected a refusal, and the editor did it.\n" );
+        return kRefused;
+    }
 
+    // Refused as expected: the reason goes to stdout and the run succeeds, so the scenario's log keeps it.
+    std::FILE* const reasonTo = expectRefusal ? stdout : stderr;
+    const char*      heading  = expectRefusal ? "refused as expected" : "refused";
     if ( const auto error = object.get( "error" ) )
     {
         if ( const auto reason = error.value().to_string() )
-            std::fprintf( stderr, "desertctl: refused: %s\n", reason.value().c_str() );
+            std::fprintf( reasonTo, "desertctl: %s: %s\n", heading, reason.value().c_str() );
         else
-            std::fprintf( stderr, "desertctl: refused, and the reply's \"error\" is not a string: %s\n",
+            std::fprintf( reasonTo, "desertctl: %s, and the reply's \"error\" is not a string: %s\n", heading,
                           Common::Json::Write( error.value() ).c_str() );
     }
     else
-        std::fprintf( stderr, "desertctl: refused without a reason in the reply.\n" );
-    return kRefused;
+        std::fprintf( reasonTo, "desertctl: %s without a reason in the reply.\n", heading );
+    return expectRefusal ? kOk : kRefused;
 }
 
 // The entry point, one line. Anything this tool throws is named on stderr with the tool's own name
