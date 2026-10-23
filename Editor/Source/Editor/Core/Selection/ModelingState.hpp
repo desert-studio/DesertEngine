@@ -62,6 +62,7 @@ namespace Desert::Editor::Core
             // UE's MeshOps palette (same preview/Accept session as Deform, MeshProcessingTool).
             HoleFill,  // UE's UHoleFillTool: the selected boundary loops closed Trivial / Minimal / Smooth
             Remesh,    // UE's URemeshMeshTool: the whole mesh remeshed to an even, isotropic triangulation
+            Simplify,  // UE's USimplifyMeshTool: the whole mesh reduced by QEM edge collapses
             Jacket,    // UE's URemoveOccludedTrianglesTool: the triangles hidden inside the mesh removed
             Project,   // UE's UProjectToTargetTool: the first selected mesh remeshed onto the second's surface
             WeldEdges, // UE's UWeldMeshEdgesTool: coincident open edges merged (FMergeCoincidentMeshEdges)
@@ -320,8 +321,6 @@ namespace Desert::Editor::Core
         // Subdivide: UE's Subdivide tool settings with its defaults (level 3, Catmull-Clark, smooth corners,
         // generated normals).
         Geometry::SubdivideSettings ElementSubdivide{};
-        // Simplify: UE's Simplify tool settings with its defaults (50 %, polygroup borders kept).
-        Geometry::SimplifySettings ElementSimplify{};
         // Mirror: the plane is perpendicular to ElementMirrorAxis (0 = X, 1 = Y, 2 = Z) through the entity's
         // origin along its own axis, or - ElementMirrorWorld - through the world's origin along the world's.
         // Cut and Mirror keeps the positive side of that axis, the negative one with ElementMirrorKeepNegative.
@@ -420,6 +419,9 @@ namespace Desert::Editor::Core
         // MeshOps palette -> Remesh (UE URemeshMeshToolProperties), the same session: the preview is the remeshed
         // mesh, Accept is ONE undo step (lengths in world cm).
         Geometry::RemeshMeshSettings MeshRemesh;
+        // MeshOps palette -> Simplify (UE USimplifyMeshToolProperties), the same session: the preview is the
+        // simplified mesh, Accept is ONE undo step (Edge Length in world cm).
+        Geometry::SimplifySettings MeshSimplify;
         // MeshOps palette -> Project (UE UProjectToTargetTool's URemeshMeshToolProperties), the same session.
         Geometry::ProjectSettings MeshProject;
         // MeshOps palette -> Weld Edges (UE UWeldMeshEdgesToolProperties), the same session.

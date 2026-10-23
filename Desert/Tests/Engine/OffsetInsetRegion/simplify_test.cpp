@@ -1,4 +1,4 @@
-// Simplify (MeshRegionOperation.hpp SimplifyMesh over the QEM port in MeshSimplification.hpp) on a closed
+// Simplify (MeshRegionOperation.hpp SimplifyMeshOperation over the QEM port in MeshSimplification.hpp) on a closed
 // cube-sphere with one polygroup per cube face: the triangle target is met, the mesh stays valid, and with
 // Preserve PolyGroups every edge between two groups survives exactly (same end positions) - without it they do
 // not.
@@ -100,9 +100,9 @@ namespace
 
     DynamicMesh3 Simplified( const DynamicMesh3& before, const SimplifySettings& settings )
     {
-        auto result = SimplifyMesh( before, settings, ElementMode::Triangle );
+        auto result = SimplifyMeshOperation( before, glm::dmat4( 1.0 ), settings );
         EXPECT_TRUE( result.IsSuccess() ) << ( result.IsSuccess() ? "" : result.GetError() );
-        return result.IsSuccess() ? *result.GetValue().Mesh : DynamicMesh3{};
+        return result.IsSuccess() ? result.GetValue().Mesh : DynamicMesh3{};
     }
 
     bool Valid( const DynamicMesh3& mesh )
@@ -153,7 +153,7 @@ TEST( Simplify, VertexCountTargetStopsAtTheCount )
     const DynamicMesh3 before = CubeSphere( 8, true );
     SimplifySettings   settings;
     settings.Target          = SimplifyTarget::VertexCount;
-    settings.VertexCount     = 250;
+    settings.TargetCount     = 250;
     const DynamicMesh3 after = Simplified( before, settings );
     EXPECT_EQ( after.VertexCount(), 250 ); // one vertex per collapse
     EXPECT_TRUE( Valid( after ) );
@@ -165,12 +165,12 @@ TEST( Simplify, RefusalsNameTheirNumbers )
     const DynamicMesh3 before = CubeSphere( 2, true );
     SimplifySettings   settings;
     settings.Percentage = 0.0f;
-    auto zero           = SimplifyMesh( before, settings, ElementMode::Triangle );
+    auto zero           = SimplifyMeshOperation( before, glm::dmat4( 1.0 ), settings );
     ASSERT_FALSE( zero.IsSuccess() );
     EXPECT_NE( zero.GetError().find( "outside (0, 100]" ), std::string::npos ) << zero.GetError();
     settings.Target      = SimplifyTarget::VertexCount;
-    settings.VertexCount = 1000;
-    auto met             = SimplifyMesh( before, settings, ElementMode::Triangle );
+    settings.TargetCount = 1000;
+    auto met             = SimplifyMeshOperation( before, glm::dmat4( 1.0 ), settings );
     ASSERT_FALSE( met.IsSuccess() );
     EXPECT_NE( met.GetError().find( "already has" ), std::string::npos ) << met.GetError();
 }

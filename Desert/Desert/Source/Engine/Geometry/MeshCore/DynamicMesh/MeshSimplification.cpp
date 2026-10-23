@@ -167,6 +167,15 @@ namespace Desert::Geometry
         DoSimplify();
     }
 
+    void QemSimplification::SimplifyToEdgeLength( double minEdgeLength, const glm::dmat4& toWorld )
+    {
+        m_Mode          = TargetMode::MinEdgeLength;
+        m_Target        = 1;
+        m_MinEdgeLength = minEdgeLength;
+        m_ToWorld       = toWorld;
+        DoSimplify();
+    }
+
     void QemSimplification::Precompute()
     {
         m_HaveBoundary = false;
@@ -743,6 +752,15 @@ namespace Desert::Geometry
             const int edge = m_Queue.Dequeue();
             if ( !m_Mesh.IsEdge( edge ) )
                 continue;
+            if ( m_Mode == TargetMode::MinEdgeLength )
+            {
+                const DynamicMesh3::Edge e = m_Mesh.GetEdge( edge );
+                const glm::dvec3 a = glm::dvec3( m_ToWorld * glm::dvec4( m_Mesh.GetVertex( e.Vert.A ), 1.0 ) );
+                const glm::dvec3 b = glm::dvec3( m_ToWorld * glm::dvec4( m_Mesh.GetVertex( e.Vert.B ), 1.0 ) );
+                const glm::dvec3 d = b - a;
+                if ( glm::dot( d, d ) > m_MinEdgeLength * m_MinEdgeLength )
+                    continue;
+            }
             DynamicMeshInfo::EdgeCollapseInfo info;
             if ( CollapseEdge( edge, m_EdgeQuadrics[edge].CollapsePoint, info ) == CollapseResult::Collapsed )
             {
