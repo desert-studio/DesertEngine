@@ -50,7 +50,7 @@ namespace Desert::Editor
 
         // UE's Sculpt mode strip, in its order (LandscapeEdMode.cpp:231-244); Visibility and Mask are absent
         // because this landscape has no visibility layer and no selection mask to paint.
-        constexpr std::array<ToolButton, 10> kSculptTools = { {
+        constexpr std::array<ToolButton, 11> kSculptTools = { {
              { Core::LandscapeTool::Sculpt, ICON_MDI_BRUSH },
              { Core::LandscapeTool::Erase, ICON_MDI_ERASER },
              { Core::LandscapeTool::Smooth, ICON_MDI_BLUR },
@@ -61,6 +61,7 @@ namespace Desert::Editor
              { Core::LandscapeTool::HydroErosion, ICON_MDI_WEATHER_POURING },
              { Core::LandscapeTool::CopyPaste, ICON_MDI_CONTENT_COPY },
              { Core::LandscapeTool::Mirror, ICON_MDI_FLIP_HORIZONTAL },
+             { Core::LandscapeTool::Splines, ICON_MDI_VECTOR_CURVE },
         } };
 
         /// A button lit with the editor's one accent colour when @p active (UE's checked tool-strip entry).

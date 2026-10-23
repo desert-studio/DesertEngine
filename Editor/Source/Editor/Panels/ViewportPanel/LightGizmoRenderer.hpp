@@ -109,6 +109,7 @@ namespace Desert::Editor
         // one highlighted, and with two points the inner and outer rectangles of the ramp. Drawn only while the
         // Landscape mode's Ramp tool is up; the points themselves are placed by LandscapeSculptTool.
         void RenderLandscapeRamp( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height );
+        void RenderLandscapeSplines( const std::shared_ptr<Desert::Core::Camera>& camera, float width, float height );
         // Draws a world-space line segment, clipping the endpoint that crosses the editor camera's near
         // plane (so a segment dipping behind the camera never wraps across the whole viewport).
         void DrawWorldLine( ImDrawList* drawList, const glm::vec3& a, const glm::vec3& b, const glm::mat4& mvp,

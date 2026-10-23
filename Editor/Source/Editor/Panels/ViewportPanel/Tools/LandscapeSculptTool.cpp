@@ -6,6 +6,7 @@
 #include "ViewportPress.hpp"
 
 #include <Editor/Core/CommandHistory.hpp>
+#include <Editor/Core/Commands/LandscapeLayerCommands.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Engine/ECS/LandscapeLayerRules.hpp>
@@ -203,6 +204,8 @@ namespace Desert::Editor::Tools
             case Core::LandscapeTool::Mirror:
             case Core::LandscapeTool::CopyPaste:
                 return Common::MakeError( "landscape mirror / copy-paste: not stroked; use their rows" );
+            case Core::LandscapeTool::Splines:
+                return Common::MakeError( "landscape splines: not stroked; click to add control points" );
         }
         return Common::MakeError( "landscape stroke: unknown tool" );
     }
@@ -295,6 +298,14 @@ namespace Desert::Editor::Tools
             case Core::LandscapeStrokeRequest::RampEnd:
                 state.Request = Core::LandscapeStrokeRequest::None;
                 SetRampPoint( scene, centreRay, request == Core::LandscapeStrokeRequest::RampStart );
+                return true;
+            case Core::LandscapeStrokeRequest::SplinePoint:
+                state.Request = Core::LandscapeStrokeRequest::None;
+                AddSplinePoint( scene, centreRay );
+                return true;
+            case Core::LandscapeStrokeRequest::SplineDeselect:
+                state.Request = Core::LandscapeStrokeRequest::None;
+                state.SelectedSplinePoint.reset();
                 return true;
             case Core::LandscapeStrokeRequest::RampReset:
             {
@@ -402,6 +413,41 @@ namespace Desert::Editor::Tools
         }
     }
 
+    void LandscapeSculptTool::AddSplinePoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray )
+    {
+        // The landscape under the ray (UE: the one the cursor is over), the nearest when two are.
+        auto&                    state = Core::LandscapeSculptState::Get();
+        std::optional<glm::vec3> point;
+        Common::UUID             landscape = Common::UUID::Null();
+        for ( const auto entity : scene.GetRegistry().view<ECS::LandscapeComponent, ECS::UUIDComponent>() )
+        {
+            const Common::UUID id  = scene.GetRegistry().get<ECS::UUIDComponent>( entity ).UUID;
+            const auto         hit = TraceLandscape( scene, id, ray );
+            if ( hit && ( !point || glm::length( *hit - ray.Origin ) < glm::length( *point - ray.Origin ) ) )
+            {
+                point     = hit;
+                landscape = id;
+            }
+        }
+        if ( !point )
+        {
+            ToastManager::Push( "landscape splines: no landscape under the ray", ToastLevel::Error, 6.0f );
+            return;
+        }
+        // A point joins the selected one only on the same landscape: each landscape owns its splines.
+        if ( state.SplineLandscape != landscape )
+            state.SelectedSplinePoint.reset();
+        state.SplineLandscape = landscape;
+        auto added = Commands::AddLandscapeSplinePoint( scene, landscape, *point, state.SelectedSplinePoint,
+                                                        state.Settings.SplinePoint, state.Settings.SplineSegment );
+        if ( !added )
+        {
+            ToastManager::Push( added.GetError(), ToastLevel::Error, 6.0f );
+            return;
+        }
+        state.SelectedSplinePoint = added.GetValue();
+    }
+
     void LandscapeSculptTool::Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& mouseRay,
                                       const Common::Math::Ray& centreRay, bool hovered, float deltaSeconds )
     {
@@ -434,6 +480,13 @@ namespace Desert::Editor::Tools
         {
             if ( m_Stroke )
                 End( scene );
+            return;
+        }
+        if ( state.Settings.Tool == Core::LandscapeTool::Splines )
+        {
+            // UE: Ctrl+click adds a point joined to the selected one; the Splines tool has no stroke, so a click.
+            if ( ImGui::IsMouseClicked( ImGuiMouseButton_Left ) )
+                AddSplinePoint( scene, mouseRay );
             return;
         }
         if ( state.Settings.Tool == Core::LandscapeTool::Mirror ||

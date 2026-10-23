@@ -160,8 +160,10 @@ namespace Desert::Core::Serialize
     // goes with it so the two halves of one feature are read in one place.
     // `Layers` is not here: it names `.delayerinfo` assets by {Guid, Path}, and resolving a GUID needs the
     // asset manager — the registry's Landscape serializer (ComponentRegistry.cpp) writes and reads it.
-    // `EditLayers` is the stack as [{Guid, Name, Visible, Locked, HeightAlpha, WeightAlpha}], bottom first,
+    // `EditLayers` is the stack as [{Guid, Name, Visible, Locked, HeightAlpha, WeightAlpha, Kind}], bottom first,
     // written even when empty (an undo restores the whole block, and an absent key keeps the current value).
+    // `Kind` is "Manual" or "Splines"; `Splines` is {ControlPoints: [{Location, Width, SideFalloff, EndFalloff}],
+    // Segments: [{Start, End, RaiseTerrain, LowerTerrain}]} (UE ULandscapeSplinesComponent), written always.
     inline Common::Json::Object WriteComponent( const ECS::LandscapeComponent& c )
     {
         Common::Json::Object block = Common::Json::ObjectBuilder()
@@ -179,9 +181,80 @@ namespace Desert::Core::Serialize
                                       .Set( "Locked", layer.Locked )
                                       .Set( "HeightAlpha", layer.HeightAlpha )
                                       .Set( "WeightAlpha", layer.WeightAlpha )
+                                      .Set( "Kind", std::string( layer.Kind == World::Landscape::LandscapeEditLayerKind::Splines
+                                                                      ? "Splines"
+                                                                      : "Manual" ) )
                                       .Build() );
         block["EditLayers"] = Common::Json::Value( std::move( layers ) );
+        Common::Json::Value::Array points;
+        for ( const World::Landscape::LandscapeSplineControlPoint& p : c.Splines.ControlPoints )
+            points.emplace_back( Common::Json::ObjectBuilder()
+                                      .Set( "Location", p.Location )
+                                      .Set( "Width", p.Width )
+                                      .Set( "SideFalloff", p.SideFalloff )
+                                      .Set( "EndFalloff", p.EndFalloff )
+                                      .Build() );
+        Common::Json::Value::Array segments;
+        for ( const World::Landscape::LandscapeSplineSegment& s : c.Splines.Segments )
+            segments.emplace_back( Common::Json::ObjectBuilder()
+                                        .Set( "Start", s.Start )
+                                        .Set( "End", s.End )
+                                        .Set( "RaiseTerrain", s.RaiseTerrain )
+                                        .Set( "LowerTerrain", s.LowerTerrain )
+                                        .Build() );
+        Common::Json::Object splines;
+        splines["ControlPoints"] = Common::Json::Value( std::move( points ) );
+        splines["Segments"]      = Common::Json::Value( std::move( segments ) );
+        block["Splines"]         = Common::Json::Value( std::move( splines ) );
         return block;
+    }
+
+    // The splines are read whole or not at all, like the stack: an unreadable field, or a set
+    // ValidateLandscapeSplines refuses, is an issue and the current splines stay. Absent keeps them (rule 1).
+    inline void ReadLandscapeSplines( const Common::Json::Node& from, World::Landscape::LandscapeSplines& out,
+                                      Common::Json::Issues& issues )
+    {
+        const auto value = from.Find( "Splines" );
+        if ( !value || !value->ExpectKind( Common::Json::Kind::Object, issues ) )
+            return;
+        const size_t                       before = issues.size();
+        World::Landscape::LandscapeSplines read;
+        if ( const auto points = value->Find( "ControlPoints" );
+             points && points->ExpectKind( Common::Json::Kind::Array, issues ) )
+            points->ForEachElement(
+                 [&]( std::size_t, const Common::Json::Node& element )
+                 {
+                     if ( !element.ExpectKind( Common::Json::Kind::Object, issues ) )
+                         return;
+                     World::Landscape::LandscapeSplineControlPoint p;
+                     element.ReadInto( "Location", p.Location, issues );
+                     element.ReadInto( "Width", p.Width, issues );
+                     element.ReadInto( "SideFalloff", p.SideFalloff, issues );
+                     element.ReadInto( "EndFalloff", p.EndFalloff, issues );
+                     read.ControlPoints.push_back( p );
+                 } );
+        if ( const auto segments = value->Find( "Segments" );
+             segments && segments->ExpectKind( Common::Json::Kind::Array, issues ) )
+            segments->ForEachElement(
+                 [&]( std::size_t, const Common::Json::Node& element )
+                 {
+                     if ( !element.ExpectKind( Common::Json::Kind::Object, issues ) )
+                         return;
+                     World::Landscape::LandscapeSplineSegment s;
+                     element.ReadInto( "Start", s.Start, issues );
+                     element.ReadInto( "End", s.End, issues );
+                     element.ReadInto( "RaiseTerrain", s.RaiseTerrain, issues );
+                     element.ReadInto( "LowerTerrain", s.LowerTerrain, issues );
+                     read.Segments.push_back( s );
+                 } );
+        if ( issues.size() != before )
+            return;
+        if ( auto valid = World::Landscape::ValidateLandscapeSplines( read ); !valid )
+        {
+            issues.push_back( { value->Where().ToString(), "valid landscape splines", valid.GetError() } );
+            return;
+        }
+        out = std::move( read );
     }
 
     inline void ReadComponent( const Common::Json::Node& from, ECS::LandscapeComponent& c,
@@ -190,6 +263,7 @@ namespace Desert::Core::Serialize
         from.ReadInto( "QuadsPerTile", c.QuadsPerTile, issues );
         from.ReadInto( "SpacingCm", c.SpacingCm, issues );
         from.ReadInto( "ZScale", c.ZScale, issues );
+        ReadLandscapeSplines( from, c.Splines, issues );
 
         // The stack is read whole or not at all: a layer with an unreadable field, or a stack that
         // ValidateLandscapeEditLayerStack refuses (a null or repeated Guid, an alpha out of range), is an issue
@@ -224,6 +298,13 @@ namespace Desert::Core::Serialize
                  element.ReadInto( "Locked", layer.Locked, issues );
                  element.ReadInto( "HeightAlpha", layer.HeightAlpha, issues );
                  element.ReadInto( "WeightAlpha", layer.WeightAlpha, issues );
+                 std::string kind = "Manual";
+                 element.ReadInto( "Kind", kind, issues );
+                 if ( kind == "Splines" )
+                     layer.Kind = World::Landscape::LandscapeEditLayerKind::Splines;
+                 else if ( kind != "Manual" )
+                     issues.push_back( { element.Where().Key( "Kind" ).ToString(), "\"Manual\" or \"Splines\"",
+                                         kind } );
                  read.Layers.push_back( std::move( layer ) );
              } );
         if ( issues.size() != before )

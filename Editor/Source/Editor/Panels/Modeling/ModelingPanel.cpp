@@ -1812,9 +1812,10 @@ namespace Desert::Editor
             ImGui::DragFloat3( "Grid Frame Orientation", &ms.GridRotation.x, 0.5f, -180.0f, 180.0f, "%.1f deg" );
             ImGui::Checkbox( "Show Gizmo", &ms.ShowGizmo );
 
-            // Grid Power: block size = 1 m >> power (Power 2 = 25 cm), like UE's slider. Typing a free
-            // Current Block Size below still wins — the power just snaps to the nearest step.
-            int power = ms.GridPower();
+            // Grid Power (UE FCubeGrid): block size = Block Base Size * 2^power, Power 5 = 100 cm at the default
+            // 3.125 cm base; power up = bigger block. Typing a Current Block Size re-derives the base, keeping the
+            // power.
+            int power = ms.GridPower;
             ImGui::SetNextItemWidth( 120.0f );
             if ( ImGui::SliderInt( "Grid Power", &power, 0, MS::MaxGridPower ) )
                 ms.SetGridPower( power );
@@ -1896,14 +1897,16 @@ namespace Desert::Editor
             // base subdivides the base. The value snaps to a base multiple after editing (the tool shows
             // the effective size).
             ImGui::SetNextItemWidth( 96.0f );
-            if ( ImGui::DragFloat( "Current Block Size", &ms.CellSize, 1.0f, kMinBlock, 100000.0f, "%.0f cm" ) )
-                ms.CellSize = std::max( kMinBlock, ms.CellSize );
+            float block = ms.CellSize();
+            if ( ImGui::DragFloat( "Current Block Size", &block, 1.0f, kMinBlock, MS::MaxCellSize, "%g cm" ) )
+                ms.SetCurrentBlockSize( block );
+            // /2 and x2 are one Grid Power step down / up (UE Ctrl+Q / Ctrl+E).
             ImGui::SameLine();
             if ( ImGui::SmallButton( "/2##bs" ) )
-                ms.HalveBlockSize();
+                ms.GridPowerDown();
             ImGui::SameLine();
             if ( ImGui::SmallButton( "x2##bs" ) )
-                ms.DoubleBlockSize();
+                ms.GridPowerUp();
             // Blocks Per Step: how many cells one Push/Pull moves (UE multiplier).
             ImGui::SetNextItemWidth( 120.0f );
             if ( ImGui::SliderInt( "Blocks / Step", &ms.BlocksPerStep, 1, 32 ) )

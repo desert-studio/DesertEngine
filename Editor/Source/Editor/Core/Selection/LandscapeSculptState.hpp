@@ -3,6 +3,7 @@
 #include <Engine/World/Landscape/LandscapeGenerator.hpp>
 #include <Engine/World/Landscape/LandscapePaint.hpp>
 #include <Engine/World/Landscape/LandscapeSculpt.hpp>
+#include <Engine/World/Landscape/LandscapeSplines.hpp>
 
 #include <algorithm>
 #include <array>
@@ -36,6 +37,9 @@ namespace Desert::Editor::Core
         HydroErosion,
         Mirror,
         CopyPaste,
+        /// UE's Splines tool: places control points joined by segments; the splines deform the landscape
+        /// through the procedural Splines edit layer.
+        Splines,
     };
 
     inline const char* LandscapeToolName( LandscapeTool tool )
@@ -62,6 +66,8 @@ namespace Desert::Editor::Core
                 return "Mirror";
             case LandscapeTool::CopyPaste:
                 return "Copy/Paste";
+            case LandscapeTool::Splines:
+                return "Splines";
         }
         return "Unknown";
     }
@@ -211,6 +217,10 @@ namespace Desert::Editor::Core
         World::Landscape::LandscapeHydroErosionSettings HydroErosion;
         World::Landscape::LandscapeMirrorSettings       Mirror;
         World::Landscape::LandscapePasteMode            PasteMode = World::Landscape::LandscapePasteMode::Both;
+        /// What the Splines tool gives a new control point and segment (UE: the new point copies the selected
+        /// one; here the tool's own values, UE's defaults until stepped).
+        World::Landscape::LandscapeSplineControlPoint SplinePoint;
+        World::Landscape::LandscapeSplineSegment      SplineSegment;
     };
 
     /// A stroke asked for from the palette: one step at the viewport centre, then the stroke ends. The ramp's
@@ -220,6 +230,10 @@ namespace Desert::Editor::Core
         None,
         Raise,
         Lower,
+        /// UE's Ctrl+click with the Splines tool: a control point at the viewport centre, joined to the selected one.
+        SplinePoint,
+        /// UE's Escape with the Splines tool: nothing selected, so the next point starts a new spline.
+        SplineDeselect,
         RampStart,
         RampEnd,
         RampApply,
@@ -263,6 +277,11 @@ namespace Desert::Editor::Core
         std::optional<glm::vec3>              CopyCornerA;
         std::optional<glm::vec3>              CopyCornerB;
         World::Landscape::LandscapeCopyBuffer CopyBuffer;
+        /// The Splines tool's selected control point (index into the landscape's LandscapeSplines), or none:
+        /// a new point joins it. Editor state, as UE's selection is.
+        std::optional<uint32_t> SelectedSplinePoint;
+        /// The landscape whose splines SelectedSplinePoint indexes.
+        Common::UUID SplineLandscape = Common::UUID::Null();
 
         /// Why a stroke cannot start in the current mode, or nothing. The palette asks BEFORE it queues a stroke:
         /// the queued stroke runs frames later, so its own refusal reached only a toast while the control
@@ -311,7 +330,7 @@ namespace Desert::Editor::Core
         for ( const LandscapeTool tool :
               { LandscapeTool::Sculpt, LandscapeTool::Smooth, LandscapeTool::Flatten, LandscapeTool::Noise,
                 LandscapeTool::Erase, LandscapeTool::Ramp, LandscapeTool::Erosion, LandscapeTool::HydroErosion,
-                LandscapeTool::Mirror, LandscapeTool::CopyPaste } )
+                LandscapeTool::Mirror, LandscapeTool::CopyPaste, LandscapeTool::Splines } )
             controls.push_back( { std::string( "Tool: " ) + LandscapeToolName( tool ), "Tool",
                                   [tool]( LandscapeSculptSettings& s ) { s.Tool = tool; }, always } );
 
@@ -585,6 +604,30 @@ namespace Desert::Editor::Core
              { "Copy: set corner B at viewport centre", "Copy", {}, paste, LandscapeStrokeRequest::CopyCornerB } );
         controls.push_back( { "Copy: copy region", "Copy", {}, paste, LandscapeStrokeRequest::Copy } );
         controls.push_back( { "Paste: at viewport centre", "Paste", {}, paste, LandscapeStrokeRequest::Paste } );
+
+        // SPLINES (UE: the Splines tool and the selected point's Details). Steps of 100 cm.
+        auto splines = []( const LandscapeSculptSettings& s ) { return s.Tool == LandscapeTool::Splines; };
+        auto step    = []( float value, float by ) { return std::clamp( value + by, 0.0f, 100000.0f ); };
+        controls.push_back( { "Spline width: larger", "Spline width", [step]( LandscapeSculptSettings& s )
+                              { s.SplinePoint.Width = step( s.SplinePoint.Width, 100.0f ); }, splines } );
+        controls.push_back( { "Spline width: smaller", "Spline width", [step]( LandscapeSculptSettings& s )
+                              { s.SplinePoint.Width = step( s.SplinePoint.Width, -100.0f ); }, splines } );
+        controls.push_back( { "Spline side falloff: larger", "Spline side falloff", [step]( LandscapeSculptSettings& s )
+                              { s.SplinePoint.SideFalloff = step( s.SplinePoint.SideFalloff, 100.0f ); }, splines } );
+        controls.push_back( { "Spline side falloff: smaller", "Spline side falloff", [step]( LandscapeSculptSettings& s )
+                              { s.SplinePoint.SideFalloff = step( s.SplinePoint.SideFalloff, -100.0f ); }, splines } );
+        controls.push_back( { "Spline end falloff: larger", "Spline end falloff", [step]( LandscapeSculptSettings& s )
+                              { s.SplinePoint.EndFalloff = step( s.SplinePoint.EndFalloff, 100.0f ); }, splines } );
+        controls.push_back( { "Spline end falloff: smaller", "Spline end falloff", [step]( LandscapeSculptSettings& s )
+                              { s.SplinePoint.EndFalloff = step( s.SplinePoint.EndFalloff, -100.0f ); }, splines } );
+        controls.push_back( { "Spline raise terrain: toggle", "Spline raise", []( LandscapeSculptSettings& s )
+                              { s.SplineSegment.RaiseTerrain = !s.SplineSegment.RaiseTerrain; }, splines } );
+        controls.push_back( { "Spline lower terrain: toggle", "Spline lower", []( LandscapeSculptSettings& s )
+                              { s.SplineSegment.LowerTerrain = !s.SplineSegment.LowerTerrain; }, splines } );
+        controls.push_back( { "Spline: add control point at viewport centre", "Spline", {}, splines,
+                              LandscapeStrokeRequest::SplinePoint } );
+        controls.push_back(
+             { "Spline: deselect", "Spline", {}, splines, LandscapeStrokeRequest::SplineDeselect } );
         return controls;
     }
 
