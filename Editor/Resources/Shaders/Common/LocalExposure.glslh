@@ -1,7 +1,7 @@
 // LOCAL EXPOSURE (UE Local Exposure, Bilateral) — the one shader source of the exposure law and of the grid's
 // slice mapping; Engine/Graphic/PostProcessing/LocalExposureRules.hpp mirrors it on the CPU.
 // Port of UE PostProcessHistogramCommon.ush:251-310 with two deliberate differences (CONTRACT.md §6):
-//  - slices are 1 EV each, centred on the exposed middle grey of the last exposure (LocalExposureSlice);
+//  - slices are 1 EV each, centred on the exposed middle grey of the last exposure (LocalExposureSliceCoord);
 //  - the threshold smoothstep has an explicit strength >= 1 branch instead of dividing by 1 - strength = 0.
 #ifndef DESERT_LOCAL_EXPOSURE_GLSLH
 #define DESERT_LOCAL_EXPOSURE_GLSLH
@@ -13,15 +13,16 @@ float LocalExposureLuminance( vec3 c )
     return dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
 }
 
-// Continuous slice coordinate of an UN-EXPOSED log2 luminance: slice i covers [i, i + 1).
-float LocalExposureSlice( float logLum, float sliceLogMin, float invSliceEV )
+// Continuous slice coordinate of an UN-EXPOSED log2 luminance: slice i covers [i, i + 1). Not "LocalExposureSlice":
+// that is the push-constant member of SceneComposite/BloomDownsample, and block members share the global scope.
+float LocalExposureSliceCoord( float logLum, float sliceLogMin, float invSliceEV )
 {
     return ( logLum - sliceLogMin ) * invSliceEV;
 }
 
 int LocalExposureSliceIndex( float logLum, float sliceLogMin, float invSliceEV )
 {
-    return clamp( int( floor( LocalExposureSlice( logLum, sliceLogMin, invSliceEV ) ) ), 0,
+    return clamp( int( floor( LocalExposureSliceCoord( logLum, sliceLogMin, invSliceEV ) ) ), 0,
                   LOCAL_EXPOSURE_GRID_DEPTH - 1 );
 }
 
@@ -29,7 +30,7 @@ int LocalExposureSliceIndex( float logLum, float sliceLogMin, float invSliceEV )
 // the fetch, so no sampler crosses a function boundary).
 float LocalExposureGridW( float logLum, float sliceLogMin, float invSliceEV )
 {
-    float slice = clamp( LocalExposureSlice( logLum, sliceLogMin, invSliceEV ), 0.5,
+    float slice = clamp( LocalExposureSliceCoord( logLum, sliceLogMin, invSliceEV ), 0.5,
                          float( LOCAL_EXPOSURE_GRID_DEPTH ) - 0.5 );
     return slice / float( LOCAL_EXPOSURE_GRID_DEPTH );
 }

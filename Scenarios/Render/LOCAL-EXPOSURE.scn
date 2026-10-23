@@ -1,11 +1,14 @@
 # LOCAL-EXPOSURE: UE Local Exposure (Bilateral) — grid + blurred log luminance, applied per pixel in the tonemap.
-# Headless shots (render). Project = APFS clone DesertEngine-scratch/LOCAL-EXPOSURE/BistroClone (raised by migrate.sh;
-# the owner's BistroFoliageProj does not load on dev until BISTRO-MAT-V6).
-# Editor --project <BistroClone>/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce --camera 450,160,640 --look <sun-facing> --shot-frames 90
-Дано Bistro clone, daytime, Lit; camera at the café terrace under the awnings (450,160,640) looking out to the sunlit street
-Когда local exposure identity (engine defaults: Highlight 1 / Shadow 1 / Detail 1)
-Тогда 1_awning_before shade under the awnings crushed and/or the street blown; identical to dev (identity = no change)
-Когда Bistro's PPV Highlight 0.8 / Shadow 0.8
-Тогда 2_awning_after awning interior readable and the street not blown, no halos at the awning edge
-Когда view mode Local Exposure
-Тогда 3_visualize the Local Exposure view mode shows the per-pixel exposure
+# Frames 1–2 are headless (the player opens only Projects/Desert): project = APFS clone
+# DesertEngine-scratch/LOCAL-EXPOSURE/BistroClone, scenes B16_Bistro_Street.desce (identity) and _LE08.desce (0.8/0.8):
+#   Editor --project <BistroClone>/Desert.deproj --scene Content/Scenes/B16_Bistro_Street{,_LE08}.desce
+#          --camera 450,160,640 --look 0.5,0.1,-0.86 --shot-frames 90
+#   Тогда 1_awning_before  shade under the awnings crushed and/or the street blown; identical to dev (identity)
+#   Тогда 2_awning_after   awning interior readable, the street not blown, no halos at the awning edge
+# Frame 3 is live, on the Desert project's Starter scene (its unbound PostProcessVolume 17921165617746467452).
+Дано run View "View mode: Lit"
+Когда set 17921165617746467452 PostProcessVolume.Settings.LocalExposureHighlightContrastScale 0.8
+Когда set 17921165617746467452 PostProcessVolume.Settings.LocalExposureShadowContrastScale 0.8
+Тогда 2b_starter_lit Starter, Lit, Highlight/Shadow 0.8: the picture renders (no black/NaN), contrast slightly flatter
+Когда run View "View mode: Local Exposure"
+Тогда 3_visualize the Local Exposure view mode shows per-pixel exposure (not flat): shaded and lit areas differ
