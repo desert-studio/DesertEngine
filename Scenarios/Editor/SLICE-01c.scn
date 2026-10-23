@@ -1,15 +1,23 @@
-# SLICE-01c: DesertCtl `set` names ANY Asset<T> reference by its `assets:` path - the slot's content kind is derived from
-# the content census (ContentKindForAssetType: <KindName>Asset), not a hand list - and a path of the wrong kind is
-# refused with its reason (--expect-refusal; the reason lands in editor.log as "[Control] set ... refused").
-# The cube (Primitive Cube, slot 0 = Starter_Prop) gets another mesh and another material, then a texture as its material.
+# SLICE-01c: ECS::StaticMeshComponent is REFLECTED like UE's UStaticMeshComponent (StaticMesh + OverrideMaterials):
+# DesertCtl `set` reaches StaticMesh.MeshHandle and ONE element StaticMesh.MaterialSlots[0], each `assets:` path
+# checked against the field's Asset<T> (ContentKindForAssetType), and the edit re-states its dependants
+# (ECS::PostEditStaticMesh: a mesh clears the Primitive, the material instances rebuild from the slots).
+# The cube (Primitive Cube, slot 0 = Starter_Prop) gets another mesh and another material, then a texture as its
+# material (refused with the reason in editor.log), then the scene is saved and reopened.
 Дано run Scene "Open Scene Starter.desce"
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position 0,60,450
 Дано --subject viewport set Camera.Direction 0,-0.1,-1
-Когда set 6018453462564557835 StaticMesh.Mesh assets:Meshes/Modeling/Blockout.stmesh
-Когда set 6018453462564557835 StaticMesh.Materials assets:Materials/CB_Red.demat
+Когда set 6018453462564557835 StaticMesh.MeshHandle assets:Meshes/Modeling/Blockout.stmesh
+Когда set 6018453462564557835 StaticMesh.MaterialSlots[0] assets:Materials/CB_Red.demat
 Когда advance 1
-Тогда-вид 0_swapped the cube entity shows the other mesh in the red CB material, not the grey Starter_Prop cube
-Когда --expect-refusal set 6018453462564557835 StaticMesh.Materials assets:Textures/T_Checker.detex
+Тогда-вид 0_swapped the cube entity shows the Blockout mesh in the red CB material, not the grey Starter_Prop cube
+Когда --expect-refusal set 6018453462564557835 StaticMesh.MaterialSlots[0] assets:Textures/T_Checker.detex
 Когда advance 1
 Тогда-вид 1_refused unchanged from 0_swapped; editor.log has "[Control] set ... refused: 'assets:Textures/T_Checker.detex' is a Texture, not a Material"
+Когда run Action "Save Scene"
+Когда run Scene "Open Scene Starter.desce"
+Когда --subject viewport set Camera.Position 0,60,450
+Когда --subject viewport set Camera.Direction 0,-0.1,-1
+Когда advance 1
+Тогда-вид 2_reopen same as 0_swapped after the reopen (the saved mesh + material round-trip)

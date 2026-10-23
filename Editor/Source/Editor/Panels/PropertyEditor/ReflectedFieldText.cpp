@@ -10,6 +10,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <memory>
+#include <optional>
+#include <system_error>
 #include <format>
 #include <vector>
 
@@ -236,6 +239,68 @@ namespace Desert::Editor
             return Common::MakeError<Value>( std::format( "field '{}' is {}: it has no text form", field.Name,
                                                           Reflection::FieldTypeName( field.Type ) ) );
         }
+        // One element of a std::vector field, restored through the field's typed accessors (FieldInfo::ContainerSet):
+        // an element has no address the reflection hands out, and its value - not its bytes - is what survives.
+        class ContainerElementCommand final : public ICommand
+        {
+        public:
+            ContainerElementCommand( const FieldInfo& field, void* container, std::size_t index, Value before,
+                                     Value after )
+                 : m_Set( field.ContainerSet ), m_Container( container ), m_Index( index ),
+                   m_Before( std::move( before ) ), m_After( std::move( after ) ), m_Label( field.DisplayName() )
+            {
+            }
+            bool Undo() override
+            {
+                return m_Set( m_Container, m_Index, m_Before );
+            }
+            bool Redo() override
+            {
+                return m_Set( m_Container, m_Index, m_After );
+            }
+            bool IsVolatile() const override
+            {
+                return true; // a raw address inside a component, as ByteCommand's
+            }
+            [[nodiscard]] const void* EditedObject() const override
+            {
+                return m_Container;
+            }
+            std::string GetLabel() const override
+            {
+                return "Edit " + m_Label;
+            }
+
+        private:
+            bool ( *m_Set )( void*, std::size_t, const Value& );
+            void*       m_Container;
+            std::size_t m_Index;
+            Value       m_Before;
+            Value       m_After;
+            std::string m_Label;
+        };
+
+        // `Name[index]` -> {Name, index}; a segment without brackets has no index.
+        struct SegmentIndex
+        {
+            std::string_view           Name;
+            std::optional<std::size_t> Index;
+            bool                       Malformed = false;
+        };
+        SegmentIndex SplitIndex( std::string_view segment )
+        {
+            const std::size_t open = segment.find( '[' );
+            if ( open == std::string_view::npos )
+                return { segment, std::nullopt, false };
+            if ( segment.back() != ']' )
+                return { segment.substr( 0, open ), std::nullopt, true };
+            std::size_t            index  = 0;
+            const std::string_view digits = segment.substr( open + 1, segment.size() - open - 2 );
+            const auto [end, error] = std::from_chars( digits.data(), digits.data() + digits.size(), index );
+            if ( digits.empty() || error != std::errc() || end != digits.data() + digits.size() )
+                return { segment.substr( 0, open ), std::nullopt, true };
+            return { segment.substr( 0, open ), index, false };
+        }
     } // namespace
 
     std::vector<ReflectedFieldRow> DescribeReflectedFields( const std::string& typeName, const void* object )
@@ -259,7 +324,11 @@ namespace Desert::Editor
         while ( true )
         {
             const std::size_t      dot     = rest.find( '.' );
-            const std::string_view segment = rest.substr( 0, dot );
+            const SegmentIndex     split   = SplitIndex( rest.substr( 0, dot ) );
+            const std::string_view segment = split.Name;
+            if ( split.Malformed )
+                return Common::MakeError<bool>( std::format(
+                     "'{}' is not <Field>[<index>] with a decimal index", rest.substr( 0, dot ) ) );
             const FieldInfo*       field   = nullptr;
             for ( const FieldInfo& candidate : type->Fields )
                 if ( candidate.Name == segment )
@@ -271,6 +340,39 @@ namespace Desert::Editor
                     names += ( names.empty() ? "" : ", " ) + candidate.Name;
                 return Common::MakeError<bool>(
                      std::format( "'{}' has no field '{}'. Its fields: {}", type->Name, segment, names ) );
+            }
+
+            if ( split.Index.has_value() )
+            {
+                // ONE ELEMENT OF A std::vector FIELD (StaticMesh.MaterialSlots[0]): parsed as the element's kind
+                // (an asset path checked against the field's Asset<T>), written through ContainerSet, which
+                // refuses an index past the end - an element is addressed, never appended.
+                if ( !field->IsContainer || field->ContainerSet == nullptr || field->ContainerGet == nullptr )
+                    return Common::MakeError<bool>(
+                         std::format( "'{}.{}' is not a list, so [{}] addresses nothing", type->Name, field->Name,
+                                      *split.Index ) );
+                if ( dot != std::string_view::npos )
+                    return Common::MakeError<bool>( std::format(
+                         "'{}.{}[{}]' is a value, so '{}' addresses nothing inside it", type->Name, field->Name,
+                         *split.Index, rest.substr( dot + 1 ) ) );
+                void*             container = at + field->Offset;
+                const std::size_t count     = field->ContainerSize ? field->ContainerSize( container ) : 0;
+                if ( *split.Index >= count )
+                    return Common::MakeError<bool>(
+                         std::format( "'{}.{}' has {} element(s), so [{}] is past its end", type->Name,
+                                      field->Name, count, *split.Index ) );
+                FieldInfo element = *field;
+                element.Type      = field->ElementType;
+                const auto parsed = Parse( element, text );
+                if ( !parsed )
+                    return Common::MakeError<bool>( parsed.GetError() );
+                Value before = field->ContainerGet( container, *split.Index );
+                if ( !field->ContainerSet( container, *split.Index, parsed.GetValue() ) )
+                    return Common::MakeError<bool>( std::format( "'{}.{}[{}]' refused the value '{}'",
+                                                                 type->Name, field->Name, *split.Index, text ) );
+                history.PushFieldCommand( std::make_unique<ContainerElementCommand>(
+                     *field, container, *split.Index, std::move( before ), parsed.GetValue() ) );
+                return Common::MakeSuccess( true );
             }
 
             if ( dot != std::string_view::npos )
