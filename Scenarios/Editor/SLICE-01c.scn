@@ -10,14 +10,11 @@
 Дано --subject viewport set Camera.Direction 0,-0.1,-1
 Когда set 6018453462564557835 StaticMeshComponent.MeshHandle assets:Meshes/Modeling/Blockout.stmesh
 Когда set 6018453462564557835 StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Red.demat
-Когда advance 1
 Тогда-вид 0_swapped the cube entity shows the Blockout mesh in the red CB material, not the grey Starter_Prop cube
 Когда --expect-refusal set 6018453462564557835 StaticMeshComponent.MaterialSlots[0] assets:Textures/T_Checker.detex
-Когда advance 1
 Тогда-вид 1_refused unchanged from 0_swapped; editor.log has "[Control] set ... refused: 'assets:Textures/T_Checker.detex' is a Texture, not a Material"
 Когда run Action "Save Scene"
 Когда run Scene "Open Scene Starter.desce"
 Когда --subject viewport set Camera.Position 0,60,450
 Когда --subject viewport set Camera.Direction 0,-0.1,-1
-Когда advance 1
 Тогда-вид 2_reopen same as 0_swapped after the reopen (the saved mesh + material round-trip)

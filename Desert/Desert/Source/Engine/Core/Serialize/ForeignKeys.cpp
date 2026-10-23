@@ -20,7 +20,8 @@ namespace Desert::Core::Serialize
 
     Common::Json::TextDocument MergeSceneDocument( const Common::Json::TextDocument& fresh,
                                                    const Common::Json::TextDocument& source,
-                                                   const KeyIsOurs&                  entityKeyIsOurs )
+                                                   const KeyIsOurs&                  entityKeyIsOurs,
+                                                   const Common::Json::MemberKeyIsOurs& componentKeyIsOurs )
     {
         // The top level answers to NothingIsOurs (every top-level member SceneSerialized states it always
         // writes); `Entities` is the array whose records have identity - matched on `id`, first claimant
@@ -29,7 +30,8 @@ namespace Desert::Core::Serialize
                                            Common::Json::CarryRule{ .RootKeyIsOurs   = NothingIsOurs(),
                                                                     .RecordArray     = "Entities",
                                                                     .RecordId        = "id",
-                                                                    .RecordKeyIsOurs = entityKeyIsOurs } );
+                                                                    .RecordKeyIsOurs = entityKeyIsOurs,
+                                                                    .RecordMemberKeyIsOurs = componentKeyIsOurs } );
     }
 
     void CountForeignKeysAtLevel( const std::vector<std::string>& keys, const KeyIsOurs& ours,

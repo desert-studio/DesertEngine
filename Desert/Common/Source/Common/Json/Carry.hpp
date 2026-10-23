@@ -28,6 +28,11 @@ namespace Common::Json
     // Asked about one key at one level: does THIS build state it? A key it states and did not write was
     // deleted by this build and must not come back; a key it does not state belongs to another build.
     using KeyIsOurs = std::function<bool( const std::string& )>;
+    // The same question one level below a record: is `key`, inside the record's object member `member` (a
+    // scene entity's component block), one this build states whenever it has a value? A block writer that
+    // omits a member at its default (an optional left empty, a flag at its default) states it all the same,
+    // and the old file's value under that key is one this build CLEARED - carrying it back resurrects it.
+    using MemberKeyIsOurs = std::function<bool( const std::string& member, const std::string& key )>;
 
     struct CarryRule;
 
@@ -105,6 +110,9 @@ namespace Common::Json
         std::string RecordId = "id";
         // Asked about the keys of one matched record.
         KeyIsOurs RecordKeyIsOurs;
+        // Asked about the keys of an object member of one matched record (one level only; deeper levels
+        // answer "not ours"). Empty = nothing there is ours.
+        MemberKeyIsOurs RecordMemberKeyIsOurs;
     };
 
     // `fresh` (what this build wrote) with every key of `source` (the loaded document) that this build
