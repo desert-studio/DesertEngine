@@ -111,6 +111,10 @@ Shader "ProceduralSky"
                 // The analytic sun disc: outer-space luminance (illuminance over the disc's solid
                 // angle) times the transmittance toward the view, limb-darkened, soft-edged. Not in
                 // the LUT — 192x104 texels would alias a half-degree disc into a smear.
+                vec3 viewT = texture(TransmittanceLutTexture,
+                                     SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm, atm.TopRadiusKm,
+                                                                     viewHeight, viewZenithCos)).rgb;
+
                 float cosApex = cos(UnpackSunAngularRadius(s));
                 float vDotSun = dot(dir, sunDir);
                 float edge    = SkySunDiscSoftEdge(vDotSun, cosApex);
@@ -120,14 +124,15 @@ Shader "ProceduralSky"
                     float centerToEdge = clamp(acos(clamp(vDotSun, -1.0f, 1.0f)) / apex, 0.0f, 1.0f);
                     float solidAngle   = 2.0f * SKY_PI * (1.0f - cosApex);
 
-                    vec3 viewT = texture(TransmittanceLutTexture,
-                                         SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm,
-                                                                         atm.TopRadiusKm, viewHeight,
-                                                                         viewZenithCos)).rgb;
-
                     sky += sunIlluminance * UnpackSunDiskColorScale(s) / max(solidAngle, 1e-7f) * viewT *
                            SkySunLimbDarkening(centerToEdge) * edge;
                 }
+
+                // The stars (Star Intensity): outer-space sources like the disc, so they too reach the eye
+                // through the view path's transmittance, behind the in-scattering already in `sky` - which
+                // is what hides them by day. Common/Atmosphere.glslh states their luminance.
+                sky += AtmosphereStarField(dir) * UnpackStarIntensity(s) * AtmosphereStarPeakLuminance() *
+                       ATMOSPHERE_STAR_TINT * viewT;
             }
 
             // The on-screen-only art tint (UE's SkyLuminanceFactor), then the exposure-relative ceiling.
