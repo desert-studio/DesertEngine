@@ -59,8 +59,9 @@ namespace Desert::World::Landscape
 
         struct BandHit
         {
-            float Alpha  = 0.0f;
-            float Height = 0.0f; // world cm, the curve's centre height at the nearest point
+            float Alpha      = 0.0f;
+            float PaintAlpha = 0.0f; // the same falloff measured from the painted half-width (LayerWidth)
+            float Height     = 0.0f; // world cm, the curve's centre height at the nearest point
         };
 
         /// The band of one sampled segment at world (x, z): the nearest point on the centre polyline (XZ),
@@ -93,15 +94,24 @@ namespace Desert::World::Landscape
                 bestDistance            = score;
                 const float width       = glm::mix( points[i].Width, points[i + 1].Width, clamped );
                 const float sideFalloff = glm::mix( points[i].SideFalloff, points[i + 1].SideFalloff, clamped );
-                float       alpha       = 1.0f;
-                if ( lateral > width )
-                    alpha = sideFalloff > 0.0f ? SmoothStep( 1.0f - ( lateral - width ) / sideFalloff ) : 0.0f;
+                const float layerWidth  = glm::mix( points[i].LayerWidth, points[i + 1].LayerWidth, clamped );
+                auto        side        = [&]( float half )
+                {
+                    if ( lateral <= half )
+                        return 1.0f;
+                    return sideFalloff > 0.0f ? SmoothStep( 1.0f - ( lateral - half ) / sideFalloff ) : 0.0f;
+                };
+                float alpha = side( width );
+                float paint = side( layerWidth );
                 if ( overshoot > 0.0f )
                 {
                     const float falloff = t < 0.0f ? startFalloff : endFalloff;
-                    alpha *= falloff > 0.0f ? SmoothStep( 1.0f - overshoot / falloff ) : 0.0f;
+                    const float fade    = falloff > 0.0f ? SmoothStep( 1.0f - overshoot / falloff ) : 0.0f;
+                    alpha *= fade;
+                    paint *= fade;
                 }
-                best.Alpha  = alpha;
+                best.Alpha      = alpha;
+                best.PaintAlpha = paint;
                 best.Height = glm::mix( points[i].Center.y, points[i + 1].Center.y, clamped );
             }
             return best;
@@ -115,11 +125,13 @@ namespace Desert::World::Landscape
             const LandscapeSplineControlPoint& p = splines.ControlPoints[i];
             if ( !Finite( p.Location ) )
                 return Common::MakeFormattedError<bool>( "landscape spline point {}: location is not finite", i );
-            if ( !NonNegative( p.Width ) || !NonNegative( p.SideFalloff ) || !NonNegative( p.EndFalloff ) )
-                return Common::MakeFormattedError<bool>(
-                     "landscape spline point {}: width {} / side falloff {} / end falloff {} must be finite and "
-                     "not negative",
-                     i, p.Width, p.SideFalloff, p.EndFalloff );
+            if ( !NonNegative( p.Width ) || !NonNegative( p.SideFalloff ) || !NonNegative( p.EndFalloff ) ||
+                 !NonNegative( p.LayerWidthRatio ) )
+                return Common::MakeFormattedError<bool>( "landscape spline point {}: width {} / side falloff {} / "
+                                                         "end falloff {} / layer width ratio {} "
+                                                         "must be finite and not negative",
+                                                         i, p.Width, p.SideFalloff, p.EndFalloff,
+                                                         p.LayerWidthRatio );
         }
         for ( size_t i = 0; i < splines.Segments.size(); ++i )
         {
@@ -171,6 +183,7 @@ namespace Desert::World::Landscape
             point.Center                      = h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1;
             point.Width                       = glm::mix( start.Width, end.Width, t );
             point.SideFalloff                 = glm::mix( start.SideFalloff, end.SideFalloff, t );
+            point.LayerWidth = point.Width * glm::mix( start.LayerWidthRatio, end.LayerWidthRatio, t );
             point.Left                        = point.Center - right * point.Width;
             point.Right                       = point.Center + right * point.Width;
             point.FalloffLeft                 = point.Center - right * ( point.Width + point.SideFalloff );
@@ -230,7 +243,7 @@ namespace Desert::World::Landscape
             glm::vec2 hi( std::numeric_limits<float>::lowest() );
             for ( const LandscapeSplineInterpPoint& p : sampled.Points )
             {
-                reach = std::max( reach, p.Width + p.SideFalloff );
+                reach = std::max( reach, std::max( p.Width, p.LayerWidth ) + p.SideFalloff );
                 lo    = glm::min( lo, glm::vec2( p.Center.x, p.Center.z ) );
                 hi    = glm::max( hi, glm::vec2( p.Center.x, p.Center.z ) );
             }
@@ -253,6 +266,25 @@ namespace Desert::World::Landscape
             belowAlpha.push_back( l.HeightAlpha );
         }
 
+        // The paint layers the segments name, each with its plane (UE: one weightmap target per LayerName).
+        std::vector<LandscapeWeightLayer> paint;
+        std::vector<size_t>               paintOf( segments.size(), std::numeric_limits<size_t>::max() );
+        for ( size_t i = 0; i < segments.size(); ++i )
+        {
+            const std::string& name = segments[i].Segment->LayerName;
+            if ( name.empty() )
+                continue;
+            auto found = std::find_if( paint.begin(), paint.end(),
+                                       [&]( const LandscapeWeightLayer& w ) { return w.Name == name; } );
+            if ( found == paint.end() )
+            {
+                paint.push_back(
+                     { name, std::vector<uint8_t>( static_cast<size_t>( samplesX ) * samplesZ, 0u ) } );
+                found = paint.end() - 1;
+            }
+            paintOf[i] = static_cast<size_t>( found - paint.begin() );
+        }
+
         constexpr float       kMid       = static_cast<float>( kLandscapeMidSample );
         const float           alphaUp    = splinesLayer->HeightAlpha;
         const float           stepsPerCm = 128.0f / frame.ZScale; // kLandscapeStepsPerLocal per local unit
@@ -265,10 +297,18 @@ namespace Desert::World::Landscape
                                                   frame.OriginZ + static_cast<float>( z ) * frame.SpacingCm );
                 BandHit                       best;
                 const LandscapeSplineSegment* winner = nullptr;
-                for ( const Sampled& s : segments )
+                const size_t                  index  = static_cast<size_t>( z ) * samplesX + x;
+                for ( size_t i = 0; i < segments.size(); ++i )
                 {
-                    const BandHit hit =
+                    const Sampled& s = segments[i];
+                    const BandHit  hit =
                          SegmentBand( s.Points, s.StartIsEnd, s.StartFalloff, s.EndIsEnd, s.EndFalloff, at );
+                    if ( paintOf[i] < paint.size() && hit.PaintAlpha > 0.0f )
+                    {
+                        uint8_t&      w      = paint[paintOf[i]].Weights[index];
+                        const uint8_t weight = static_cast<uint8_t>( std::lround( hit.PaintAlpha * 255.0f ) );
+                        w                    = std::max( w, weight );
+                    }
                     if ( hit.Alpha > best.Alpha )
                     {
                         best   = hit;
@@ -277,7 +317,6 @@ namespace Desert::World::Landscape
                 }
                 if ( winner == nullptr || best.Alpha <= 0.0f || alphaUp == 0.0f )
                     continue;
-                const size_t index  = static_cast<size_t>( z ) * samplesX + x;
                 float        ground = 0.0f; // relative to mid, exactly as MergeLandscapeEditLayers sums it
                 for ( size_t b = 0; b < below.size(); ++b )
                     ground = std::clamp( ground + ( static_cast<float>( below[b]->Heights[index] ) - kMid ) *
@@ -291,13 +330,20 @@ namespace Desert::World::Landscape
                 touched           = touched || plane[index] != kLandscapeMidSample;
             }
 
+        // Only a plane that carries paint here goes on the tile (a tile holds at most eight weight layers).
+        std::erase_if(
+             paint, []( const LandscapeWeightLayer& w )
+             { return std::all_of( w.Weights.begin(), w.Weights.end(), []( uint8_t v ) { return v == 0u; } ); } );
+        const bool painted = !paint.empty();
+
         const LandscapeEditLayerTileData* held = tile.FindEditLayer( layer );
-        if ( !touched && held == nullptr )
+        if ( !touched && !painted && held == nullptr )
             return Common::MakeSuccess( true ); // nothing reaches the tile and nothing was there: no layer data
         LandscapeEditLayerTileData data;
         data.Layer = layer;
         if ( touched )
             data.Heights = std::move( plane );
+        data.Weights = std::move( paint );
         if ( auto set = tile.SetEditLayer( std::move( data ) ); !set )
             return set;
         const LandscapeRect whole{ 0u, 0u, samplesX, samplesZ };
