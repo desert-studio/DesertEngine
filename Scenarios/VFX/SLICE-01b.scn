@@ -1,0 +1,21 @@
+# SLICE-01b: DesertCtl `set` names an asset reference by its `assets:` path (UE soft object path), resolved through the
+# content registry as the Details picker resolves a dropped file; a path of the wrong kind or one naming nothing is
+# refused with the reason (--expect-refusal: the step passes only when the editor refuses; the reason lands in
+# editor.log as "[Control] set ... refused"). The scenario does NOT save the scene.
+Дано run Scene "Open Scene Starter.desce"
+Дано run View "View mode: Lit"
+# the Campfire entity (VFX.System = Campfire.dfx) is lifted onto the Cylinder's top as a torch post
+Дано run Entity "Add to selection Campfire"
+Дано --subject selection set Translation 120,150,260
+Когда set 1414213562373095048 VFX.System assets:VFX/Torch.dfx
+Когда run Action Simulate
+Когда advance 1
+Когда advance 1
+Когда --subject viewport set Camera.Position 400,190,260
+Когда --subject viewport set Camera.Direction -1,0.1,0
+Тогда-вид 0_torch the Torch: a narrow tall flame with a smoke column and embers on the post, not the wide campfire
+Когда --expect-refusal set 1414213562373095048 VFX.System assets:Materials/CB_Glass.demat
+Когда --expect-refusal set 1414213562373095048 VFX.System assets:VFX/NoSuchSystem.dfx
+Когда advance 1
+Тогда-вид 1_refused still the Torch after both refused sets (the wrong-type material and the missing path)
+Когда run Action Stop

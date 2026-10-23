@@ -808,7 +808,13 @@ namespace Desert::Editor
                     else
                         edit( found->DataPtr( en ) );
                     if ( !written )
+                    {
+                        // Named in the editor's log as well as in the reply: a scenario that expects the refusal
+                        // reads its reason there.
+                        LOG_WARN( "[Control] set {} {} '{}' refused: {}", request.Entity, request.Property,
+                                  request.Text, written.GetError() );
                         return Control::Response::Failure( request.Id, written.GetError() );
+                    }
                     return Control::Response::Success( request.Id );
                 }
 
