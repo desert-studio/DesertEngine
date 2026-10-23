@@ -1,0 +1,33 @@
+# VFX-LIGHT Light Renderer (UE Niagara Light Renderer): Torch.dfx's Flame emitter has a Light row - up to 8 of its alive flame particles each cast a point light (colour = particle colour x alpha, radius = sprite size x 30, 1.5 cd inverse-square) into the scene's local-light path. Starter at night (sun and both fill lights at 0), the torch on the Cylinder pole, the Cube stretched into a wall 70 cm behind it; simulated 2 s and shot from the side; then the Light row is disabled in the .dfx editor (Flame.Render.1.Enabled 0, saved: the level effect restarts with it) and the same view is shot again. The scenario re-enables and saves the row at the end; it does NOT save the scene.
+Дано run Scene "Open Scene Starter.desce"
+Дано run View "View mode: Lit"
+Дано set 13376537502658031226 DirectionalLightData.Intensity 0
+Дано set 17693095525329290091 PointLightData.Intensity 0
+Дано set 17729774111420330691 PointLightData.Intensity 0
+# VFX.System takes the asset handle: HandleForGuid(5c1e7a93d40b4f28a6e2b17f09c3d854) = Torch.dfx
+Дано set 1414213562373095048 VFX.System 241330729926691968
+Дано run Entity "Cube"
+Дано --subject selection set Translation 120,150,330
+Дано --subject selection set Scale 4,3,0.2
+Дано run Entity "Campfire"
+Дано --subject selection set Translation 120,150,260
+Когда run Action Simulate
+Когда advance 1
+Когда advance 1
+Когда --subject viewport set Camera.Position 120,190,-160
+Когда --subject viewport set Camera.Direction 0,-0.12,1
+Тогда-вид 0_lit night scene: the torch flame on top of the pole, a warm orange light pool on the pole's top and on the wall behind it around the flame, falling off with distance; the ground near the pole lit warm too
+Когда run Open "VFX/Torch.dfx"
+Когда set Flame.Render.1.Enabled 0
+Когда run Document "Save this document"
+Когда run Document "Close Torch.dfx"
+Когда advance 1
+Когда advance 1
+Когда --subject viewport set Camera.Position 120,190,-160
+Когда --subject viewport set Camera.Direction 0,-0.12,1
+Тогда-вид 1_off the same view: the flame still drawn on the pole, but the wall, the pole and the ground around it dark - no warm pool
+Когда run Open "VFX/Torch.dfx"
+Когда set Flame.Render.1.Enabled 1
+Когда run Document "Save this document"
+Когда run Document "Close Torch.dfx"
+Когда run Action Stop

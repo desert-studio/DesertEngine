@@ -111,6 +111,14 @@ namespace Desert::Graphic
                  [particles]( RDG::PassBuilder& pass ) { particles->DeclareDebugReadbackBindings( pass ); },
                  [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return particles->DebugReadback( context ); } );
+        // VFX-LIGHT (UE Niagara Light Renderer): the Light rows' particles, after the last compact, for the
+        // scene's particle point lights FramesInFlight frames later (ParticleWorldGpu::ReadLightReadbacks).
+        if ( particles->LightReadbackRequested() )
+            graph.AddPass(
+                 "Particles: Light Readback", RDG::PassFlags::Compute,
+                 [particles]( RDG::PassBuilder& pass ) { particles->DeclareLightReadbackBindings( pass ); },
+                 [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->LightReadback( context ); } );
     }
 
     void SceneRenderer::AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures )

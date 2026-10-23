@@ -1085,6 +1085,11 @@ namespace Desert::Graphic
                 scene.GetVFXWorld().SubmitView( report );
             }
             UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
+            // VFX-LIGHT (UE Niagara Light Renderer): the scene's particle lights join this view's local lights -
+            // the same light grid, composite and forward paths as a PointLightComponent's, casting no shadow.
+            for ( const ShaderProtocols::PointLightPayload& light :
+                  System::ParticleWorldGpu::Of( scene.GetVFXWorld() ).ParticleLights() )
+                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false } );
         }
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over

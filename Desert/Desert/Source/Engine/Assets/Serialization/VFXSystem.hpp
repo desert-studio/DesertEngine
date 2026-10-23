@@ -189,6 +189,7 @@ namespace Desert::Assets::Serialization
         Sprite,
         Ribbon,
         Mesh,
+        Light, ///< draws nothing: casts a local light from the emitter's particles (VFX-LIGHT)
     };
 
     /// How a ribbon lays its U coordinate along its length (UE ENiagaraRibbonUVDistributionMode).
@@ -221,6 +222,29 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const VFXMeshRendererData& ) const = default;
     };
 
+    /// The most lights one Light row casts per emitter (its MaxLights is 1 .. this).
+    inline constexpr uint32_t kVFXLightMaxPerEmitter = 64u;
+
+    /// A Light row's settings (UE UNiagaraLightRendererProperties): up to MaxLights of the emitter's alive
+    /// particles each cast a point light into the scene's local-light path (the light grid, the deferred
+    /// composite, the forward passes) - no light pass of its own. Per light: position = the particle's world
+    /// position, radius = the larger SpriteSize axis x RadiusScale (UE RadiusScale over Particles.LightRadius),
+    /// colour = the particle's Color rgb (x its alpha when AlphaScalesBrightness, UE bAlphaScalesBrightness) +
+    /// ColorAdd (UE ColorAdd), brightness = Intensity. The lit particles are spread evenly over the alive list.
+    struct VFXLightRendererData
+    {
+        float     RadiusScale = 1.0f;              ///< > 0, on the particle's larger SpriteSize axis (cm)
+        glm::vec3 ColorAdd    = glm::vec3( 0.0f ); ///< added to every light's colour, >= 0
+        /// Each light's brightness: candelas under inverse-square falloff (UE bUseInverseSquaredFalloff, the
+        /// default), else the renderer's unitless multiplier with exponent falloff. >= 0.
+        float    Intensity                = 20.0f;
+        bool     UseInverseSquaredFalloff = true;
+        bool     AlphaScalesBrightness    = true;
+        uint32_t MaxLights                = 8u; ///< 1 .. kVFXLightMaxPerEmitter
+
+        [[nodiscard]] bool operator==( const VFXLightRendererData& ) const = default;
+    };
+
     /**
      * @brief One renderer of an emitter (UE UNiagaraRendererProperties): the emitter's particles drawn once per
      *        enabled row.
@@ -237,6 +261,7 @@ namespace Desert::Assets::Serialization
         std::optional<AssetGuidRef>          Material{};
         std::optional<VFXRibbonRendererData> Ribbon{};
         std::optional<VFXMeshRendererData>   Mesh{};
+        std::optional<VFXLightRendererData> Light{}; ///< stated exactly when Kind == Light (which has no Material)
 
         [[nodiscard]] bool operator==( const VFXRendererData& ) const = default;
     };

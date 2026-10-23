@@ -95,6 +95,16 @@ namespace
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleLightReadbackShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DrawLayout );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Readback );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct ParticleShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
@@ -167,6 +177,7 @@ namespace Desert::Graphic::System
         for ( const auto& [name, into] : { std::pair{ "ParticleCompact", &m_CompactPipeline },
                                            std::pair{ "ParticleDispatchArgs", &m_ArgsPipeline },
                                            std::pair{ "ParticleDebugReadback", &m_DebugPipeline },
+                                           std::pair{ "ParticleLightReadback", &m_LightPipeline },
                                            std::pair{ "ParticleSort", &m_SortPipeline },
                                            std::pair{ "ParticleMeshInstances", &m_MeshPipeline } } )
         {
@@ -226,7 +237,10 @@ namespace Desert::Graphic::System
         m_World                 = &world;
         m_Simulates             = world.PrepareTick( scene );
         if ( m_Simulates )
+        {
             world.ReadDebugReadbacks(); // VFX-16: before this frame's node writes the copy it reads
+            world.ReadLightReadbacks(); // VFX-LIGHT: the same, for the Light rows' copies
+        }
 
         // This view's materials follow the scene's emitters: a destroyed emitter's goes through the allocator's
         // deletion ring with it, so the frame still reading it finishes first.
@@ -435,6 +449,7 @@ namespace Desert::Graphic::System
             ve.Declared = false;
             ve.Sorted   = false;
             ve.Debugged = false;
+            ve.Lit      = false;
             ve.Ribboned = false;
         }
         if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Slots )
@@ -518,6 +533,19 @@ namespace Desert::Graphic::System
                     else
                         LOG_ERROR( "[Particles] emitter {} has no debug readback this frame: {}", i, debug.GetError() );
                 }
+                if ( gpu.LightReadback && ve.Frame->Light != nullptr )
+                {
+                    const Common::BoolResultStr light =
+                         Renderer::ImportBuffer( gpu.LightReadback, ve.LightImport );
+                    if ( light )
+                    {
+                        ve.LightRef =
+                             graph.RegisterExternal( ve.LightImport, std::format( "ParticleLightReadback{}", i ) );
+                        ve.Lit = true;
+                    }
+                    else
+                        LOG_ERROR( "[Particles] emitter {} casts no light this frame: {}", i, light.GetError() );
+                }
             }
             ve.CountersRef = graph.RegisterExternal( ve.CountersImport, std::format( "ParticleCounters{}", i ) );
             ve.FloatsRef   = graph.RegisterExternal( ve.FloatsImport, std::format( "VFXAttributeFloats{}", i ) );
@@ -562,6 +590,66 @@ namespace Desert::Graphic::System
                 return dispatched;
         }
         return BOOLSUCCESS;
+    }
+
+    bool ParticleRenderer::RunsLight( const ViewEmitter& ve ) const
+    {
+        return m_Simulates && ve.Declared && ve.Lit && ve.Frame->Light != nullptr && m_LightPipeline != nullptr;
+    }
+
+    bool ParticleRenderer::LightReadbackRequested() const
+    {
+        if ( !m_Simulates || m_LightPipeline == nullptr || m_World == nullptr )
+            return false;
+        return std::ranges::any_of( m_ViewEmitters, [this]( const ViewEmitter& ve ) { return RunsLight( ve ); } );
+    }
+
+    Common::BoolResultStr ParticleRenderer::LightReadback( const RDG::PassContext& context )
+    {
+        uint32_t block = 0;
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsLight( ve ) )
+                continue;
+            const ParticleEmitterGpu& gpu = *ve.Frame->Gpu;
+            const uint32_t half = ve.Frame->StepCount & 1u; // the slot / alive half the last compact filled
+            const uint32_t lights =
+                 std::min( ve.Frame->Light->MaxLights, Assets::Serialization::kVFXLightMaxPerEmitter );
+            const ParticleLightPush push{ glm::uvec4( half, lights, m_World->LightSerial(), 0u ),
+                                          glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, 0u, 0u, 0u ) };
+            RDG::PassBindings       bindings( context, context.GetBindingBlock( block++ ) );
+            bindings.PushConstants( &push, sizeof( push ) );
+            const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
+                 bindings, *m_LightPipeline,
+                 std::max( 1u, ( lights + kParticleLocalSize - 1 ) / kParticleLocalSize ), 1, 1 );
+            if ( !dispatched )
+                return dispatched;
+        }
+        return BOOLSUCCESS;
+    }
+
+    void ParticleRenderer::DeclareLightReadbackBindings( RDG::PassBuilder& pass ) const
+    {
+        if ( !m_LightPipeline )
+            return; // LightReadback dispatches nothing either
+        const auto& layout = m_LightLayout.Get( m_LightPipeline->GetSpecification().Shader );
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsLight( ve ) )
+                continue; // LightReadback skips it the same way
+            pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_LightPipeline ) )
+                 .Storage( ParticleLightReadbackShaderParameters::AttributeFloats, ve.FloatsRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleLightReadbackShaderParameters::AliveList, m_Pool.AliveRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleLightReadbackShaderParameters::Counters, ve.CountersRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleLightReadbackShaderParameters::DrawLayout, ve.DrawLayoutRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleLightReadbackShaderParameters::Readback, ve.LightRef,
+                           RDG::Access::StorageWrite )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleLightPush ) ) );
+        }
     }
 
     void ParticleRenderer::DeclareDebugReadbackBindings( RDG::PassBuilder& pass ) const

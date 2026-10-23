@@ -144,6 +144,14 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr DebugReadback( const RDG::PassContext& context );
         void                                DeclareDebugReadbackBindings( RDG::PassBuilder& pass ) const;
 
+        // VFX-LIGHT (UE Niagara Light Renderer): the node "Particles: Light Readback", in the simulating view
+        // after the last compact - one ParticleLightReadback dispatch per declared emitter with an enabled Light
+        // row, copying up to its MaxLights alive particles' position, size and colour into its readback, which
+        // ParticleWorldGpu::ReadLightReadbacks turns into the scene's particle point lights FramesInFlight later.
+        [[nodiscard]] bool                  LightReadbackRequested() const;
+        [[nodiscard]] Common::BoolResultStr LightReadback( const RDG::PassContext& context );
+        void                                DeclareLightReadbackBindings( RDG::PassBuilder& pass ) const;
+
         // VFX-09: every Mesh renderer row of a declared emitter as GPU instances (GpuInstances.hpp, UE
         // FNiagaraRendererMeshes): one "Particles: Mesh Instances {emitter}.{row}" Compute node writes a transform
         // per particle the last compact found alive and the instance count of every submesh record, then each
@@ -283,6 +291,9 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer         DebugImport; // VFX-16: the debugger's readback (simulating view only)
             RDG::BufferRef              DebugRef;
             bool                        Debugged = false;
+            RDG::ExternalBuffer         LightImport; // VFX-LIGHT: the Light row's readback (simulating view only)
+            RDG::BufferRef              LightRef;
+            bool                        Lit      = false;
             bool                        Declared = false;
             bool                        Sorted   = false; // the draw reads m_SortedRef, not AliveList
             bool                        Ribboned = false; // its ribbon link order is in m_RibbonRef
@@ -298,6 +309,8 @@ namespace Desert::Graphic::System
         bool RunsCompact( const ViewEmitter& ve, uint32_t compact ) const;
         // Whether the Debug Readback node dispatches @p ve.
         bool RunsDebug( const ViewEmitter& ve ) const;
+        // Whether the Light Readback node dispatches @p ve.
+        bool RunsLight( const ViewEmitter& ve ) const;
         // The sprite draw of @p cellShader in this view, built on first use (null = refused, said once by name).
         SpriteDraw* SpriteDrawFor( const std::string& cellShader );
         // The draw renderer row @p row of @p fe draws with this frame: the row's material's cell of the row's
@@ -313,6 +326,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<ComputePipeline> m_CompactPipeline;
         std::shared_ptr<ComputePipeline> m_ArgsPipeline;
         std::shared_ptr<ComputePipeline> m_DebugPipeline;
+        std::shared_ptr<ComputePipeline> m_LightPipeline; // ParticleLightReadback
         std::shared_ptr<ComputePipeline> m_SortPipeline;
         std::shared_ptr<ComputePipeline> m_MeshPipeline; // ParticleMeshInstances
         mutable ShaderBindingLayoutCache m_MeshLayout;
@@ -329,6 +343,7 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache                                             m_CompactLayout;
         mutable ShaderBindingLayoutCache                                             m_ArgsLayout;
         mutable ShaderBindingLayoutCache                                             m_DebugLayout;
+        mutable ShaderBindingLayoutCache                                             m_LightLayout;
 
         // The ParticleSpriteDefault template's ParticleSprite.Forward cell (Initialize refuses without it).
         std::string m_DefaultCell;

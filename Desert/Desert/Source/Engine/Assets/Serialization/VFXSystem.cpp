@@ -181,6 +181,26 @@ namespace Desert::Assets::Serialization
             if ( r.Mesh.has_value() != ( r.Kind == VFXRendererKind::Mesh ) )
                 return Common::MakeFormattedError<bool>( "{}: Mesh settings are stated exactly on a Mesh row",
                                                          at );
+            if ( r.Light.has_value() != ( r.Kind == VFXRendererKind::Light ) )
+                return Common::MakeFormattedError<bool>( "{}: Light settings are stated exactly on a Light row",
+                                                         at );
+            if ( r.Light )
+            {
+                const VFXLightRendererData& l = *r.Light;
+                if ( r.Material )
+                    return Common::MakeFormattedError<bool>( "{}: a Light row draws nothing and takes no Material",
+                                                             at );
+                if ( !std::isfinite( l.RadiusScale ) || l.RadiusScale <= 0.0f || !std::isfinite( l.Intensity ) ||
+                     l.Intensity < 0.0f || !std::isfinite( l.ColorAdd.x ) || !std::isfinite( l.ColorAdd.y ) ||
+                     !std::isfinite( l.ColorAdd.z ) || l.ColorAdd.x < 0.0f || l.ColorAdd.y < 0.0f ||
+                     l.ColorAdd.z < 0.0f )
+                    return Common::MakeFormattedError<bool>(
+                         "{}: light RadiusScale {} not > 0, or Intensity {} / ColorAdd not finite and >= 0", at,
+                         l.RadiusScale, l.Intensity );
+                if ( l.MaxLights == 0u || l.MaxLights > kVFXLightMaxPerEmitter )
+                    return Common::MakeFormattedError<bool>( "{}: light MaxLights {} is outside 1 .. {}", at,
+                                                             l.MaxLights, kVFXLightMaxPerEmitter );
+            }
             if ( r.Ribbon )
             {
                 const VFXRibbonRendererData& rb = *r.Ribbon;

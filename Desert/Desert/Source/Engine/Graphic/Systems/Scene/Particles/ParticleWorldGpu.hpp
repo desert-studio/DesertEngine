@@ -4,6 +4,7 @@
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/ECS/VFXPointSet.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
@@ -67,6 +68,18 @@ namespace Desert::Graphic::System
     };
     constexpr uint32_t kParticleDebugHeaderUints = 4u;
     constexpr uint32_t kParticleDebugMaxRows     = 64u;
+
+    // VFX-LIGHT (UE Niagara Light Renderer): ParticleLightReadback's push constant and its readback's shape - 4
+    // header uints (lights written, frame serial, 0, 0), then per light 8 floats: world position (cm), the larger
+    // SpriteSize axis (cm), Color rgba. The CPU reads the copy FramesInFlight frames later (no stall) and turns
+    // each row into a point light with the emitter's Light row (ParticleWorldGpu::ReadLightReadbacks).
+    struct ParticleLightPush
+    {
+        glm::uvec4 Page;       // x = the last compact's slot, y = lights wanted, z = serial (never 0), w = 0
+        glm::uvec4 AliveRange; // x = the drawn alive half's offset in AliveList, yzw = 0
+    };
+    constexpr uint32_t kParticleLightHeaderUints = 4u;
+    constexpr uint32_t kParticleLightRowFloats   = 8u;
 
     // What an editor debugger asks of the scene's particles: nothing runs while Enabled is false. The attribute
     // table is the page [FirstRow, FirstRow + kParticleDebugMaxRows) of the alive list of emitter Emitter of
@@ -206,6 +219,10 @@ namespace Desert::Graphic::System
         std::string                                     DebugName;
         uint32_t                                        DebugEntity  = 0;
         uint32_t                                        DebugEmitter = 0;
+
+        // VFX-LIGHT: the Light row's per-frame-in-flight readback (made on the first tick with an enabled Light
+        // row, kept while the emitter lives).
+        std::shared_ptr<ShaderResources::StorageBuffer> LightReadback;
     };
 
     // One enabled renderer row of an emitter this tick (UE: the FNiagaraRenderer made per
@@ -234,6 +251,8 @@ namespace Desert::Graphic::System
         // The emitter's enabled renderer rows in `.dfx` order (VFXS 2); none = the emitter simulates and draws
         // nothing (UE: an emitter without renderers).
         std::vector<ParticleFrameRenderer> Renderers;
+        // VFX-LIGHT: the emitter's first enabled Light row (null = it casts no light); the system's data holds it.
+        const Assets::Serialization::VFXLightRendererData* Light = nullptr;
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
     };
 
@@ -312,6 +331,20 @@ namespace Desert::Graphic::System
         }
         void ReadDebugReadbacks();
 
+        // VFX-LIGHT (UE Niagara Light Renderer): the simulating view reads every Light row's readback right after
+        // PrepareTick (before this frame's "Particles: Light Readback" writes the copy it reads) into the scene's
+        // particle lights, which EVERY view of the scene adds to its local lights (SceneRenderer, after
+        // ParticleRenderer::PrepareFrame). A tick that does not simulate keeps the last lights.
+        void                                                                 ReadLightReadbacks();
+        [[nodiscard]] const std::vector<ShaderProtocols::PointLightPayload>& ParticleLights() const
+        {
+            return m_Lights;
+        }
+        [[nodiscard]] uint32_t LightSerial() const
+        {
+            return m_LightSerial;
+        }
+
         // Counts are read back while the panel's request is enabled or the world's debugger shows the viewport
         // overview (VFXDebugSettings::Overview, taken at PrepareTick); the attribute table only for the request.
         [[nodiscard]] bool DebugReading() const
@@ -355,6 +388,8 @@ namespace Desert::Graphic::System
         ParticleDebugRequest                                           m_DebugRequest;
         std::vector<ParticleEmitterDebug>                              m_Debug;
         uint32_t                                                       m_DebugSerial = 0;
+        std::vector<ShaderProtocols::PointLightPayload>                m_Lights;
+        uint32_t                                                       m_LightSerial = 0;
         bool                                                           m_DebugCounts = false;
     };
 } // namespace Desert::Graphic::System

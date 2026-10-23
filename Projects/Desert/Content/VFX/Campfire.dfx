@@ -393,6 +393,18 @@
                 {
                     "Kind": "Sprite",
                     "Enabled": true
+                },
+                {
+                    "Kind": "Light",
+                    "Enabled": true,
+                    "Light": {
+                        "RadiusScale": 30.0,
+                        "ColorAdd": [0.0, 0.0, 0.0],
+                        "Intensity": 15.0,
+                        "UseInverseSquaredFalloff": true,
+                        "AlphaScalesBrightness": true,
+                        "MaxLights": 8
+                    }
                 }
             ]
         },

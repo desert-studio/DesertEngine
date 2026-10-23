@@ -1,4 +1,5 @@
 #include "VFXSystemDocument.hpp"
+#include <charconv>
 #include "VFXCurveInputEditor.hpp"
 
 #include <Editor/Core/AssetOpen.hpp>
@@ -66,6 +67,8 @@ namespace Desert::Editor
                     return "Ribbon Renderer";
                 case S::VFXRendererKind::Mesh:
                     return "Mesh Renderer";
+                case S::VFXRendererKind::Light:
+                    return "Light Renderer";
             }
             return "?";
         }
@@ -497,10 +500,57 @@ namespace Desert::Editor
             const auto& renderers = m_Working.Emitters[m_SelectedEmitter].Renderers;
             if ( renderers.empty() )
                 ImGui::TextDisabled( "  (no renderers)" );
-            for ( const auto& row : renderers )
-                ImGui::BulletText( "%s%s%s%s", RendererLabel( row.Kind ), row.Enabled ? "" : " (disabled)",
-                                   row.Material ? "  material " : "",
-                                   row.Material ? row.Material->Guid.c_str() : "" );
+            // UE's renderer rows: the enable box, the renderer, and a Light row's settings (each committed on
+            // Enter / toggle, one undo step). Applied after the loop: an edit rewrites m_Working.
+            std::function<void()> edit;
+            const std::size_t     e = m_SelectedEmitter;
+            for ( std::size_t r = 0; r < renderers.size(); ++r )
+            {
+                const auto& row = renderers[r];
+                ImGui::PushID( static_cast<int>( r ) );
+                bool enabled = row.Enabled;
+                if ( ImGui::Checkbox( "##enabled", &enabled ) )
+                    edit = [this, e, r, row, enabled]
+                    {
+                        S::VFXRendererData v = row;
+                        v.Enabled            = enabled;
+                        (void)SetRenderer( e, r, v,
+                                           std::format( "{} renderer {}", enabled ? "Enable" : "Disable", r ) );
+                    };
+                ImGui::SameLine();
+                ImGui::Text( "%s%s%s%s", RendererLabel( row.Kind ), row.Enabled ? "" : " (disabled)",
+                             row.Material ? "  material " : "", row.Material ? row.Material->Guid.c_str() : "" );
+                if ( row.Light )
+                {
+                    ImGui::Indent();
+                    S::VFXLightRendererData l       = *row.Light;
+                    bool                    changed = false;
+                    const auto              enter   = ImGuiInputTextFlags_EnterReturnsTrue;
+                    changed |= ImGui::InputFloat( "Radius Scale", &l.RadiusScale, 0.0f, 0.0f, "%.3f", enter );
+                    changed |= ImGui::InputFloat( l.UseInverseSquaredFalloff ? "Intensity (cd)" : "Intensity",
+                                                  &l.Intensity, 0.0f, 0.0f, "%.3f", enter );
+                    changed |= ImGui::InputFloat3( "Color Add", &l.ColorAdd.x, "%.3f", enter );
+                    int maxLights = static_cast<int>( l.MaxLights );
+                    if ( ImGui::InputInt( "Max Lights", &maxLights, 0, 0, enter ) )
+                    {
+                        l.MaxLights = static_cast<uint32_t>( std::max( maxLights, 0 ) );
+                        changed     = true;
+                    }
+                    changed |= ImGui::Checkbox( "Inverse Squared Falloff", &l.UseInverseSquaredFalloff );
+                    changed |= ImGui::Checkbox( "Alpha Scales Brightness", &l.AlphaScalesBrightness );
+                    if ( changed )
+                        edit = [this, e, r, row, l]
+                        {
+                            S::VFXRendererData v = row;
+                            v.Light              = l;
+                            (void)SetRenderer( e, r, v, std::format( "Edit light renderer {}", r ) );
+                        };
+                    ImGui::Unindent();
+                }
+                ImGui::PopID();
+            }
+            if ( edit )
+                edit();
         }
     }
 
@@ -917,6 +967,38 @@ namespace Desert::Editor
                 }
             }
         }
+        // Each renderer row: `<Emitter>.Render.<row>.Enabled`, and a Light row's settings beside it (VFX-LIGHT).
+        for ( const auto& emitter : m_Working.Emitters )
+        {
+            for ( std::size_t r = 0; r < emitter.Renderers.size(); ++r )
+            {
+                const auto& renderer = emitter.Renderers[r];
+                const auto  add =
+                     [&]( const char* field, const char* type, const int components, const glm::vec3 v )
+                {
+                    EditableProperty row;
+                    row.Name       = std::format( "{}.Render.{}.{}", emitter.Name, r, field );
+                    row.Label      = std::format( "{} {}", RendererLabel( renderer.Kind ), field );
+                    row.Group      = std::format( "{}.Render", emitter.Name );
+                    row.Type       = type;
+                    row.Components = components;
+                    for ( int c = 0; c < components; ++c )
+                        row.Value[static_cast<std::size_t>( c )] = v[c];
+                    out.push_back( std::move( row ) );
+                };
+                add( "Enabled", "bool", 1, glm::vec3( renderer.Enabled ? 1.0f : 0.0f ) );
+                if ( !renderer.Light )
+                    continue;
+                const S::VFXLightRendererData& l = *renderer.Light;
+                add( "RadiusScale", "float", 1, glm::vec3( l.RadiusScale ) );
+                add( "Intensity", "float", 1, glm::vec3( l.Intensity ) );
+                add( "ColorAdd", "float3", 3, l.ColorAdd );
+                add( "MaxLights", "int", 1, glm::vec3( static_cast<float>( l.MaxLights ) ) );
+                add( "UseInverseSquaredFalloff", "bool", 1,
+                     glm::vec3( l.UseInverseSquaredFalloff ? 1.0f : 0.0f ) );
+                add( "AlphaScalesBrightness", "bool", 1, glm::vec3( l.AlphaScalesBrightness ? 1.0f : 0.0f ) );
+            }
+        }
         // The transport: the window's, not the asset's - setting it is never an undo step.
         const auto transport = [&out]( const char* name, const char* label, const char* type, const float value )
         {
@@ -971,6 +1053,8 @@ namespace Desert::Editor
                      "the transport has no '{}'; it offers Time, Playing, Speed, Loop and Step", name );
             return BOOLSUCCESS;
         }
+        if ( auto renderer = SetRendererProperty( name, value ) )
+            return *renderer;
         for ( std::size_t e = 0; e < m_Working.Emitters.size(); ++e )
         {
             for ( std::size_t st = 0; st < kStageKeys.size(); ++st )
@@ -1129,6 +1213,66 @@ namespace Desert::Editor
                           kStageKeys[stage], ModuleKey( modules, module ) );
         modules[module].Enabled = enabled;
         return Commit( std::move( before ), label );
+    }
+
+    Common::BoolResultStr VFXSystemDocument::SetRenderer( const std::size_t emitter, const std::size_t row,
+                                                          S::VFXRendererData value, const std::string& label )
+    {
+        if ( emitter >= m_Working.Emitters.size() || row >= m_Working.Emitters[emitter].Renderers.size() )
+            return Common::MakeError<bool>( "there is no such renderer row" );
+        auto before                                = m_Working;
+        m_Working.Emitters[emitter].Renderers[row] = std::move( value );
+        return Commit( std::move( before ), std::format( "{} ({})", label, m_Working.Emitters[emitter].Name ) );
+    }
+
+    std::optional<Common::BoolResultStr> VFXSystemDocument::SetRendererProperty( const std::string&        name,
+                                                                                 const std::vector<float>& value )
+    {
+        for ( std::size_t e = 0; e < m_Working.Emitters.size(); ++e )
+        {
+            const std::string prefix = std::format( "{}.Render.", m_Working.Emitters[e].Name );
+            if ( !name.starts_with( prefix ) )
+                continue;
+            const std::string rest = name.substr( prefix.size() );
+            const auto        dot  = rest.find( '.' );
+            if ( dot == std::string::npos )
+                continue;
+            std::size_t r = 0;
+            if ( std::from_chars( rest.data(), rest.data() + dot, r ).ec != std::errc{} ||
+                 r >= m_Working.Emitters[e].Renderers.size() )
+                return Common::MakeFormattedError<bool>( "'{}': emitter '{}' has no renderer row '{}'", name,
+                                                         m_Working.Emitters[e].Name, rest.substr( 0, dot ) );
+            const std::string  field = rest.substr( dot + 1 );
+            S::VFXRendererData v     = m_Working.Emitters[e].Renderers[r];
+            const std::size_t  want  = field == "ColorAdd" ? 3u : 1u;
+            if ( value.size() != want )
+                return Common::MakeFormattedError<bool>( "'{}' takes {} number(s), not {}", name, want,
+                                                         value.size() );
+            if ( field == "Enabled" )
+                v.Enabled = value[0] != 0.0f;
+            else if ( !v.Light )
+                return Common::MakeFormattedError<bool>( "'{}': a {} row offers only Enabled", name,
+                                                         RendererLabel( v.Kind ) );
+            else if ( field == "RadiusScale" )
+                v.Light->RadiusScale = value[0];
+            else if ( field == "Intensity" )
+                v.Light->Intensity = value[0];
+            else if ( field == "ColorAdd" )
+                v.Light->ColorAdd = glm::vec3( value[0], value[1], value[2] );
+            else if ( field == "MaxLights" )
+                v.Light->MaxLights = static_cast<uint32_t>( std::max( std::lround( value[0] ), 0L ) );
+            else if ( field == "UseInverseSquaredFalloff" )
+                v.Light->UseInverseSquaredFalloff = value[0] != 0.0f;
+            else if ( field == "AlphaScalesBrightness" )
+                v.Light->AlphaScalesBrightness = value[0] != 0.0f;
+            else
+                return Common::MakeFormattedError<bool>(
+                     "'{}': a Light row offers Enabled, RadiusScale, Intensity, ColorAdd, MaxLights, "
+                     "UseInverseSquaredFalloff and AlphaScalesBrightness",
+                     name );
+            return SetRenderer( e, r, std::move( v ), std::format( "Set {}", name ) );
+        }
+        return std::nullopt;
     }
 
     std::vector<ISubjectDocument::DocumentAction> VFXSystemDocument::Actions()

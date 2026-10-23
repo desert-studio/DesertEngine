@@ -32,6 +32,7 @@
                 "LoopCount": 1
             },
             "Stack": {
+                "EmitterSpawn": [],
                 "EmitterUpdate": [
                     {
                         "Module": "engine:SpawnRate",
@@ -75,7 +76,7 @@
                                 "Source": "Random",
                                 "Random": {
                                     "Min": [0.5, 0.0, 0.0, 0.0],
-                                    "Max": [0.8, 0.0, 0.0, 0.0]
+                                    "Max": [0.800000011920929, 0.0, 0.0, 0.0]
                                 }
                             }
                         ]
@@ -160,7 +161,7 @@
                                 "Name": "Color",
                                 "Type": "Vec4",
                                 "Source": "Value",
-                                "Value": [1.0, 0.5, 0.12, 1.0]
+                                "Value": [1.0, 0.5, 0.11999999731779099, 1.0]
                             }
                         ]
                     }
@@ -191,7 +192,7 @@
                                 "Name": "Drag",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [1.8, 0.0, 0.0, 0.0]
+                                "Value": [1.7999999523162842, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "RotationalDrag",
@@ -215,7 +216,7 @@
                                 "Name": "Frequency",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [0.04, 0.0, 0.0, 0.0]
+                                "Value": [0.03999999910593033, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Pan",
@@ -255,14 +256,14 @@
                                     [
                                         {
                                             "Time": 0.0,
-                                            "Value": 0.8,
+                                            "Value": 0.800000011920929,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
                                             "Tangents": "Auto"
                                         },
                                         {
-                                            "Time": 0.2,
+                                            "Time": 0.20000000298023224,
                                             "Value": 1.0,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
@@ -271,7 +272,7 @@
                                         },
                                         {
                                             "Time": 1.0,
-                                            "Value": 0.1,
+                                            "Value": 0.10000000149011612,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -281,14 +282,14 @@
                                     [
                                         {
                                             "Time": 0.0,
-                                            "Value": 0.8,
+                                            "Value": 0.800000011920929,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
                                             "Tangents": "Auto"
                                         },
                                         {
-                                            "Time": 0.2,
+                                            "Time": 0.20000000298023224,
                                             "Value": 1.0,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
@@ -297,7 +298,7 @@
                                         },
                                         {
                                             "Time": 1.0,
-                                            "Value": 0.1,
+                                            "Value": 0.10000000149011612,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -328,7 +329,7 @@
                                         },
                                         {
                                             "Time": 0.5,
-                                            "Value": 1.6,
+                                            "Value": 1.600000023841858,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -336,7 +337,7 @@
                                         },
                                         {
                                             "Time": 1.0,
-                                            "Value": 0.9,
+                                            "Value": 0.8999999761581421,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -346,7 +347,7 @@
                                     [
                                         {
                                             "Time": 0.0,
-                                            "Value": 1.6,
+                                            "Value": 1.600000023841858,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -354,7 +355,7 @@
                                         },
                                         {
                                             "Time": 0.5,
-                                            "Value": 0.8,
+                                            "Value": 0.800000011920929,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -379,8 +380,8 @@
                                             "Tangents": "Auto"
                                         },
                                         {
-                                            "Time": 0.4,
-                                            "Value": 0.3,
+                                            "Time": 0.4000000059604645,
+                                            "Value": 0.30000001192092896,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -388,7 +389,7 @@
                                         },
                                         {
                                             "Time": 1.0,
-                                            "Value": 0.05,
+                                            "Value": 0.05000000074505806,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -405,8 +406,8 @@
                                             "Tangents": "Auto"
                                         },
                                         {
-                                            "Time": 0.6,
-                                            "Value": 0.8,
+                                            "Time": 0.6000000238418579,
+                                            "Value": 0.800000011920929,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -435,6 +436,18 @@
                         "Guid": "6f2b9c41d8e04a57b3a1c0e9f5d27b86",
                         "Path": "engine:Engine/Materials/M_ParticleAdditive.demat"
                     }
+                },
+                {
+                    "Kind": "Light",
+                    "Enabled": true,
+                    "Light": {
+                        "RadiusScale": 30.0,
+                        "ColorAdd": [0.0, 0.0, 0.0],
+                        "Intensity": 1.5,
+                        "UseInverseSquaredFalloff": true,
+                        "AlphaScalesBrightness": true,
+                        "MaxLights": 8
+                    }
                 }
             ]
         },
@@ -450,6 +463,7 @@
                 "LoopCount": 1
             },
             "Stack": {
+                "EmitterSpawn": [],
                 "EmitterUpdate": [
                     {
                         "Module": "engine:SpawnRate",
@@ -492,8 +506,8 @@
                                 "Type": "Float",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [2.6, 0.0, 0.0, 0.0],
-                                    "Max": [3.4, 0.0, 0.0, 0.0]
+                                    "Min": [2.5999999046325684, 0.0, 0.0, 0.0],
+                                    "Max": [3.4000000953674316, 0.0, 0.0, 0.0]
                                 }
                             }
                         ]
@@ -578,7 +592,7 @@
                                 "Name": "Color",
                                 "Type": "Vec4",
                                 "Source": "Value",
-                                "Value": [0.2, 0.19, 0.18, 1.0]
+                                "Value": [0.20000000298023224, 0.1899999976158142, 0.18000000715255737, 1.0]
                             }
                         ]
                     }
@@ -609,7 +623,7 @@
                                 "Name": "Drag",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [0.4, 0.0, 0.0, 0.0]
+                                "Value": [0.4000000059604645, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "RotationalDrag",
@@ -633,7 +647,7 @@
                                 "Name": "Frequency",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [0.012, 0.0, 0.0, 0.0]
+                                "Value": [0.012000000104308128, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Pan",
@@ -673,15 +687,15 @@
                                     [
                                         {
                                             "Time": 0.0,
-                                            "Value": 0.6,
+                                            "Value": 0.6000000238418579,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
                                             "Tangents": "Auto"
                                         },
                                         {
-                                            "Time": 0.3,
-                                            "Value": 1.6,
+                                            "Time": 0.30000001192092896,
+                                            "Value": 1.600000023841858,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -689,7 +703,7 @@
                                         },
                                         {
                                             "Time": 1.0,
-                                            "Value": 3.4,
+                                            "Value": 3.4000000953674316,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -699,15 +713,15 @@
                                     [
                                         {
                                             "Time": 0.0,
-                                            "Value": 0.6,
+                                            "Value": 0.6000000238418579,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
                                             "Tangents": "Auto"
                                         },
                                         {
-                                            "Time": 0.3,
-                                            "Value": 1.6,
+                                            "Time": 0.30000001192092896,
+                                            "Value": 1.600000023841858,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -715,7 +729,7 @@
                                         },
                                         {
                                             "Time": 1.0,
-                                            "Value": 3.4,
+                                            "Value": 3.4000000953674316,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -746,7 +760,7 @@
                                         },
                                         {
                                             "Time": 1.0,
-                                            "Value": 1.4,
+                                            "Value": 1.399999976158142,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -764,7 +778,7 @@
                                         },
                                         {
                                             "Time": 1.0,
-                                            "Value": 1.4,
+                                            "Value": 1.399999976158142,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -782,7 +796,7 @@
                                         },
                                         {
                                             "Time": 1.0,
-                                            "Value": 1.4,
+                                            "Value": 1.399999976158142,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -799,7 +813,7 @@
                                             "Tangents": "Auto"
                                         },
                                         {
-                                            "Time": 0.1,
+                                            "Time": 0.10000000149011612,
                                             "Value": 0.75,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
@@ -808,7 +822,7 @@
                                         },
                                         {
                                             "Time": 0.5,
-                                            "Value": 0.45,
+                                            "Value": 0.44999998807907104,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -848,6 +862,7 @@
                 "LoopCount": 1
             },
             "Stack": {
+                "EmitterSpawn": [],
                 "EmitterUpdate": [
                     {
                         "Module": "engine:SpawnRate",
@@ -891,7 +906,7 @@
                                 "Source": "Random",
                                 "Random": {
                                     "Min": [1.0, 0.0, 0.0, 0.0],
-                                    "Max": [1.8, 0.0, 0.0, 0.0]
+                                    "Max": [1.7999999523162842, 0.0, 0.0, 0.0]
                                 }
                             }
                         ]
@@ -952,7 +967,7 @@
                                 "Name": "Color",
                                 "Type": "Vec4",
                                 "Source": "Value",
-                                "Value": [1.0, 0.45, 0.08, 1.0]
+                                "Value": [1.0, 0.44999998807907104, 0.07999999821186066, 1.0]
                             }
                         ]
                     }
@@ -989,7 +1004,7 @@
                                 "Name": "Frequency",
                                 "Type": "Float",
                                 "Source": "Value",
-                                "Value": [0.03, 0.0, 0.0, 0.0]
+                                "Value": [0.029999999329447746, 0.0, 0.0, 0.0]
                             },
                             {
                                 "Name": "Pan",
@@ -1036,7 +1051,7 @@
                                             "Tangents": "Auto"
                                         },
                                         {
-                                            "Time": 0.7,
+                                            "Time": 0.699999988079071,
                                             "Value": 2.5,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
@@ -1062,8 +1077,8 @@
                                             "Tangents": "Auto"
                                         },
                                         {
-                                            "Time": 0.7,
-                                            "Value": 1.8,
+                                            "Time": 0.699999988079071,
+                                            "Value": 1.7999999523162842,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
                                             "Interp": "Linear",
@@ -1088,7 +1103,7 @@
                                             "Tangents": "Auto"
                                         },
                                         {
-                                            "Time": 0.7,
+                                            "Time": 0.699999988079071,
                                             "Value": 1.0,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
@@ -1114,7 +1129,7 @@
                                             "Tangents": "Auto"
                                         },
                                         {
-                                            "Time": 0.8,
+                                            "Time": 0.800000011920929,
                                             "Value": 1.0,
                                             "ArriveTangent": 0.0,
                                             "LeaveTangent": 0.0,
