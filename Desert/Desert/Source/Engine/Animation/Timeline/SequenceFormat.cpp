@@ -95,7 +95,12 @@ namespace Desert::Animation::Timeline::Format
         int32_t     FadeOut     = 0;
     };
 
-    /// Exactly one of the five content members is present — the SectionContent alternative.
+    struct VFXData
+    {
+        int32_t StartOffset = 0;
+    };
+
+    /// Exactly one of the six content members is present — the SectionContent alternative.
     struct SectionData
     {
         int32_t                      Start = 0;
@@ -109,6 +114,7 @@ namespace Desert::Animation::Timeline::Format
         std::optional<CameraCutData>   CameraCut;
         std::optional<AudioData>       Audio;
         std::optional<SubsequenceData> Subsequence;
+        std::optional<VFXData>         VFX;
     };
 
     struct TrackData
@@ -278,6 +284,10 @@ namespace Desert::Animation::Timeline
                                        audio->FadeIn.Value, audio->FadeOut.Value };
                 clips.push_back( out.Audio->Sound ); // a sound is a dependency as a clip is
             }
+            else if ( const auto* vfx = std::get_if<VFXSectionContent>( &section.Content ) )
+            {
+                out.VFX = VFXData{ vfx->StartOffset.Value }; // the effect is the bound entity's: no dependency
+            }
             else
             {
                 out.CameraCut =
@@ -427,11 +437,11 @@ namespace Desert::Animation::Timeline
             const int contents =
                  static_cast<int>( data.Channel.has_value() ) + static_cast<int>( data.Animation.has_value() ) +
                  static_cast<int>( data.CameraCut.has_value() ) + static_cast<int>( data.Audio.has_value() ) +
-                 static_cast<int>( data.Subsequence.has_value() );
+                 static_cast<int>( data.Subsequence.has_value() ) + static_cast<int>( data.VFX.has_value() );
             if ( contents != 1 )
             {
                 return Common::MakeFormattedError<Section>(
-                     "states {} of Channel / Animation / CameraCut / Audio / Subsequence; a section holds exactly "
+                     "states {} of Channel / Animation / CameraCut / Audio / Subsequence / VFX; a section holds exactly "
                      "one",
                      contents );
             }
@@ -476,6 +486,10 @@ namespace Desert::Animation::Timeline
                 section.Content = AudioSectionContent{ sound.GetValue(), FrameNumber{ data.Audio->StartOffset },
                                                        data.Audio->Volume, FrameNumber{ data.Audio->FadeIn },
                                                        FrameNumber{ data.Audio->FadeOut } };
+            }
+            else if ( data.VFX )
+            {
+                section.Content = VFXSectionContent{ FrameNumber{ data.VFX->StartOffset } };
             }
             else if ( data.CameraCut ) // the count above leaves this the only one present
             {
@@ -535,7 +549,7 @@ namespace Desert::Animation::Timeline
                     return Common::MakeFormattedError<Sequence>( "track {} '{}': {}", t, in.Property,
                                                                  guid.GetError() );
                 }
-                if ( in.Kind > static_cast<uint8_t>( TrackKind::Subsequence ) )
+                if ( in.Kind > static_cast<uint8_t>( TrackKind::VFX ) )
                 {
                     return Common::MakeFormattedError<Sequence>( "track {} '{}': unknown kind {}", t, in.Property,
                                                                  in.Kind );

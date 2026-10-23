@@ -4,6 +4,7 @@
 #include <Editor/Core/Selection/ModelingState.hpp>
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
+#include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/BlockoutCollision.hpp>
@@ -41,7 +42,92 @@ namespace Desert::Editor::Tools
         {
             return ImVec4( c.x, c.y, c.z, alpha );
         }
+
+        // One in-tool step (UE: the FToolCommandChange a Push/Pull emits): the session before and after it.
+        // It writes into the tool, not the scene - the preview entity is the tool's until Accept records it -
+        // so it names the tool as its edited object and the session's end drops it (CommandHistory::DropFor).
+        class CubeGridStepCommand final : public ICommand
+        {
+        public:
+            CubeGridStepCommand( CubeGridTool& tool, CubeGridTool::SessionState before,
+                                 CubeGridTool::SessionState after, std::string label )
+                 : m_Tool( tool ), m_Before( std::move( before ) ), m_After( std::move( after ) ),
+                   m_Label( std::move( label ) )
+            {
+            }
+            bool Undo() override
+            {
+                m_Tool.RestoreState( m_Before );
+                return true;
+            }
+            bool Redo() override
+            {
+                m_Tool.RestoreState( m_After );
+                return true;
+            }
+            [[nodiscard]] const void* EditedObject() const override
+            {
+                return &m_Tool;
+            }
+            std::string GetLabel() const override
+            {
+                return m_Label;
+            }
+
+        private:
+            CubeGridTool&              m_Tool;
+            CubeGridTool::SessionState m_Before;
+            CubeGridTool::SessionState m_After;
+            std::string                m_Label;
+        };
     } // namespace
+
+    CubeGridTool::~CubeGridTool()
+    {
+        CommandHistory::Get().DropFor( this );
+    }
+
+    CubeGridTool::SessionState CubeGridTool::CaptureState() const
+    {
+        return SessionState{ m_Volume, m_Materials,  m_HasSel,    m_Sel,
+                             m_Plane,  m_CornerMode, m_Crosswise, m_CornerH };
+    }
+
+    void CubeGridTool::RestoreState( const SessionState& state )
+    {
+        m_Volume     = state.Volume;
+        m_Materials  = state.Materials;
+        m_HasSel     = state.HasSel;
+        m_Sel        = state.Sel;
+        m_Plane      = state.Plane;
+        m_CornerMode = state.CornerMode;
+        m_Crosswise  = state.Crosswise;
+        m_CornerH    = state.CornerH;
+        m_Selecting = m_DragExtrude = m_CornerSweep = false;
+        m_PendingRegen                              = true;
+    }
+
+    void CubeGridTool::BeginChange()
+    {
+        if ( m_ChangeDepth++ == 0 )
+        {
+            m_ChangeBefore = CaptureState();
+            m_ChangeDirty  = false;
+        }
+    }
+
+    void CubeGridTool::EndChange( const char* label )
+    {
+        if ( m_ChangeDepth == 0 || --m_ChangeDepth > 0 )
+            return;
+        // A session that ended inside the change (an edit that emptied a reopened blockout cancels it) has
+        // nothing left to step back into: ResetSession already dropped the state.
+        if ( m_ChangeBefore && m_ChangeDirty )
+            CommandHistory::Get().PushCommand( std::make_unique<CubeGridStepCommand>(
+                 *this, std::move( *m_ChangeBefore ), CaptureState(), label ) );
+        m_ChangeBefore.reset();
+        m_ChangeDirty = false;
+    }
 
     bool CubeGridTool::WorldToScreen( const glm::vec3& world, const glm::mat4& vp, const glm::vec2& pos,
                                       const glm::vec2& size, glm::vec2& out )
@@ -103,9 +189,11 @@ namespace Desert::Editor::Tools
         if ( !material )
             return;
         const int steps = std::max( 1, Core::ModelingState::Get().BlocksPerStep );
-        // One block = K base cells tall; x Blocks Per Step.
+        // One block = K base cells tall; x Blocks Per Step. One undo step (nested in a drag's, when dragging).
+        BeginChange();
         m_Volume.PushPull( m_Plane, m_Sel, dir, K * steps, *material );
         RegenMesh( scene );
+        EndChange( dir > 0 ? "CubeGrid Push" : "CubeGrid Pull" );
     }
 
     void CubeGridTool::SlideSelection( int dir, int K )
@@ -121,6 +209,15 @@ namespace Desert::Editor::Tools
     {
         if ( !m_HasSel )
             return;
+        BeginChange(); // OpMaterialId may append to the material set: part of the step
+        struct EndOnExit
+        {
+            CubeGridTool& Tool;
+            ~EndOnExit()
+            {
+                Tool.EndChange( "CubeGrid Paint" );
+            }
+        } end{ *this };
         const auto material = OpMaterialId();
         if ( !material )
             return;
@@ -187,6 +284,11 @@ namespace Desert::Editor::Tools
         m_Materials.assign( 1, Common::AssetHandle{} );
         m_Before.reset();
         m_EntityFrame = GridFrame{};
+        // The session's steps end with it: Accept recorded the piece as one step, Cancel put it back.
+        CommandHistory::Get().DropFor( this );
+        m_ChangeBefore.reset();
+        m_ChangeDirty  = false;
+        m_PendingRegen = false;
     }
 
     Volume CubeGridTool::LocalVolume() const
@@ -320,6 +422,11 @@ namespace Desert::Editor::Tools
             ms.ReqCubeGridEditSelected = false;
             EditSelected( scene );
         }
+        if ( m_PendingRegen )
+        {
+            m_PendingRegen = false;
+            RegenMesh( scene );
+        }
 
         const float gs = std::max( ms.CellSize(), Core::ModelingState::MinCellSize );
 
@@ -448,11 +555,13 @@ namespace Desert::Editor::Tools
         if ( ms.ReqClear )
         {
             ms.ReqClear = false;
+            BeginChange();
             m_Volume.m_Cells.clear();
             m_Volume.m_Frozen.clear();
             m_HasSel = m_Selecting = m_CornerMode = false;
             m_GroundY = 0.0f, m_Plane.Na = 1, m_Plane.Sign = 1, m_Plane.Cell = 0;
             RegenMesh( scene );
+            EndChange( "CubeGrid Clear" );
         }
 
         // World coord of a plane (na, planeCell, sign) — the surface a Push extrudes from.
@@ -811,7 +920,11 @@ namespace Desert::Editor::Tools
         auto step = [&]( int dir )
         {
             if ( m_CornerMode )
+            {
+                BeginChange();
                 moveCorners( dir );
+                EndChange( dir > 0 ? "CubeGrid Raise Corners" : "CubeGrid Lower Corners" );
+            }
             else
                 PushPull( scene, dir, K );
         };
@@ -960,11 +1073,15 @@ namespace Desert::Editor::Tools
             m_DragStart      = LineParameterClosestToRay( m_DragOrigin, m_DragAxis, gray.Origin, gray.Direction );
             m_DragApplied    = 0;
             m_DragExtrude    = true;
+            BeginChange(); // the whole drag is ONE undo step, however many blocks it applied on the way
         }
         if ( m_DragExtrude )
         {
             if ( !::ImGui::IsMouseDown( ImGuiMouseButton_Left ) || !m_HasSel )
+            {
                 m_DragExtrude = false;
+                EndChange( m_CornerMode ? "CubeGrid Drag Corners" : "CubeGrid Drag Push/Pull" );
+            }
             else
             {
                 const float delta =
@@ -1287,9 +1404,21 @@ namespace Desert::Editor::Tools
     void CubeGridTool::RegenMesh( ::Desert::Core::Scene& scene )
     {
         m_BakedUnit = m_Volume.m_Unit;
+        if ( m_ChangeDepth > 0 )
+            m_ChangeDirty = true;
         if ( m_Volume.m_Cells.empty() && m_Volume.m_Frozen.empty() )
         {
-            if ( m_Before )
+            // A new blockout with no blocks (pulled away, or undone back past its first push) has no preview
+            // entity, and the session stays open with its steps, as UE's tool shows an empty mesh: the next
+            // Push - or a Redo - builds the entity again.
+            if ( !m_Before )
+            {
+                if ( m_Entity != Common::UUID::Null() )
+                    if ( auto ref = scene.FindEntityByID( m_Entity ) )
+                        scene.DestroyEntity( ref->get() );
+                m_Entity = Common::UUID::Null();
+                return;
+            }
                 ToastManager::Push( "CubeGrid: the edit removed every block, so the blockout is back as it was; "
                                     "delete the entity to remove it",
                                     ToastLevel::Warning, 8.0f );

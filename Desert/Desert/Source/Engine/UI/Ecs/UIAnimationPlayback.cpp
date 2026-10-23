@@ -72,6 +72,10 @@ namespace Desert::UI
             void PlayAnimation( const TL::ResolvedBinding&, const TL::AnimationSample& ) override
             {
             }
+            // A UI clip holds no VFX track (HostHoldsTrack): Validate refused one before this host saw it.
+            void DriveEffect( const TL::ResolvedBinding&, const TL::VFXSample& ) override
+            {
+            }
 
         private:
             const std::unordered_map<std::string, entt::entity>& m_ByUuid;

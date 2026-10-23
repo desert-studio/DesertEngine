@@ -1328,6 +1328,18 @@ namespace Desert::ECS
         }
     };
 
+    /// A Level Sequence's hold on an effect (UE: UNiagaraComponent under a Niagara system track - Activate /
+    /// Deactivate plus AgeUpdateMode DesiredAge): Active = the playhead is inside one of its VFX track's
+    /// sections and the effect stands at AgeSeconds (VFXWorld replays this instance's fixed steps to it);
+    /// inactive = outside every section, the instance holds no particles.
+    struct VFXSequencerDrive
+    {
+        bool   Active     = false;
+        double AgeSeconds = 0.0;
+
+        bool operator==( const VFXSequencerDrive& ) const = default;
+    };
+
     struct VFXComponent
     {
         COMPONENT( Key( "VFX" ), Block( Data ), Run( ActorsAndUI ) )
@@ -1341,6 +1353,11 @@ namespace Desert::ECS
         // preview scene's effect, never on a level's; a new pointer is a new system - every emitter starts over.
         // Transient - not reflected.
         std::shared_ptr<const Assets::Serialization::VFXSystemData> EditedSystem;
+
+        // Set by a Level Sequence's VFX track (LevelSequenceEntityHost::DriveEffect); nullopt = the effect runs on
+        // the world's time as authored. While set, this instance's age is the sequence's - the scene's delta and
+        // AutoActivate do not move it. The Sequencer preview gives it back on Restore. Transient - not reflected.
+        std::optional<VFXSequencerDrive> SequencerDrive;
     };
 
     // ============================================================

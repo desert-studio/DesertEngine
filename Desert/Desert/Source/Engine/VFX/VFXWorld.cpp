@@ -12,6 +12,7 @@
 #include <Common/Utilities/VFS.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 #include <glm/geometric.hpp>
@@ -373,8 +374,43 @@ namespace Desert::VFX
                               p.UUID, verdict.NearestCm, *p.TypeName );
             }
             system.Culled = culled;
-            system.AgeSeconds += tickSeconds;
             m_CulledSystems += culled ? 1u : 0u;
+
+            // A LEVEL SEQUENCE OWNS THIS EFFECT'S AGE (UE: the Niagara system track sets DesiredAge on the
+            // component; NiagaraComponent.cpp:995-1032 seeks it). The world's clock is not consulted: this
+            // instance alone is reset when the age goes back (a new generation - the GPU zeroes it) and replays
+            // its own fixed steps from its seed up to the age, under the seek budget per tick, so an age reached
+            // by scrubbing is the state reached by playing. Outside every section it holds no particles.
+            if ( const auto& drive = p.Component->SequencerDrive )
+            {
+                const std::uint32_t target =
+                     drive->Active ? static_cast<std::uint32_t>( std::floor( drive->AgeSeconds / stepSeconds + 1e-6 ) )
+                                   : 0u;
+                const std::uint32_t budget = m_Clock.GetSettings().MaxSeekStepsPerTick;
+                std::uint32_t       reached = 0;
+                for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+                {
+                    EmitterInstance& emitter = system.Emitters[k];
+                    if ( target < emitter.StepsRun || ( !drive->Active && ( emitter.StepsRun > 0 || emitter.NextId > 0 ) ) )
+                        ResetInstance( emitter );
+                    const std::uint32_t steps = std::min( target - emitter.StepsRun, budget );
+                    if ( !drive->Active || !system.Runs[k] || culled || steps == 0 )
+                    {
+                        emitter.Steps.clear();
+                        emitter.ChannelSpawns.clear();
+                        if ( drive->Active && system.Runs[k] && !culled )
+                            reached = std::max( reached, emitter.StepsRun );
+                        continue;
+                    }
+                    emitter.SpawnCountScale = verdict.SpawnCountScale;
+                    PlanEmitterSteps( emitter, system.Plans[k], steps, stepSeconds, m_Channels, p.EmitterCm );
+                    reached = std::max( reached, emitter.StepsRun );
+                }
+                system.AgeSeconds = static_cast<double>( reached ) * stepSeconds;
+                continue;
+            }
+
+            system.AgeSeconds += tickSeconds;
             for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
             {
                 EmitterInstance& emitter = system.Emitters[k];
