@@ -46,6 +46,8 @@ namespace Desert::Editor::Tools
         void MoveSelectedSplinePoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray );
         /// UE's Delete with a control point selected.
         void DeleteSelectedSplinePoint( ::Desert::Core::Scene& scene );
+        /// The palette's "Spline paint layer: next / none" on the landscape the splines tool edits.
+        void SetSplineLayer( ::Desert::Core::Scene& scene, bool next );
         /// The Splines tool in the viewport: Ctrl+click adds, a click selects a point and the drag moves it
         /// (committed on release as one undo step), a click elsewhere deselects, Delete deletes the selected
         /// point.

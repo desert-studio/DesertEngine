@@ -154,6 +154,18 @@ namespace Desert::Editor::Commands
     Common::BoolResultStr RemoveLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
                                                       uint32_t point );
 
+    /**
+     * @brief UE: a segment's LayerName set in the Details panel. Every segment of landscape @p landscape's
+     * splines paints @p layerName (empty: paints nothing) along its band, and the Splines layer is re-derived;
+     * ONE undo entry. Refuses a name that is not one of the landscape's paint layers, naming it.
+     */
+    Common::BoolResultStr SetLandscapeSplineLayer( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                                                   const std::string& layerName );
+
+    /// The paint layer after the one the first segment paints, in the landscape's layer order, and "" after the
+    /// last (and from ""  the first): what the palette's "Spline paint layer: next" sets.
+    Common::ResultStr<std::string> NextLandscapeSplineLayer( entt::registry& registry, const Common::UUID& landscape );
+
     /// UE: the splines layer re-renders when a layer below it changed. After a brush wrote layer
     /// @p editedLayer, re-derives the Splines layer on every loaded tile when it sits ABOVE @p editedLayer;
     /// otherwise (no Splines layer, an edit above it) changes nothing. Not an undo entry: the brush's own

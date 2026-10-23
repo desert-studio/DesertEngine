@@ -1032,6 +1032,50 @@ namespace Desert::Editor::Commands
                                   "Delete landscape spline point" );
     }
 
+    Common::BoolResultStr SetLandscapeSplineLayer( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                                                   const std::string& layerName )
+    {
+        auto before = SplinesStateOf( scene.GetRegistry(), landscape );
+        if ( !before )
+            return Common::MakeError<bool>( before.GetError() );
+        LandscapeSplinesState after = before.GetValue();
+        if ( after.Stack.FindSplinesLayer() == nullptr || after.Splines.Segments.empty() )
+            return Common::MakeError<bool>( "landscape splines: the landscape has no spline segment to paint" );
+        if ( !layerName.empty() )
+        {
+            auto rules = MergeRules( scene.GetRegistry(), landscape );
+            if ( !rules )
+                return Common::MakeError<bool>( rules.GetError() );
+            if ( std::none_of( rules.GetValue().begin(), rules.GetValue().end(),
+                               [&]( const WL::LandscapeLayerRule& r ) { return r.Name == layerName; } ) )
+                return Common::MakeFormattedError<bool>(
+                     "landscape splines: '{}' is not a paint layer of the landscape", layerName );
+        }
+        for ( WL::LandscapeSplineSegment& segment : after.Splines.Segments )
+            segment.LayerName = layerName;
+        return CommitSplinesEdit( scene, landscape, before.ExtractValue(), std::move( after ),
+                                  "Set landscape spline paint layer" );
+    }
+
+    Common::ResultStr<std::string> NextLandscapeSplineLayer( entt::registry& registry, const Common::UUID& landscape )
+    {
+        const auto root = ECS::FindLandscapeRootEntity( registry, landscape );
+        if ( root == entt::null )
+            return Common::MakeError<std::string>( "landscape splines: the landscape root is not loaded" );
+        const auto& segments = registry.get<ECS::LandscapeComponent>( root ).Splines.Segments;
+        auto        rules    = MergeRules( registry, landscape );
+        if ( !rules )
+            return Common::MakeError<std::string>( rules.GetError() );
+        const auto&       names   = rules.GetValue();
+        const std::string current = segments.empty() ? std::string() : segments.front().LayerName;
+        if ( current.empty() )
+            return Common::MakeSuccess( names.empty() ? std::string() : names.front().Name );
+        for ( size_t i = 0; i < names.size(); ++i )
+            if ( names[i].Name == current )
+                return Common::MakeSuccess( i + 1u < names.size() ? names[i + 1u].Name : std::string() );
+        return Common::MakeSuccess( std::string() );
+    }
+
     Common::BoolResultStr ReapplyLandscapeSplinesBelow( entt::registry& registry, const Common::UUID& landscape,
                                                         const Common::UUID& editedLayer )
     {

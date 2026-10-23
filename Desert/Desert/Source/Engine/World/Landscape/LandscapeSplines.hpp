@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace Desert::World::Landscape
@@ -29,6 +30,9 @@ namespace Desert::World::Landscape
         float     Width       = 1000.0f; ///< UE default: 1000 cm half-width.
         float     SideFalloff = 1000.0f; ///< UE default.
         float     EndFalloff  = 2000.0f; ///< UE default.
+        /// UE LayerWidthRatio: the painted band's half-width is Width * this, with the same SideFalloff past it
+        /// (LandscapeSplineSegment.cpp UpdateSplinePoints: LayerLeft/LayerRight). Goes linearly along a segment.
+        float LayerWidthRatio = 1.0f;
     };
 
     /**
@@ -41,6 +45,9 @@ namespace Desert::World::Landscape
         uint32_t End          = 0u;
         bool     RaiseTerrain = true; ///< UE bRaiseTerrain: the band may lift the ground up to the spline.
         bool     LowerTerrain = true; ///< UE bLowerTerrain: the band may cut the ground down to the spline.
+        /// UE LayerName: the landscape paint layer the segment writes along its band (weight = the band's alpha
+        /// over Width * LayerWidthRatio + SideFalloff) into the Splines edit layer; empty paints nothing.
+        std::string LayerName;
     };
 
     /**
@@ -75,6 +82,7 @@ namespace Desert::World::Landscape
         glm::vec3 FalloffRight = glm::vec3( 0.0f );
         float     Width        = 0.0f;
         float     SideFalloff  = 0.0f;
+        float     LayerWidth   = 0.0f; ///< UE LayerLeft/LayerRight: Width * LayerWidthRatio.
     };
 
     /**
@@ -98,8 +106,14 @@ namespace Desert::World::Landscape
      * height by alpha, up only when the segment Raises and down only when it Lowers. The layer stores the
      * difference, so removing every spline leaves mid ("no change") and the tile returns byte for byte.
      *
+     * PAINT (UE: the weightmap pass of RasterizeSegmentPoints): a segment with a LayerName writes that layer's
+     * weight into the Splines layer, 255 * alpha of the same smooth step measured from Width * LayerWidthRatio;
+     * where several segments paint one layer the largest weight wins. The merge then lays the Splines layer's
+     * paint OVER the paint below (premultiplied "over"), so the road shows its layer with soft edges.
+     *
      * Refuses an invalid stack or splines, a @p layer the stack does not name as its Splines layer, and what
-     * the merge refuses; the tile is then unchanged.
+     * the merge refuses (a LayerName the landscape has no paint layer for, naming it); the tile is then
+     * unchanged.
      */
     Common::BoolResultStr RasterizeLandscapeSplines( const LandscapeSplines&             splines,
                                                      const LandscapeEditLayerStack&      stack,

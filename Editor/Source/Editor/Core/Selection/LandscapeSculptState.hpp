@@ -242,6 +242,11 @@ namespace Desert::Editor::Core
         SplineMoveSelected,
         /// UE's Delete with a control point selected.
         SplineDeleteSelected,
+        /// UE: the segments' LayerName set in Details — every segment paints the landscape's next paint layer
+        /// (none after the last).
+        SplineLayerNext,
+        /// Every segment's LayerName cleared: the road paints nothing.
+        SplineLayerNone,
         RampStart,
         RampEnd,
         RampApply,
@@ -651,6 +656,10 @@ namespace Desert::Editor::Core
                               {},
                               splines,
                               LandscapeStrokeRequest::SplineDeleteSelected } );
+        controls.push_back(
+             { "Spline paint layer: next", "Spline paint layer", {}, splines, LandscapeStrokeRequest::SplineLayerNext } );
+        controls.push_back(
+             { "Spline paint layer: none", "Spline paint layer", {}, splines, LandscapeStrokeRequest::SplineLayerNone } );
         return controls;
     }
 
