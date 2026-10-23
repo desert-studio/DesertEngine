@@ -157,29 +157,34 @@ namespace Desert::Editor::Tools
             {
                 const Common::UUID id  = scene.GetRegistry().get<ECS::UUIDComponent>( entity ).UUID;
                 const auto         hit = TraceLandscape( scene, id, ray );
-                if ( hit && ( !best || glm::length( *hit - ray.Origin ) < glm::length( best->second - ray.Origin ) ) )
+                if ( hit &&
+                     ( !best || glm::length( *hit - ray.Origin ) < glm::length( best->second - ray.Origin ) ) )
                     best = std::pair{ id, *hit };
             }
             return best;
         }
 
         /// The landscape's splines, or null when its root is not loaded.
-        World::Landscape::LandscapeSplines* SplinesOf( ::Desert::Core::Scene& scene, const Common::UUID& landscape )
+        World::Landscape::LandscapeSplines* SplinesOf( ::Desert::Core::Scene& scene,
+                                                       const Common::UUID&    landscape )
         {
             const auto root = ECS::FindLandscapeRootEntity( scene.GetRegistry(), landscape );
-            return root == entt::null ? nullptr : &scene.GetRegistry().get<ECS::LandscapeComponent>( root ).Splines;
+            return root == entt::null ? nullptr
+                                      : &scene.GetRegistry().get<ECS::LandscapeComponent>( root ).Splines;
         }
 
         /// UE picks a control point by its sprite; here: the point nearest @p hit on the ground plane, within the
         /// point's band half-width (at least 200 cm, so a narrow road's point stays clickable).
-        std::optional<uint32_t> PickSplinePoint( const World::Landscape::LandscapeSplines& splines, const glm::vec3& hit )
+        std::optional<uint32_t> PickSplinePoint( const World::Landscape::LandscapeSplines& splines,
+                                                 const glm::vec3&                          hit )
         {
             std::optional<uint32_t> best;
             float                   bestDistance = 0.0f;
             for ( uint32_t i = 0; i < splines.ControlPoints.size(); ++i )
             {
-                const auto& point    = splines.ControlPoints[i];
-                const float distance = glm::length( glm::vec2( point.Location.x - hit.x, point.Location.z - hit.z ) );
+                const auto& point = splines.ControlPoints[i];
+                const float distance =
+                     glm::length( glm::vec2( point.Location.x - hit.x, point.Location.z - hit.z ) );
                 if ( distance <= std::max( point.Width, 200.0f ) && ( !best || distance < bestDistance ) )
                 {
                     best         = i;
@@ -275,8 +280,8 @@ namespace Desert::Editor::Tools
             else if ( record.GetValue().Before != record.GetValue().After )
             {
                 // UE: a sculpt on a layer below the splines layer re-applies the splines over the new ground.
-                if ( auto reapplied =
-                          Commands::ReapplyLandscapeSplinesBelow( scene.GetRegistry(), m_Target->Landscape, m_Layer->Layer );
+                if ( auto reapplied = Commands::ReapplyLandscapeSplinesBelow(
+                          scene.GetRegistry(), m_Target->Landscape, m_Layer->Layer );
                      !reapplied )
                     ToastManager::Push( reapplied.GetError(), ToastLevel::Error, 6.0f );
                 const std::string label = std::format( "Landscape {}", m_ToolName );
@@ -579,8 +584,8 @@ namespace Desert::Editor::Tools
 
     bool LandscapeSculptTool::SelectSplinePoint( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray )
     {
-        auto&      state = Core::LandscapeSculptState::Get();
-        const auto under = SplineHit( scene, ray );
+        auto&       state   = Core::LandscapeSculptState::Get();
+        const auto  under   = SplineHit( scene, ray );
         const auto* splines = under ? SplinesOf( scene, under->first ) : nullptr;
         const auto  picked  = splines ? PickSplinePoint( *splines, under->second ) : std::nullopt;
         if ( !picked )
@@ -601,10 +606,12 @@ namespace Desert::Editor::Tools
         const auto hit = TraceLandscape( scene, state.SplineLandscape, ray );
         if ( !hit )
         {
-            ToastManager::Push( "landscape splines: the point's landscape is not under the ray", ToastLevel::Error, 6.0f );
+            ToastManager::Push( "landscape splines: the point's landscape is not under the ray", ToastLevel::Error,
+                                6.0f );
             return;
         }
-        if ( auto moved = Commands::MoveLandscapeSplinePoint( scene, state.SplineLandscape, *state.SelectedSplinePoint, *hit );
+        if ( auto moved = Commands::MoveLandscapeSplinePoint( scene, state.SplineLandscape,
+                                                              *state.SelectedSplinePoint, *hit );
              !moved )
             ToastManager::Push( moved.GetError(), ToastLevel::Error, 6.0f );
     }
@@ -617,7 +624,8 @@ namespace Desert::Editor::Tools
             ToastManager::Push( "landscape splines: no control point is selected", ToastLevel::Error, 6.0f );
             return;
         }
-        if ( auto removed = Commands::RemoveLandscapeSplinePoint( scene, state.SplineLandscape, *state.SelectedSplinePoint );
+        if ( auto removed =
+                  Commands::RemoveLandscapeSplinePoint( scene, state.SplineLandscape, *state.SelectedSplinePoint );
              !removed )
         {
             ToastManager::Push( removed.GetError(), ToastLevel::Error, 6.0f );
@@ -651,7 +659,8 @@ namespace Desert::Editor::Tools
             const auto drag    = *m_SplineDrag;
             m_SplineDrag.reset();
             if ( to != drag.From )
-                if ( auto moved = Commands::MoveLandscapeSplinePoint( scene, drag.Landscape, drag.Point, to ); !moved )
+                if ( auto moved = Commands::MoveLandscapeSplinePoint( scene, drag.Landscape, drag.Point, to );
+                     !moved )
                     ToastManager::Push( moved.GetError(), ToastLevel::Error, 6.0f );
             return;
         }

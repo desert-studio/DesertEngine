@@ -47,7 +47,8 @@ namespace Desert::Editor::Tools
         /// UE's Delete with a control point selected.
         void DeleteSelectedSplinePoint( ::Desert::Core::Scene& scene );
         /// The Splines tool in the viewport: Ctrl+click adds, a click selects a point and the drag moves it
-        /// (committed on release as one undo step), a click elsewhere deselects, Delete deletes the selected point.
+        /// (committed on release as one undo step), a click elsewhere deselects, Delete deletes the selected
+        /// point.
         void UpdateSplines( ::Desert::Core::Scene& scene, const Common::Math::Ray& mouseRay, bool hovered );
         /// Serves a Mirror or Copy/Paste request at @p ray (a point, a copy, a paste, the mirror itself).
         void ServeComponentRequest( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray,

@@ -913,8 +913,9 @@ namespace Desert::Editor::Commands
             return Common::MakeError<bool>( before.GetError() );
         LandscapeSplinesState after = before.GetValue();
         if ( point >= after.Splines.ControlPoints.size() )
-            return Common::MakeFormattedError<bool>( "landscape splines: no control point {} (the landscape has {})",
-                                                     point, after.Splines.ControlPoints.size() );
+            return Common::MakeFormattedError<bool>(
+                 "landscape splines: no control point {} (the landscape has {})", point,
+                 after.Splines.ControlPoints.size() );
         if ( after.Stack.FindSplinesLayer() == nullptr )
             return Common::MakeError<bool>( "landscape splines: the stack has no Splines layer" );
         after.Splines.ControlPoints[point].Location = location;
@@ -928,11 +929,12 @@ namespace Desert::Editor::Commands
         auto before = SplinesStateOf( scene.GetRegistry(), landscape );
         if ( !before )
             return Common::MakeError<bool>( before.GetError() );
-        LandscapeSplinesState after = before.GetValue();
+        LandscapeSplinesState after   = before.GetValue();
         auto&                 splines = after.Splines;
         if ( point >= splines.ControlPoints.size() )
-            return Common::MakeFormattedError<bool>( "landscape splines: no control point {} (the landscape has {})",
-                                                     point, splines.ControlPoints.size() );
+            return Common::MakeFormattedError<bool>(
+                 "landscape splines: no control point {} (the landscape has {})", point,
+                 splines.ControlPoints.size() );
         if ( after.Stack.FindSplinesLayer() == nullptr )
             return Common::MakeError<bool>( "landscape splines: the stack has no Splines layer" );
 
@@ -944,7 +946,8 @@ namespace Desert::Editor::Commands
             ( segment.Start == point || segment.End == point ? touching : kept ).push_back( segment );
         if ( touching.size() == 2u )
         {
-            const auto other = [point]( const WL::LandscapeSplineSegment& s ) { return s.Start == point ? s.End : s.Start; };
+            const auto other = [point]( const WL::LandscapeSplineSegment& s )
+            { return s.Start == point ? s.End : s.Start; };
             WL::LandscapeSplineSegment bridge = touching[0];
             bridge.Start                      = other( touching[0] );
             bridge.End                        = other( touching[1] );
@@ -978,8 +981,10 @@ namespace Desert::Editor::Commands
         };
         const auto splines = indexOf( []( const WL::LandscapeEditLayer& l )
                                       { return l.Kind == WL::LandscapeEditLayerKind::Splines; } );
-        const auto edited  = indexOf( [&editedLayer]( const WL::LandscapeEditLayer& l ) { return l.Guid == editedLayer; } );
-        // The Splines layer reads only the ground below it: an edit above it (or no Splines layer) changes nothing.
+        const auto edited =
+             indexOf( [&editedLayer]( const WL::LandscapeEditLayer& l ) { return l.Guid == editedLayer; } );
+        // The Splines layer reads only the ground below it: an edit above it (or no Splines layer) changes
+        // nothing.
         if ( !splines || !edited || *edited >= *splines )
             return BOOLSUCCESS;
         return RasterizeSplinesLayer( registry, landscape );
