@@ -7,7 +7,9 @@
 # The scene is opened FIRST: the .dfx save restarts the placement and dirties the scene, and opening it then
 # raises the modal "Open Scene?" that swallowed every drag (pass 3). Point markers are ImGui overlay, so the
 # frames that must show them are whole-window `Тогда`, not viewport-only `Тогда-вид`.
-# Drag coordinates are viewport POINTS (the viewport is ~717x428 pt; its shot is in pixels, 2x).
+# Drag coordinates are viewport POINTS; the viewport is ~1431x857 pt and its `Тогда-вид` shot is 1435x857 px, so
+# a shot pixel IS a drag point. Pass 3's first stroke started at (120,200), under the VFX Paint panel, and was
+# rightly taken by the panel, not painted.
 # The scenario SAVES: `git checkout -- Projects/Desert/Content/Scenes/Starter.desce Projects/Desert/Content/VFX/Campfire.dfx` after a play.
 Дано run Scene "Open Scene Starter.desce"
 Дано run Open "VFX/Campfire.dfx"
@@ -20,8 +22,8 @@
 Дано run VFX "VFX Paint mode"
 Дано run VFX "VFX Paint: radius 100 cm"
 Дано run VFX "VFX Paint: density high"
-Когда --subject viewport drag 120,200 330,200 30
-Когда --subject viewport drag 150,350 440,370 30
+Когда --subject viewport drag 350,260 800,260 30
+Когда --subject viewport drag 150,560 600,780 30
 Когда state
 Тогда 0_points blue painted point markers along two strokes on the ground (a straight one above, a slanted one below), flames rising from them
 Когда run Foliage "Foliage mode"
