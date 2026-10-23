@@ -894,18 +894,7 @@ namespace Desert::Editor
                 const float vfxY = ImGui::GetCursorScreenPos().y;
                 ImGui::SetCursorScreenPos( ImVec2( contentX0 + 16.0f, vfxY ) );
                 DrawLevelRowLabel( ICON_MDI_FIRE " VFX", contentX0, contentX0 + 16.0f );
-                for ( const auto& section : track->Sections )
-                {
-                    if ( std::get_if<LevelTL::VFXSectionContent>( &section.Content ) == nullptr )
-                        continue;
-                    const float x0 = xOf( section.Start.Value );
-                    const float x1 = xOf( section.End.Value );
-                    draw->AddRectFilled( ImVec2( x0, vfxY + 2 ), ImVec2( x1, vfxY + rowH - 2 ),
-                                         IM_COL32( 190, 100, 40, 255 ), 3.0f );
-                    const std::string label = std::format( "{:.2f} - {:.2f} s", SecondsAt( sequence, section.Start.Value ),
-                                                           SecondsAt( sequence, section.End.Value ) );
-                    draw->AddText( ImVec2( x0 + 4, vfxY + 3 ), IM_COL32( 240, 240, 240, 255 ), label.c_str() );
-                }
+                DrawLevelVFXLane( sequence, binding.Guid, laneX0, laneW, vfxY, rowH );
                 ImGui::SetCursorScreenPos( ImVec2( contentX0, vfxY + rowH + 4.0f ) );
             }
 
@@ -1226,6 +1215,82 @@ namespace Desert::Editor
         }
         if ( releasing )
             Core::GizmoState::SetEntityGestureEntry( std::nullopt );
+    }
+
+    void SequencerPanel::DrawLevelVFXLane( LevelTL::Sequence& sequence, const LevelTL::BindingGuid& binding,
+                                           const float laneX0, const float laneW, const float rowY,
+                                           const float rowH )
+    {
+        LevelTL::Track* track = nullptr;
+        for ( auto& candidate : sequence.Tracks )
+            if ( candidate.Binding == binding && candidate.Property == ECS::kLevelSequenceVFXProperty )
+                track = &candidate;
+        if ( track == nullptr )
+            return;
+        ImDrawList*                    draw = ImGui::GetWindowDrawList();
+        const Sequencer::CurveViewport axis =
+             Sequencer::TimeAxis( laneX0, laneW, static_cast<float>( SecondsAt( sequence, sequence.End.Value ) ) );
+        const auto xOf = [&]( const Animation::FrameNumber tick )
+        { return axis.TimeToX( SecondsAt( sequence, tick.Value ) ); };
+        const bool held = m_SectionDrag >= 0 && m_LevelSectionDragBinding == binding;
+        for ( size_t i = 0; i < track->Sections.size(); ++i )
+        {
+            const auto& section = track->Sections[i];
+            if ( std::get_if<LevelTL::VFXSectionContent>( &section.Content ) == nullptr )
+                continue;
+            const float x0 = xOf( section.Start );
+            const float x1 = xOf( section.End );
+            draw->AddRectFilled( ImVec2( x0, rowY + 2 ), ImVec2( x1, rowY + rowH - 2 ),
+                                 IM_COL32( 190, 100, 40, 255 ), 3.0f );
+            // The held part lit, as UE lights the edge being trimmed.
+            if ( held && m_SectionDrag == static_cast<int>( i ) && m_SectionDragEdge != 0 )
+            {
+                const float ex = m_SectionDragEdge == 1 ? x0 : x1;
+                draw->AddRectFilled( ImVec2( ex - 2.0f, rowY + 2 ), ImVec2( ex + 2.0f, rowY + rowH - 2 ),
+                                     IM_COL32( 255, 220, 120, 255 ) );
+            }
+            const std::string label = std::format( "{:.2f} - {:.2f} s", SecondsAt( sequence, section.Start.Value ),
+                                                   SecondsAt( sequence, section.End.Value ) );
+            draw->AddText( ImVec2( x0 + 4, rowY + 3 ), IM_COL32( 240, 240, 240, 255 ), label.c_str() );
+        }
+
+        // THE SECTION GESTURE, the clip lane's own (GrabSection / DragSection): the press picks body or edge,
+        // every step lands on the display grid, and press-to-release is one undo step.
+        const auto tickUnderMouse = [&]
+        {
+            const double seconds = axis.XToTime( ImGui::GetIO().MousePos.x );
+            return Animation::FrameNumber{ SnapToDisplayFrame( sequence, seconds * sequence.TickRate.Numerator /
+                                                                              sequence.TickRate.Denominator ) };
+        };
+        ImGui::SetCursorScreenPos( ImVec2( laneX0, rowY ) );
+        ImGui::InvisibleButton( "##LevelVFXSections", ImVec2( laneW, rowH ) );
+        if ( ImGui::IsItemHovered() || ImGui::IsItemActive() )
+        {
+            const float mx = ImGui::GetIO().MousePos.x;
+            for ( const auto& section : track->Sections )
+                if ( std::abs( mx - xOf( section.Start ) ) <= 5.0f || std::abs( mx - xOf( section.End ) ) <= 5.0f )
+                    ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
+        }
+        if ( ImGui::IsItemActivated() )
+        {
+            std::vector<size_t> topmostFirst( track->Sections.size() );
+            for ( size_t i = 0; i < topmostFirst.size(); ++i )
+                topmostFirst[i] = topmostFirst.size() - 1 - i;
+            GrabSection( *track, topmostFirst, ImGui::GetIO().MousePos.x, xOf, tickUnderMouse() );
+            m_LevelSectionDragBinding = binding;
+            if ( m_SectionDrag >= 0 )
+                if ( const auto began = m_LevelEdit.Begin( LevelOwner() ); !began.IsSuccess() )
+                    LOG_ERROR( "[Sequencer] VFX section drag not undoable: {}", began.GetError() );
+        }
+        if ( ImGui::IsItemActive() && held && DragSection( *track, tickUnderMouse() ) )
+            ++sequence.Revision;
+        if ( ImGui::IsItemDeactivated() && held )
+        {
+            m_SectionDrag = -1;
+            if ( m_LevelEdit.OpenExplicitly() )
+                if ( const auto ended = m_LevelEdit.End(); !ended.IsSuccess() )
+                    LOG_ERROR( "[Sequencer] VFX section drag not undoable: {}", ended.GetError() );
+        }
     }
 
     void SequencerPanel::DrawLevelKeyLane( LevelTL::Sequence& sequence, const LevelTL::BindingGuid& binding,

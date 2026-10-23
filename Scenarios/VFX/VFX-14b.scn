@@ -1,0 +1,8 @@
+# VFX-14b drag the VFX section's edges and body in the Sequencer (UE section trimming): the right edge trims the end, the body moves the whole section, each step lands on a display frame, each drag is one undo step
+Дано run Scene "Open Scene Starter.desce"
+Дано run Open "Sequences/VFX14.dseq"
+Дано run Document "VFX14: Add Actor Campfire"
+Дано set Transport.Time 1.0
+Дано run Document "VFX14: Add VFX Track Campfire"
+Дано set VFX.Campfire.SectionEnd 3.0
+Дано set Transport.Time 0.0
