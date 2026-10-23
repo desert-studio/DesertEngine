@@ -9,3 +9,4 @@
 Дано: BistroFoliageProj after migrate.sh --write over the whole Content.
 Когда: open Content/Scenes/B16_Bistro_Street.desce (the original, not _v70), camera -20,170,330 look -126,-93,-154, daytime, Lit, 90 frames.
 Тогда 1_bistro_original the original scene loads (no version refusal), textured facades, leaves alpha-cut; editor.log 0 load errors
+# RESULT p2 10-23: PASS — frame DesertEngine-scratch/BISTRO-MAT-V6/frames/p2/1_bistro_original.png (original B16_Bistro_Street.desce loads; textured pavement/facade/moped/planter, bush leaves alpha-cut); editor.log 0 [error] lines. Run: Editor --project BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce --camera -20,170,330 --look -126,-93,-154 --shot <png> --shot-frames 90. Backup of pre-write Scenes/Prefabs/VFX: DesertEngine-scratch/BISTRO-MAT-V6/Content.p2.prewrite.backup.tgz.
