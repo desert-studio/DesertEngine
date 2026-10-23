@@ -106,8 +106,8 @@ namespace Desert::Editor
             return end == owned.c_str() + owned.size();
         }
 
-        // AN ASSET REFERENCE SPELLED AS ITS PATH (UE: a soft object path is the text form of TSoftObjectPtr<T>, and
-        // both the Details panel and the console take it). Resolved exactly as the Details picker resolves a
+        // AN ASSET REFERENCE SPELLED AS ITS PATH (UE: a soft object path is the text form of TSoftObjectPtr<T>,
+        // and both the Details panel and the console take it). Resolved exactly as the Details picker resolves a
         // dropped file - RegistryPickerForAssetType names the slot's content kind, ContentRegistry::RowAtPath the
         // row - so the two accept the same things. A path of another kind, or one no row answers for, is refused
         // by name: an empty handle written in its place would be a reference silently lost.
@@ -129,10 +129,9 @@ namespace Desert::Editor
             if ( const auto row = Assets::ContentRegistry::RowAtPath( spec->Kind, path ) )
                 return Common::MakeSuccess( Value::UInt( static_cast<std::uint64_t>( row->Handle ) ) );
             if ( const auto kind = Assets::ContentRegistry::KindForFile( path ); kind && *kind != spec->Kind )
-                return Common::MakeError<Value>(
-                     std::format( "'{}' is a {}, not a {}: field '{}' takes only Asset<{}>", text,
-                                  Common::Content::KindName( *kind ), spec->Noun, field.Name,
-                                  field.Meta.AssetType ) );
+                return Common::MakeError<Value>( std::format(
+                     "'{}' is a {}, not a {}: field '{}' takes only Asset<{}>", text,
+                     Common::Content::KindName( *kind ), spec->Noun, field.Name, field.Meta.AssetType ) );
             return Common::MakeError<Value>(
                  std::format( "no {} at '{}' in the content registry (field '{}', Asset<{}>); the file is "
                               "missing, or was added after the editor gathered the content roots",

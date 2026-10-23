@@ -17,8 +17,8 @@ namespace Desert::Editor
     }
 
     // THE REFLECTED ASSET TYPES (PROPERTY Asset<T>) WHOSE TARGET IS A CONTENT-REGISTRY ROW OF ONE KIND (UE
-    // TSoftObjectPtr<T>): the Details picker lists the rows of that kind and accepts a dropped file only when it is
-    // one, and the control channel's `set` resolves an `assets:` path through the same table and the same
+    // TSoftObjectPtr<T>): the Details picker lists the rows of that kind and accepts a dropped file only when it
+    // is one, and the control channel's `set` resolves an `assets:` path through the same table and the same
     // ContentRegistry::RowAtPath - one resolver for both, so the two cannot accept different things. A type with a
     // richer slot (fonts, themes, rigs, clouds, textures) keeps its own branch in the Details panel.
     struct RegistryPickerSpec
@@ -32,7 +32,7 @@ namespace Desert::Editor
 
     [[nodiscard]] inline const RegistryPickerSpec* RegistryPickerForAssetType( std::string_view assetType )
     {
-        using K = Common::Content::ContentKind;
+        using K                                     = Common::Content::ContentKind;
         static constexpr RegistryPickerSpec SPECS[] = {
              { "VFXSystemAsset", K::VFXSystem, "##vfxsystem", "None (plays nothing)", "VFX system" },
              { "WorldParametersAsset", K::WorldParameters, "##worldparams", "None (no world parameters)",
