@@ -17,8 +17,11 @@
 Дано run Modeling "Edit Materials slot material: M_UVChecker"
 Дано run Modeling "Active tool: Accept"
 Дано run "Level Viewport" "Focus Selected"
-# Close-up of the sphere (it sits at 140.6,0,140.6, radius 50): the 25 % facets and the UV seam must be readable.
-Дано --subject viewport set Camera.Position 45,85,45
+# Close-up of the UV seam (the sphere sits at 140.6,0,140.6, radius 50). GenerateLatLongSphere
+# (ShapeGenerators.hpp:1027) puts the wrap column at theta = 0, UE +X, which FromUE (:505) maps to engine -Z:
+# the seam meridian is the sphere's -Z side, at 140.6,0,90.6. The camera looks at it head-on from -Z.
+Дано --subject viewport set Camera.Position 140.6,40,-5
+Дано --subject viewport set Camera.Direction 0,-0.38,0.925
 Когда run Modeling "Simplify type: Standard"
 Когда run Modeling "Simplify target: Percentage"
 Когда --subject modeling set Simplify.Percentage 25
@@ -26,13 +29,13 @@
 Когда run Modeling "Mesh tool: Simplify"
 Когда run Modeling "Active tool: Accept"
 Когда state
-Тогда 0_standard coarse sphere (status "Simplify: N -> M triangles (..., Percentage, Standard)", M about N/4); the checker follows the coarse faces, normals rebuilt flat-ish from the collapsed surface
+Тогда 0_standard coarse sphere seen on its UV seam meridian (status "... Standard", M about N/4); the checker smeared/torn along the seam (UV seam not constrained)
 Когда run Action Undo
 Когда run Modeling "Simplify type: Attribute-Aware"
 Когда run Modeling "Mesh tool: Simplify"
 Когда run Modeling "Active tool: Accept"
 Когда state
-Тогда 1_attr coarse sphere (status "... Attribute-Aware"), checker continuous across the UV seam, smooth shading from the carried normals - differs from 0_standard
+Тогда 1_attr coarse sphere on the same seam meridian (status "... Attribute-Aware"), checker continuous, seam intact - differs from 0_standard
 Когда run Action Undo
 Когда state
 Тогда 2_undo the dense 32x32 sphere back
