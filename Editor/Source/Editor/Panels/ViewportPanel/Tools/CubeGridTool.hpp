@@ -33,6 +33,28 @@ namespace Desert::Editor::Tools
     class CubeGridTool
     {
     public:
+        CubeGridTool() = default;
+        ~CubeGridTool(); // forgets this tool's undo records: they point at it
+        CubeGridTool( const CubeGridTool& )            = delete;
+        CubeGridTool& operator=( const CubeGridTool& ) = delete;
+
+        // What one in-tool undo step puts back (UE's FCubeGridTool change records): the volume - every layer
+        // and the material set its faces index - and the selection the next Push/Pull extrudes from.
+        struct SessionState
+        {
+            Geometry::VoxelBlockout::Volume        Volume;
+            std::vector<Common::AssetHandle>       Materials;
+            bool                                   HasSel = false;
+            Geometry::VoxelBlockout::Rect          Sel;
+            Geometry::VoxelBlockout::WorkPlane     Plane;
+            bool                                   CornerMode = false;
+            bool                                   Crosswise  = false;
+            Geometry::VoxelBlockout::CornerHeights CornerH{};
+        };
+        // Undo / Redo of one in-tool step: the session takes @p state, and the next Update re-bakes the
+        // preview from it (the command history has no scene to hand over).
+        void RestoreState( const SessionState& state );
+
         void Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, const glm::mat4& viewProj,
                      const glm::vec2& viewportPos, const glm::vec2& viewportSize, bool interactive );
 
@@ -67,6 +89,14 @@ namespace Desert::Editor::Tools
         std::optional<uint8_t> OpMaterialId();
         // Point the entity's material slots at m_Materials in the order the bake's submeshes use them.
         void ApplyMaterialSlots( ::Desert::Core::Scene& scene, const std::vector<int>& submeshMaterialIds );
+        // UE's EmitChangeAndUpdate: every Push/Pull (a key, a button, one Ctrl+LMB drag, a corner step) is
+        // its own undo step INSIDE the session, so Undo steps back one push and the tool stays open. The
+        // steps are tool records (EditedObject = this tool); the session's end - Accept's one step for the
+        // whole piece, or Cancel - forgets them, as UE expires a tool's changes when the tool shuts down.
+        // Begin/End nest: an outer change (a drag) swallows the inner ones (each frame's step).
+        void         BeginChange();
+        void         EndChange( const char* label );
+        SessionState CaptureState() const;
         void ResetSession(); // forget the volume, the selection and the material set (Accept / Cancel)
         // Reopen on the selected entity (UE: the tool takes the selected mesh as its target): its voxels - or,
         // when it carries none, the blocks recovered from its mesh - become the volume, the grid goes onto its
@@ -89,6 +119,10 @@ namespace Desert::Editor::Tools
         // entity's transform as a grid frame (identity for a new one, which is built in the world).
         std::shared_ptr<const Commands::EntityStateSnapshot> m_Before;
         Geometry::VoxelBlockout::GridFrame                   m_EntityFrame;
+        std::optional<SessionState>                          m_ChangeBefore; // the open change's state before it
+        int                                                  m_ChangeDepth = 0; // Begin/End nesting
+        bool m_ChangeDirty  = false; // the open change re-baked the volume
+        bool m_PendingRegen = false; // an Undo/Redo restored a state: re-bake next Update
         bool m_WasActive = false; // last frame's toolActive: opening the tool on a blockout reopens it
 
         float     m_GroundY    = 0.0f;    // ground work-plane height in the active grid frame (Level up/down)

@@ -1,0 +1,24 @@
+# P18b CubeGrid: every Push/Pull is its own undo step INSIDE the tool (UE CubeGridTool EmitChangeAndUpdate);
+# Undo steps back one push and the tool stays open; Accept still records the piece as one step.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Direction 0.5,-0.6,0.6
+Дано run CubeGrid "CubeGrid tool"
+Дано run CubeGrid "Aim at the viewport centre: on"
+Дано run CubeGrid "Grid Power 5"
+Когда run CubeGrid "Select 1x1 blocks at the aim"
+Когда run CubeGrid "Push/Pull out (E)"
+Когда run CubeGrid "Push/Pull out (E)"
+Когда run CubeGrid "Push/Pull out (E)"
+Когда state
+Тогда 0_three a 300 cm column (three 100 cm blocks) stands where the viewport centre aims; tool bar "Grid Power 5 - 100 cm"
+Когда run Action Undo
+Когда state
+Тогда 1_undo1 the column is 200 cm (two blocks); the CubeGrid tool bar is still shown (tool active)
+Когда run Action Undo
+Когда run Action Undo
+Когда state
+Тогда 2_undo3 no block on the grid; the CubeGrid tool bar and grid are still shown (tool active)
+Когда run Action Redo
+Когда state
+Тогда 3_redo one 100 cm block stands where the column was; tool still active
