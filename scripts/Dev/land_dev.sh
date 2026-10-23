@@ -11,6 +11,7 @@ set -u
 TREE="$1"; shift
 cd "$TREE" || exit 2
 # Agent trees carry symlinked submodules (new_tree.sh): a typechange (T) is the tree's layout, not a change.
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) echo "land_dev: Mac-only (premake gmake + make); on Windows land by hand: fetch, cherry-pick/merge onto origin/dev, MSBuild, push"; exit 2 ;; esac
 [ -z "$(git diff --name-status HEAD -- . ':!.cache' | grep -v '^T')" ] || { echo "land_dev: $TREE has modified tracked files"; exit 2; }
 git fetch -q origin || { echo "land_dev: fetch failed"; exit 2; }
 base=$(git rev-parse origin/dev)
