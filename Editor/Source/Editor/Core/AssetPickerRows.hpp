@@ -48,7 +48,7 @@ namespace Desert::Editor
     // here; which kind a type names is ContentKindForAssetType's answer (the picker asks it; no row restates it),
     // and the control channel's `set` resolves an `assets:` path through that, for every kind, with the same
     // ContentRegistry::RowAtPath. A type with a richer slot (fonts, themes, rigs, clouds, textures, meshes,
-    // materials) keeps its own widget in the Details panel.
+    // materials) keeps its own widget in the Details panel; a static mesh is a plain row here (SLICE-01c).
     struct RegistryPickerSpec
     {
         std::string_view AssetType;
@@ -71,6 +71,9 @@ namespace Desert::Editor
              { "PhysicsAsset", "##physicsasset", "None", "physics asset" },
              { "WeatherPresetAsset", "##weatherpreset", "None", "weather preset" },
              { "StateTreeAsset", "##statetree", "None (runs no tree)", "state tree" },
+         // UE UStaticMeshComponent::StaticMesh: the reflected slot lists the registry's .stmesh rows; the
+         // mesh's picture is the Preview row the component's Details draws right above it.
+         { "StaticMeshAsset", "##staticmesh", "None (draws nothing)", "static mesh" },
         };
         for ( const RegistryPickerSpec& spec : SPECS )
             if ( spec.AssetType == assetType )
