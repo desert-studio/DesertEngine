@@ -22,8 +22,10 @@
 Когда run Action "Undo"
 Когда run Action "Undo"
 Тогда-вид 1_dyn_undo the sphere is the uniform 32x32 grid again, as in 0_before
+Когда run Modeling "Mesh tool: Remesh"
+Когда run Modeling "Remesh: Use Target Edge Length: on"
 Когда --subject modeling set Remesh.TargetEdgeLength 5
-Когда run Modeling "Remesh: the selected mesh at the Target Edge Length"
+Когда run Modeling "Active tool: Accept"
 Тогда-вид 2_remesh the whole sphere is a uniform triangle mesh finer than 32x32, still a sphere
 Когда run Modeling "Accept: write the edit into the static mesh asset"
 Тогда 3_accept after Accept the remeshed sphere is still drawn from its .stmesh; no error toast

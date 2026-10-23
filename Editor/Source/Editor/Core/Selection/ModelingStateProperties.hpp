@@ -415,12 +415,14 @@ namespace Desert::Editor::Core
            []( ModelingState& s ) { return &s.Sculpt.Spacing; }, nullptr },
          { "DynamicSculpt.EdgeLength",  "Edge Length",        "Sculpt", 1, false, 0.01f, 1.0e4f,
            []( ModelingState& s ) { return &s.DynamicSculptTopology.TargetEdgeLength; }, nullptr },
+         { "Remesh.TargetTriangleCount", "Target Triangle Count", "Remesh", 1, true, 1.0f, 1.0e6f, nullptr,
+           []( ModelingState& s ) { return &s.MeshRemesh.TargetTriangleCount; } },
          { "Remesh.TargetEdgeLength",   "Target Edge Length", "Remesh", 1, false, 0.01f, 1.0e4f,
-           []( ModelingState& s ) { return &s.Remesh.TargetEdgeLength; }, nullptr },
-         { "Remesh.SmoothingStrength",  "Smoothing",          "Remesh", 1, false, 0.0f, 1.0f,
-           []( ModelingState& s ) { return &s.Remesh.SmoothingStrength; }, nullptr },
-         { "Remesh.Iterations",         "Iterations",         "Remesh", 1, true, 1.0f, 100.0f, nullptr,
-           []( ModelingState& s ) { return &s.Remesh.Iterations; } },
+           []( ModelingState& s ) { return &s.MeshRemesh.TargetEdgeLength; }, nullptr },
+         { "Remesh.SmoothingStrength",  "Smoothing Strength", "Remesh", 1, false, 0.0f, 1.0f,
+           []( ModelingState& s ) { return &s.MeshRemesh.SmoothingStrength; }, nullptr },
+         { "Remesh.Iterations",         "Remesh Iterations",  "Remesh", 1, true, 0.0f, 100.0f, nullptr,
+           []( ModelingState& s ) { return &s.MeshRemesh.RemeshIterations; } },
     } };
     // clang-format on
 

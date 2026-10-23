@@ -62,7 +62,7 @@ namespace Desert::Editor
                 case S::Capsule:
                     return ICON_MDI_PILL;
                 case S::Pyramid:
-                    return ICON_MDI_TRIANGLE_OUTLINE;
+                    return ICON_MDI_VECTOR_TRIANGLE;
                 case S::Stairs:
                     return ICON_MDI_STAIRS;
                 case S::Torus:
@@ -183,8 +183,9 @@ namespace Desert::Editor
             else if ( ms.ActiveTool == MS::Tool::Normals || ms.ActiveTool == MS::Tool::Tangents ||
                       ms.ActiveTool == MS::Tool::EditMaterials || ms.ActiveTool == MS::Tool::PaintGroups )
                 m_Category = static_cast<int>( Palette::Attributes );
-            else if ( ms.ActiveTool == MS::Tool::HoleFill || ms.ActiveTool == MS::Tool::Jacket ||
-                      ms.ActiveTool == MS::Tool::Project || ms.ActiveTool == MS::Tool::WeldEdges )
+            else if ( ms.ActiveTool == MS::Tool::HoleFill || ms.ActiveTool == MS::Tool::Remesh ||
+                      ms.ActiveTool == MS::Tool::Jacket || ms.ActiveTool == MS::Tool::Project ||
+                      ms.ActiveTool == MS::Tool::WeldEdges )
                 m_Category = static_cast<int>( Palette::MeshOps );
             else if ( ms.ActiveTool == MS::Tool::VoxWrap || ms.ActiveTool == MS::Tool::VoxBoolean ||
                       ms.ActiveTool == MS::Tool::VoxMorph || ms.ActiveTool == MS::Tool::VoxBlend )
@@ -638,23 +639,6 @@ namespace Desert::Editor
         }
         if ( active )
             ImGui::PopStyleColor();
-        // UE's Remesh tool (URemeshMeshTool): the whole selected mesh to a uniform edge length, one undo step.
-        if ( Utils::ImGuiUtilities::SectionHeader( "Remesh" ) )
-        {
-            auto& r = ms.Remesh;
-            ImGui::DragFloat( "Target Edge Length", &r.TargetEdgeLength, 0.1f, 0.01f, 1.0e4f, "%.2f cm",
-                              ImGuiSliderFlags_AlwaysClamp );
-            ImGui::SliderFloat( "Smoothing", &r.SmoothingStrength, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp );
-            ImGui::SliderInt( "Iterations", &r.Iterations, 1, 100, "%d", ImGuiSliderFlags_AlwaysClamp );
-            ImGui::Checkbox( "Flips##Remesh", &r.Flips );
-            ImGui::SameLine();
-            ImGui::Checkbox( "Splits##Remesh", &r.Splits );
-            ImGui::SameLine();
-            ImGui::Checkbox( "Collapses##Remesh", &r.Collapses );
-            if ( ImGui::Button( "Remesh", ImVec2( -1.0f, 0.0f ) ) && m_Scene )
-                if ( auto refused = Tools::RemeshSelected( *m_Scene, r ) )
-                    LOG_WARN( "[Remesh] {}", *refused );
-        }
         if ( !active )
             return;
         ImGui::Checkbox( "Dynamic Topology", &ms.SculptDynamic );
@@ -1126,6 +1110,7 @@ namespace Desert::Editor
                 ImGui::PopStyleColor();
         };
         toolButton( MS::Tool::HoleFill, ICON_MDI_VECTOR_SQUARE_CLOSE, "Hole Fill" );
+        toolButton( MS::Tool::Remesh, ICON_MDI_VECTOR_TRIANGLE, "Remesh" );
         toolButton( MS::Tool::Jacket, ICON_MDI_LAYERS_MINUS, "Jacket" );
         toolButton( MS::Tool::Project, ICON_MDI_VECTOR_COMBINE, "Project" );
         toolButton( MS::Tool::WeldEdges, ICON_MDI_VECTOR_LINK, "Weld Edges" );
@@ -1150,33 +1135,48 @@ namespace Desert::Editor
             ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
             return;
         }
+        // UE URemeshMeshToolProperties - the Remesh tool's, and the Project tool's with Reproject onto the target.
+        const auto remeshProperties = [&row]( Geometry::RemeshMeshSettings& p, const char* reprojectLabel )
+        {
+            ImGui::Checkbox( "Use Target Edge Length", &p.UseTargetEdgeLength );
+            if ( p.UseTargetEdgeLength )
+            {
+                row( "Target Edge Length (cm)" );
+                ImGui::DragFloat( "##RemeshEdge", &p.TargetEdgeLength, 0.1f, 0.01f, 10000.0f, "%.2f" );
+            }
+            else
+            {
+                row( "Target Triangle Count" );
+                ImGui::DragInt( "##RemeshTris", &p.TargetTriangleCount, 10.0f, 1, 1000000 );
+            }
+            row( "Smoothing Strength" );
+            ImGui::SliderFloat( "##RemeshSmooth", &p.SmoothingStrength, 0.0f, 1.0f, "%.2f" );
+            row( "Remesh Iterations" );
+            ImGui::SliderInt( "##RemeshIter", &p.RemeshIterations, 0, 100 );
+            ImGui::Checkbox( "Flips", &p.Flips );
+            ImGui::Checkbox( "Splits", &p.Splits );
+            ImGui::Checkbox( "Collapses", &p.Collapses );
+            ImGui::Checkbox( reprojectLabel, &p.Reproject );
+            ImGui::Checkbox( "Preserve Sharp Edges", &p.PreserveSharpEdges );
+            ImGui::Checkbox( "Discard Attributes", &p.DiscardAttributes );
+        };
+        if ( ms.ActiveTool == MS::Tool::Remesh )
+        {
+            // UE URemeshMeshTool: the selected mesh remeshed whole to an even triangulation, projected back onto
+            // the surface it started as; the preview until Accept (one undo step).
+            ImGui::Separator();
+            remeshProperties( ms.MeshRemesh, "Reproject" );
+            ImGui::Separator();
+            ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
+            return;
+        }
         if ( ms.ActiveTool == MS::Tool::Project )
         {
             // UE UProjectToTargetTool (URemeshMeshToolProperties): the first selected mesh is remeshed and
             // projected onto the second; Target Triangle Count or Target Edge Length, Smoothing Strength, Remesh
             // Iterations, the edge edits, Projection, Discard Attributes.
             ImGui::Separator();
-            Geometry::ProjectSettings& p = ms.MeshProject;
-            ImGui::Checkbox( "Use Target Edge Length", &p.UseTargetEdgeLength );
-            if ( p.UseTargetEdgeLength )
-            {
-                row( "Target Edge Length (cm)" );
-                ImGui::DragFloat( "##ProjectEdge", &p.TargetEdgeLength, 0.1f, 0.01f, 10000.0f, "%.2f" );
-            }
-            else
-            {
-                row( "Target Triangle Count" );
-                ImGui::DragInt( "##ProjectTris", &p.TargetTriangleCount, 10.0f, 1, 1000000 );
-            }
-            row( "Smoothing Strength" );
-            ImGui::SliderFloat( "##ProjectSmooth", &p.SmoothingStrength, 0.0f, 1.0f, "%.2f" );
-            row( "Remesh Iterations" );
-            ImGui::SliderInt( "##ProjectIter", &p.RemeshIterations, 0, 100 );
-            ImGui::Checkbox( "Flips", &p.Flips );
-            ImGui::Checkbox( "Splits", &p.Splits );
-            ImGui::Checkbox( "Collapses", &p.Collapses );
-            ImGui::Checkbox( "Projection", &p.Projection );
-            ImGui::Checkbox( "Discard Attributes", &p.DiscardAttributes );
+            remeshProperties( ms.MeshProject, "Projection" );
             ImGui::Separator();
             ImGui::TextWrapped( "%s", ms.DeformStatus.c_str() );
             return;
