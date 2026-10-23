@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <functional>
 
 namespace Desert::Geometry
@@ -38,12 +39,13 @@ namespace Desert::Geometry
             }
         };
 
-        // A vertex the remesher must not move or remove: on an open border or an attribute seam.
-        bool IsFixedVertex( const DynamicMesh3& mesh, int v )
+        // A vertex the remesher must not move or remove: on an open border, or on an attribute seam while sharp
+        // edges are preserved (UE ConstrainAllBoundariesAndSeams, bAllowSeamCollapse/Smoothing = !preserve).
+        bool IsFixedVertex( const DynamicMesh3& mesh, int v, bool preserveSharp )
         {
             if ( mesh.IsBoundaryVertex( v ) )
                 return true;
-            return mesh.HasAttributes() && mesh.Attributes()->IsSeamVertex( v, true );
+            return preserveSharp && mesh.HasAttributes() && mesh.Attributes()->IsSeamVertex( v, true );
         }
 
         glm::dvec3 TriNormalWith( const DynamicMesh3& mesh, int t, int movedVertex, const glm::dvec3& movedPos )
@@ -57,15 +59,22 @@ namespace Desert::Geometry
             return len > 1e-20 ? n / len : glm::dvec3( 0.0 );
         }
 
-        // UE FRemesher::CollapseEdge's checks: both ends free, no surviving triangle turned over and no new
-        // edge longer than the split threshold (or the collapse would be split straight back).
-        bool TryCollapse( const Frame& f, int eid, double maxLen, std::vector<int>& touched )
+        // UE FRemesher::CollapseEdge's checks: not both ends fixed (a fixed end keeps its place and the free one
+        // collapses onto it), no surviving triangle turned over and no new edge longer than the split threshold
+        // (or the collapse would be split straight back).
+        bool TryCollapse( const Frame& f, int eid, double maxLen, bool preserveSharp, std::vector<int>& touched )
         {
-            DynamicMesh3& mesh = f.Mesh;
-            const Index2i ev   = mesh.GetEdgeV( eid );
-            if ( IsFixedVertex( mesh, ev.A ) || IsFixedVertex( mesh, ev.B ) )
+            DynamicMesh3& mesh   = f.Mesh;
+            const Index2i edge   = mesh.GetEdgeV( eid );
+            const bool    fixedA = IsFixedVertex( mesh, edge.A, preserveSharp );
+            const bool    fixedB = IsFixedVertex( mesh, edge.B, preserveSharp );
+            if ( fixedA && fixedB )
                 return false;
-            const glm::dvec3 mid      = ( mesh.GetVertex( ev.A ) + mesh.GetVertex( ev.B ) ) * 0.5;
+            // ev.A is the vertex that stays.
+            const Index2i    ev       = fixedB ? Index2i( edge.B, edge.A ) : edge;
+            const glm::dvec3 mid      = ( fixedA || fixedB )
+                                             ? mesh.GetVertex( ev.A )
+                                             : ( mesh.GetVertex( ev.A ) + mesh.GetVertex( ev.B ) ) * 0.5;
             const glm::dvec3 midWorld = glm::dvec3( f.ToWorld * glm::dvec4( mid, 1.0 ) );
             for ( const int moved : { ev.A, ev.B } )
             {
@@ -84,7 +93,7 @@ namespace Desert::Geometry
                         return false;
             }
             DynamicMesh3::EdgeCollapseInfo info;
-            if ( mesh.CollapseEdge( ev.A, ev.B, 0.5, info ) != MeshResult::Ok )
+            if ( mesh.CollapseEdge( ev.A, ev.B, ( fixedA || fixedB ) ? 0.0 : 0.5, info ) != MeshResult::Ok )
                 return false;
             mesh.SetVertex( info.KeptVertex, mid );
             touched.push_back( info.KeptVertex );
@@ -139,7 +148,7 @@ namespace Desert::Geometry
         // One sweep over the candidate edges (UE FRemesher::BasicRemeshPass): split, else collapse, else flip.
         // Returns how many edits it made.
         int TopologyPass( const Frame& f, const RemeshSettings& s, const std::vector<int>& edges,
-                          std::vector<int>& touched )
+                          std::vector<int>& touched, RemeshCounts& counts )
         {
             DynamicMesh3& mesh   = f.Mesh;
             const double  target = s.TargetEdgeLength;
@@ -158,12 +167,22 @@ namespace Desert::Geometry
                     {
                         touched.insert( touched.end(), { info.NewVertex, ev.A, ev.B } );
                         ++edits;
+                        ++counts.Splits;
                     }
                 }
                 else if ( s.Collapses && len < minLen )
-                    edits += TryCollapse( f, eid, maxLen, touched ) ? 1 : 0;
-                else if ( s.Flips )
-                    edits += TryFlip( mesh, eid, touched ) ? 1 : 0;
+                {
+                    if ( TryCollapse( f, eid, maxLen, s.PreserveSharpEdges, touched ) )
+                    {
+                        ++edits;
+                        ++counts.Collapses;
+                    }
+                }
+                else if ( s.Flips && TryFlip( mesh, eid, touched ) )
+                {
+                    ++edits;
+                    ++counts.Flips;
+                }
             }
             return edits;
         }
@@ -187,63 +206,150 @@ namespace Desert::Geometry
         }
     } // namespace
 
-    bool RemeshMesh( DynamicMesh3& mesh, const glm::dmat4& localToWorld, const RemeshSettings& settings )
+    namespace
     {
-        if ( settings.TargetEdgeLength <= 0.0f || mesh.TriangleCount() == 0 )
-            return false;
-        // The surface the remesh must keep (UE: the tool's projection target, a copy of the input + its tree).
-        const DynamicMesh3   original( mesh );
-        DynamicMeshAABBTree3 tree( &original );
-        const Frame          f{ mesh, localToWorld };
-        const double         alpha = std::clamp( static_cast<double>( settings.SmoothingStrength ), 0.0, 1.0 );
-        std::vector<int>     touched;
-        for ( int pass = 0; pass < std::max( 1, settings.Iterations ); ++pass )
+        // UE FRemesher::BasicRemeshPass + FullSmoothPass_Buffer + FullProjectionPass, `settings.Iterations` times.
+        RemeshCounts RemeshPasses( DynamicMesh3& mesh, const glm::dmat4& localToWorld,
+                                   const RemeshSettings& settings, const DynamicMesh3& projectTo )
         {
-            touched.clear();
-            TopologyPass( f, settings, AllEdges( mesh ), touched );
-
-            // UE FRemesher::FullSmoothPass_Buffer: tangential Laplacian (the one-ring centroid with its normal
-            // component removed, so smoothing evens the triangles without shrinking the shape), then
-            // FullProjectionPass: every vertex back onto the original surface.
-            std::vector<std::pair<int, glm::dvec3>> next;
-            next.reserve( static_cast<size_t>( mesh.VertexCount() ) );
-            for ( const int v : mesh.VertexIndicesItr() )
+            DynamicMeshAABBTree3 tree( &projectTo );
+            const Frame          f{ mesh, localToWorld };
+            const double         alpha = std::clamp( static_cast<double>( settings.SmoothingStrength ), 0.0, 1.0 );
+            std::vector<int>     touched;
+            RemeshCounts         counts;
+            for ( int pass = 0; pass < settings.Iterations; ++pass )
             {
-                glm::dvec3 p = mesh.GetVertex( v );
-                if ( alpha > 0.0 && !IsFixedVertex( mesh, v ) )
+                touched.clear();
+                TopologyPass( f, settings, AllEdges( mesh ), touched, counts );
+
+                // UE FullSmoothPass_Buffer: tangential Laplacian (the one-ring centroid with its normal component
+                // removed, so smoothing evens the triangles without shrinking the shape), then FullProjectionPass:
+                // every vertex onto the projection surface.
+                std::vector<std::pair<int, glm::dvec3>> next;
+                next.reserve( static_cast<size_t>( mesh.VertexCount() ) );
+                for ( const int v : mesh.VertexIndicesItr() )
                 {
-                    glm::dvec3 centroid( 0.0 );
-                    int        count = 0;
-                    for ( const int n : mesh.VtxVerticesItr( v ) )
+                    glm::dvec3 p = mesh.GetVertex( v );
+                    if ( alpha > 0.0 && !IsFixedVertex( mesh, v, settings.PreserveSharpEdges ) )
                     {
-                        centroid += mesh.GetVertex( n );
-                        ++count;
+                        glm::dvec3 centroid( 0.0 );
+                        int        count = 0;
+                        for ( const int n : mesh.VtxVerticesItr( v ) )
+                        {
+                            centroid += mesh.GetVertex( n );
+                            ++count;
+                        }
+                        if ( count > 0 )
+                        {
+                            const glm::dvec3 normal = MeshNormals::ComputeVertexNormal( mesh, v );
+                            glm::dvec3       delta  = centroid / static_cast<double>( count ) - p;
+                            delta -= normal * glm::dot( delta, normal );
+                            p += alpha * delta;
+                        }
                     }
-                    if ( count > 0 )
+                    if ( settings.Reproject )
                     {
-                        const glm::dvec3 normal = MeshNormals::ComputeVertexNormal( mesh, v );
-                        glm::dvec3       delta  = centroid / static_cast<double>( count ) - p;
-                        delta -= normal * glm::dot( delta, normal );
-                        p += alpha * delta;
+                        double    distSqr = 0.0;
+                        const int tid     = tree.FindNearestTriangle( p, distSqr );
+                        if ( tid != DynamicMesh3::InvalidID )
+                        {
+                            Triangle3d tri;
+                            projectTo.GetTriVertices( tid, tri.V[0], tri.V[1], tri.V[2] );
+                            DistPoint3Triangle3<double> dist( p, tri );
+                            dist.GetSquared();
+                            p = dist.m_ClosestTrianglePoint;
+                        }
                     }
+                    next.emplace_back( v, p );
                 }
-                double    distSqr = 0.0;
-                const int tid     = tree.FindNearestTriangle( p, distSqr );
-                if ( tid != DynamicMesh3::InvalidID )
-                {
-                    Triangle3d tri;
-                    original.GetTriVertices( tid, tri.V[0], tri.V[1], tri.V[2] );
-                    DistPoint3Triangle3<double> dist( p, tri );
-                    dist.GetSquared();
-                    p = dist.m_ClosestTrianglePoint;
-                }
-                next.emplace_back( v, p );
+                for ( const auto& [v, p] : next )
+                    mesh.SetVertex( v, p );
             }
-            for ( const auto& [v, p] : next )
-                mesh.SetVertex( v, p );
+            return counts;
         }
-        RecomputeNormals( mesh );
-        return true;
+
+        double WorldArea( const DynamicMesh3& mesh, const glm::dmat4& localToWorld )
+        {
+            double area = 0.0;
+            for ( const int tid : mesh.TriangleIndicesItr() )
+            {
+                glm::dvec3 a{}, b{}, c{};
+                mesh.GetTriVertices( tid, a, b, c );
+                a = glm::dvec3( localToWorld * glm::dvec4( a, 1.0 ) );
+                b = glm::dvec3( localToWorld * glm::dvec4( b, 1.0 ) );
+                c = glm::dvec3( localToWorld * glm::dvec4( c, 1.0 ) );
+                area += 0.5 * glm::length( glm::cross( b - a, c - a ) );
+            }
+            return area;
+        }
+    } // namespace
+
+    Common::ResultStr<DeformOutcome> RemeshMeshOperation( const DynamicMesh3&       input,
+                                                          const glm::dmat4&         localToWorld,
+                                                          const RemeshMeshSettings& settings,
+                                                          const DynamicMesh3* projectTo, const char* toolName )
+    {
+        if ( settings.TargetTriangleCount < 1 || !( settings.TargetEdgeLength > 0.0f ) ||
+             settings.SmoothingStrength < 0.0f || settings.SmoothingStrength > 1.0f ||
+             settings.RemeshIterations < 0 || settings.RemeshIterations > 100 )
+            return Common::MakeFormattedError<DeformOutcome>(
+                 "{}: Target Triangle Count must be >= 1 (is {}), Target Edge Length > 0 (is {}), Smoothing "
+                 "Strength in [0, 1] (is {}), Remesh Iterations in [0, 100] (are {})",
+                 toolName, settings.TargetTriangleCount, settings.TargetEdgeLength, settings.SmoothingStrength,
+                 settings.RemeshIterations );
+        if ( input.TriangleCount() == 0 )
+            return Common::MakeFormattedError<DeformOutcome>( "{}: the mesh has no triangle", toolName );
+        if ( projectTo != nullptr && projectTo->TriangleCount() == 0 )
+            return Common::MakeFormattedError<DeformOutcome>( "{}: the target mesh has no triangle", toolName );
+
+        // UE CalculateTargetEdgeLength: the edge length straight, or the equilateral edge that tiles the mesh's
+        // area with Target Triangle Count triangles.
+        const double area = WorldArea( input, localToWorld );
+        const double edgeLength =
+             settings.UseTargetEdgeLength
+                  ? static_cast<double>( settings.TargetEdgeLength )
+                  : std::sqrt( 4.0 * area / ( std::sqrt( 3.0 ) * settings.TargetTriangleCount ) );
+        const double coverArea = projectTo ? std::max( area, WorldArea( *projectTo, localToWorld ) ) : area;
+        const double expected  = coverArea / ( std::sqrt( 3.0 ) / 4.0 * edgeLength * edgeLength );
+        if ( !( edgeLength > 0.0 ) || expected > 1.0e6 )
+            return Common::MakeFormattedError<DeformOutcome>(
+                 "{}: a Target Edge Length of {:.3f} cm would make about {:.0f} triangles (at most 1000000)",
+                 toolName, edgeLength, expected );
+
+        DynamicMesh3 mesh = input;
+        if ( settings.DiscardAttributes )
+            mesh.DiscardAttributes();
+        // UE URemeshMeshTool: the projection target is a copy of the input (the surface the remesh must keep).
+        const DynamicMesh3   original = projectTo ? DynamicMesh3() : input;
+        const RemeshSettings pass{ .TargetEdgeLength   = static_cast<float>( edgeLength ),
+                                   .Splits             = settings.Splits,
+                                   .Collapses          = settings.Collapses,
+                                   .Flips              = settings.Flips,
+                                   .SmoothingStrength  = settings.SmoothingStrength,
+                                   .Iterations         = settings.RemeshIterations,
+                                   .Reproject          = settings.Reproject,
+                                   .PreserveSharpEdges = settings.PreserveSharpEdges };
+        const RemeshCounts   counts = RemeshPasses( mesh, localToWorld, pass, projectTo ? *projectTo : original );
+
+        // The overlays follow the new surface: per-vertex normals for a mesh without attributes (UE: the discarded
+        // attributes come back as a normal overlay only), recomputed normals otherwise.
+        if ( !mesh.HasAttributes() )
+        {
+            mesh.EnableAttributes();
+            mesh.Attributes()->SetNumUVLayers( 0 );
+            MeshNormals::InitializeOverlayToPerVertexNormals( mesh.Attributes()->PrimaryNormals(), false );
+        }
+        else
+            RecomputeNormals( mesh );
+
+        DeformOutcome outcome;
+        outcome.MovedVertices = mesh.VertexCount();
+        outcome.Report        = std::format( "{}: {} triangles, edge length {:.2f} cm ({} splits, {} collapses, "
+                                                    "{} flips over {} passes)",
+                                             toolName, mesh.TriangleCount(), edgeLength, counts.Splits, counts.Collapses,
+                                             counts.Flips, settings.RemeshIterations );
+        outcome.Mesh          = std::move( mesh );
+        return Common::MakeSuccess( std::move( outcome ) );
     }
 
     std::vector<int> RemeshRegion( DynamicMesh3& mesh, const glm::dmat4& localToWorld,
@@ -268,7 +374,8 @@ namespace Desert::Geometry
                 if ( glm::dot( d, d ) <= r2 )
                     edges.push_back( e );
             }
-            if ( edges.empty() || TopologyPass( f, settings, edges, touched ) == 0 )
+            RemeshCounts counts;
+            if ( edges.empty() || TopologyPass( f, settings, edges, touched, counts ) == 0 )
                 break;
         }
         std::sort( touched.begin(), touched.end() );

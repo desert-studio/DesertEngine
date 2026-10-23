@@ -2671,6 +2671,7 @@ namespace Desert::Editor
             case T::Lattice:
             case T::Normals:
             case T::HoleFill: // picks a hole by its drawn edge, no cursor of its own
+            case T::Remesh:
             case T::Jacket:
             case T::Project:
             case T::WeldEdges:

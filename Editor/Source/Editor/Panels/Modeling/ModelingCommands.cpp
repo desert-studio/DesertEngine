@@ -280,18 +280,24 @@ namespace Desert::Editor
                                   } } );
         modelingOnOff( "Sculpt", "Refine", []( MS& ms, bool on ) { ms.DynamicSculptTopology.Splits = on; } );
         modelingOnOff( "Sculpt", "Collapse", []( MS& ms, bool on ) { ms.DynamicSculptTopology.Collapses = on; } );
-        modelingOnOff( "Modeling", "Remesh: Flips", []( MS& ms, bool on ) { ms.Remesh.Flips = on; } );
-        modelingOnOff( "Modeling", "Remesh: Splits", []( MS& ms, bool on ) { ms.Remesh.Splits = on; } );
-        modelingOnOff( "Modeling", "Remesh: Collapses", []( MS& ms, bool on ) { ms.Remesh.Collapses = on; } );
-        // UE's Remesh tool on the selected mesh at the panel's Target Edge Length (one undo step; Accept saves).
-        commands.push_back( { "Modeling", "Remesh: the selected mesh at the Target Edge Length", [&scene]
+        // UE's MeshOps palette: Remesh (URemeshMeshTool, the MeshProcessingTool session: preview, Accept = one
+        // undo step) and its switches (URemeshMeshToolProperties); the numbers are ModelingState rows (Remesh.*).
+        commands.push_back( { "Modeling", "Mesh tool: Remesh", []
                               {
-                                  if ( !scene )
-                                      return PaletteCommandOutcome( false, "no scene is open" );
-                                  if ( auto refused = Tools::RemeshSelected( *scene, MS::Get().Remesh ) )
-                                      return PaletteCommandOutcome( false, *refused );
+                                  MS::Get().ActiveTool = MS::Tool::Remesh;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                   return PaletteCommandDone();
                               } } );
+        modelingOnOff( "Modeling", "Remesh: Use Target Edge Length",
+                       []( MS& ms, bool on ) { ms.MeshRemesh.UseTargetEdgeLength = on; } );
+        modelingOnOff( "Modeling", "Remesh: Flips", []( MS& ms, bool on ) { ms.MeshRemesh.Flips = on; } );
+        modelingOnOff( "Modeling", "Remesh: Splits", []( MS& ms, bool on ) { ms.MeshRemesh.Splits = on; } );
+        modelingOnOff( "Modeling", "Remesh: Collapses", []( MS& ms, bool on ) { ms.MeshRemesh.Collapses = on; } );
+        modelingOnOff( "Modeling", "Remesh: Reproject", []( MS& ms, bool on ) { ms.MeshRemesh.Reproject = on; } );
+        modelingOnOff( "Modeling", "Remesh: Preserve Sharp Edges",
+                       []( MS& ms, bool on ) { ms.MeshRemesh.PreserveSharpEdges = on; } );
+        modelingOnOff( "Modeling", "Remesh: Discard Attributes",
+                       []( MS& ms, bool on ) { ms.MeshRemesh.DiscardAttributes = on; } );
         for ( const Geometry::SculptBrushType brush : Geometry::kSculptBrushTypes )
             commands.push_back( { "Sculpt", std::string( "Brush: " ) + Geometry::ToString( brush ), [brush]
                                   {

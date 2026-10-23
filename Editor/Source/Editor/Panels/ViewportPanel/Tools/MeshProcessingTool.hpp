@@ -195,6 +195,7 @@ namespace Desert::Editor::Tools
         Geometry::HoleFillSettings m_HoleFill;
         std::vector<int32_t>       m_HoleFillSelected;
         Geometry::JacketSettings   m_Jacket;
+        Geometry::RemeshMeshSettings m_Remesh;
         Geometry::ProjectSettings  m_Project;
         Geometry::WeldEdgesSettings m_WeldEdges;
         Geometry::WarpSettings   m_Warp;
