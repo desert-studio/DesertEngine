@@ -97,26 +97,6 @@ namespace Desert::Editor::Tools
         }
     } // namespace
 
-    std::optional<std::string> RemeshSelected( ::Desert::Core::Scene& scene, const Geometry::RemeshSettings& settings )
-    {
-        const auto& selected = Core::SelectionManager::GetSelected();
-        if ( !selected.has_value() )
-            return std::string( "no entity is selected" );
-        const auto target = GetTarget( scene, *selected );
-        if ( !target )
-            return std::string( "the selected entity has no editable static mesh" );
-        auto next = std::make_shared<Geometry::DynamicMesh3>( *target->Target.Mesh );
-        if ( !Geometry::RemeshMesh( *next, target->World, settings ) )
-            return std::string( "the target edge length must be positive and the mesh non-empty" );
-        const int triangles = next->TriangleCount();
-        auto&     component = target->Entity.GetComponent<ECS::StaticMeshComponent>();
-        if ( auto set = ECS::SetEditableMesh( component, std::move( next ) ); !set.IsSuccess() )
-            return std::format( "the remeshed mesh could not be built: {}", set.GetError() );
-        Commands::RecordMeshChange( *selected, "Remesh", target->Target.Committed );
-        LOG_INFO( "[Remesh] {} triangles at a {:.2f} cm target edge length", triangles, settings.TargetEdgeLength );
-        return std::nullopt;
-    }
-
     void SculptTool::FinishStroke()
     {
         // A stroke that ends any way at all - release, a changed selection, the tool switched off - is ONE undo

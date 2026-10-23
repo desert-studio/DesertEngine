@@ -61,6 +61,7 @@ namespace Desert::Editor::Core
             PaintGroups, // UE's UMeshGroupPaintTool: a brush / flood fill paints triangle groups (PaintGroupsTool)
             // UE's MeshOps palette (same preview/Accept session as Deform, MeshProcessingTool).
             HoleFill,  // UE's UHoleFillTool: the selected boundary loops closed Trivial / Minimal / Smooth
+            Remesh,    // UE's URemeshMeshTool: the whole mesh remeshed to an even, isotropic triangulation
             Jacket,    // UE's URemoveOccludedTrianglesTool: the triangles hidden inside the mesh removed
             Project,   // UE's UProjectToTargetTool: the first selected mesh remeshed onto the second's surface
             WeldEdges, // UE's UWeldMeshEdgesTool: coincident open edges merged (FMergeCoincidentMeshEdges)
@@ -416,6 +417,9 @@ namespace Desert::Editor::Core
         int32_t                    HoleFillLoopCount    = 0;
         // MeshOps palette -> Jacket (UE URemoveOccludedTrianglesToolProperties), the same session.
         Geometry::JacketSettings MeshJacket;
+        // MeshOps palette -> Remesh (UE URemeshMeshToolProperties), the same session: the preview is the remeshed
+        // mesh, Accept is ONE undo step (lengths in world cm).
+        Geometry::RemeshMeshSettings MeshRemesh;
         // MeshOps palette -> Project (UE UProjectToTargetTool's URemeshMeshToolProperties), the same session.
         Geometry::ProjectSettings MeshProject;
         // MeshOps palette -> Weld Edges (UE UWeldMeshEdgesToolProperties), the same session.
@@ -451,9 +455,6 @@ namespace Desert::Editor::Core
         // DynamicSculptTopology.TargetEdgeLength before every stamp (Refine = splits, Collapse = collapses).
         bool                     SculptDynamic = false;
         Geometry::RemeshSettings DynamicSculptTopology{ .TargetEdgeLength = 2.0f };
-        // Remesh (UE's URemeshMeshTool): the whole selected mesh to a uniform Target Edge Length, one undo step;
-        // Accept writes it into the .stmesh like any edit.
-        Geometry::RemeshSettings Remesh{ .TargetEdgeLength = 5.0f };
 
         // Create tool: the shape a click places (the palette places it at the viewport centre directly,
         // ViewportPanel::PlaceShapeInActiveViewport, so its refusal reaches the command's result).

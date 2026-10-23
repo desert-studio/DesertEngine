@@ -22,12 +22,6 @@ namespace Desert::Geometry
 
 namespace Desert::Editor::Tools
 {
-    // Remesh (Modeling / Deform palette; UE's URemeshMeshTool): the selected static mesh remeshed whole to
-    // settings.TargetEdgeLength (Geometry/DynamicMeshRemesh.hpp) as ONE undo step on its editable mesh; Accept
-    // writes it into the .stmesh. Returns why it refused, or nullopt when the mesh was remeshed.
-    [[nodiscard]] std::optional<std::string> RemeshSelected( ::Desert::Core::Scene&          scene,
-                                                             const Geometry::RemeshSettings& settings );
-
     // Sculpt (Modeling / Deform palette; UE's UMeshVertexSculptTool): LMB-drag across the selected static mesh
     // lays brush stamps along the stroke (Geometry/DynamicMeshSculpt.hpp), with the brush, size, strength and
     // falloff from ModelingState::Sculpt. Shift held = Smooth for the stroke, Ctrl held = Invert (UE's
