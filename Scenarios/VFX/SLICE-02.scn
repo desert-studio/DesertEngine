@@ -1,0 +1,26 @@
+# SLICE-02 "The wall collapses, dust and smoke" (UE Chaos Destruction + Niagara): SLICE-02.desce's Wall (300 x 200 x 40 cm,
+# Fractures/Wall.dfrac: 2 Uniform levels, cut from Meshes/Modeling/Wall.stmesh by SLICE-02_bake.scn) is broken by
+# WallBlast, a Radial Impulse Field at the wall's centre, fired as an explicit step AFTER the intact shot (palette
+# "Fire Field 'WallBlast'", the same path as Destruction.applyField; UE: an event calling ApplyPhysicsField) --
+# not by a script timer, which raced the shot: Simulate's reply waits for the editor to settle, so a 1 s timer
+# had already fired before the first advance began. Its base level-1 nodes are anchored (Destructible Anchored
+# Nodes 5,11-14,17, UE anchor field): unanchored, the resting contact with the ground broke them on Simulate's first
+# step, raising sparks before any field fired. The wall's breaks / collisions / removals reach its script
+# (DestructionDust.lua, UE OnChaosBreakEvent / OnChaosPhysicsCollision / OnChaosRemovalEvent), which writes them
+# into the VFX data channels BreakDust / ImpactDust / SettleDust (UE: write to a Niagara Data Channel); WallDust's
+# emitters (VFX/WallDust.dfx: BreakDust, BreakSmoke, BreakSparks, LandingDust) spawn from those entries at the
+# break and landing points. The scenario does not save the scene.
+Дано run Scene "Open Scene SLICE-02.desce"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -800,190,-60
+Дано --subject viewport set Camera.Direction 0.6,-0.17,0.78
+Когда run Action Simulate
+Когда advance 0.3
+Тогда-вид 0_intact the wall standing whole (seen from its left, in front), no particles around it
+Когда run Action "Fire Field 'WallBlast'"
+Когда advance 0.3
+Тогда-вид 1_break the wall's pieces flying apart from its centre, bright orange additive sparks and a tan dust burst at the break points
+Когда advance 1.3
+Когда advance 1.2
+Тогда-вид 2_settle the pieces lying on the ground where the wall stood, grey smoke rising over a tan dust cloud; the broken faces show the orange-brown interior material (Starter_Prop)
+Когда run Action Stop

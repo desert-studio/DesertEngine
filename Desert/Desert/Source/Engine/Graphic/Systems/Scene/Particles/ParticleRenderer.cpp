@@ -742,7 +742,9 @@ namespace Desert::Graphic::System
                 }
                 return sprite;
             }
-            if ( !material.HasRefused || material.Refused != handle )
+            // Still being read: the default cell draws this frame, and the next frame asks again.
+            const bool pending = cell == nullptr && service->IsPending( handle );
+            if ( !pending && ( !material.HasRefused || material.Refused != handle ) )
             {
                 LOG_ERROR( "[Particles] emitter {}.{} renderer row {} draws with {}: its material {} {}",
                            fe.EntityId, fe.Emitter, row.Row,

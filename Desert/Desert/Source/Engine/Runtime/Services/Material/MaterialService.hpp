@@ -324,6 +324,15 @@ namespace Desert::Runtime
             return m_MaterialAssets.find( handle ) != m_MaterialAssets.end();
         }
 
+        // IS @p handle's READ STILL IN FLIGHT? Get() answers null both for "pending" and for "resolves to
+        // nothing"; a caller that reports the second (a renderer falling back to its engine default) asks this
+        // first, so a material that simply has not arrived yet is not logged as missing (UE: a material still
+        // compiling draws with the default material, silently, until it is ready).
+        [[nodiscard]] bool IsPending( const Assets::AssetHandle& handle ) const
+        {
+            return m_Requests.contains( handle );
+        }
+
         // FORGET a material asset entirely — its runtime materials, its shell, and its entry in the
         // external -> internal map.
         //

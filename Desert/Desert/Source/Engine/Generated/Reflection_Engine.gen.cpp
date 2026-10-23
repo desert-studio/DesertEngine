@@ -30,6 +30,7 @@
 #include <Engine/ECS/ReflectionCaptureComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
 #include <Engine/ECS/StaticLightingSettings.hpp>
+#include <Engine/ECS/System/DestructionLibrary.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
 #include <Engine/ECS/VFXPointSet.hpp>
 #include <Engine/ECS/VFXUserOverride.hpp>
@@ -709,6 +710,16 @@ void RegisterReflection_Engine()
                     .Field( FieldInfo{ .Name = "LightMobility", .Type = FieldType::Enum, .Offset = offsetof( T, LightMobility ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::LightMobility )>(), .TypeName = "Mobility", .Meta = PropertyMetadata{ .DisplayName = "Mobility", .Category = "Static Lighting", .Tooltip = "Static: baked only (direct, indirect and shadows), no runtime cost. Stationary: dynamic direct light, shadowed by the baked static geometry and the runtime shadows of movable objects; baked indirect. Movable: nothing baked. Changing Intensity or Color of a Static or Stationary light requires rebuilding lighting.", .Summary = true, }, .EnumValues = { EnumValue{ "Static", 0 }, EnumValue{ "Stationary", 1 }, EnumValue{ "Movable", 2 }, } } )
                     .Field( FieldInfo{ .Name = "IndirectLightingIntensity", .Type = FieldType::Float, .Offset = offsetof( T, IndirectLightingIntensity ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::IndirectLightingIntensity )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Indirect Lighting Intensity", .Category = "Static Lighting", .Tooltip = "Scale on this light's baked bounce (UE: ULightComponent::IndirectLightingIntensity). The runtime GI methods ignore it, as UE's Lumen honours its own.", .HasRange = true, .RangeMin = 0.0f, .RangeMax = 10.0f, .Units = "x", } } )
                     .Field( FieldInfo{ .Name = "BakeShadowExponent", .Type = FieldType::Float, .Offset = offsetof( T, BakeShadowExponent ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::BakeShadowExponent )>(), .TypeName = "float", .Meta = PropertyMetadata{ .DisplayName = "Bake Shadow Exponent", .Category = "Static Lighting", .Tooltip = "Penumbra falloff of the baked area shadow (UE: FLightmassLightSettings::ShadowExponent). The penumbra's width is the light's own Source Radius / Angle.", .HasRange = true, .RangeMin = 0.5f, .RangeMax = 8.0f, .Advanced = true, } } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
+        using T = ::Desert::ECS::DestructionLibrary;
+        TypeBuilder( "DestructionLibrary", sizeof( T ) )
+            .ScriptName( "Destruction" )
+#ifndef DESERT_REFLECTION_DATA_ONLY
+                    .Function( ::Desert::Reflection::MakeFunction<&T::ApplyField>( "ApplyField", "DestructionLibrary", "int", std::array<::Desert::Reflection::ParamSpelling, 1>{ ::Desert::Reflection::ParamSpelling{ "entity", "Entity" }, }, ::Desert::Reflection::FunctionMetadata{ .ScriptCallable = true, .Category = "", .Tooltip = "Fires every field component of the entity once into the played scene's destruction world; returns how many bodies and pieces they acted on, -1 (logged) when it cannot (not playing, no field component).", .ScriptName = "applyField", .ScriptMethod = false } ) )
+#endif
             .WithDefault<T>()
             .Register();
     }
