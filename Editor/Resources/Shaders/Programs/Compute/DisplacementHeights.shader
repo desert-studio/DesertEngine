@@ -137,8 +137,8 @@ Shader "DisplacementHeights"
             const vec2  e2      = uv2 - uv0;
             const float uvArea  = abs( e1.x * e2.y - e1.y * e2.x );
             const float uvPerCm = area > 0.0 ? sqrt( uvArea / area ) : 0.0;
-            const ivec2 size    = textureSize( sampler2D( u_BindlessTextures[nonuniformEXT( texture )],
-                                                          u_BindlessSamplers[nonuniformEXT( samplerSlot )] ), 0 );
+            const ivec2 size    = textureSize( sampler2D( BindlessTextures[nonuniformEXT( texture )],
+                                                          BindlessSamplers[nonuniformEXT( samplerSlot )] ), 0 );
             const float edgeCm  = Parameters.x * exp2( -float( level ) );
             const float texels  = float( max( size.x, size.y ) ) * uvPerCm * edgeCm;
             const float lod     = texels > 1.0 ? log2( texels ) : 0.0;
