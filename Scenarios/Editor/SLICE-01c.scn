@@ -1,0 +1,28 @@
+# SLICE-01c: ECS::StaticMeshComponent is REFLECTED like UE's UStaticMeshComponent (StaticMesh + OverrideMaterials):
+# DesertCtl `set` reaches StaticMeshComponent.MeshHandle and ONE element StaticMesh.MaterialSlots[0], each `assets:` path
+# checked against the field's Asset<T> (ContentKindForAssetType), and the edit re-states its dependants
+# (ECS::PostEditStaticMesh: a mesh clears the Primitive, the material instances rebuild from the slots).
+# The cube (Primitive Cube, slot 0 = Starter_Prop) gets another mesh and another material, then a texture as its
+# material (refused with the reason in editor.log), then the scene is saved and reopened.
+Дано run Scene "Open Scene Starter.desce"
+Дано run View "View mode: Lit"
+# The cube (100 cm, centre 0,50,150) fills about a third of the view.
+Дано --subject viewport set Camera.Position 0,130,360
+Дано --subject viewport set Camera.Direction 0,-0.38,-1
+Тогда-вид 0_before the grey Starter_Prop cube, whole, centred
+Когда set 6018453462564557835 StaticMeshComponent.MeshHandle assets:Meshes/Modeling/Blockout.stmesh
+Когда set 6018453462564557835 StaticMeshComponent.MaterialSlots[0] assets:Materials/CB_Red.demat
+# Blockout.stmesh is the box 0..200 x 100..200 x 100..300 (local), so with the entity at 0,50,150 its centre is 100,200,350.
+Когда --subject viewport set Camera.Position 100,330,900
+Когда --subject viewport set Camera.Direction 0,-0.236,-1
+Тогда-вид 1_swapped the Blockout box, whole, centred, in the red CB material - not the grey cube
+Когда --expect-refusal set 6018453462564557835 StaticMeshComponent.MaterialSlots[0] assets:Textures/T_Checker.detex
+Тогда-вид 2_refused unchanged from 1_swapped; editor.log has "[Control] set ... refused: 'assets:Textures/T_Checker.detex' is a Texture, not a Material"
+Когда run Action "Save Scene"
+Когда run Scene "Open Scene Starter.desce"
+Когда --subject viewport set Camera.Position 100,330,900
+Когда --subject viewport set Camera.Direction 0,-0.236,-1
+Тогда-вид 3_reopen same as 1_swapped after the reopen (the saved mesh + material round-trip)
+# A click on the box at the viewport's centre selects the entity.
+Когда --subject viewport drag 717,428 717,428
+Тогда 4_details the Details panel's Static Mesh row is an asset slot naming Blockout (the Preview thumbnail above it), no "(no Details slot ...)"

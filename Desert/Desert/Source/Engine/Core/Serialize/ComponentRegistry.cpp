@@ -1391,7 +1391,8 @@ namespace Desert::Core::Serialize
         // ---- Static Mesh (asset-bearing: handle <-> path) ----
         {
             ComponentSerializer s;
-            s.Key = "StaticMesh";
+            s.Key             = "StaticMesh";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::StaticMeshComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::StaticMeshComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
@@ -1525,6 +1526,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key = "InstancedStaticMesh";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::InstancedStaticMeshComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::InstancedStaticMeshComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
@@ -1637,6 +1639,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key = "Material";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::MaterialComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::MaterialComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
@@ -1753,6 +1756,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key = "SkinnedMesh";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::SkinnedMeshComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::SkinnedMeshComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
@@ -1831,6 +1835,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key       = "UIAnim";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::UIAnimComponentSer>();
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::UIAnimComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
@@ -1899,6 +1904,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key       = "Text";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::TextComponentSer>();
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::TextComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
@@ -1939,6 +1945,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key       = "Animation";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::AnimationComponentSer>();
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::AnimationComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {

@@ -93,7 +93,8 @@ namespace Desert::Core
 
     Common::ResultStr<Common::Json::TextDocument>
     ComposeSceneDocument( const SceneSerialized& fresh, const std::optional<Common::Json::TextDocument>& loaded,
-                          const Serialize::KeyIsOurs& entityKeyIsOurs )
+                          const Serialize::KeyIsOurs&          entityKeyIsOurs,
+                          const Common::Json::MemberKeyIsOurs& componentKeyIsOurs )
     {
         auto written = Common::Json::TextDocument::Parse( Common::Json::Write( fresh ) );
         if ( !written )
@@ -103,7 +104,7 @@ namespace Desert::Core
         if ( !loaded.has_value() )
             return written;
         return Common::MakeSuccess(
-             Serialize::MergeSceneDocument( written.GetValue(), *loaded, entityKeyIsOurs ) );
+             Serialize::MergeSceneDocument( written.GetValue(), *loaded, entityKeyIsOurs, componentKeyIsOurs ) );
     }
 
 } // namespace Desert::Core

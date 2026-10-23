@@ -74,9 +74,14 @@ namespace Desert::Core::Serialize
     //
     // `entityKeyIsOurs` is asked about the keys of one entity record (its meta members and the
     // component keys this build's registry holds). Everything below that answers to NothingIsOurs.
-    [[nodiscard]] Common::Json::TextDocument MergeSceneDocument( const Common::Json::TextDocument& fresh,
-                                                                 const Common::Json::TextDocument& source,
-                                                                 const KeyIsOurs& entityKeyIsOurs );
+    //
+    // `componentKeyIsOurs` is asked about the keys of one component block of a record (ComponentSerializer::
+    // DeclaredMembers): a block member its writer omits at its default (StaticMesh.Primitive after a mesh
+    // replaced it) is a value this build cleared, and the source's copy of it must not come back.
+    [[nodiscard]] Common::Json::TextDocument
+    MergeSceneDocument( const Common::Json::TextDocument& fresh, const Common::Json::TextDocument& source,
+                        const KeyIsOurs&                     entityKeyIsOurs,
+                        const Common::Json::MemberKeyIsOurs& componentKeyIsOurs = {} );
 
     // Every key at THIS ONE LEVEL of `source` that `ours` does not claim, counted by NAME and not by
     // path: a key that appears on forty entities is one finding with a count of forty, not forty log

@@ -33,6 +33,7 @@
 #include <map>
 #include <optional>
 #include <memory>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace Desert::Core
@@ -82,6 +83,23 @@ namespace Desert::Core
             for ( const auto& serializer : Serialize::ComponentRegistry::Get().All() )
                 names->insert( serializer.Key );
             return [names]( const std::string& key ) { return names->count( key ) != 0; };
+        }
+
+        // "Is this key, inside component block `component`, one that block's writer states whenever it has a
+        // value?" - the block's own DeclaredMembers (its serialized struct's member list), so a member the
+        // writer now omits at its default replaces the old file's value instead of being carried back.
+        Common::Json::MemberKeyIsOurs ComponentBlockKeyIsOurs()
+        {
+            auto names = std::make_shared<std::unordered_map<std::string, std::unordered_set<std::string>>>();
+            for ( const auto& serializer : Serialize::ComponentRegistry::Get().All() )
+                if ( !serializer.DeclaredMembers.empty() )
+                    ( *names )[serializer.Key].insert( serializer.DeclaredMembers.begin(),
+                                                       serializer.DeclaredMembers.end() );
+            return [names]( const std::string& component, const std::string& key )
+            {
+                const auto found = names->find( component );
+                return found != names->end() && found->second.count( key ) != 0;
+            };
         }
 
         Serialize::KeyIsOurs NamesIn( const std::vector<std::string>& names )
@@ -441,7 +459,8 @@ namespace Desert::Core
         //
         // A scene that was never loaded from a file has an empty document and the merge is the
         // identity, so File → New costs nothing.
-        return ComposeSceneDocument( scene, m_Scene->GetLoadedDocument(), EntityRecordKeyIsOurs() );
+        return ComposeSceneDocument( scene, m_Scene->GetLoadedDocument(), EntityRecordKeyIsOurs(),
+                                     ComponentBlockKeyIsOurs() );
     }
 
     std::string SceneSerializer::SerializeToJson() const

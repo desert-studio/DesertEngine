@@ -150,6 +150,11 @@ namespace Desert::Graphic
         glm::vec4 SpeciesWispBase;
         glm::vec4 SpeciesWispTop;
 
+        // PER SPECIES (x species 0 .. w species 3), the material's CloudTypeWeight of the slot the species
+        // came from (WTH-OVERCAST): the march cuts that species' channel at Coverage x this, so a weather fades
+        // cumulus out and a stratus deck in without a re-bake. Slots at or past the species count are zero.
+        glm::vec4 SpeciesCover;
+
         // THE PAINTED LAYOUT'S PLACE AND STRENGTH (WX-PAINT), Assets::CloudLayoutPlaceUniform /
         // CloudLayoutStrengthUniform: the march multiplies the cover by the painted W per column, as Unreal's
         // Layout does, reading the CloudLayoutPatternTexture / CloudLayoutMaskTexture block entries through these.
@@ -197,11 +202,11 @@ namespace Desert::Graphic
     static_assert( offsetof( CloudGpuPayload, Weather ) == 304 );
     static_assert( offsetof( CloudGpuPayload, SpeciesWispBase ) == 320 );
     static_assert( offsetof( CloudGpuPayload, SpeciesWispTop ) == 336 );
-    static_assert( offsetof( CloudGpuPayload, LayoutPlace ) == 352 );
-    static_assert( offsetof( CloudGpuPayload, LayoutStrength ) == 368 );
-    static_assert( offsetof( CloudGpuPayload, FarPresence ) == 384 );
-    static_assert( offsetof( CloudGpuPayload, FarProfile ) == 512 );
-    static_assert( offsetof( CloudGpuPayload, Aerial ) == 640 );
+    static_assert( offsetof( CloudGpuPayload, LayoutPlace ) == 368 );
+    static_assert( offsetof( CloudGpuPayload, LayoutStrength ) == 384 );
+    static_assert( offsetof( CloudGpuPayload, FarPresence ) == 400 );
+    static_assert( offsetof( CloudGpuPayload, FarProfile ) == 528 );
+    static_assert( offsetof( CloudGpuPayload, Aerial ) == 656 );
     // 332, NOT 336, and the difference is the point. std430 rounds a block's STRIDE up to a multiple of
     // 16, but a stride only exists for an ARRAY of blocks and this is a single one — the shader never
     // reads past the last member, so the block ends at 300 and so does this. glm::vec3 aligns to 4 rather
@@ -224,8 +229,10 @@ namespace Desert::Graphic
     // the smallest shape three contiguous components fit in.
     //
     // AND IT GREW BY 256 FOR THE FAR PATH (CLOUD-SEAM24): two vec4[8] of the coarsest level's statistics.
-    static_assert( sizeof( CloudGpuPayload ) == 652,
-                   "Two vec4s, a vec4[3], eight vec4s, a vec4[4], seven more vec4s, two vec4[8] and a vec3 — the "
+    //
+    // AND BY SIXTEEN FOR SpeciesCover (WTH-OVERCAST): the per-type weights of the weather's cut.
+    static_assert( sizeof( CloudGpuPayload ) == 668,
+                   "Two vec4s, a vec4[3], eight vec4s, a vec4[4], eight more vec4s, two vec4[8] and a vec3 — the "
                    "shader reads exactly this and "
                    "nothing more." );
 
@@ -888,9 +895,21 @@ namespace Desert::Graphic
         // travels per species and the multiply moves to the point of use. The artist's Density Scale,
         // Extinction Scale and Detail Strength are still multipliers ON them, so "1" keeps meaning "these
         // types as they are"; what changed is where the multiplication happens, not what it means.
+        Assets::AssetHandle authoredTypes[ECS::kCloudTypeSlots];
+        material.TypeSlots( authoredTypes );
+        float typeWeights[ECS::kCloudTypeSlots];
+        material.TypeWeights( typeWeights );
+        const ECS::CloudSpeciesResolution typeResolution = ECS::ResolveCloudSpecies( authoredTypes );
         for ( uint32_t slot = 0; slot < kCloudSpeciesSlots; ++slot )
         {
             const int at = static_cast<int>( slot );
+            // The built-in default has no authored slot; it answers to the first weight, as the slot it stands in.
+            p.SpeciesCover[at] =
+                 slot < species
+                      ? std::clamp(
+                             typeWeights[typeResolution.BuiltInDefault ? 0u : typeResolution.AuthoredSlot[slot]],
+                             0.0f, 1.0f )
+                      : 0.0f;
             if ( slot >= species )
             {
                 // Zero rather than the default type's numbers. An unfilled slot must not be able to put

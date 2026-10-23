@@ -160,9 +160,23 @@ namespace Desert::ECS
         glm::vec4   Value = glm::vec4( 0.0f );
     };
 
+    // UE's UStaticMeshComponent: the two authored references (UPROPERTY StaticMesh, OverrideMaterials) are
+    // REFLECTED, so Details draws the mesh row from them and DesertCtl `set` addresses them (StaticMesh.MeshHandle,
+    // StaticMesh.MaterialSlots[0]); an edit re-states what depends on them through ECS::PostEditStaticMesh (UE
+    // PostEditChangeProperty). On disk they are still the mirror's MeshGuid/MeshPath + MaterialGuids/MaterialPaths
+    // (Assets::StaticMeshComponentSer), read by World Partition, HLOD and WorldGen from raw records as well.
     struct StaticMeshComponent
     {
-        Assets::AssetHandle              MeshHandle;
+        REFLECT()
+
+        PROPERTY( DisplayName( "Static Mesh" ), Category( "Static Mesh" ), Summary, Asset<StaticMeshAsset>,
+                  Tooltip( "The mesh asset this component draws (UE StaticMesh). Ignored while a Primitive "
+                           "or an edited mesh is set; setting it clears both." ) )
+        Assets::AssetHandle MeshHandle;
+        // Drawn by the component's Materials list (one row per mesh section, as UE customizes OverrideMaterials).
+        PROPERTY( DisplayName( "Materials" ), Category( "Materials" ), Asset<MaterialAsset>, Hidden,
+                  Tooltip( "One material per mesh section (UE OverrideMaterials); a null slot takes the "
+                           "mesh's own section material." ) )
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<Graphic::MaterialInstancePtr>
              RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations

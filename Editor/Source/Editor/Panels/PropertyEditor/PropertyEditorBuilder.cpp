@@ -1174,7 +1174,14 @@ namespace Desert::Editor
                 if ( const ::Desert::Editor::RegistryPickerSpec* picker =
                           ::Desert::Editor::RegistryPickerForAssetType( field.Meta.AssetType ) )
                 {
-                    changed = DrawRegistryRowPicker( static_cast<uint64_t*>( p ), picker->Kind, picker->Id,
+                    const auto kind = ::Desert::Editor::ContentKindForAssetType( field.Meta.AssetType );
+                    if ( !kind )
+                    {
+                        ImGui::TextDisabled( "(asset type '%s' names no content kind)",
+                                             field.Meta.AssetType.c_str() );
+                        break;
+                    }
+                    changed = DrawRegistryRowPicker( static_cast<uint64_t*>( p ), *kind, picker->Id,
                                                      picker->NoneLabel, picker->Noun );
                     break;
                 }
