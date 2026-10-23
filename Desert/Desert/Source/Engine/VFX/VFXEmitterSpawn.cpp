@@ -30,19 +30,17 @@ namespace Desert::VFX
 
     namespace
     {
-        // UE SpawnRate (10 / s) and SpawnBurstInstantaneous (10 at time 0) defaults.
-        const std::vector<VFXModuleInputDecl> kSpawnRateInputs  = { { "SpawnRate", S::VFXValueType::Float,
-                                                                      glm::vec4( 10.0f, 0.0f, 0.0f, 0.0f ) } };
-        const std::vector<VFXModuleInputDecl> kSpawnBurstInputs = {
-             { "SpawnCount", S::VFXValueType::Int, glm::vec4( 10.0f, 0.0f, 0.0f, 0.0f ) },
-             { "SpawnTime", S::VFXValueType::Float, glm::vec4( 0.0f ) } };
-        // UE Spawn From Data Channel: the channel is picked, one particle per entry, UE's default entry budget
-        // (MaxEntriesPerFrame: unbounded there; ours must be >= 1), no distance cull (MaxDistance 0).
-        const std::vector<VFXModuleInputDecl> kSpawnFromChannelInputs = {
-             { "Channel", S::VFXValueType::Float, glm::vec4( 0.0f ), true },
-             { "ParticlesPerEntry", S::VFXValueType::Int, glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) },
-             { "MaxEntriesPerFrame", S::VFXValueType::Int, glm::vec4( 1024.0f, 0.0f, 0.0f, 0.0f ) },
-             { "MaxDistance", S::VFXValueType::Float, glm::vec4( 0.0f ) } };
+        // What the C++ below reads; the defaults (UE SpawnRate 10 / s, SpawnBurstInstantaneous 10 at time 0,
+        // Spawn From Data Channel one particle per entry) are the `.dfxmod`s' alone.
+        constexpr std::array<VFXCpuModuleInput, 1> kSpawnRateInputs  = { { { "SpawnRate", S::VFXValueType::Float } } };
+        constexpr std::array<VFXCpuModuleInput, 2> kSpawnBurstInputs = {
+             { { "SpawnCount", S::VFXValueType::Int }, { "SpawnTime", S::VFXValueType::Float } } };
+        // Channel is a DataChannel.* binding (`= Binding` in the file); its type is the file's `int`.
+        constexpr std::array<VFXCpuModuleInput, 4> kSpawnFromChannelInputs = {
+             { { "Channel", S::VFXValueType::Int },
+               { "ParticlesPerEntry", S::VFXValueType::Int },
+               { "MaxEntriesPerFrame", S::VFXValueType::Int },
+               { "MaxDistance", S::VFXValueType::Float } } };
 
         // The scalar an EmitterUpdate input carries: its Value, or the default of the User.* row it is bound to.
         Common::ResultStr<float> ReadScalar( const S::VFXSystemData& system, const std::vector<ECS::VFXUserOverride>& overrides,
@@ -91,17 +89,17 @@ namespace Desert::VFX
         Common::ResultStr<std::vector<float>> ReadInputs( const S::VFXSystemData&      system,
                                                           const std::vector<ECS::VFXUserOverride>& overrides,
                                                           const S::VFXModuleUse&       use,
-                                                          const std::vector<VFXModuleInputDecl>& declared,
+                                                          std::span<const VFXCpuModuleInput> declared,
                                                           const std::string&           where )
         {
             using Result = std::vector<float>;
             for ( const S::VFXModuleInput& in : use.Inputs )
                 if ( std::none_of( declared.begin(), declared.end(),
-                                   [&]( const VFXModuleInputDecl& d ) { return in.Name == d.Name; } ) )
+                                   [&]( const VFXCpuModuleInput& d ) { return in.Name == d.Name; } ) )
                     return Common::MakeFormattedError<Result>( "{} input '{}': the module declares no such input",
                                                                where, in.Name );
             Result values;
-            for ( const VFXModuleInputDecl& d : declared )
+            for ( const VFXCpuModuleInput& d : declared )
             {
                 const auto        in      = std::find_if( use.Inputs.begin(), use.Inputs.end(),
                                                           [&]( const S::VFXModuleInput& x ) { return x.Name == d.Name; } );
@@ -242,7 +240,7 @@ namespace Desert::VFX
         }
     } // namespace
 
-    uint8_t EmitterModuleUsage( const Common::Content::AssetGuid& module )
+    uint8_t CpuModuleUsage( const Common::Content::AssetGuid& module )
     {
         if ( module == kVFXSpawnBurstModule.Guid )
             return static_cast<uint8_t>( UsageBit( VFXStage::EmitterSpawn ) | UsageBit( VFXStage::EmitterUpdate ) );
@@ -251,15 +249,45 @@ namespace Desert::VFX
         return 0;
     }
 
-    const std::vector<VFXModuleInputDecl>* EmitterModuleInputs( const Common::Content::AssetGuid& module )
+    std::span<const VFXCpuModuleInput> CpuModuleInputs( const Common::Content::AssetGuid& module )
     {
         if ( module == kVFXSpawnRateModule.Guid )
-            return &kSpawnRateInputs;
+            return kSpawnRateInputs;
         if ( module == kVFXSpawnBurstModule.Guid )
-            return &kSpawnBurstInputs;
+            return kSpawnBurstInputs;
         if ( module == kVFXSpawnFromChannelModule.Guid )
-            return &kSpawnFromChannelInputs;
-        return nullptr;
+            return kSpawnFromChannelInputs;
+        return {};
+    }
+
+    Common::BoolResultStr CheckCpuModuleContract( const VFXModuleDefinition& module )
+    {
+        const std::string where = std::format( "module '{}' ({})", module.DisplayName,
+                                               Common::Content::AssetGuidToText( module.Guid ) );
+        if ( !HasCpuBehaviour( module.Guid ) )
+            return Common::MakeFormattedError<bool>(
+                 "{}: its Usage names an Emitter group, and the engine has no C++ registered under its GUID", where );
+        const uint8_t cpu = static_cast<uint8_t>( module.Block.Usage & kVFXCpuUsage );
+        if ( ( cpu & ~CpuModuleUsage( module.Guid ) ) != 0 )
+            return Common::MakeFormattedError<bool>(
+                 "{}: Usage EmitterSpawn - the engine's C++ for this module runs in EmitterUpdate only", where );
+        const std::span<const VFXCpuModuleInput>     reads = CpuModuleInputs( module.Guid );
+        const std::vector<VFXModuleInputDecl>&       file  = module.Block.Inputs;
+        for ( std::size_t i = 0; i < std::max( reads.size(), file.size() ); ++i )
+        {
+            if ( i >= file.size() )
+                return Common::MakeFormattedError<bool>( "{}: declares no input '{}' - the engine's C++ reads it",
+                                                         where, reads[i].Name );
+            if ( i >= reads.size() || file[i].Name != reads[i].Name )
+                return Common::MakeFormattedError<bool>(
+                     "{}: input {} '{}' - the engine's C++ reads {}", where, i, file[i].Name,
+                     i < reads.size() ? std::format( "'{}' there", reads[i].Name ) : std::string( "no more inputs" ) );
+            if ( file[i].Type != reads[i].Type )
+                return Common::MakeFormattedError<bool>(
+                     "{}: input '{}' is {} - the engine's C++ reads it as {}", where, file[i].Name,
+                     GlslTypeName( file[i].Type ), GlslTypeName( reads[i].Type ) );
+        }
+        return BOOLSUCCESS;
     }
 
     Common::ResultStr<VFXSpawnPlan> CompileSpawnPlan( const S::VFXSystemData& system, std::size_t emitterIndex,

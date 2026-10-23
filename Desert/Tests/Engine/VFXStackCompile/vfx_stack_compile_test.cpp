@@ -83,13 +83,14 @@ namespace
     // A project module (a `.dfxmod` the suite holds in memory): a lifetime from its input, a start velocity bound
     // to the position, a bool. Its block, as the file states it inside `Module "Init" { ... }`.
     const char* kInitSource = "// the declarations come first\n"
+                              "Usage ParticleSpawn\n"
                               "Attribute Lifetime float\n"
                               "Attribute Velocity vec3\n"
                               "Attribute Alive bool\n"
                               "Attribute Spin int\n"
-                              "Input Life float\n"
-                              "Input Origin vec3\n"
-                              "Input Turns int\n"
+                              "Input Life float = 0\n"
+                              "Input Origin vec3 = 0 0 0\n"
+                              "Input Turns int = 0\n"
                               "void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )\n"
                               "{\n"
                               "    p.Lifetime = i.Life;\n"
@@ -104,7 +105,6 @@ namespace
         module.Guid        = Common::Content::AssetGuid{ 0x1417000000000001ull, 0x7e57ull };
         module.DisplayName = "Init";
         module.Category    = "Initialize";
-        module.Stages      = static_cast<uint8_t>( VFX::VFXModuleStage::ParticleSpawn );
         auto parsed        = VFX::ParseModuleBlock( block, "Init", true );
         EXPECT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
         if ( parsed.IsSuccess() )
@@ -237,7 +237,7 @@ TEST( VFXStackCompile, AnEngineModuleParsesIntoDeclarationsAndBody )
     const auto module = VFX::ParseVFXModule( text.str(), path.string() );
     ASSERT_TRUE( module.IsSuccess() ) << module.GetError();
     EXPECT_EQ( module.GetValue().DisplayName, "Gravity" );
-    EXPECT_TRUE( module.GetValue().AllowsStage( VFX::VFXModuleStage::ParticleUpdate ) );
+    EXPECT_TRUE( module.GetValue().AllowsStage( VFX::VFXStage::ParticleUpdate ) );
     const auto& m = module.GetValue().Block;
     EXPECT_EQ( m.Attributes, ( std::vector<VFX::VFXModuleDecl>{ { "PhysicsForce", S::VFXValueType::Vec3 },
                                                                 { "Mass", S::VFXValueType::Float } } ) );
@@ -387,10 +387,10 @@ TEST( VFXStackCompile, RefusalsNameWhatIsWrong )
     EXPECT_NE( missingError.find( "NoSuchModule.dfxmod" ), std::string::npos ) << missingError;
     EXPECT_NE( missingError.find( "00000000000000000000000000000bad" ), std::string::npos ) << missingError;
 
-    // A module in a group its file does not state as a Stage.
+    // A module in a group its file does not state in its Usage.
     auto misplaced                                     = Sparks();
     misplaced.Emitters[0].Stack.ParticleSpawn.push_back( misplaced.Emitters[0].Stack.ParticleUpdate[0] );
-    EXPECT_NE( Refusal( misplaced ).find( "does not state Stage ParticleSpawn" ), std::string::npos );
+    EXPECT_NE( Refusal( misplaced ).find( "does not state Usage ParticleSpawn" ), std::string::npos );
 
     auto unknown = Sparks();
     unknown.Emitters[0].Stack.ParticleUpdate[0].Inputs.push_back(
@@ -491,7 +491,7 @@ TEST( VFXStackCompile, TheCompiledStackCompilesInsideAHostProgram )
 }
 
 // VFX-06: every GPU module of the engine library, its inputs given as Values, compiles in a stack — in each GPU
-// group its file states as a Stage — and the stack compiles inside the host program.
+// group its file states in its Usage — and the stack compiles inside the host program.
 TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
 {
     std::vector<std::filesystem::path> paths;
@@ -527,9 +527,9 @@ TEST( VFXStackCompile, EveryEngineModuleCompilesInsideAHostProgram )
         S::VFXSystemData  system;
         S::VFXEmitterData emitter;
         emitter.Name = path.stem().string();
-        if ( module.GetValue().AllowsStage( VFX::VFXModuleStage::ParticleSpawn ) )
+        if ( module.GetValue().AllowsStage( VFX::VFXStage::ParticleSpawn ) )
             emitter.Stack.ParticleSpawn = { Use( name, inputs ) };
-        if ( module.GetValue().AllowsStage( VFX::VFXModuleStage::ParticleUpdate ) )
+        if ( module.GetValue().AllowsStage( VFX::VFXStage::ParticleUpdate ) )
             emitter.Stack.ParticleUpdate = { Use( name, inputs ) };
         system.Emitters.push_back( emitter );
 
@@ -595,7 +595,7 @@ TEST( VFXStackCompile, EveryOverLifeAndForceModuleWritesItsAttributes )
         S::VFXEmitterData emitter;
         emitter.Name = row.Module;
         // In the group the module states (an Initialize* module spawns, the rest update).
-        if ( module.GetValue().AllowsStage( VFX::VFXModuleStage::ParticleUpdate ) )
+        if ( module.GetValue().AllowsStage( VFX::VFXStage::ParticleUpdate ) )
             emitter.Stack.ParticleUpdate = { Use( row.Module, inputs ) };
         else
             emitter.Stack.ParticleSpawn = { Use( row.Module, inputs ) };

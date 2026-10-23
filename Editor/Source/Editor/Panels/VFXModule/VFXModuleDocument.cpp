@@ -94,14 +94,13 @@ namespace Desert::Editor
         std::string StackCheck( const VFX::VFXModuleDefinition& module, const std::filesystem::path& file )
         {
             if ( !module.HasParticleStage() )
-                return VFX::HasCpuBehaviour( module.Guid )
-                            ? std::string(
-                                   "Runs on the CPU only (Emitter groups): the engine's C++ for this module "
-                                   "runs it; there is no GLSL to check." )
-                            : std::format(
-                                   "No GLSL to check, and the engine has no C++ for GUID {}: a stack using "
-                                   "this module in EmitterUpdate is refused.",
-                                   Common::Content::AssetGuidToText( module.Guid ) );
+            {
+                const auto contract = VFX::CheckCpuModuleContract( module );
+                return contract ? std::string( "Runs on the CPU only (Emitter groups): the engine's C++ for this "
+                                               "module runs it and reads exactly these inputs; there is no GLSL "
+                                               "to check." )
+                                : contract.GetError();
+            }
             VFX::VFXModuleLibrary library;
             library.Set( module, file.generic_string() );
 
@@ -225,8 +224,12 @@ namespace Desert::Editor
         m_Drafts.Description = m_Working.Description;
         m_Drafts.Body        = m_Working.Block.Body;
         m_Drafts.Inputs.clear();
+        m_Drafts.Defaults.clear();
         for ( const VFX::VFXModuleInputDecl& d : m_Working.Block.Inputs )
+        {
             m_Drafts.Inputs.push_back( d.Name );
+            m_Drafts.Defaults.push_back( d.Default );
+        }
         m_Drafts.Attributes.clear();
         for ( const VFX::VFXModuleDecl& d : m_Working.Block.Attributes )
             m_Drafts.Attributes.push_back( d.Name );
@@ -269,6 +272,68 @@ namespace Desert::Editor
         ImGui::TextDisabled( "GUID %s", Common::Content::AssetGuidToText( m_Working.Guid ).c_str() );
     }
 
+    void VFXModuleDocument::DrawInputDefault( const std::size_t i )
+    {
+        if ( i >= m_Working.Block.Inputs.size() || i >= m_Drafts.Defaults.size() )
+            return;
+        const VFX::VFXModuleInputDecl& in   = m_Working.Block.Inputs[i];
+        const std::string              name = in.Name;
+
+        // `= Binding`: no Value default, a new row binds the input to what the user picks.
+        bool binding = in.BindingRequired;
+        if ( ImGui::Checkbox( "Binding##bind", &binding ) )
+        {
+            Edit( std::format( "{} input {}", binding ? "Require a binding for" : "Give a default to", name ),
+                  [i, binding]( VFX::VFXModuleDefinition& m )
+                  {
+                      m.Block.Inputs[i].BindingRequired = binding;
+                      m.Block.Inputs[i].Default         = glm::vec4( 0.0f ); // what `= Binding` reads back as
+                      return BOOLSUCCESS;
+                  } );
+            return;
+        }
+        if ( in.BindingRequired )
+            return;
+
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( -FLT_MIN );
+        glm::vec4& draft  = m_Drafts.Defaults[i];
+        bool       commit = false;
+        switch ( in.Type )
+        {
+            case ValueType::Bool:
+            {
+                bool on = draft.x != 0.0f;
+                if ( ImGui::Checkbox( "##default", &on ) )
+                {
+                    draft.x = on ? 1.0f : 0.0f;
+                    commit  = true;
+                }
+                break;
+            }
+            case ValueType::Int:
+            {
+                int value = static_cast<int>( draft.x );
+                if ( ImGui::InputInt( "##default", &value, 0, 0 ) )
+                    draft.x = static_cast<float>( value );
+                commit = ImGui::IsItemDeactivatedAfterEdit();
+                break;
+            }
+            default:
+                ImGui::DragScalarN( "##default", ImGuiDataType_Float, &draft.x,
+                                    static_cast<int>( Assets::Serialization::ComponentCount( in.Type ) ), 0.1f );
+                commit = ImGui::IsItemDeactivatedAfterEdit();
+                break;
+        }
+        if ( commit )
+            Edit( std::format( "Set default of input {}", name ),
+                  [i, value = draft]( VFX::VFXModuleDefinition& m )
+                  {
+                      m.Block.Inputs[i].Default = value;
+                      return BOOLSUCCESS;
+                  } );
+    }
+
     void VFXModuleDocument::DrawDeclarations( const char* id, const bool inputs )
     {
         const std::size_t         count  = CountOf( m_Working, inputs );
@@ -276,10 +341,13 @@ namespace Desert::Editor
         const char*               what   = inputs ? "input" : "attribute";
 
         constexpr ImGuiTableFlags kTable = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg;
-        if ( !ImGui::BeginTable( id, 3, kTable ) )
+        if ( !ImGui::BeginTable( id, inputs ? 4 : 3, kTable ) )
             return;
         ImGui::TableSetupColumn( "Name", ImGuiTableColumnFlags_WidthStretch );
         ImGui::TableSetupColumn( "Type", ImGuiTableColumnFlags_WidthFixed, 110.0f );
+        // UE: the module script's input default, the value a newly added stack row starts from.
+        if ( inputs )
+            ImGui::TableSetupColumn( "Default", ImGuiTableColumnFlags_WidthStretch );
         ImGui::TableSetupColumn( "", ImGuiTableColumnFlags_WidthFixed );
         ImGui::TableHeadersRow();
         std::size_t remove = count;
@@ -311,10 +379,26 @@ namespace Desert::Editor
                               [&, i, type]( VFX::VFXModuleDefinition& m )
                               {
                                   TypeOf( m, inputs, i ) = type;
+                                  if ( inputs ) // the default keeps the components the new type has
+                                  {
+                                      glm::vec4& d = m.Block.Inputs[i].Default;
+                                      const auto n = Assets::Serialization::ComponentCount( type );
+                                      for ( uint32_t c = n; c < 4; ++c )
+                                          d[static_cast<int>( c )] = 0.0f;
+                                      if ( type == ValueType::Int )
+                                          d.x = static_cast<float>( static_cast<int>( d.x ) );
+                                      if ( type == ValueType::Bool )
+                                          d.x = d.x != 0.0f ? 1.0f : 0.0f;
+                                  }
                                   return BOOLSUCCESS;
                               } );
                 }
                 ImGui::EndCombo();
+            }
+            if ( inputs )
+            {
+                ImGui::TableNextColumn();
+                DrawInputDefault( i );
             }
             ImGui::TableNextColumn();
             if ( ImGui::SmallButton( ICON_MDI_CLOSE ) )

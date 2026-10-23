@@ -238,7 +238,13 @@ namespace Desert::VFX
         if ( !definition.IsSuccess() )
             return Common::MakeFormattedError<VFXModuleDescription>( "module {} ('{}') does not resolve - {}",
                                                                      module.Guid, module.Path, definition.GetError() );
-        VFXModuleDefinition  read = definition.ExtractValue();
+        VFXModuleDefinition read = definition.ExtractValue();
+        // A CPU module's new row starts from the file's defaults and is read by the engine's C++: the file must
+        // declare what that C++ reads.
+        if ( read.HasCpuStage() )
+            if ( auto contract = CheckCpuModuleContract( read ); !contract.IsSuccess() )
+                return Common::MakeFormattedError<VFXModuleDescription>( "module '{}' - {}", module.Path,
+                                                                         contract.GetError() );
         VFXModuleDescription description;
         description.Module = module;
         description.Name   = std::move( read.DisplayName );

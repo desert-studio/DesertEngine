@@ -31,6 +31,7 @@
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/VFX/VFXClock.hpp>
 #include <Engine/VFX/VFXDataChannel.hpp>
+#include <Engine/VFX/VFXModuleFormat.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -38,6 +39,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <string_view>
 #include <vector>
 
 namespace Desert::VFX
@@ -72,13 +75,29 @@ namespace Desert::VFX
     /// Whether @p use names @p module (by GUID; the Path is not compared).
     [[nodiscard]] bool UsesModule( const Assets::Serialization::VFXModuleUse& use, const VFXEngineCpuModule& module );
 
-    /// The inputs the C++ behaviour of CPU module @p module reads (its contract; the `.dfxmod` of the same GUID
-    /// declares the same inputs with the defaults a new row starts from); nullptr for any other module.
-    [[nodiscard]] const std::vector<VFXModuleInputDecl>* EmitterModuleInputs( const Common::Content::AssetGuid& module );
+    /// One input the C++ behaviour of a CPU module reads: its name and type, and nothing else. The default a new
+    /// stack row starts from is the module's `.dfxmod` alone (its `Input <Name> <type> = <default>` line) - one
+    /// source of truth; the C++ states only what it reads, and CheckCpuModuleContract holds the two together.
+    struct VFXCpuModuleInput
+    {
+        std::string_view                    Name;
+        Assets::Serialization::VFXValueType Type = Assets::Serialization::VFXValueType::Float;
+    };
 
-    /// The Emitter groups the C++ behaviour of CPU module @p module may run in (UsageBit of EmitterSpawn /
+    /// The inputs every row of CPU module @p module gives, in the `.dfxmod`'s declaration order; empty for any
+    /// other module. SpawnFromChannel also reads optional bindings that no `.dfxmod` line declares (see above).
+    [[nodiscard]] std::span<const VFXCpuModuleInput> CpuModuleInputs( const Common::Content::AssetGuid& module );
+
+    /// The Emitter groups the C++ behaviour of CPU module @p module can run in (UsageBit of EmitterSpawn /
     /// EmitterUpdate); 0 for any other module.
-    [[nodiscard]] uint8_t EmitterModuleUsage( const Common::Content::AssetGuid& module );
+    [[nodiscard]] uint8_t CpuModuleUsage( const Common::Content::AssetGuid& module );
+
+    /// Whether the `.dfxmod` @p module, one with an Emitter (CPU) Usage, is one the engine C++ can run: a
+    /// behaviour is registered under its GUID, its Usage names only groups that behaviour runs in, and its
+    /// `Input` lines are exactly CpuModuleInputs (names, types, order). The refusal names the module and the
+    /// first disagreement. Checked where a module is described for a new stack row (DescribeModule) and in the
+    /// module editor, so a row built from the file's defaults is one CompileSpawnPlan reads.
+    [[nodiscard]] Common::BoolResultStr CheckCpuModuleContract( const VFXModuleDefinition& module );
 
     /// UE FNiagaraStatelessSpawnInfo, Type Burst.
     struct VFXSpawnBurst

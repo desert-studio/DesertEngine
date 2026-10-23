@@ -81,12 +81,15 @@ namespace Desert::Editor
             std::string              Description;
             std::string              Body;
             std::vector<std::string> Inputs;
+            std::vector<glm::vec4>   Defaults; ///< per input, the Default column's value until it is committed
             std::vector<std::string> Attributes;
         };
 
         void SyncDrafts();
         void DrawMetadata();
         void DrawDeclarations( const char* id, bool inputs );
+        /// Input @p i's Default cell: `= Binding`, or one field per component of its type.
+        void DrawInputDefault( std::size_t i );
         void DrawCode();
         void DrawStackCheck();
         void DrawUsedBy();
