@@ -234,6 +234,16 @@ namespace Desert::Graphic::System
             if ( const VFX::VFXParamSlot& slot = compiled.GetValue().Slots[s];
                  slot.SlotKind == VFX::VFXParamSlot::Kind::User )
                 gpu.UserRows.emplace_back( static_cast<uint32_t>( s ), slot.User );
+        gpu.PointSetRows.clear();
+        for ( std::size_t s = 0; s < compiled.GetValue().Slots.size(); s += VFX::kVFXPointSetRows )
+        {
+            // A PointSet binding's rows are contiguous (VFXStackCompiler); step to the first of the next run.
+            while ( s < compiled.GetValue().Slots.size() &&
+                    compiled.GetValue().Slots[s].SlotKind != VFX::VFXParamSlot::Kind::PointSet )
+                ++s;
+            if ( s < compiled.GetValue().Slots.size() )
+                gpu.PointSetRows.emplace_back( static_cast<uint32_t>( s ), compiled.GetValue().Slots[s].User );
+        }
         gpu.CurveFloats  = curves.GetValue().Floats;
         gpu.FloatColumns = compiled.GetValue().Layout.TotalFloatComponents;
         gpu.IntColumns   = compiled.GetValue().Layout.TotalIntComponents;
@@ -357,6 +367,44 @@ namespace Desert::Graphic::System
             }
     }
 
+    void ParticleWorldGpu::ApplyPointSets( ParticleSystemGpu& system, const std::vector<ECS::VFXPointSet>& sets,
+                                           const glm::mat3& basis, const uint32_t entityId )
+    {
+        // UE ArrayPosition read by a weighted pick: the set's inverse weight CDF, kVFXPointSetRows evenly spaced
+        // fractions, so a uniform random row is a point in proportion to its weight (VFXStackCompiler).
+        system.PointSets     = sets;
+        system.PointSetBasis = basis;
+        for ( ParticleEmitterGpu& gpu : system.Emitters )
+            for ( const auto& [first, name] : gpu.PointSetRows )
+            {
+                const auto set = std::find_if( sets.begin(), sets.end(),
+                                               [&]( const ECS::VFXPointSet& s ) { return s.Name == name; } );
+                double total = 0.0;
+                if ( set != sets.end() )
+                    for ( const glm::vec4& p : set->Points )
+                        total += std::max( p.w, 0.0f );
+                if ( total <= 0.0 )
+                {
+                    LOG_WARN( "[VFX] entity {} emitter '{}': PointSet.{} {} - its particles are born at the "
+                              "placement",
+                              entityId, gpu.DebugName, name,
+                              set == sets.end() ? "is not painted on this placement" : "holds no weighted point" );
+                    for ( uint32_t r = 0; r < VFX::kVFXPointSetRows && first + r < gpu.ParamRows.size(); ++r )
+                        gpu.ParamRows[first + r] = glm::vec4( 0.0f );
+                    continue;
+                }
+                std::size_t point = 0;
+                double      cumulative = std::max( set->Points[0].w, 0.0f );
+                for ( uint32_t r = 0; r < VFX::kVFXPointSetRows && first + r < gpu.ParamRows.size(); ++r )
+                {
+                    const double at = ( static_cast<double>( r ) + 0.5 ) / VFX::kVFXPointSetRows * total;
+                    while ( cumulative < at && point + 1 < set->Points.size() )
+                        cumulative += std::max( set->Points[++point].w, 0.0f );
+                    gpu.ParamRows[first + r] = glm::vec4( basis * glm::vec3( set->Points[point] ), 0.0f );
+                }
+            }
+    }
+
     bool ParticleWorldGpu::EnsurePoolCapacity( const uint32_t particles )
     {
         if ( particles <= m_Pool.Capacity && m_Pool.Slots )
@@ -430,9 +478,16 @@ namespace Desert::Graphic::System
                      for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
                          BuildEmitter( system.Emitters[k], *instances->System, k, entityId );
                      ApplyUserOverrides( system, vfx.Data.Overrides, entityId );
+                     ApplyPointSets( system, vfx.Data.PointSets, glm::mat3( transform.GetTransform() ), entityId );
                  }
-                 else if ( system.Overrides != vfx.Data.Overrides )
-                     ApplyUserOverrides( system, vfx.Data.Overrides, entityId );
+                 else
+                 {
+                     if ( system.Overrides != vfx.Data.Overrides )
+                         ApplyUserOverrides( system, vfx.Data.Overrides, entityId );
+                     if ( const glm::mat3 basis( transform.GetTransform() );
+                          system.PointSets != vfx.Data.PointSets || system.PointSetBasis != basis )
+                         ApplyPointSets( system, vfx.Data.PointSets, basis, entityId );
+                 }
 
                  // One range of the pool per system, each emitter a slice of it in emitter order.
                  uint32_t total = 0;

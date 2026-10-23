@@ -178,6 +178,9 @@ namespace Desert::Graphic::System
         // The ParamRows a User.* binding fills (row, user parameter name): the placement's overrides replace
         // these rows, every other row is the stack's own.
         std::vector<std::pair<uint32_t, std::string>> UserRows;
+        // The first ParamRows of each PointSet.* binding (row, set name), VFX::kVFXPointSetRows rows each: the
+        // placement's set, as its weight CDF (ApplyPointSets).
+        std::vector<std::pair<uint32_t, std::string>> PointSetRows;
         std::vector<float>                              CurveFloats;
         uint32_t                                        Capacity     = 0;
         uint32_t                                        FloatColumns = 0;
@@ -250,6 +253,9 @@ namespace Desert::Graphic::System
         std::vector<ParticleEmitterGpu>                             Emitters;
         // The VFXComponent overrides the emitters' User rows were last filled from (UE OverrideParameters).
         std::vector<ECS::VFXUserOverride> Overrides;
+        // The point sets and the transform the emitters' PointSet rows were last filled from (VFX-15).
+        std::vector<ECS::VFXPointSet> PointSets;
+        glm::mat3                     PointSetBasis = glm::mat3( 0.0f );
     };
 
     class ParticleWorldGpu final : public VFX::WorldGpuState
@@ -325,6 +331,10 @@ namespace Desert::Graphic::System
         // Fills every emitter's User rows of @p system from the placement's @p overrides (else the defaults).
         static void ApplyUserOverrides( ParticleSystemGpu& system, const std::vector<ECS::VFXUserOverride>& overrides,
                                         uint32_t entityId );
+        // Fills every emitter's PointSet rows of @p system from the placement's @p sets, each point turned by
+        // @p basis (the placement's rotation and scale; the emitter position adds the translation).
+        static void ApplyPointSets( ParticleSystemGpu& system, const std::vector<ECS::VFXPointSet>& sets,
+                                    const glm::mat3& basis, uint32_t entityId );
         // The host program for one compiled stack, by its key (null = refused, said once).
         std::shared_ptr<ComputePipeline> ProgramFor( uint64_t key, const std::string& name,
                                                      const std::string& hostSource );

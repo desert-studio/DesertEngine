@@ -1,0 +1,36 @@
+# VFX-15 VFX Paint mode, Painted Set brush (UE ArrayPosition DI + a shape-location module; the brush is the ported
+# Foliage brush): Campfire's Flames are made to spawn from PointSet.PaintedPoints (engine:ShapePointSet, the
+# sphere shape disabled), then two strokes paint the Campfire placement's set onto the ground; one stroke = one
+# undo step; the set is saved in the scene (VFXComponentData::PointSets) and reopens identical.
+# The order differs from the brief: the .dfx edit comes FIRST so that Undo after the strokes takes the second
+# stroke, not the document edit (a reopen starts a fresh history, so Undo is played before the save, then Redo).
+# The scenario SAVES: `git checkout -- Projects/Desert/Content/Scenes/Starter.desce Projects/Desert/Content/VFX/Campfire.dfx` after a play.
+Дано run Open "VFX/Campfire.dfx"
+Дано run Document "Spawn Flames from point set PaintedPoints"
+Дано run Document "Save this document"
+Дано run Document "Close Campfire.dfx"
+Дано run Scene "Open Scene Starter.desce"
+Дано run Entity "Add to selection Campfire"
+Дано --subject viewport set Camera.Position 300,650,-300
+Дано --subject viewport set Camera.Direction 0,-0.72,0.69
+Дано run VFX "VFX Paint mode"
+Дано run VFX "VFX Paint: radius 100 cm"
+Дано run VFX "VFX Paint: density high"
+Когда --subject viewport drag 420,420 860,420 30
+Когда --subject viewport drag 420,560 860,620 30
+Когда state
+Тогда-вид 0_points blue painted point markers along two strokes on the ground (a straight one above, a slanted one below), flames rising from them
+Когда run Foliage "Foliage mode"
+Когда state
+Тогда-вид 1_spawn after 1 s more the flames rise from the two painted strokes, none from the campfire origin (300, 0, 250)
+Когда run VFX "VFX Paint mode"
+Когда run Action "Undo"
+Когда state
+Тогда-вид 3_undo only the first (upper, straight) stroke's points remain, flames only along it
+Когда run Action "Redo"
+Когда run Action "Save Scene"
+Когда run Scene "Open Scene Starter.desce"
+Когда run Entity "Add to selection Campfire"
+Когда run VFX "VFX Paint mode"
+Когда state
+Тогда-вид 2_reopen the same two strokes of points and the same flames as 0_points after the saved scene is reopened

@@ -118,12 +118,20 @@ namespace Desert::Assets::Serialization
             if ( b.starts_with( kVFXParticlesPrefix ) && b.size() > kVFXParticlesPrefix.size() )
                 return BOOLSUCCESS; // attributes are derived from the stack (VFX-04); the name is all a file
                                     // states
+            if ( b.starts_with( kVFXPointSetPrefix ) && b.size() > kVFXPointSetPrefix.size() )
+            {
+                if ( in.Type != VFXValueType::Vec3 )
+                    return Common::MakeFormattedError<bool>( "{}: '{}' is a point set, read only by a Vec3 input",
+                                                             what, b );
+                return BOOLSUCCESS; // the set is the placement's (VFXComponentData::PointSets), not the file's
+            }
             if ( b.starts_with( kVFXDataChannelPrefix ) && b.size() > kVFXDataChannelPrefix.size() )
                 return BOOLSUCCESS; // the channel is the scene's: CompileSpawnPlan reads the spelling, the world
                                     // binds the fields to the channel's layout (VFX/VFXDataChannel
                                     // BindChannelSpawn)
             return Common::MakeFormattedError<bool>(
-                 "{}: Binding '{}' is neither User.<param>, Particles.<attr> nor DataChannel.<channel>[.<field>]",
+                 "{}: Binding '{}' is neither User.<param>, Particles.<attr>, PointSet.<set> nor "
+                 "DataChannel.<channel>[.<field>]",
                  what, b );
         }
 

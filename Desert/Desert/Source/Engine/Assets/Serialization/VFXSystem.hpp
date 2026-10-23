@@ -64,6 +64,10 @@ namespace Desert::Assets::Serialization
     /// "DataChannel.<channel>.<field>" one of its payload fields (VFX-10, engine:SpawnFromChannel;
     /// VFX/VFXDataChannel.hpp).
     inline constexpr std::string_view kVFXDataChannelPrefix = "DataChannel.";
+    /// "PointSet.<name>" names a point set of the PLACEMENT (VFXComponentData::PointSets, painted in VFX Paint
+    /// mode - VFX-15; UE UNiagaraDataInterfaceArrayPosition on a User parameter the component overrides): a Vec3
+    /// input bound to it reads one of the set's points, chosen by weight, per particle (engine:ShapePointSet).
+    inline constexpr std::string_view kVFXPointSetPrefix = "PointSet.";
 
     /// The type of a parameter or a module input. Components used: Float 1, Vec2 2, Vec3 3, Vec4 4, Int 1,
     /// Bool 1; the unused components of a stored vec4 must be zero, so one value has one spelling.

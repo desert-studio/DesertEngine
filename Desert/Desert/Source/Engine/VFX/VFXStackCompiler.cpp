@@ -629,7 +629,19 @@ namespace Desert::VFX
                             expr = RandomExpr( slot, d.Type );
                             break;
                         case S::VFXInputSource::Binding:
-                            if ( in.Binding->starts_with( S::kVFXUserPrefix ) )
+                            if ( in.Binding->starts_with( S::kVFXPointSetPrefix ) )
+                            {
+                                // VFX-15: kVFXPointSetRows rows of the placement's set, one read per particle at
+                                // a uniform random row (the rows are the weight CDF, ParticleWorldGpu fills them).
+                                const std::string set = in.Binding->substr( S::kVFXPointSetPrefix.size() );
+                                for ( uint32_t r = 0; r < kVFXPointSetRows; ++r )
+                                    compiled.Slots.push_back(
+                                         { VFXParamSlot::Kind::PointSet, group, index, d.Name, set } );
+                                expr = std::format( "VFX_Param( {0}u + min( uint( VFX_Random( sim, {0}u ).x * "
+                                                    "{1}.0 ), {2}u ) ).xyz",
+                                                    slot, kVFXPointSetRows, kVFXPointSetRows - 1u );
+                            }
+                            else if ( in.Binding->starts_with( S::kVFXUserPrefix ) )
                             {
                                 const std::string user    = in.Binding->substr( S::kVFXUserPrefix.size() );
                                 const auto [it, inserted] = userSlots.emplace( user, slot );
@@ -762,6 +774,11 @@ namespace Desert::VFX
                     return Common::MakeFormattedError<Result>(
                          "slot {}: no UserParams row '{}' - recompile the stack", s, slot.User );
                 rows.push_back( it->Default );
+                continue;
+            }
+            if ( slot.SlotKind == VFXParamSlot::Kind::PointSet )
+            {
+                rows.emplace_back( 0.0f ); // the placement's points, written by the GPU world (VFX-15)
                 continue;
             }
             const auto&              uses = GroupOf( emitter, slot.Group );

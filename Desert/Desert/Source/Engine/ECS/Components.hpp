@@ -58,6 +58,7 @@ namespace Desert::Assets::Serialization
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/ECS/VFXPointSet.hpp>
 #include <Engine/ECS/VFXUserOverride.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
@@ -1307,6 +1308,21 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "User Parameters" ), Category( "VFX" ), Hidden,
                   Tooltip( "This placement's values for the system's User parameters" ) )
         std::vector<VFXUserOverride> Overrides;
+
+        // VFX-15: this placement's point sets, painted in VFX Paint mode and read by the stack's PointSet.<name>
+        // bindings (engine:ShapePointSet). Level data, like Overrides: two placements of one system differ by it.
+        PROPERTY( DisplayName( "Point Sets" ), Category( "VFX" ), Hidden,
+                  Tooltip( "The point sets painted for this placement (VFX Paint mode)" ) )
+        std::vector<VFXPointSet> PointSets;
+
+        /// The set named @p name, or null.
+        [[nodiscard]] const VFXPointSet* FindPointSet( std::string_view name ) const
+        {
+            for ( const VFXPointSet& s : PointSets )
+                if ( s.Name == name )
+                    return &s;
+            return nullptr;
+        }
 
         /// UE SetVariable*: this placement's User.<name> becomes @p value (packed like the row's Default),
         /// starting from the next VFX tick. The type is the system's to check (VFX.setVariable does).

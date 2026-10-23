@@ -136,6 +136,10 @@ namespace Desert::Editor
         // each a Value at zero.
         // @p channel: the DataChannel a BindingRequired input (SpawnFromChannel's Channel) is bound to - UE picks
         // the channel asset on the new row; a module with such an input and no channel is refused.
+        /// VFX-15: the emitter is born at the placement's point set @p set (UE: a shape-location module reading
+        /// an ArrayPosition User parameter): its spawn-group shape modules are disabled and engine:ShapePointSet
+        /// is added with Location bound to PointSet.<set>. One undo step.
+        Common::BoolResultStr SpawnFromPointSet( std::size_t emitter, const std::string& set );
         Common::BoolResultStr AddModule( std::size_t emitter, std::size_t stage, const std::string& module,
                                          const std::string& channel = {} );
         Common::BoolResultStr RemoveModule( std::size_t emitter, std::size_t stage, std::size_t module );

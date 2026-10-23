@@ -22,6 +22,7 @@
 #include "ViewportCameraPreset.hpp"
 #include "PerfHudOverlay.hpp"
 #include "Tools/FoliagePaintTool.hpp"
+#include "Tools/VFXPaintTool.hpp"
 #include "Tools/LandscapePaintTool.hpp"
 #include "Tools/LandscapeSculptTool.hpp"
 #include "Tools/CubeGridTool.hpp"
@@ -437,6 +438,7 @@ namespace Desert::Editor
         PerfHudOverlay                        m_PerfHud; // View -> Perf HUD viewport overlay
         Tools::LandscapeSculptTool            m_LandscapeTool;      // UE-style landscape Sculpt / Smooth
         Tools::LandscapePaintTool             m_LandscapePaintTool; // Landscape mode Paint (weight layers)
+        Tools::VFXPaintTool                   m_VFXPaintTool; // VFX-15: VFX Paint mode's Painted Set brush
         Tools::FoliagePaintTool               m_FoliageTool;  // UE5-style foliage painting (extracted)
         Tools::CubeGridTool                   m_CubeGridTool; // UE5-style CubeGrid blockout (Modeling mode)
         Tools::PolyEditTool                   m_PolyEditTool; // face select + push/pull (Modeling mode)

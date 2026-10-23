@@ -141,6 +141,12 @@ namespace Desert::VFX
         ParticleUpdate,
     };
 
+    /// Rows a PointSet.<set> binding reserves: the set's inverse weight CDF sampled at this many evenly spaced
+    /// fractions (row r = the point whose cumulative weight first passes (r + 0.5) / kVFXPointSetRows), so a
+    /// particle reads one row at a uniform random index and the points come out in proportion to their weights
+    /// (UE ArrayPosition's buffer + the module's weighted pick, baked once per edit instead of per particle).
+    inline constexpr uint32_t kVFXPointSetRows = 1024;
+
     /// What fills one row (a vec4) of the emitter's parameter buffer.
     struct VFXParamSlot
     {
@@ -151,6 +157,7 @@ namespace Desert::VFX
             RandomMax, ///< the input's Random.Max
             User,      ///< the system's UserParams row named User
             Curve,     ///< the input's LUT in the system's curve atlas: CurveParamRow (VFXCurveLUT.hpp)
+            PointSet,  ///< one of kVFXPointSetRows rows of the placement's point set named User (VFX-15)
         };
 
         Kind          SlotKind = Kind::Value;
