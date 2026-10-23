@@ -260,6 +260,15 @@ void RegisterReflection_Engine()
             .Register();
     }
     {
+        using T = ::Desert::ECS::StaticMeshComponent;
+        TypeBuilder( "StaticMeshComponent", sizeof( T ) )
+            .ScriptName( "" )
+                    .Field( FieldInfo{ .Name = "MeshHandle", .Type = FieldType::AssetHandle, .Offset = offsetof( T, MeshHandle ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MeshHandle )>(), .TypeName = "Assets::AssetHandle", .Meta = PropertyMetadata{ .DisplayName = "Static Mesh", .Category = "Static Mesh", .Tooltip = "The mesh asset this component draws (UE StaticMesh). Ignored while a Primitive or an edited mesh is set; setting it clears both.", .IsAsset = true, .AssetType = "StaticMeshAsset", .Summary = true, } } )
+                    .Field( FieldInfo{ .Name = "MaterialSlots", .Type = FieldType::Struct, .Offset = offsetof( T, MaterialSlots ), .Size = ::Desert::Reflection::FieldFootprint<decltype( T::MaterialSlots )>(), .TypeName = "std::vector<Assets::AssetHandle>", .Meta = PropertyMetadata{ .DisplayName = "Materials", .Category = "Materials", .Tooltip = "One material per mesh section (UE OverrideMaterials); a null slot takes the mesh's own section material.", .IsAsset = true, .AssetType = "MaterialAsset", .Hidden = true, }, .IsContainer = true, .SerializeContainer = ::Desert::Reflection::WriteContainer<decltype( T::MaterialSlots ), std::uint64_t>, .DeserializeContainer = ::Desert::Reflection::ReadContainer<decltype( T::MaterialSlots ), std::uint64_t>, .ContainerHandles = ::Desert::Reflection::ContainerHandles<decltype( T::MaterialSlots )>, .AssignHandles = ::Desert::Reflection::AssignHandles<decltype( T::MaterialSlots )>, .ElementType = FieldType::AssetHandle, .ContainerSize = ::Desert::Reflection::ContainerSize<decltype( T::MaterialSlots )>, .ContainerResize = ::Desert::Reflection::ContainerResize<decltype( T::MaterialSlots )>, .ContainerGet = ::Desert::Reflection::ContainerGet<decltype( T::MaterialSlots ), std::uint64_t>, .ContainerSet = ::Desert::Reflection::ContainerSet<decltype( T::MaterialSlots ), std::uint64_t> } )
+            .WithDefault<T>()
+            .Register();
+    }
+    {
         using T = ::Desert::ECS::EnhancedInputPlayerData;
         TypeBuilder( "EnhancedInputPlayerData", sizeof( T ) )
             .ScriptName( "" )

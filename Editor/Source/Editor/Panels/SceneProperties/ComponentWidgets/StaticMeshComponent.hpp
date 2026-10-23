@@ -20,7 +20,6 @@ namespace Desert::Editor
         void Render( ECS::Entity& entity, ::Desert::Core::Scene* scene = nullptr ) override;
 
     private:
-        void        SetMeshAsset( ECS::StaticMeshComponent& staticMesh, const Assets::AssetHandle& handle );
         std::string GetPrimitiveName( const ECS::StaticMeshComponent& staticMesh ) const;
 
         // The mesh thumbnail on the asset row: the asset browser's cached PNG, a neutral framed glyph

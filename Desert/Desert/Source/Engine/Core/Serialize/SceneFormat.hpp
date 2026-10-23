@@ -344,6 +344,7 @@ namespace Desert::Core
     // when the typed writer's output is not JSON (a NaN or an infinity in the scene), naming the reason.
     [[nodiscard]] Common::ResultStr<Common::Json::TextDocument>
     ComposeSceneDocument( const SceneSerialized& fresh, const std::optional<Common::Json::TextDocument>& loaded,
-                          const Serialize::KeyIsOurs& entityKeyIsOurs );
+                          const Serialize::KeyIsOurs&          entityKeyIsOurs,
+                          const Common::Json::MemberKeyIsOurs& componentKeyIsOurs = {} );
 
 } // namespace Desert::Core
