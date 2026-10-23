@@ -24,8 +24,10 @@
 #include <array>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <span>
 #include <utility>
+#include <vector>
 
 namespace Desert::Editor::Commands
 {
@@ -548,6 +550,60 @@ namespace Desert::Editor::Commands
             return BOOLSUCCESS;
         }
 
+        Common::BoolResultStr RasterizeSplinesLayer( entt::registry& registry, const Common::UUID& landscape );
+
+        /// True when the ground under @p after's Splines layer merges from something other than what it merged
+        /// from under @p before's: a layer below it hidden or shown, re-weighted, deleted, restored or moved
+        /// across it. False when @p after has no Splines layer (nothing to re-apply).
+        bool GroundBelowSplinesChanged( const WL::LandscapeEditLayerStack& before,
+                                        const WL::LandscapeEditLayerStack& after )
+        {
+            const auto below = []( const WL::LandscapeEditLayerStack& stack )
+            {
+                std::vector<const WL::LandscapeEditLayer*> layers;
+                for ( const auto& layer : stack.Layers )
+                {
+                    if ( layer.Kind == WL::LandscapeEditLayerKind::Splines )
+                        return std::optional( std::move( layers ) );
+                    layers.push_back( &layer );
+                }
+                return std::optional<std::vector<const WL::LandscapeEditLayer*>>();
+            };
+            const auto now = below( after );
+            if ( !now )
+                return false;
+            const auto was = below( before );
+            if ( !was || was->size() != now->size() )
+                return true;
+            for ( size_t i = 0; i < now->size(); ++i )
+            {
+                const auto& a = *( *was )[i];
+                const auto& b = *( *now )[i];
+                if ( a.Guid != b.Guid || a.Visible != b.Visible || a.HeightAlpha != b.HeightAlpha ||
+                     a.WeightAlpha != b.WeightAlpha )
+                    return true;
+            }
+            return false;
+        }
+
+        /// ApplyEditLayers, then the Splines layer re-applied over the new ground when a layer below it changed
+        /// (UE: ALandscape re-renders the splines layer on any change of the layers beneath it).
+        Common::BoolResultStr ApplyEditLayersAndSplines( entt::registry& registry, const Common::UUID& landscape,
+                                                         const WL::LandscapeEditLayerStack&         stack,
+                                                         std::span<const LandscapeRemovedTileLayer> restore,
+                                                         bool                                       merge )
+        {
+            const auto root = ECS::FindLandscapeRootEntity( registry, landscape );
+            if ( root == entt::null )
+                return Common::MakeError<bool>( "landscape edit layers: the landscape root is not loaded" );
+            const auto previous = registry.get<ECS::LandscapeComponent>( root ).EditLayers;
+            if ( auto ok = ApplyEditLayers( registry, landscape, stack, restore, merge ); !ok )
+                return ok;
+            if ( !GroundBelowSplinesChanged( previous, stack ) )
+                return BOOLSUCCESS;
+            return RasterizeSplinesLayer( registry, landscape );
+        }
+
         class LandscapeEditLayersCommand final : public ICommand
         {
         public:
@@ -586,7 +642,9 @@ namespace Desert::Editor::Commands
                                         ToastLevel::Error, 6.0f );
                     return false;
                 }
-                if ( auto ok = ApplyEditLayers( scene->GetRegistry(), m_Landscape, stack, restore, m_Merge ); !ok )
+                if ( auto ok =
+                          ApplyEditLayersAndSplines( scene->GetRegistry(), m_Landscape, stack, restore, m_Merge );
+                     !ok )
                 {
                     ToastManager::Push( ok.GetError(), ToastLevel::Error, 6.0f );
                     return false;
@@ -634,8 +692,17 @@ namespace Desert::Editor::Commands
                                                 std::vector<LandscapeRemovedTileLayer> removed, bool merge,
                                                 std::string label )
         {
-            if ( auto ok = ApplyEditLayers( scene->GetRegistry(), edit.Landscape, after, {}, merge ); !ok )
+            if ( auto ok = ApplyEditLayersAndSplines( scene->GetRegistry(), edit.Landscape, after, {}, merge );
+                 !ok )
+            {
+                // The new stack may already be on the tiles: put the old one (and a deleted layer's data) back.
+                if ( auto restored = ApplyEditLayersAndSplines( scene->GetRegistry(), edit.Landscape, edit.Stack,
+                                                                removed, merge );
+                     !restored )
+                    return Common::MakeFormattedError<bool>( "{} (and restoring failed: {})", ok.GetError(),
+                                                             restored.GetError() );
                 return ok;
+            }
             CommandHistory::Get().PushCommand( std::make_unique<LandscapeEditLayersCommand>(
                  scene, edit.Landscape, edit.Stack, std::move( after ), std::move( removed ), merge,
                  std::move( label ) ) );
