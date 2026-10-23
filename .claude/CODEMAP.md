@@ -158,7 +158,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Water` — 6 files, 901 lines: GerstnerWave, GerstnerWaveGenerator, Node, TileRange, Traversal, WaterBodyState, WaterLODParams, WaterQuadTree, WaterQuadTreeBody, WaterQuadTreeDesc, WaterQueryHit, WaterQueryResult, … (+3)
 - `World/Foliage` — 5 files, 430 lines: FoliageCellField, FoliageGathered, PrefabFoliageHost, PrefabFoliagePlan
 - `World/Foliage/Procedural` — 10 files, 1,404 lines: Box2, BroadphaseOverlap, Entry, InstanceRadii, Node, ProceduralFoliageBox, ProceduralFoliageBroadphase, ProceduralFoliageDesired, ProceduralFoliageExistingField, ProceduralFoliageFieldPlan, ProceduralFoliageGround, ProceduralFoliageInstance, … (+6)
-- `World/Landscape` — 27 files, 7,601 lines: FlattenValues, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeCopyBuffer, LandscapeEditLayer, LandscapeEditLayerStack, LandscapeEditLayerTarget, LandscapeEditLayerTileData, LandscapeErosionField, LandscapeErosionSettings, … (+45)
+- `World/Landscape` — 27 files, 7,607 lines: FlattenValues, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeCopyBuffer, LandscapeEditLayer, LandscapeEditLayerStack, LandscapeEditLayerTarget, LandscapeEditLayerTileData, LandscapeErosionField, LandscapeErosionSettings, … (+45)
 
 ## Common — `Desert/Common/Source/Common`
 - `Content` — 28 files, 6,442 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, AssetTrashRecord, ChunkFolderRow, ChunkManifest, ChunkPlan, ChunkRule, … (+27)
@@ -182,7 +182,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Control` — 9 files, 2,836 lines: AuthoringSnapshot, ClosedDocumentSnapshot, CommandAddress, ControlChannelOptions, ControlSocket, DocumentSnapshot, EditorQuiescence, EditorSnapshot, EntitySnapshot, FrameGate, InputChord, InputInjection, … (+14)
 - `Core/GraphCanvas` — 4 files, 901 lines: CanvasPlan, CanvasRect, DeferredFrameAll, ElementIdMap, ElementLedger, FindPopup, PlannedLink, PlannedNode, Resolved
 - `Core/Rigging` — 4 files, 344 lines: Bone, RigBuilder
-- `Core/Selection` — 26 files, 5,711 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BakeNormalMapArgs, BakeNormalMapOutcome, BooleanToolArgs, EntityCommands, FoliagePaint, FoliageToolRow, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, … (+15)
+- `Core/Selection` — 26 files, 5,718 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BakeNormalMapArgs, BakeNormalMapOutcome, BooleanToolArgs, EntityCommands, FoliagePaint, FoliageToolRow, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, … (+15)
 - `Generated` — 1 files, 13 lines
 - `ImGuiIntegration` — 5 files, 480 lines: ImGuiLayer, VulkanImGui
 - `Import` — 47 files, 8,664 lines: AsyncMeshLoader, DdsBlockChain, DdsSourceImage, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedLight, ImportedMaterial, … (+15)
@@ -230,7 +230,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/VFXSystem` — 4 files, 1,860 lines: Gesture, ModuleChoice, VFXSystemDocument
 - `Panels/Validation` — 2 files, 156 lines: Issue, SceneValidationPanel
 - `Panels/ViewportPanel` — 19 files, 6,806 lines: CameraPilot, LightGizmoRenderer, PerfHudOverlay, ViewportCameraAim, ViewportCameraPresetRow, ViewportCommandKey, ViewportData, ViewportPanel
-- `Panels/ViewportPanel/Tools` — 42 files, 12,581 lines: ActiveToolLabel, CameraFrustumGizmo, CancelOnDrop, CreateShapeTool, CubeGridTool, EditMaterialsTool, ElementSelectTool, FeatureEdge, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFieldPlace, … (+32)
+- `Panels/ViewportPanel/Tools` — 42 files, 12,597 lines: ActiveToolLabel, CameraFrustumGizmo, CancelOnDrop, CreateShapeTool, CubeGridTool, EditMaterialsTool, ElementSelectTool, FeatureEdge, FoliageBrushDab, FoliageBrushStats, FoliageBrushWorld, FoliageFieldPlace, … (+32)
 - `Panels/WorldParameters` — 2 files, 315 lines: WorldParametersPanel
 - `Panels/WorldPartition` — 8 files, 2,457 lines: LandscapeHLODBake, LandscapeHLODBakeTile, LandscapeHLODBaked, LegendRow, RegionRequest, View, WorldPartitionPanel
 - `Panels/WorldSettings` — 2 files, 149 lines: WorldSettingsPanel
