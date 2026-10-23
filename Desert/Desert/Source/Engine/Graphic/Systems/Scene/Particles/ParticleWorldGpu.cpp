@@ -9,6 +9,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/LightUnits.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/VFX/VFXCurveLUT.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
@@ -20,6 +21,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -336,6 +338,62 @@ namespace Desert::Graphic::System
                 }
             }
             m_Debug.push_back( std::move( debug ) );
+        }
+    }
+
+    void ParticleWorldGpu::ReadLightReadbacks()
+    {
+        m_Lights.clear();
+        m_LightSerial = m_LightSerial == 0xFFFFFFFFu ? 1u : m_LightSerial + 1u; // 0 = a copy never written
+        constexpr uint32_t words =
+             kParticleLightHeaderUints + Assets::Serialization::kVFXLightMaxPerEmitter * kParticleLightRowFloats;
+        std::vector<uint32_t> data( words, 0u );
+        for ( const ParticleFrameEmitter& fe : m_FrameEmitters )
+        {
+            if ( fe.Light == nullptr || !fe.Gpu->LightReadback )
+                continue;
+            std::fill( data.begin(), data.end(), 0u );
+            if ( const Common::BoolResultStr read = fe.Gpu->LightReadback->ReadBack( data.data(), words * 4u );
+                 !read )
+            {
+                LOG_ERROR( "[Particles] entity {} emitter {}: the light readback was not read: {}", fe.EntityId,
+                           fe.Emitter, read.GetError() );
+                continue;
+            }
+            if ( data[1] == 0u )
+                continue; // this copy was not written yet (the first FramesInFlight frames)
+            const Assets::Serialization::VFXLightRendererData& l = *fe.Light;
+            const uint32_t                                     rows =
+                 std::min( { data[0], l.MaxLights, Assets::Serialization::kVFXLightMaxPerEmitter } );
+            for ( uint32_t r = 0; r < rows; ++r )
+            {
+                const auto at = [&data, r]( const uint32_t c ) {
+                    return std::bit_cast<float>(
+                         data[kParticleLightHeaderUints + r * kParticleLightRowFloats + c] );
+                };
+                const glm::vec4                    color( at( 4 ), at( 5 ), at( 6 ), at( 7 ) );
+                ShaderProtocols::PointLightPayload light{};
+                light.Position = glm::vec3( at( 0 ), at( 1 ), at( 2 ) );
+                light.Radius   = std::max( at( 3 ), 0.0f ) * l.RadiusScale;
+                light.Color =
+                     glm::max( glm::vec3( color ) *
+                                    ( l.AlphaScalesBrightness ? std::clamp( color.a, 0.0f, 1.0f ) : 1.0f ),
+                               glm::vec3( 0.0f ) ) +
+                     l.ColorAdd;
+                // UE Niagara: inverse-square lights state candelas (the photometric law with no emitter size);
+                // the exponent variant is the renderer's unitless multiplier.
+                const ECS::LightFalloff falloff =
+                     l.UseInverseSquaredFalloff ? ECS::LightFalloff::InverseSquare : ECS::LightFalloff::Quadratic;
+                light.Falloff   = static_cast<int32_t>( falloff );
+                light.Intensity = ECS::LightPhotometry::ShaderIntensity(
+                     l.Intensity,
+                     l.UseInverseSquaredFalloff ? ECS::LightUnits::Candelas : ECS::LightUnits::Unitless, falloff,
+                     0.0f, ECS::LightPhotometry::kPointLightCosHalfCone );
+                if ( light.Radius <= 0.0f || !std::isfinite( light.Radius ) ||
+                     !std::isfinite( light.Position.x + light.Position.y + light.Position.z ) )
+                    continue;
+                m_Lights.push_back( light );
+            }
         }
     }
 
@@ -695,6 +753,28 @@ namespace Desert::Graphic::System
             const Assets::Serialization::VFXRendererData& row = data.Renderers[r];
             if ( !row.Enabled )
                 continue;
+            if ( row.Kind == Assets::Serialization::VFXRendererKind::Light )
+            {
+                // VFX-LIGHT: a Light row draws nothing; its particles' lights come back through LightReadback.
+                if ( !row.Light )
+                    continue;
+                if ( fe.Light != nullptr )
+                {
+                    LOG_ERROR( "[Particles] emitter {} renderer row {} casts no light: the emitter's first Light "
+                               "row already does, and an emitter reads one set of lights",
+                               entityId, r );
+                    continue;
+                }
+                fe.Light = &*row.Light;
+                if ( !gpu.LightReadback )
+                    gpu.LightReadback = ShaderResources::StorageBuffer::Create(
+                         "ParticleLightReadback",
+                         ( kParticleLightHeaderUints +
+                           Assets::Serialization::kVFXLightMaxPerEmitter * kParticleLightRowFloats ) *
+                              4u,
+                         3 );
+                continue;
+            }
             if ( row.Kind == Assets::Serialization::VFXRendererKind::Ribbon )
             {
                 if ( !row.Ribbon || *row.Ribbon != *ribbon )

@@ -435,6 +435,18 @@
                         "Guid": "6f2b9c41d8e04a57b3a1c0e9f5d27b86",
                         "Path": "engine:Engine/Materials/M_ParticleAdditive.demat"
                     }
+                },
+                {
+                    "Kind": "Light",
+                    "Enabled": true,
+                    "Light": {
+                        "RadiusScale": 30.0,
+                        "ColorAdd": [0.0, 0.0, 0.0],
+                        "Intensity": 10.0,
+                        "UseInverseSquaredFalloff": true,
+                        "AlphaScalesBrightness": true,
+                        "MaxLights": 8
+                    }
                 }
             ]
         },

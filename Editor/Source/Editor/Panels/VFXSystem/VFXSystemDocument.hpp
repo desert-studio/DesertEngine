@@ -146,6 +146,15 @@ namespace Desert::Editor
         Common::BoolResultStr MoveModule( std::size_t emitter, std::size_t stage, std::size_t module, int delta );
         Common::BoolResultStr SetModuleEnabled( std::size_t emitter, std::size_t stage, std::size_t module,
                                                 bool enabled );
+        // VFX-LIGHT: one renderer row of an emitter replaced by @p value (its Enabled box, a Light row's
+        // settings), one undo step; refused like any edit the format refuses.
+        Common::BoolResultStr SetRenderer( std::size_t emitter, std::size_t row,
+                                           Assets::Serialization::VFXRendererData value,
+                                           const std::string&                     label );
+        // `<Emitter>.Render.<row>.<Field>` for a renderer row's Enabled and a Light row's settings; nullopt = not
+        // such a name.
+        std::optional<Common::BoolResultStr> SetRendererProperty( const std::string&        name,
+                                                                  const std::vector<float>& value );
         // One row of a stage's module picker: a module whose Usage includes the stage, or one that cannot be described
         // (Error set - shown disabled with the reason, never silently left out).
         struct ModuleChoice
