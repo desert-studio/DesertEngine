@@ -1057,6 +1057,24 @@ namespace Desert::Editor::Commands
                                   "Set landscape spline paint layer" );
     }
 
+    Common::BoolResultStr SetLandscapeSplineMeshes( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                                                    const std::vector<WL::LandscapeSplineMeshEntry>& meshes )
+    {
+        auto before = SplinesStateOf( scene.GetRegistry(), landscape );
+        if ( !before )
+            return Common::MakeError<bool>( before.GetError() );
+        LandscapeSplinesState after = before.GetValue();
+        if ( after.Splines.Segments.empty() )
+            return Common::MakeError<bool>( "landscape splines: the landscape has no spline segment to lay a mesh on" );
+        for ( const WL::LandscapeSplineMeshEntry& entry : meshes )
+            if ( auto valid = WL::ValidateLandscapeSplineMeshEntry( entry ); !valid )
+                return valid;
+        for ( WL::LandscapeSplineSegment& segment : after.Splines.Segments )
+            segment.SplineMeshes = meshes;
+        return CommitSplinesEdit( scene, landscape, before.ExtractValue(), std::move( after ),
+                                  "Set landscape spline meshes" );
+    }
+
     Common::ResultStr<std::string> NextLandscapeSplineLayer( entt::registry&     registry,
                                                              const Common::UUID& landscape )
     {

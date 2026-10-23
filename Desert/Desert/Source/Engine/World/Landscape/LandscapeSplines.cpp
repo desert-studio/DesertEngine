@@ -143,7 +143,62 @@ namespace Desert::World::Landscape
             if ( s.Start == s.End )
                 return Common::MakeFormattedError<bool>( "landscape spline segment {}: joins point {} to itself",
                                                          i, s.Start );
+            for ( const LandscapeSplineMeshEntry& entry : s.SplineMeshes )
+                if ( auto valid = ValidateLandscapeSplineMeshEntry( entry ); !valid )
+                    return Common::MakeFormattedError<bool>( "landscape spline segment {}: {}", i, valid.GetError() );
         }
+        return Common::MakeSuccess( true );
+    }
+
+    glm::vec3 LandscapeSplineCurve::Position( float t ) const
+    {
+        const float t2 = t * t;
+        const float t3 = t2 * t;
+        return ( 2.0f * t3 - 3.0f * t2 + 1.0f ) * P0 + ( t3 - 2.0f * t2 + t ) * M0 + ( -2.0f * t3 + 3.0f * t2 ) * P1 +
+               ( t3 - t2 ) * M1;
+    }
+
+    glm::vec3 LandscapeSplineCurve::Derivative( float t ) const
+    {
+        const float t2 = t * t;
+        return ( 6.0f * t2 - 6.0f * t ) * P0 + ( 3.0f * t2 - 4.0f * t + 1.0f ) * M0 + ( -6.0f * t2 + 6.0f * t ) * P1 +
+               ( 3.0f * t2 - 2.0f * t ) * M1;
+    }
+
+    glm::vec3 LandscapeSplineCurve::Right( float t ) const
+    {
+        const glm::vec3 tangent = Derivative( t );
+        const glm::vec3 right( -tangent.z, 0.0f, tangent.x );
+        const float     length = glm::length( right );
+        return length > 0.0f ? right / length : glm::vec3( 0.0f, 0.0f, 1.0f );
+    }
+
+    LandscapeSplineCurve LandscapeSplineSegmentCurve( const LandscapeSplines& splines, size_t segment )
+    {
+        const LandscapeSplineSegment& s = splines.Segments[segment];
+        LandscapeSplineCurve          curve;
+        curve.P0          = splines.ControlPoints[s.Start].Location;
+        curve.P1          = splines.ControlPoints[s.End].Location;
+        const float chord = glm::length( curve.P1 - curve.P0 );
+        // UE: both connections' TangentLen default to the chord; a point's tangent points along its rotation.
+        curve.M0 = PointDirection( splines, s.Start ) * chord;
+        curve.M1 = PointDirection( splines, s.End ) * chord;
+        return curve;
+    }
+
+    Common::BoolResultStr ValidateLandscapeSplineMeshEntry( const LandscapeSplineMeshEntry& entry )
+    {
+        const bool hasMesh = static_cast<uint64_t>( entry.Mesh ) != 0u;
+        if ( hasMesh == entry.Primitive.has_value() )
+            return Common::MakeError<bool>(
+                 "landscape spline mesh: names both or neither of a mesh asset and a built-in shape" );
+        if ( entry.Primitive && ( *entry.Primitive == Geometry::PrimitiveType::Terrain ||
+                                  *entry.Primitive == Geometry::PrimitiveType::LightCube ||
+                                  *entry.Primitive == Geometry::PrimitiveType::Count ) )
+            return Common::MakeFormattedError<bool>( "landscape spline mesh: '{}' is not a mesh shape",
+                                                     Geometry::PrimitiveTypeName( *entry.Primitive ) );
+        if ( !Finite( entry.Scale ) || entry.Scale.x <= 0.0f || entry.Scale.y <= 0.0f || entry.Scale.z <= 0.0f )
+            return Common::MakeError<bool>( "landscape spline mesh: the scale must be finite and positive" );
         return Common::MakeSuccess( true );
     }
 
@@ -153,12 +208,8 @@ namespace Desert::World::Landscape
         const LandscapeSplineSegment&      s     = splines.Segments[segment];
         const LandscapeSplineControlPoint& start = splines.ControlPoints[s.Start];
         const LandscapeSplineControlPoint& end   = splines.ControlPoints[s.End];
-        const glm::vec3                    p0    = start.Location;
-        const glm::vec3                    p1    = end.Location;
-        const float                        chord = glm::length( p1 - p0 );
-        // UE: both connections' TangentLen default to the chord; a point's tangent points along its rotation.
-        const glm::vec3 m0 = PointDirection( splines, s.Start ) * chord;
-        const glm::vec3 m1 = PointDirection( splines, s.End ) * chord;
+        const LandscapeSplineCurve         curve = LandscapeSplineSegmentCurve( splines, segment );
+        const float                        chord = glm::length( curve.P1 - curve.P0 );
         const size_t    count =
              std::max<size_t>( 2u, static_cast<size_t>( std::ceil( chord / std::max( stepCm, 1.0f ) ) ) + 1u );
 
@@ -166,21 +217,10 @@ namespace Desert::World::Landscape
         for ( size_t i = 0; i < count; ++i )
         {
             const float t   = static_cast<float>( i ) / static_cast<float>( count - 1u );
-            const float t2  = t * t;
-            const float t3  = t2 * t;
-            const float h00 = 2.0f * t3 - 3.0f * t2 + 1.0f;
-            const float h10 = t3 - 2.0f * t2 + t;
-            const float h01 = -2.0f * t3 + 3.0f * t2;
-            const float h11 = t3 - t2;
-            // The derivative gives the side direction (UE: the spline's right vector on the ground plane).
-            const glm::vec3 tangent = ( 6.0f * t2 - 6.0f * t ) * p0 + ( 3.0f * t2 - 4.0f * t + 1.0f ) * m0 +
-                                      ( -6.0f * t2 + 6.0f * t ) * p1 + ( 3.0f * t2 - 2.0f * t ) * m1;
-            glm::vec3   right( -tangent.z, 0.0f, tangent.x );
-            const float rightLength = glm::length( right );
-            right                   = rightLength > 0.0f ? right / rightLength : glm::vec3( 0.0f, 0.0f, 1.0f );
+            const glm::vec3 right = curve.Right( t );
 
             LandscapeSplineInterpPoint& point = points[i];
-            point.Center                      = h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1;
+            point.Center                      = curve.Position( t );
             point.Width                       = glm::mix( start.Width, end.Width, t );
             point.SideFalloff                 = glm::mix( start.SideFalloff, end.SideFalloff, t );
             point.LayerWidth = point.Width * glm::mix( start.LayerWidthRatio, end.LayerWidthRatio, t );

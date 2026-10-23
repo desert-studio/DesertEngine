@@ -163,7 +163,8 @@ namespace Desert::Core::Serialize
     // `EditLayers` is the stack as [{Guid, Name, Visible, Locked, HeightAlpha, WeightAlpha, Kind}], bottom first,
     // written even when empty (an undo restores the whole block, and an absent key keeps the current value).
     // `Kind` is "Manual" or "Splines"; `Splines` is {ControlPoints: [{Location, Width, SideFalloff, EndFalloff,
-    // LayerWidthRatio}], Segments: [{Start, End, RaiseTerrain, LowerTerrain, LayerName}]} (UE
+    // LayerWidthRatio}], Segments: [{Start, End, RaiseTerrain, LowerTerrain, LayerName, SplineMeshes: [{Mesh,
+    // Primitive, Scale, ForwardAxis, CenterH}]}]} (absent SplineMeshes = none; no tag, an additive key) (UE
     // ULandscapeSplinesComponent), written always.
     inline Common::Json::Object WriteComponent( const ECS::LandscapeComponent& c )
     {
@@ -198,13 +199,27 @@ namespace Desert::Core::Serialize
                                       .Build() );
         Common::Json::Value::Array segments;
         for ( const World::Landscape::LandscapeSplineSegment& s : c.Splines.Segments )
+        {
+            Common::Json::Value::Array meshes;
+            for ( const World::Landscape::LandscapeSplineMeshEntry& m : s.SplineMeshes )
+                meshes.emplace_back(
+                     Common::Json::ObjectBuilder()
+                          .Set( "Mesh", m.Mesh )
+                          .Set( "Primitive",
+                                std::string( m.Primitive ? Geometry::PrimitiveTypeName( *m.Primitive ) : "" ) )
+                          .Set( "Scale", m.Scale )
+                          .Set( "ForwardAxis", std::string( World::Landscape::LandscapeSplineMeshAxisName( m.ForwardAxis ) ) )
+                          .Set( "CenterH", m.CenterH )
+                          .Build() );
             segments.emplace_back( Common::Json::ObjectBuilder()
                                         .Set( "Start", s.Start )
                                         .Set( "End", s.End )
                                         .Set( "RaiseTerrain", s.RaiseTerrain )
                                         .Set( "LowerTerrain", s.LowerTerrain )
                                         .Set( "LayerName", s.LayerName )
+                                        .Set( "SplineMeshes", Common::Json::Value( std::move( meshes ) ) )
                                         .Build() );
+        }
         Common::Json::Object splines;
         splines["ControlPoints"] = Common::Json::Value( std::move( points ) );
         splines["Segments"]      = Common::Json::Value( std::move( segments ) );
@@ -250,6 +265,33 @@ namespace Desert::Core::Serialize
                      element.ReadInto( "RaiseTerrain", s.RaiseTerrain, issues );
                      element.ReadInto( "LowerTerrain", s.LowerTerrain, issues );
                      element.ReadInto( "LayerName", s.LayerName, issues );
+                     if ( const auto meshes = element.Find( "SplineMeshes" );
+                          meshes && meshes->ExpectKind( Common::Json::Kind::Array, issues ) )
+                         meshes->ForEachElement(
+                              [&]( std::size_t, const Common::Json::Node& mesh )
+                              {
+                                  if ( !mesh.ExpectKind( Common::Json::Kind::Object, issues ) )
+                                      return;
+                                  World::Landscape::LandscapeSplineMeshEntry m;
+                                  std::string primitive, axis = "X";
+                                  mesh.ReadInto( "Mesh", m.Mesh, issues );
+                                  mesh.ReadInto( "Primitive", primitive, issues );
+                                  mesh.ReadInto( "Scale", m.Scale, issues );
+                                  mesh.ReadInto( "ForwardAxis", axis, issues );
+                                  mesh.ReadInto( "CenterH", m.CenterH, issues );
+                                  for ( int t = 0; t < static_cast<int>( Geometry::PrimitiveType::Count ); ++t )
+                                      if ( primitive == Geometry::PrimitiveTypeName( static_cast<Geometry::PrimitiveType>( t ) ) )
+                                          m.Primitive = static_cast<Geometry::PrimitiveType>( t );
+                                  if ( !primitive.empty() && !m.Primitive )
+                                      issues.push_back( { mesh.Where().Key( "Primitive" ).ToString(),
+                                                          "a built-in shape name", primitive } );
+                                  if ( axis == "X" || axis == "Y" || axis == "Z" )
+                                      m.ForwardAxis = static_cast<World::Landscape::LandscapeSplineMeshAxis>( axis[0] - 'X' );
+                                  else
+                                      issues.push_back( { mesh.Where().Key( "ForwardAxis" ).ToString(), "\"X\", \"Y\" or \"Z\"",
+                                                          axis } );
+                                  s.SplineMeshes.push_back( std::move( m ) );
+                              } );
                      read.Segments.push_back( s );
                  } );
         if ( issues.size() != before )

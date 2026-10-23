@@ -162,6 +162,15 @@ namespace Desert::Editor::Commands
     Common::BoolResultStr SetLandscapeSplineLayer( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
                                                    const std::string& layerName );
 
+    /**
+     * @brief UE: a segment's SplineMeshes set in the Details panel. Every segment of landscape @p landscape's
+     * splines lays @p meshes along itself (empty: none); ONE undo entry. The bent meshes are derived from the
+     * splines by the renderer's side (ECS::LandscapeSplineMeshDraw), so a later point edit re-bends them.
+     * Refuses a landscape with no segment and an entry ValidateLandscapeSplineMeshEntry refuses.
+     */
+    Common::BoolResultStr SetLandscapeSplineMeshes( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                                                    const std::vector<World::Landscape::LandscapeSplineMeshEntry>& meshes );
+
     /// The paint layer after the one the first segment paints, in the landscape's layer order, and "" after the
     /// last (and from ""  the first): what the palette's "Spline paint layer: next" sets.
     Common::ResultStr<std::string> NextLandscapeSplineLayer( entt::registry&     registry,

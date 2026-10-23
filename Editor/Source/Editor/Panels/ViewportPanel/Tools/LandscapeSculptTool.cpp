@@ -13,6 +13,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Engine/World/Landscape/LandscapeRaycast.hpp>
+#include <Engine/World/Landscape/LandscapeSplines.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -387,6 +388,23 @@ namespace Desert::Editor::Tools
             {
                 state.Request = Core::LandscapeStrokeRequest::None;
                 SetSplineLayer( scene, request == Core::LandscapeStrokeRequest::SplineLayerNext );
+                return true;
+            }
+            case Core::LandscapeStrokeRequest::SplineMeshCubeSlab:
+            case Core::LandscapeStrokeRequest::SplineMeshNone:
+            {
+                state.Request = Core::LandscapeStrokeRequest::None;
+                std::vector<::Desert::World::Landscape::LandscapeSplineMeshEntry> meshes;
+                if ( request == Core::LandscapeStrokeRequest::SplineMeshCubeSlab )
+                {
+                    // The engine Cube is 100 cm a side: X along the road, Y up (20 cm), Z across (400 cm).
+                    ::Desert::World::Landscape::LandscapeSplineMeshEntry slab;
+                    slab.Primitive = ::Desert::Geometry::PrimitiveType::Cube;
+                    slab.Scale     = glm::vec3( 1.0f, 0.2f, 4.0f );
+                    meshes.push_back( slab );
+                }
+                if ( auto set = Commands::SetLandscapeSplineMeshes( scene, state.SplineLandscape, meshes ); !set )
+                    ToastManager::Push( set.GetError(), ToastLevel::Error, 6.0f );
                 return true;
             }
             case Core::LandscapeStrokeRequest::RampReset:

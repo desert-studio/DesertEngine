@@ -3,8 +3,10 @@
 #include "System.hpp"
 #include "SystemRules.hpp"
 #include "FracturePieceDraw.hpp"
+#include "LandscapeSplineMeshDraw.hpp"
 #include "WindField.hpp"
 
+#include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/MaterialSlotAdoption.hpp>
@@ -83,6 +85,25 @@ namespace Desert::ECS
             };
             const auto drawnAsPieces =
                  m_Pieces.Record( registry, renderCommandBuffer, materialsVersion, pieceServices );
+
+            /* =========================
+               LANDSCAPE SPLINE MESHES (L9-MESHES): each segment's meshes, bent along it, as static draws.
+               ========================= */
+            LandscapeSplineMeshDraw::Services splineServices;
+            splineServices.MeshAsset = []( const Common::UUID& id ) -> const Assets::StaticMeshAsset*
+            {
+                return dynamic_cast<const Assets::StaticMeshAsset*>(
+                     Runtime::ResourceRegistry::GetMeshService()->GetAsset(
+                          Assets::AssetHandle( static_cast<uint64_t>( id ) ) ) );
+            };
+            splineServices.Instance = []( const Common::UUID& id )
+            {
+                auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+                return materials->CreateRuntimeInstance( materials->GetAssetHandleByExternal( id ) );
+            };
+            splineServices.DefaultInstance = [this]()
+            { return DefaultInstance( Graphic::MeshVertexPath::Static ); };
+            m_SplineMeshes.Record( registry, renderCommandBuffer, materialsVersion, splineServices );
 
             /* =========================
                STATIC MESHES
@@ -580,6 +601,8 @@ namespace Desert::ECS
     private:
         // The pieces of fractured entities, drawn as static meshes (DST-06).
         FracturePieceDraw m_Pieces;
+        // The landscapes' spline meshes, drawn as static meshes (L9-MESHES).
+        LandscapeSplineMeshDraw m_SplineMeshes;
 
         // The material a slot instance draws with OFF the batched lit path: its parent when that is a
         // custom-shader material (a DataDrivenMaterial of a DSL surface's own cell), null when the batched path
