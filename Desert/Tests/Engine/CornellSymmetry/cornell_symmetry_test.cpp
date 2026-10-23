@@ -486,7 +486,7 @@ TEST( CornellSymmetry, TheTwoSideWallsDifferInColourAndInNothingElse )
 //   sun          CB_Sun travelling normalize(0.6, -1, 0.2): L = -that, N.L = -0.169
 //
 // `EvaluateDirectLight` returns exactly vec3(0) at a non-positive cosine, so the front face receives no
-// analytic light at all and shows only the ambient floor times its albedo. The cube's TOP face (normal
+// analytic light at all and shows only its ambient (environment + GI). The cube's TOP face (normal
 // +Y) has N.L = +0.359 against the point light and +0.845 against the sun, which is precisely why the
 // two top corners that clear the glass sphere are the only orange in the frame.
 //
