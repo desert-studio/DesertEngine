@@ -247,6 +247,11 @@ namespace Desert::Editor::Core
         SplineLayerNext,
         /// Every segment's LayerName cleared: the road paints nothing.
         SplineLayerNone,
+        /// UE: the segments' SplineMeshes set in Details — every segment lays the engine Cube, scaled to a
+        /// 400 cm wide, 20 cm thick slab (100 cm long before the fit), along itself.
+        SplineMeshCubeSlab,
+        /// Every segment's SplineMeshes cleared.
+        SplineMeshNone,
         RampStart,
         RampEnd,
         RampApply,
@@ -666,6 +671,16 @@ namespace Desert::Editor::Core
                               {},
                               splines,
                               LandscapeStrokeRequest::SplineLayerNone } );
+        controls.push_back( { "Spline mesh: engine Cube slab 400 x 20 cm",
+                              "Spline mesh",
+                              {},
+                              splines,
+                              LandscapeStrokeRequest::SplineMeshCubeSlab } );
+        controls.push_back( { "Spline mesh: none",
+                              "Spline mesh",
+                              {},
+                              splines,
+                              LandscapeStrokeRequest::SplineMeshNone } );
         return controls;
     }
 

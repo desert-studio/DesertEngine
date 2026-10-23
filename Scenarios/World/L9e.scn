@@ -1,0 +1,62 @@
+# L9e (L9-MESHES): a static mesh laid along each landscape spline segment and bent along its curve (UE
+# ULandscapeSplineSegment::SplineMeshes / FLandscapeSplineMeshEntry -> USplineMeshComponent).
+# Start: L9.scn's road - three points across the TerrainPlain hill at (6300|9282|12300, -1906).
+# The bent meshes are derived from the splines (ECS::LandscapeSplineMeshDraw), so drag/undo/reopen re-bend them.
+# The scenario SAVES: `git checkout -- Projects/Desert/Content/Scenes/G3_TwoTerrains*` after a play.
+# The view mode is a MACHINE preference that persists between runs (M28_Jacket.scn leaves it on Wireframe):
+# state it, or the slab is drawn as triangle outlines (meshes honour Wireframe, the landscape does not).
+Дано run View "View mode: Lit"
+Дано run Scene "Open Scene G3_TwoTerrains.desce"
+Дано run Landscape "Sculpt mode"
+Дано run Landscape "Tool: Splines"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано --subject viewport set Camera.Direction 0.001,-1,0.001
+Дано --subject viewport set Camera.Position 6300,9000,-1906
+Дано run Landscape "Spline: add control point at viewport centre"
+Дано --subject viewport set Camera.Position 9282,9000,-1906
+Дано run Landscape "Spline: add control point at viewport centre"
+Дано --subject viewport set Camera.Position 12300,9000,-1906
+Дано run Landscape "Spline: add control point at viewport centre"
+Когда run Landscape "Spline mesh: engine Cube slab 400 x 20 cm"
+Когда --subject viewport set Camera.Position 9282,13000,-1906
+Когда --subject viewport set Camera.Direction 0.001,-1,0.001
+Когда state
+Тогда-вид 0_mesh a continuous flat grey slab follows the curved road from end to end, no gaps between pieces
+Когда --subject viewport set Camera.Position 9282,5000,-8000
+Когда --subject viewport set Camera.Direction 0,-0.55,0.84
+Когда state
+Тогда-вид 0b_mesh_side the slab lies on the road across the hill, following its slope, no gaps
+# Drag the middle point 800 cm sideways (+Z): select it at the viewport centre, move it to the new centre.
+Когда --subject viewport set Camera.Direction 0.001,-1,0.001
+Когда --subject viewport set Camera.Position 9282,9000,-1906
+Когда run Landscape "Spline: select control point at viewport centre"
+Когда --subject viewport set Camera.Position 9282,9000,-1106
+Когда run Landscape "Spline: move selected control point to viewport centre"
+Когда run Landscape "Spline: deselect"
+Когда --subject viewport set Camera.Position 9282,13000,-1906
+Когда --subject viewport set Camera.Direction 0.001,-1,0.001
+Когда state
+Тогда-вид 1_drag the slab re-bent along the new curve, its middle 800 cm to the side, still continuous
+# Undo before the save (reopening a scene starts a fresh history), then Redo to save the dragged road.
+Когда run Action "Undo"
+Когда state
+Тогда-вид 3_undo the slab back on the original curve (identical to 0_mesh)
+Когда run Action "Redo"
+Когда run Action "Save Scene"
+Когда run Scene "Open Scene G3_TwoTerrains.desce"
+Когда --subject viewport set Camera.Position 9282,13000,-1906
+Когда --subject viewport set Camera.Direction 0.001,-1,0.001
+Когда state
+Тогда-вид 2_reopen identical to 1_drag after the saved scene is reopened
