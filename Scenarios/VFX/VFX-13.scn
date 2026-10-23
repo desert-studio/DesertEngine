@@ -6,7 +6,7 @@
 Когда set Flames.ParticleUpdate.ColorOverLife.Scale.Keys 0,1,1,1,1,0.5,1,0.45,0.1,1,1,1,0.3,0,0
 Тогда 0_edit Stack: SizeOverLife.Scale is a plot 1->0 with two key rows, ColorOverLife.Scale a white->orange->transparent gradient bar with three stop rows; preview flames go orange and shrink to nothing with age
 Когда run Document "Save this document"
-Когда run Document "Close Campfire"
+Когда run Document "Close Campfire.dfx"
 Когда run Open "VFX/Campfire.dfx"
 Дано set Transport.Playing 0
 Дано set Transport.Time 1.5
