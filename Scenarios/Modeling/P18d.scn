@@ -1,6 +1,6 @@
 # P18d CubeGrid: a Pull on a mesh the session did not build unions into THAT mesh (UE CubeGridBooleanOp, Union),
 # a Push cuts it (Difference), and the box's faces take the Quick Material. Pull builds a 300 cm block (3x3 blocks,
-# 3 high), Accept and Start New; Quick Material = M_Dielectric_R0 (red, first project material); one 1x1 Pull on
+# 3 high), Accept and Start New; Quick Material = CB_Red (the 5th project material by key: CB_Glass, CB_GraphMatch, CB_Green, CB_Orange, CB_Red); one 1x1 Pull on
 # the block's top centre raises a 100 cm red bump in the same entity; two Pushes on it leave a 100 cm pit with red
 # walls; Undo brings the bump back with the selection highlight on its top.
 # The camera looks down from 8 m along (-1,-3,-1); the 3x3 block grows +X,+Z from the aimed ground cell, so 300 cm
@@ -19,6 +19,10 @@
 Дано run CubeGrid "Accept and Start New"
 Дано run CubeGrid "Quick Material: engine default"
 Дано run CubeGrid "Quick Material: next project material"
+Дано run CubeGrid "Quick Material: next project material"
+Дано run CubeGrid "Quick Material: next project material"
+Дано run CubeGrid "Quick Material: next project material"
+Дано run CubeGrid "Quick Material: next project material"
 Когда run CubeGrid "Select 1x1 blocks at the aim"
 Когда run CubeGrid "Push/Pull out (E)"
 # Look at the top from the side-above (a bump's / pit's walls only show off the vertical): centre (450,350,450).
@@ -30,6 +34,8 @@
 Когда run CubeGrid "Push/Pull in (Q)"
 Когда state
 Тогда 1_pit in the bump's place a 100 cm deep 100x100 cm pit in the block's top, its walls red
+# Each Push is its own undo step: two Undos take both back to the bump.
+Когда run Action Undo
 Когда run Action Undo
 Когда state
 Тогда 2_undo the red bump is back on the block's top and the selection highlight sits on the bump's top face

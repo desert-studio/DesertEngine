@@ -18,6 +18,7 @@
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/MeshBooleanOperation.hpp>
+#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
@@ -230,7 +231,15 @@ namespace Desert::Editor::Tools
             return;
         const int steps = std::max( 1, Core::ModelingState::Get().BlocksPerStep );
         // On a mesh this session did not build: the boolean into THAT mesh (UE CubeGridBooleanOp), not voxels.
-        if ( m_SelEntity != Common::UUID::Null() && m_SelEntity != m_Entity )
+        // A Pull off something that is no modeling target - the ground primitive - starts a new piece, as UE's
+        // tool builds a new mesh when it has no target; a Push into one is refused by name (PushPullMesh).
+        const auto onTargetMesh = [&]
+        {
+            const auto ref = scene.FindEntityByID( m_SelEntity );
+            return ref && ref->get().HasComponent<ECS::StaticMeshComponent>() &&
+                   GetToolTargetMesh( ref->get().GetComponent<ECS::StaticMeshComponent>() ).IsSuccess();
+        };
+        if ( m_SelEntity != Common::UUID::Null() && m_SelEntity != m_Entity && ( dir < 0 || onTargetMesh() ) )
         {
             PushPullMesh( scene, m_SelEntity, dir, K * steps );
             return;
