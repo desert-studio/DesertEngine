@@ -4775,6 +4775,21 @@ namespace Desert::Migration
                 report.WorldPartitionTagRaised = true; // the stamp only: v1 is the v70 block under its own tag
         }
 
+        // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.
+        void RunAssetRefSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
+                               std::vector<Assets::EntityData>& entities, const std::filesystem::path& assetsRoot,
+                               const std::string& file, FileMigrationReport& report )
+        {
+            report.StatedAssetRefVersion = Assets::StatedVersion( header, Assets::kAssetRefSchemaTag );
+            if ( report.StatedAssetRefVersion < kAssetRefVersionReflected )
+            {
+                report.ReflectedAssetRefsRaised = true;
+                report.ReflectedAssetRefs       = MigrateReflectedAssetRefsV0ToV1( entities, assetsRoot );
+                if ( !report.ReflectedAssetRefs.Refused.empty() )
+                    report.Refused = RefusedWhole( file, report.ReflectedAssetRefs.Refused );
+            }
+        }
+
         // A file at a LATER World Partition generation than this tool raises to, refused in the scene's words.
         std::string RefuseLaterWorldPartition( const char* what, int stated )
         {
@@ -4784,6 +4799,146 @@ namespace Desert::Migration
                    "THAT build's SceneMigrator.";
         }
     } // namespace
+
+    ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
+                                                              const std::filesystem::path&     assetsRoot )
+    {
+        ReflectedAssetRefsReport report;
+        // The header GUID of the `.demat` an "assets:" key names, read once per key; nullopt = refused.
+        std::map<std::string, std::optional<std::string>> guids;
+        const auto guidOf = [&]( const std::string& key, const std::string& who ) -> std::optional<std::string>
+        {
+            if ( const auto found = guids.find( key ); found != guids.end() )
+                return found->second;
+            constexpr std::string_view kMount = "assets:";
+            std::optional<std::string> guid;
+            const std::string relative = key.starts_with( kMount ) ? key.substr( kMount.size() ) : key;
+            std::filesystem::path file = ( assetsRoot / relative ).lexically_normal();
+            if ( const auto located = LocateMeshFile( relative, assetsRoot ); located.IsSuccess() )
+                file = located.GetValue().File;
+            if ( std::ifstream in( file ); in )
+            {
+                std::stringstream text;
+                text << in.rdbuf();
+                if ( const auto parsed = rfl::json::read<rfl::Generic>( text.str() ); parsed.has_value() )
+                    if ( const auto root = parsed.value().to_object(); root.has_value() )
+                        if ( const auto headerNode = root.value().get( "Header" ); headerNode.has_value() )
+                            if ( const auto header = headerNode.value().to_object(); header.has_value() )
+                                if ( const auto g = header.value().get( "Guid" ); g.has_value() )
+                                    if ( const auto t = g.value().to_string();
+                                         t.has_value() && Common::Content::AssetGuidFromText( t.value() ) )
+                                        guid = t.value();
+            }
+            if ( !guid )
+                report.Refused.push_back(
+                     std::format( "{}: material '{}' ({}) states no header GUID", who, key, file.string() ) );
+            guids.emplace( key, guid );
+            return guid;
+        };
+        const auto ref = []( const std::string& guid, const std::string& path )
+        {
+            rfl::Generic::Object one;
+            one["Guid"] = rfl::Generic( guid );
+            one["Path"] = rfl::Generic( path );
+            return rfl::Generic( std::move( one ) );
+        };
+        const auto texts = [&]( const rfl::Generic::Object& block, const char* key, const std::string& who,
+                                std::vector<std::string>& out ) -> bool
+        {
+            const auto stated = block.get( key );
+            if ( !stated.has_value() )
+                return true;
+            const auto array = stated.value().to_array();
+            if ( !array.has_value() )
+            {
+                report.Refused.push_back( std::format( "{}: StaticMesh.{} is not an array", who, key ) );
+                return false;
+            }
+            for ( const rfl::Generic& item : array.value() )
+                out.push_back( item.to_string().value_or( std::string() ) );
+            return true;
+        };
+        const auto raise = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "StaticMesh",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto text = [&]( const char* key )
+                           {
+                               const auto v = block.get( key );
+                               return v.has_value() ? v.value().to_string().value_or( std::string() )
+                                                    : std::string();
+                           };
+                           const bool statesMesh = block.get( "MeshGuid" ).has_value() ||
+                                                   block.get( "MeshPath" ).has_value();
+                           std::vector<std::string> slotGuids;
+                           std::vector<std::string> slotPaths;
+                           if ( !texts( block, "MaterialGuids", who, slotGuids ) ||
+                                !texts( block, "MaterialPaths", who, slotPaths ) )
+                               return false;
+                           const bool statesSlots = block.get( "MaterialGuids" ).has_value() ||
+                                                    block.get( "MaterialPaths" ).has_value();
+                           if ( !statesMesh && !statesSlots )
+                               return false;
+                           const std::string meshGuid = text( "MeshGuid" );
+                           const std::string meshPath = text( "MeshPath" );
+                           for ( const char* key : { "MeshGuid", "MeshPath", "MaterialGuids", "MaterialPaths" } )
+                               DropKey( block, key );
+                           if ( statesMesh )
+                               block["MeshHandle"] = ref( meshGuid, meshPath );
+                           if ( statesSlots )
+                           {
+                               rfl::Generic::Array slots;
+                               const std::size_t   count = std::max( slotGuids.size(), slotPaths.size() );
+                               for ( std::size_t i = 0; i < count; ++i )
+                                   slots.push_back( ref( i < slotGuids.size() ? slotGuids[i] : std::string(),
+                                                         i < slotPaths.size() ? slotPaths[i] : std::string() ) );
+                               block["MaterialSlots"] = rfl::Generic( std::move( slots ) );
+                           }
+                           ++report.MeshBlocks;
+                           return true;
+                       } );
+            // The reflected Asset<MaterialAsset> fields, stated as a bare key until v1.
+            constexpr std::array<std::pair<const char*, const char*>, 4> kMaterialFields = {
+                 { { "LandscapeMaterial", "Material" },
+                   { "VolumetricCloud", "Material" },
+                   { "Destructible", "InteriorMaterial" },
+                   { "UIPanel", "Material" } } };
+            for ( const auto& [component, field] : kMaterialFields )
+                EditBlock( components, component,
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               const auto stated = block.get( field );
+                               if ( !stated.has_value() )
+                                   return false;
+                               const auto key = stated.value().to_string();
+                               if ( !key.has_value() )
+                                   return false; // already an object: {Guid, Path}
+                               std::string guid;
+                               if ( !key.value().empty() )
+                               {
+                                   const auto found =
+                                        guidOf( key.value(), std::format( "{} / {}.{}", who, component, field ) );
+                                   if ( !found )
+                                       return false;
+                                   guid = *found;
+                               }
+                               block[field] = ref( guid, key.value() );
+                               ++report.MaterialFields;
+                               return true;
+                           } );
+        };
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id.has_value() ? std::format( "entity {}", entity.id->ToString() )
+                                                          : std::string( "<record without id>" );
+            raise( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    raise( override_.Components, who + " (prefab override)" );
+        }
+        return report;
+    }
 
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
@@ -4947,6 +5102,8 @@ namespace Desert::Migration
 
         // World Partition's own chain, after the scene's: its numbers are its tag's (kWorldPartitionVersion*).
         RunWorldPartitionSteps( scene.Header, report );
+        if ( report.Refused.empty() )
+            RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently
         // (MigrationHeader keeps an existing GUID) - leaving it unstamped is how a load would re-run this.
@@ -4981,7 +5138,8 @@ namespace Desert::Migration
 
         const int foundWorldPartition = Assets::StatedVersion( prefab.Header, Assets::kWorldPartitionSchemaTag );
         if ( outcome.FoundSceneVersion == kSceneVersion && outcome.FoundUnitVersion == kUnitVersion &&
-             foundWorldPartition == Core::kWorldPartitionVersion )
+             foundWorldPartition == Core::kWorldPartitionVersion &&
+             Assets::StatedVersion( prefab.Header, Assets::kAssetRefSchemaTag ) == Core::kAssetRefVersion )
         {
             outcome.AlreadyCurrent = true;
             return outcome;
@@ -5028,6 +5186,8 @@ namespace Desert::Migration
         }
         if ( outcome.Steps.Refused.empty() )
             RunWorldPartitionSteps( prefab.Header, outcome.Steps );
+        if ( outcome.Steps.Refused.empty() )
+            RunAssetRefSteps( prefab.Header, prefab.Entities, assetsRoot, prefab.Name, outcome.Steps );
         if ( !outcome.Steps.Refused.empty() )
         {
             outcome.Refused = outcome.Steps.Refused;

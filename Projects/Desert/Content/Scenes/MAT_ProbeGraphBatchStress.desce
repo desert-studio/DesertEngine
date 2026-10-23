@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "b966c401a84137d2e2e40fd8c38b9f57",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -19,9 +20,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.10000000149011612, 5.0, 30.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_Green.demat"],
-                "MaterialGuids": ["91bde2ac45c15dd230d961a447b6fba7"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "91bde2ac45c15dd230d961a447b6fba7",
+                        "Path": "assets:Materials/CB_Green.demat"
+                    }
+                ]
             }
         },
         {
@@ -23750,7 +23755,10 @@
             },
             "VolumetricCloud": {
                 "Enabled": false,
-                "Material": "assets:Materials/M_Graph_Batch_Stress__1024_cubes__one_graph_material__Clouds.demat",
+                "Material": {
+                    "Guid": "cf96d95df17d5ca88087032a0d2bc1f1",
+                    "Path": "assets:Materials/M_Graph_Batch_Stress__1024_cubes__one_graph_material__Clouds.demat"
+                },
                 "PlanetRadius": 6360.0,
                 "LayerAltitudeOffset": 0.0,
                 "MaxViewDistance": 6000000.0,

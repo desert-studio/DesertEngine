@@ -17,7 +17,7 @@
 //
 // ── WHAT IS BATCHED ──────────────────────────────────────────────────────────────────────────────
 //
-//   * A StaticMesh block naming a mesh asset (MeshGuid/MeshPath) or a Primitive: one instance at the
+//   * A StaticMesh block naming a mesh asset (MeshHandle {Guid, Path}) or a Primitive: one instance at the
 //     record's WORLD matrix (Detail::ComposeWorld, the loader's own composition).
 //   * An InstancedStaticMesh block: each of its instances, whose matrices are WORLD already
 //     (Detail::AppendInstancePoints states why).
@@ -274,13 +274,27 @@ namespace Desert::Core::Rules
                     hlod.NotInstanced.push_back( { index, HLODExclusion::EditorMesh } );
                 else if ( mesh.HiddenSubmeshes.value_or( 0 ) != 0 )
                     hlod.NotInstanced.push_back( { index, HLODExclusion::HiddenSubmeshes } );
-                else if ( mesh.MeshGuid.has_value() || mesh.MeshPath.has_value() || mesh.Primitive.has_value() )
+                else if ( ( mesh.MeshHandle.has_value() &&
+                            ( !mesh.MeshHandle->Guid.empty() || !mesh.MeshHandle->Path.empty() ) ) ||
+                          mesh.Primitive.has_value() )
                 {
+                    // The Static Mesh states {Guid, Path} pairs (asset references v1); the instanced key keeps
+                    // its own GUID / path fields.
                     Assets::InstancedStaticMeshComponentSer key;
-                    key.MeshGuid      = mesh.MeshGuid;
-                    key.MeshPath      = mesh.MeshPath;
-                    key.MaterialGuids = mesh.MaterialGuids;
-                    key.MaterialPaths = mesh.MaterialPaths;
+                    if ( mesh.MeshHandle.has_value() && !mesh.MeshHandle->Guid.empty() )
+                        key.MeshGuid = mesh.MeshHandle->Guid;
+                    if ( mesh.MeshHandle.has_value() && !mesh.MeshHandle->Path.empty() )
+                        key.MeshPath = mesh.MeshHandle->Path;
+                    if ( mesh.MaterialSlots.has_value() && !mesh.MaterialSlots->empty() )
+                    {
+                        key.MaterialGuids = std::vector<std::string>{};
+                        key.MaterialPaths = std::vector<std::string>{};
+                        for ( const Assets::AssetGuidRef& slot : *mesh.MaterialSlots )
+                        {
+                            key.MaterialGuids->push_back( slot.Guid );
+                            key.MaterialPaths->push_back( slot.Path );
+                        }
+                    }
                     key.Primitive     = mesh.Primitive;
                     // Absent = true on both sides; written only when false, as the registry writes it.
                     if ( !mesh.CastShadows.value_or( true ) )

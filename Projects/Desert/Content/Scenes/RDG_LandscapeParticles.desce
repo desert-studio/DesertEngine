@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "d151afad1e7a464c9801bf8086cac8a1",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -139,7 +140,10 @@
                 "ZScale": 1.5625
             },
             "LandscapeMaterial": {
-                "Material": ""
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                }
             }
         },
         {
@@ -163,7 +167,8 @@
             "VFX": {
                 "System": "assets:VFX/RDG_LandscapeParticles_7310021749900001.dfx",
                 "AutoActivate": true,
-                "Overrides": []
+                "Overrides": [],
+                "PointSets": []
             }
         },
         {
@@ -176,7 +181,8 @@
             "VFX": {
                 "System": "assets:VFX/RDG_LandscapeParticles_7310021749900002.dfx",
                 "AutoActivate": true,
-                "Overrides": []
+                "Overrides": [],
+                "PointSets": []
             }
         },
         {

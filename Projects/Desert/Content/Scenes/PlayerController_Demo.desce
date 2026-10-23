@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "dfb12e1e3c0e4e1895f0c968ae4b3a32",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -139,9 +140,13 @@
                 "CollisionProfile": "BlockAll"
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
             }
         },
         {
@@ -175,9 +180,13 @@
                 ]
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
             }
         },
         {
@@ -211,9 +220,13 @@
                 ]
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
             }
         },
         {
@@ -239,9 +252,13 @@
                 "CollisionProfile": "BlockAll"
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
             }
         },
         {
@@ -290,9 +307,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.6000000238418579, 1.7999999523162842, 0.6000000238418579],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Prop.demat"],
-                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
-                "Primitive": "Capsule"
+                "Primitive": "Capsule",
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
             }
         },
         {

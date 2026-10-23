@@ -21,6 +21,11 @@ namespace Desert::Assets
     // another branch is also taking (MIGRATE-SUBSYS; WP17 had to renumber v69 -> v70). Stated by every .desce and
     // .deprefab, as the other two - a prefab's records are a scene's.
     inline constexpr uint32_t kWorldPartitionSchemaTag = Common::Content::FourCC( "WPAR" );
+    // How a component's reflected asset reference is written (Core::kAssetRefVersion), counted under its own tag
+    // as World Partition is (MIGRATE-SUBSYS). v1 (STATICMESH-FORMAT): the Static Mesh's MeshHandle / MaterialSlots
+    // and every reflected Asset<StaticMeshAsset> / Asset<MaterialAsset> field state {Guid, Path}, UE's soft object
+    // reference; the mirror keys MeshGuid / MeshPath / MaterialGuids / MaterialPaths of the Static Mesh are gone.
+    inline constexpr uint32_t kAssetRefSchemaTag = Common::Content::FourCC( "AREF" );
     // A .demat: the material schema, numbered for the first time by AF6f (v1). v2 (AF7c): the payload's
     // MaterialId is gone - the header GUID is the one identity - and an instance names its parent by that
     // GUID (`Parent`), stated again as the header's Dependency. v3 (T6c): every texture and cloud-asset

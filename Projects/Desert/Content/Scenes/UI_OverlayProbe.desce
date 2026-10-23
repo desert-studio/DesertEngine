@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "9c9c08149fc4034cefc3171c96cebec1",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -73,7 +74,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -763,7 +767,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -824,7 +831,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -939,7 +949,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -1086,7 +1099,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -1496,7 +1512,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -2039,7 +2058,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,

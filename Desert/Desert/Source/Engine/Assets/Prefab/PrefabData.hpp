@@ -32,12 +32,17 @@ namespace Desert::Assets
     // asset reference persists BOTH ways:
     //   *Guid  — the asset's header GUID as text (meshes SCNE 28, materials SCNE 27): the identity
     //   *Path  — a locator only: loads the asset when it is not resident, and must hold that GUID's asset
+    //
+    // THE STATIC MESH'S TWO REFERENCES ARE THE REFLECTED FIELDS' OWN KEYS (STATICMESH-FORMAT, asset-reference
+    // format v1 under Assets::kAssetRefSchemaTag): `MeshHandle` {Guid, Path} and `MaterialSlots` [{Guid, Path}],
+    // written and read by Reflection::SerializeReflected / DeserializeReflected as UE saves UPROPERTY StaticMesh
+    // and OverrideMaterials. They are declared here, typed as the file states them, for the readers that take a
+    // record's block raw (HLOD, World Partition rules, WorldGen) and so the scene reader knows the keys; the
+    // component serializer never fills them.
     struct StaticMeshComponentSer
     {
-        std::optional<std::string>                  MeshPath;
-        std::optional<std::string>                  MeshGuid; // mesh header GUID text (SCNE 28)
-        std::optional<std::vector<std::string>>     MaterialPaths;
-        std::optional<std::vector<std::string>>     MaterialGuids; // material header GUID text (SCNE 27)
+        std::optional<AssetGuidRef>                 MeshHandle;
+        std::optional<std::vector<AssetGuidRef>>    MaterialSlots;
         std::optional<Geometry::PrimitiveType>      Primitive;
         // The editor-built mesh, the SOURCE the render mesh is derived from. Schema v22 replaced the v21
         // CustomVertices/CustomIndices render arrays with it (Tools/SceneMigrator, MigrateEditMeshV21ToV22).

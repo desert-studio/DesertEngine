@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "5972fd6ad5294e73a3a217140968e4f6",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -124,9 +125,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [10.0, 0.20000000298023224, 10.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/M_NormalWitness.demat"],
-                "MaterialGuids": ["40e8fc4221d33289cca9e025f87dab0a"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "40e8fc4221d33289cca9e025f87dab0a",
+                        "Path": "assets:Materials/M_NormalWitness.demat"
+                    }
+                ]
             }
         },
         {
@@ -137,9 +142,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [2.200000047683716, 2.200000047683716, 2.200000047683716],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/M_NormalWitness_Glass.demat"],
-                "MaterialGuids": ["f615149db8e94941b31f4825fd5ff50c"],
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MaterialSlots": [
+                    {
+                        "Guid": "f615149db8e94941b31f4825fd5ff50c",
+                        "Path": "assets:Materials/M_NormalWitness_Glass.demat"
+                    }
+                ]
             }
         },
         {
@@ -150,9 +159,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [2.200000047683716, 2.200000047683716, 2.200000047683716],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Glass.demat"],
-                "MaterialGuids": ["02a74d5bec4236c300fc86c6c13a97a8"],
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MaterialSlots": [
+                    {
+                        "Guid": "02a74d5bec4236c300fc86c6c13a97a8",
+                        "Path": "assets:Materials/Starter_Glass.demat"
+                    }
+                ]
             }
         },
         {

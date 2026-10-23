@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "6c3811d1b67d0cd37685fdcb4dd5b97e",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -124,9 +125,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [40.0, 0.20000000298023224, 40.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
             }
         },
         {
@@ -137,9 +142,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/MP_HandUnlit.demat"],
-                "MaterialGuids": ["58b25001fd9a29362681f26b0c4ebf67"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "58b25001fd9a29362681f26b0c4ebf67",
+                        "Path": "assets:Materials/MP_HandUnlit.demat"
+                    }
+                ]
             }
         },
         {
@@ -150,9 +159,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
             }
         },
         {

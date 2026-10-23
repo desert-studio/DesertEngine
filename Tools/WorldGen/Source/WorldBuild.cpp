@@ -215,8 +215,8 @@ namespace Desert::WorldGen
                                      { 0.0f, 0.0f, 0.0f }, BoxScale( spec.CellSizeCm, 50, spec.CellSizeCm ) );
 
                     Assets::StaticMeshComponentSer mesh;
-                    mesh.MaterialPaths              = std::vector<std::string>{ groundMaterial.Path };
-                    mesh.MaterialGuids              = std::vector<std::string>{ groundMaterial.Guid };
+                    mesh.MaterialSlots              = std::vector<Assets::AssetGuidRef>{
+                         Assets::AssetGuidRef{ groundMaterial.Guid, groundMaterial.Path } };
                     mesh.Primitive                  = Geometry::PrimitiveType::Cube;
                     ground.Components["StaticMesh"] = AsBlock( mesh );
                     scene.Entities.push_back( std::move( ground ) );
@@ -295,10 +295,9 @@ namespace Desert::WorldGen
                         else
                         {
                             Assets::StaticMeshComponentSer mesh;
-                            mesh.MeshPath                   = prop.Mesh.Path;
-                            mesh.MeshGuid                   = prop.Mesh.Guid;
-                            mesh.MaterialPaths              = std::vector<std::string>{ prop.Material.Path };
-                            mesh.MaterialGuids              = std::vector<std::string>{ prop.Material.Guid };
+                            mesh.MeshHandle    = Assets::AssetGuidRef{ prop.Mesh.Guid, prop.Mesh.Path };
+                            mesh.MaterialSlots = std::vector<Assets::AssetGuidRef>{
+                                 Assets::AssetGuidRef{ prop.Material.Guid, prop.Material.Path } };
                             entity.Components["StaticMesh"] = AsBlock( mesh );
                         }
                         scene.Entities.push_back( std::move( entity ) );
@@ -357,8 +356,8 @@ namespace Desert::WorldGen
                     Assets::StaticMeshComponentSer mesh;
                     const auto&                    material = buildingMaterials[static_cast<size_t>(
                          Range( Mix( d5 ), 0, static_cast<int>( buildingMaterials.size() ) - 1 ) )];
-                    mesh.MaterialPaths                      = std::vector<std::string>{ material.Path };
-                    mesh.MaterialGuids                      = std::vector<std::string>{ material.Guid };
+                    mesh.MaterialSlots = std::vector<Assets::AssetGuidRef>{ Assets::AssetGuidRef{ material.Guid,
+                                                                                                  material.Path } };
                     mesh.Primitive                          = Geometry::PrimitiveType::Cube;
                     building.Components["StaticMesh"]       = AsBlock( mesh );
                     scene.Entities.push_back( std::move( building ) );

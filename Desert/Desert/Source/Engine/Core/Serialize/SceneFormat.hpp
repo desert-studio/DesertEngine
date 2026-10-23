@@ -125,6 +125,12 @@ namespace Desert::Core
     // v2 HERE, with its step in SceneMigrator's World Partition chain, never a kSceneVersion bump.
     inline constexpr int kWorldPartitionVersion = 1;
 
+    // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
+    // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
+    // named {Guid, Path} by reflected fields, the Static Mesh's references are its reflected MeshHandle /
+    // MaterialSlots. A file stating no tag is v0.
+    inline constexpr int kAssetRefVersion = 1;
+
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator
     // and run it, because nothing converts a file at load any more.
@@ -279,17 +285,20 @@ namespace Desert::Core
     {
         return Assets::StatedVersion( scene.Header, Assets::kSceneSchemaTag ) == kSceneVersion &&
                Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ) == kUnitVersion &&
-               Assets::StatedVersion( scene.Header, Assets::kWorldPartitionSchemaTag ) == kWorldPartitionVersion;
+               Assets::StatedVersion( scene.Header, Assets::kWorldPartitionSchemaTag ) == kWorldPartitionVersion &&
+               Assets::StatedVersion( scene.Header, Assets::kAssetRefSchemaTag ) == kAssetRefVersion;
     }
 
     // The subsystem versions a .desce / .deprefab of this build states, and the reading context built on them.
     [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> SceneTextSubsystems()
     {
-        static const std::array<Common::Content::SubsystemVersion, 3> versions = {
+        static const std::array<Common::Content::SubsystemVersion, 4> versions = {
              Common::Content::SubsystemVersion{ Assets::kSceneSchemaTag, static_cast<uint32_t>( kSceneVersion ) },
              Common::Content::SubsystemVersion{ Assets::kUnitSchemaTag, static_cast<uint32_t>( kUnitVersion ) },
              Common::Content::SubsystemVersion{ Assets::kWorldPartitionSchemaTag,
-                                                static_cast<uint32_t>( kWorldPartitionVersion ) } };
+                                                static_cast<uint32_t>( kWorldPartitionVersion ) },
+             Common::Content::SubsystemVersion{ Assets::kAssetRefSchemaTag,
+                                                static_cast<uint32_t>( kAssetRefVersion ) } };
         return versions;
     }
 
@@ -301,7 +310,8 @@ namespace Desert::Core
     // end for whoever hits it: the file is usually somebody's autosave or a scene saved outside the
     // repository, and they have one action to take.
     [[nodiscard]] std::string RefuseSceneVersion( std::string_view source, int foundSceneVersion,
-                                                  int foundUnitVersion, int foundWorldPartitionVersion );
+                                                  int foundUnitVersion, int foundWorldPartitionVersion,
+                                                  int foundAssetRefVersion );
 
     // Same, read straight off the parsed tree (absent integers become 0 - see SceneIsAtCurrentVersion).
     [[nodiscard]] std::string RefuseSceneVersion( std::string_view source, const SceneSerialized& scene );

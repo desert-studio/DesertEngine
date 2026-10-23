@@ -429,6 +429,34 @@ namespace Desert::Migration
     //       records are a scene's, so it states the same three tags.
     inline constexpr int kWorldPartitionVersionTagged = 1;
 
+    // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
+    // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
+    //
+    //   1 - STATIC MESHES AND MATERIALS BY {Guid, Path} (STATICMESH-FORMAT). The Static Mesh block's MeshGuid +
+    //       MeshPath become its reflected `MeshHandle` {Guid, Path} and MaterialGuids + MaterialPaths its
+    //       `MaterialSlots` [{Guid, Path}] (the GUIDs the file already states); every reflected material field
+    //       stated as a bare key (LandscapeMaterial.Material, VolumetricCloud.Material,
+    //       Destructible.InteriorMaterial, UIPanel.Material) becomes {Guid, Path}, the GUID read from the
+    //       `.demat` header. Records and prefab overrides alike. MigrateReflectedAssetRefsV0ToV1.
+    inline constexpr int kAssetRefVersionReflected = 1;
+
+    static_assert( kAssetRefVersionReflected == Core::kAssetRefVersion,
+                   "the last asset-reference step and the engine's required asset-reference version must be the "
+                   "same generation - raise Core::kAssetRefVersion in Engine/Core/Serialize/SceneFormat.hpp" );
+
+    // What MigrateReflectedAssetRefsV0ToV1 did to one file.
+    struct ReflectedAssetRefsReport
+    {
+        std::size_t              MeshBlocks     = 0; // Static Mesh blocks (records and overrides) restated
+        std::size_t              MaterialFields = 0; // bare material keys restated as {Guid, Path}
+        std::vector<std::string> Refused;            // a material file with no header GUID, or a wrong shape
+    };
+
+    // Restates the reflected static-mesh and material references as {Guid, Path} (kAssetRefVersionReflected).
+    // `assetsRoot` locates the `.demat` an "assets:" key names. Reads files; writes none.
+    ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
+                                                              const std::filesystem::path&     assetsRoot );
+
     static_assert(
          kWorldPartitionVersionTagged == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
@@ -1097,6 +1125,10 @@ namespace Desert::Migration
         // World Partition's chain (keyed by the WPAR number the file states, not the scene number).
         int         StatedWorldPartitionVersion = 0; // what the file stated under kWorldPartitionSchemaTag
         bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
+        // The asset-reference chain (keyed by the AREF number the file states).
+        int                      StatedAssetRefVersion = 0;
+        bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
+        ReflectedAssetRefsReport ReflectedAssetRefs;
         std::size_t RootSiblingIndexDropped = 0;     // root records that lost their siblingIndex
 
         bool                      AssetKeysRaised = false; // below kSceneVersionAssetKeys
@@ -1145,7 +1177,7 @@ namespace Desert::Migration
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
-                   RootSiblingIndexRaised || WorldPartitionTagRaised;
+                   RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised;
         }
     };
 

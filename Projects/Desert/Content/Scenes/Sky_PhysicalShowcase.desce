@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "cc502b887e2379e9375a4adfdd6c90ba",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -19,9 +20,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4000.0, 0.20000000298023224, 4000.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {
@@ -198,9 +203,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [6.0, 6.0, 6.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {
@@ -211,9 +220,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [15.0, 15.0, 15.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {
@@ -224,9 +237,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [27.0, 27.0, 27.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {
@@ -237,9 +254,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [42.0, 42.0, 42.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {
@@ -250,9 +271,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [57.0, 57.0, 57.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         }
     ],

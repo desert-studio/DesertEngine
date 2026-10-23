@@ -163,8 +163,9 @@ namespace Desert::ECS
     // UE's UStaticMeshComponent: the two authored references (UPROPERTY StaticMesh, OverrideMaterials) are
     // REFLECTED, so Details draws the mesh row from them and DesertCtl `set` addresses them (StaticMesh.MeshHandle,
     // StaticMesh.MaterialSlots[0]); an edit re-states what depends on them through ECS::PostEditStaticMesh (UE
-    // PostEditChangeProperty). On disk they are still the mirror's MeshGuid/MeshPath + MaterialGuids/MaterialPaths
-    // (Assets::StaticMeshComponentSer), read by World Partition, HLOD and WorldGen from raw records as well.
+    // PostEditChangeProperty). On disk they are these two fields' own keys, written by reflection as {Guid, Path}
+    // (asset references v1, Assets::kAssetRefSchemaTag); World Partition, HLOD and WorldGen read the same keys from
+    // raw records through Assets::StaticMeshComponentSer.
     struct StaticMeshComponent
     {
         REFLECT()

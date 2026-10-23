@@ -553,6 +553,11 @@ namespace
         if ( report.WorldPartitionTagRaised )
             out << " world partition v" << report.StatedWorldPartitionVersion << "->v"
                 << Desert::Migration::kWorldPartitionVersionTagged << " (the WPAR tag is stated)";
+        if ( report.ReflectedAssetRefsRaised )
+            out << " asset references v" << report.StatedAssetRefVersion << "->v"
+                << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks
+                << " Static Mesh block(s) and " << report.ReflectedAssetRefs.MaterialFields
+                << " material field(s) restated as {Guid, Path})";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

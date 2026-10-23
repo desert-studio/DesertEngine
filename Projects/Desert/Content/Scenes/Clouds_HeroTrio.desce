@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "ad1f89214ca4d8f020379dabf20058b1",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -307,7 +308,10 @@
             },
             "VolumetricCloud": {
                 "Enabled": true,
-                "Material": "assets:Materials/M_Clouds_HeroTrio_Clouds.demat",
+                "Material": {
+                    "Guid": "138b37aa7370d14ffe297abc9a6ac336",
+                    "Path": "assets:Materials/M_Clouds_HeroTrio_Clouds.demat"
+                },
                 "PlanetRadius": 6360.0,
                 "LayerAltitudeOffset": 0.0,
                 "MaxViewDistance": 6000000.0,
@@ -370,9 +374,13 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4000.0, 20.0, 4000.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/M_CheckerFloor.demat"],
-                "MaterialGuids": ["45d579b03cc0d0a8df2e4cb025d6bea5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MaterialSlots": [
+                    {
+                        "Guid": "45d579b03cc0d0a8df2e4cb025d6bea5",
+                        "Path": "assets:Materials/M_CheckerFloor.demat"
+                    }
+                ]
             }
         },
         {

@@ -3,6 +3,7 @@
         "Kind": "Scene",
         "Guid": "a818816ace4cfcadaec60e24855458b8",
         "Versions": {
+            "AREF": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -134,7 +135,8 @@
             "VFX": {
                 "System": "assets:VFX/Particle_World-Space_Probe_2001.dfx",
                 "AutoActivate": true,
-                "Overrides": []
+                "Overrides": [],
+                "PointSets": []
             }
         },
         {
