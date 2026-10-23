@@ -24,9 +24,11 @@ Shader "AEAverage"
         // host-readable copy, read FramesInFlight frames later (AutoExposureRenderer::ReadBackAdaptedLuminance).
         // y = 1 marks a written value; z = this frame's measured luminance before the clamp and the adaptation
         // (-1 = empty histogram), w = the histogram's sample count — the read-back's trace says WHY x is what it is.
+        // ReadbackLocal.x = AverageLocalExposure (UE PostProcessEyeAdaptation.usf:202-248; 1 at identity).
         Buffer(4) Readback
         {
             vec4 ReadbackData;
+            vec4 ReadbackLocal;
         };
 
         PushConstant PushConstants
@@ -39,7 +41,15 @@ Shader "AEAverage"
             float LogLuminanceRange;
             float LowPercent;  // discard this fraction of the darkest samples
             float HighPercent; // keep up to this cumulative fraction (discard the brightest tail above it)
+            vec4  LocalExposureContrast;  // highlight, shadow, detail (0: a bucket is its own base), enabled
+            vec4  LocalExposureThreshold; // hi thr, sh thr, hi strength, sh strength
+            float LocalExposureLogMiddleGrey;
+            float ExposureKey;
+            float Pad0;
+            float Pad1;
         };
+
+        #include <Common/LocalExposure.glslh>
 
         void main()
         {
@@ -88,6 +98,27 @@ Shader "AEAverage"
             float adapted = mix( prev, avgLum, 1.0 - exp( -DeltaTime * AdaptationSpeed ) );
             imageStore( OutLuminanceTexture, ivec2( 0 ), vec4( adapted, 0.0, 0.0, 1.0 ) );
             ReadbackData = vec4( adapted, 1.0, measured, float( total ) );
+
+            // UE's AverageLocalExposure: every bucket treated as its own base layer (detail 0), exposed by this
+            // frame's adapted exposure, averaged by sample count.
+            float averageLocalExposure = 1.0;
+            if ( LocalExposureContrast.w > 0.5 && total > 0u )
+            {
+                const float logExposure = log2( ExposureKey / max( adapted, 1e-4 ) );
+                float sum = 0.0;
+                for ( int i = 0; i < 256; ++i )
+                {
+                    const float c = float( Bins[i] );
+                    if ( c <= 0.0 )
+                        continue;
+                    const float logLum = MinLogLuminance + ( float( i ) / 255.0 ) * LogLuminanceRange + logExposure;
+                    sum += c * exp2( LocalExposureLogExposure( logLum, logLum, LocalExposureLogMiddleGrey,
+                                                               vec4( LocalExposureContrast.xy, 0.0, 0.0 ),
+                                                               LocalExposureThreshold ) );
+                }
+                averageLocalExposure = sum / float( total );
+            }
+            ReadbackLocal = vec4( averageLocalExposure, 0.0, 0.0, 0.0 );
         }
     }
 }

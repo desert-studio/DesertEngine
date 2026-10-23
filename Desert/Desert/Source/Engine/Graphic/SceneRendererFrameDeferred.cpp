@@ -833,7 +833,10 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
-                                         static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
+                                         m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure
+                                              ? 0 // a post view mode: the lighting draws Lit
+                                              : static_cast<int>( m_DebugView.DeferredDebug ),
+                                         pointCount, spotCount,
                                          shadow, compositeGI, m_EnableSSAO, cloudShadow, environment,
                                          frame.JitteredViewProjection );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
