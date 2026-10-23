@@ -402,7 +402,7 @@ namespace Desert::Editor
                          "DDS pixel format DXGI_FORMAT {} (DX10) is not a supported texture source "
                          "(BC1-BC7, R8G8B8A8/B8G8R8A8/B8G8R8X8, R16G16B16A16 UNORM/FLOAT, R32G32B32A32_FLOAT)",
                          dxgi ) );
-                format->Name += " (DX10)";
+                format->Name = std::format( "{} (DX10)", format->Name );
             }
             else if ( ( pfFlags & kPixelFormatFourCC ) != 0 )
             {

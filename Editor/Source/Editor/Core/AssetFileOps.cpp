@@ -3,6 +3,7 @@
 #include <Common/Content/ImportRecord.hpp>
 
 #include <filesystem>
+#include <format>
 
 namespace Desert::Editor::AssetFileOps
 {
@@ -49,7 +50,7 @@ namespace Desert::Editor::AssetFileOps
             return first;
         for ( int i = 2; i < 100000; ++i )
         {
-            const std::string candidate = stem + " " + std::to_string( i ) + ext;
+            const std::string candidate = std::format( "{} {}{}", stem, i, ext );
             if ( !exists( candidate ) )
                 return candidate;
         }

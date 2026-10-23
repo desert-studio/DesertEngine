@@ -30,6 +30,7 @@
 
 #include <glm/gtc/epsilon.hpp>
 
+#include <format>
 #include <functional>
 #include <optional>
 #include <unordered_map>
@@ -790,7 +791,7 @@ namespace Desert::Editor::Commands
                     return m_Label;
                 if ( m_Commands.size() == 1 )
                     return m_Commands.front()->GetLabel();
-                return "Grouped edit (" + std::to_string( m_Commands.size() ) + ")";
+                return std::format( "Grouped edit ({})", m_Commands.size() );
             }
 
             bool Undo() override
@@ -932,7 +933,7 @@ namespace Desert::Editor::Commands
 
             std::string GetLabel() const override
             {
-                return m_Roots.size() > 1 ? "Create (" + std::to_string( m_Roots.size() ) + ")" : "Create";
+                return m_Roots.size() > 1 ? std::format( "Create ({})", m_Roots.size() ) : "Create";
             }
 
             bool Undo() override
@@ -1131,7 +1132,7 @@ namespace Desert::Editor::Commands
         {
             auto& tag = duplicate.GetComponent<ECS::TagComponent>().Tag;
             if ( tag.find( " Copy" ) == std::string::npos )
-                tag += " Copy";
+                tag = std::format( "{} Copy", tag );
         }
 
         const Common::UUID duplicateId = UUIDOf( duplicate );
@@ -1159,7 +1160,7 @@ namespace Desert::Editor::Commands
             {
                 auto& tag = duplicate.GetComponent<ECS::TagComponent>().Tag;
                 if ( tag.find( " Copy" ) == std::string::npos )
-                    tag += " Copy";
+                    tag = std::format( "{} Copy", tag );
             }
             duplicates.push_back( UUIDOf( duplicate ) );
         }
@@ -1296,7 +1297,10 @@ namespace Desert::Editor::Commands
                                                              static_cast<uint64_t>( uuid ) );
         const Common::UUID copyId = UUIDOf( copy );
         if ( copy.HasComponent<ECS::TagComponent>() )
-            copy.GetComponent<ECS::TagComponent>().Tag += " Half";
+        {
+            std::string& tag = copy.GetComponent<ECS::TagComponent>().Tag;
+            tag              = std::format( "{} Half", tag );
+        }
         if ( auto set = ECS::SetEditableMesh( copy.GetComponent<ECS::StaticMeshComponent>(), otherHalf );
              !set.IsSuccess() )
         {
@@ -1854,8 +1858,8 @@ namespace Desert::Editor::Commands
             // from "these two cubes are different cubes".
             std::string message = planned.GetError();
             if ( withoutAMesh > 0 )
-                message += " (" + std::to_string( withoutAMesh ) + " of the " + std::to_string( uuids.size() ) +
-                           " selected carry no static mesh)";
+                message = std::format( "{} ({} of the {} selected carry no static mesh)", message, withoutAMesh,
+                                       uuids.size() );
             return Common::MakeError<Common::UUID>( message );
         }
         const FoldPlan& plan = planned.GetValue();
@@ -1865,7 +1869,7 @@ namespace Desert::Editor::Commands
         std::string name = "Instanced Mesh";
         if ( auto first = FindEntity( plan.Sources.front() ); first && first->HasComponent<ECS::TagComponent>() )
             name = first->GetComponent<ECS::TagComponent>().Tag;
-        name += " x" + std::to_string( plan.InstanceTransforms.size() );
+        name = std::format( "{} x{}", name, plan.InstanceTransforms.size() );
 
         auto composite = std::make_unique<CompositeCommand>();
         for ( const Common::UUID& source : plan.Sources )

@@ -48,6 +48,7 @@
 #include <unordered_map>
 #include <vector>
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Editor/Core/TextList.hpp>
 
 namespace Desert::Editor
 {
@@ -1766,26 +1767,22 @@ namespace Desert::Editor
         if ( !object )
             return {};
 
-        std::string out;
-        int         used = 0;
+        std::vector<std::string> facts;
         for ( const auto& field : type.Fields )
         {
             if ( !field.Meta.Summary || field.Meta.Hidden )
                 continue;
 
-            const std::string value = FormatSummaryValue( object, field );
+            std::string value = FormatSummaryValue( object, field );
             if ( value.empty() )
                 continue;
-
-            if ( !out.empty() )
-                out += "  \xE2\x80\xA2  "; // bullet
-            out += value;
+            facts.push_back( std::move( value ) );
 
             // Three facts is what fits beside a header before it turns into a second panel.
-            if ( ++used == 3 )
+            if ( facts.size() == 3 )
                 break;
         }
-        return out;
+        return TextTemplates::JoinList( facts, "  \xE2\x80\xA2  " ); // bullet
     }
 
     bool PropertyEditorBuilder::DrawPinnedRow( void* object, const TypeInfo& type, const FieldInfo& field,

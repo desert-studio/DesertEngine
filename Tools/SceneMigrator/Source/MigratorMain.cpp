@@ -456,14 +456,14 @@ namespace
         }
         Content::MeshBinaryFileHeader header{};
         if ( bytes.size() < sizeof( header ) )
-            return Fail( "is " + std::to_string( bytes.size() ) + " bytes, shorter than a mesh header" );
+            return Fail( std::format( "is {} bytes, shorter than a mesh header", bytes.size() ) );
         std::memcpy( &header, bytes.data(), sizeof( header ) );
         if ( header.ByteOrder != Content::kMeshBinaryByteOrderTag )
             return Fail( "is a cooked mesh of the other byte order; re-cook it on this host" );
         if ( header.Version != Content::kMeshBinaryVersion )
-            return Fail( "is mesh version " + std::to_string( header.Version ) + "; this tool reads only v" +
-                         std::to_string( Content::kMeshBinaryVersion ) +
-                         " (older cooked meshes are not supported - re-cook it from its source)" );
+            return Fail( std::format( "is mesh version {}; this tool reads only v{} (older cooked meshes are not "
+                                      "supported - re-cook it from its source)",
+                                      header.Version, Content::kMeshBinaryVersion ) );
         return Common::MakeSuccess( header.Version );
     }
 
@@ -963,8 +963,8 @@ namespace Desert::Migration
             if ( stated != static_cast<int>( Desert::Assets::kShaderSchemaVersion ) )
             {
                 err << "FAIL   " << path.string() << " — "
-                    << ( header ? "states SHDR " + std::to_string( stated ) + "; this tool reads SHDR " +
-                                       std::to_string( Desert::Assets::kShaderSchemaVersion )
+                    << ( header ? std::format( "states SHDR {}; this tool reads SHDR {}", stated,
+                                               Desert::Assets::kShaderSchemaVersion )
                                 : header.GetError() )
                     << "\n";
                 ++failed;
