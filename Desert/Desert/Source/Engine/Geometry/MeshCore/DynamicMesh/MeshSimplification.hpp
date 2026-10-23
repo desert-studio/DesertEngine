@@ -11,9 +11,10 @@
 // reprojection and the geometric-error tolerance (no projection target), the V2 attribute quadric, regularization
 // and the custom scale functions (UE's defaults leave them off), RemoveIsolatedTriangle, the change tracker and
 // cancellation.
-// Attribute-Aware (UE FAttrMeshSimplification = TMeshSimplification<FAttrBasedQuadricErrord>, SimplifyMeshOp.cpp:274-293):
-// the same simplifier over QuadricError.h:304-420 TVolPresQuadricError + :493-800 TAttrBasedQuadricError, with
-// MeshSimplification.cpp:58-97 ComputeFaceQuadric and :2366-2402 UpdateVertexAttributes specialised for it.
+// Attribute-Aware (UE FAttrMeshSimplification = TMeshSimplification<FAttrBasedQuadricErrord>,
+// SimplifyMeshOp.cpp:274-293): the same simplifier over QuadricError.h:304-420 TVolPresQuadricError + :493-800
+// TAttrBasedQuadricError, with MeshSimplification.cpp:58-97 ComputeFaceQuadric and :2366-2402
+// UpdateVertexAttributes specialised for it.
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshConstraints.hpp"
@@ -46,12 +47,15 @@ namespace Desert::Geometry
         // The minimiser of Evaluate, when A is invertible past @p minThresh (UE: 1000 * double epsilon).
         [[nodiscard]] bool OptimalPoint( glm::dvec3& out,
                                          double      minThresh = 1000.0 * 2.220446049250313e-16 ) const;
-        void               AddSeam( const QuadricErrord& seam ) { Add( 1.0, seam ); }
+        void               AddSeam( const QuadricErrord& seam )
+        {
+            Add( 1.0, seam );
+        }
     };
 
-    // TAttrBasedQuadricError<double> (over TVolPresQuadricError): the plane quadric plus, per normal component, the
-    // linear gradient interpolating that component over the face (weighted AttrWeight), so a collapse pays for the
-    // normal it would have to bend; the optimal point keeps the enclosed volume. ComputeAttributes reads the
+    // TAttrBasedQuadricError<double> (over TVolPresQuadricError): the plane quadric plus, per normal component,
+    // the linear gradient interpolating that component over the face (weighted AttrWeight), so a collapse pays for
+    // the normal it would have to bend; the optimal point keeps the enclosed volume. ComputeAttributes reads the
     // normal the quadric predicts at a point (the collapsed vertex's new normal).
     struct AttrQuadricErrord
     {
@@ -70,7 +74,10 @@ namespace Desert::Geometry
 
         void Add( double weight, const AttrQuadricErrord& other );
         // AddSeamQuadric: a seam quadric holds position only.
-        void                     AddSeam( const QuadricErrord& seam ) { Base.Add( 1.0, seam ); }
+        void AddSeam( const QuadricErrord& seam )
+        {
+            Base.Add( 1.0, seam );
+        }
         [[nodiscard]] double     Evaluate( const glm::dvec3& point ) const;
         [[nodiscard]] glm::dvec3 ComputeAttributes( const glm::dvec3& point ) const;
         [[nodiscard]] bool       OptimalPoint( glm::dvec3& out,

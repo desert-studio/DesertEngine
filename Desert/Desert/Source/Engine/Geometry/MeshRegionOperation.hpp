@@ -132,15 +132,16 @@ namespace Desert::Geometry
     //   Simplifier Type (UE SimplifierType) - Standard (FQEMSimplification: position quadric only; the kept
     //   normal overlay is rebuilt from the collapsed surface) or Attribute-Aware (FAttrMeshSimplification: each
     //   face quadric also carries the linear field of its corner normals, so a collapse pays for bending them, the
-    //   collapse point keeps the volume, and a collapsed vertex takes the normal the quadric predicts - the overlay
-    //   is NOT rebuilt). One simplifier (QemSimplificationT) over the two quadric types, as in UE.
+    //   collapse point keeps the volume, and a collapsed vertex takes the normal the quadric predicts - the
+    //   overlay is NOT rebuilt). One simplifier (QemSimplificationT) over the two quadric types, as in UE.
     enum class SimplifierType : uint8_t
     {
         Standard,
         AttributeAware,
     };
-    [[nodiscard]] const char* ToString( SimplifierType type );
-    inline constexpr SimplifierType kSimplifierTypes[] = { SimplifierType::Standard, SimplifierType::AttributeAware };
+    [[nodiscard]] const char*       ToString( SimplifierType type );
+    inline constexpr SimplifierType kSimplifierTypes[] = { SimplifierType::Standard,
+                                                           SimplifierType::AttributeAware };
 
     enum class SimplifyTarget : uint8_t
     {

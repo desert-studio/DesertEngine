@@ -415,7 +415,8 @@ namespace Desert::Geometry
         // SimplifyMeshOp.cpp ComputeSimplify: the same setup and target for either simplifier type.
         template <typename Simplifier>
         int RunSimplifier( DynamicMesh3& mesh, const BoundaryConstraintFlags& flags, MeshConstraints constraints,
-                           SimplifyTarget mode, int target, float targetEdgeLength, const glm::dmat4& localToWorld )
+                           SimplifyTarget mode, int target, float targetEdgeLength,
+                           const glm::dmat4& localToWorld )
         {
             Simplifier simplifier( mesh );
             simplifier.Boundaries = flags;
@@ -495,7 +496,8 @@ namespace Desert::Geometry
         if ( settings.DiscardAttributes )
             mesh.DiscardAttributes();
         const bool attributeAware = settings.Simplifier == SimplifierType::AttributeAware;
-        // SimplifyMeshOp.cpp:278-281: the attribute quadric needs normals - a mesh without them gets per-vertex ones.
+        // SimplifyMeshOp.cpp:278-281: the attribute quadric needs normals - a mesh without them gets per-vertex
+        // ones.
         if ( attributeAware && !mesh.HasAttributes() )
         {
             mesh.EnableAttributes();
@@ -516,20 +518,21 @@ namespace Desert::Geometry
         MeshConstraints constraints;
         ConstrainAllBoundariesAndSeams( constraints, mesh, flags );
         const size_t      constrained = constraints.EdgeConstraintCount();
-        const int collapses =
-             attributeAware ? RunSimplifier<AttrMeshSimplification>( mesh, flags, std::move( constraints ), mode,
-                                                                      target, settings.TargetEdgeLength, localToWorld )
-                            : RunSimplifier<QemSimplification>( mesh, flags, std::move( constraints ), mode, target,
-                                                                settings.TargetEdgeLength, localToWorld );
+        const int         collapses =
+             attributeAware
+                          ? RunSimplifier<AttrMeshSimplification>( mesh, flags, std::move( constraints ), mode, target,
+                                                                   settings.TargetEdgeLength, localToWorld )
+                          : RunSimplifier<QemSimplification>( mesh, flags, std::move( constraints ), mode, target,
+                                                              settings.TargetEdgeLength, localToWorld );
         // A command without an effect leaves no undo step (see WeldEdges).
         if ( collapses == 0 )
             return Common::MakeFormattedError<DeformOutcome>(
                  "Simplify: no edge could collapse ({} of {} edges constrained by borders and seams{})",
                  constrained, input.EdgeCount(),
                  mode == SimplifyTarget::EdgeLength ? ", or none shorter than the target" : "" );
-        // Standard: the normals follow the collapsed surface - discarded attributes come back as a per-vertex normal
-        // overlay only (UE), a kept overlay is recomputed (its split elements keep the hard edges). Attribute-Aware
-        // keeps the normals its quadric carried through the collapses.
+        // Standard: the normals follow the collapsed surface - discarded attributes come back as a per-vertex
+        // normal overlay only (UE), a kept overlay is recomputed (its split elements keep the hard edges).
+        // Attribute-Aware keeps the normals its quadric carried through the collapses.
         if ( !attributeAware && !mesh.HasAttributes() )
         {
             mesh.EnableAttributes();
@@ -547,9 +550,9 @@ namespace Desert::Geometry
             return Common::MakeError<DeformOutcome>( tangents.GetError() );
         DeformOutcome outcome;
         outcome.MovedVertices = mesh.VertexCount();
-        outcome.Report        = std::format( "Simplify: {} -> {} triangles ({} collapses, {}, {})", triangles,
-                                             mesh.TriangleCount(), collapses, ToString( mode ),
-                                             ToString( settings.Simplifier ) );
+        outcome.Report =
+             std::format( "Simplify: {} -> {} triangles ({} collapses, {}, {})", triangles, mesh.TriangleCount(),
+                          collapses, ToString( mode ), ToString( settings.Simplifier ) );
         outcome.Mesh          = std::move( mesh );
         return Common::MakeSuccess( std::move( outcome ) );
     }

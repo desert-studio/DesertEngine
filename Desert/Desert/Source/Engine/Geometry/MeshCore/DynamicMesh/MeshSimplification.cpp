@@ -74,7 +74,6 @@ namespace Desert::Geometry
         return true;
     }
 
-
     // ---- QuadricError.h: TVolPresQuadricError + TAttrBasedQuadricError ----
 
     namespace
@@ -107,8 +106,9 @@ namespace Desert::Geometry
 
     // QuadricError.h:501-582: each normal component is a linear field over the face, g.p + d, solved from the
     // basis (p2 - p0, p1 - p0, n); its square joins the plane quadric. A degenerate face averages the attribute.
-    AttrQuadricErrord::AttrQuadricErrord( const glm::dvec3 p[3], const glm::dvec3 n[3], const glm::dvec3& faceNormal,
-                                          const glm::dvec3& centre, double attrWeight )
+    AttrQuadricErrord::AttrQuadricErrord( const glm::dvec3 p[3], const glm::dvec3 n[3],
+                                          const glm::dvec3& faceNormal, const glm::dvec3& centre,
+                                          double attrWeight )
          : Base( faceNormal, centre ), PlaneN( faceNormal ), PlaneDist( -glm::dot( faceNormal, centre ) ),
            AttrWeight( attrWeight )
     {
@@ -325,7 +325,7 @@ namespace Desert::Geometry
         glm::dvec3 centroid( 0.0 );
         m_Mesh.GetTriInfo( tri, normal, area, centroid );
         const DynamicMeshAttributeSet*  attributes = m_Mesh.Attributes();
-        const DynamicMeshNormalOverlay* overlay    = attributes != nullptr ? attributes->PrimaryNormals() : nullptr;
+        const DynamicMeshNormalOverlay* overlay = attributes != nullptr ? attributes->PrimaryNormals() : nullptr;
         glm::dvec3                      n[3]{ normal, normal, normal };
         if ( overlay != nullptr && overlay->IsSetTriangle( tri ) )
         {
@@ -505,7 +505,7 @@ namespace Desert::Geometry
         for ( const int edge : m_Mesh.EdgeIndicesItr() )
         {
             const DynamicMesh3::Edge e     = m_Mesh.GetEdge( edge );
-            const QuadricT      q     = AssembleEdgeQuadric( e );
+            const QuadricT           q     = AssembleEdgeQuadric( e );
             const glm::dvec3         point = OptimalPoint( edge, q, e.Vert.A, e.Vert.B );
             m_EdgeQuadrics[edge]           = { q, point };
             errors.push_back( { static_cast<float>( q.Evaluate( point ) ), edge } );
@@ -594,7 +594,8 @@ namespace Desert::Geometry
     // TMeshSimplification::CanCollapseEdge (MeshSimplification.cpp:1735-1760): an end touching a side edge that
     // may not merge topology (NoTopologyMerge) is kept; a seam or a free mesh border only forbids flips.
     template <typename QuadricT>
-    bool QemSimplificationT<QuadricT>::CanCollapseEdge( int a, int b, int c, int d, int tc, int td, int& collapseTo ) const
+    bool QemSimplificationT<QuadricT>::CanCollapseEdge( int a, int b, int c, int d, int tc, int td,
+                                                        int& collapseTo ) const
     {
         collapseTo = -1;
         if ( !m_Constraints )
@@ -634,8 +635,8 @@ namespace Desert::Geometry
     // (MeshRefinerBase.h:157-166): tolerance 0 compares the raw cross products, any other tolerance the unit
     // normals.
     template <typename QuadricT>
-    bool QemSimplificationT<QuadricT>::CreatesFlipOrInvalid( int vertex, int other, const glm::dvec3& newPosition, int tc,
-                                                  int td ) const
+    bool QemSimplificationT<QuadricT>::CreatesFlipOrInvalid( int vertex, int other, const glm::dvec3& newPosition,
+                                                             int tc, int td ) const
     {
         glm::dvec3 va( 0.0 );
         glm::dvec3 vb( 0.0 );
@@ -669,8 +670,8 @@ namespace Desert::Geometry
     // squared doubled area drops below TinyTriangleThreshold (SMALL_NUMBER) refuses the collapse, unless it was
     // already tiny.
     template <typename QuadricT>
-    bool QemSimplificationT<QuadricT>::CreatesTinyTriangle( int vertex, int other, const glm::dvec3& newPosition, int tc,
-                                                 int td ) const
+    bool QemSimplificationT<QuadricT>::CreatesTinyTriangle( int vertex, int other, const glm::dvec3& newPosition,
+                                                            int tc, int td ) const
     {
         constexpr double kTinyTriangleThreshold = 1e-8;
         for ( const int tri : m_Mesh.VtxTrianglesItr( vertex ) )
@@ -721,8 +722,8 @@ namespace Desert::Geometry
     // across the surface: a fin. Its normal turns by about 90 degrees (the flip check wants 180) and it has area
     // (the tiny check wants none), so it is refused here. A true corner may still be cut off.
     template <typename QuadricT>
-    bool QemSimplificationT<QuadricT>::CreatesFin( int vertex, int other, const glm::dvec3& newPosition, int c, int d, int tc,
-                                        int td ) const
+    bool QemSimplificationT<QuadricT>::CreatesFin( int vertex, int other, const glm::dvec3& newPosition, int c,
+                                                   int d, int tc, int td ) const
     {
         // cos of the angle between the two constrained sides, below which m counts as straight (about 143 deg).
         // Measured on the per-triangle cube-sphere (every edge a seam): -0.7 .. -0.85 leave 0 fins and reach the
@@ -798,8 +799,9 @@ namespace Desert::Geometry
     }
 
     template <typename QuadricT>
-    typename QemSimplificationT<QuadricT>::CollapseResult QemSimplificationT<QuadricT>::CollapseEdge( int edge, glm::dvec3 newPosition,
-                                                                       DynamicMeshInfo::EdgeCollapseInfo& info )
+    typename QemSimplificationT<QuadricT>::CollapseResult
+    QemSimplificationT<QuadricT>::CollapseEdge( int edge, glm::dvec3 newPosition,
+                                                DynamicMeshInfo::EdgeCollapseInfo& info )
     {
         if ( m_Constraints )
         {
@@ -882,7 +884,8 @@ namespace Desert::Geometry
     }
 
     template <typename QuadricT>
-    void QemSimplificationT<QuadricT>::UpdateNeighborhood( int collapsedEdge, const DynamicMeshInfo::EdgeCollapseInfo& info )
+    void QemSimplificationT<QuadricT>::UpdateNeighborhood( int                                      collapsedEdge,
+                                                           const DynamicMeshInfo::EdgeCollapseInfo& info )
     {
         const int kept = info.KeptVertex;
         // MeshSimplification.cpp:786-870: the kept edges carry a seam quadric exactly when they are constrained,
@@ -954,7 +957,7 @@ namespace Desert::Geometry
         for ( const int edge : edges )
         {
             const DynamicMesh3::Edge e     = m_Mesh.GetEdge( edge );
-            const QuadricT      q     = AssembleEdgeQuadric( e );
+            const QuadricT           q     = AssembleEdgeQuadric( e );
             const glm::dvec3         point = OptimalPoint( edge, q, e.Vert.A, e.Vert.B );
             const auto               error = static_cast<float>( q.Evaluate( point ) );
             m_EdgeQuadrics[edge]           = { q, point };
