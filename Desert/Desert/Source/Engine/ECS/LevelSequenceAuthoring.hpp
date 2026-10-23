@@ -204,6 +204,23 @@ namespace Desert::ECS
                                                             const Animation::Timeline::BindingGuid& binding,
                                                             bool                                    current );
 
+    /// The Property of an actor's VFX track (UE: the Niagara System track on a Niagara component).
+    inline constexpr const char* kLevelSequenceVFXProperty = "VFX";
+
+    /**
+     * @brief Add a VFX track to @p binding with ONE life-cycle section over [@p start, @p end] (UE: "+ Track ▸
+     * Niagara System" adds the system track with its spawn section). Refuses a binding that is not an Entity
+     * binding of this sequence, one that already has the track, and an empty range; whatever `Validate`
+     * refuses leaves the sequence as it was. Revision++.
+     */
+    [[nodiscard]] Common::BoolResultStr AddVFXTrack( Animation::Timeline::Sequence&          sequence,
+                                                     const Animation::Timeline::BindingGuid& binding,
+                                                     Animation::FrameNumber start, Animation::FrameNumber end );
+
+    /// Whether @p binding has a VFX track — the Sequencer offers "+ Track ▸ VFX" only where not.
+    [[nodiscard]] bool HasVFXTrack( const Animation::Timeline::Sequence&    sequence,
+                                    const Animation::Timeline::BindingGuid& binding );
+
     /// Whether @p binding has a Visibility track — the Sequencer offers "+ Track ▸ Visibility" only where not.
     [[nodiscard]] bool HasVisibilityTrack( const Animation::Timeline::Sequence&    sequence,
                                            const Animation::Timeline::BindingGuid& binding );
@@ -446,6 +463,8 @@ namespace Desert::ECS
             Animation::FrameTime            Tick;
             bool                            Loop    = true;
             bool                            Playing = true;
+            bool                            HadVFX  = false;
+            std::optional<VFXSequencerDrive> Drive; ///< the effect's drive before the preview (nullopt = free)
         };
         std::vector<Saved> m_Saved;
         /// A material parameter override as it was before the first scrub wrote it (nullopt = none: dropped).

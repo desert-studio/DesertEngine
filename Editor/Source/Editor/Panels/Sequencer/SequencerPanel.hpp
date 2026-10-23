@@ -221,6 +221,8 @@ namespace Desert::Editor
         /// "+ Track ▸ Visibility" on any actor: the Bool "Visible" track, keyed at the range start with the
         /// actor's current visibility (ECS::AddVisibilityTrack), one undo step.
         void AddLevelVisibilityTrack( const Animation::Timeline::BindingGuid& binding );
+        /// "+ Track ▸ VFX" on an actor with a VFX component: one life-cycle section from the playhead to the end.
+        void AddLevelVFXTrack( const Animation::Timeline::BindingGuid& binding );
         /// A Visibility key @p visible at the playhead on @p binding's track, one undo step.
         void KeyLevelVisibility( const Animation::Timeline::BindingGuid& binding, bool visible );
         /// One parameter "+ Track ▸ Material Parameter ▸ <slot>" offers: a Float / Float3 / Float4 of the slot

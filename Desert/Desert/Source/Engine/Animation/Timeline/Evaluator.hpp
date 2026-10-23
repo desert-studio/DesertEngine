@@ -107,6 +107,19 @@ namespace Desert::Animation::Timeline
         float                      Gain         = 1.0F; ///< Volume × fades × section weight
     };
 
+    /**
+     * @brief A VFX track at the step's end (UE: the Niagara system track template's SetDesiredAge): EVERY VFX
+     * track gives one, covered or not, so the host deactivates an effect whose playhead left its sections -
+     * the sample is the whole state, nothing is remembered between evaluations. `Active` = a section covers
+     * the playhead; `AgeSeconds` = the effect's age there (VFXSectionContent).
+     */
+    struct VFXSample
+    {
+        uint32_t TrackIndex = 0;
+        bool     Active     = false;
+        double   AgeSeconds = 0.0;
+    };
+
     /// `AudioSectionContent`'s gain at @p at: Volume × the fade ramps × the section weight (Section.hpp).
     [[nodiscard]] float AudioGainAt( const Section& section, const AudioSectionContent& audio, FrameTime at,
                                      FrameRate tickRate );
@@ -118,6 +131,7 @@ namespace Desert::Animation::Timeline
         std::vector<AnimationSample>   Animations;
         std::vector<SubsequenceSample> Subsequences;
         std::vector<AudioSample>       Sounds;
+        std::vector<VFXSample>         Effects;
         /// The Camera Cut in force, or nullopt when the sequence has none (the viewport keeps its camera).
         std::optional<BindingGuid> ActiveCamera;
     };
@@ -149,6 +163,8 @@ namespace Desert::Animation::Timeline
         virtual void Fire( const FiredEvent& event, const std::optional<ResolvedBinding>& target ) = 0;
         virtual void SetCamera( const std::optional<ResolvedBinding>& camera )                     = 0;
         virtual void PlayAnimation( const ResolvedBinding& target, const AnimationSample& sample ) = 0;
+        /// A VFX track's state at the step's end (VFXSample). A host with no effects refuses it by name.
+        virtual void DriveEffect( const ResolvedBinding& target, const VFXSample& sample ) = 0;
     };
 
     struct ApplyReport

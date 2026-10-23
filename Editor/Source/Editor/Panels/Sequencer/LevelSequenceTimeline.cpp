@@ -244,6 +244,20 @@ namespace Desert::Editor
                                 ToastLevel::Error, 6.0f );
     }
 
+    void SequencerPanel::AddLevelVFXTrack( const LevelTL::BindingGuid& binding )
+    {
+        const auto asset = ResolveLevelAsset();
+        if ( !asset )
+            return;
+        LevelTL::Sequence&       sequence = asset->EditSequence();
+        const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
+        // UE adds the Niagara system track's spawn section over the range; here from the playhead, as a Camera
+        // Cut is, so "the effect starts here" is one click at the frame it should start.
+        if ( const auto added = ECS::AddVFXTrack( sequence, binding, m_LevelTick, sequence.End ); !added.IsSuccess() )
+            ToastManager::Push( std::format( "+ Track → VFX refused: {}", added.GetError() ), ToastLevel::Error,
+                                6.0f );
+    }
+
     void SequencerPanel::KeyLevelVisibility( const LevelTL::BindingGuid& binding, const bool visible )
     {
         const auto asset = ResolveLevelAsset();
@@ -711,6 +725,10 @@ namespace Desert::Editor
                     }
                     ImGui::EndMenu();
                 }
+                if ( entity && entity->HasComponent<ECS::VFXComponent>() &&
+                     ImGui::MenuItem( ICON_MDI_FIRE " VFX", nullptr, false,
+                                      !ECS::HasVFXTrack( sequence, binding.Guid ) ) )
+                    AddLevelVFXTrack( binding.Guid );
                 if ( entity && entity->HasComponent<ECS::SkinnedMeshComponent>() &&
                      entity->HasComponent<ECS::AnimationComponent>() && ImGui::BeginMenu( "Animation" ) )
                 {
