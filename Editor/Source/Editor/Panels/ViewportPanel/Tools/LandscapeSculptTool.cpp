@@ -410,6 +410,22 @@ namespace Desert::Editor::Tools
                     ToastManager::Push( set.GetError(), ToastLevel::Error, 6.0f );
                 return true;
             }
+            case Core::LandscapeStrokeRequest::SplineMeshLift:
+            {
+                state.Request       = Core::LandscapeStrokeRequest::None;
+                const auto* splines = SplinesOf( scene, state.SplineLandscape );
+                if ( splines == nullptr || splines->Segments.empty() || splines->Segments.front().SplineMeshes.empty() )
+                {
+                    ToastManager::Push( "landscape splines: no spline mesh to lift", ToastLevel::Error, 6.0f );
+                    return true;
+                }
+                auto meshes = splines->Segments.front().SplineMeshes;
+                for ( auto& entry : meshes )
+                    entry.CenterAdjust.y += 100.0f;
+                if ( auto set = Commands::SetLandscapeSplineMeshes( scene, state.SplineLandscape, meshes ); !set )
+                    ToastManager::Push( set.GetError(), ToastLevel::Error, 6.0f );
+                return true;
+            }
             case Core::LandscapeStrokeRequest::RampReset:
             {
                 state.Request     = Core::LandscapeStrokeRequest::None;
