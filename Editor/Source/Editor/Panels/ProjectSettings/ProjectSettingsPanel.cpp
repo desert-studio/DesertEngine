@@ -4,7 +4,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 
 #include <algorithm>
 #include <cctype>

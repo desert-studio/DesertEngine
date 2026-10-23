@@ -1,3 +1,4 @@
+#include <Common/Json/Template.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 
 #include <Common/Content/TextAssetHeader.hpp>
@@ -468,14 +469,7 @@ namespace Common::Utils
         // The chain as a message: "a -> b -> c".
         std::string Chain( const std::vector<std::string_view>& keys )
         {
-            std::string text;
-            for ( const std::string_view key : keys )
-            {
-                if ( !text.empty() )
-                    text += " -> ";
-                text += key;
-            }
-            return text;
+            return Common::Text::Join( keys, " -> " );
         }
     } // namespace
 

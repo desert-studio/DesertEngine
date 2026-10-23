@@ -582,7 +582,9 @@ namespace Desert::Graphic::System
             const std::vector<glm::mat4>& transforms = *data.Transforms;
             for ( size_t instance = 0; instance < transforms.size(); ++instance )
                 records.push_back( { .Entity = data.Entity,
-                                     .Part   = static_cast<uint32_t>( instance + 1 ),
+                                     .Part   = ( data.InstanceIds ? ( *data.InstanceIds )[instance]
+                                                                : static_cast<uint32_t>( instance ) ) +
+                                             1u,
                                      .World  = transforms[instance] } );
         }
         records.insert( records.end(), otherRigid.begin(), otherRigid.end() );

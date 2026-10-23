@@ -5,6 +5,7 @@
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Core/ShaderCompiler/SharedSamplerBinding.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #include <algorithm>
 #include <array>
@@ -26,6 +27,22 @@ namespace Desert::Core::Preprocess
 
     namespace
     {
+        // The legal default-texture names as one comma-separated list, for the refusal of an unknown one.
+        // Built from kAllDefaultTextureKinds, so a name added to the enum joins the message by itself.
+        std::string DefaultTextureKindList()
+        {
+            static const TextTemplate kList(
+                 "DefaultTextureKindList",
+                 R"({% for kind in kinds %}{% if not loop.first %}, {% endif %}"{{ kind }}"{% endfor %})" );
+            Common::Json::Value::Array kinds;
+            for ( const DefaultTextureKind kind : kAllDefaultTextureKinds )
+                kinds.emplace_back( std::string( DefaultTextureKindName( kind ) ) );
+            return kList.RenderOrLog(
+                 Common::Json::Value( Common::Json::ObjectBuilder()
+                                           .Set( "kinds", Common::Json::Value( std::move( kinds ) ) )
+                                           .Build() ) );
+        }
+
         // ─── Cursor: char-by-char scanner with line tracking ────────────────────────
 
         struct Cursor
@@ -541,8 +558,9 @@ namespace Desert::Core::Preprocess
                 const auto kind = ParseDefaultTextureKind( name );
                 if ( !kind )
                 {
-                    err = { line, "unknown default texture '" + name + "' for property '" + param.Name +
-                                       "' (expected one of " + DefaultTextureKindList() + ")" };
+                    err = { line,
+                            std::format( "unknown default texture '{}' for property '{}' (expected one of {})",
+                                         name, param.Name, DefaultTextureKindList() ) };
                     return false;
                 }
                 param.DefaultTexture = *kind;
@@ -1494,14 +1512,11 @@ namespace Desert::Core::Preprocess
                 if ( run.IsCode )
                 {
                     if ( autoIn )
-                        replaceFirst( run.Text, kAutoIn,
-                                      [&]( const std::smatch& ) {
-                                          return "layout(location = " + std::to_string( alloc( usedIn ) ) + ") in";
-                                      } );
+                        replaceFirst( run.Text, kAutoIn, [&]( const std::smatch& )
+                                      { return std::format( "layout(location = {}) in", alloc( usedIn ) ); } );
                     if ( autoOut )
-                        replaceFirst(
-                             run.Text, kAutoOut, [&]( const std::smatch& )
-                             { return "layout(location = " + std::to_string( alloc( usedOut ) ) + ") out"; } );
+                        replaceFirst( run.Text, kAutoOut, [&]( const std::smatch& )
+                                      { return std::format( "layout(location = {}) out", alloc( usedOut ) ); } );
                     if ( autoBind )
                         replaceFirst( run.Text, kAutoBinding,
                                       [&]( const std::smatch& m )
@@ -1514,14 +1529,14 @@ namespace Desert::Core::Preprocess
                                                                   kAutoSamplerBinding );
                                           const int n = alloc( usedBind );
                                           if ( kw == "Uniform" )
-                                              return "layout(binding = " + std::to_string( n ) + ") uniform";
+                                              return std::format( "layout(binding = {}) uniform", n );
                                           if ( kw == "ReadBuffer" )
-                                              return "layout(std430, binding = " + std::to_string( n ) +
-                                                     ") readonly buffer";
+                                              return std::format( "layout(std430, binding = {}) readonly buffer",
+                                                                  n );
                                           if ( kw == "WriteBuffer" )
-                                              return "layout(std430, binding = " + std::to_string( n ) +
-                                                     ") writeonly buffer";
-                                          return "layout(std430, binding = " + std::to_string( n ) + ") buffer";
+                                              return std::format( "layout(std430, binding = {}) writeonly buffer",
+                                                                  n );
+                                          return std::format( "layout(std430, binding = {}) buffer", n );
                                       } );
                 }
                 out += run.Text;

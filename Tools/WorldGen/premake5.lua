@@ -16,7 +16,7 @@ project "WorldGen"
 
     files {
         "Source/**.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
+        "%{_MAIN_SCRIPT_DIR}/Desert/Projects/Source/Projects/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
 
         -- THE SETTINGS BLOCK, WRITTEN BY THE ENGINE'S OWN TABLE. SceneMigrator already owns the one
         -- function that turns "no Settings block" into the exact bytes the saver produces; a second copy
@@ -60,12 +60,8 @@ project "WorldGen"
         "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
         "%{_MAIN_SCRIPT_DIR}/Tools/SceneMigrator/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
     }
+    includedirs(DesertModuleLibs.IncludeDirs())
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include",         -- PrefabData reaches ECS headers
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- the scene tree is rfl::Generic

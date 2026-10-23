@@ -15,8 +15,8 @@
 //   * PhysicsWorld.cpp ContactRecorder::Respond — drop `settings.mIsSensor = true`  (ABallPassesThroughATrigger)
 //   * PhysicsWorld::CastRay — drop the QueryableLayerFilter argument     (ARayDoesNotFindBodiesOutsideQueries)
 
-#include <Engine/Physics/CollisionProfiles.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../../TestSupport/repo_root.hpp"
 #include "../PhysicsFixture.hpp"

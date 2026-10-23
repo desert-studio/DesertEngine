@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <format>
 #include <optional>
 #include <string>
 
@@ -124,8 +125,9 @@ namespace Desert::Editor::DocumentPlacement
             if ( remembered->DockId != 0 && rememberedLive )
                 return { { remembered->DockId, glm::vec2( 0.0f ), glm::vec2( 0.0f ) }, {} };
             return { beside,
-                     "the " + kind + " was last docked in node " + std::to_string( remembered->DockId ) +
-                          ", which the current layout no longer has; opening it beside the level viewport" };
+                     std::format( "the {} was last docked in node {}, which the current layout no longer has; "
+                                  "opening it beside the level viewport",
+                                  kind, remembered->DockId ) };
         }
         const bool usable = std::isfinite( remembered->Size.x ) && std::isfinite( remembered->Size.y ) &&
                             remembered->Size.x > 0.0f && remembered->Size.y > 0.0f &&

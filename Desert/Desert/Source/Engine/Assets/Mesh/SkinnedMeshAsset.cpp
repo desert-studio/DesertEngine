@@ -3,6 +3,9 @@
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/MeshDisplacementBake.hpp>
+#include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
@@ -59,6 +62,7 @@ namespace Desert::Assets
         // per submesh, so a second Load without this doubles the vector and leaves the STALE handles in
         // the indices every draw reads.
         m_MaterialAssetHandles.clear();
+        m_MaterialGuids.clear();
 
         m_Vertices.reserve( data.SkinnedVertices.size() );
         m_Indices.reserve( data.Indices.size() );
@@ -98,6 +102,7 @@ namespace Desert::Assets
             // the plural `GetMaterialHandles()`: it must answer with one handle per submesh, and it can
             // only do that if this loop writes one. The emptiness that was a crash is now a silence, which
             // is why the line still matters.
+            m_MaterialGuids.push_back( s.MaterialGuid );
             m_MaterialAssetHandles.emplace_back(
                  s.MaterialGuid.IsNull() ? Common::UUID::Null()
                                          : Common::UUID( static_cast<uint64_t>(
@@ -119,6 +124,12 @@ namespace Desert::Assets
         for ( const auto& mt : data.MorphTargets )
             m_MorphTargets.push_back( MorphTarget{ mt.Name, mt.DeltaPositions, mt.DeltaNormals } );
         m_VertexStreams = PackMeshVertexStreams( data.Colors, data.UV1, m_Vertices.size() );
+
+        // The displacement mode is this file's own import setting; the topology keys from the geometry's bytes and
+        // is derived again by the next ResolveDependencies (the slot of a previous load is dropped).
+        m_Displacement  = data.Displacement;
+        m_RenderDataKey = SkinnedMeshRenderDataKey( raw.GetValue() );
+        m_DisplacementTopology.reset();
 
         // StaticMeshAsset::Load has always ended this way; this one never did, so IsReadyForUse stayed false
         // for the whole session and every `if (!IsReadyForUse()) Load()` in the engine re-read and re-parsed
@@ -143,6 +154,11 @@ namespace Desert::Assets
         m_VertexStreams.clear();
         m_VertexStreams.shrink_to_fit();
         m_MaterialAssetHandles.shrink_to_fit();
+        m_MaterialGuids.clear();
+        m_MaterialGuids.shrink_to_fit();
+        m_DisplacementTopology.reset();
+        m_RenderDataKey = 0;
+        m_Displacement  = MeshDisplacementMode::None;
 
         // THE SKELETON REFERENCE AND ITS DEPENDENCY GO WITH THE PAYLOAD. `ResolveDependencies` binds the
         // SkeletonAsset of `m_Skeleton`, and `GetSkeletonDependency().IsValid()`
@@ -158,10 +174,77 @@ namespace Desert::Assets
         m_IsReadyForUse = false;
         return BOOLSUCCESS;
     }
+    void SkinnedMeshAsset::ResolveDisplacementTopology( AssetManager& manager )
+    {
+        // Once per load: the slot is kept across re-runs (Load and Unload drop it), so EnsureLoaded's repeated
+        // resolves never queue the same derive twice.
+        if ( !m_IsReadyForUse || m_Displacement != MeshDisplacementMode::Runtime || m_DisplacementTopology )
+            return;
+        bool anyHeight = false;
+        for ( size_t i = 0; i < m_Submeshes.size() && i < m_MaterialGuids.size(); ++i )
+        {
+            if ( m_MaterialGuids[i].IsNull() )
+                continue;
+            auto height = ResolveSubmeshHeight( manager, m_MaterialGuids[i] );
+            if ( !height.IsSuccess() )
+            {
+                LOG_ERROR( "SkinnedMeshAsset '{}': submesh {} has no resolvable height ({}); the mesh is drawn "
+                           "undisplaced",
+                           m_Metadata.Filepath.string(), i, height.GetError() );
+                return;
+            }
+            anyHeight = anyHeight || height.GetValue().has_value();
+        }
+        if ( !anyHeight )
+            return;
+
+        // THE TOPOLOGY OVER THE REST POSE (§9.8): clusters, welds and directions are a function of the bind-pose
+        // LOD0 the skin cache deforms; the per-frame pass moves its points with the posed vertices. Derived on a
+        // worker like the static mesh's (same DDC bucket, shipped the same way); drawn undisplaced until it lands.
+        struct Job
+        {
+            std::shared_ptr<DisplacementTopologySlot> Slot;
+            DisplacementTopologyBuildInput            Input;
+            Common::Filepath                          Path;
+            uint64_t                                  Key = 0;
+        };
+        auto job  = std::make_shared<Job>();
+        job->Slot = std::make_shared<DisplacementTopologySlot>();
+        job->Input.Vertices.reserve( m_Vertices.size() );
+        for ( const SkinnedVertex& vertex : m_Vertices )
+            job->Input.Vertices.push_back( vertex.StaticVertex );
+        job->Input.Indices     = m_Indices;
+        job->Input.Submeshes   = m_Submeshes;
+        job->Path              = m_Metadata.Filepath;
+        job->Key               = m_RenderDataKey;
+        m_DisplacementTopology = job->Slot;
+        const bool queued      = Common::JobSystem::Get().Submit(
+             [job]
+             {
+                 auto topology = LoadDisplacementTopology(
+                      job->Path, job->Key, [&job]() -> Common::ResultStr<DisplacementTopologyBuildInput>
+                      { return Common::MakeSuccess( job->Input ); } );
+                 if ( !topology.IsSuccess() )
+                 {
+                     LOG_ERROR( "SkinnedMeshAsset '{}': {}; the mesh is drawn undisplaced", job->Path.string(),
+                                topology.GetError() );
+                     return;
+                 }
+                 job->Slot->Publish( topology.ExtractValue() );
+             } );
+        if ( !queued )
+        {
+            LOG_ERROR( "SkinnedMeshAsset '{}': the job system is shutting down; the displacement topology is not "
+                       "derived and the mesh is drawn undisplaced",
+                       m_Metadata.Filepath.string() );
+        }
+    }
+
     void SkinnedMeshAsset::ResolveDependencies( AssetManager& manager )
     {
         m_SkeletonDependency.Handle = Common::AssetHandle::Null();
         m_SkeletonDependency.Cached.reset();
+        ResolveDisplacementTopology( manager );
 
         // A NULL GUID IS "NOT PARSED YET" (or a mesh naming no skeleton, which Load refuses): nothing is bound.
         // AssetBase::EnsureLoaded runs this again once the parse fills the reference in.

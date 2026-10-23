@@ -64,6 +64,10 @@ namespace Desert::Assets::Serialization
         /// SourceImportSettings::FileUnit by MeshFileUnitName; absent = `FromFile` (the file or its format
         /// states the unit), so a record that never chose one states nothing new.
         std::optional<std::string> FileUnit;
+        /// MeshImportSettings::Displacement by MeshDisplacementModeName; absent = `None`.
+        std::optional<std::string> Displacement;
+        /// MeshImportSettings::DisplacementBake.EdgeLengthCm; absent = the default (1 cm).
+        std::optional<float> DisplacementEdgeLengthCm;
     };
     [[nodiscard]] SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings );
     /// Refused, by name, for an unknown up axis or LOD policy or a scale that is not finite and > 0.

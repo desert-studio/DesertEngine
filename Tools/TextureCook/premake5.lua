@@ -14,8 +14,8 @@ project "TextureCook"
 
     files {
         "Source/**.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/ProjectContext.cpp",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Project/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
+        "%{_MAIN_SCRIPT_DIR}/Desert/Projects/Source/Projects/ProjectContext.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Projects/Source/Projects/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/DdsSource.cpp", -- the .dds source decoder TextureImporter calls (bcdec inside)
         "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/Engine/Assets/TextureSourceAsset.cpp",
@@ -26,11 +26,9 @@ project "TextureCook"
 
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
+    }
+    includedirs(DesertModuleLibs.IncludeDirs())
+    includedirs {
         "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
 

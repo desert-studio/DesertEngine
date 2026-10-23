@@ -8,6 +8,8 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <format>
+
 namespace Desert::Runtime
 {
     void CloudModellingService::Announce( const Assets::Asset<Assets::CloudModellingVolumeAsset>& asset )
@@ -232,7 +234,7 @@ namespace Desert::Runtime
         // The previous image goes through Image3D's own deletion queue when the last reference drops,
         // which is what keeps a frame still reading it safe.
         const Core::Formats::Image3DSpecification spec{
-             .Tag        = "CloudBodyAtlas:" + std::to_string( bodies.size() ),
+             .Tag        = std::format( "CloudBodyAtlas:{}", bodies.size() ),
              .Width      = Assets::kCloudModellingVolumeWidth,
              .Height     = Assets::kCloudModellingVolumeHeight,
              .Depth      = Assets::kCloudModellingVolumeDepth * static_cast<uint32_t>( bodies.size() ),

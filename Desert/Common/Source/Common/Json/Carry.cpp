@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <format>
 #include <memory>
 #include <new>
 #include <string>
@@ -207,8 +208,8 @@ namespace Common::Json
         yyjson_read_err error{};
         yyjson_doc*     doc = yyjson_read_opts( buffer.data(), buffer.size(), 0, nullptr, &error );
         if ( doc == nullptr )
-            return MakeError<TextDocument>( "document: not JSON at byte " + std::to_string( error.pos ) + ": " +
-                                            ( error.msg != nullptr ? error.msg : "unknown error" ) );
+            return MakeError<TextDocument>( std::format( "document: not JSON at byte {}: {}", error.pos,
+                                                         error.msg != nullptr ? error.msg : "unknown error" ) );
         return MakeSuccess( TextDocument( Own( doc ) ) );
     }
 

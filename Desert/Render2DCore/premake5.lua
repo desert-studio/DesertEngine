@@ -17,10 +17,9 @@ project "Render2DCore"
         "Source/Render2DCore/**.hpp",
     }
 
-    includedirs {
-        "Source/",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
-    }
+    includedirs { "Source/" }
+
+    includedirs(DesertModuleLibs.ClosureIncludeDirs("Render2DCore"))
 
     links { "Common" }
 

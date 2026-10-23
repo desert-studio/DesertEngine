@@ -435,7 +435,7 @@ namespace
     // Four Project fields, one FileMeta, and one that is in the wrong file (EngineVersion).
     // ------------------------------------------------------------------------------------------------
 
-    constexpr const char* kProjectContext = "Desert/Desert/Source/Engine/Project/ProjectContext.cpp";
+    constexpr const char* kProjectContext = "Desert/Projects/Source/Projects/ProjectContext.cpp";
 
     // THE CONSUMER OF THREE OF THESE FIELDS LEFT THIS REPOSITORY (Л3). `FileVersion`, `Description` and
     // `EngineVersion` are written and read by the LAUNCHER, which now lives in `desert-launcher` — so

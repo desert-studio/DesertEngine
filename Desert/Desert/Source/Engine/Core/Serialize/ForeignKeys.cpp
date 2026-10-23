@@ -1,5 +1,7 @@
 #include <Engine/Core/Serialize/ForeignKeys.hpp>
 
+#include <Engine/Core/TextTemplate.hpp>
+
 #include <string>
 #include <utility>
 
@@ -45,15 +47,13 @@ namespace Desert::Core::Serialize
 
     std::string DescribeForeignKeys( const std::map<std::string, int>& counted )
     {
-        std::string described;
+        static const TextTemplate kDescribed(
+             "ForeignKeys", "{% for k in keys %}{% if not loop.first %}, {% endif %}{{ k.key }}"
+                            "{% if k.count > 1 %} (x{{ k.count }}){% endif %}{% endfor %}" );
+        Common::Json::Value::Array keys;
         for ( const auto& [key, count] : counted )
-        {
-            if ( !described.empty() )
-                described += ", ";
-            described += key;
-            if ( count > 1 )
-                described += " (x" + std::to_string( count ) + ")";
-        }
-        return described;
+            keys.emplace_back( Common::Json::ObjectBuilder().Set( "key", key ).Set( "count", count ).Build() );
+        return kDescribed.RenderOrLog( Common::Json::Value(
+             Common::Json::ObjectBuilder().Set( "keys", Common::Json::Value( std::move( keys ) ) ).Build() ) );
     }
 } // namespace Desert::Core::Serialize

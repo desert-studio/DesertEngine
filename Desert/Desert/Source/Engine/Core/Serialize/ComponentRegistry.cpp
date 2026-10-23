@@ -1323,7 +1323,7 @@ namespace Desert::Core::Serialize
             const std::string text = ( guids && slot < guids->size() ) ? ( *guids )[slot] : std::string();
             const std::string path = ( paths && slot < paths->size() ) ? ( *paths )[slot] : std::string();
             return ResolveGuidRef( resolver, text, path, "MaterialAsset",
-                                   "material slot " + std::to_string( slot ) );
+                                   std::format( "material slot {}", slot ) );
         }
 
         uint64_t ResolveMeshRef( const Reflection::AssetResolver& resolver, const std::optional<std::string>& guid,

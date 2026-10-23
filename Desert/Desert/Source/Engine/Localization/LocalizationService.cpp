@@ -1,6 +1,7 @@
 #include "LocalizationService.hpp"
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Json/Template.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
@@ -33,13 +34,8 @@ namespace Desert::Localization
         const LocaleRow* row = FindLocale( tag );
         if ( row == nullptr )
         {
-            std::string known;
-            for ( const LocaleRow& candidate : Locales() )
-            {
-                if ( !known.empty() )
-                    known += ", ";
-                known += std::string( candidate.Tag );
-            }
+            const std::string known =
+                 Common::Text::Join( Locales(), ", ", []( const LocaleRow& candidate ) { return candidate.Tag; } );
             return Common::MakeFormattedError<bool>( "language '{}' is not one this build knows; it knows: {}",
                                                      std::string( tag ), known );
         }
@@ -294,13 +290,7 @@ namespace Desert::Localization
         FormattedText formatted = ApplyArguments( *form, locale, args );
         if ( !formatted.Unresolved.empty() )
         {
-            std::string names;
-            for ( const std::string& name : formatted.Unresolved )
-            {
-                if ( !names.empty() )
-                    names += ", ";
-                names += name;
-            }
+            const std::string names = Common::Text::Join( formatted.Unresolved, ", " );
             const std::string token = std::string( locale.Tag ) + "/" + keyText + "/{}";
             if ( m_Reported.insert( token ).second )
             {

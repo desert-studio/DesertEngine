@@ -2,10 +2,12 @@
 
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Json/Template.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
+#include <format>
 #include <iterator>
 #include <limits>
 #include <string>
@@ -51,7 +53,7 @@ namespace Common::Json
                     text += '[' + segment.Text + ']';
                     break;
                 case SegmentKind::Record:
-                    text += "[id=" + segment.Text + ']';
+                    std::format_to( std::back_inserter( text ), "[id={}]", segment.Text );
                     break;
             }
         }
@@ -156,11 +158,9 @@ namespace Common::Json
                 case Kind::String:
                     return KindName( kind ) + " " + rfl::json::write( value );
                 case Kind::Array:
-                    return "array of " + std::to_string( std::get<Value::Array>( value.variant() ).size() ) +
-                           " elements";
+                    return std::format( "array of {} elements", std::get<Value::Array>( value.variant() ).size() );
                 case Kind::Object:
-                    return "object with " + std::to_string( std::get<Object>( value.variant() ).size() ) +
-                           " members";
+                    return std::format( "object with {} members", std::get<Object>( value.variant() ).size() );
                 case Kind::Null:
                     break;
             }
@@ -291,8 +291,8 @@ namespace Common::Json
         yyjson_read_err error{};
         yyjson_doc*     doc = yyjson_read_opts( buffer.data(), buffer.size(), 0, nullptr, &error );
         if ( doc == nullptr )
-            return MakeError<Value>( "document: not JSON at byte " + std::to_string( error.pos ) + ": " +
-                                     ( error.msg != nullptr ? error.msg : "unknown error" ) );
+            return MakeError<Value>( std::format( "document: not JSON at byte {}: {}", error.pos,
+                                                  error.msg != nullptr ? error.msg : "unknown error" ) );
         try
         {
             auto parsed = rfl::json::read<Value>( rfl::json::InputVarType( yyjson_doc_get_root( doc ) ) );

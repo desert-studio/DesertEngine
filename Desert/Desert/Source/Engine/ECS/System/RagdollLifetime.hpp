@@ -19,9 +19,9 @@
 // (the lookup's answer), an asset that does not fit the rig, and a world scale other than one.
 
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Physics/PhysicsAssetFormat.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
-#include <Engine/Physics/RagdollDesc.hpp>
+#include <PhysicsCore/PhysicsAssetFormat.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
+#include <PhysicsCore/RagdollDesc.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>

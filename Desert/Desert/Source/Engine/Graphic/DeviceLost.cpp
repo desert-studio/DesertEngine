@@ -1,9 +1,11 @@
+#include <Engine/Core/TextTemplate.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 
 #include <Common/Core/Logger.hpp>
 
 #include <atomic>
 #include <mutex>
+#include <string_view>
 
 namespace Desert::Graphic
 {
@@ -25,33 +27,32 @@ namespace Desert::Graphic
 
         // THE ONE MESSAGE. Composed here rather than at the call site so that every route into device loss
         // produces the same words — the value of a single explanation is that it is recognisable.
+        constexpr std::string_view kExplanationText =
+             "[DeviceLost] The GPU device was lost ({{ detail }}), first seen at {{ site }}.\n"
+             "  WHAT HAPPENED: the graphics device this process was using no longer exists. On macOS this is "
+             "almost never our doing — the driver resets the whole GPU when ANY client on the machine trips "
+             "it, and every other client is discarded alongside (kIOGPUCommandBufferCallbackErrorInnocentVictim, "
+             "\"innocent victim\"). Another editor, another application, a driver hiccup or a wake from sleep all "
+             "produce this.\n"
+             "  WHAT WE DID: stopped. A lost VkDevice cannot be revived, only replaced, so the engine issues no "
+             "further GPU work and is closing down in order instead of dying mid-frame.\n"
+             "  YOUR WORK: this session is marked as an unclean exit, so the next start offers to reopen your "
+             "latest autosave. If you have unsaved changes and the editor is still on screen, it is already on "
+             "its way out — the picture is frozen, not working.\n"
+             "  WHAT TO DO: start the editor again. If it happens repeatedly while nothing else is using the GPU, "
+             "the driver itself is the suspect, not this scene.\n"
+             "  READING THE REST OF THIS LOG: every Vulkan error printed AFTER this line is a consequence of it, "
+             "not an independent defect. \"pFences[...] is in use\" and \"Semaphore must not have any pending "
+             "operations\" are what a dead device looks like from inside the validation layer — it says so "
+             "itself, \"(a VK_ERROR_DEVICE_LOST has occurred)\". Do not go looking for a synchronisation bug; "
+             "there isn't one.";
+
         std::string Compose( std::string_view site, std::string_view detail )
         {
-            std::string text;
-            text.reserve( 1200 );
-            text += "[DeviceLost] The GPU device was lost (";
-            text.append( detail );
-            text += "), first seen at ";
-            text.append( site );
-            text += ".\n";
-            text += "  WHAT HAPPENED: the graphics device this process was using no longer exists. On macOS "
-                    "this is almost never our doing — the driver resets the whole GPU when ANY client on the "
-                    "machine trips it, and every other client is discarded alongside "
-                    "(kIOGPUCommandBufferCallbackErrorInnocentVictim, \"innocent victim\"). Another editor, "
-                    "another application, a driver hiccup or a wake from sleep all produce this.\n";
-            text += "  WHAT WE DID: stopped. A lost VkDevice cannot be revived, only replaced, so the engine "
-                    "issues no further GPU work and is closing down in order instead of dying mid-frame.\n";
-            text += "  YOUR WORK: this session is marked as an unclean exit, so the next start offers to "
-                    "reopen your latest autosave. If you have unsaved changes and the editor is still on "
-                    "screen, it is already on its way out — the picture is frozen, not working.\n";
-            text += "  WHAT TO DO: start the editor again. If it happens repeatedly while nothing else is "
-                    "using the GPU, the driver itself is the suspect, not this scene.\n";
-            text += "  READING THE REST OF THIS LOG: every Vulkan error printed AFTER this line is a "
-                    "consequence of it, not an independent defect. \"pFences[...] is in use\" and \"Semaphore "
-                    "must not have any pending operations\" are what a dead device looks like from inside the "
-                    "validation layer — it says so itself, \"(a VK_ERROR_DEVICE_LOST has occurred)\". Do not "
-                    "go looking for a synchronisation bug; there isn't one.";
-            return text;
+            static const Desert::Core::TextTemplate kExplanation( "DeviceLost", kExplanationText );
+            Common::Json::ObjectBuilder             model;
+            model.Set( "site", site ).Set( "detail", detail );
+            return kExplanation.RenderOrLog( Common::Json::Value( model.Build() ) );
         }
     } // namespace
 

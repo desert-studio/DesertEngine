@@ -7,6 +7,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ImportRecord.hpp>
+#include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
@@ -54,6 +55,18 @@ namespace Desert::Assets
         return MeshDerivedDataKey( MeshSourceHash( asset.Source ), MeshBuildSettings{ asset.Import.Settings } );
     }
 
+    uint64_t SkinnedMeshRenderDataKey( const std::string_view meshBinaryBytes )
+    {
+        std::string geometry( meshBinaryBytes );
+        constexpr std::size_t kModeAt = offsetof( Common::Content::MeshBinaryFileHeader, DisplacementMode );
+        if ( geometry.size() > kModeAt )
+            geometry[kModeAt] = '\0';
+        // The settings image tells this key from every static one hashed under the same deriver.
+        constexpr std::string_view kImage = "SkinnedMeshBinary";
+        return Common::DDC::MakeKey( kMeshDeriver, Common::Utils::PakContentHash( geometry.data(), geometry.size() ),
+                                     kImage.data(), kImage.size() );
+    }
+
     void SetMeshPlatformDataBuilder( MeshPlatformDataBuilder builder )
     {
         const std::lock_guard<std::mutex> lock( s_BuilderMutex );
@@ -89,7 +102,8 @@ namespace Desert::Assets
         if ( !builder )
         {
             if ( auto hit = Common::DDC::Get( kMeshDeriver, key ); hit.has_value() )
-                return Common::MakeSuccess( MeshPlatformDataBytes{ std::move( *hit ), key } );
+                return Common::MakeSuccess(
+                     MeshPlatformDataBytes{ std::move( *hit ), key, source.GetValue().Import.Settings } );
             return Common::MakeFormattedError<MeshPlatformDataBytes>(
                  "mesh asset '{}' has no render data under DDC key {:016x} ({}), and this build cannot derive "
                  "it: the package was cooked without it",
@@ -102,7 +116,8 @@ namespace Desert::Assets
         if ( !derived.IsSuccess() )
             return Common::MakeFormattedError<MeshPlatformDataBytes>( "mesh asset '{}': render data: {}",
                                                                       asset.string(), derived.GetError() );
-        return Common::MakeSuccess( MeshPlatformDataBytes{ derived.ExtractValue(), key } );
+        return Common::MakeSuccess(
+             MeshPlatformDataBytes{ derived.ExtractValue(), key, source.GetValue().Import.Settings } );
     }
 
     Common::ResultStr<uint64_t> HashMeshSourceFile( const std::filesystem::path& file )

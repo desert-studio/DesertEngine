@@ -78,6 +78,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <span>
 #include <string>
 #include <utility>
@@ -178,7 +179,7 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline std::string DescribeResidencyUnit( const WorldPartitionPlan& plan, std::size_t unit )
     {
         if ( unit < plan.AlwaysLoaded.size() )
-            return "A" + std::to_string( unit );
+            return std::format( "A{}", unit );
         const PlannedCell& cell = plan.Cells.at( unit - plan.AlwaysLoaded.size() );
         return std::format( "G{}L{}({},{})", cell.Grid, cell.Level, cell.Cell.X, cell.Cell.Z );
     }
@@ -247,15 +248,13 @@ namespace Desert::Core::Rules
                  !finiteAtLeast( s.RetryBackoff, 1.0 ) ||
                  !finiteAtLeast( s.MaxRetryDelaySeconds, s.RetryDelaySeconds ) )
             {
-                return Common::MakeError<bool>(
-                     "StepResidency: settings ActivationBudgetMs " + std::to_string( s.ActivationBudgetMs ) +
-                     ", MsPerRecord " + std::to_string( s.MsPerRecord ) + ", UnloadMargin " +
-                     std::to_string( s.UnloadMargin ) + ", MaxConcurrentLoads " +
-                     std::to_string( s.MaxConcurrentLoads ) + ", RetryDelaySeconds " +
-                     std::to_string( s.RetryDelaySeconds ) + ", RetryBackoff " + std::to_string( s.RetryBackoff ) +
-                     ", MaxRetryDelaySeconds " + std::to_string( s.MaxRetryDelaySeconds ) +
-                     "; budget, cost and margin must be finite and >= 0, loads >= 1, the delay > 0, the backoff "
-                     ">= 1 and the longest delay >= the first" );
+                return Common::MakeError<bool>( std::format(
+                     "StepResidency: settings ActivationBudgetMs {:f}, MsPerRecord {:f}, UnloadMargin {:f}, "
+                     "MaxConcurrentLoads {}, RetryDelaySeconds {:f}, RetryBackoff {:f}, MaxRetryDelaySeconds "
+                     "{:f}; budget, cost and margin must be finite and >= 0, loads >= 1, the delay > 0, the "
+                     "backoff >= 1 and the longest delay >= the first",
+                     s.ActivationBudgetMs, s.MsPerRecord, s.UnloadMargin, s.MaxConcurrentLoads,
+                     s.RetryDelaySeconds, s.RetryBackoff, s.MaxRetryDelaySeconds ) );
             }
             return Common::MakeSuccess( true );
         }
@@ -289,8 +288,8 @@ namespace Desert::Core::Rules
         if ( auto valid = Detail::CheckResidencySettings( settings ); !valid.IsSuccess() )
             return Common::MakeError<ResidencyStep>( valid.GetError() );
         if ( !std::isfinite( nowSeconds ) )
-            return Common::MakeError<ResidencyStep>( "StepResidency: the clock reads " +
-                                                     std::to_string( nowSeconds ) );
+            return Common::MakeError<ResidencyStep>(
+                 std::format( "StepResidency: the clock reads {:f}", nowSeconds ) );
 
         const std::size_t unitCount = ResidencyUnitCount( plan );
         if ( state.Units.empty() )
@@ -298,10 +297,9 @@ namespace Desert::Core::Rules
         if ( state.Units.size() != unitCount )
         {
             return Common::MakeError<ResidencyStep>(
-                 "StepResidency: the residency state has " + std::to_string( state.Units.size() ) +
-                 " unit(s) and the plan " + std::to_string( unitCount ) + " (" +
-                 std::to_string( plan.AlwaysLoaded.size() ) + " always-loaded + " +
-                 std::to_string( plan.Cells.size() ) + " cells); a plan does not change under a running world" );
+                 std::format( "StepResidency: the residency state has {} unit(s) and the plan {} ({} "
+                              "always-loaded + {} cells); a plan does not change under a running world",
+                              state.Units.size(), unitCount, plan.AlwaysLoaded.size(), plan.Cells.size() ) );
         }
 
         ResidencyStep step;
@@ -311,15 +309,14 @@ namespace Desert::Core::Rules
         {
             if ( outcome.Unit >= unitCount )
             {
-                return Common::MakeError<ResidencyStep>( "StepResidency: a load outcome names unit " +
-                                                         std::to_string( outcome.Unit ) + " of " +
-                                                         std::to_string( unitCount ) );
+                return Common::MakeError<ResidencyStep>(
+                     std::format( "StepResidency: a load outcome names unit {} of {}", outcome.Unit, unitCount ) );
             }
             if ( !outcome.Ok && outcome.Reason.empty() )
             {
-                return Common::MakeError<ResidencyStep>(
-                     "StepResidency: the load of unit " + std::to_string( outcome.Unit ) + " (ticket " +
-                     std::to_string( outcome.Ticket ) + ") failed and the loader gave no reason" );
+                return Common::MakeError<ResidencyStep>( std::format(
+                     "StepResidency: the load of unit {} (ticket {}) failed and the loader gave no reason",
+                     outcome.Unit, outcome.Ticket ) );
             }
             UnitResidency& unit = state.Units[outcome.Unit];
             if ( unit.State != Residency::Loading || unit.Ticket != outcome.Ticket )

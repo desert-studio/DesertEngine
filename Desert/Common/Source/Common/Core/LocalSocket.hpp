@@ -34,6 +34,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <format>
 #include <string>
 
 #if defined( _WIN32 )
@@ -124,8 +125,8 @@ namespace Common::LocalSocket
             // THE NUMBER IS ALWAYS THERE, even when the sentence is: a code is searchable and a translated
             // message is not, and this machine's messages are not necessarily in English.
             if ( message.empty() )
-                return "system error " + std::to_string( code );
-            return message + " (system error " + std::to_string( code ) + ")";
+                return std::format( "system error {}", code );
+            return std::format( "{} (system error {})", message, code );
 #else
             return ErrnoText( static_cast<int>( code ) );
 #endif

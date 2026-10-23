@@ -67,6 +67,7 @@
 
 #include <array>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <string>
 
@@ -250,11 +251,11 @@ namespace Desert::Editor::Core
                 case Kind::None:
                     return "nobody";
                 case Kind::Document:
-                    return "document " + m_Subject.ToString();
+                    return std::format( "document {}", m_Subject.ToString() );
                 case Kind::SceneView:
-                    return "scene view " + std::to_string( m_Id );
+                    return std::format( "scene view {}", m_Id );
                 case Kind::Panel:
-                    return "panel " + m_Panel;
+                    return std::format( "panel {}", m_Panel );
             }
             return "nobody";
         }

@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <format>
 #include <future>
 #include <mutex>
 #include <thread>
@@ -1520,7 +1521,7 @@ namespace Common::Crash
 #else
         const auto pid = static_cast<std::uint64_t>( ::getpid() );
 #endif
-        const std::filesystem::path directory = root / ( stamp + "-" + std::to_string( pid ) );
+        const std::filesystem::path directory = root / std::format( "{}-{}", stamp, pid );
 
         // The ROOT is created now, while the process is healthy and can report a failure; the
         // per-crash directory is created inside the handler, so a run that never crashes leaves no
@@ -1562,7 +1563,7 @@ namespace Common::Crash
             reporter.clear();
         }
         g_Reporter = reporter;
-        g_RunName  = stamp + "-" + std::to_string( pid );
+        g_RunName  = std::format( "{}-{}", stamp, pid );
         FillSlot( g_PathSlots[0], directory, reporter );
         g_Paths.store( &g_PathSlots[0], std::memory_order_release );
 

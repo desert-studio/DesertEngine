@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Image.hpp>
-#include <Engine/Text/FontBaker.hpp>
+#include <TextCore/Text/FontBaker.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 

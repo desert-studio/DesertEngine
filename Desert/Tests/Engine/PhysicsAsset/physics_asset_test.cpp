@@ -2,8 +2,8 @@
 // and the pure conversion into what Jolt's RagdollSettings is built from (no PhysicsSystem, no device).
 
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Physics/PhysicsAssetFormat.hpp>
-#include <Engine/Physics/RagdollDesc.hpp>
+#include <PhysicsCore/PhysicsAssetFormat.hpp>
+#include <Engine/Physics/RagdollDescBuilder.hpp>
 
 #include <gtest/gtest.h>
 

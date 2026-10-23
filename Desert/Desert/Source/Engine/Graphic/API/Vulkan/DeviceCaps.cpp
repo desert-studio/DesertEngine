@@ -3,6 +3,10 @@
 
 #include <algorithm>
 #include <format>
+#include <string>
+#include <vector>
+
+#include <Common/Json/Template.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -174,22 +178,20 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr CheckRequired( const DeviceCaps& caps )
     {
-        std::string missing;
+        std::vector<std::string> missing;
         if ( MajorMinor( caps.DeviceApiVersion ) < kMinimumDeviceApiVersion )
         {
-            missing += std::format( "Vulkan {} (device reports {})", FormatApiVersion( kMinimumDeviceApiVersion ),
-                                    FormatApiVersion( caps.DeviceApiVersion ) );
+            missing.push_back( std::format( "Vulkan {} (device reports {})",
+                                            FormatApiVersion( kMinimumDeviceApiVersion ),
+                                            FormatApiVersion( caps.DeviceApiVersion ) ) );
         }
         for ( std::size_t i = 0; i < kCapabilityCount; ++i )
         {
             const CapabilitySpec& spec = kTable[i];
             if ( spec.Need != CapabilityNeed::Required || caps.Rows[i].Present )
                 continue;
-            if ( !missing.empty() )
-                missing += ", ";
-            missing += spec.Name;
-            if ( !spec.Extension.empty() )
-                missing += std::format( " ({})", spec.Extension );
+            missing.push_back( spec.Extension.empty() ? std::format( "{}", spec.Name )
+                                                      : std::format( "{} ({})", spec.Name, spec.Extension ) );
         }
         if ( caps.Has( Capability::DescriptorIndexing ) )
         {
@@ -197,28 +199,24 @@ namespace Desert::Graphic::API::Vulkan
             // BindlessCapacityCeiling's rule: the table keeps at most half the ceiling for itself.
             if ( limits.SampledImageCeiling() < 2 * kBindlessInitialTextureCapacity )
             {
-                if ( !missing.empty() )
-                    missing += ", ";
-                missing += std::format( "{} update-after-bind sampled images (per stage {}, per set {})",
+                missing.push_back( std::format( "{} update-after-bind sampled images (per stage {}, per set {})",
                                         2 * kBindlessInitialTextureCapacity,
                                         limits.MaxPerStageUpdateAfterBindSampledImages,
-                                        limits.MaxSetUpdateAfterBindSampledImages );
+                                        limits.MaxSetUpdateAfterBindSampledImages ) );
             }
             if ( limits.SamplerCeiling() < ::Desert::Core::kBindlessSamplerStateCount )
             {
-                if ( !missing.empty() )
-                    missing += ", ";
-                missing += std::format( "{} update-after-bind samplers (per stage {}, per set {})",
+                missing.push_back( std::format( "{} update-after-bind samplers (per stage {}, per set {})",
                                         ::Desert::Core::kBindlessSamplerStateCount,
                                         limits.MaxPerStageUpdateAfterBindSamplers,
-                                        limits.MaxSetUpdateAfterBindSamplers );
+                                        limits.MaxSetUpdateAfterBindSamplers ) );
             }
         }
         if ( missing.empty() )
             return Common::MakeSuccess( true );
         return Common::MakeError<bool>(
              std::format( "the Vulkan device '{}' ({}) lacks what this engine requires: {}", caps.DeviceName,
-                          caps.Driver, missing ) );
+                          caps.Driver, Common::Text::Join( missing, ", " ) ) );
     }
 
     std::string FormatCapsTable( const DeviceCaps& caps )

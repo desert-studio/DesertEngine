@@ -14,6 +14,7 @@
 
 #include <cerrno>
 #include <cstring>
+#include <format>
 #include <string>
 
 namespace Common
@@ -25,17 +26,17 @@ namespace Common
 
 #if defined( _WIN32 )
         if ( strerror_s( buffer, sizeof( buffer ), code ) != 0 )
-            return "errno " + std::to_string( code );
+            return std::format( "errno {}", code );
         return buffer;
 #elif defined( __GLIBC__ ) && defined( _GNU_SOURCE )
         // The GNU variant may answer in its own static storage instead of the buffer, and returns that
         // pointer; ignoring the return value there is how a caller gets an empty string.
         const char* text = strerror_r( code, buffer, sizeof( buffer ) );
-        return text != nullptr ? std::string( text ) : "errno " + std::to_string( code );
+        return text != nullptr ? std::string( text ) : std::format( "errno {}", code );
 #else
         if ( strerror_r( code, buffer, sizeof( buffer ) ) != 0 )
         {
-            return "errno " + std::to_string( code );
+            return std::format( "errno {}", code );
         }
         return buffer;
 #endif

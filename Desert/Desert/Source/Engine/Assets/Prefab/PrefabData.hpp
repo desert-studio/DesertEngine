@@ -13,10 +13,12 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Json/Json.hpp>
+#include <Common/Json/Template.hpp>
 
 #include <algorithm>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 #include <string>
@@ -317,21 +319,16 @@ namespace Desert::Assets
     // root stands, which would look exactly like a right answer.
     inline std::string MissingInstanceTransform( const EntityData& record )
     {
-        std::string missing;
         if ( !record.PrefabPath.has_value() )
-            return missing;
-        const auto note = [&missing]( bool stated, const char* name )
-        {
-            if ( stated )
-                return;
-            if ( !missing.empty() )
-                missing += ", ";
-            missing += name;
-        };
-        note( record.Translation.has_value(), "Translation" );
-        note( record.Rotation.has_value(), "Rotation" );
-        note( record.Scale.has_value(), "Scale" );
-        return missing;
+            return {};
+        std::vector<std::string_view> missing;
+        if ( !record.Translation.has_value() )
+            missing.emplace_back( "Translation" );
+        if ( !record.Rotation.has_value() )
+            missing.emplace_back( "Rotation" );
+        if ( !record.Scale.has_value() )
+            missing.emplace_back( "Scale" );
+        return Common::Text::Join( missing, ", " );
     }
 
     // THE SAVER'S HALF (scene v37): what a scene keeps of a prefab instance. The record keeps the root's

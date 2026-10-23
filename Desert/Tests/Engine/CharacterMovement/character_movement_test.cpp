@@ -3,7 +3,7 @@
 #include <Engine/Animation/Graph/AnimGraph.hpp>
 #include <Engine/ECS/System/CharacterMovement.hpp>
 #include <Engine/ECS/System/SpringArm.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"
 
@@ -195,7 +195,7 @@ namespace
         for ( int up = 0; up < 8; ++up )
         {
             if ( std::filesystem::exists( std::filesystem::path( prefix ) /
-                                          "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp" ) )
+                                          "Desert/PhysicsCore/Source/PhysicsCore/PhysicsWorld.cpp" ) )
                 return prefix;
             prefix += "../";
         }
@@ -215,7 +215,7 @@ TEST( JoltCentimetres, EveryLengthSpeedAndForceSettingIsAssignedInTheOnePlace )
 {
     const std::filesystem::path root = RepoRootForCensus();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
-    const std::string source = ReadText( root / "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp" );
+    const std::string source = ReadText( root / "Desert/PhysicsCore/Source/PhysicsCore/PhysicsWorld.cpp" );
 
     const std::string kBegin = "// ---- Jolt in centimetres (the one place) ----";
     const std::string kEnd   = "// ---- end Jolt in centimetres ----";
@@ -254,7 +254,7 @@ TEST( JoltCentimetres, EveryConvexShapePassesTheCentimetreConvexRadius )
 {
     const std::filesystem::path root = RepoRootForCensus();
     ASSERT_FALSE( root.empty() ) << "run from inside the repository";
-    const std::string source = ReadText( root / "Desert/Desert/Source/Engine/Physics/PhysicsWorld.cpp" );
+    const std::string source = ReadText( root / "Desert/PhysicsCore/Source/PhysicsCore/PhysicsWorld.cpp" );
     EXPECT_NE( source.find( "constexpr float kConvexRadiusCm = 5.0f;" ), std::string::npos )
          << "the engine's convex radius (0.05 m = 5 cm) is gone from the centimetre block";
 

@@ -75,7 +75,7 @@ Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanVertexBuffer.cpp
 Editor/Source/Editor/ImGuiIntegration/VulkanImGuiLayer.cpp
 Desert/Render2DCore/Source/Render2DCore/DrawList2D.cpp
 Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp
-Desert/Desert/Source/Engine/Project/ProjectContext.cpp
+Desert/Projects/Source/Projects/ProjectContext.cpp
 Desert/Desert/Source/Engine/Reflection/ReflectionRegistry.cpp
 Desert/Desert/Source/Engine/Runtime/Services/Material/MaterialService.cpp
 Desert/UI/Source/UI/UICanvasRenderer2D.cpp

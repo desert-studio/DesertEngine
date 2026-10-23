@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <string>
 #include <utility>
 #include <vector>
@@ -300,7 +301,7 @@ namespace Desert::Assets::Serialization
         std::error_code       ec;
         std::filesystem::path file = dir / ( stem + kFoliageTypeExtension );
         for ( int n = 1; std::filesystem::exists( file, ec ); ++n )
-            file = dir / ( stem + "_" + std::to_string( n ) + kFoliageTypeExtension );
+            file = dir / std::format( "{}_{}{}", stem, n, kFoliageTypeExtension );
         if ( auto saved = SaveFoliageTypeFile( file, key ); !saved )
             return Common::MakeFormattedError<FoliageTypeFile>( "{}", saved.GetError() );
         // Read back: the GUID is minted by the writer, and the caller records it.
