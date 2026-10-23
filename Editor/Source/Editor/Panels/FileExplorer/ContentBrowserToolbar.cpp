@@ -52,6 +52,7 @@ namespace Desert::Editor
              { "Weather Presets", static_cast<int>( FileType::WeatherPreset ) },
              { "VFX Data Channels", static_cast<int>( FileType::VFXDataChannel ) },
              { "VFX Effect Types", static_cast<int>( FileType::VFXEffectType ) },
+             { "State Trees", static_cast<int>( FileType::StateTree ) },
         };
     } // namespace
 

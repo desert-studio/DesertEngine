@@ -1089,6 +1089,16 @@ namespace
                                 }
                             }
                         }
+                        // A reflected handle names its asset class (UE TSoftObjectPtr<T>): the Details panel draws
+                        // a picker over that class's rows and refuses an untyped handle, so refuse it here, at
+                        // the declaration, rather than as "(no Details slot)" in the editor.
+                        const bool handleField =
+                             f.fieldType == "AssetHandle" || ( f.isContainer && f.elemFieldType == "AssetHandle" );
+                        if ( handleField && f.meta.assetType.empty() )
+                            fail( start,
+                                  std::format( "PROPERTY {}: an AssetHandle needs Asset<T> naming its asset "
+                                               "type (the Details picker is typed)",
+                                               fieldName ) );
                         scopes.back().fields.push_back( f );
                     }
 

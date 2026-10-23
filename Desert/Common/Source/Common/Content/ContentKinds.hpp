@@ -89,6 +89,7 @@ namespace Common::Content
         WorldParameters,
         WeatherPreset,
         VFXEffectType,
+        StateTree,
         COUNT,
     };
 
@@ -206,6 +207,9 @@ namespace Common::Content
              // UE's UNiagaraEffectType: the scalability a family of systems shares
              // (Engine/Assets/Serialization/VFXEffectType.hpp).
              /* VFXEffectType        */ { "VFXEffectType", ".dfxtype", &P::VFX_PATH },
+             // UE's UStateTree: the authored tree an AI controller runs (Engine/AI/StateTree/StateTree.hpp). Under
+             // the assets root, as a sound is: a tree sits beside the AI that runs it.
+             /* StateTree            */ { "StateTree", ".dstatetree", &P::ASSETS_PATH },
         } };
     }
 

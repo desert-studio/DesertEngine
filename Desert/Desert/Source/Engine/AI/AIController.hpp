@@ -57,7 +57,7 @@ namespace Desert::ECS
     {
         REFLECT()
 
-        PROPERTY( DisplayName( "AI Controller" ), Category( "AI" ), Summary,
+        PROPERTY( DisplayName( "AI Controller" ), Category( "AI" ), Summary, Asset<PrefabAsset>,
                   Tooltip( "The controller prefab spawned to possess this pawn (UE AIControllerClass): it holds "
                            "the State Tree, the perception senses and the team." ) )
         Assets::AssetHandle AIController;
