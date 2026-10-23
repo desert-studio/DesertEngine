@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -84,9 +85,10 @@ namespace Desert::Editor::Control
                    "and the gate would open on a frame that had not caught up." );
 
     /// WORK A COMMAND STARTS AND DOES NOT WAIT FOR. A background run answers its command at once ("started")
-    /// and is reported beside the census above, never in it: holding the reply until a run of seconds ends
-    /// would time the gate out (240 frames) on work that is going exactly as asked. A client that needs the
-    /// result polls `state` until Idle(). Closed at compile time the same way as PendingWork.
+    /// and is reported beside the census above, never in it: a New Landscape run is a separate user-facing
+    /// job with its own progress, not the effect of the command, so the reply does not stand behind it. A
+    /// client that needs the result polls `state` until Idle(). Closed at compile time the same way as
+    /// PendingWork.
     enum class BackgroundWork : std::size_t
     {
         LandscapeGenerate, ///< a New Landscape run is on the JobSystem and not yet applied to the scene
@@ -228,26 +230,35 @@ namespace Desert::Editor::Control
     class FrameGate
     {
     public:
-        /// How many frames the gate will wait before refusing. Long enough for a document open behind a
-        /// device-idle wait, a scene load and a Play/Stop cycle to all finish (four seconds at 60 Hz);
-        /// short enough that a wedged editor answers rather than holding the client forever. A refusal
-        /// that names what stayed outstanding is a diagnosis; silence is not.
+        /// The clock every wait is measured on. Monotonic, so a wall-clock change cannot time a wait out.
+        using Clock = std::chrono::steady_clock;
+
+        /// How long the gate will wait, IN WALL-CLOCK TIME, for a raised PendingWork bit to drop before it
+        /// refuses. ONE RULE FOR EVERY KIND: the gate holds the reply exactly as long as the census says work
+        /// the command started is outstanding — a staged boot, a scene load, a document close behind the
+        /// device-idle wait, a modeling Accept waiting on its background compute (Voxel Count 128 is 8.8 s,
+        /// measured) — and the budget only exists so that a WEDGED editor, one whose bit never drops, still
+        /// answers with a refusal that names the bit. This is UE's Accept: the tool waits on
+        /// HaveValidResult however long the compute takes, it does not give up after N ticks.
         ///
-        /// ONE BUDGET SERVES BOTH WAITS, and it is worth saying why the readiness wait does not need a
-        /// bigger one even though it is minutes long in wall clock. THE BUDGET IS IN FRAMES. The staged
-        /// boot runs exactly ONE STAGE PER FRAME, so a boot is as many frames as it has stages — eight in
-        /// this editor, measured, whether those eight frames cost three seconds on an idle machine or five
-        /// minutes on a loaded one. Twenty-four times the headroom, and a wedged editor still answers.
-        /// A budget in seconds would have had to be guessed, and guessed high enough to hide a real hang.
-        static constexpr uint32_t kMaxSettleFrames = 240;
+        /// WHY NOT FRAMES (the rule this replaces, 240 frames). A frame budget is a statement about how much
+        /// work happens per frame, and that is only true of work that is paced BY frames — the staged boot,
+        /// one stage per frame. Work that runs on the JobSystem beside the frames finishes in seconds,
+        /// whatever the frame rate; the faster the editor draws, the sooner a frame budget expired on a
+        /// compute that was going exactly as asked, so a long Voxel Accept was refused on a fast machine.
+        /// Seconds are the unit both kinds share. Ten minutes covers a boot measured at five minutes on a
+        /// loaded machine with room to spare; a client that wants a shorter leash keeps its own.
+        static constexpr Clock::duration kSettleBudget = std::chrono::minutes( 10 );
 
         /// A command has just run, during the update of frame @p executedOnFrame. The gate now waits for
         /// that frame or a later one to be presented in a settled state.
-        void ArmAfterExecution( uint64_t executedOnFrame ) noexcept
+        void ArmAfterExecution( uint64_t executedOnFrame, Clock::time_point now ) noexcept
         {
             m_Subject         = GateSubject::Effect;
             m_ExecutedOnFrame = executedOnFrame;
             m_FramesWaited    = 0;
+            m_ArmedAt         = now;
+            m_Waited          = Clock::duration::zero();
         }
 
         /// A request arrived on frame @p arrivedOnFrame and has NOT been run: the editor has not finished
@@ -256,11 +267,13 @@ namespace Desert::Editor::Control
         /// The frame ordering condition is kept identical to the executed case rather than dropped as
         /// vacuous, because the two failures it prevents are the same failure: a frame that was already in
         /// flight when the request arrived says nothing about the request.
-        void ArmForReadiness( uint64_t arrivedOnFrame ) noexcept
+        void ArmForReadiness( uint64_t arrivedOnFrame, Clock::time_point now ) noexcept
         {
             m_Subject         = GateSubject::Readiness;
             m_ExecutedOnFrame = arrivedOnFrame;
             m_FramesWaited    = 0;
+            m_ArmedAt         = now;
+            m_Waited          = Clock::duration::zero();
         }
 
         [[nodiscard]] GateSubject Holding() const noexcept
@@ -278,6 +291,12 @@ namespace Desert::Editor::Control
             return m_FramesWaited;
         }
 
+        /// Wall-clock time from arming to the last frame judged — what the budget is spent against.
+        [[nodiscard]] Clock::duration Waited() const noexcept
+        {
+            return m_Waited;
+        }
+
         /**
          * @brief A frame has been PRESENTED. Judge it.
          *
@@ -286,13 +305,14 @@ namespace Desert::Editor::Control
          *                    deferred queues drained and before the scene was rendered. Sampled then and
          *                    not now, because "was anything outstanding when this picture was made" is
          *                    the question; by the time the frame is out, the answer has moved on.
+         * @param now         When the frame was presented, on the clock the gate was armed with.
          *
          * Discharges AT MOST ONCE per arming: the verdict is Discharged on exactly the frame that proves
          * the command, and Idle from then until the gate is armed again. A gate that could discharge
          * twice would send two replies to one request.
          */
-        [[nodiscard]] GateVerdict ObserveFramePresented( uint64_t                frame,
-                                                         const EditorQuiescence& quiescence ) noexcept
+        [[nodiscard]] GateVerdict ObserveFramePresented( uint64_t frame, const EditorQuiescence& quiescence,
+                                                         Clock::time_point now ) noexcept
         {
             if ( m_Subject == GateSubject::Nothing )
                 return GateVerdict::Idle;
@@ -305,6 +325,7 @@ namespace Desert::Editor::Control
                 return GateVerdict::Waiting;
 
             ++m_FramesWaited;
+            m_Waited = now - m_ArmedAt;
 
             if ( quiescence.Settled() )
             {
@@ -312,7 +333,7 @@ namespace Desert::Editor::Control
                 return GateVerdict::Discharged;
             }
 
-            if ( m_FramesWaited >= kMaxSettleFrames )
+            if ( m_Waited >= kSettleBudget )
             {
                 m_Subject = GateSubject::Nothing;
                 return GateVerdict::TimedOut;
@@ -345,13 +366,23 @@ namespace Desert::Editor::Control
         {
             m_Subject      = GateSubject::Nothing;
             m_FramesWaited = 0;
+            m_Waited       = Clock::duration::zero();
         }
 
     private:
         GateSubject m_Subject         = GateSubject::Nothing;
         uint64_t    m_ExecutedOnFrame = 0;
         uint32_t    m_FramesWaited    = 0;
+        Clock::time_point m_ArmedAt{};
+        Clock::duration   m_Waited = Clock::duration::zero();
     };
+
+    /// How long a refused wait lasted, in the unit the budget is in (seconds) and the frames it spanned.
+    [[nodiscard]] inline std::string DescribeWait( uint32_t framesWaited, FrameGate::Clock::duration waited )
+    {
+        const auto seconds = std::chrono::duration_cast<std::chrono::seconds>( waited ).count();
+        return std::to_string( seconds ) + " s (" + std::to_string( framesWaited ) + " frames)";
+    }
 
     /**
      * @brief The refusal a readiness wait owes its caller when the editor never came up.
@@ -364,12 +395,13 @@ namespace Desert::Editor::Control
      * It names the outstanding work for the same reason, and in the same words `state`'s `quiescence`
      * section uses — so a client that polled `state` while waiting recognises the phrase in the refusal.
      */
-    [[nodiscard]] inline std::string DescribeReadinessTimeout( const EditorQuiescence& quiescence,
-                                                               uint32_t                framesWaited )
+    [[nodiscard]] inline std::string DescribeReadinessTimeout( const EditorQuiescence&    quiescence,
+                                                               uint32_t                   framesWaited,
+                                                               FrameGate::Clock::duration waited )
     {
         const std::string outstanding = quiescence.Describe();
-        return "the editor had not finished coming up after " + std::to_string( framesWaited ) +
-               " frames, so this request was NOT run — answering it from a half-built editor would have "
+        return "the editor had not finished coming up after " + DescribeWait( framesWaited, waited ) +
+               ", so this request was NOT run — answering it from a half-built editor would have "
                "produced a successful reply about a project it has not read yet. Still outstanding: " +
                ( outstanding.empty() ? std::string( "nothing — which means the gate and the census "
                                                     "disagree, and that is a defect in the channel itself" )
@@ -379,12 +411,13 @@ namespace Desert::Editor::Control
 
     /// The refusal a TimedOut verdict owes its caller. Names what never finished, because "the editor did
     /// not settle" alone tells the reader nothing they can act on.
-    [[nodiscard]] inline std::string DescribeSettleTimeout( const EditorQuiescence& quiescence,
-                                                            uint32_t                framesWaited )
+    [[nodiscard]] inline std::string DescribeSettleTimeout( const EditorQuiescence&    quiescence,
+                                                            uint32_t                   framesWaited,
+                                                            FrameGate::Clock::duration waited )
     {
         const std::string outstanding = quiescence.Describe();
-        return "the editor did not reach a settled frame within " + std::to_string( framesWaited ) +
-               " frames, so this reply cannot promise that a rendered frame reflects the command. Still "
+        return "the editor did not reach a settled frame within " + DescribeWait( framesWaited, waited ) +
+               ", so this reply cannot promise that a rendered frame reflects the command. Still "
                "outstanding: " +
                ( outstanding.empty() ? std::string( "nothing — which means the gate and the "
                                                     "census disagree, and that is a defect "
