@@ -27,7 +27,7 @@
 Когда --subject viewport set Camera.Position 9282,5000,-8000
 Когда --subject viewport set Camera.Direction 0,-0.55,0.84
 Когда state
-Тогда-вид 0_road a flat road-like band follows the spline through the hill, smooth falloff at the sides; the spline (centre, edges, falloff lines, 3 points) is drawn
+Тогда 0_road a flat road-like band follows the spline through the hill, smooth falloff at the sides; the spline (centre, edges, falloff lines, 3 points) is drawn
 # Undo runs before the save: reopening a scene starts a fresh history (UE: loading a map clears the transaction buffer).
 Когда run Action "Undo"
 Когда run Action "Undo"
@@ -42,4 +42,4 @@
 Когда --subject viewport set Camera.Position 9282,5000,-8000
 Когда --subject viewport set Camera.Direction 0,-0.55,0.84
 Когда state
-Тогда-вид 1_reopen after reopen the spline and the deformed band are identical to 0_road
+Тогда 1_reopen after reopen the spline and the deformed band are identical to 0_road
