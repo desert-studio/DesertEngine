@@ -252,6 +252,8 @@ namespace Desert::Editor::Core
         SplineMeshCubeSlab,
         /// Every segment's SplineMeshes cleared.
         SplineMeshNone,
+        /// UE: every spline mesh entry's CenterAdjust (Details) raised 100 cm — the mesh lifted off the road.
+        SplineMeshLift,
         RampStart,
         RampEnd,
         RampApply,
@@ -681,6 +683,11 @@ namespace Desert::Editor::Core
                               {},
                               splines,
                               LandscapeStrokeRequest::SplineMeshNone } );
+        controls.push_back( { "Spline mesh: lift 100 cm",
+                              "Spline mesh",
+                              {},
+                              splines,
+                              LandscapeStrokeRequest::SplineMeshLift } );
         return controls;
     }
 

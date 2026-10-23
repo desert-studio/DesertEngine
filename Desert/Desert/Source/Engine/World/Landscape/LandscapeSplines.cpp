@@ -62,6 +62,7 @@ namespace Desert::World::Landscape
             float Alpha      = 0.0f;
             float PaintAlpha = 0.0f; // the same falloff measured from the painted half-width (LayerWidth)
             float Height     = 0.0f; // world cm, the curve's centre height at the nearest point
+            float Distance   = std::numeric_limits<float>::max(); // to the nearest point (lateral + overshoot)
         };
 
         /// The band of one sampled segment at world (x, z): the nearest point on the centre polyline (XZ),
@@ -113,6 +114,7 @@ namespace Desert::World::Landscape
                 best.Alpha      = alpha;
                 best.PaintAlpha = paint;
                 best.Height = glm::mix( points[i].Center.y, points[i + 1].Center.y, clamped );
+                best.Distance   = score;
             }
             return best;
         }
@@ -351,7 +353,11 @@ namespace Desert::World::Landscape
                         const uint8_t weight = static_cast<uint8_t>( std::lround( hit.PaintAlpha * 255.0f ) );
                         w                    = std::max( w, weight );
                     }
-                    if ( hit.Alpha > best.Alpha )
+                    // At a joint both segments reach the sample with the full alpha: the one the sample lies
+                    // ALONG wins, not the first one, whose clamped foot is the shared point (on a hump top that
+                    // is the crest height carried past the joint: a ridge of ground across the road).
+                    if ( hit.Alpha > best.Alpha ||
+                         ( hit.Alpha > 0.0f && hit.Alpha == best.Alpha && hit.Distance < best.Distance ) )
                     {
                         best   = hit;
                         winner = s.Segment;

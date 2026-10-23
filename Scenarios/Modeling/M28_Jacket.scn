@@ -27,3 +27,5 @@
 Когда run Action Undo
 Когда run "Level Viewport" "Focus Selected"
 Тогда-вид 2_undo after Undo the inner box is drawn again through the outer one
+# The view mode is a machine preference that persists between runs: put it back to Lit for the next scenario.
+Когда run View "View mode: Lit"
