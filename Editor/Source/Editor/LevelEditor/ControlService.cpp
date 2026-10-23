@@ -386,6 +386,13 @@ namespace Desert::Editor
         // work from that command remained. A `shot.viewport` answered while a worker is still reading the
         // sky would hand back a picture of a scene without its clouds and call it the scene.
         quiescence.Set( Control::PendingWork::StartupLoading, startupLoading );
+        // UE's tool Accept is disabled until the background compute has a valid result (HaveValidResult); here
+        // Accept stays raised until it lands (MeshProcessingTool::Update), and the reply to it waits with it.
+        {
+            const Core::ModelingState& modeling = Core::ModelingState::Get();
+            quiescence.Set( Control::PendingWork::ModelingAccept,
+                            modeling.ReqAccept && modeling.ActiveTool != Core::ModelingState::Tool::None );
+        }
         quiescence.Set( Control::PendingWork::SceneLoad, m_SceneFiles.HasPendingLoad() );
         quiescence.Set( Control::PendingWork::NewScene, m_SceneFiles.HasPendingNew() );
         // THE GRID BELONGS HERE TOO, and the pending DOCK is part of it: the layout is applied a frame

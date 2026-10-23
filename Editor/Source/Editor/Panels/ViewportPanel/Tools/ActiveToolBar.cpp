@@ -75,6 +75,9 @@ namespace Desert::Editor::Tools
             // UE's Hole Fill previews until Accept; Cancel puts the mesh back (MeshProcessingTool).
             case T::HoleFill:
                 return { ICON_MDI_VECTOR_SQUARE_CLOSE, "Hole Fill", true };
+            // UE's Remesh previews the remeshed mesh until Accept; Cancel puts it back (MeshProcessingTool).
+            case T::Remesh:
+                return { ICON_MDI_VECTOR_TRIANGLE, "Remesh", true };
             // UE's Jacket previews the removal until Accept; Cancel puts the mesh back (MeshProcessingTool).
             case T::Jacket:
                 return { ICON_MDI_LAYERS_MINUS, "Jacket", true };

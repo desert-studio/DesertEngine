@@ -56,6 +56,8 @@ namespace Desert::Editor::Tools
                     return "Tangents";
                 case MS::Tool::HoleFill:
                     return "Hole Fill";
+                case MS::Tool::Remesh:
+                    return "Remesh";
                 case MS::Tool::Jacket:
                     return "Jacket";
                 case MS::Tool::Project:
@@ -139,9 +141,9 @@ namespace Desert::Editor::Tools
         return tool == MS::Tool::Smooth || tool == MS::Tool::Offset || tool == MS::Tool::Warp ||
                tool == MS::Tool::Lattice || tool == MS::Tool::Normals || tool == MS::Tool::Tangents ||
                tool == MS::Tool::VoxWrap || tool == MS::Tool::VoxBoolean || tool == MS::Tool::VoxMorph ||
-               tool == MS::Tool::HoleFill || tool == MS::Tool::Jacket || tool == MS::Tool::Project ||
-               tool == MS::Tool::WeldEdges || tool == MS::Tool::VoxWrap || tool == MS::Tool::VoxBoolean ||
-               tool == MS::Tool::VoxMorph || tool == MS::Tool::VoxBlend;
+               tool == MS::Tool::HoleFill || tool == MS::Tool::Remesh || tool == MS::Tool::Jacket ||
+               tool == MS::Tool::Project || tool == MS::Tool::WeldEdges || tool == MS::Tool::VoxWrap ||
+               tool == MS::Tool::VoxBoolean || tool == MS::Tool::VoxMorph || tool == MS::Tool::VoxBlend;
     }
 
     bool MeshProcessingTool::SelectionStillMatches() const
@@ -387,6 +389,7 @@ namespace Desert::Editor::Tools
         m_HoleFill         = ms.MeshHoleFill;
         m_HoleFillSelected = ms.HoleFillSelected;
         m_Jacket           = ms.MeshJacket;
+        m_Remesh           = ms.MeshRemesh;
         m_Project          = ms.MeshProject;
         m_WeldEdges        = ms.MeshWeldEdges;
         m_Warp          = ms.DeformWarp;
@@ -400,6 +403,8 @@ namespace Desert::Editor::Tools
              m_Session->Tool == MS::Tool::Warp
                   ? glm::inverse( glm::dmat4( ms.WarpGizmo ) ) * glm::dmat4( WorldOf( scene, m_Session->Entity ) )
                   : glm::dmat4( 1.0 );
+        // Remesh: the edge length is world cm (UE measures the mesh it shows), so the entity's transform.
+        const glm::dmat4                    objectToWorld( WorldOf( scene, m_Session->Entity ) );
         std::optional<Geometry::FFDLattice> lattice = m_Session->Lattice;
         auto cancel                                 = std::make_shared<Geometry::ProgressCancel>();
         m_Session->PendingCancel                    = CancelOnDrop( cancel );
@@ -408,10 +413,11 @@ namespace Desert::Editor::Tools
              [cancel = std::move( cancel ), tool = m_Session->Tool, input = m_Session->Input, smooth = m_Smooth,
               offset = m_Offset, voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, voxMorph = m_VoxMorph,
               voxBlend = m_VoxBlend, other = m_Session->OtherInput, normals = m_Normals, tangents = m_Tangents,
-              holeFill = m_HoleFill, holes = m_HoleFillSelected, jacket = m_Jacket, project = m_Project,
-              weldEdges = m_WeldEdges, targetMesh = m_Session->TargetMesh, targetToInput = m_Session->TargetToInput,
-              warp = m_Warp, latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ),
-              objectToGizmo]() -> Common::ResultStr<Geometry::DeformOutcome>
+              holeFill = m_HoleFill, holes = m_HoleFillSelected, jacket = m_Jacket, remesh = m_Remesh,
+              project = m_Project, weldEdges = m_WeldEdges, targetMesh = m_Session->TargetMesh,
+              targetToInput = m_Session->TargetToInput, warp = m_Warp, latticeSettings = m_Lattice,
+              points = m_LatticePoints, lattice = std::move( lattice ), objectToGizmo,
+              objectToWorld]() -> Common::ResultStr<Geometry::DeformOutcome>
              {
                  switch ( tool )
                  {
@@ -437,6 +443,9 @@ namespace Desert::Editor::Tools
                          return Geometry::Jacket( *input, jacket );
                      case MS::Tool::WeldEdges:
                          return Geometry::WeldMeshEdges( *input, weldEdges );
+                     case MS::Tool::Remesh:
+                         return Geometry::RemeshMeshOperation( *input, objectToWorld, remesh, nullptr, "Remesh",
+                                                                                        cancel.get() );
                      case MS::Tool::Project:
                          return Geometry::ProjectToTarget( *input, *targetMesh, targetToInput, project );
                      case MS::Tool::Lattice:
@@ -880,6 +889,8 @@ namespace Desert::Editor::Tools
                 return !( ms.MeshHoleFill == m_HoleFill ) || ms.HoleFillSelected != m_HoleFillSelected;
             case MS::Tool::Jacket:
                 return !( ms.MeshJacket == m_Jacket );
+            case MS::Tool::Remesh:
+                return !( ms.MeshRemesh == m_Remesh );
             case MS::Tool::Project:
                 return !( ms.MeshProject == m_Project );
             case MS::Tool::WeldEdges:
