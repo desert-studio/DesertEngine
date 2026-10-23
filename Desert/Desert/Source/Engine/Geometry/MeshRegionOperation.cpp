@@ -398,6 +398,48 @@ namespace Desert::Geometry
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ), {} } );
     }
 
+    const char* ToString( SimplifierType type )
+    {
+        switch ( type )
+        {
+            case SimplifierType::Standard:
+                return "Standard";
+            case SimplifierType::AttributeAware:
+                return "Attribute-Aware";
+        }
+        return "Unknown";
+    }
+
+    namespace
+    {
+        // SimplifyMeshOp.cpp ComputeSimplify: the same setup and target for either simplifier type.
+        template <typename Simplifier>
+        int RunSimplifier( DynamicMesh3& mesh, const BoundaryConstraintFlags& flags, MeshConstraints constraints,
+                           SimplifyTarget mode, int target, float targetEdgeLength, const glm::dmat4& localToWorld )
+        {
+            Simplifier simplifier( mesh );
+            simplifier.Boundaries = flags;
+            simplifier.SetEdgeFlipTolerance( 1e-5 );
+            // bPreventTinyTriangles on: unit normals at 1e-5 alone let a collapse leave a sliver of no area.
+            simplifier.PreventTinyTriangles = true;
+            simplifier.SetExternalConstraints( std::move( constraints ) );
+            switch ( mode )
+            {
+                case SimplifyTarget::Percentage:
+                case SimplifyTarget::TriangleCount:
+                    simplifier.SimplifyToTriangleCount( target );
+                    break;
+                case SimplifyTarget::VertexCount:
+                    simplifier.SimplifyToVertexCount( target );
+                    break;
+                case SimplifyTarget::EdgeLength:
+                    simplifier.SimplifyToEdgeLength( targetEdgeLength, localToWorld );
+                    break;
+            }
+            return simplifier.CollapseCount();
+        }
+    } // namespace
+
     const char* ToString( SimplifyTarget target )
     {
         switch ( target )
@@ -452,6 +494,14 @@ namespace Desert::Geometry
         DynamicMesh3 mesh = input;
         if ( settings.DiscardAttributes )
             mesh.DiscardAttributes();
+        const bool attributeAware = settings.Simplifier == SimplifierType::AttributeAware;
+        // SimplifyMeshOp.cpp:278-281: the attribute quadric needs normals - a mesh without them gets per-vertex ones.
+        if ( attributeAware && !mesh.HasAttributes() )
+        {
+            mesh.EnableAttributes();
+            mesh.Attributes()->SetNumUVLayers( 0 );
+            MeshNormals::InitializeOverlayToPerVertexNormals( mesh.Attributes()->PrimaryNormals(), false );
+        }
         // UE's Simplify (SimplifyMeshTool.cpp:248-249, SimplifyMeshOp.cpp:67-75): Preserve Sharp Edges off by
         // default, so seams collapse along their line; on, a seam is NoCollapse and its vertices stay. The flip
         // test compares unit normals at 1e-5 and bowties on the seams are split first.
@@ -466,40 +516,27 @@ namespace Desert::Geometry
         MeshConstraints constraints;
         ConstrainAllBoundariesAndSeams( constraints, mesh, flags );
         const size_t      constrained = constraints.EdgeConstraintCount();
-        QemSimplification simplifier( mesh );
-        simplifier.Boundaries = flags;
-        simplifier.SetEdgeFlipTolerance( 1e-5 );
-        // bPreventTinyTriangles on: unit normals at 1e-5 alone let a collapse leave a sliver of no area.
-        simplifier.PreventTinyTriangles = true;
-        simplifier.SetExternalConstraints( std::move( constraints ) );
-        switch ( mode )
-        {
-            case SimplifyTarget::Percentage:
-            case SimplifyTarget::TriangleCount:
-                simplifier.SimplifyToTriangleCount( target );
-                break;
-            case SimplifyTarget::VertexCount:
-                simplifier.SimplifyToVertexCount( target );
-                break;
-            case SimplifyTarget::EdgeLength:
-                simplifier.SimplifyToEdgeLength( settings.TargetEdgeLength, localToWorld );
-                break;
-        }
+        const int collapses =
+             attributeAware ? RunSimplifier<AttrMeshSimplification>( mesh, flags, std::move( constraints ), mode,
+                                                                      target, settings.TargetEdgeLength, localToWorld )
+                            : RunSimplifier<QemSimplification>( mesh, flags, std::move( constraints ), mode, target,
+                                                                settings.TargetEdgeLength, localToWorld );
         // A command without an effect leaves no undo step (see WeldEdges).
-        if ( simplifier.CollapseCount() == 0 )
+        if ( collapses == 0 )
             return Common::MakeFormattedError<DeformOutcome>(
                  "Simplify: no edge could collapse ({} of {} edges constrained by borders and seams{})",
                  constrained, input.EdgeCount(),
                  mode == SimplifyTarget::EdgeLength ? ", or none shorter than the target" : "" );
-        // The normals follow the collapsed surface: discarded attributes come back as a per-vertex normal overlay
-        // only (UE), a kept overlay is recomputed (its split elements keep the hard edges).
-        if ( !mesh.HasAttributes() )
+        // Standard: the normals follow the collapsed surface - discarded attributes come back as a per-vertex normal
+        // overlay only (UE), a kept overlay is recomputed (its split elements keep the hard edges). Attribute-Aware
+        // keeps the normals its quadric carried through the collapses.
+        if ( !attributeAware && !mesh.HasAttributes() )
         {
             mesh.EnableAttributes();
             mesh.Attributes()->SetNumUVLayers( 0 );
             MeshNormals::InitializeOverlayToPerVertexNormals( mesh.Attributes()->PrimaryNormals(), false );
         }
-        else if ( mesh.Attributes()->PrimaryNormals() != nullptr )
+        else if ( !attributeAware && mesh.Attributes()->PrimaryNormals() != nullptr )
         {
             MeshNormals normals( &mesh );
             normals.RecomputeOverlayNormals( mesh.Attributes()->PrimaryNormals() );
@@ -510,8 +547,9 @@ namespace Desert::Geometry
             return Common::MakeError<DeformOutcome>( tangents.GetError() );
         DeformOutcome outcome;
         outcome.MovedVertices = mesh.VertexCount();
-        outcome.Report        = std::format( "Simplify: {} -> {} triangles ({} collapses, {})", triangles,
-                                             mesh.TriangleCount(), simplifier.CollapseCount(), ToString( mode ) );
+        outcome.Report        = std::format( "Simplify: {} -> {} triangles ({} collapses, {}, {})", triangles,
+                                             mesh.TriangleCount(), collapses, ToString( mode ),
+                                             ToString( settings.Simplifier ) );
         outcome.Mesh          = std::move( mesh );
         return Common::MakeSuccess( std::move( outcome ) );
     }

@@ -129,7 +129,19 @@ namespace Desert::Geometry
     //   collapses and its vertices never move; off, a seam collapses along its own line;
     //   Discard Attributes (UE bDiscardAttributes) - the UV / normal / colour overlays are dropped first (no seam
     //   holds the collapse) and per-vertex normals rebuilt on the result.
-    // UE's Attribute-Aware simplifier (FAttrMeshSimplification) is not ported; the QEM one is the only type.
+    //   Simplifier Type (UE SimplifierType) - Standard (FQEMSimplification: position quadric only; the kept
+    //   normal overlay is rebuilt from the collapsed surface) or Attribute-Aware (FAttrMeshSimplification: each
+    //   face quadric also carries the linear field of its corner normals, so a collapse pays for bending them, the
+    //   collapse point keeps the volume, and a collapsed vertex takes the normal the quadric predicts - the overlay
+    //   is NOT rebuilt). One simplifier (QemSimplificationT) over the two quadric types, as in UE.
+    enum class SimplifierType : uint8_t
+    {
+        Standard,
+        AttributeAware,
+    };
+    [[nodiscard]] const char* ToString( SimplifierType type );
+    inline constexpr SimplifierType kSimplifierTypes[] = { SimplifierType::Standard, SimplifierType::AttributeAware };
+
     enum class SimplifyTarget : uint8_t
     {
         Percentage,
@@ -144,6 +156,7 @@ namespace Desert::Geometry
 
     struct SimplifySettings
     {
+        SimplifierType Simplifier              = SimplifierType::Standard; // UE SimplifierType default QEM
         SimplifyTarget Target                  = SimplifyTarget::Percentage;
         float          Percentage              = 50.0f; // UE TargetPercentage default
         int32_t        TargetCount             = 1000;  // UE TargetCount default (triangles or vertices)
