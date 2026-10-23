@@ -8,11 +8,11 @@
 # break and landing points. The scenario does not save the scene.
 Дано run Scene "Open Scene Starter.desce"
 Дано run View "View mode: Lit"
-Дано --subject viewport set Camera.Position -100,200,-250
-Дано --subject viewport set Camera.Direction -0.53,-0.2,0.82
+Дано --subject viewport set Camera.Position -800,190,-60
+Дано --subject viewport set Camera.Direction 0.6,-0.17,0.78
 Когда run Action Simulate
 Когда advance 0.9
-Тогда-вид 0_intact the wall standing whole (left of centre, beside the glass sphere), no particles around it
+Тогда-вид 0_intact the wall standing whole (seen from its left, in front), no particles around it
 Когда advance 0.4
 Тогда-вид 1_break the wall's pieces flying apart from its centre, orange sparks and a tan dust burst at the break points
 Когда advance 1.5
