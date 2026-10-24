@@ -38,6 +38,8 @@
 // Both lighting paths answer a hit with the direct-light BRDF (GIHitLightResponse), the in-place one included.
 #include <Mesh/BRDF.glslh>
 #include <Mesh/DirectLighting.glslh>
+// Where a local light's visibility ray stops: on its emitter sphere (LightSourceSphereAxisReach).
+#include <Common/LightSourceSampling.glslh>
 
 // The albedo of a hit the view does not see and no card holds (no material on a distance-field surface):
 // photographic middle grey, 0.18 linear.
@@ -139,19 +141,24 @@ vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, GIHitSurface surface )
         const uint  index = LightGridWorldLight( range, k );
         DesertLight light;
         vec3        lightPosition;
+        float       sourceRadius;
         if ( index < lightGrid.counts.x )
         {
             light         = DesertPointLightAt( pointLights[index], hit.position );
             lightPosition = pointLights[index].position;
+            sourceRadius  = pointLights[index].sourceRadius;
         }
         else
         {
             light         = DesertSpotLightAt( spotLights[index - lightGrid.counts.x], hit.position );
             lightPosition = spotLights[index - lightGrid.counts.x].position;
+            sourceRadius  = spotLights[index - lightGrid.counts.x].sourceRadius;
         }
         if ( dot( N, light.L ) <= 0.0 || max( light.Radiance.r, max( light.Radiance.g, light.Radiance.b ) ) <= 0.0 )
             continue;
-        const float toLight = distance( lightPosition, origin );
+        // The ray ends on the light's emitter sphere, not at its centre: a caster inside the emitter (the bulb of
+        // its fixture) does not shadow it, as in the path tracer and the ray-traced local shadows.
+        const float toLight = LightSourceSphereAxisReach( distance( lightPosition, origin ), sourceRadius );
         const vec3 toward = normalize( lightPosition - origin );
         direct += GIHitLightResponse(
              surface, N, V, light.L,

@@ -291,7 +291,7 @@ namespace Desert::Graphic::System
             {
                 auto&       spot      = spots[request.Index];
                 const float farPlane  = spot.Range;
-                const float nearPlane = LocalShadowNear( farPlane );
+                const float nearPlane = LocalShadowNear( farPlane, spot.SourceRadius );
                 const float outer     = std::acos( std::clamp( spot.CosOuter, -1.0f, 1.0f ) );
                 const float tanHalf   = GuardedTanHalf(
                      std::tan( std::clamp( outer, glm::radians( 1.0f ), glm::radians( 89.0f ) ) ), tileSize );
@@ -306,7 +306,7 @@ namespace Desert::Graphic::System
             {
                 auto&       point     = points[request.Index];
                 const float farPlane  = point.Radius;
-                const float nearPlane = LocalShadowNear( farPlane );
+                const float nearPlane = LocalShadowNear( farPlane, point.SourceRadius );
                 const float tanHalf   = GuardedTanHalf( 1.0f, tileSize );
                 for ( uint32_t face = 0; face < kPointShadowFaces; ++face )
                 {
@@ -338,7 +338,8 @@ namespace Desert::Graphic::System
             const float     reach  = request.Spot ? spots[request.Index].Range : points[request.Index].Radius;
             const glm::vec3 origin = request.Spot ? spots[request.Index].Position : points[request.Index].Position;
             const float     viewTan  = request.Spot ? spotTanHalf : GuardedTanHalf( 1.0f, tileSize );
-            const float     viewNear = LocalShadowNear( reach );
+            const float     viewNear = LocalShadowNear(
+                 reach, request.Spot ? spots[request.Index].SourceRadius : points[request.Index].SourceRadius );
             m_LocalCachePlans.push_back(
                  { .Light   = request.Key,
                    .Caster  = { .FirstView = kMaxShadowCascades + firstRow,
