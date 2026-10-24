@@ -1197,7 +1197,8 @@ namespace Desert::Graphic
         payload.Camera            = glm::vec4( frame.CameraPosition, 1.0f );
         const bool hasSun         = !m_DirectionLights.DirectionLights.empty();
         payload.SunTravel         = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
-        payload.SunRadiance       = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
+        // w: the sun's CastShadows (ViewShadowSettings::Enabled), as light 1's below - off, no ray of it is occluded.
+        payload.SunRadiance = glm::vec4( glm::vec3( lightColor ) * lightColor.w, m_SunCastsShadows ? 1.0f : 0.0f );
         // Atmosphere light 1 (the moon), as the deferred pass shades it (OnUpdate applied its transmittance).
         if ( m_AtmosphereLight1 )
         {

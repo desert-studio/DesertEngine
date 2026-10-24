@@ -1590,6 +1590,9 @@ namespace Desert::Graphic
         // BeginScene and packed into every ShadowUB (GetShadowFilterSettings).
         SceneResources::ShadowFilterSettings                            m_ShadowFilter;
         float                                                           m_SunSourceAngleDegrees = 0.0f;
+        // The elected sun's CastShadows (ViewShadowSettings::Enabled), taken each BeginScene: the GI frame record's
+        // SunRadiance.w, so the path tracer and the GI hit lighting leave its rays unoccluded as the raster does.
+        bool m_SunCastsShadows = true;
         bool                                                            m_SSRResourcesFailed = false;
         std::unordered_map<std::string, std::shared_ptr<IRenderSystem>> m_RenderSystems;
 
