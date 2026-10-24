@@ -20,12 +20,6 @@
 //     declared. Define AMBIENT_IBL_NO_SAMPLERS to take only the algebra half.
 //
 
-// The anti-black epsilon, and NOT an ambient model. Real ambient comes from the environment cubes above;
-// this only keeps a fully-occluded face with no environment bound from reading as a pure-black hole. It
-// is deliberately two orders of magnitude below the old deferred constant so it cannot double-count the
-// sky the way that constant did. Multiply it by albedo * ao at the call site.
-const vec3 SURFACE_AMBIENT_FLOOR = vec3(0.008, 0.009, 0.012);
-
 // Split-sum image-based lighting (Karis 2013) from samples the caller already took:
 //   irradiance    — the diffuse irradiance cube at N (exitant radiance for a Lambertian BRDF, so it is
 //                   NOT divided by PI again here);
@@ -86,7 +80,7 @@ float DesertSpecularOcclusion(float NoV, float roughness, float ao)
 //                       shaders); the deferred composite passes its screen-space or RSM gather here.
 vec3 ComposeAmbient(vec3 diffuseIBL, vec3 specularIBL, vec3 albedo, float ao, float specularOcclusion, vec3 indirect)
 {
-	return diffuseIBL * ao + specularIBL * specularOcclusion + albedo * ao * (SURFACE_AMBIENT_FLOOR + indirect);
+	return diffuseIBL * ao + specularIBL * specularOcclusion + albedo * ao * indirect;
 }
 
 // THE CHAIN OF REFLECTION SOURCES, for one specular lobe: a traced source (screen-space reflections today; the

@@ -315,7 +315,7 @@ namespace Desert::Graphic::System
                 AddTracePass( graph, accumulation, sky, inputs, width, height, traced );
                 m_Summed += traced;
             }
-            AddResolvePass( graph, accumulation, sceneColor, frame.FrameIndex );
+            AddResolvePass( graph, accumulation, sceneColor, frame.FrameIndex, frame.PreExposure );
             return BOOLSUCCESS;
         }
 
@@ -326,6 +326,12 @@ namespace Desert::Graphic::System
         }
 
     private:
+        // PathTracerResolve.shader "ResolvePush".
+        struct ResolvePush
+        {
+            float PreExposure;
+        };
+
         struct TracePush
         {
             glm::uvec4 Counts; // point lights, spot lights, paths already summed (0: overwrite), max bounces
@@ -527,10 +533,13 @@ namespace Desert::Graphic::System
                  } );
         }
 
-        // "PathTracing: Resolve": sum / count over the scene colour, every frame (also once converged).
+        // "PathTracing: Resolve": sum / count over the scene colour, every frame (also once converged), stored
+        // pre-exposed like every other writer of the scene colour (ViewFrame::PreExposure; UE
+        // PathTracingCompositingPixelShader.usf multiplies by View.PreExposure) - the tonemap divides it back out.
         void AddResolvePass( RDG::Builder& graph, const RDG::TextureRef accumulation,
-                             const RDG::TextureRef sceneColor, const uint64_t frameIndex )
+                             const RDG::TextureRef sceneColor, const uint64_t frameIndex, const float preExposure )
         {
+            const ResolvePush push { preExposure };
             graph.AddPass(
                  "PathTracing: Resolve", RDG::PassFlags::Raster,
                  [&]( RDG::PassBuilder& pass )
@@ -539,14 +548,16 @@ namespace Desert::Graphic::System
                           .Texture( PathTracingResolveShaderParameters::AccumulationTexture, accumulation,
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                           .Sampler( PathTracingResolveShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() );
+                                    RDG::SamplerDesc::PointClamp() )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( ResolvePush ) ) );
                      // Every pixel is written: what the scene colour held is not loaded.
                      pass.ColorTarget( 0, sceneColor, RDG::LoadOp::DontCare() );
                  },
-                 [this, frameIndex]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, frameIndex, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: Resolve" );
-                     const RDG::PassBindings     bindings( context, context.GetBindingBlock( 0 ) );
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      const Common::BoolResultStr drawn =
                           Renderer::GetInstance().DrawFullscreen( bindings, *m_ResolvePipeline, nullptr );
                      if ( drawn.IsSuccess() && !m_TraceFailed )
