@@ -294,20 +294,21 @@ namespace Desert::Graphic::System
         if ( m_SkyViewLut )
             return true;
 
-        const Core::Formats::Image2DSpecification skyViewSpec{
-             .Tag        = "SkyViewLut",
-             .Width      = kSkyViewLutWidth,
-             .Height     = kSkyViewLutHeight,
-             .Format     = Core::Formats::ImageFormat::RGBA16F,
-             .Mips       = 1u,
-             .Usage      = Core::Formats::Image2DUsage::Image2D,
-             .Properties = Core::Formats::Storage | Core::Formats::Sample,
+        // Atmosphere light 1's LUT has the same texel layout, parameterised around that light.
+        const auto skyViewSpec = []( const char* tag )
+        {
+            return Core::Formats::Image2DSpecification{
+                 .Tag        = tag,
+                 .Width      = kSkyViewLutWidth,
+                 .Height     = kSkyViewLutHeight,
+                 .Format     = Core::Formats::ImageFormat::RGBA16F,
+                 .Mips       = 1u,
+                 .Usage      = Core::Formats::Image2DUsage::Image2D,
+                 .Properties = Core::Formats::Storage | Core::Formats::Sample,
+            };
         };
-        m_SkyViewLut = Image2D::Create( skyViewSpec );
-        // Atmosphere light 1's LUT: the same texel layout, parameterised around that light.
-        Core::Formats::Image2DSpecification skyView1Spec = skyViewSpec;
-        skyView1Spec.Tag                                 = "SkyViewLut1";
-        m_SkyViewLut1                                    = Image2D::Create( skyView1Spec );
+        m_SkyViewLut  = Image2D::Create( skyViewSpec( "SkyViewLut" ) );
+        m_SkyViewLut1 = Image2D::Create( skyViewSpec( "SkyViewLut1" ) );
 
         if ( !m_SkyViewLut || !m_SkyViewLut1 )
         {
