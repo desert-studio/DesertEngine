@@ -834,11 +834,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.
-                 const glm::vec4 light1Dir =
-                      m_AtmosphereLight1 ? m_AtmosphereLight1->Light.Direction : glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f );
-                 const glm::vec4 light1Color =
-                      m_AtmosphereLight1 ? m_AtmosphereLight1->Light.ColorIntensity : glm::vec4( 0.0f );
-                 deferred->FillMaterial( lightDir, lightColor, light1Dir, light1Color, cameraPos,
+                 const FrameSun light1 = GetFrameLight1();
+                 deferred->FillMaterial( lightDir, lightColor, light1.Direction, light1.ColorIntensity, cameraPos,
                                          frame.InvJitteredViewProjection,
                                          m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure
                                               ? 0 // a post view mode: the lighting draws Lit

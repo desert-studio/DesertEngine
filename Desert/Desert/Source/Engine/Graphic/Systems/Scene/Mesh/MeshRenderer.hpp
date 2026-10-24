@@ -636,6 +636,13 @@ namespace Desert::Graphic::System
         // fitted cascade. For a frame that draws the cascades after frames that did not (nothing kept them
         // current).
         void InvalidateCascadeCaches();
+        // THIS FRAME DRAWS NOTHING FOR directional slot @p slot, though UpdateCascades fitted it: SceneRenderer's
+        // frame decision, for a sun whose shadow is the screen mask and whose cascades no program of the frame
+        // samples, while another slot (the moon) still draws the array. The slot publishes no cascade from here on
+        // (DirectionalShadows: Count 0, so every receiver packed after this call reads it lit and the surface
+        // cache traces it), and its views' caches are marked never drawn so the frame it is drawn again rebuilds
+        // them. Called after UpdateCascades and before ShadowCascadePasses.
+        void DropDirectionalShadow( uint32_t slot );
         // THE SUN'S CASCADES AS ONE DEPTH ARRAY in @p graph, layer c = cascade c (RDG::TextureDim::Tex2DArray, so
         // the lit passes spend one sampler on all of them: UE's whole-scene shadow depth target). The renderer
         // keeps it across frames (a cascade with no work keeps last frame's layer); the first frame after the

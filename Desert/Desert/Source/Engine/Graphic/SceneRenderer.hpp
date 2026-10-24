@@ -684,6 +684,15 @@ namespace Desert::Graphic
             }
             return sun;
         }
+        // Atmosphere light 1 (the moon) as the same lit passes receive it: its direction and colour/intensity, or
+        // zero colour/intensity when the scene has none (the shaders then add nothing).
+        [[nodiscard]] FrameSun GetFrameLight1() const
+        {
+            if ( !m_AtmosphereLight1 )
+                return FrameSun{ .ColorIntensity = glm::vec4( 0.0f ) };
+            return FrameSun{ .Direction      = m_AtmosphereLight1->Light.Direction,
+                             .ColorIntensity = m_AtmosphereLight1->Light.ColorIntensity };
+        }
 
         /// THE view's contact shadows (Common/ContactShadow.glslh): the march's view values and the sun's length,
         /// packed into ShadowUB for every lit pass (the deferred composite, the forward meshes, the glass).
@@ -923,7 +932,7 @@ namespace Desert::Graphic
         // clears its cascade), the scene target's sky + mesh geometry + terrain (the sky clears, the rest load),
         // the outline mask (clears).
         void AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures );
-        // The sun's cascade depths (MeshRenderer::ShadowCascadePasses); declared only when m_FrameSunCascades.
+        // The directional lights' cascade depths (MeshRenderer::ShadowCascadePasses); declared only when m_FrameCascades.
         void AddFrameSunCascades( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer& mesh );
         // The one-texel far-plane cascade array a view binds when no cascade is drawn this frame ("CSM.None").
         RDG::TextureRef AddFrameNoSunCascades( RDG::Builder& graph );
@@ -1584,11 +1593,12 @@ namespace Desert::Graphic
         System::VirtualShadowMapQuality  m_VirtualShadowQuality;
         bool                             m_VirtualShadowReady  = false;
         bool                             m_VirtualShadowFailed = false;
-        // This frame draws the sun's cascades (OnUpdate's frame decision): CascadedMaps, or a ray-traced sun with
-        // a cascade reader queued (MeshRenderer::SunCascadeReadersQueued). Last frame's, to redraw the static
-        // caches after a gap in which nothing drew them.
-        bool m_FrameSunCascades          = true;
-        bool m_SunCascadesDrawnLastFrame = false;
+        // This frame draws the directional cascade array (OnUpdate's frame decision): CascadedMaps; or a screen-mask
+        // sun with a cascade reader queued (MeshRenderer::SunCascadeReadersQueued), or with another directional
+        // light (the moon) that casts its own cascades. Last frame's, to redraw the static caches after a gap in
+        // which nothing drew them.
+        bool m_FrameCascades          = true;
+        bool m_CascadesDrawnLastFrame = false;
         // The sun path the cascade budget was taken for (ShadowQualityOf): a ray-traced sun's cascades are the
         // low-detail ones. Re-budgeted when it or the quality generation moves.
         bool m_ShadowBudgetSunRayTraced = false;

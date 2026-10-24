@@ -285,9 +285,10 @@ namespace Desert::Graphic
             SurfaceCache::SurfaceCacheRenderer::DirectLightingInputs lighting;
             lighting.View   = SceneViewInputsOf( refs );
             lighting.Lights = refs.Transients.Lights;
-            // The card texels read the sun's cascades (the cascade arm): under a ray-traced sun with no
-            // cascade reader this frame, the view's cascades are the far-plane stand-in (AddFrameNoSunCascades)
-            // and the tracer's rays shadow the cards.
+            // The card texels read every directional light's cascades (the cascade arm): under a screen-mask
+            // sun with no cascade reader this frame the sun's slot publishes no cascade (DropDirectionalShadow;
+            // with no other slot casting, the view's cascades are the far-plane stand-in, AddFrameNoSunCascades)
+            // and the tracer's rays shadow the cards; the moon's slot keeps its cascades.
             DeferredShadowInput shadow;
             shadow.Sun = DeferredCascadeShadow{ .Lights = meshRenderer->DirectionalShadows() };
             // A card texel has no screen depth to march: the block states the view's contact settings with no
@@ -299,6 +300,10 @@ namespace Desert::Graphic
             const FrameSun sun  = GetFrameSun();
             lighting.LightDir   = sun.Direction;
             lighting.LightColor = sun.ColorIntensity;
+            // Atmosphere light 1 (the moon), lit as the deferred composite lights it: its own cascades.
+            const FrameSun light1 = GetFrameLight1();
+            lighting.Light1Dir    = light1.Direction;
+            lighting.Light1Color  = light1.ColorIntensity;
             // The shadow rays of the texels the view's maps do not hold: the active GI tracer's visibility.
             lighting.Tracer = MakeTracerFrame( graph, textures, SurfaceCacheTracer() );
             // The traced GI relights the pages' indirect term after its radiance cache update (AddFrameTracedGI).

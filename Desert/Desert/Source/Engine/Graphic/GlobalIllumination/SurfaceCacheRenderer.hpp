@@ -83,6 +83,9 @@ namespace Desert::Graphic::SurfaceCache
             CloudShadowUniforms             Cloud;
             glm::vec4                       LightDir{ 0.0f, -1.0f, 0.0f, 0.0f };
             glm::vec4                       LightColor{ 0.0f };
+            // Atmosphere light 1 (the moon): direction its light travels, colour/intensity (0: none).
+            glm::vec4                       Light1Dir{ 0.0f, -1.0f, 0.0f, 0.0f };
+            glm::vec4                       Light1Color{ 0.0f };
             GlobalIllumination::TracerFrame Tracer;
             // The indirect lighting runs this frame (AddIndirectLightingPass after the radiance cache update): a
             // page's FinalLighting keeps the IndirectLighting it last received; otherwise it is direct only.

@@ -46,6 +46,15 @@ namespace Desert::Graphic::System
             cache = CascadeCacheState{};
     }
 
+    void MeshRenderer::DropDirectionalShadow( const uint32_t slot )
+    {
+        if ( slot >= kDirectionalShadowSlots )
+            return;
+        m_DirectionalShadow[slot].Fitted = 0;
+        for ( uint32_t c = 0; c < kMaxCascades; ++c )
+            m_CascadeCache[slot * kMaxCascades + c] = CascadeCacheState{};
+    }
+
     void MeshRenderer::TakeShadowBudget( const ShadowQuality& budget )
     {
         m_Shadow = budget;

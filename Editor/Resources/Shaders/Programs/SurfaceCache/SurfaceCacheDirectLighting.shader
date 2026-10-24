@@ -169,6 +169,8 @@ Shader "SurfaceCacheDirectLighting"
         {
             vec4  LightDirection;   // xyz = the direction the sun's light travels
             vec4  LightColor; // rgb = colour, a = intensity
+            vec4  Light1Direction;  // atmosphere light 1 (the moon): xyz = the direction its light travels
+            vec4  Light1Color;      // rgb = colour, a = intensity (after the atmosphere's transmittance); 0: none
             uvec4 LightingFlags;      // x = 1: the indirect lighting runs this frame (the pages keep their IndirectLighting)
         };
 
@@ -184,6 +186,37 @@ Shader "SurfaceCacheDirectLighting"
             if (maxT <= 2.0 * offset)
                 return 1.0;
             return GITraceVisibility(worldPos + N * offset, L, GIFarFieldTMin(bias, N, L), maxT - 2.0 * offset);
+        }
+
+        // ONE SHADOWED DIRECTIONAL LIGHT at the texel, by its slot @p light of the cascades (kShadowLightSun,
+        // kShadowLightAtmosphere1): the light travelling along @p travel with @p radiance, occluded by that slot's
+        // cascades - and, where the slot casts but no cascade holds the texel, by the tracer's ray - times the cloud
+        // layer when @p cloudShadowed (the cloud shadow map is fitted to the SUN's direction, as in the deferred
+        // composite). Adds the front irradiance to @p irradiance and, on a subsurface texel, the far side's to @p back.
+        void AddDirectionalLight(int light, vec3 travel, vec3 radiance, bool cloudShadowed, vec3 worldPos, vec3 N,
+                                 bool through, float subsurfaceOpacity, inout vec3 irradiance, inout vec3 back)
+        {
+            const vec3  L     = normalize(-travel);
+            const float NdotL = dot(N, L);
+            const bool  casts = DirectionalShadow[light].y > 0.5;
+            if (NdotL > 0.0)
+            {
+                int   cascade = -1;
+                float shadow  = ShadowFactor(light, worldPos, N, L, cascade);
+                // Shadows on but no cascade holds the texel: the tracer answers.
+                if (cascade < 0 && casts)
+                    shadow = TracedShadow(worldPos, N, L, 1.0e7);
+                irradiance += radiance * NdotL * shadow * (cloudShadowed ? CloudShadowFactor(worldPos) : 1.0);
+            }
+            else if (through && NdotL < 0.0)
+            {
+                // The deferred composite's TransmissionShadow (Mesh/CascadedShadow.glslh): the cascades' thickness
+                // transmittance at the receiver's own depth; off the cascades, the tracer's ray from the far side.
+                float shadow = casts && chooseCascade(light, worldPos) < 0
+                                   ? TracedShadow(worldPos, -N, L, 1.0e7)
+                                   : TransmissionShadowFactor(light, worldPos, ContactShadowSubsurfaceDensity(subsurfaceOpacity));
+                back += radiance * -NdotL * shadow * (cloudShadowed ? CloudShadowFactor(worldPos) : 1.0);
+            }
         }
 
         // A point/spot light's shadow at the texel: its local shadow view when it has one, the distance field when
@@ -249,30 +282,13 @@ Shader "SurfaceCacheDirectLighting"
             vec3       irradiance  = vec3(0.0);
             vec3       back        = vec3(0.0); // the irradiance on the far side, -N (a subsurface texel only)
             // The sun: always (a scene without one carries intensity 0), its cascades times the cloud layer.
-            {
-                const vec3  L     = normalize(-LightDirection.xyz);
-                const float NdotL = dot(N, L);
-                const vec3  sun   = LightColor.rgb * LightColor.a;
-                if (NdotL > 0.0)
-                {
-                    int   cascade = -1;
-                    float shadow  = ShadowFactor(kShadowLightSun, worldPos, N, L, cascade);
-                    // Shadows on (ShadowParams.y) but no cascade holds the texel: the distance field answers.
-                    if (cascade < 0 && DirectionalShadow[kShadowLightSun].y > 0.5)
-                        shadow = TracedShadow(worldPos, N, L, 1.0e7);
-                    irradiance += sun * NdotL * shadow * CloudShadowFactor(worldPos);
-                }
-                else if (through && NdotL < 0.0)
-                {
-                    // The deferred composite's TransmissionShadow (Mesh/CascadedShadow.glslh): the cascades'
-                    // thickness transmittance at the receiver's own depth; off the cascades, the tracer's ray from
-                    // the far side.
-                    float shadow = DirectionalShadow[kShadowLightSun].y > 0.5 && chooseCascade(kShadowLightSun, worldPos) < 0
-                                       ? TracedShadow(worldPos, -N, L, 1.0e7)
-                                       : TransmissionShadowFactor(kShadowLightSun, worldPos, ContactShadowSubsurfaceDensity(subsurface.a));
-                    back += sun * -NdotL * shadow * CloudShadowFactor(worldPos);
-                }
-            }
+            AddDirectionalLight(kShadowLightSun, LightDirection.xyz, LightColor.rgb * LightColor.a, true, worldPos, N,
+                                through, subsurface.a, irradiance, back);
+            // Atmosphere light 1 (the moon), as the deferred composite lights it: its own cascades (slot
+            // kShadowLightAtmosphere1), no cloud shadow; absent (a == 0) adds nothing.
+            if (Light1Color.a > 0.0)
+                AddDirectionalLight(kShadowLightAtmosphere1, Light1Direction.xyz, Light1Color.rgb * Light1Color.a,
+                                    false, worldPos, N, through, subsurface.a, irradiance, back);
             // The point and spot lights the world light grid lists for the texel's cell (the card may be off-screen:
             // the froxel grid does not cover it), each with its shadow.
             const LightGridWorldRange range = LightGridWorldLightsAt(lightGrid, worldPos);
