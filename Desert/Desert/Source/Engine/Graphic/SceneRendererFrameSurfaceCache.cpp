@@ -289,12 +289,7 @@ namespace Desert::Graphic
             // cascade reader this frame, the view's cascades are the far-plane stand-in (AddFrameNoSunCascades)
             // and the tracer's rays shadow the cards.
             DeferredShadowInput shadow;
-            shadow.Sun = DeferredCascadeShadow{ .CascadeVP            = meshRenderer->GetCascadeViewProj(),
-                                                .Count                = meshRenderer->GetValidCascadeCount(),
-                                                .Enabled              = meshRenderer->AreShadowsEnabled(),
-                                                .CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel(),
-                                                .CascadeDepthRange    = meshRenderer->GetCascadeDepthRange(),
-                                                .SourceTanHalf        = meshRenderer->GetSunSourceTanHalf() };
+            shadow.Sun = DeferredCascadeShadow{ .Lights = meshRenderer->DirectionalShadows() };
             // A card texel has no screen depth to march: the block states the view's contact settings with no
             // steps (GetContactShadowSettings), so the cache reads the same ShadowUB layout with the march off.
             shadow.Contact      = GetContactShadowSettings( frame, false );

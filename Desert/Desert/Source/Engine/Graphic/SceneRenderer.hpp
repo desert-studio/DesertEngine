@@ -19,6 +19,7 @@
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
+#include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/AtmosphereEnv.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
@@ -142,12 +143,15 @@ namespace Desert::Graphic
         // Atmosphere light 1 (UE's Atmosphere Sun Light Index 1, the moon) as a frame lights it: the payload the
         // deferred pass shades (direction it travels, colour/intensity, as DirLights' sun) and what a TRACED ray of
         // it needs beside - its disc and whether it is occluded (the path tracer's light sample, the GI hit
-        // lighting), read from the same DirectionLightComponent.
+        // lighting) - and its own cascades' policy (MeshRenderer fits slot 1 with it exactly as it fits the sun's
+        // with ViewShadowSettings), read from the same DirectionLightComponent.
         struct AtmosphereLight1Frame
         {
             ShaderProtocols::DirectionLightPayload Light;
             float SourceAngleDegrees = 0.0f; // UE SourceAngle: the disc's full angular diameter (0: a delta)
-            bool  CastShadows        = true; // UE bCastShadows: false = no ray of it is ever occluded
+            bool  CastShadows        = true; // UE bCastShadows: false = no ray of it is ever occluded, no cascades
+            CascadeBiasSettings ShadowBias;  // ShadowBias / ShadowSlopeBias / ShadowCascadeBiasDistribution
+            float CascadeSplitLambda = 0.6f; // UE CascadeDistributionExponent's role: the split blend
         };
 
         struct UpdateInfo
@@ -570,6 +574,12 @@ namespace Desert::Graphic
         const auto& GetDirectionLights() const
         {
             return m_DirectionLights;
+        }
+        // Atmosphere light 1 as this frame lights it (UpdateInfo::AtmosphereLight1, its colour through its own
+        // transmittance), when the scene marks one: MeshRenderer fits its cascades from it.
+        [[nodiscard]] const std::optional<AtmosphereLight1Frame>& GetAtmosphereLight1() const
+        {
+            return m_AtmosphereLight1;
         }
 
         // CSM debug: a cascade's static-caster cache (MeshRenderer::GetCascadeCacheImage), for the editor's
