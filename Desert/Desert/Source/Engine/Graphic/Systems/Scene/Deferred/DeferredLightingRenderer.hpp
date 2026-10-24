@@ -359,7 +359,8 @@ namespace Desert::Graphic::System
         // = camera world position; debugMode selects a raw channel (0 = lit); gi.Mode picks the indirect-light
         // source (0 = off, 1 = screen-space, 2 = the traced final gather under SSAO, 3 = the traced final gather
         // occluded by its own short-range AO; 2 and 3 read GIDiffuse / GISpecular / GIBackface).
-        void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
+        void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& light1Dir,
+                           const glm::vec4& light1Color, const glm::vec4& cameraPos,
                            const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
                            uint32_t spotCount, const DeferredShadowInput& shadow, const DeferredGIInput& gi,
                            bool ssaoEnabled, const CloudShadowInput& cloudShadow,
@@ -374,7 +375,8 @@ namespace Desert::Graphic::System
             if ( !program.Material )
                 return;
             ReportEnvironmentGap( environment );
-            program.Material->BindInputs( lightDir, lightColor, cameraPos, invJitteredViewProjection, debugMode,
+            program.Material->BindInputs( lightDir, lightColor, light1Dir, light1Color, cameraPos,
+                                          invJitteredViewProjection, debugMode,
                                           pointCount, spotCount, shadow, gi, ssaoEnabled, cloudShadow, environment,
                                           jitteredViewProjection );
         }

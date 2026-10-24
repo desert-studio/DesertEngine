@@ -1309,6 +1309,7 @@ namespace Desert::Graphic
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
+        m_AtmosphereLight1       = sceneRenderInfo.AtmosphereLight1;
 
         // THE SUN THE ATMOSPHERE LETS THROUGH (UE's PrepareSunLightProxy). The light's authored colour
         // is its OUTER-SPACE illuminance in the physical model; what reaches the ground has crossed the
@@ -1328,6 +1329,15 @@ namespace Desert::Graphic
             const glm::vec3 transmittance = skyboxSystem->GetAtmosphere().SunTransmittanceAtGround;
 
             glm::vec4& colorIntensity = m_DirectionLights.DirectionLights[0].ColorIntensity;
+            colorIntensity.x *= transmittance.x;
+            colorIntensity.y *= transmittance.y;
+            colorIntensity.z *= transmittance.z;
+        }
+        // Atmosphere light 1 (the moon) by the same law, through its own direction's factor.
+        if ( m_AtmosphereLight1 )
+        {
+            const glm::vec3 transmittance  = skyboxSystem->GetAtmosphere().Light1TransmittanceAtGround;
+            glm::vec4&      colorIntensity = m_AtmosphereLight1->ColorIntensity;
             colorIntensity.x *= transmittance.x;
             colorIntensity.y *= transmittance.y;
             colorIntensity.z *= transmittance.z;
@@ -3138,11 +3148,12 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow,
-                                          const SkySettings& sky, const SunLightFx& fx )
+                                          const SkySettings& sky, const SunLightFx& fx,
+                                          const AtmosphereLight1& light1 )
     {
         m_SunLightFx = fx;
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
-             ->SetProceduralSky( enabled, sunDir, bakeNow, sky, fx );
+             ->SetProceduralSky( enabled, sunDir, bakeNow, sky, fx, light1 );
     }
 
     const AtmosphereEnv& SceneRenderer::GetAtmosphere() const

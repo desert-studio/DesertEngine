@@ -214,6 +214,11 @@ namespace Desert::ECS::Rules
         return -glm::normalize( lightTranslation );
     }
 
+    // UE's Atmosphere Sun Light Index range: 0 is the sun, 1 the second atmosphere light (the moon). Both light
+    // the atmosphere, draw a disc and light the scene through the deferred pass; the time-of-day clock and the
+    // cascaded shadow maps belong to index 0.
+    inline constexpr int kAtmosphereLightCount = 2;
+
     struct SunCandidate
     {
         // Entity UUID. A plain integer rather than Common::UUID so the rule stays link-free: the tests that
@@ -232,17 +237,18 @@ namespace Desert::ECS::Rules
         std::optional<size_t> Chosen;           // index into the candidate span
         bool                  Fallback = false; // rule 5: nothing was marked, lowest id taken
         std::vector<size_t>   Collisions;       // rule 3: further marked candidates at wantedIndex
-        std::vector<size_t>   WrongIndex;       // rule 4: marked, but at an index v1 does not render
+        std::vector<size_t>   WrongIndex;       // rule 4: marked at an index outside [0, kAtmosphereLightCount)
     };
 
     // Rules, in order:
     //  1. candidates whose direction is degenerate are ignored entirely;
     //  2. prefer marked candidates at `wantedIndex`;
     //  3. several of those -> lowest Id wins, the rest are reported as collisions;
-    //  4. marked at another index -> treated as unmarked and reported (the field is authorable, but the
-    //     engine renders exactly one directional light, so index != 0 is not a thing that can work);
-    //  5. nothing marked -> lowest-Id valid candidate, reported as a fallback, because the sky must not go
-    //     missing just because nobody ticked a box;
+    //  4. marked at another index -> not this slot's light; reported only when that index is outside
+    //     [0, kAtmosphereLightCount), because a light marked at the OTHER slot is that slot's light;
+    //  5. nothing marked at index 0 -> lowest-Id valid candidate that is not marked at the other slot,
+    //     reported as a fallback, because the sky must not go missing just because nobody ticked a box.
+    //     Index 1 has no fallback: a second atmosphere light exists only when one is marked for it;
     //  6. nothing valid -> no selection: the scene has NO sun, and every caller says so instead of lighting
     //     the sky from a default direction nobody authored (ECS::PickAtmosphereSun, AtmosphereSunLight.hpp).
     inline AtmosphereSunSelection SelectAtmosphereSun( std::span<const SunCandidate> candidates, int wantedIndex )
@@ -259,7 +265,8 @@ namespace Desert::ECS::Rules
 
             if ( c.Index != wantedIndex )
             {
-                result.WrongIndex.push_back( i );
+                if ( c.Index < 0 || c.Index >= kAtmosphereLightCount )
+                    result.WrongIndex.push_back( i );
                 continue;
             }
 
@@ -281,12 +288,16 @@ namespace Desert::ECS::Rules
             }
         }
 
-        if ( result.Chosen )
+        if ( result.Chosen || wantedIndex != 0 )
             return result;
 
         for ( size_t i = 0; i < candidates.size(); ++i )
         {
             if ( !candidates[i].DirectionValid )
+                continue;
+            // A light marked for the other slot is that slot's light, never this one's stand-in.
+            if ( candidates[i].Marked && candidates[i].Index != wantedIndex && candidates[i].Index >= 0 &&
+                 candidates[i].Index < kAtmosphereLightCount )
                 continue;
             if ( !result.Chosen || candidates[i].Id < candidates[*result.Chosen].Id )
                 result.Chosen = i;

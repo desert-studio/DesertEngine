@@ -71,7 +71,7 @@ struct SkyConfig
 //                             UnpackSunAngularRadius(s), UnpackSkyConfig(s) );
 //
 // Adding a palette field is then one edit here plus one to the C++ mirror; no consumer changes a line.
-#define SKY_PACKED_VEC4_COUNT 17
+#define SKY_PACKED_VEC4_COUNT 20
 
 struct SkyPacked
 {
@@ -195,6 +195,39 @@ float UnpackSkyLuminanceCeiling( SkyPacked s )
 vec3 UnpackSunDiskColorScale( SkyPacked s )
 {
     return s.v[16].rgb;
+}
+
+// ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon), v[17]-v[19] (Graphic::SkyGpuPayload):
+// scattered by the same medium as the sun and drawn as its own disc. Every pass branches on
+// UnpackLight1Present, so a sky without one evaluates exactly what it did before the slot existed.
+bool UnpackLight1Present( SkyPacked s )
+{
+    return s.v[18].w > 0.5;
+}
+
+// Direction TOWARD light 1, normalized.
+vec3 UnpackLight1Direction( SkyPacked s )
+{
+    return s.v[17].xyz;
+}
+
+// Angular RADIUS of light 1's disc in radians (half the light's Source Angle, as UE draws it).
+float UnpackLight1AngularRadius( SkyPacked s )
+{
+    return s.v[17].w;
+}
+
+// Light 1's outer-space illuminance (its Color x Intensity, lux) — the moon's counterpart of
+// UnpackAtmosphereLightIlluminance.
+vec3 UnpackLight1Illuminance( SkyPacked s )
+{
+    return s.v[18].rgb;
+}
+
+// Light 1's Atmosphere Sun Disk Color Scale.
+vec3 UnpackLight1DiskColorScale( SkyPacked s )
+{
+    return s.v[19].rgb;
 }
 
 float atm_hash13( vec3 p )

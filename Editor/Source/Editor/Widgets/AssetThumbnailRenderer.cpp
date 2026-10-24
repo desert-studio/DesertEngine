@@ -249,7 +249,7 @@ namespace Desert::Editor
         // Default SunLightFx: a thumbnail has no sun light entity to read shafts from, and streaks in a
         // 128px preview would be noise anyway.
         m_Renderer->SetProceduralSky( true, sunDir, /*bakeNow=*/true, Graphic::MakeSkySettings( skyC.Data ),
-                                      Graphic::SunLightFx{} );
+                                      Graphic::SunLightFx{}, Graphic::AtmosphereLight1{} );
 
         // Resize ONCE here (after the camera exists) so the camera projection becomes square. We render at
         // kRenderSize (2x the output) and downscale on write = supersampled anti-aliasing. The renderer was
