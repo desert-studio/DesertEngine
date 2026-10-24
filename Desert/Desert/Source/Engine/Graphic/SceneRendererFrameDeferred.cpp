@@ -836,8 +836,9 @@ namespace Desert::Graphic
              {
                  // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.
                  const glm::vec4 light1Dir =
-                      m_AtmosphereLight1 ? m_AtmosphereLight1->Direction : glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f );
-                 const glm::vec4 light1Color = m_AtmosphereLight1 ? m_AtmosphereLight1->ColorIntensity : glm::vec4( 0.0f );
+                      m_AtmosphereLight1 ? m_AtmosphereLight1->Light.Direction : glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f );
+                 const glm::vec4 light1Color =
+                      m_AtmosphereLight1 ? m_AtmosphereLight1->Light.ColorIntensity : glm::vec4( 0.0f );
                  deferred->FillMaterial( lightDir, lightColor, light1Dir, light1Color, cameraPos,
                                          frame.InvJitteredViewProjection,
                                          m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure
@@ -1197,6 +1198,14 @@ namespace Desert::Graphic
         const bool hasSun         = !m_DirectionLights.DirectionLights.empty();
         payload.SunTravel         = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
         payload.SunRadiance       = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
+        // Atmosphere light 1 (the moon), as the deferred pass shades it (OnUpdate applied its transmittance).
+        if ( m_AtmosphereLight1 )
+        {
+            const ShaderProtocols::DirectionLightPayload& light1 = m_AtmosphereLight1->Light;
+            payload.Light1Travel   = glm::vec4( glm::normalize( glm::vec3( light1.Direction ) ), 1.0f );
+            payload.Light1Radiance = glm::vec4( glm::vec3( light1.ColorIntensity ) * light1.ColorIntensity.w,
+                                                m_AtmosphereLight1->CastShadows ? 1.0f : 0.0f );
+        }
         if ( const auto& env = GetEnvironment(); env.has_value() )
         {
             const SkyLookGPU look = ToGPU( env->Look );
@@ -1216,8 +1225,11 @@ namespace Desert::Graphic
         hash.Value( rt.InstanceHash );
         hash.Values( std::span<const ShaderProtocols::PointLightPayload>( GetPointLights().PointLights ) );
         hash.Values( std::span<const ShaderProtocols::SpotLightPayload>( GetSpotLights().SpotLights ) );
-        // The record's sun, sky look and extent (its camera rows restart through the ViewProjection test as well).
+        // The record's sun, atmosphere light 1, sky look and extent (its camera rows restart through the
+        // ViewProjection test as well), and the two lights' discs, which the trace push carries beside it.
         hash.Value( giFrame );
+        hash.Value( m_SunSourceAngleDegrees );
+        hash.Value( m_AtmosphereLight1 ? m_AtmosphereLight1->SourceAngleDegrees : 0.0f );
         hash.Value( environment );
         for ( const std::string& name : m_ReflectionHitGroups.Templates )
             hash.Bytes( std::as_bytes( std::span<const char>( name.data(), name.size() ) ) );
@@ -1343,6 +1355,9 @@ namespace Desert::Graphic
         inputs.Emissive = emissive.GetValue();
         // The sun's disc (UE: the directional light's SourceAngle is its full angular diameter).
         inputs.SunSinHalfAngle = std::sin( glm::radians( m_SunSourceAngleDegrees ) * 0.5f );
+        // Atmosphere light 1's disc by the same law, from its own light's SourceAngle.
+        inputs.Light1SinHalfAngle =
+             m_AtmosphereLight1 ? std::sin( glm::radians( m_AtmosphereLight1->SourceAngleDegrees ) * 0.5f ) : 0.0f;
         // The angle one pixel subtends at the centre of the view: the camera ray's cone (ray cone LOD).
         inputs.PixelSpread     = std::atan( 2.0f / ( frame.Projection[1][1] * static_cast<float>( extent.y ) ) );
         inputs.SceneHash =

@@ -792,8 +792,11 @@ namespace Desert::Core
                 const auto& light     = m_Registry.get<ECS::DirectionLightComponent>( *second );
                 const auto& transform = m_Registry.get<ECS::TransformComponent>( *second );
                 if ( const auto travel = ECS::Rules::DirectionalLightTravel( transform.Translation ) )
-                    sceneRendererInfo.AtmosphereLight1 = Graphic::ShaderProtocols::DirectionLightPayload{
-                         glm::vec4( *travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) };
+                    sceneRendererInfo.AtmosphereLight1 = Graphic::SceneRenderer::AtmosphereLight1Frame{
+                         .Light = Graphic::ShaderProtocols::DirectionLightPayload{
+                              glm::vec4( *travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) },
+                         .SourceAngleDegrees = light.Data.SourceAngle,
+                         .CastShadows        = light.Data.CastShadows };
             }
 
             // WHICH LIGHTS EMIT NOTHING, AND WHY ANYONE SHOULD HEAR ABOUT IT.

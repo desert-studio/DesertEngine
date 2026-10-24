@@ -146,6 +146,7 @@ namespace Desert::Graphic::System
             const RayTracing::RayTracingHitGroupTable* HitGroups = nullptr;
             RayTracing::EmissiveLightsFrame            Emissive; // this frame's emissive triangle list (Valid)
             float    SunSinHalfAngle = 0.0f; // sin of half the sun's SourceAngle (0: a delta direction)
+            float    Light1SinHalfAngle = 0.0f; // the same of atmosphere light 1 (the moon)
             float    PixelSpread     = 0.0f; // the angle one pixel covers (the ray cone)
             uint64_t SceneHash       = 0;
             bool     DynamicGeometry = false;
@@ -337,7 +338,7 @@ namespace Desert::Graphic::System
         {
             glm::uvec4 Counts; // point lights, spot lights, paths already summed (0: overwrite), max bounces
             glm::uvec4 Sky;    // sky side S, its levels, frame seed, paths this frame
-            glm::vec4  Sun;    // sin of half the sun's angle, pixel spread angle
+            glm::vec4  Sun;    // sin of half the sun's angle, pixel spread angle, sin of half atmosphere light 1's angle
             glm::uvec4 Emissive;        // EmissiveLightsFrame::StaticParams
             glm::uvec4 EmissiveDynamic; // EmissiveLightsFrame::DynamicParams
         };
@@ -475,7 +476,7 @@ namespace Desert::Graphic::System
             const TracePush push{
                  glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount, m_Summed, m_MaxBounces ),
                  glm::uvec4( sky.Side, sky.Levels, m_Restarts, traced ),
-                 glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, 0.0f, 0.0f ),
+                 glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, inputs.Light1SinHalfAngle, 0.0f ),
                  inputs.Emissive.StaticParams(), inputs.Emissive.DynamicParams() };
             graph.AddPass(
                  "PathTracing: Trace", RDG::PassFlags::Compute,

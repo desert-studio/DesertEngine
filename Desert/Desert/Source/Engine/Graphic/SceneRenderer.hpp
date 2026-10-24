@@ -139,6 +139,17 @@ namespace Desert::Graphic
     class SceneRenderer final
     {
     public:
+        // Atmosphere light 1 (UE's Atmosphere Sun Light Index 1, the moon) as a frame lights it: the payload the
+        // deferred pass shades (direction it travels, colour/intensity, as DirLights' sun) and what a TRACED ray of
+        // it needs beside - its disc and whether it is occluded (the path tracer's light sample, the GI hit
+        // lighting), read from the same DirectionLightComponent.
+        struct AtmosphereLight1Frame
+        {
+            ShaderProtocols::DirectionLightPayload Light;
+            float SourceAngleDegrees = 0.0f; // UE SourceAngle: the disc's full angular diameter (0: a delta)
+            bool  CastShadows        = true; // UE bCastShadows: false = no ray of it is ever occluded
+        };
+
         struct UpdateInfo
         {
             // The WORLD'S step this frame (Core::WorldTime::GetDeltaSeconds): zero while paused or while
@@ -151,8 +162,9 @@ namespace Desert::Graphic
             Common::Timestep                RealTimestep;
             ShaderProtocols::DirectionLight DirLights;
             // Atmosphere light 1 (UE's Atmosphere Sun Light Index 1, the moon), when the scene marks one:
-            // direction it travels and colour/intensity, as DirLights' sun. Shaded by the deferred pass.
-            std::optional<ShaderProtocols::DirectionLightPayload> AtmosphereLight1;
+            // direction it travels and colour/intensity, as DirLights' sun. Shaded by the deferred pass, and lit
+            // by the path tracer and the GI hit lighting through the GI frame record.
+            std::optional<AtmosphereLight1Frame> AtmosphereLight1;
         };
 
         struct RenderSubmissionExtra
@@ -1315,7 +1327,7 @@ namespace Desert::Graphic
         ShaderProtocols::DirectionLight m_DirectionLights;
         // This frame's atmosphere light 1 (the moon) as the deferred pass shades it: the scene's value times
         // AtmosphereEnv::Light1TransmittanceAtGround (OnUpdate), or nothing.
-        std::optional<ShaderProtocols::DirectionLightPayload> m_AtmosphereLight1;
+        std::optional<AtmosphereLight1Frame> m_AtmosphereLight1;
         ShaderProtocols::PointLight     m_PointLight;
         ShaderProtocols::SpotLight      m_SpotLight;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.

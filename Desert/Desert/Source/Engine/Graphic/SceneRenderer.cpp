@@ -1337,7 +1337,7 @@ namespace Desert::Graphic
         if ( m_AtmosphereLight1 )
         {
             const glm::vec3 transmittance  = skyboxSystem->GetAtmosphere().Light1TransmittanceAtGround;
-            glm::vec4&      colorIntensity = m_AtmosphereLight1->ColorIntensity;
+            glm::vec4&      colorIntensity = m_AtmosphereLight1->Light.ColorIntensity;
             colorIntensity.x *= transmittance.x;
             colorIntensity.y *= transmittance.y;
             colorIntensity.z *= transmittance.z;
