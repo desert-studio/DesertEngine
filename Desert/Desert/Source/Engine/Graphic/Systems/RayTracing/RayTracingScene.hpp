@@ -44,11 +44,15 @@ namespace Desert::Graphic::RayTracing
     inline constexpr uint8_t kMaskShadowCaster = 1u
                                                  << 1; // primitives with CastShadows (RT-SHADOWS traces this bit)
     // Primitives drawn only by BlendMode Translucent / Additive sections (UE RAY_TRACING_MASK_TRANSLUCENT): such a
-    // primitive carries THIS bit alone, so the opaque and shadow-caster rays (reflections, GI, RT shadows, the
-    // path tracer's opaque light-ray leg) pass it, as the raster's opaque passes and shadow maps do; the path
-    // tracer's material rays (cull mask 0xFF) meet it and its light rays walk it for transmittance
-    // (PathTracer.shader PathTracingTransmittance).
+    // primitive carries THIS bit (plus kMaskTranslucentShadowCaster when it casts shadows), so the opaque and
+    // shadow-caster rays (reflections, GI, RT shadows, the path tracer's opaque light-ray leg) pass it, as the
+    // raster's opaque passes and shadow maps do; the path tracer's material rays (cull mask 0xFF) meet it.
     inline constexpr uint8_t kMaskTranslucent = 1u << 2;
+    // A translucent primitive with CastShadows (UE PATHTRACER_MASK_SHADOW on a translucent proxy): the path
+    // tracer's light rays walk THIS bit for transmittance (PathTracer.shader PathTracingTransmittance). Every
+    // light ray of the path tracer traces shadow casters only, as UE's does: a CastShadows-off primitive (a lamp's
+    // glass shell around its light) is seen by camera and bounce rays and never shadows a light.
+    inline constexpr uint8_t kMaskTranslucentShadowCaster = 1u << 3;
 
     struct RayTracingProgramHit; // RayTracingProgramHit.hpp
 
@@ -403,7 +407,8 @@ namespace Desert::Graphic::RayTracing
             instance.FirstSegmentRecord          = primitive.FirstSegmentRecord;
             instance.Mask =
                  primitive.Translucent
-                      ? kMaskTranslucent
+                      ? static_cast<uint8_t>( kMaskTranslucent |
+                                              ( primitive.CastShadows ? kMaskTranslucentShadowCaster : 0u ) )
                       : static_cast<uint8_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
             ++list.InstancesByKind[static_cast<std::size_t>( primitive.Kind )];
         }

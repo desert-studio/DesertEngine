@@ -12,8 +12,10 @@
 // SourceAngle), Light/PathTracingSkyLight.ush (the sky, Common/PathTracingSky.glslh), MonteCarlo.ush
 // MISWeightPower. Adapted: the material is the engine's one lit BRDF (Mesh/DirectLighting.glslh EvaluateDirectLight:
 // Lambert + GGX, metallic) sampled as a mixture of a cosine lobe and the GGX distribution of visible normals (Heitz
-// 2018) instead of UE's per-shading-model lobes; point and spot lights are the engine's delta sources with their
-// authored falloff (Mesh/LightSources.glslh) instead of UE's spherical area lights; a PCG hash sequence instead of
+// 2018) instead of UE's per-shading-model lobes; point and spot lights shade with their authored falloff
+// (Mesh/LightSources.glslh) and their light rays aim at the emitter sphere of SourceRadius (UE's spherical area
+// light's visibility; its radiance stays the authored one); light rays trace shadow casters only (UE
+// PATHTRACER_MASK_SHADOW: a CastShadows-off primitive never shadows a light); a PCG hash sequence instead of
 // UE's scrambled Sobol (FRandomSequence); a box pixel filter.
 //
 // THE EMISSIVE SURFACES AS LIGHTS (Common/EmissiveLights.glslh, the scene's one emissive triangle list): next event
@@ -42,6 +44,7 @@ Shader "PathTracer"
             #include <Common/SkyLook.glslh>
             #include <Common/ReconstructPosition.glslh>
             #include <Mesh/LightSources.glslh>
+            #include <Common/LightSourceSampling.glslh>
             #include <Mesh/DirectLighting.glslh>
             #include <Common/RayTracingPayload.glslh>
             #include <Common/EmissiveLights.glslh>
@@ -250,10 +253,12 @@ Shader "PathTracer"
             }
 
             // ---- Glass: the dielectric interface of a translucent hit (Transmission > 0). ----
-            // RayTracingScene.hpp kMaskOpaque / kMaskTranslucent: a primitive drawn only by translucent sections
-            // carries the translucent bit alone.
-            const uint kPathTracingMaskOpaque      = 0x01u;
-            const uint kPathTracingMaskTranslucent = 0x04u;
+            // RayTracingScene.hpp kMaskShadowCaster / kMaskTranslucentShadowCaster: the light rays trace shadow
+            // casters only (UE PATHTRACER_MASK_SHADOW), the opaque ones in one leg and the translucent ones walked
+            // for transmittance; a CastShadows-off primitive (a lamp's glass shell around its light) never shadows
+            // a light, as in the raster's shadow maps and the hardware tracer's visibility rays.
+            const uint kPathTracingMaskShadowCaster            = 0x02u;
+            const uint kPathTracingMaskTranslucentShadowCaster = 0x08u;
             // Solid glass reaches its tint after this many centimetres inside it (Beer's law).
             const float kPathTracingAbsorptionDistance = 100.0;
             // A light ray crosses at most this many translucent surfaces; past them it is blocked. A bound on the
@@ -310,7 +315,7 @@ Shader "PathTracer"
                 PathTracingTraceMaterialTo(origin, direction, coneWidth, 1.0e9);
             }
 
-            // The light ray's transmittance: 0 when an opaque primitive blocks it (any hit of the opaque mask ends
+            // The light ray's transmittance: 0 when an opaque shadow caster blocks it (any hit of the mask ends
             // the ray; the any-hit stages still cut masked holes, and the miss stage writes HitT < 0, so an unchanged
             // HitT means occluded); otherwise the product over the translucent surfaces on the segment, walked
             // nearest first: a thin sheet's tint, a solid's Fresnel transmission at each interface and its
@@ -319,7 +324,7 @@ Shader "PathTracer"
             {
                 payload.HitT = 1.0;
                 traceRayEXT(SceneTlas, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT,
-                            kPathTracingMaskOpaque, 0u, 1u, 0u, origin, 0.0, direction, distance, 0);
+                            kPathTracingMaskShadowCaster, 0u, 1u, 0u, origin, 0.0, direction, distance, 0);
                 if (payload.HitT >= 0.0)
                     return vec3(0.0);
                 vec3  transmittance = vec3(1.0);
@@ -327,7 +332,8 @@ Shader "PathTracer"
                 float entered       = 0.0; // where the ray entered the solid it is in (0: it starts inside one)
                 for (uint layer = 0u; layer < kPathTracingMaxTranslucentLayers; ++layer)
                 {
-                    PathTracingTraceMaterialMasked(origin, start, direction, 0.0, distance, kPathTracingMaskTranslucent);
+                    PathTracingTraceMaterialMasked(origin, start, direction, 0.0, distance,
+                                                   kPathTracingMaskTranslucentShadowCaster);
                     if (payload.HitT < 0.0)
                         return transmittance;
                     // A translucent primitive with no dielectric to give (an Additive surface) blocks.
@@ -464,20 +470,31 @@ Shader "PathTracer"
                 const uint  i = chosen - 2u;
                 DesertLight light;
                 vec3        position;
+                float       sourceRadius;
                 if (i < Counts.x)
                 {
-                    light    = DesertPointLightAt(pointLights[i], P);
-                    position = pointLights[i].position;
+                    light        = DesertPointLightAt(pointLights[i], P);
+                    position     = pointLights[i].position;
+                    sourceRadius = pointLights[i].sourceRadius;
                 }
                 else
                 {
-                    light    = DesertSpotLightAt(spotLights[i - Counts.x], P);
-                    position = spotLights[i - Counts.x].position;
+                    light        = DesertSpotLightAt(spotLights[i - Counts.x], P);
+                    position     = spotLights[i - Counts.x].position;
+                    sourceRadius = spotLights[i - Counts.x].sourceRadius;
                 }
                 if (dot(N, light.L) <= 0.0)
                     return vec3(0.0);
-                const vec3 transmittance =
-                    PathTracingTransmittance(origin, normalize(position - origin), distance(position, origin));
+                // The light ray aims at a point of the emitter sphere (UE SourceRadius, PointLight_SampleLight's
+                // cone) and ends on it: soft shadows over samples, and a caster inside the emitter (its lamp's bulb)
+                // never shadows it - the visibility MegaLights, the local shadow maps' near plane and the hardware
+                // tracer's single rays (LightSourceSphereAxisReach) give the same light.
+                const vec3  toLight = position - origin;
+                const float centre  = length(toLight);
+                float       reach   = centre;
+                const vec3  dir =
+                    centre > 0.0 ? SampleLightSourceSphere(toLight / centre, centre, sourceRadius, u, reach) : light.L;
+                const vec3 transmittance = PathTracingTransmittance(origin, dir, reach);
                 return PathTracingBsdfCos(m, N, V, light.L) * light.Radiance * transmittance / pickPdf;
             }
 
