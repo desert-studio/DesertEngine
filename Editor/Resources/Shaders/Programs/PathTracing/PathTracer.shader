@@ -12,8 +12,11 @@
 // SourceAngle), Light/PathTracingSkyLight.ush (the sky, Common/PathTracingSky.glslh), MonteCarlo.ush
 // MISWeightPower. Adapted: the material is the engine's one lit BRDF (Mesh/DirectLighting.glslh EvaluateDirectLight:
 // Lambert + GGX, metallic) sampled as a mixture of a cosine lobe and the GGX distribution of visible normals (Heitz
-// 2018) instead of UE's per-shading-model lobes; point and spot lights are the engine's delta sources with their
-// authored falloff (Mesh/LightSources.glslh) instead of UE's spherical area lights; a PCG hash sequence instead of
+// 2018) instead of UE's per-shading-model lobes; point and spot lights keep their authored falloff
+// (Mesh/LightSources.glslh) but are seen as UE's emitter spheres of SourceRadius (UE SampleSphereLight,
+// Common/LightSourceSampling.glslh): the light sample's direction is uniform in the cone the sphere subtends and its
+// light ray ends on the sphere, so a lamp whose centre sits inside its bulb's socket still shines through the rest of
+// the sphere; the material rays never meet the sphere, so that sample takes the whole weight; a PCG hash sequence instead of
 // UE's scrambled Sobol (FRandomSequence); a box pixel filter.
 //
 // THE EMISSIVE SURFACES AS LIGHTS (Common/EmissiveLights.glslh, the scene's one emissive triangle list): next event
@@ -42,6 +45,7 @@ Shader "PathTracer"
             #include <Common/SkyLook.glslh>
             #include <Common/ReconstructPosition.glslh>
             #include <Mesh/LightSources.glslh>
+            #include <Common/LightSourceSampling.glslh>
             #include <Mesh/DirectLighting.glslh>
             #include <Common/RayTracingPayload.glslh>
             #include <Common/EmissiveLights.glslh>
@@ -503,21 +507,26 @@ Shader "PathTracer"
                 const uint  i = chosen - kPathTracingFirstLocalLight;
                 DesertLight light;
                 vec3        position;
+                float       sourceRadius;
                 if (i < Counts.x)
                 {
-                    light    = DesertPointLightAt(pointLights[i], P);
-                    position = pointLights[i].position;
+                    light        = DesertPointLightAt(pointLights[i], P);
+                    position     = pointLights[i].position;
+                    sourceRadius = pointLights[i].sourceRadius;
                 }
                 else
                 {
-                    light    = DesertSpotLightAt(spotLights[i - Counts.x], P);
-                    position = spotLights[i - Counts.x].position;
+                    light        = DesertSpotLightAt(spotLights[i - Counts.x], P);
+                    position     = spotLights[i - Counts.x].position;
+                    sourceRadius = spotLights[i - Counts.x].sourceRadius;
                 }
-                if (dot(N, light.L) <= 0.0)
+                float      reach;
+                const vec3 toLight = SampleLightSourceSphere(normalize(position - origin), distance(position, origin),
+                                                             sourceRadius, u, reach);
+                if (dot(N, toLight) <= 0.0)
                     return vec3(0.0);
-                const vec3 transmittance =
-                    PathTracingTransmittance(origin, normalize(position - origin), distance(position, origin));
-                return PathTracingBsdfCos(m, N, V, light.L) * light.Radiance * transmittance / pickPdf;
+                const vec3 transmittance = PathTracingTransmittance(origin, toLight, reach);
+                return PathTracingBsdfCos(m, N, V, toLight) * light.Radiance * transmittance / pickPdf;
             }
 
             // ---- The emissive triangles. ----
