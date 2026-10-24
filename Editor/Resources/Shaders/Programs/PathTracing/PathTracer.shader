@@ -49,10 +49,14 @@ Shader "PathTracer"
             #include <Mesh/DirectLighting.glslh>
             #include <Common/RayTracingPayload.glslh>
             #include <Common/EmissiveLights.glslh>
+            #include <Common/PathTracingDenoise.glslh>
 
             layout(binding = 1) uniform accelerationStructureEXT SceneTlas;
             // The view's running sum (rgb) of every path since the last reset; a = the paths summed.
             layout(binding = 2, rgba32f) uniform image2D AccumulationTexture;
+            // The denoiser's guide sums beside it, summed over the same paths (Common/PathTracingDenoise.glslh).
+            layout(binding = 24, rgba32f) uniform image2D GuideAlbedoTexture;
+            layout(binding = 25, rgba32f) uniform image2D GuideNormalTexture;
             layout(std430, binding = 3) readonly buffer GIFrameUB
             {
                 GIFrame giFrame;
@@ -129,7 +133,8 @@ Shader "PathTracer"
                 uvec4 Counts; // x = point lights, y = spot lights, z = paths already summed (0: overwrite), w = max bounces
                 uvec4 SkyParams;    // x = sky side S (0: no sky light), y = its pyramid levels, z = frame seed, w = paths this frame (>= 1)
                 vec4  SunParams;    // x = sin of half the sun's source angle (0: a delta direction), y = pixel spread angle,
-                                    // z = the same as x of atmosphere light 1 (the moon)
+                                    // z = the same as x of atmosphere light 1 (the moon), w = 1: camera rays through
+                                    // the (jittered) pixel centre, the signal a denoising upscaler takes raw
                 uvec4 EmissiveCounts;        // the static part: x = triangles, y = power tree leaves, z = its levels, w = TLAS instances of the lookup
                 uvec4 EmissiveDynamicCounts; // the dynamic part: x = triangles, y = power tree leaves, z = its levels
             };
@@ -631,14 +636,23 @@ Shader "PathTracer"
             // One path of the pixel: the camera ray, then up to Counts.w bounces. @p sampleIndex is the path's index
             // in the pixel's accumulation (paths summed before it + its place in this frame), so every path of the
             // pixel since the restart draws its own random sequence.
-            vec3 PathTracingTracePath(ivec2 pixel, ivec2 size, uint sampleIndex)
+            // @p guideAlbedo / @p guideNormal: the path's first surface for the denoiser - its albedo, its world normal
+            // and camera distance (Common/PathTracingDenoise.glslh); glass is looked through to the surface behind
+            // it, and a path that meets none records the miss.
+            vec3 PathTracingTracePath(ivec2 pixel, ivec2 size, uint sampleIndex, out vec3 guideAlbedo, out vec4 guideNormal)
             {
                 uint rng = PathTracingHash(uint(pixel.x) + PathTracingHash(uint(pixel.y) + PathTracingHash(sampleIndex + PathTracingHash(SkyParams.z))));
 
-                // The camera ray through a uniformly chosen point of the pixel (a box filter).
-                const vec2 uv     = (vec2(pixel) + PathTracingRandom2(rng)) / vec2(size);
+                // The camera ray through a uniformly chosen point of the pixel (a box filter) - or through its centre
+                // when the upscaler denoises (SunParams.w): the upscaler's jitter is then the sub-pixel position, as
+                // for every raster signal it reconstructs.
+                const vec2 subPixel = SunParams.w > 0.5 ? vec2(0.5) : PathTracingRandom2(rng);
+                const vec2 uv       = (vec2(pixel) + subPixel) / vec2(size);
                 vec3       origin = cameraUB.CameraPos;
                 vec3       dir    = normalize(ReconstructWorldPosition(uv, 0.5, cameraUB.InvJitteredViewProjection) - origin);
+                guideAlbedo       = vec3(1.0);
+                guideNormal       = vec4(-dir, kPathTracingMissDepth);
+                bool guided       = false;
 
                 vec3  radiance     = vec3(0.0);
                 vec3  throughput   = vec3(1.0);
@@ -706,6 +720,12 @@ Shader "PathTracer"
                     }
 
                     const PathTracingMaterial m = PathTracingMaterialOf(N, V);
+                    if (!guided)
+                    {
+                        guideAlbedo = PathTracingDenoiseAlbedo(m.BaseColor, m.Metallic, m.F0);
+                        guideNormal = vec4(N, length(P - cameraUB.CameraPos));
+                        guided      = true;
+                    }
                     const vec3  next  = P + N * offset;
                     const float total = PathTracingEstimateTotal(P);
                     radiance += throughput * PathTracingSampleLights(m, P, N, V, next, total, rng);
@@ -749,11 +769,24 @@ Shader "PathTracer"
                 const ivec2 size  = imageSize(AccumulationTexture);
                 if (pixel.x >= size.x || pixel.y >= size.y)
                     return;
-                vec3 sum = vec3(0.0);
+                vec3 sum       = vec3(0.0);
+                vec4 albedoSum = vec4(0.0); // rgb albedo, a squared luminance
+                vec4 normalSum = vec4(0.0); // xyz normal, w camera distance
                 for (uint s = 0u; s < SkyParams.w; ++s)
-                    sum += PathTracingTracePath(pixel, size, Counts.z + s);
-                const vec4 previous = Counts.z == 0u ? vec4(0.0) : imageLoad(AccumulationTexture, pixel);
+                {
+                    vec3       albedo;
+                    vec4       normal;
+                    const vec3 radiance = PathTracingTracePath(pixel, size, Counts.z + s, albedo, normal);
+                    const float luminance = PathTracingDenoiseLuminance(radiance);
+                    sum += radiance;
+                    albedoSum += vec4(albedo, luminance * luminance);
+                    normalSum += normal;
+                }
+                const bool overwrite = Counts.z == 0u;
+                const vec4 previous  = overwrite ? vec4(0.0) : imageLoad(AccumulationTexture, pixel);
                 imageStore(AccumulationTexture, pixel, vec4(previous.rgb + sum, previous.a + float(SkyParams.w)));
+                imageStore(GuideAlbedoTexture, pixel, albedoSum + (overwrite ? vec4(0.0) : imageLoad(GuideAlbedoTexture, pixel)));
+                imageStore(GuideNormalTexture, pixel, normalSum + (overwrite ? vec4(0.0) : imageLoad(GuideNormalTexture, pixel)));
             }
         }
 

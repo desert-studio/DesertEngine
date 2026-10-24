@@ -273,6 +273,10 @@ namespace Common::Scalability
         PathTracingMaxBounces,      // bounces after the camera ray's hit, 0..64 (UE r.PathTracing.MaxBounces)
         PathTracingSamplesPerPixel, // paths per pixel after which the view stops tracing, 1..65536 (UE
                                     // r.PathTracing.SamplesPerPixel: the image is converged and kept)
+        // 0/1: the path-traced image is denoised on every frame (UE r.PathTracing.Denoiser) - raw into the upscaler
+        // when it is DLSS Ray Reconstruction, otherwise by the path tracer's spatial denoiser over its accumulation
+        // (System::PathTracer).
+        PathTracingDenoiser,
         // GI SoftwareTraced / HardwareTraced screen probe layout, read by SceneRenderer::BeginScene into
         // ScreenProbeGatherInputs: the gather compiles its programs under it (ScreenProbeLayout, the shaders'
         // SP_DOWNSAMPLE_LOG2 / SP_TRACED_TEXELS permutation) and resizes its atlases on a change.

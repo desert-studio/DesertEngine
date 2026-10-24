@@ -1,0 +1,43 @@
+#ifndef DESERT_PATH_TRACING_DENOISE_GLSLH
+#define DESERT_PATH_TRACING_DENOISE_GLSLH
+
+// THE PATH TRACER'S DENOISER GUIDES, spelled once for the writer (Programs/PathTracing/PathTracer.shader: each path
+// adds its first surface's guides to the view's guide sums) and the reader (Programs/PathTracing/
+// PathTracerDenoise.shader: the spatial denoiser over sum / count). UE 5.8 keeps the same contract between its path
+// tracer and its denoiser plugin (PathTracing.cpp: the albedo and normal accumulated per pixel beside the radiance,
+// averaged by the sample count before the denoiser reads them).
+//
+// GuideAlbedo:  rgb = the sum of each path's first-surface albedo (PathTracingDenoiseAlbedo), a = the sum of each
+//               path's squared luminance (the second moment the variance is estimated from).
+// GuideNormal:  xyz = the sum of each path's first-surface world normal, w = the sum of its distance from the camera
+//               in cm (kPathTracingMissDepth for a path that left the scene).
+// Both are divided by the accumulation's count (its a) before use.
+
+// The camera distance a path that met no surface records (cm, 1000 km): far past any scene, so a sky pixel never
+// passes the depth test against a surface beside it.
+const float kPathTracingMissDepth = 1.0e8;
+
+// The smallest albedo the radiance is divided by. Demodulation (radiance / albedo, filtered, x albedo) keeps the
+// texture detail out of the filter; a black channel would divide by zero, and a floored one is multiplied back by
+// the same floor, so an unfiltered pixel stays exactly its own radiance.
+const float kPathTracingAlbedoFloor = 0.01;
+
+float PathTracingDenoiseLuminance(vec3 c)
+{
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// The albedo the denoiser demodulates by: what the surface reflects of white light at normal incidence, the
+// diffuse share (base colour x (1 - metallic)) plus the specular reflectance F0, capped at 1.
+vec3 PathTracingDenoiseAlbedo(vec3 baseColor, float metallic, vec3 f0)
+{
+    return min(baseColor * (1.0 - metallic) + f0, vec3(1.0));
+}
+
+// The mean albedo of a pixel (its guide sum / count) as the demodulation divides by it.
+vec3 PathTracingDemodulationAlbedo(vec3 meanAlbedo)
+{
+    return max(meanAlbedo, vec3(kPathTracingAlbedoFloor));
+}
+
+#endif

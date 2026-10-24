@@ -2,8 +2,9 @@
 // THE PATH TRACER'S RESOLVE (System::PathTracer, "PathTracing: Resolve"): the view's accumulation (PathTracer.shader:
 // rgb = the sum of every path since the last restart, a = how many were summed) divided by its count, written over
 // the scene colour before post - the path-traced image replaces the deferred one. Ported from UE 5.8
-// Engine/Shaders/Private/PathTracing/PathTracingCompositingPixelShader.usf (radiance = sum / count), adapted: one
-// accumulation image instead of UE's radiance + variance pair (no denoiser runs behind it yet). Written pre-exposed
+// Engine/Shaders/Private/PathTracing/PathTracingCompositingPixelShader.usf (radiance = sum / count), adapted: the
+// input is either the accumulation itself or the spatial denoiser's output over it (PathTracerDenoise.shader
+// "Filter", written as mean radiance with a = 1, so the same division leaves it as it is). Written pre-exposed
 // (x ViewFrame::PreExposure, as UE's x View.PreExposure) like every other writer of the scene colour.
 Shader "PathTracerResolve"
 {
@@ -31,7 +32,7 @@ Shader "PathTracerResolve"
 
         void main()
         {
-            // The accumulation is the scene colour's size (the path tracer runs at native scale), so the fragment's
+            // The input is the scene colour's size (the path tracer runs at native scale), so the fragment's
             // own texel is the one its paths were summed into.
             const vec4 sum = texelFetch(sampler2D(AccumulationTexture, PointClampSampler), ivec2(gl_FragCoord.xy), 0);
             o_Color        = vec4(sum.rgb / max(sum.a, 1.0) * PreExposure, 1.0);
