@@ -216,6 +216,7 @@ namespace Desert::Graphic::System
             std::size_t                     Index        = 0;
             uint32_t                        Size         = 0;
             float                           ScreenRadius = 0.0f;
+            float                           Distance     = 0.0f; // from the eye to the light, cm
             const LocalLightShadowSettings* Settings     = nullptr;
         };
         const auto* camera         = m_SceneRenderer->GetMainCamera();
@@ -240,7 +241,8 @@ namespace Desert::Graphic::System
             points[i].ShadowCaster = 1;
             const float r = screenRadius( points[i].Position, points[i].Radius );
             requests.push_back( { static_cast<uint64_t>( s.SourceId ) * 2u, false, i,
-                                  LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 8u ), r, &s } );
+                                  LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 8u ), r,
+                                  glm::length( points[i].Position - eye ), &s } );
         }
         for ( std::size_t i = 0; i < spots.size() && i < spotShadows.size(); ++i )
         {
@@ -250,13 +252,24 @@ namespace Desert::Graphic::System
             spots[i].ShadowCaster = 1;
             const float r = screenRadius( spots[i].Position, spots[i].Range );
             requests.push_back( { static_cast<uint64_t>( s.SourceId ) * 2u + 1u, true, i,
-                                  LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 4u ), r, &s } );
+                                  LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 4u ), r,
+                                  glm::length( spots[i].Position - eye ), &s } );
         }
         // The largest on screen first: they take the largest tiles while the pool has room (Allocate halves a
         // request until it fits), and only when the pool cannot hold even the smallest tile does a light - the
         // smallest on screen - go unshadowed. No count of views limits it: the atlas is the only budget.
-        std::stable_sort( requests.begin(), requests.end(),
-                          []( const Request& a, const Request& b ) { return a.ScreenRadius > b.ScreenRadius; } );
+        // Every light the camera stands inside asks the whole view (SphereScreenRadiusPx): among equals the
+        // nearer goes first, then the light's identity - never the order the lights were gathered in, which
+        // follows the view's culling and so would hand the large tiles to other lamps as the camera turns.
+        std::sort( requests.begin(), requests.end(),
+                   []( const Request& a, const Request& b )
+                   {
+                       if ( a.ScreenRadius != b.ScreenRadius )
+                           return a.ScreenRadius > b.ScreenRadius;
+                       if ( a.Distance != b.Distance )
+                           return a.Distance < b.Distance;
+                       return a.Key < b.Key;
+                   } );
 
         if ( requests.empty() )
             return;
