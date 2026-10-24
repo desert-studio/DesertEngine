@@ -574,7 +574,7 @@ TEST( RendererSceneLifetime, TheSkyFingerprintCoversEveryPackedFloatExceptTheSun
     // Non-round values so no field's mutation can land on another field's default and hide.
     const glm::vec3 towardSun = glm::normalize( glm::vec3( 0.31f, 0.72f, -0.62f ) );
 
-    const SkyGpuPayload base            = PackSky( towardSun, sky, SkySunInputs{} );
+    const SkyGpuPayload base            = PackSky( towardSun, sky, SkySunInputs{}, AtmosphereLight1{} );
     const uint32_t      panorama        = 1;
     const uint64_t      baseFingerprint = SkyBakeFingerprint( base, panorama );
 
@@ -624,7 +624,7 @@ TEST( RendererSceneLifetime, TheSkyFingerprintCoversEveryPackedFloatExceptTheSun
     // that vec4 a future reader is most likely to exclude along with its neighbours.
     SkySettings brighter = sky;
     brighter.SunIntensity += 1.0f;
-    EXPECT_NE( SkyBakeFingerprint( PackSky( towardSun, brighter, SkySunInputs{} ), panorama ), baseFingerprint )
+    EXPECT_NE( SkyBakeFingerprint( PackSky( towardSun, brighter, SkySunInputs{}, AtmosphereLight1{} ), panorama ), baseFingerprint )
          << "the sun's intensity shares vec4 0 with its direction and was excluded with it.";
 }
 

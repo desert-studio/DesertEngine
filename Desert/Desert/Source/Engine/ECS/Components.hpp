@@ -935,10 +935,11 @@ namespace Desert::ECS
                   Tooltip( "This light drives the sky and the sky's IBL bake." ) )
         bool AtmosphereSunLight = true;
 
-        PROPERTY( DisplayName( "Atmosphere Sun Light Index" ), Category( "Atmosphere" ), Range( 0, 0 ),
+        PROPERTY( DisplayName( "Atmosphere Sun Light Index" ), Category( "Atmosphere" ), Range( 0, 1 ),
                   EditCondition( "AtmosphereSunLight" ),
-                  Tooltip( "The engine renders exactly one directional light; index 1 is reserved for a "
-                           "future second sun." ) )
+                  Tooltip( "0 = the sun, 1 = a second atmosphere light such as the moon (UE). Both light the "
+                           "sky, draw a disc and light the scene; the time-of-day clock and the cascaded "
+                           "shadows belong to index 0." ) )
         int AtmosphereSunLightIndex = 0;
 
         // UE's "Affected By Atmosphere Transmittance", same name, same default (ON): in

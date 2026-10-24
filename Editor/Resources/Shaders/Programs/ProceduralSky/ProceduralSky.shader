@@ -51,6 +51,10 @@ Shader "ProceduralSky"
         #define TransmittanceLutTexture sampler2D(TransmittanceLutTexture, LinearClampSampler)
         Uniform(3) texture2D SkyViewLutTexture;       // per-view 192x104, refilled every frame
         #define SkyViewLutTexture sampler2D(SkyViewLutTexture, LinearClampSampler)
+        // Atmosphere light 1's Sky-View LUT (the moon), parameterised around ITS direction; black and never
+        // sampled while the scene has no light 1 (UnpackLight1Present).
+        Uniform(4) texture2D SkyViewLut1Texture;
+        #define SkyViewLut1Texture sampler2D(SkyViewLut1Texture, LinearClampSampler)
 
         // The physical path's ON-SCREEN luminance ceiling is UnpackSkyLuminanceCeiling (Graphic::
         // SkyLuminanceCeiling, AutoExposureRules.hpp): the disc's true luminance (illuminance over its
@@ -85,6 +89,16 @@ Shader "ProceduralSky"
             // mean transmittance.
             vec4 lut = texture(SkyViewLutTexture, uv);
             vec3 sky = lut.rgb;
+
+            // Atmosphere light 1 (the moon): its own LUT, read through the same mapping around its own direction.
+            const bool light1 = UnpackLight1Present(s);
+            if (light1)
+            {
+                vec2 unit1 = SkyViewUnitFromParams(atm.BottomRadiusKm, viewHeight, viewZenithCos,
+                                                   SkyViewLightViewCos(zenith, dir, UnpackLight1Direction(s)));
+                sky += texture(SkyViewLut1Texture, vec2(SkyUnitToTexelUv(unit1.x, SKY_VIEW_LUT_WIDTH),
+                                                        SkyUnitToTexelUv(unit1.y, SKY_VIEW_LUT_HEIGHT))).rgb;
+            }
 
             vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
 
@@ -133,6 +147,26 @@ Shader "ProceduralSky"
                 // is what hides them by day. Common/Atmosphere.glslh states their luminance.
                 sky += AtmosphereStarField(dir) * UnpackStarIntensity(s) * AtmosphereStarPeakLuminance() *
                        ATMOSPHERE_STAR_TINT * viewT;
+
+                // Light 1's disc (the moon): the same law at its own direction and its own Source Angle.
+                if (light1)
+                {
+                    vec3  light1Dir  = UnpackLight1Direction(s);
+                    float apex1      = max(UnpackLight1AngularRadius(s), 1e-4f);
+                    float cosApex1   = cos(apex1);
+                    float vDotLight1 = dot(dir, light1Dir);
+                    float edge1      = SkySunDiscSoftEdge(vDotLight1, cosApex1);
+                    if (edge1 > 0.0f)
+                    {
+                        float centerToEdge1 = clamp(acos(clamp(vDotLight1, -1.0f, 1.0f)) / apex1, 0.0f, 1.0f);
+                        float solidAngle1   = 2.0f * SKY_PI * (1.0f - cosApex1);
+                        vec3  viewT1 = texture(TransmittanceLutTexture,
+                                               SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm, atm.TopRadiusKm,
+                                                                               viewHeight, viewZenithCos)).rgb;
+                        sky += UnpackLight1Illuminance(s) * UnpackLight1DiskColorScale(s) / max(solidAngle1, 1e-7f) *
+                               viewT1 * SkySunLimbDarkening(centerToEdge1) * edge1;
+                    }
+                }
             }
 
             // The on-screen-only art tint (UE's SkyLuminanceFactor), then the exposure-relative ceiling.

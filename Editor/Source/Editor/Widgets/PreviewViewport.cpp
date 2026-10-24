@@ -318,7 +318,7 @@ namespace Desert::Editor
         // negation: the palette is read off the component and the sun comes from the light's travel vector.
         m_Renderer->SetProceduralSky( true, ECS::Rules::AtmosphereSunDirection( m_Setup.LightTravel() ),
                                       /*bakeNow=*/true, Graphic::MakeSkySettings( skyC.Data ),
-                                      Graphic::SunLightFx{} );
+                                      Graphic::SunLightFx{}, Graphic::AtmosphereLight1{} );
 
         m_Inited = true;
 

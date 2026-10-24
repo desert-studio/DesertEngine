@@ -150,6 +150,9 @@ namespace Desert::Graphic
             // would never be re-baked).
             Common::Timestep                RealTimestep;
             ShaderProtocols::DirectionLight DirLights;
+            // Atmosphere light 1 (UE's Atmosphere Sun Light Index 1, the moon), when the scene marks one:
+            // direction it travels and colour/intensity, as DirLights' sun. Shaded by the deferred pass.
+            std::optional<ShaderProtocols::DirectionLightPayload> AtmosphereLight1;
         };
 
         struct RenderSubmissionExtra
@@ -460,7 +463,7 @@ namespace Desert::Graphic
         // sunDir is the direction TOWARD the sun, already normalized; bakeNow is the one-shot request from
         // the editor's Bake button.
         void SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow, const SkySettings& sky,
-                               const SunLightFx& fx );
+                               const SunLightFx& fx, const AtmosphereLight1& light1 );
 
         // This frame's exponential height fog (from ExponentialHeightFogComponent, via the ECS).
         // `present` = false means the scene has no enabled fog component at all — said explicitly, because
@@ -1310,6 +1313,9 @@ namespace Desert::Graphic
         SunLightFx m_SunLightFx;
 
         ShaderProtocols::DirectionLight m_DirectionLights;
+        // This frame's atmosphere light 1 (the moon) as the deferred pass shades it: the scene's value times
+        // AtmosphereEnv::Light1TransmittanceAtGround (OnUpdate), or nothing.
+        std::optional<ShaderProtocols::DirectionLightPayload> m_AtmosphereLight1;
         ShaderProtocols::PointLight     m_PointLight;
         ShaderProtocols::SpotLight      m_SpotLight;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.

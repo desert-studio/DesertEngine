@@ -241,6 +241,13 @@ Shader "BakeProceduralSky"
 
             vec3 sky = result.Luminance * UnpackSkyAndAerialPerspectiveLuminanceFactor(s);
 
+            // Atmosphere light 1 (the moon): its in-scattering through the same air, so the IBL a moonlit sky
+            // casts on the scene is that sky. (Its lit-ground term below the horizon: REMAINDER.)
+            if (UnpackLight1Present(s))
+                sky += SkyIntegrateScatteredLuminance(atm, originKm, dir, UnpackLight1Direction(s),
+                                                      UnpackLight1Illuminance(s), kBakeSampleCount).Luminance *
+                       UnpackSkyAndAerialPerspectiveLuminanceFactor(s);
+
             // Below the horizon: the lit ground under the marched air — the same v1 formula the screen
             // pass applies, with the view transmittance coming from this texel's own march.
             float r0 = originKm.y;

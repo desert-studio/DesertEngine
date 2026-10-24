@@ -161,6 +161,8 @@ namespace Desert::Graphic
             {
                 view.SkyTransmittanceLut = textures.Import( sky->GetTransmittanceLut(), "Sky.TransmittanceLut" );
                 view.SkyViewLut          = textures.Import( sky->GetSkyViewLut(), "Sky.SkyViewLut" );
+                if ( sky->SkyPassSamplesLight1Lut() )
+                    view.SkyViewLut1 = textures.Import( sky->GetSkyViewLut1(), "Sky.SkyViewLut1" );
             }
         // THE NEUTRAL RADIANCE CACHE (FrameTransients::RadianceCache*): a zeroed params block (no clipmap, so
         // every read answers "past the coarsest clipmap" and touches neither the indirection nor the probes, which
@@ -832,7 +834,12 @@ namespace Desert::Graphic
              "Deferred: Composite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
+                 // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.
+                 const glm::vec4 light1Dir =
+                      m_AtmosphereLight1 ? m_AtmosphereLight1->Direction : glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f );
+                 const glm::vec4 light1Color = m_AtmosphereLight1 ? m_AtmosphereLight1->ColorIntensity : glm::vec4( 0.0f );
+                 deferred->FillMaterial( lightDir, lightColor, light1Dir, light1Color, cameraPos,
+                                         frame.InvJitteredViewProjection,
                                          m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure
                                               ? 0 // a post view mode: the lighting draws Lit
                                               : static_cast<int>( m_DebugView.DeferredDebug ),

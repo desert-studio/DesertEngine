@@ -54,8 +54,10 @@ namespace Desert::ECS
         return 0;
     }
 
-    [[nodiscard]] inline AtmosphereSunPick PickAtmosphereSun( const entt::registry& registry,
-                                                              SunCandidacy          candidacy )
+    // The light at UE's Atmosphere Sun Light Index `atmosphereIndex` (0 = the sun, 1 = the moon;
+    // Rules::kAtmosphereLightCount). Index 0 falls back to the lowest-id unmarked light; index 1 never does.
+    [[nodiscard]] inline AtmosphereSunPick PickAtmosphereLight( const entt::registry& registry,
+                                                                SunCandidacy candidacy, int atmosphereIndex )
     {
         AtmosphereSunPick pick;
 
@@ -77,8 +79,13 @@ namespace Desert::ECS
                                                         Rules::IsSunDirectionValid( translation ) } );
         }
 
-        // The engine renders exactly one directional light, so index 0 is the only one that can be the sun.
-        pick.Selection = Rules::SelectAtmosphereSun( pick.Candidates, /*wantedIndex=*/0 );
+        pick.Selection = Rules::SelectAtmosphereSun( pick.Candidates, atmosphereIndex );
         return pick;
+    }
+
+    // THE sun: atmosphere light 0 — the one the clock drives and the cascaded shadow maps fit to.
+    [[nodiscard]] inline AtmosphereSunPick PickAtmosphereSun( const entt::registry& registry, SunCandidacy candidacy )
+    {
+        return PickAtmosphereLight( registry, candidacy, 0 );
     }
 } // namespace Desert::ECS
