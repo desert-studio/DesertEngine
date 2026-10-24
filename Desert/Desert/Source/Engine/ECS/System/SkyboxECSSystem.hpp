@@ -283,15 +283,6 @@ namespace Desert::ECS
             if ( !light1 )
                 return;
 
-            if ( !m_Light1SelectionLogged )
-            {
-                m_Light1SelectionLogged = true;
-                for ( const size_t i : pick.Selection.Collisions )
-                    LOG_WARN( "[SkyAtmosphere] Entity '{}' is also marked as Atmosphere Sun Light at index 1; "
-                              "the lowest-id light is the second atmosphere light and this one is ignored.",
-                              EntityName( registry, pick.Entities[i] ) );
-            }
-
             const auto& light                         = registry.get<ECS::DirectionLightComponent>( *light1 );
             const auto& transform                     = registry.get<ECS::TransformComponent>( *light1 );
             m_Light1.Present                          = true;
@@ -300,6 +291,25 @@ namespace Desert::ECS
             m_Light1.DiskColorScale                   = light.Data.AtmosphereSunDiskColorScale;
             m_Light1.DiskAngularRadius                = glm::radians( light.Data.SourceAngle ) * 0.5f;
             m_Light1.AffectedByAtmosphereTransmittance = light.Data.AffectedByAtmosphereTransmittance;
+
+            // SAID ONCE, WITH ITS NUMBERS: which light is atmosphere light 1 and WHERE in the sky its disc
+            // stands. Without this line a moon outside the shot's frame is indistinguishable in the log from a
+            // moon the renderer lost (MOON-FIX, 10-24: the evidence frame looked 34 deg above it).
+            if ( !m_Light1SelectionLogged )
+            {
+                m_Light1SelectionLogged = true;
+                for ( const size_t i : pick.Selection.Collisions )
+                    LOG_WARN( "[SkyAtmosphere] Entity '{}' is also marked as Atmosphere Sun Light at index 1; "
+                              "the lowest-id light is the second atmosphere light and this one is ignored.",
+                              EntityName( registry, pick.Entities[i] ) );
+                const glm::vec3& toward = m_Light1.TowardLight;
+                LOG_INFO( "[SkyAtmosphere] Atmosphere light 1 (the moon) is '{}': toward ({:.3f}, {:.3f}, {:.3f}) = "
+                          "elevation {:.1f} deg, intensity {:.3f} lux, disc {:.3f} deg across — "
+                          "lights the sky (its own Sky-View LUT), draws its disc and lights the scene unshadowed.",
+                          EntityName( registry, *light1 ), toward.x, toward.y, toward.z,
+                          glm::degrees( glm::asin( glm::clamp( toward.y, -1.0f, 1.0f ) ) ),
+                          light.Data.Intensity, light.Data.SourceAngle );
+            }
         }
 
         Graphic::AtmosphereLight1 m_Light1;
