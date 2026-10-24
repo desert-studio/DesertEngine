@@ -110,7 +110,8 @@ namespace Desert::Graphic::System
     // GLASS (UE PathTracingGlass.ush, smooth): a BlendMode Translucent surface is a dielectric interface - Fresnel
     // reflection or refraction by its IOR, thin at IOR 1, Beer absorption by its tint inside a solid - and light
     // rays are attenuated by it instead of blocked (PathTracer.shader; its primitives carry
-    // RayTracing::kMaskTranslucent alone, so only these rays meet them).
+    // RayTracing::kMaskTranslucent, plus kMaskTranslucentShadowCaster with CastShadows, so only these rays meet
+    // them). Light rays trace the shadow-caster bits only: CastShadows off never occludes a path-traced light.
     //
     // Not here (each is UE's and a task of its own): a denoiser (UE's is a plugin over albedo/normal guides),
     // rough glass (the raster's glass pass reads no roughness), participating media, a Sobol sequence, pixel

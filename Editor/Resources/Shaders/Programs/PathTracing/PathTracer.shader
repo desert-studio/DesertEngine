@@ -250,10 +250,12 @@ Shader "PathTracer"
             }
 
             // ---- Glass: the dielectric interface of a translucent hit (Transmission > 0). ----
-            // RayTracingScene.hpp kMaskOpaque / kMaskTranslucent: a primitive drawn only by translucent sections
-            // carries the translucent bit alone.
-            const uint kPathTracingMaskOpaque      = 0x01u;
-            const uint kPathTracingMaskTranslucent = 0x04u;
+            // RayTracingScene.hpp kMaskShadowCaster / kMaskTranslucentShadowCaster: the light rays trace only the
+            // primitives with CastShadows (UE PATHTRACER_MASK_SHADOW), as the raster's shadow maps and RT shadows
+            // do. A primitive with CastShadows off - a street lamp's glass around its own point light - is still
+            // met by the material rays (cull mask 0xFF), so it is seen, lit and emits; it only never occludes.
+            const uint kPathTracingMaskShadowCaster            = 0x02u;
+            const uint kPathTracingMaskTranslucentShadowCaster = 0x08u;
             // Solid glass reaches its tint after this many centimetres inside it (Beer's law).
             const float kPathTracingAbsorptionDistance = 100.0;
             // A light ray crosses at most this many translucent surfaces; past them it is blocked. A bound on the
@@ -310,16 +312,16 @@ Shader "PathTracer"
                 PathTracingTraceMaterialTo(origin, direction, coneWidth, 1.0e9);
             }
 
-            // The light ray's transmittance: 0 when an opaque primitive blocks it (any hit of the opaque mask ends
+            // The light ray's transmittance: 0 when an opaque shadow caster blocks it (any hit of that mask ends
             // the ray; the any-hit stages still cut masked holes, and the miss stage writes HitT < 0, so an unchanged
-            // HitT means occluded); otherwise the product over the translucent surfaces on the segment, walked
+            // HitT means occluded); otherwise the product over the translucent shadow casters on the segment, walked
             // nearest first: a thin sheet's tint, a solid's Fresnel transmission at each interface and its
             // absorption between entering and leaving it.
             vec3 PathTracingTransmittance(vec3 origin, vec3 direction, float distance)
             {
                 payload.HitT = 1.0;
                 traceRayEXT(SceneTlas, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT,
-                            kPathTracingMaskOpaque, 0u, 1u, 0u, origin, 0.0, direction, distance, 0);
+                            kPathTracingMaskShadowCaster, 0u, 1u, 0u, origin, 0.0, direction, distance, 0);
                 if (payload.HitT >= 0.0)
                     return vec3(0.0);
                 vec3  transmittance = vec3(1.0);
@@ -327,7 +329,8 @@ Shader "PathTracer"
                 float entered       = 0.0; // where the ray entered the solid it is in (0: it starts inside one)
                 for (uint layer = 0u; layer < kPathTracingMaxTranslucentLayers; ++layer)
                 {
-                    PathTracingTraceMaterialMasked(origin, start, direction, 0.0, distance, kPathTracingMaskTranslucent);
+                    PathTracingTraceMaterialMasked(origin, start, direction, 0.0, distance,
+                                                   kPathTracingMaskTranslucentShadowCaster);
                     if (payload.HitT < 0.0)
                         return transmittance;
                     // A translucent primitive with no dielectric to give (an Additive surface) blocks.
