@@ -107,11 +107,11 @@ Shader "SurfaceCacheDirectLighting"
         #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
         ReadBuffer(13) SurfaceCacheShadowUB
         {
-            mat4 LightViewProjection[4];
-            vec4 ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode, w = cascade count
-            vec4 DebugParams;       // unused here
-            vec4 CascadeTexelWorld; // per-cascade world size of one shadow-map texel
-            vec4 CascadeDepthRange; // per-cascade world length the [0,1] map depth spans
+            mat4 LightViewProjection[8];  // [light * 4 + cascade] - Mesh/ShadowUB.glslh's members, same packer
+            vec4 DirectionalShadow[2];    // per slot: x = tan(source angle / 2), y = casts, z = cascades, w = first layer
+            vec4 CascadeTexelWorld[2];
+            vec4 CascadeDepthRange[2];
+            vec4 DebugParams;             // unused here
             // The view's contact shadow values (SceneResources::PackContactShadow). Unread: a card texel has no
             // screen depth to march (SceneRenderer::AddFrameSurfaceCache packs 0 steps), and this pass includes no
             // Common/ContactShadow.glslh, so Mesh/LocalLightShadow.glslh offers it the shadow-map terms only.
@@ -256,9 +256,9 @@ Shader "SurfaceCacheDirectLighting"
                 if (NdotL > 0.0)
                 {
                     int   cascade = -1;
-                    float shadow  = ShadowFactor(worldPos, N, L, cascade);
+                    float shadow  = ShadowFactor(kShadowLightSun, worldPos, N, L, cascade);
                     // Shadows on (ShadowParams.y) but no cascade holds the texel: the distance field answers.
-                    if (cascade < 0 && ShadowParams.y > 0.5)
+                    if (cascade < 0 && DirectionalShadow[kShadowLightSun].y > 0.5)
                         shadow = TracedShadow(worldPos, N, L, 1.0e7);
                     irradiance += sun * NdotL * shadow * CloudShadowFactor(worldPos);
                 }
@@ -267,9 +267,9 @@ Shader "SurfaceCacheDirectLighting"
                     // The deferred composite's TransmissionShadow (Mesh/CascadedShadow.glslh): the cascades'
                     // thickness transmittance at the receiver's own depth; off the cascades, the tracer's ray from
                     // the far side.
-                    float shadow = ShadowParams.y > 0.5 && chooseCascade(worldPos) < 0
+                    float shadow = DirectionalShadow[kShadowLightSun].y > 0.5 && chooseCascade(kShadowLightSun, worldPos) < 0
                                        ? TracedShadow(worldPos, -N, L, 1.0e7)
-                                       : TransmissionShadowFactor(worldPos, ContactShadowSubsurfaceDensity(subsurface.a));
+                                       : TransmissionShadowFactor(kShadowLightSun, worldPos, ContactShadowSubsurfaceDensity(subsurface.a));
                     back += sun * -NdotL * shadow * CloudShadowFactor(worldPos);
                 }
             }

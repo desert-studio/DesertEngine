@@ -254,6 +254,9 @@ Shader "DeferredLighting"
         #ifdef DESERT_SUN_SHADOW_SCREEN_MASK
         Uniform(5) texture2D ScreenShadowMaskTexture; // r = visibility, 1 = lit (render extent = this target's)
         #define ScreenShadowMaskTexture sampler2D(ScreenShadowMaskTexture, PointClampSampler)
+        // The other directional lights keep their cascades under the sun's mask (DeferredScreenShadowMask::Lights).
+        Uniform(10) texture2DArray ShadowCascadesTexture;
+        #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
         #else
         // The four cascades are ONE array texture (layer c = cascade c), read through the shared repeat state.
         Uniform(5) texture2DArray ShadowCascadesTexture;
@@ -265,12 +268,13 @@ Shader "DeferredLighting"
         // with cascades, their thickness transmittance; with a screen mask (ray-traced or virtual shadow maps) the
         // mask itself, as UE's ray-traced shadows feed the same mask to the subsurface transmission.
         #ifdef DESERT_SUN_SHADOW_SCREEN_MASK
+        #include <Mesh/CascadedShadow.glslh>
         #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) texelFetch(ScreenShadowMaskTexture, ivec2(gl_FragCoord.xy), 0).r
         #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) texelFetch(ScreenShadowMaskTexture, ivec2(gl_FragCoord.xy), 0).r
         #else
         #include <Mesh/CascadedShadow.glslh>
-        #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) ShadowFactor(worldPos, N, L, cascade)
-        #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) TransmissionShadowFactor(worldPos, density)
+        #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) ShadowFactor(kShadowLightSun, worldPos, N, L, cascade)
+        #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) TransmissionShadowFactor(kShadowLightSun, worldPos, density)
         #endif
 
         // THE CONTACT SHADOWS (UE ContactShadowLength): a short screen-space ray toward each light through
@@ -487,13 +491,26 @@ Shader "DeferredLighting"
         	     shadingModel, DesertSunLight(LightDirection.xyz, radiance, shadow, transmissionShadow), surface, payload);
 
         	// ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): the same shading model, its own
-        	// direction and transmitted illuminance. The cascades, the contact march, the relief self-shadow and the
-        	// cloud shadow map are all fitted to the SUN's direction, so none of them may occlude this light; it
-        	// is shaded unoccluded until it has its own shadow (REMAINDER). Absent (a == 0) adds nothing at all.
+        	// direction and transmitted illuminance, occluded by ITS OWN cascades (slot kShadowLightAtmosphere1 of the
+        	// one CascadedShadow text; UE: a CSM per directional light). The contact march, the relief self-shadow and
+        	// the cloud shadow map are fitted to the SUN's direction, so none of them occludes this light. Absent
+        	// (a == 0) adds nothing at all.
         	if (Light1Color.a > 0.0)
+        	{
+        		const vec3 L1 = normalize(-Light1Direction.xyz);
+        		int        cascade1 = -1;
+        		const float shadow1 =
+        		     receivesSun ? ShadowFactor(kShadowLightAtmosphere1, worldPos, N, L1, cascade1) : 1.0;
+        		const float transmission1 =
+        		     (receivesSun && subsurfaceOpacity >= 0.0)
+        		          ? TransmissionShadowFactor(kShadowLightAtmosphere1, worldPos,
+        		                                     ContactShadowSubsurfaceDensity(subsurfaceOpacity))
+        		          : 1.0;
         		result += DesertEvaluateShadingModel(
-        		     shadingModel, DesertSunLight(Light1Direction.xyz, Light1Color.rgb * Light1Color.a, 1.0, 1.0),
+        		     shadingModel,
+        		     DesertSunLight(Light1Direction.xyz, Light1Color.rgb * Light1Color.a, shadow1, transmission1),
         		     surface, payload);
+        	}
 
         	// Point and spot lights (the city payoff): full Cook-Torrance lit, each occluded by its atlas views when it
         	// casts shadows — the lights of this pixel's froxel only, in the order the full loop would sum them. An
