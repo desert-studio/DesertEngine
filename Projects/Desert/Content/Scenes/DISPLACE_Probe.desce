@@ -1,0 +1,468 @@
+{
+    "Header": {
+        "Kind": "Scene",
+        "Guid": "0f7eaae15b8a6075917e371c82c968fb",
+        "Versions": {
+            "AREF": 1,
+            "SCNE": 70,
+            "UNIT": 1,
+            "WPAR": 1
+        },
+        "Dependencies": [
+            "01ec58f41708fa6ec9a9971129c407a1",
+            "0de3e1610ce1c6a79a3acdc76862136a",
+            "40e8fc4221d33289cca9e025f87dab0a",
+            "8254b0475d555accf00b0c7a929c73e4",
+            "a146336457b1527def13c09783dfc696"
+        ]
+    },
+    "SceneName": "DISPLACE_Probe",
+    "Entities": [
+        {
+            "id": 1001,
+            "siblingIndex": 0,
+            "Tag": "Sun",
+            "Translation": [
+                -0.98,
+                -0.17,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "DirectionLight": {
+                "Color": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "Intensity": 1.0,
+                "AtmosphereSunLight": true,
+                "AtmosphereSunLightIndex": 0,
+                "AffectedByAtmosphereTransmittance": true,
+                "AtmosphereSunDiskColorScale": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "LightShaftBloom": false,
+                "BloomScale": 0.20000000298023224,
+                "BloomThreshold": 0.0,
+                "BloomMaxBrightness": 100.0,
+                "BloomTint": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "CastShadows": true,
+                "SourceAngle": 0.5357000231742859,
+                "ShadowBias": 1.0,
+                "ShadowSlopeBias": 2.0,
+                "ShadowCascadeBiasDistribution": 1.0,
+                "CascadeSplitLambda": 0.6000000238418579,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0
+            }
+        },
+        {
+            "id": 1002,
+            "siblingIndex": 1,
+            "Tag": "Sky",
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "SkyAtmosphere": {
+                "Enabled": true,
+                "SkyBrightness": 1.0,
+                "HorizonFalloff": 0.8500000238418579,
+                "ZenithColor": [
+                    0.07999999821186066,
+                    0.25999999046325684,
+                    0.699999988079071
+                ],
+                "HorizonColor": [
+                    0.5,
+                    0.6600000262260437,
+                    0.9200000166893005
+                ],
+                "GroundColor": [
+                    0.1599999964237213,
+                    0.1899999976158142,
+                    0.23999999463558197
+                ],
+                "NightColor": [
+                    0.009999999776482582,
+                    0.019999999552965164,
+                    0.05000000074505806
+                ],
+                "SunIntensity": 22.0,
+                "SunColor": [
+                    1.0,
+                    0.9599999785423279,
+                    0.8799999952316284
+                ],
+                "SunAngularDiameter": 2.291800022125244,
+                "SunGlow": 1.0,
+                "SunsetColor": [
+                    1.0,
+                    0.41999998688697815,
+                    0.18000000715255737
+                ],
+                "SunsetIntensity": 1.0,
+                "StarIntensity": 1.0,
+                "AutoRebakeEnvironment": true,
+                "RebakeSunAngleThreshold": 5.0,
+                "EnvironmentResolution": 1,
+                "ActivePreset": 0,
+                "PlanetRadius": 6360.0,
+                "Model": 0,
+                "AtmosphereHeight": 60.0,
+                "MultiScatteringFactor": 1.0,
+                "GroundAlbedo": [
+                    0.4019779860973358,
+                    0.4019779860973358,
+                    0.4019779860973358
+                ],
+                "RayleighScatteringScale": 0.03310000151395798,
+                "RayleighScattering": [
+                    0.17528699338436127,
+                    0.4096069931983948,
+                    1.0
+                ],
+                "RayleighExponentialDistribution": 8.0,
+                "MieScatteringScale": 0.003996000159531832,
+                "MieScattering": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "MieAbsorptionScale": 0.0004440000047907233,
+                "MieAbsorption": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "MieAnisotropy": 0.800000011920929,
+                "MieExponentialDistribution": 1.2000000476837158,
+                "OtherAbsorptionScale": 0.0018810000037774444,
+                "OtherAbsorption": [
+                    0.3455609977245331,
+                    1.0,
+                    0.04518900066614151
+                ],
+                "AbsorptionTipAltitude": 25.0,
+                "AbsorptionTipValue": 1.0,
+                "AbsorptionTentWidth": 15.0,
+                "SkyLuminanceFactor": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "SkyAndAerialPerspectiveLuminanceFactor": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "AerialPerspectiveViewDistanceScale": 1.0,
+                "AerialPerspectiveStartDepth": 0.10000000149011612,
+                "AerialPerspectiveDistance": 96.0
+            },
+            "Skybox": {
+                "SkyboxHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "Intensity": 1.0,
+                "Rotation": 0.0,
+                "Tint": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
+            },
+            "TimeOfDay": {
+                "DriveSunFromTimeOfDay": false,
+                "TimeOfDay": 12.0,
+                "DayLengthSeconds": 600.0,
+                "Latitude": 45.0,
+                "Longitude": 0.0,
+                "TimeZone": 0.0,
+                "DaylightSavingTime": false,
+                "Year": 2026,
+                "Month": 3,
+                "Day": 20,
+                "NorthOffset": 0.0
+            }
+        },
+        {
+            "id": 2000,
+            "siblingIndex": 2,
+            "Tag": "Ground_NormalMapped",
+            "Translation": [
+                0.0,
+                -100.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                10.0,
+                0.20000000298023224,
+                10.0
+            ],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "40e8fc4221d33289cca9e025f87dab0a",
+                        "Path": "assets:Materials/M_NormalWitness.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 9001,
+            "siblingIndex": 4,
+            "Tag": "Camera",
+            "Translation": [
+                0.0,
+                10.0,
+                650.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Camera": {
+                "AutoActivateForPlayer": true,
+                "FOV": 45.0,
+                "Near": 10.0,
+                "Far": 5000000.0
+            }
+        },
+        {
+            "id": 1106754244744133842,
+            "siblingIndex": 7,
+            "Tag": "CesiumMan",
+            "Translation": [
+                110.0,
+                -50.0,
+                60.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "UpdateAnimationInEditor": true,
+                "RootMotion": "NoExtraction"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "assets:Meshes/Displace/CesiumMan.skmesh",
+                "MeshGuid": "0de3e1610ce1c6a79a3acdc76862136a",
+                "MaterialPaths": [
+                    "assets:Materials/Displace/CesiumMan/Cesium_Man-effect.demat"
+                ],
+                "MaterialGuids": [
+                    "a146336457b1527def13c09783dfc696"
+                ]
+            }
+        },
+        {
+            "id": 2286981293764337250,
+            "siblingIndex": 5,
+            "Tag": "PostProcessVolume",
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "PostProcessVolume": {
+                "Unbound": true,
+                "Extent": [
+                    500.0,
+                    500.0,
+                    500.0
+                ],
+                "BlendRadius": 100.0,
+                "Priority": 0.0,
+                "BlendWeight": 1.0,
+                "Settings": {
+                    "EnableSSAO": false,
+                    "GlobalIlluminationMethod": 2,
+                    "GIIntensity": 2.0,
+                    "ReflectionsMethod": 2,
+                    "SSRIntensity": 1.0,
+                    "SSRMaxDistance": 4000.0,
+                    "ShadowsMethod": 0,
+                    "ContactShadows": false,
+                    "DistanceFieldShadows": false,
+                    "Tonemapper": 0,
+                    "ManualExposureEV100": 0.5260688662528992,
+                    "WhitePoint": 8.0,
+                    "AutoExposure": false,
+                    "AutoExposureKey": 0.18000000715255737,
+                    "AutoExposureSpeed": 1.5,
+                    "AutoExposureMinEV100": -2.6438562870025635,
+                    "AutoExposureMaxEV100": 6.0,
+                    "EnableBloom": false,
+                    "BloomThreshold": 2.0,
+                    "BloomIntensity": 0.800000011920929,
+                    "LensDispersion": 0.0,
+                    "DepthOfFieldFocalDistance": 0.0,
+                    "DepthOfFieldFstop": 4.0,
+                    "DepthOfFieldSensorWidth": 24.576000213623047,
+                    "DepthOfFieldMaxBokehSize": 2.5,
+                    "MotionBlurAmount": 0.5,
+                    "MotionBlurMax": 5.0,
+                    "MotionBlurTargetFPS": 30.0,
+                    "EnableLensFlare": false,
+                    "LensFlareIntensity": 0.3499999940395355,
+                    "LensFlareTint": [
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "LensFlareThreshold": 4.0,
+                    "LensFlareGhostCount": 4,
+                    "LensFlareGhostSpacing": 0.3499999940395355,
+                    "LensFlareGhostSizeNear": 1.0,
+                    "LensFlareGhostSizeFar": 3.0,
+                    "LensFlareGhostTintInner": [
+                        1.0,
+                        0.8600000143051147,
+                        0.6200000047683716
+                    ],
+                    "LensFlareGhostTintOuter": [
+                        0.44999998807907104,
+                        0.6800000071525574,
+                        1.0
+                    ],
+                    "LensFlareHaloIntensity": 0.25,
+                    "LensFlareHaloRadius": 0.18000000715255737,
+                    "LensFlareStreakIntensity": 8.0,
+                    "LensFlareStreakLength": 0.3499999940395355,
+                    "LensFlareStreakAngle": 0.0,
+                    "LensFlareChromaShift": 0.15000000596046448,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0
+                }
+            }
+        },
+        {
+            "id": 4420725792637142384,
+            "siblingIndex": 6,
+            "Tag": "DisplaceSlab",
+            "Translation": [
+                0.0,
+                -70.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "StaticMesh": {
+                "MeshHandle": {
+                    "Guid": "8254b0475d555accf00b0c7a929c73e4",
+                    "Path": "assets:Meshes/Displace/DisplaceSlab.stmesh"
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "01ec58f41708fa6ec9a9971129c407a1",
+                        "Path": "assets:Materials/Displace/DisplaceSlab/M_DisplaceSlab.demat"
+                    }
+                ]
+            }
+        }
+    ],
+    "Settings": {
+        "RenderingPath": 0,
+        "Gravity": 981.0,
+        "DefaultPawn": {
+            "Guid": "",
+            "Path": ""
+        },
+        "PlayerController": {
+            "Guid": "",
+            "Path": ""
+        },
+        "RespawnDelay": 3.0,
+        "WorldParameters": "",
+        "SplashSprite": {
+            "Guid": "",
+            "Path": ""
+        },
+        "SplashDuration": 0.0,
+        "SplashFade": 0.4000000059604645
+    }
+}

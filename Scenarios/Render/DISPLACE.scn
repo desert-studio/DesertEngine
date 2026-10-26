@@ -1,12 +1,14 @@
 # DISPLACE-MAC: Windows' DISPLACE 1-5 (compute displacement = Nanite tessellation, raster + skin cache) proven on Mac (raster only).
-# Content: Meshes/DisplaceProbe/DisplaceSlab.gltf (4x0.4x4 m slab, one UV island per face = seams on every edge; its
-# .deimport states Displacement = Runtime) + Materials/M_DisplaceStones.demat (StandardSurface, stony_dirt_path, Height
-# = disp map, HeightScale 12 cm). NOT YET: the slab is not imported (a new source is not imported at boot) and the scene
-# DISPLACE_Probe.desce (slab + CesiumMan, grazing sun) does not exist - see the DISPLACE REMAINDER.
+# Content: Meshes/Displace/{DisplaceSlab.gltf,CesiumMan.glb} imported by DISPLACE-IMPORT.scn (Displacement Runtime); DISPLACE_Probe.desce
+# = slab + CesiumMan with Materials/M_DisplaceStones.demat (Height = disp map, HeightScale 12 cm), sun grazing ~10 deg.
 Дано run Scene "Open Scene DISPLACE_Probe.desce"
+Дано --subject viewport set Camera.Position 0,60,520
+Дано --subject viewport set Camera.Direction 0,-0.22,-1
 Когда run Quality "Quality: ViewDistance Cinematic"
 Тогда 1_on silhouette and self-shadow show real displaced geometry (bumps break the slab's top edge), no cracks along the UV seams at the slab edges
-Когда run Quality "Quality: ViewDistance VeryLow"
+Когда run Quality "Quality: ViewDistance Low"
 Тогда 2_off same view flat (DisplacementDicingRate 0 parks the twins), no crash, no stale geometry
 Когда run Quality "Quality: ViewDistance Cinematic"
+Когда --subject viewport set Camera.Position 110,10,260
+Когда --subject viewport set Camera.Direction 0,-0.1,-1
 Тогда 3_skinned CesiumMan (Displacement Runtime, M_DisplaceStones) mid-walk: displaced, no swimming, no cracks
