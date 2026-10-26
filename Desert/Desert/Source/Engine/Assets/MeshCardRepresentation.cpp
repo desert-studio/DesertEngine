@@ -129,7 +129,6 @@ namespace Desert::Assets
         PutF32( image, settings.MinVoxelSize );
         PutU32( image, settings.MinVoxelsAcrossThinAxis );
         PutU32( image, settings.MaxVoxels );
-        PutU32( image, settings.MaxVoxelsLarge );
         PutU32( image, settings.TargetSurfels );
         PutF32( image, settings.MinDensity );
         PutF32( image, settings.NormalThreshold );

@@ -11,6 +11,10 @@ Line format (one step per line, `#` comments; the first comment is the title):
   Тогда|Then  <frame> <what it shows…>    capture the whole editor to <frame>.png
   Тогда-вид|Then-view <frame> <text…>     same, the 3D viewport only
   Ожидать|Expect …                        RESERVED until the owner turns tests back on (today the proof is frames)
+  Проект|Project <x.deproj> [editor args…] BEFORE any step: the project the editor opens (UE's `UnrealEditor
+                                          <x.uproject> <Map>`) and its launch args, e.g. `--scene Content/Scenes/A.desce`.
+                                          The path is absolute, or relative to the tree, or to the tree's parent
+                                          (a content project checked out beside the engine). Default: Projects/Desert.
 
 A fresh editor is started through run_capped (one GPU slot per machine, it queues), the steps run in order — no
 sleeps: every DesertCtl reply means the step finished — the first refused step stops the run and shoots fail.png,
@@ -31,6 +35,27 @@ WIN = os.name == "nt"
 GIVEN = {"дано", "given", "когда", "when"}
 THEN = {"тогда": "shot-window", "then": "shot-window", "тогда-вид": "shot-viewport", "then-view": "shot-viewport"}
 EXPECT = {"ожидать", "expect"}
+PROJECT = {"проект", "project"}
+
+
+def project_line(tree, lines):
+    """The scenario's `Проект` line -> (deproj path, extra editor args), or None for Projects/Desert."""
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        kw, _, rest = line.partition(" ")
+        if kw.lower() not in PROJECT:
+            return None  # a project named after the first step would be a different editor: refused below
+        words = shlex.split(rest)
+        if not words:
+            sys.exit("SCENARIO: «Проект» needs a .deproj path")
+        for base in ("", tree, os.path.dirname(tree)):
+            cand = os.path.abspath(os.path.join(base, os.path.expanduser(words[0])))
+            if os.path.isfile(cand):
+                return cand, words[1:]
+        sys.exit(f"SCENARIO: project {words[0]} found neither absolute, nor in {tree}, nor beside it")
+    return None
 
 
 def main():
@@ -43,7 +68,9 @@ def main():
     exe = ".exe" if WIN else ""
     bindir = os.path.join(tree, "build", "Bin", "Debug")
     editor, ctl = os.path.join(bindir, "Editor" + exe), os.path.join(bindir, "DesertCtl" + exe)
-    proj = os.path.join(tree, "Projects", "Desert", "Desert.deproj")
+    lines = open(scn, encoding="utf-8").read().splitlines()
+    named = project_line(tree, lines)
+    proj, launch = named if named else (os.path.join(tree, "Projects", "Desert", "Desert.deproj"), [])
     for need in (scn, editor, ctl, proj):
         if not os.path.exists(need):
             sys.exit(f"SCENARIO {code}: missing {need}")
@@ -60,7 +87,6 @@ def main():
     except OSError:  # Windows without symlink rights: a pointer file instead
         with open(latest + ".txt", "w", encoding="utf-8") as f:
             f.write(out + "\n")
-    lines = open(scn, encoding="utf-8").read().splitlines()
     with open(os.path.join(out, "scenario.scn"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -70,7 +96,7 @@ def main():
     log = open(os.path.join(out, "editor.log"), "w", encoding="utf-8", errors="replace")
     env = dict(os.environ, DESERT_ROOT=tree, DESERT_SCENARIO="1")
     proc = subprocess.Popen([sys.executable, os.path.join(HERE, "run_capped.py"), editor, "--project", proj,
-                             "--control-socket", sock], cwd=os.path.join(tree, "Editor"), env=env,
+                             "--control-socket", sock, *launch], cwd=os.path.join(tree, "Editor"), env=env,
                             stdout=log, stderr=subprocess.STDOUT)
 
     def desertctl(*a):
@@ -95,6 +121,10 @@ def main():
         if key in THEN:
             thens += 1
         if fail:
+            continue
+        if key in PROJECT:
+            if steps or frames:
+                fail = f"line {n}: «{kw}» after the first step — the editor is already open on another project"
             continue
         if key in GIVEN:
             ok, msg = desertctl(*shlex.split(rest))

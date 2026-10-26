@@ -1,0 +1,10 @@
+# BISTRO-LOOK p4: the Bistro facades in the surface cache - cards and fields from a warm DDC (filled once by a
+# previous run), so the sunlit facades bounce warm light into the street shade.
+# The content project lives beside the engine tree (BistroFoliageProj, its own repo); «Проект» opens it with its street scene.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Когда run View "View mode: Lumen Scene (Lit)"
+Тогда-вид 7_wide_cache фасады, улица и маркизы в surface cache, освещены (в 6_wide_cache была только растительность)
+Когда run View "View mode: Lit"
+Тогда-вид 8_wide_lit булыжник в тени менее синий, чем 4_wide_lit (тёплый отскок от солнечных фасадов); лог: карточки из DDC ≈ все, 0 cancelled

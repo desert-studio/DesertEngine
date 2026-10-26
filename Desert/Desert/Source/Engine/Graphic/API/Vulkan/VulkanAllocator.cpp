@@ -5,7 +5,9 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 
+#include <algorithm>
 #include <cstdlib>
+#include <unordered_map>
 #include <format>
 #include <string>
 #include <vector>
@@ -229,11 +231,28 @@ namespace Desert::Graphic::API::Vulkan
         for ( std::size_t i = 0; i < byTag.size() && i < 6; ++i )
             tags += std::format( " {} x{} {:.1f} MB;", byTag[i].Tag, byTag[i].Count,
                                  static_cast<double>( byTag[i].Bytes ) / MB );
+        std::vector<std::pair<std::ptrdiff_t, const AllocationLedger::TagTotal*>> growth;
+        std::unordered_map<std::string, std::size_t>                              bytesNow;
+        for ( const auto& total : byTag )
+        {
+            bytesNow[total.Tag] = total.Bytes;
+            const auto last     = m_LastCensusBytes.find( total.Tag );
+            const auto before   = last != m_LastCensusBytes.end() ? last->second : std::size_t{ 0 };
+            if ( total.Bytes > before )
+                growth.emplace_back( static_cast<std::ptrdiff_t>( total.Bytes - before ), &total );
+        }
+        std::ranges::sort( growth, []( const auto& a, const auto& b ) { return a.first > b.first; } );
+        std::string grew;
+        for ( std::size_t i = 0; i < growth.size() && i < 6; ++i )
+            grew += std::format( " {} +{:.1f} MB (x{} {:.1f} MB);", growth[i].second->Tag,
+                                 static_cast<double>( growth[i].first ) / MB, growth[i].second->Count,
+                                 static_cast<double>( growth[i].second->Bytes ) / MB );
+        m_LastCensusBytes = std::move( bytesNow );
         LOG_DEBUG(
              "[VulkanAllocator] census: {} owed deletion(s) ({} buffer(s), {} image(s)); ledger {} object(s) "
-             "{:.1f} MB;{} largest:{}",
+             "{:.1f} MB;{} largest:{} grew:{}",
              QueuedCount(), m_BufferDeletionQueue.size(), m_ImageDeletionQueue.size(), m_Ledger.LiveCount(),
-             static_cast<double>( m_Ledger.LiveBytes() ) / MB, heaps, tags );
+             static_cast<double>( m_Ledger.LiveBytes() ) / MB, heaps, tags, grew );
     }
 
     void VulkanAllocator::RT_DestroyImage( VkImage image, VmaAllocation allocation, VkImageView imageView,
