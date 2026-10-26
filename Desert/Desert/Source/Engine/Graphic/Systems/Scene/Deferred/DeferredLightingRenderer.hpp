@@ -57,6 +57,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, GiSpecularTexture );
         DESERT_SHADER_PARAMETER( Texture, MegaLightsDiffuseTexture );
         DESERT_SHADER_PARAMETER( Texture, MegaLightsSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SubsurfaceDiffuseTexture );
         DESERT_SHADER_PARAMETER( Texture, ScreenShadowMaskTexture );
         DESERT_SHADER_PARAMETER( Texture, LocalShadowMasksTexture );
         DESERT_SHADER_PARAMETER( Texture, GiBackfaceTexture );
@@ -88,6 +89,9 @@ namespace Desert::Graphic::System
         RDG::TextureRef MegaLightsDiffuse;
         RDG::TextureRef MegaLightsSpecular;
         RDG::TextureRef GIBackface; // irradiance from -N, the light through a two-sided leaf ("GiBackfaceTexture")
+        // SSS-PROFILE (CONTRACT §4): the demodulated diffuse of the screen-space scattered texels, written when the
+        // view scatters (DeferredGIInput::SubsurfaceSplit); a 1x1 transient nothing writes otherwise.
+        RDG::TextureRef SubsurfaceDiffuse;
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
@@ -423,7 +427,9 @@ namespace Desert::Graphic::System
                  .Texture( DeferredLightingCompositeShaderParameters::GiSpecularTexture, inputs.GISpecular, kRead,
                            kWhole )
                  .Texture( DeferredLightingCompositeShaderParameters::GiBackfaceTexture, inputs.GIBackface, kRead,
-                           kWhole );
+                           kWhole )
+                 .Storage( DeferredLightingCompositeShaderParameters::SubsurfaceDiffuseTexture,
+                           inputs.SubsurfaceDiffuse, RDG::Access::StorageWrite );
             // The light rows and their shadow views: the light-grid loop's. The MegaLights program reads
             // MegaLights' lighting instead.
             if ( m_Active == kMegaLightsProgram )

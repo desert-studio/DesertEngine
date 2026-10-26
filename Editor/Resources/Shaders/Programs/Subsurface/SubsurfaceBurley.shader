@@ -1,0 +1,117 @@
+// DesertAsset {"Kind":"Shader","Guid":"5b1f0c7e9a2d4e638f41c0d2a7b3e915","Versions":{"SHDR":1},"Dependencies":[]}
+Shader "SubsurfaceBurley"
+{
+    // "Subsurface: Burley" (SSS-PROFILE, CONTRACT §5.3): the screen-space Burley normalized diffusion of the
+    // composite's SubsurfaceDiffuse - UE PostProcessSubsurface.usf MainIndirectDispatchCS + SubsurfaceBurleyNormalized.ush
+    // BurleyNormalizedSS, the importance-sampled (AFIS) form at a fixed sample count. Each scattered texel draws its
+    // samples on the TANGENT PLANE in world space (radius importance-sampled from the profile's widest channel),
+    // projects them, and weights each by the profile of the true 3D distance to the surface it hit over the pdf it
+    // was drawn with - so a depth step (the nose over the cheek) contributes little, and a sample on another
+    // profile, an unscattered surface or the sky contributes nothing (no halo onto the background). The weights are
+    // normalized per channel (UE: the sum of weights), so a texel keeps its energy wherever its samples land.
+    Compute
+    {
+        #include <Common/ReconstructPosition.glslh>
+        #include <Common/SubsurfaceProfileCommon.glslh>
+
+        Uniform sampler PointClampSampler;
+        Uniform(0) texture2D SubsurfaceDiffuseTexture; // rgb = demodulated diffuse (pre-exposed), a = profile row + 1
+        #define SubsurfaceDiffuseTexture sampler2D(SubsurfaceDiffuseTexture, PointClampSampler)
+        Uniform(1) texture2D SceneDepthTexture;        // the G-buffer's device depth
+        #define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
+        Uniform(2) texture2D GBufferBTexture;          // rgb = world normal
+        #define GBufferBTexture sampler2D(GBufferBTexture, PointClampSampler)
+        ReadBuffer(3) SubsurfaceProfileAtlasUB
+        {
+        	vec4 profileAtlas[]; // SSSS_ATLAS_WIDTH columns per profile row (Common/SubsurfaceProfileLayout.glslh)
+        };
+        ReadBuffer(4) SubsurfaceViewUB
+        {
+        	mat4 WorldToClip;  // the jittered view-projection the G-buffer was rasterised with
+        	mat4 ClipToWorld;  // its inverse
+        	vec4 ViewParams;   // x = PostProcessSettings SubsurfaceScale, y = samples, z = frame index, w unused
+        };
+        layout(binding = 5, rgba16f) writeonly uniform image2D SubsurfaceScatteredTexture;
+
+        // Interleaved gradient noise (Jimenez 2014), rotated per frame: the temporal AA integrates the rotations.
+        float SubsurfaceNoise(vec2 pixel, float frame)
+        {
+        	pixel += 5.588238 * mod(frame, 64.0);
+        	return fract(52.9829189 * fract(0.06711056 * pixel.x + 0.00583715 * pixel.y));
+        }
+
+        vec2 NdcToUV(vec2 ndc)
+        {
+        	// ScreenUVToNdc is affine per axis: invert it from its two corners (no y-flip convention assumed here).
+        	const vec2 n0 = ScreenUVToNdc(vec2(0.0));
+        	const vec2 n1 = ScreenUVToNdc(vec2(1.0));
+        	return (ndc - n0) / (n1 - n0);
+        }
+
+        LocalSize(8, 8, 1);
+        void main()
+        {
+        	const ivec2 size  = imageSize(SubsurfaceScatteredTexture);
+        	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+        	if (pixel.x >= size.x || pixel.y >= size.y)
+        		return;
+        	const vec4 centre = texelFetch(SubsurfaceDiffuseTexture, pixel, 0);
+        	const float depth = texelFetch(SceneDepthTexture, pixel, 0).r;
+        	if (centre.a < 0.5 || depth <= 0.0)
+        	{
+        		imageStore(SubsurfaceScatteredTexture, pixel, vec4(0.0));
+        		return;
+        	}
+        	const uint row    = (uint(centre.a + 0.5) - 1u) * SSSS_ATLAS_WIDTH;
+        	const vec3 albedo = profileAtlas[row + SSSS_SURFACE_ALBEDO].rgb;
+        	const vec3 mfp    = profileAtlas[row + SSSS_DIFFUSE_MEAN_FREE_PATH].rgb * ViewParams.x;
+        	const vec3 d      = max(mfp / BurleyScalingFactor(albedo), vec3(1e-4));
+        	const float dMax  = max(d.r, max(d.g, d.b));
+        	if (dMax <= 1e-3)
+        	{
+        		imageStore(SubsurfaceScatteredTexture, pixel, vec4(centre.rgb, 1.0));
+        		return;
+        	}
+
+        	const vec2 texel = 1.0 / vec2(size);
+        	const vec2 uv    = (vec2(pixel) + 0.5) * texel;
+        	const vec3 P     = ReconstructWorldPosition(uv, depth, ClipToWorld);
+        	const vec3 N     = normalize(texelFetch(GBufferBTexture, pixel, 0).rgb);
+        	const vec3 up    = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+        	const vec3 T     = normalize(cross(up, N));
+        	const vec3 B     = cross(N, T);
+
+        	const int   samples  = max(int(ViewParams.y + 0.5), 1);
+        	const float rotation = SubsurfaceNoise(vec2(pixel), ViewParams.z) * 6.28318530718;
+        	const float golden   = 2.39996322973; // the golden angle: a Fibonacci spiral of the stratified radii
+        	// The centre itself, weighted by the profile's mass inside half a pixel's footprint stand-in (its first
+        	// stratum) - it is always valid, so the sum never empties.
+        	vec3 sum     = centre.rgb * BurleyProfile(dMax * 0.05, d) / BurleyProfile1(dMax * 0.05, dMax);
+        	vec3 weights = BurleyProfile(dMax * 0.05, d) / BurleyProfile1(dMax * 0.05, dMax);
+        	for (int i = 0; i < samples; ++i)
+        	{
+        		const float u     = (float(i) + 0.5) / float(samples) * 0.995; // 99.5 % of the widest channel's energy
+        		const float r     = BurleyInverseCDF(u) * dMax;
+        		const float theta = float(i) * golden + rotation;
+        		const vec3  world = P + r * (cos(theta) * T + sin(theta) * B);
+        		const vec4  clip  = WorldToClip * vec4(world, 1.0);
+        		if (clip.w <= 0.0)
+        			continue;
+        		const vec2 sampleUV = NdcToUV(clip.xy / clip.w);
+        		if (any(lessThan(sampleUV, vec2(0.0))) || any(greaterThanEqual(sampleUV, vec2(1.0))))
+        			continue;
+        		const ivec2 at = ivec2(sampleUV * vec2(size));
+        		const vec4  s  = texelFetch(SubsurfaceDiffuseTexture, at, 0);
+        		if (abs(s.a - centre.a) > 0.25) // another profile, an unscattered surface or the sky
+        			continue;
+        		const float sampleDepth = texelFetch(SceneDepthTexture, at, 0).r;
+        		const vec3  hit = ReconstructWorldPosition((vec2(at) + 0.5) * texel, sampleDepth, ClipToWorld);
+        		// The profile of the distance actually travelled over the pdf the radius was drawn with.
+        		const vec3 w = BurleyProfile(distance(hit, P), d) / BurleyProfile1(r, dMax);
+        		sum     += w * s.rgb;
+        		weights += w;
+        	}
+        	imageStore(SubsurfaceScatteredTexture, pixel, vec4(sum / max(weights, vec3(1e-6)), 1.0));
+        }
+    }
+}

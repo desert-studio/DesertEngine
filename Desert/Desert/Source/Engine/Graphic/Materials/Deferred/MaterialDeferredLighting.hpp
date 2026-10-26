@@ -72,6 +72,9 @@ namespace Desert::Graphic
         int ScreenSpaceSamples = 12;
         // ViewFrame::PreExposure: the composite writes the scene colour multiplied by it (ScreenSpaceGi.y).
         float PreExposure = 1.0f;
+        // SSS-PROFILE (CONTRACT §4): the view scatters - the composite splits the screen-space scattered texels'
+        // diffuse into SubsurfaceDiffuseTexture (ScreenSpaceGi.z).
+        bool SubsurfaceSplit = false;
     };
 
     // PURE. The ShadowUB values of @p shadow (x the sun's angular radius tangent for the soft shadow; y enabled;
@@ -194,7 +197,8 @@ namespace Desert::Graphic
             // ScreenSpaceGi: x = the screen-space gather's samples per pixel (read under mode 1 only), y = the
             // view's PreExposure the lit colour is stored at.
             SetScreenSpaceGI(
-                 glm::vec4( static_cast<float>( gi.ScreenSpaceSamples ), gi.PreExposure, 0.0f, 0.0f ) );
+                 glm::vec4( static_cast<float>( gi.ScreenSpaceSamples ), gi.PreExposure,
+                            gi.SubsurfaceSplit ? 1.0f : 0.0f, 0.0f ) );
 
             // The contact shadows march the G-buffer depth in the space it was rasterised in
             // (Common/ContactShadow.glslh); their steps and the sun's length ride ShadowUB (UploadShadow).
