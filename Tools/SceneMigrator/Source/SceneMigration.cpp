@@ -3788,12 +3788,41 @@ namespace Desert::Migration
         }
         data.Header->Versions["MATL"] = 6u;
 
+        // Not WriteMaterialJson: that stamps the engine's CURRENT generation (MATL 7) over the 6 set above, and
+        // MigrateMaterialV6ToV7 would refuse the result. The header is written as raised here; the next step
+        // restamps it (and its Dependencies, which a texture rename leaves unchanged).
+        auto written = Common::Content::CanonicalJsonTextOfWriterOutput( Common::Json::Write( data ) );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "the raised material does not write: {}",
+                                                            written.GetError() );
+        // v6 text, not the engine's current generation: MigrateMaterialV6ToV7 is the chain's next step and rereads.
+        return Common::MakeSuccess( std::string( written.GetValue() ) );
+    }
+
+    Common::ResultStr<std::string> MigrateMaterialV6ToV7( const std::string& text )
+    {
+        const auto parsed = Common::Json::Read<Assets::MaterialData>( text );
+        if ( !parsed )
+            return Common::MakeFormattedError<std::string>( "MATL 6 body does not read: {}", parsed.GetError() );
+        Assets::MaterialData data = parsed.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises MATL 6 only" );
+        const auto stated = data.Header->Versions.find( "MATL" );
+        if ( stated == data.Header->Versions.end() || stated->second != 6u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states MATL {}, and this step raises MATL 6 only",
+                 stated == data.Header->Versions.end() ? std::string( "nothing" )
+                                                       : std::to_string( stated->second ) );
+        // SSS-PROFILE: the SubsurfaceProfile reference is additive (absent = none); only the tag moves.
+        data.Header->Versions["MATL"] = 7u;
+
         auto written = Assets::WriteMaterialJson( data );
         if ( !written )
             return Common::MakeFormattedError<std::string>( "the raised material does not write: {}",
                                                             written.GetError() );
-        if ( auto reread = Assets::ParseMaterialJson( "MATL 5 -> 6", written.GetValue() ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as MATL 6: {}",
+        if ( auto reread = Assets::ParseMaterialJson( "MATL 6 -> 7", written.GetValue() ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as MATL 7: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::string( written.GetValue() ) );
     }

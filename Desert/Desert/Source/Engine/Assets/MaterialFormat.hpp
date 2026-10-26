@@ -179,6 +179,13 @@ namespace Desert::Assets
         for ( const auto& ref : material.CloudAssets )
             if ( const auto ok = Detail::CheckStatedRef( source, "cloud asset", ref, deps ); !ok )
                 return Common::MakeError<MaterialData>( ok.GetError() );
+        if ( material.SubsurfaceProfile.has_value() )
+        {
+            const MaterialAssetRef profileRef{ "SubsurfaceProfile", material.SubsurfaceProfile->Guid,
+                                               material.SubsurfaceProfile->Path, {} };
+            if ( const auto ok = Detail::CheckStatedRef( source, "subsurface profile", profileRef, deps ); !ok )
+                return Common::MakeError<MaterialData>( ok.GetError() );
+        }
         // A stated thumbnail: a valid orbit, and a preview mesh that is never empty ("draw the primitive" is said
         // by stating none) and is named by the header like every other reference.
         if ( material.Thumbnail.has_value() )

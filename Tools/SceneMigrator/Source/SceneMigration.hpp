@@ -1027,6 +1027,10 @@ namespace Desert::Migration
     // naming it. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateMaterialV5ToV6( const std::string& text );
 
+    // The v7 text of a v6 `.demat` (SSS-PROFILE): every value kept, the tag raised - the SubsurfaceProfile
+    // reference is additive. A file that does not state MATL 6 is an error naming what it states. PURE.
+    Common::ResultStr<std::string> MigrateMaterialV6ToV7( const std::string& text );
+
     // The VFXS 3 text of a v1 or v2 `.dfx`. 1 -> 2 (VFX-09): every v1 value kept, a Ribbon row given the default
     // ribbon settings (one ribbon per emitter, 10 cm wide, U stretched), no row a Material (v1 drew the engine's
     // particle material); a v1 Mesh row names no mesh, so it is an error naming the emitter. 2 -> 3 (VFX-11): the
