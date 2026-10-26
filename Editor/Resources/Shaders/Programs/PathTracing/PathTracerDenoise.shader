@@ -133,6 +133,13 @@ Shader "PathTracerDenoise"
             // The depth tolerance that remains on a plane facing the camera (zero depth gradient), as a share of
             // the camera distance: float noise in the averaged guide, not a surface boundary.
             const float kDepthFloorShare = 1.0e-3;
+            // Below this many surface paths a pixel's illumination is a few heavy-tailed samples: its luminance tells
+            // a firefly from a dark path, not a lighting edge from a flat one, so the luminance weight would keep
+            // every firefly and leave every dark pixel dark (a noisy image the tonemap then darkens). The first two
+            // iterations (taps 1 and 2 px apart, a 13 x 13 footprint) then weigh by normal and depth only, spreading
+            // each firefly's energy over its own surface (the weights are normalised: nothing is dropped); the later
+            // iterations edge-stop on the luminance of the variance those two left.
+            const float kSpreadPaths = 16.0;
             const float kKernel[3] = float[3](3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0);
 
             struct DenoiseSurface
@@ -188,6 +195,7 @@ Shader "PathTracerDenoise"
                     const float lumWidth   = kLuminanceSigma * sqrt(max(variance, 0.0)) + 1.0e-10;
                     const float depthSlope = DepthGradient(pixel, surface.Depth);
                     const int   spacing    = int(Filter.x);
+                    const bool  spread     = imageLoad(GuideAlbedoTexture, pixel).a < kSpreadPaths && spacing <= 2;
                     vec3        filtered   = vec3(0.0);
                     float       filteredVariance = 0.0;
                     float       weightSum        = 0.0;
@@ -206,7 +214,9 @@ Shader "PathTracerDenoise"
                                 const float wz = exp(-abs(other.Depth - surface.Depth) /
                                                      (depthSlope * length(vec2(x, y)) * float(spacing) +
                                                       kDepthFloorShare * surface.Depth));
-                                const float wl = exp(-abs(PathTracingDenoiseLuminance(tap.rgb) - luminance) / lumWidth);
+                                const float wl =
+                                     spread ? 1.0
+                                            : exp(-abs(PathTracingDenoiseLuminance(tap.rgb) - luminance) / lumWidth);
                                 w *= wn * wz * wl;
                             }
                             filtered += w * tap.rgb;
