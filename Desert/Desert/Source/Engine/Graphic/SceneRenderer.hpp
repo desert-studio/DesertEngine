@@ -1506,7 +1506,8 @@ namespace Desert::Graphic
         uint32_t m_ReflectionDenoiserRadius = 2;
         // GlobalIllumination.ScreenSpaceSamples (Scalability): the screen-space gather's samples per pixel.
         int m_ScreenSpaceGISamples = 12;
-        // PathTracing.SamplesPerPixel / PathsPerFrame / MaxBounces (Scalability), taken each BeginScene.
+        // PathTracing.SamplesPerPixel / PathsPerFrame / MaxBounces / MaxPathIntensity (Scalability), taken each
+        // BeginScene.
         System::PathTracer::Settings m_PathTracingSettings;
         bool                         m_PathTracerReady  = false;
         bool                         m_PathTracerFailed = false;

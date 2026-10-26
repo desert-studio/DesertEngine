@@ -1046,7 +1046,9 @@ namespace Desert::Graphic
         m_PathTracingSettings                 = System::PathTracer::Settings{
                              .SamplesPerPixel = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
                              .PathsPerFrame   = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
-                             .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ) };
+                             .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
+                             .MaxPathIntensity =
+                                  quality.As<float>( Parameter::PathTracingMaxPathIntensity ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;

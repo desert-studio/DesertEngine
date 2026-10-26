@@ -438,7 +438,8 @@
                 "GlobalIllumination.ShortRangeAO": 0,
                 "PathTracing.PathsPerFrame": 1,
                 "PathTracing.MaxBounces": 4,
-                "PathTracing.SamplesPerPixel": 64
+                "PathTracing.SamplesPerPixel": 64,
+                "PathTracing.MaxPathIntensity": 24
             },
             "Medium": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 128,
@@ -462,7 +463,8 @@
                 "GlobalIllumination.ShortRangeAO": 1,
                 "PathTracing.PathsPerFrame": 1,
                 "PathTracing.MaxBounces": 8,
-                "PathTracing.SamplesPerPixel": 256
+                "PathTracing.SamplesPerPixel": 256,
+                "PathTracing.MaxPathIntensity": 24
             },
             "High": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
@@ -486,7 +488,8 @@
                 "GlobalIllumination.ShortRangeAO": 1,
                 "PathTracing.PathsPerFrame": 1,
                 "PathTracing.MaxBounces": 16,
-                "PathTracing.SamplesPerPixel": 1024
+                "PathTracing.SamplesPerPixel": 1024,
+                "PathTracing.MaxPathIntensity": 24
             },
             "Epic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 384,
@@ -510,7 +513,8 @@
                 "GlobalIllumination.ShortRangeAO": 1,
                 "PathTracing.PathsPerFrame": 2,
                 "PathTracing.MaxBounces": 32,
-                "PathTracing.SamplesPerPixel": 4096
+                "PathTracing.SamplesPerPixel": 4096,
+                "PathTracing.MaxPathIntensity": 24
             },
             "Cinematic": {
                 "GlobalIllumination.DistanceFieldPoolMiB": 512,
@@ -534,7 +538,8 @@
                 "GlobalIllumination.ShortRangeAO": 1,
                 "PathTracing.PathsPerFrame": 4,
                 "PathTracing.MaxBounces": 32,
-                "PathTracing.SamplesPerPixel": 16384
+                "PathTracing.SamplesPerPixel": 16384,
+                "PathTracing.MaxPathIntensity": 24
             }
         },
         "Reflections": {

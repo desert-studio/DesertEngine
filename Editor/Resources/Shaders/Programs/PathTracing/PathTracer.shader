@@ -129,7 +129,8 @@ Shader "PathTracer"
                 uvec4 Counts; // x = point lights, y = spot lights, z = paths already summed (0: overwrite), w = max bounces
                 uvec4 SkyParams;    // x = sky side S (0: no sky light), y = its pyramid levels, z = frame seed, w = paths this frame (>= 1)
                 vec4  SunParams;    // x = sin of half the sun's source angle (0: a delta direction), y = pixel spread angle,
-                                    // z = the same as x of atmosphere light 1 (the moon)
+                                    // z = the same as x of atmosphere light 1 (the moon), w = the path intensity
+                                    // clamp in radiance (MaxPathIntensity / PreExposure; 0: no clamp)
                 uvec4 EmissiveCounts;        // the static part: x = triangles, y = power tree leaves, z = its levels, w = TLAS instances of the lookup
                 uvec4 EmissiveDynamicCounts; // the dynamic part: x = triangles, y = power tree leaves, z = its levels
             };
@@ -629,6 +630,18 @@ Shader "PathTracer"
                 return radiance;
             }
 
+            // UE PathTracingCore.ush AccumulateRadiance (r.PathTracing.MaxPathIntensity): one contribution of a path,
+            // scaled down with its hue kept so that its largest channel is at most SunParams.w, unless @p cameraRay
+            // (what the camera ray itself sees is never clamped). Bounds the pixel's variance - the fireflies - at the
+            // price of a bias toward darker highlights.
+            void PathTracingAccumulate(inout vec3 radiance, vec3 contribution, bool cameraRay)
+            {
+                const float brightest = max(contribution.r, max(contribution.g, contribution.b));
+                if (!cameraRay && SunParams.w > 0.0 && brightest > SunParams.w)
+                    contribution *= SunParams.w / brightest;
+                radiance += contribution;
+            }
+
             // One path of the pixel: the camera ray, then up to Counts.w bounces. @p sampleIndex is the path's index
             // in the pixel's accumulation (paths summed before it + its place in this frame), so every path of the
             // pixel since the restart draws its own random sequence.
@@ -652,12 +665,18 @@ Shader "PathTracer"
                 // emissive light samples stop at glass, so emission met past it takes the whole weight.
                 vec3 absorption = vec3(0.0);
                 bool pastGlass  = false;
+                // The ray is still the camera's: no material vertex scattered it yet (glass interfaces are delta
+                // lobes and keep it), so what it meets is not clamped (PathTracingAccumulate).
+                bool cameraRay  = true;
                 for (uint bounce = 0u;; ++bounce)
                 {
                     PathTracingTraceMaterial(origin, dir, coneWidth);
                     if (payload.HitT < 0.0)
                     {
-                        radiance += throughput * PathTracingMissRadiance(origin, dir, bsdfPdf, lightPickSky, lightPickDirectional);
+                        PathTracingAccumulate(radiance,
+                                              throughput * PathTracingMissRadiance(origin, dir, bsdfPdf, lightPickSky,
+                                                                                   lightPickDirectional),
+                                              cameraRay);
                         break;
                     }
                     throughput *= exp(-absorption * payload.HitT);
@@ -666,8 +685,10 @@ Shader "PathTracer"
                     const vec3 V = -dir;
                     // Emission the material ray met, weighed against the emissive light sampler.
                     if (any(greaterThan(payload.Emissive, vec3(0.0))))
-                        radiance += throughput * payload.Emissive *
-                                    PathTracingEmissiveHitWeight(dir, pastGlass ? -1.0 : bsdfPdf);
+                        PathTracingAccumulate(radiance,
+                                              throughput * payload.Emissive *
+                                                  PathTracingEmissiveHitWeight(dir, pastGlass ? -1.0 : bsdfPdf),
+                                              cameraRay);
 
                     coneWidth += SunParams.y * payload.HitT;
                     // The next rays leave the surface by an offset that grows with the distance travelled, so they do
@@ -709,10 +730,14 @@ Shader "PathTracer"
                     const PathTracingMaterial m = PathTracingMaterialOf(N, V);
                     const vec3  next  = P + N * offset;
                     const float total = PathTracingEstimateTotal(P);
-                    radiance += throughput * PathTracingSampleLights(m, P, N, V, next, total, rng);
-                    radiance += throughput * PathTracingSampleEmissive(m, N, V, next, coneWidth, rng);
+                    PathTracingAccumulate(radiance, throughput * PathTracingSampleLights(m, P, N, V, next, total, rng),
+                                          false);
+                    PathTracingAccumulate(radiance,
+                                          throughput * PathTracingSampleEmissive(m, N, V, next, coneWidth, rng),
+                                          false);
                     if (bounce >= Counts.w)
                         break;
+                    cameraRay = false;
 
                     lightPickSky = total > 0.0 ? PathTracingEstimate(1u, P) / total : 0.0;
                     lightPickDirectional = total > 0.0 ? vec2(PathTracingEstimate(0u, P), PathTracingEstimate(2u, P)) / total
