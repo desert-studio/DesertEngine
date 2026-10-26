@@ -8,7 +8,7 @@
 
 #define BURLEY_PI 3.14159265359
 
-// UE GetSearchLightDiffuseScalingFactor3D: the scaling s of the searchlight configuration, d = MFP / s.
+// UE GetSearchLightDiffuseScalingFactor3D: the scaling s of the searchlight configuration, d = DMFP / s.
 vec3 BurleyScalingFactor(vec3 albedo)
 {
 	const vec3 a = albedo - 0.33;

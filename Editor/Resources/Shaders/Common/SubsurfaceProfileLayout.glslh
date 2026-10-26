@@ -6,7 +6,7 @@
 
 #define SSSS_TINT                       0u  // Tint.rgb, a = Implementation (0 AFIS, 1 Separable)
 #define SSSS_SURFACE_ALBEDO             1u  // SurfaceAlbedo.rgb
-#define SSSS_DIFFUSE_MEAN_FREE_PATH     2u  // MeanFreePathColor * MeanFreePathDistance (cm).rgb
+#define SSSS_DIFFUSE_MEAN_FREE_PATH     2u  // DIFFUSE mean free path (cm).rgb, a = widest channel
 #define SSSS_TRANSMISSION               3u  // ExtinctionScale, NormalScale, ScatteringDistribution, 1/IOR
 #define SSSS_BOUNDARY_COLOR_BLEED       4u  // BoundaryColorBleed.rgb
 #define SSSS_DUAL_SPECULAR              5u  // Roughness0, Roughness1, LobeMix

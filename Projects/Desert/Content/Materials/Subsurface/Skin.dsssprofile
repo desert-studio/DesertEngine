@@ -7,9 +7,9 @@
         },
         "Dependencies": []
     },
-    "SurfaceAlbedo": [0.91058, 0.338275, 0.2718],
-    "MeanFreePathColor": [1.0, 0.08896, 0.07209],
-    "MeanFreePathDistance": 2.6748,
+    "SurfaceAlbedo": [0.90604, 0.33526, 0.27184],
+    "MeanFreePathColor": [0.212037, 0.182126, 0.173584],
+    "MeanFreePathDistance": 0.1,
     "Tint": [1.0, 1.0, 1.0],
     "BoundaryColorBleed": [1.0, 1.0, 1.0],
     "Implementation": "AdaptiveFilteredImportanceSampling",

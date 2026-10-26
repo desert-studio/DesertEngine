@@ -9,7 +9,7 @@ namespace Desert::Graphic::SubsurfaceProfileLayout
     // a census suite holds the two equal (tests are off, 10-15: listed in the card's REMAINDER).
     inline constexpr uint32_t kTint                  = 0;  // Tint.rgb, a = Implementation (0 AFIS, 1 Separable)
     inline constexpr uint32_t kSurfaceAlbedo         = 1;  // SurfaceAlbedo.rgb, a = 1
-    inline constexpr uint32_t kDiffuseMeanFreePath   = 2;  // MeanFreePathColor * MeanFreePathDistance (cm).rgb
+    inline constexpr uint32_t kDiffuseMeanFreePath   = 2;  // DIFFUSE mean free path (cm).rgb, a = widest channel
     inline constexpr uint32_t kTransmission          = 3;  // ExtinctionScale, NormalScale, ScatteringDistribution, 1/IOR
     inline constexpr uint32_t kBoundaryColorBleed    = 4;  // BoundaryColorBleed.rgb
     inline constexpr uint32_t kDualSpecular          = 5;  // Roughness0, Roughness1, LobeMix
@@ -19,7 +19,7 @@ namespace Desert::Graphic::SubsurfaceProfileLayout
     inline constexpr uint32_t kKernel1Size           = 9;
     inline constexpr uint32_t kKernel2               = 28; // 6 taps
     inline constexpr uint32_t kKernel2Size           = 6;
-    inline constexpr uint32_t kTransmissionProfile   = 34; // 32 texels of the Burley transmission over thickness
+    inline constexpr uint32_t kTransmissionProfile   = 34; // 32 texels: Burley transmission.rgb over thickness, a = e^(-mm * ExtinctionScale)
     inline constexpr uint32_t kTransmissionProfileSize = 32;
     inline constexpr uint32_t kAtlasWidth            = 66;
     // UE SSSS_MAX_TRANSMISSION_PROFILE_DISTANCE, in cm (the project unit): the thickness the last texel stands for.

@@ -64,8 +64,10 @@ Shader "SubsurfaceBurley"
         	}
         	const uint row    = (uint(centre.a + 0.5) - 1u) * SSSS_ATLAS_WIDTH;
         	const vec3 albedo = profileAtlas[row + SSSS_SURFACE_ALBEDO].rgb;
-        	const vec3 mfp    = profileAtlas[row + SSSS_DIFFUSE_MEAN_FREE_PATH].rgb * ViewParams.x;
-        	const vec3 d      = max(mfp / BurleyScalingFactor(albedo), vec3(1e-4));
+        	// The atlas holds the DIFFUSE mean free path (Graphic::DiffuseMeanFreePathFromMeanFreePath, UE
+        	// GetDMFPFromMFPApprox); UE CalculateCenterSampleWeight: d = DMFP / s_searchlight(A).
+        	const vec3 dmfp   = profileAtlas[row + SSSS_DIFFUSE_MEAN_FREE_PATH].rgb * ViewParams.x;
+        	const vec3 d      = max(dmfp / BurleyScalingFactor(albedo), vec3(1e-4));
         	const float dMax  = max(d.r, max(d.g, d.b));
         	if (dMax <= 1e-3)
         	{
