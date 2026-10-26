@@ -1748,7 +1748,7 @@ namespace Desert::Graphic::System
                     sb->SetRawData( set.Materials.data(),
                                     static_cast<uint32_t>( set.Materials.size() * sizeof( glm::vec4 ) ) );
 
-                // The recorder, not the instance's parent: they differ on the G-buffer pass (see the skinned path).
+                // The recorder, not the instance's parent: they differ on the G-buffer pass (skinned path).
                 frameState.ApplyTo( static_cast<Material*>( set.Mat ) );
                 set.Mat->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced VS
 
