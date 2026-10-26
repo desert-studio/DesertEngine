@@ -270,7 +270,8 @@ namespace Desert::Assets
 
         // DISPLACEMENT (CONTRACT-DISPLACE §1g, §9), resolved where the manager can load the materials: every
         // section's height as its material resolves it on the CPU. nullopt = nothing to displace (mode None, or
-        // no section with a Height - the runtime path tessellates nothing either).
+        // Baked with no section Height). Runtime always derives the topology: the component's override
+        // material may displace a mesh whose own materials do not (TopologyOnly).
         // - Runtime: the topology lands in a slot the scene's DisplacementCache dices from (§9.1).
         // - Both modes: the bake-level surface (MeshDisplacementBake.hpp) - drawn in Baked mode, collision in
         // both.
@@ -283,6 +284,11 @@ namespace Desert::Assets
             std::shared_ptr<DisplacedMeshBuildInput> Input; // the job sets its Topology once loaded
             uint64_t                                 DisplacedKey = 0;
             uint64_t                                 SurfaceKey   = 0; // what SDF and cards key from
+            // Runtime with no Height on the asset's own materials: only the topology is derived. The component
+            // that draws the mesh may still displace it through its override material (resolved per frame by
+            // MeshRenderer::ApplyDisplacement, as UE's component material drives Nanite displacement); the
+            // asset's surface, collision, cards and field stay the undisplaced render data.
+            bool TopologyOnly = false;
         };
 
         Common::ResultStr<std::optional<DisplacementPlan>>
@@ -309,9 +315,10 @@ namespace Desert::Assets
                 heights[i] = height.ExtractValue();
                 anyHeight  = anyHeight || heights[i].has_value();
             }
-            if ( !anyHeight )
+            if ( !anyHeight && mode != MeshDisplacementMode::Runtime )
                 return Common::MakeSuccess( Plan{} );
             DisplacementPlan plan;
+            plan.TopologyOnly = !anyHeight;
             plan.Mode  = mode;
             plan.Input = std::make_shared<DisplacedMeshBuildInput>(
                  DisplacedMeshBuildInput{ vertices, streams, indices, submeshes, nullptr, heights,
@@ -365,6 +372,8 @@ namespace Desert::Assets
             displacedInput->Topology = topology.ExtractValue();
             if ( topologySlot )
                 topologySlot->Publish( displacedInput->Topology );
+            if ( plan->TopologyOnly )
+                return surface; // nothing on the asset moves: its surface is the render data
             auto baked = LoadDisplacedMesh( path, plan->DisplacedKey,
                                             [&displacedInput]() -> Common::ResultStr<DisplacedMeshBuildInput>
                                             { return Common::MakeSuccess( *displacedInput ); } );
@@ -455,8 +464,11 @@ namespace Desert::Assets
                 topologySlot           = std::make_shared<DisplacementTopologySlot>();
                 m_DisplacementTopology = topologySlot;
             }
-            displacedSlot   = std::make_shared<DisplacedMeshSlot>();
-            m_DisplacedMesh = displacedSlot;
+            if ( !plan->TopologyOnly )
+            {
+                displacedSlot   = std::make_shared<DisplacedMeshSlot>();
+                m_DisplacedMesh = displacedSlot;
+            }
         }
         FieldInputs in   = inputs.ExtractValue();
         auto        slot = std::make_shared<MeshDistanceFieldSlot>( MostlyTwoSided( in.Input ) );

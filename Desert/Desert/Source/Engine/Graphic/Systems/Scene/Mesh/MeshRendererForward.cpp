@@ -1748,7 +1748,8 @@ namespace Desert::Graphic::System
                     sb->SetRawData( set.Materials.data(),
                                     static_cast<uint32_t>( set.Materials.size() * sizeof( glm::vec4 ) ) );
 
-                frameState.ApplyTo( set.Inst );
+                // The recorder, not the instance's parent: they differ on the G-buffer pass (skinned path).
+                frameState.ApplyTo( static_cast<Material*>( set.Mat ) );
                 set.Mat->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced VS
 
                 for ( const auto& d : set.Draws )
@@ -1906,8 +1907,11 @@ namespace Desert::Graphic::System
                 sb->SetRawData( gpuMaterials.data(),
                                 static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
 
-            // Shared per-frame scene state once per group, as the static path does.
-            frameState.ApplyTo( instOf( objects[0] ) );
+            // Shared per-frame scene state once per group, into the RECORDER (as the static path does): on the
+            // G-buffer pass `mat` is the (Skinned x GBuffer) sibling, not the instance's parent, and a recorder
+            // that never had ObjectMotions/ObjectBones lent fails the pass's setup validation ("filled by
+            // neither the pass nor the material"), which faults the whole G-buffer node - no mesh is drawn.
+            frameState.ApplyTo( static_cast<Material*>( mat ) );
 
             for ( uint32_t i = 0; i < static_cast<uint32_t>( objects.size() ); ++i )
             {
