@@ -96,38 +96,10 @@ Shader "PathTracerDenoise"
                     m /= max(weight, 1.0e-6);
                     pathVariance = max(m.y - m.x * m.x, 0.0);
                 }
-                // FIREFLY SUPPRESSION (NRD ReLAX, the firefly suppressor ahead of its a-trous): below
-                // kPathTracingDenoiseSpreadPaths each channel of the filter's input is kept within the brightest of
-                // the pixel's 3 x 3 neighbours on its surface, excluding itself - a lone spike no neighbour reaches
-                // is a firefly, not a lighting feature (a feature spans pixels). Per channel, so a one-channel spike
-                // (a specular path over a small albedo channel) is cut and does not spread as a coloured speckle.
-                // The pixel's own raw mean (Demodulated) stays unclamped: the last iteration's change is measured
-                // from it, so the suppressed energy leaves the pixel. The variance keeps the unclamped moments.
-                vec3 illumination = moments.rgb;
-                if (paths < kPathTracingDenoiseSpreadPaths)
-                {
-                    const vec3 n          = normal.xyz / max(length(normal.xyz), 1.0e-6);
-                    vec3       brightest  = vec3(0.0);
-                    bool       neighbours = false;
-                    for (int y = -1; y <= 1; ++y)
-                        for (int x = -1; x <= 1; ++x)
-                        {
-                            const ivec2 q = pixel + ivec2(x, y);
-                            if ((x == 0 && y == 0) || q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y)
-                                continue;
-                            const float qPaths = imageLoad(GuideAlbedoTexture, q).a;
-                            if (qPaths < 0.5)
-                                continue;
-                            const vec4 qNormal = imageLoad(GuideNormalTexture, q) / qPaths;
-                            const vec3 qn      = qNormal.xyz / max(length(qNormal.xyz), 1.0e-6);
-                            if (dot(n, qn) <= 0.0 || abs(qNormal.w - normal.w) > kSpatialDepthShare * normal.w)
-                                continue;
-                            brightest  = max(brightest, imageLoad(DemodulatedTexture, q).rgb / qPaths);
-                            neighbours = true;
-                        }
-                    if (neighbours)
-                        illumination = min(illumination, brightest);
-                }
+                // No firefly clamp: a clamp below the pixel's neighbours drops the energy it cuts, and at one path
+                // the illumination's energy IS its rare bright paths (round 5 measured -21 % Day / -29 % Night at
+                // one path, nearly all of it this clamp). The filter's exchange spreads fireflies instead.
+                const vec3 illumination = moments.rgb;
                 // The variance of the pixel's MEAN illumination: the unit the filter compares in.
                 imageStore(IlluminationTexture, pixel, vec4(illumination, pathVariance / paths));
             }
@@ -136,7 +108,16 @@ Shader "PathTracerDenoise"
 
     // One a-trous iteration (SVGF 4.3): a 5 x 5 B3-spline kernel with holes of Filter.x pixels, each tap weighed by
     // the normal, depth and luminance distance to the centre; the variance is filtered with the squared weights so
-    // the next iteration's luminance width shrinks with the noise removed. The last iteration (Filter.y = 1)
+    // the next iteration's luminance width shrinks with the noise removed.
+    //
+    // ENERGY-CONSERVING EXCHANGE (where SVGF's normalised gather is not): SVGF divides by each pixel's own weight sum,
+    // so a pixel among dark neighbours gives its energy to none of them (they reject it) while its own result is
+    // pulled towards them - on heavy-tailed one-path illumination, whose energy is its rare bright paths, the
+    // gather lands on the dark majority (an edge-stopped gather measured -11 % at one path). Here every weight
+    // w(p, q) is symmetric (normal, depth over both pixels' slopes, the colour distance over the pair's joint
+    // width) and NOT normalised: the pixel becomes I_p + sum_q k_q w(p, q) (I_q - I_p), the B3 kernel's k summing
+    // to 1, so what q gains from p is exactly what p loses to q and the image's illumination sum is unchanged by
+    // every iteration; a tap the weights reject simply leaves its share of the kernel at the centre. The last iteration (Filter.y = 1)
     // adds the filter's change of the illumination, remodulated, to the pixel's raw mean (DEMODULATION above) and
     // writes a = 1, the form the resolve divides (sum / count) unchanged.
     Pass "Filter"
@@ -167,9 +148,9 @@ Shader "PathTracerDenoise"
             const float kDepthFloorShare = 1.0e-3;
             // Below kPathTracingDenoiseSpreadPaths surface paths the luminance weight would keep every firefly and
             // leave every dark pixel dark (a noisy image the tonemap then darkens). The first two iterations (taps
-            // 1 and 2 px apart, a 13 x 13 footprint) then weigh by normal and depth only, spreading each remaining
-            // spike's energy over its own surface (the weights are normalised: nothing is dropped); the later
-            // iterations edge-stop on the colour distance over the variance those two left.
+            // 1 and 2 px apart, a 13 x 13 footprint) then weigh by normal and depth only, spreading each spike's
+            // energy over its own surface (the exchange conserves it); the later iterations edge-stop on the colour
+            // distance over the variance those two left.
             // SVGF 4.2: below four paths the pixel's own moments say nothing (the variance pass's spatial case).
             const float kTemporalMomentPaths = 4.0;
             const float kKernel[3] = float[3](3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0);
@@ -215,53 +196,45 @@ Shader "PathTracerDenoise"
                 // A pixel no path of which met a surface has no illumination to filter (its sky is E).
                 if (surface.Depth < 0.5 * kPathTracingMissDepth)
                 {
-                    // SVGF 4.3: the centre's variance is prefiltered by a 3 x 3 Gaussian before it sets the width.
-                    float variance = 0.0;
-                    for (int y = -1; y <= 1; ++y)
-                        for (int x = -1; x <= 1; ++x)
-                        {
-                            const ivec2 q = clamp(pixel + ivec2(x, y), ivec2(0), size - 1);
-                            variance += float((2 - abs(x)) * (2 - abs(y))) / 16.0 * imageLoad(IlluminationTexture, q).a;
-                        }
-                    const float luminance  = PathTracingDenoiseLuminance(centre.rgb);
-                    const float lumWidth   = kLuminanceSigma * sqrt(max(variance, 0.0)) + 1.0e-10;
                     const float depthSlope = DepthGradient(pixel, surface.Depth);
                     const int   spacing    = int(Filter.x);
                     const bool  spread     = imageLoad(GuideAlbedoTexture, pixel).a < kPathTracingDenoiseSpreadPaths &&
                                         spacing <= 2;
-                    // The luminance width relative to the centre's luminance: each channel is compared over this
-                    // share of its own value (PathTracingDenoiseChannelDistance).
-                    const float relativeWidth = lumWidth / max(luminance, 1.0e-10);
-                    vec3        filtered   = vec3(0.0);
-                    float       filteredVariance = 0.0;
-                    float       weightSum        = 0.0;
+                    vec3  exchange      = vec3(0.0);
+                    float tapVariance   = 0.0;
+                    float exchangeShare = 0.0;
                     for (int y = -2; y <= 2; ++y)
                         for (int x = -2; x <= 2; ++x)
                         {
                             const ivec2 q = pixel + ivec2(x, y) * spacing;
-                            if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y)
+                            if ((x == 0 && y == 0) || q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y)
                                 continue;
-                            const vec4 tap = imageLoad(IlluminationTexture, q);
-                            float      w   = kKernel[abs(x)] * kKernel[abs(y)];
-                            if (x != 0 || y != 0)
-                            {
-                                const DenoiseSurface other = SurfaceAt(q);
-                                const float wn = pow(max(dot(surface.Normal, other.Normal), 0.0), kNormalPower);
-                                const float wz = exp(-abs(other.Depth - surface.Depth) /
-                                                     (depthSlope * length(vec2(x, y)) * float(spacing) +
-                                                      kDepthFloorShare * surface.Depth));
-                                const float wl =
-                                     spread ? 1.0
-                                            : exp(-PathTracingDenoiseChannelDistance(centre.rgb, tap.rgb,
-                                                                                      relativeWidth));
-                                w *= wn * wz * wl;
-                            }
-                            filtered += w * tap.rgb;
-                            filteredVariance += w * w * tap.a;
-                            weightSum += w;
+                            const DenoiseSurface other = SurfaceAt(q);
+                            if (other.Depth >= 0.5 * kPathTracingMissDepth)
+                                continue;
+                            const vec4  tap = imageLoad(IlluminationTexture, q);
+                            const float wn  = pow(max(dot(surface.Normal, other.Normal), 0.0), kNormalPower);
+                            // The depth tolerance over the larger of the two pixels' slopes and distances: the same
+                            // from either side.
+                            const float slope = max(depthSlope, DepthGradient(q, other.Depth));
+                            const float wz    = exp(-abs(other.Depth - surface.Depth) /
+                                                 (slope * length(vec2(x, y)) * float(spacing) +
+                                                  kDepthFloorShare * max(surface.Depth, other.Depth)));
+                            // The pair's joint luminance width: kLuminanceSigma standard deviations of the
+                            // difference's noise, sqrt of the mean of the two variances (SVGF uses the centre's
+                            // alone, which makes the weight one-sided).
+                            const float lumWidth = kLuminanceSigma * sqrt(max(0.5 * (centre.a + tap.a), 0.0)) + 1.0e-10;
+                            const float wl =
+                                 spread ? 1.0 : exp(-PathTracingDenoiseChannelDistance(centre.rgb, tap.rgb, lumWidth));
+                            const float w = kKernel[abs(x)] * kKernel[abs(y)] * wn * wz * wl;
+                            exchange += w * (tap.rgb - centre.rgb);
+                            tapVariance += w * w * tap.a;
+                            exchangeShare += w;
                         }
-                    // The centre tap always weighs kKernel[0]^2 > 0.
-                    result = vec4(filtered / weightSum, filteredVariance / (weightSum * weightSum));
+                    // The centre keeps 1 - exchangeShare of itself (>= kKernel[0]^2: the off-centre kernel sums to
+                    // 1 - kKernel[0]^2 and every weight is <= 1).
+                    const float keep = 1.0 - exchangeShare;
+                    result           = vec4(centre.rgb + exchange, keep * keep * centre.a + tapVariance);
                 }
                 if (Filter.y != 0u)
                 {

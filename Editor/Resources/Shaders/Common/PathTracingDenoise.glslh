@@ -33,8 +33,8 @@ const float kPathTracingMissDepth = 1.0e8;
 const float kPathTracingAlbedoFloor = 0.04;
 
 // Below this many surface paths a pixel's illumination is a few heavy-tailed samples: its luminance tells a firefly
-// from a dark path, not a lighting edge from a flat one. The variance pass then suppresses the pixel's fireflies
-// (NRD ReLAX's firefly suppression) and the filter's first two iterations spread by normal and depth only.
+// from a dark path, not a lighting edge from a flat one. The filter's first two iterations then spread by normal and
+// depth only (energy-conserving, so each firefly's energy is shared over its surface instead of cut).
 const float kPathTracingDenoiseSpreadPaths = 16.0;
 
 float PathTracingDenoiseLuminance(vec3 c)
@@ -42,15 +42,18 @@ float PathTracingDenoiseLuminance(vec3 c)
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
-// The edge-stopping distance of illumination b from a, per channel (SVGF 4.3 weighs by luminance only, which lets a
-// spike in one channel - a blue specular path demodulated by a brown cobble's small blue albedo - pass and spread
-// onto a neighbour that reflects more blue: a coloured speckle). Each channel's standard deviation is taken
-// proportional to a's colour (the noise of one path is the noise of its throughput, shared by the channels), so
-// with relativeWidth = the luminance width / lum(a) channel c is compared over relativeWidth * a.c; the distance is
-// the largest of the three.
-float PathTracingDenoiseChannelDistance(vec3 a, vec3 b, float relativeWidth)
+// The edge-stopping distance between illuminations a and b, per channel (SVGF 4.3 weighs by luminance only, which
+// lets a spike in one channel - a blue specular path demodulated by a brown cobble's small blue albedo - pass and
+// spread onto a neighbour that reflects more blue: a coloured speckle). Each channel's standard deviation is taken
+// proportional to the pair's mean colour (the noise of one path is the noise of its throughput, shared by the
+// channels): channel c is compared over lumWidth * m.c / lum(m), m = (a + b) / 2; the distance is the largest of the
+// three. SYMMETRIC in a and b (and lumWidth is the pair's joint width), so the weight one pixel gives another is the
+// weight it receives back - the condition for the filter's exchange to conserve energy (PathTracerDenoise.shader).
+float PathTracingDenoiseChannelDistance(vec3 a, vec3 b, float lumWidth)
 {
-    const vec3 d = abs(b - a) / (relativeWidth * a + 1.0e-10);
+    const vec3  m             = 0.5 * (a + b);
+    const float relativeWidth = lumWidth / max(PathTracingDenoiseLuminance(m), 1.0e-10);
+    const vec3  d             = abs(b - a) / (relativeWidth * m + 1.0e-10);
     return max(d.r, max(d.g, d.b));
 }
 
