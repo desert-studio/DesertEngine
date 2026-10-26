@@ -167,7 +167,12 @@ def push_refusal(cmd):
     task = re.search(r"(?:^|[\s:])(task/[\w.\-]+)", args)
     if not task:
         return None
+    # the repo the push runs in: `git -C <dir>`, else the last `cd <dir>` before the push (10-26: a `cd F:/wt/X; git
+    # push` was measured against the main checkout's HEAD and an up-to-date branch was refused as 49 h stale)
     cwd = re.search(r"\bgit\s+-C\s+(\S+)", cmd)
+    if not cwd:
+        cds = re.findall(r"(?:^|[;&|]\s*)cd\s+(\"[^\"]+\"|'[^']+'|\S+)", cmd[:m.start()])
+        cwd = re.match(r"(.*)", cds[-1]) if cds else None
     git = ["git"] + (["-C", cwd.group(1).strip("'\"")] if cwd else [])
     try:
         base = subprocess.run(git + ["merge-base", "origin/dev", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
