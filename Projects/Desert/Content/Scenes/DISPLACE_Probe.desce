@@ -42,7 +42,7 @@
                     1.0,
                     1.0
                 ],
-                "Intensity": 1.0,
+                "Intensity": 22.0,
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
