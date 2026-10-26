@@ -13,7 +13,7 @@ Shader "SubsurfaceBurley"
     // differs per pixel and per frame, and the temporal AA does not integrate that noise - its neighbourhood clamp
     // keeps a pixel's own outlier inside the box, so the dots survive any number of frames. The scatter therefore
     // keeps its own accumulation: each texel reprojects its world point into the previous frame, takes that
-    // texel's running mean when it is the same surface (same profile, same depth, same lighting), and blends the
+    // texel's running mean when it is the same surface (same profile, on this texel's tangent plane), and blends the
     // new estimate in at 1/(n+1) up to the most frames; the running second moment of the luminance gives the
     // variance, which picks this frame's sample count (UE's variance-adaptive count): a converged texel draws fewer.
     Compute
@@ -38,12 +38,13 @@ Shader "SubsurfaceBurley"
         	mat4 ClipToWorld;  // its inverse
         	vec4 ViewParams;   // x = PostProcessSettings SubsurfaceScale, y = most samples, z = frame index, w = fewest
         	mat4 PrevWorldToClip; // the previous frame's jittered view-projection (the history's raster)
+        	mat4 PrevClipToWorld; // its inverse
         	vec4 HistoryParams;   // x = history readable (1/0), y = PreExposure / PrevPreExposure, z = most frames, w unused
         };
         layout(binding = 5, rgba16f) writeonly uniform image2D SubsurfaceScatteredTexture;
         Uniform(6) texture2D SubsurfaceHistoryTexture;        // previous frame: rgb = running mean, a = frames in it
         #define SubsurfaceHistoryTexture sampler2D(SubsurfaceHistoryTexture, PointClampSampler)
-        Uniform(7) texture2D SubsurfaceHistoryMomentsTexture; // r = mean luminance^2, g = profile row + 1, b = device depth, a = centre luminance
+        Uniform(7) texture2D SubsurfaceHistoryMomentsTexture; // r = mean luminance^2, g = profile row + 1, b = device depth, a unused
         #define SubsurfaceHistoryMomentsTexture sampler2D(SubsurfaceHistoryMomentsTexture, PointClampSampler)
         layout(binding = 8, rgba16f) writeonly uniform image2D SubsurfaceHistoryOutTexture;
         layout(binding = 9, rgba32f) writeonly uniform image2D SubsurfaceHistoryMomentsOutTexture;
@@ -108,8 +109,7 @@ Shader "SubsurfaceBurley"
         	const vec3 B     = cross(N, T);
 
         	// The previous frame's texel this surface point was in, when it is the same surface.
-        	const float centreLum = SubsurfaceLuminance(centre.rgb);
-        	const float exposure  = HistoryParams.y;
+        	const float exposure = HistoryParams.y;
         	float frames = 0.0;
         	vec3  mean   = vec3(0.0);
         	float moment = 0.0;
@@ -122,18 +122,16 @@ Shader "SubsurfaceBurley"
         			const ivec2 at          = ivec2(prevUV * vec2(size));
         			const vec4  history     = texelFetch(SubsurfaceHistoryTexture, at, 0);
         			const vec4  moments     = texelFetch(SubsurfaceHistoryMomentsTexture, at, 0);
-        			const float prevDepth   = prevClip.z / prevClip.w;
         			const bool  sameProfile = history.a > 0.5 && abs(moments.g - centre.a) < 0.25;
-        			// Device depth is reciprocal in the view distance, so its relative change is the distance's.
-        			const bool  sameDepth   = abs(prevDepth - moments.b) <= 0.02 * max(prevDepth, moments.b);
-        			// The centre's own diffuse is noise-free: a large change is a light switched or moved, or another
-        			// surface of the same profile uncovered - restart; a moderate one shortens the history (UE's
-        			// responsive history: the mean follows the light within a few frames instead of the most frames).
-        			const float prevLum = moments.a * exposure;
-        			const float change  = abs(centreLum - prevLum) / max(max(centreLum, prevLum), 1e-6);
-        			if (sameProfile && sameDepth && change < 0.5)
+        			// The surface the history texel saw, against this texel's tangent plane: a disocclusion (the
+        			// nose uncovering the cheek) lies off it, a steep wall seen a jitter step aside does not.
+        			const vec2 historyUV = (vec2(at) + 0.5) / vec2(size);
+        			const vec3 seenWorld = ReconstructWorldPosition(historyUV, moments.b, PrevClipToWorld);
+        			// clip w = the view depth: 2 % of it, ~0.4 cm at the 20 cm close-up.
+        			const bool samePlane = abs(dot(N, seenWorld - P)) <= 0.02 * prevClip.w;
+        			if (sameProfile && samePlane)
         			{
-        				frames = change < 0.2 ? history.a : min(history.a, 4.0);
+        				frames = history.a;
         				mean   = history.rgb * exposure;
         				moment = moments.r * exposure * exposure;
         			}
@@ -191,7 +189,7 @@ Shader "SubsurfaceBurley"
         	moment = frames > 0.0 ? mix(moment, lum * lum, 1.0 / n) : lum * lum;
         	imageStore(SubsurfaceScatteredTexture, pixel, vec4(mean, 1.0));
         	imageStore(SubsurfaceHistoryOutTexture, pixel, vec4(mean, n));
-        	imageStore(SubsurfaceHistoryMomentsOutTexture, pixel, vec4(moment, centre.a, depth, centreLum));
+        	imageStore(SubsurfaceHistoryMomentsOutTexture, pixel, vec4(moment, centre.a, depth, 0.0));
         }
     }
 }

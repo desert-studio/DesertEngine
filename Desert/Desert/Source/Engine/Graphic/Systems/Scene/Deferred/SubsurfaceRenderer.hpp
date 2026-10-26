@@ -60,9 +60,10 @@ namespace Desert::Graphic::System
         glm::mat4 ClipToWorld{ 1.0f };
         glm::vec4 Params{ 0.0f }; // x scale, y most samples, z frame index, w fewest samples
         glm::mat4 PrevWorldToClip{ 1.0f };
+        glm::mat4 PrevClipToWorld{ 1.0f };
         glm::vec4 HistoryParams{ 0.0f }; // x history readable, y PreExposure / PrevPreExposure, z most frames
     };
-    static_assert( sizeof( SubsurfaceViewGpu ) == 224 );
+    static_assert( sizeof( SubsurfaceViewGpu ) == 288 );
 
     // What the passes read, as refs of THIS frame's graph (CONTRACT §3.5).
     struct SubsurfaceInputs
@@ -92,7 +93,7 @@ namespace Desert::Graphic::System
      * (compute) scatters the composite's SubsurfaceDiffuse with each texel's Burley profile, and "Subsurface:
      * Recombine" (raster, ONE/ONE onto the scene target) adds BaseColor x lerp(diffuse, scattered, Tint) back.
      * The scatter keeps its own temporal history (UE SubsurfaceHistory, r.SSS.Burley.Quality 1): two ping-pong
-     * pairs (running mean + frame count, luminance moment + the texel's identity), read only when they hold the
+     * pairs (running mean + frame count, luminance moment + profile row + device depth), read only when they hold the
      * view's previous frame (PassHistory.hpp) at the same Scale and profile rows.
      * Added by SceneRenderer only when the view's SubsurfaceScattering is on and a profile is registered.
      */
@@ -201,6 +202,7 @@ namespace Desert::Graphic::System
                                               static_cast<float>( frame.FrameIndex % 1024u ),
                                               static_cast<float>( kBurleyFewestSamples ) );
             view.PrevWorldToClip = frame.PrevJitteredViewProjection;
+            view.PrevClipToWorld = glm::inverse( frame.PrevJitteredViewProjection );
             view.HistoryParams =
                  glm::vec4( readable ? 1.0f : 0.0f,
                             frame.PrevPreExposure > 0.0f ? frame.PreExposure / frame.PrevPreExposure : 1.0f,
@@ -287,7 +289,7 @@ namespace Desert::Graphic::System
 
     private:
         // One history pair: the running mean (rgb) + its frame count (a), and the luminance moment + the texel's
-        // identity (profile row, device depth, centre luminance); graph textures created once (CreateTexture +
+        // identity (profile row, device depth); graph textures created once (CreateTexture +
         // Extract) and registered every frame after (RegisterExternal), as ScreenSpaceDenoiser's slots.
         struct HistorySlot
         {
