@@ -59,6 +59,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, AccumulationTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, GuideAlbedoTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, GuideNormalTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedTexture );
         DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, PointLightsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, SpotLightsUB );
@@ -85,6 +86,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, GuideAlbedoTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, GuideNormalTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, IlluminationTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedTexture );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -95,6 +97,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, GuideNormalTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, IlluminationTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, FilteredTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedTexture );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -150,9 +153,10 @@ namespace Desert::Graphic::System
     // them). Light rays trace the shadow-caster bits only: CastShadows off never occludes a path-traced light.
     //
     // THE DENOISER (PathTracing.Denoiser; UE r.PathTracing.Denoiser): the image is clean from the first frame, not
-    // after the sum converges. Each path also adds its first surface's guides - albedo, world normal, camera
-    // distance - and its squared luminance beside the radiance (Common/PathTracingDenoise.glslh; UE's denoiser
-    // reads the same radiance / albedo / normal per pixel). Two consumers:
+    // after the sum converges. Each path that meets a surface also adds its first surface's guides - albedo,
+    // world normal, camera distance - and the illumination that surface reflects, divided by its albedo per path,
+    // with its squared luminance (Common/PathTracingDenoise.glslh; UE's denoiser reads the same radiance, albedo
+    // and normal per pixel). Two consumers:
     //  - an upscaler that denoises (ITemporalUpscaler::TakesRawLightingSignals: DLSS Ray Reconstruction, the
     //    real-time path tracers' way): the view traces PathsPerFrame paths through each jittered pixel centre
     //    every frame and hands that raw estimate to it - no accumulation, the upscaler's history is the
@@ -475,12 +479,14 @@ namespace Desert::Graphic::System
             RDG::TextureRef Radiance;
             RDG::TextureRef GuideAlbedo;
             RDG::TextureRef GuideNormal;
+            RDG::TextureRef Demodulated;
         };
         struct AccumulationTarget
         {
             RDG::ExternalTexture Texture;
             RDG::ExternalTexture GuideAlbedo;
             RDG::ExternalTexture GuideNormal;
+            RDG::ExternalTexture Demodulated;
             bool                 Built  = false;
             uint32_t             Width  = 0;
             uint32_t             Height = 0;
@@ -513,11 +519,13 @@ namespace Desert::Graphic::System
                          .GuideAlbedo =
                               graph.RegisterExternal( m_Accumulation.GuideAlbedo, "PathTracing.GuideAlbedo" ),
                          .GuideNormal =
-                              graph.RegisterExternal( m_Accumulation.GuideNormal, "PathTracing.GuideNormal" ) };
+                              graph.RegisterExternal( m_Accumulation.GuideNormal, "PathTracing.GuideNormal" ),
+                         .Demodulated =
+                              graph.RegisterExternal( m_Accumulation.Demodulated, "PathTracing.Demodulated" ) };
             // The previous size's sums are parked, not dropped: the frames recorded before this one may still be
             // tracing into them or resolving them on the GPU.
-            for ( RDG::ExternalTexture* texture :
-                  { &m_Accumulation.Texture, &m_Accumulation.GuideAlbedo, &m_Accumulation.GuideNormal } )
+            for ( RDG::ExternalTexture* texture : { &m_Accumulation.Texture, &m_Accumulation.GuideAlbedo,
+                                                    &m_Accumulation.GuideNormal, &m_Accumulation.Demodulated } )
             {
                 if ( texture->Physical )
                     m_RetiringAccumulation.Park( std::move( *texture ), frames.GetAbsoluteFrameCount() );
@@ -528,14 +536,17 @@ namespace Desert::Graphic::System
                                          .Format = ViewTargetFormats::kPathTracingAccumulation };
             const AccumulationRefs created{ .Radiance    = graph.CreateTexture( desc, "PathTracing.Accumulation" ),
                                             .GuideAlbedo = graph.CreateTexture( desc, "PathTracing.GuideAlbedo" ),
-                                            .GuideNormal =
-                                                 graph.CreateTexture( desc, "PathTracing.GuideNormal" ) };
-            // Later graphs trace into all three, the denoiser reads all three, the resolve samples the radiance.
+                                            .GuideNormal = graph.CreateTexture( desc, "PathTracing.GuideNormal" ),
+                                            .Demodulated =
+                                                 graph.CreateTexture( desc, "PathTracing.Demodulated" ) };
+            // Later graphs trace into all four, the denoiser reads all four, the resolve samples the radiance.
             graph.Extract( created.Radiance, m_Accumulation.Texture, RDG::Access::SampledGraphics,
                            { RDG::Access::StorageWrite, RDG::Access::StorageRead, RDG::Access::SampledGraphics } );
             graph.Extract( created.GuideAlbedo, m_Accumulation.GuideAlbedo, RDG::Access::StorageRead,
                            { RDG::Access::StorageWrite, RDG::Access::StorageRead } );
             graph.Extract( created.GuideNormal, m_Accumulation.GuideNormal, RDG::Access::StorageRead,
+                           { RDG::Access::StorageWrite, RDG::Access::StorageRead } );
+            graph.Extract( created.Demodulated, m_Accumulation.Demodulated, RDG::Access::StorageRead,
                            { RDG::Access::StorageWrite, RDG::Access::StorageRead } );
             m_Accumulation.Built  = true;
             m_Accumulation.Width  = width;
@@ -639,6 +650,8 @@ namespace Desert::Graphic::System
                                     RDG::Access::StorageWrite )
                           .Storage( PathTracingTraceShaderParameters::GuideNormalTexture, accumulation.GuideNormal,
                                     RDG::Access::StorageWrite )
+                          .Storage( PathTracingTraceShaderParameters::DemodulatedTexture, accumulation.Demodulated,
+                                    RDG::Access::StorageWrite )
                           .Storage( PathTracingTraceShaderParameters::GIFrameUB, inputs.GIFrame, kR )
                           .Storage( PathTracingTraceShaderParameters::PointLightsUB, inputs.PointLights, kR )
                           .Storage( PathTracingTraceShaderParameters::SpotLightsUB, inputs.SpotLights, kR )
@@ -706,7 +719,8 @@ namespace Desert::Graphic::System
                           .Storage( P::AccumulationTexture, accumulation.Radiance, kR )
                           .Storage( P::GuideAlbedoTexture, accumulation.GuideAlbedo, kR )
                           .Storage( P::GuideNormalTexture, accumulation.GuideNormal, kR )
-                          .Storage( P::IlluminationTexture, source, kW );
+                          .Storage( P::IlluminationTexture, source, kW )
+                          .Storage( P::DemodulatedTexture, accumulation.Demodulated, kR );
                  },
                  [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
@@ -733,6 +747,7 @@ namespace Desert::Graphic::System
                               .Storage( P::GuideNormalTexture, accumulation.GuideNormal, kR )
                               .Storage( P::IlluminationTexture, source, kR )
                               .Storage( P::FilteredTexture, target, kW )
+                              .Storage( P::DemodulatedTexture, accumulation.Demodulated, kR )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( DenoisePush ) ) );
                      },
                      [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr

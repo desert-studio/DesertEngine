@@ -7,20 +7,30 @@
 // tracer and its denoiser plugin (PathTracing.cpp: the albedo and normal accumulated per pixel beside the radiance,
 // averaged by the sample count before the denoiser reads them).
 //
-// GuideAlbedo:  rgb = the sum of each path's first-surface albedo (PathTracingDenoiseAlbedo), a = the sum of each
-//               path's squared luminance (the second moment the variance is estimated from).
-// GuideNormal:  xyz = the sum of each path's first-surface world normal, w = the sum of its distance from the camera
-//               in cm (kPathTracingMissDepth for a path that left the scene).
-// Both are divided by the accumulation's count (its a) before use.
+// Each path splits its radiance at its first opaque surface (glass is looked through to the surface behind it):
+//   E = what it gathered before that surface's lighting - the sky it left the scene to, the emission of the
+//       surface itself, an emitter met on the way through glass - which the surface's albedo does not modulate, and
+//   R = the rest, the light the surface reflects, which it does: R = D * I with D its demodulation albedo
+//       (PathTracingDenoiseAlbedo floored at kPathTracingAlbedoFloor per channel) and I the illumination.
+// Only I is filtered (SVGF 4.1 demodulation, per path, so a pixel's emitters or sky are never divided by an
+// albedo and spread onto neighbours that multiply them by theirs).
+//
+// GuideAlbedo:  rgb = the sum of each surface path's D, a = the number of surface paths s (a path that left the
+//               scene adds nothing to any guide).
+// GuideNormal:  xyz = the sum of each surface path's first-surface world normal, w = the sum of its distance from
+//               the camera in cm.
+// Demodulated:  rgb = the sum of each surface path's I, a = the sum of lum(I)^2 (the second moment of the signal
+//               the filter smooths, from which its variance is estimated).
+// All three are divided by s before use; a pixel with s = 0 saw no surface (PathTracingDenoiseSurfaceDepth).
 
-// The camera distance a path that met no surface records (cm, 1000 km): far past any scene, so a sky pixel never
-// passes the depth test against a surface beside it.
+// The camera distance a pixel no path of which met a surface reads (cm, 1000 km): far past any scene, so a sky
+// pixel never passes the depth test against a surface beside it.
 const float kPathTracingMissDepth = 1.0e8;
 
-// The smallest albedo the radiance is divided by. Demodulation (radiance / albedo, filtered, x albedo) keeps the
-// texture detail out of the filter; a black channel would divide by zero, and a floored one is multiplied back by
-// the same floor, so an unfiltered pixel stays exactly its own radiance.
-const float kPathTracingAlbedoFloor = 0.01;
+// The smallest albedo channel a path's reflected radiance is divided by: the dielectric F0 (4 %), which every
+// non-metal's PathTracingDenoiseAlbedo holds anyway, so the floor only binds on a black metal channel; it bounds
+// the illumination a channel the surface barely reflects in (its specular part) to 25 x what it reflects.
+const float kPathTracingAlbedoFloor = 0.04;
 
 float PathTracingDenoiseLuminance(vec3 c)
 {
@@ -34,10 +44,18 @@ vec3 PathTracingDenoiseAlbedo(vec3 baseColor, float metallic, vec3 f0)
     return min(baseColor * (1.0 - metallic) + f0, vec3(1.0));
 }
 
-// The mean albedo of a pixel (its guide sum / count) as the demodulation divides by it.
-vec3 PathTracingDemodulationAlbedo(vec3 meanAlbedo)
+// D, the albedo a path's reflected radiance is divided by (demodulation) and the pixel's mean D multiplies the
+// filtered illumination by (remodulation).
+vec3 PathTracingDemodulationAlbedo(vec3 albedo)
 {
-    return max(meanAlbedo, vec3(kPathTracingAlbedoFloor));
+    return max(albedo, vec3(kPathTracingAlbedoFloor));
+}
+
+// The camera distance of a pixel's surface from its guide sums: the mean over its surface paths, or
+// kPathTracingMissDepth when none met a surface.
+float PathTracingDenoiseSurfaceDepth(vec4 normalSum, float surfacePaths)
+{
+    return surfacePaths > 0.5 ? normalSum.w / surfacePaths : kPathTracingMissDepth;
 }
 
 #endif

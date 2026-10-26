@@ -11,14 +11,19 @@
 // hands its path-tracing denoiser (PathTracing.cpp: radiance, albedo, normal per pixel, averaged over the summed
 // paths; Common/PathTracingDenoise.glslh), so the denoiser reads exactly what UE's plugin interface reads.
 //
-// DEMODULATION (SVGF 4.1): the radiance is divided by the first surface's albedo before filtering and multiplied
-// back after the last iteration, so texture detail - the seams between cobblestones, a decal's edge - is never
-// blurred; only the lighting, which is what the paths are noisy in, is filtered.
+// DEMODULATION (SVGF 4.1), per path (Common/PathTracingDenoise.glslh): each path's reflected radiance R is divided
+// by its first surface's albedo D in the trace, so texture detail - the seams between cobblestones, a decal's edge -
+// is never blurred; only the illumination I = R / D, which is what the paths are noisy in, is filtered. What the
+// albedo does not modulate (E: the sky, the surface's own emission, emitters met through glass) is never
+// divided, filtered or multiplied: the last iteration ADDS the filter's change of the pixel's illumination to its
+// own raw mean, raw + (s / count) * mean(D) * (filtered I - mean I), so E and the pixel's exact R pass through and
+// an unfiltered pixel (the converged sum: the luminance width -> 0) is exactly the tracer's estimate.
 Shader "PathTracerDenoise"
 {
-    // The demodulated mean radiance of each pixel and the variance of that mean (SVGF 4.2). With fewer than
-    // kTemporalMomentPaths paths summed the pixel's own moments say nothing (one path has zero variance), so the
-    // moments of its neighbourhood on the same surface stand in for them.
+    // The mean illumination of each pixel's surface paths and the variance of that mean (SVGF 4.2), both from the
+    // moments of the filtered signal I itself. With fewer than kTemporalMomentPaths surface paths the pixel's own
+    // moments say nothing (one path has zero variance), so the moments of its neighbourhood on the same surface
+    // stand in for them.
     Pass "Variance"
     {
         Compute
@@ -30,8 +35,9 @@ Shader "PathTracerDenoise"
             layout(binding = 0, rgba32f) readonly uniform image2D AccumulationTexture;
             layout(binding = 1, rgba32f) readonly uniform image2D GuideAlbedoTexture;
             layout(binding = 2, rgba32f) readonly uniform image2D GuideNormalTexture;
-            // rgb = demodulated mean radiance, a = the variance of its luminance's mean.
+            // rgb = the mean illumination of the surface paths, a = the variance of its luminance's mean.
             layout(binding = 3, rgba32f) writeonly uniform image2D IlluminationTexture;
+            layout(binding = 4, rgba32f) readonly uniform image2D DemodulatedTexture;
 
             // SVGF 4.2: below four samples the temporal moments are replaced by the spatial ones.
             const float kTemporalMomentPaths = 4.0;
@@ -48,19 +54,21 @@ Shader "PathTracerDenoise"
                 const ivec2 size  = imageSize(AccumulationTexture);
                 if (pixel.x >= size.x || pixel.y >= size.y)
                     return;
-                const vec4  sum      = imageLoad(AccumulationTexture, pixel);
-                const float count    = max(sum.a, 1.0);
-                const vec4  albedo   = imageLoad(GuideAlbedoTexture, pixel) / count;
-                const vec4  normal   = imageLoad(GuideNormalTexture, pixel) / count;
-                const vec3  demod    = PathTracingDemodulationAlbedo(albedo.rgb);
-                const vec3  mean     = sum.rgb / count;
-                const float lumScale = max(PathTracingDenoiseLuminance(demod), kPathTracingAlbedoFloor);
+                // s: the pixel's surface paths. None (a sky pixel) leaves nothing to filter.
+                const float paths = imageLoad(GuideAlbedoTexture, pixel).a;
+                if (paths < 0.5)
+                {
+                    imageStore(IlluminationTexture, pixel, vec4(0.0));
+                    return;
+                }
+                const vec4 moments = imageLoad(DemodulatedTexture, pixel) / paths;
+                const vec4 normal  = imageLoad(GuideNormalTexture, pixel) / paths;
 
                 float pathVariance;
-                if (sum.a >= kTemporalMomentPaths)
+                if (paths >= kTemporalMomentPaths)
                 {
-                    const float m1 = PathTracingDenoiseLuminance(mean);
-                    pathVariance   = max(albedo.a - m1 * m1, 0.0);
+                    const float m1 = PathTracingDenoiseLuminance(moments.rgb);
+                    pathVariance   = max(moments.a - m1 * m1, 0.0);
                 }
                 else
                 {
@@ -73,22 +81,23 @@ Shader "PathTracerDenoise"
                             const ivec2 q = pixel + ivec2(x, y);
                             if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y)
                                 continue;
-                            const vec4  qSum    = imageLoad(AccumulationTexture, q);
-                            const float qCount  = max(qSum.a, 1.0);
-                            const vec4  qNormal = imageLoad(GuideNormalTexture, q) / qCount;
+                            const float qPaths = imageLoad(GuideAlbedoTexture, q).a;
+                            if (qPaths < 0.5)
+                                continue;
+                            const vec4  qNormal = imageLoad(GuideNormalTexture, q) / qPaths;
                             const vec3  qn      = qNormal.xyz / max(length(qNormal.xyz), 1.0e-6);
                             const float w = pow(max(dot(n, qn), 0.0), kNormalPower) *
                                             float(abs(qNormal.w - normal.w) <= kSpatialDepthShare * normal.w);
-                            const float l = PathTracingDenoiseLuminance(qSum.rgb / qCount);
-                            m += w * vec2(l, imageLoad(GuideAlbedoTexture, q).a / qCount);
-                            weight += w;
+                            // The neighbour's path sums: each of its paths counts once.
+                            const vec4 qMoments = imageLoad(DemodulatedTexture, q);
+                            m += w * vec2(PathTracingDenoiseLuminance(qMoments.rgb), qMoments.a);
+                            weight += w * qPaths;
                         }
                     m /= max(weight, 1.0e-6);
                     pathVariance = max(m.y - m.x * m.x, 0.0);
                 }
-                // The variance of the pixel's MEAN, in the demodulated units the filter compares.
-                const float variance = pathVariance / count / (lumScale * lumScale);
-                imageStore(IlluminationTexture, pixel, vec4(mean / demod, variance));
+                // The variance of the pixel's MEAN illumination: the unit the filter compares in.
+                imageStore(IlluminationTexture, pixel, vec4(moments.rgb, pathVariance / paths));
             }
         }
     }
@@ -96,7 +105,8 @@ Shader "PathTracerDenoise"
     // One a-trous iteration (SVGF 4.3): a 5 x 5 B3-spline kernel with holes of Filter.x pixels, each tap weighed by
     // the normal, depth and luminance distance to the centre; the variance is filtered with the squared weights so
     // the next iteration's luminance width shrinks with the noise removed. The last iteration (Filter.y = 1)
-    // multiplies the albedo back and writes a = 1, the form the resolve divides (sum / count) unchanged.
+    // adds the filter's change of the illumination, remodulated, to the pixel's raw mean (DEMODULATION above) and
+    // writes a = 1, the form the resolve divides (sum / count) unchanged.
     Pass "Filter"
     {
         Compute
@@ -110,6 +120,7 @@ Shader "PathTracerDenoise"
             layout(binding = 2, rgba32f) readonly uniform image2D GuideNormalTexture;
             layout(binding = 3, rgba32f) readonly uniform image2D IlluminationTexture;
             layout(binding = 4, rgba32f) writeonly uniform image2D FilteredTexture;
+            layout(binding = 5, rgba32f) readonly uniform image2D DemodulatedTexture;
 
             PushConstant PushConstants
             {
@@ -134,11 +145,11 @@ Shader "PathTracerDenoise"
             {
                 const ivec2 size  = imageSize(AccumulationTexture);
                 q                 = clamp(q, ivec2(0), size - 1);
-                const float count = max(imageLoad(AccumulationTexture, q).a, 1.0);
-                const vec4  guide = imageLoad(GuideNormalTexture, q) / count;
+                const float paths = imageLoad(GuideAlbedoTexture, q).a;
+                const vec4  guide = imageLoad(GuideNormalTexture, q);
                 DenoiseSurface s;
                 s.Normal = guide.xyz / max(length(guide.xyz), 1.0e-6);
-                s.Depth  = guide.w;
+                s.Depth  = PathTracingDenoiseSurfaceDepth(guide, paths);
                 return s;
             }
 
@@ -162,8 +173,7 @@ Shader "PathTracerDenoise"
                 const vec4           centre  = imageLoad(IlluminationTexture, pixel);
                 const DenoiseSurface surface = SurfaceAt(pixel);
                 vec4                 result  = centre;
-                // The sky has no lighting noise to filter (it is the environment seen directly); half the miss depth
-                // separates it from any surface whatever the rounding of its guide sum / count.
+                // A pixel no path of which met a surface has no illumination to filter (its sky is E).
                 if (surface.Depth < 0.5 * kPathTracingMissDepth)
                 {
                     // SVGF 4.3: the centre's variance is prefiltered by a 3 x 3 Gaussian before it sets the width.
@@ -208,9 +218,20 @@ Shader "PathTracerDenoise"
                 }
                 if (Filter.y != 0u)
                 {
-                    const float count  = max(imageLoad(AccumulationTexture, pixel).a, 1.0);
-                    const vec3  albedo = PathTracingDemodulationAlbedo(imageLoad(GuideAlbedoTexture, pixel).rgb / count);
-                    result             = vec4(result.rgb * albedo, 1.0);
+                    // raw + (s / count) * mean(D) * (filtered I - mean I): E and the pixel's own R pass through
+                    // unfiltered; only the illumination noise the filter removed changes the pixel.
+                    const vec4  sum    = imageLoad(AccumulationTexture, pixel);
+                    const float count  = max(sum.a, 1.0);
+                    const vec4  albedo = imageLoad(GuideAlbedoTexture, pixel);
+                    vec3        image  = sum.rgb / count;
+                    if (albedo.a > 0.5)
+                    {
+                        const vec3 meanIllumination = imageLoad(DemodulatedTexture, pixel).rgb / albedo.a;
+                        image += albedo.rgb / count * (result.rgb - meanIllumination);
+                    }
+                    // A sub-pixel albedo change (a decal edge inside the pixel) makes mean(D) * mean(I) differ from
+                    // mean(D * I): the change is then not exactly the pixel's R, and is kept from going below 0.
+                    result = vec4(max(image, vec3(0.0)), 1.0);
                 }
                 imageStore(FilteredTexture, pixel, result);
             }

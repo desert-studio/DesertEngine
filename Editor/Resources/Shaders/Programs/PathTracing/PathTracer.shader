@@ -57,6 +57,7 @@ Shader "PathTracer"
             // The denoiser's guide sums beside it, summed over the same paths (Common/PathTracingDenoise.glslh).
             layout(binding = 24, rgba32f) uniform image2D GuideAlbedoTexture;
             layout(binding = 25, rgba32f) uniform image2D GuideNormalTexture;
+            layout(binding = 26, rgba32f) uniform image2D DemodulatedTexture;
             layout(std430, binding = 3) readonly buffer GIFrameUB
             {
                 GIFrame giFrame;
@@ -649,10 +650,13 @@ Shader "PathTracer"
             // One path of the pixel: the camera ray, then up to Counts.w bounces. @p sampleIndex is the path's index
             // in the pixel's accumulation (paths summed before it + its place in this frame), so every path of the
             // pixel since the restart draws its own random sequence.
-            // @p guideAlbedo / @p guideNormal: the path's first surface for the denoiser - its albedo, its world normal
-            // and camera distance (Common/PathTracingDenoise.glslh); glass is looked through to the surface behind
-            // it, and a path that meets none records the miss.
-            vec3 PathTracingTracePath(ivec2 pixel, ivec2 size, uint sampleIndex, out vec3 guideAlbedo, out vec4 guideNormal)
+            // The denoiser's share of the path (Common/PathTracingDenoise.glslh), at its first opaque surface (glass
+            // is looked through to the surface behind it): @p guideAlbedo = (D, 1), @p guideNormal = (world normal,
+            // camera distance), @p demodulated = I, the radiance that surface reflects (R, everything the path adds
+            // from its lighting on, clamped as the radiance is) divided by D. A path that meets no surface returns
+            // all three zero: its whole radiance is E.
+            vec3 PathTracingTracePath(ivec2 pixel, ivec2 size, uint sampleIndex, out vec4 guideAlbedo,
+                                      out vec4 guideNormal, out vec3 demodulated)
             {
                 uint rng = PathTracingHash(uint(pixel.x) + PathTracingHash(uint(pixel.y) + PathTracingHash(sampleIndex + PathTracingHash(SkyParams.z))));
 
@@ -663,9 +667,11 @@ Shader "PathTracer"
                 const vec2 uv       = (vec2(pixel) + subPixel) / vec2(size);
                 vec3       origin = cameraUB.CameraPos;
                 vec3       dir    = normalize(ReconstructWorldPosition(uv, 0.5, cameraUB.InvJitteredViewProjection) - origin);
-                guideAlbedo       = vec3(1.0);
-                guideNormal       = vec4(-dir, kPathTracingMissDepth);
+                guideAlbedo       = vec4(0.0);
+                guideNormal       = vec4(0.0);
+                demodulated       = vec3(0.0);
                 bool guided       = false;
+                vec3 unmodulated  = vec3(0.0); // E: the radiance gathered before the first opaque surface's lighting
 
                 vec3  radiance     = vec3(0.0);
                 vec3  throughput   = vec3(1.0);
@@ -743,9 +749,13 @@ Shader "PathTracer"
                     const PathTracingMaterial m = PathTracingMaterialOf(N, V);
                     if (!guided)
                     {
-                        guideAlbedo = PathTracingDenoiseAlbedo(m.BaseColor, m.Metallic, m.F0);
+                        guideAlbedo = vec4(PathTracingDemodulationAlbedo(
+                                                    PathTracingDenoiseAlbedo(m.BaseColor, m.Metallic, m.F0)),
+                                                1.0);
                         guideNormal = vec4(N, length(P - cameraUB.CameraPos));
                         guided      = true;
+                        // Its own emission (added above) and all before it is E; the rest the path adds is R.
+                        unmodulated = radiance;
                     }
                     const vec3  next  = P + N * offset;
                     const float total = PathTracingEstimateTotal(P);
@@ -782,7 +792,12 @@ Shader "PathTracer"
                 // A NaN or infinite path would poison every later sample of the pixel: it is dropped (counted as
                 // black), as UE's accumulation does.
                 if (any(isnan(radiance)) || any(isinf(radiance)))
-                    radiance = vec3(0.0);
+                {
+                    radiance    = vec3(0.0);
+                    unmodulated = vec3(0.0);
+                }
+                if (guided)
+                    demodulated = max(radiance - unmodulated, vec3(0.0)) / guideAlbedo.rgb;
                 return radiance;
             }
 
@@ -794,24 +809,28 @@ Shader "PathTracer"
                 const ivec2 size  = imageSize(AccumulationTexture);
                 if (pixel.x >= size.x || pixel.y >= size.y)
                     return;
-                vec3 sum       = vec3(0.0);
-                vec4 albedoSum = vec4(0.0); // rgb albedo, a squared luminance
-                vec4 normalSum = vec4(0.0); // xyz normal, w camera distance
+                vec3 sum            = vec3(0.0);
+                vec4 albedoSum      = vec4(0.0); // rgb D, a surface paths
+                vec4 normalSum      = vec4(0.0); // xyz normal, w camera distance
+                vec4 demodulatedSum = vec4(0.0); // rgb I, a lum(I)^2
                 for (uint s = 0u; s < SkyParams.w; ++s)
                 {
-                    vec3       albedo;
-                    vec4       normal;
-                    const vec3 radiance = PathTracingTracePath(pixel, size, Counts.z + s, albedo, normal);
-                    const float luminance = PathTracingDenoiseLuminance(radiance);
+                    vec4        albedo;
+                    vec4        normal;
+                    vec3        demodulated;
+                    const vec3  radiance  = PathTracingTracePath(pixel, size, Counts.z + s, albedo, normal, demodulated);
+                    const float luminance = PathTracingDenoiseLuminance(demodulated);
                     sum += radiance;
-                    albedoSum += vec4(albedo, luminance * luminance);
+                    albedoSum += albedo;
                     normalSum += normal;
+                    demodulatedSum += vec4(demodulated, luminance * luminance);
                 }
                 const bool overwrite = Counts.z == 0u;
                 const vec4 previous  = overwrite ? vec4(0.0) : imageLoad(AccumulationTexture, pixel);
                 imageStore(AccumulationTexture, pixel, vec4(previous.rgb + sum, previous.a + float(SkyParams.w)));
                 imageStore(GuideAlbedoTexture, pixel, albedoSum + (overwrite ? vec4(0.0) : imageLoad(GuideAlbedoTexture, pixel)));
                 imageStore(GuideNormalTexture, pixel, normalSum + (overwrite ? vec4(0.0) : imageLoad(GuideNormalTexture, pixel)));
+                imageStore(DemodulatedTexture, pixel, demodulatedSum + (overwrite ? vec4(0.0) : imageLoad(DemodulatedTexture, pixel)));
             }
         }
 
