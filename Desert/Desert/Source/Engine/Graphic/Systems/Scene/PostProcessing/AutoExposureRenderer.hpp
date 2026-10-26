@@ -7,6 +7,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
+#include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 
 #include <array>
 #include <memory>
@@ -136,6 +137,19 @@ namespace Desert::Graphic::System
         {
             m_PreExposure = preExposure;
         }
+        // Local exposure (UE PostProcessEyeAdaptation.usf:202-248): the Average pass also resolves the histogram's
+        // AverageLocalExposure into the readback; pre-exposure multiplies by it (UE EyeAdaptation.cpp:1559,1587).
+        void SetLocalExposure( const LocalExposureParams& params, float logMiddleGrey, float key )
+        {
+            m_LocalExposure        = params;
+            m_LocalExposureLogGrey = logMiddleGrey;
+            m_LocalExposureKey     = key;
+        }
+        // The AverageLocalExposure read back with the adapted luminance (1 when none was written or identity).
+        [[nodiscard]] float GetLastAverageLocalExposure() const
+        {
+            return m_LastAverageLocalExposure;
+        }
         void SetParams( float adaptSpeed, float minLuma, float maxLuma )
         {
             m_AdaptSpeed = adaptSpeed;
@@ -172,6 +186,10 @@ namespace Desert::Graphic::System
         float m_AdaptSpeed         = 1.5f;
         float m_DeltaSeconds       = 0.0f;
         float m_PreExposure        = 1.0f;
+        LocalExposureParams m_LocalExposure;
+        float               m_LocalExposureLogGrey     = -2.4739312f;
+        float               m_LocalExposureKey         = 0.18f;
+        float               m_LastAverageLocalExposure = 1.0f;
         float m_MinLuma    = 0.02f;
         float m_MaxLuma    = 8.0f;
     };

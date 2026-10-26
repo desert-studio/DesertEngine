@@ -61,7 +61,9 @@ namespace Desert::Graphic::System
     /**
      * @brief A renderer whose geometry casts into the MeshRenderer's shadow views: the sun's cascades and the
      * point/spot lights' views of the local shadow atlas (Graphic/LocalShadows.hpp), one index space
-     * (MeshRenderer: 0..kMaxCascades-1 the cascades, the rest the local views).
+     * (MeshRenderer: the fixed views first - 0..kMaxCascades-1 the cascades, then their movable layers, the
+     * virtual shadow map levels and the rain occlusion - and from MeshRenderer::kLocalShadowViewBase the local
+     * views, as many as the frame shadows).
      *
      * The cascade targets and their depth passes belong to the MeshRenderer, which clears each cascade once
      * and records its own casters; a caster that is not a mesh (the tessellated terrain) is recorded INSIDE
@@ -111,7 +113,7 @@ namespace Desert::Graphic::System
     // tile the camera moves past; picked from the light, the cached depth holds while the light holds.
     struct LocalShadowCasterLight
     {
-        uint32_t          FirstView = 0; // its first view (kMaxShadowCascades + its first row of the view table)
+        uint32_t          FirstView = 0; // its first view (kLocalShadowViewBase + its first row of the view table)
         uint32_t          ViewCount = 0; // 1 for a spot, kPointShadowFaces for a point
         float             Reach     = 0.0f; // the point's radius / the spot's range, cm, around Lod.Origin
         Geometry::LODView Lod; // Origin = the light's position; Projection = its views' (one per light)

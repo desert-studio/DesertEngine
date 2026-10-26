@@ -162,7 +162,9 @@ namespace Desert::Graphic
         // is bound by name through RDG::PassBindings (DeferredLightingRenderer::Record). lightDir.xyz = direction
         // the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz = camera world pos (view vector);
         // debugMode 0=Lit,1=Albedo,2=Normal,3=Metallic,4=Roughness; point/spotCount = the uploaded lights' counts.
-        void BindInputs( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
+        // light1Dir / light1Color: atmosphere light 1 (the moon) in the same form; light1Color.a == 0 = none.
+        void BindInputs( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& light1Dir,
+                         const glm::vec4& light1Color, const glm::vec4& cameraPos,
                          const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
                          uint32_t spotCount, const DeferredShadowInput& shadow, const DeferredGIInput& gi,
                          bool ssaoEnabled, const CloudShadowInput& cloudShadow,
@@ -177,6 +179,8 @@ namespace Desert::Graphic
 
             SetLightDir( lightDir );
             SetLightColor( lightColor );
+            SetLight1Dir( light1Dir );
+            SetLight1Color( light1Color );
             SetCameraPos( cameraPos );
             // World position is rebuilt from the G-buffer depth (Common/ReconstructPosition.glslh) with
             // ViewFrame::InvJitteredViewProjection, the view's one copy of that inverse.
@@ -240,6 +244,8 @@ namespace Desert::Graphic
         MPROPERTY( glm::mat4, InvJitteredViewProjection, "InverseJitteredViewProjection", ( glm::mat4( 1.0f ) ) )
         MPROPERTY( glm::mat4, JitteredViewProjection, "JitteredWorldToClip", ( glm::mat4( 1.0f ) ) )
         MPROPERTY( glm::vec4, ScreenSpaceGI, "ScreenSpaceGi", ( glm::vec4( 12.0f, 1.0f, 0.0f, 0.0f ) ) )
+        MPROPERTY( glm::vec4, Light1Dir,   "Light1Direction", ( glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f ) ) )
+        MPROPERTY( glm::vec4, Light1Color, "Light1Color",     ( glm::vec4( 0.0f ) ) )
 
     private:
     };

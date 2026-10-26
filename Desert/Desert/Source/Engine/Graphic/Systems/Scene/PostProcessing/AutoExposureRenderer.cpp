@@ -6,6 +6,8 @@
 
 #include <cstdint>
 
+#include <glm/glm.hpp>
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -62,6 +64,12 @@ namespace Desert::Graphic::System
             float LogLumRange;
             float LowPct;
             float HighPct;
+            glm::vec4 LocalExposureContrast;  // highlight, shadow, detail (unused: 0 per bucket), enabled
+            glm::vec4 LocalExposureThreshold; // hi thr, sh thr, hi strength, sh strength
+            float     LocalExposureLogMiddleGrey;
+            float     ExposureKey;
+            float     Pad0;
+            float     Pad1;
         };
 
         inline uint32_t GroupCount( uint32_t dim )
@@ -103,7 +111,7 @@ namespace Desert::Graphic::System
         };
         m_LumImage[0] = makeLum( "AEAdaptedLum0" );
         m_LumImage[1] = makeLum( "AEAdaptedLum1" );
-        m_Readback    = ShaderResources::StorageBuffer::Create( "AEReadback", 4 * sizeof( float ), 4 );
+        m_Readback    = ShaderResources::StorageBuffer::Create( "AEReadback", 8 * sizeof( float ), 4 );
 
         const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
         const auto make          = [&]( const std::string& name ) -> std::shared_ptr<ComputePipeline>
@@ -216,8 +224,14 @@ namespace Desert::Graphic::System
         const float deltaSeconds = m_SnapNextAdaptation ? 1.0f : m_DeltaSeconds;
         m_SnapNextAdaptation     = false;
 
+        const LocalExposureParams& le = m_LocalExposure;
         const AveragePush ap{ deltaSeconds,      adaptSpeed,      m_MinLuma,          m_MaxLuma,
-                              kWindow.MinLogLum, kWindow.Range(), kWindow.LowPercent, kWindow.HighPercent };
+                              kWindow.MinLogLum, kWindow.Range(), kWindow.LowPercent, kWindow.HighPercent,
+                              glm::vec4( le.HighlightContrast, le.ShadowContrast, 0.0f,
+                                         IsLocalExposureIdentity( le ) ? 0.0f : 1.0f ),
+                              glm::vec4( le.HighlightThreshold, le.ShadowThreshold, le.HighlightThresholdStrength,
+                                         le.ShadowThresholdStrength ),
+                              m_LocalExposureLogGrey, m_LocalExposureKey, 0.0f, 0.0f };
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &ap, sizeof( ap ) );
         return Renderer::GetInstance().DispatchCompute( bindings, *m_AveragePipeline, 1, 1, 1 );
@@ -239,7 +253,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_Readback )
             return 0.0f;
-        std::array<float, 4> value{};
+        std::array<float, 8> value{};
         if ( const Common::BoolResultStr read = m_Readback->ReadBack( value.data(), sizeof( value ) );
              !read.IsSuccess() )
         {
@@ -251,6 +265,8 @@ namespace Desert::Graphic::System
         LOG_TRACE(
              "[PreExposure] read-back: adapted {} (written {}), measured {}, histogram samples {}, clamp [{}, {}]",
              value[0], value[1], value[2], value[3], m_MinLuma, m_MaxLuma );
+        // [4] = AverageLocalExposure (UE readback [1].X), 1 at identity.
+        m_LastAverageLocalExposure = value[1] == 1.0f && value[4] > 0.0f && value[4] < 3.0e38f ? value[4] : 1.0f;
         // y == 1: the Average pass wrote this copy; otherwise it is the buffer's first frames.
         return value[1] == 1.0f && value[0] > 0.0f && value[0] < 3.0e38f ? value[0] : 0.0f;
     }

@@ -139,6 +139,17 @@ namespace Desert::Graphic
     class SceneRenderer final
     {
     public:
+        // Atmosphere light 1 (UE's Atmosphere Sun Light Index 1, the moon) as a frame lights it: the payload the
+        // deferred pass shades (direction it travels, colour/intensity, as DirLights' sun) and what a TRACED ray of
+        // it needs beside - its disc and whether it is occluded (the path tracer's light sample, the GI hit
+        // lighting), read from the same DirectionLightComponent.
+        struct AtmosphereLight1Frame
+        {
+            ShaderProtocols::DirectionLightPayload Light;
+            float SourceAngleDegrees = 0.0f; // UE SourceAngle: the disc's full angular diameter (0: a delta)
+            bool  CastShadows        = true; // UE bCastShadows: false = no ray of it is ever occluded
+        };
+
         struct UpdateInfo
         {
             // The WORLD'S step this frame (Core::WorldTime::GetDeltaSeconds): zero while paused or while
@@ -150,6 +161,10 @@ namespace Desert::Graphic
             // would never be re-baked).
             Common::Timestep                RealTimestep;
             ShaderProtocols::DirectionLight DirLights;
+            // Atmosphere light 1 (UE's Atmosphere Sun Light Index 1, the moon), when the scene marks one:
+            // direction it travels and colour/intensity, as DirLights' sun. Shaded by the deferred pass, and lit
+            // by the path tracer and the GI hit lighting through the GI frame record.
+            std::optional<AtmosphereLight1Frame> AtmosphereLight1;
         };
 
         struct RenderSubmissionExtra
@@ -460,7 +475,7 @@ namespace Desert::Graphic
         // sunDir is the direction TOWARD the sun, already normalized; bakeNow is the one-shot request from
         // the editor's Bake button.
         void SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow, const SkySettings& sky,
-                               const SunLightFx& fx );
+                               const SunLightFx& fx, const AtmosphereLight1& light1 );
 
         // This frame's exponential height fog (from ExponentialHeightFogComponent, via the ECS).
         // `present` = false means the scene has no enabled fog component at all — said explicitly, because
@@ -795,6 +810,8 @@ namespace Desert::Graphic
         LODPreviewLease m_LODPreview;
         // ScenePreExposure's source this frame (ViewInputs::LastExposure); 0 = none known.
         float m_LastExposure = 0.0f;
+        // The AverageLocalExposure the eye adaptation read back with it (1 = none): pre-exposure follows it.
+        float m_LastAverageLocalExposure = 1.0f;
         // Scene::GetGeneration() of the scene BeginScene was handed (a reload at the same address is a new
         // generation, so a new identity: SceneViewState resets the history).
         uint64_t m_SceneGeneration = 0;
@@ -1277,6 +1294,10 @@ namespace Desert::Graphic
         // @p previous: PrepareFrameAutoExposure's result (nothing is added when it is invalid).
         void AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
                                    const std::vector<RDG::TextureRef>& sceneColor, RDG::TextureRef previous );
+        // UE Local Exposure (Bilateral): Setup (grid + 1/32 log luminance) then BlurH/BlurV of the latter, into
+        // FrameTransients::LocalExposureGrid / BlurredLogLuminance. Nothing is added at identity settings.
+        void AddFrameLocalExposure( RDG::Builder& graph, FrameTextures& textures,
+                                    const std::vector<RDG::TextureRef>& sceneColor );
         void AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                             const std::vector<RDG::TextureRef>& sceneColor );
         void AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
@@ -1304,6 +1325,9 @@ namespace Desert::Graphic
         SunLightFx m_SunLightFx;
 
         ShaderProtocols::DirectionLight m_DirectionLights;
+        // This frame's atmosphere light 1 (the moon) as the deferred pass shades it: the scene's value times
+        // AtmosphereEnv::Light1TransmittanceAtGround (OnUpdate), or nothing.
+        std::optional<AtmosphereLight1Frame> m_AtmosphereLight1;
         ShaderProtocols::PointLight     m_PointLight;
         ShaderProtocols::SpotLight      m_SpotLight;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.

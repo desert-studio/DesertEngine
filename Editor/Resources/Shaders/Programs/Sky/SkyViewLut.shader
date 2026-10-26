@@ -43,7 +43,8 @@ Shader "SkyViewLut"
         // Mirrored by Graphic::SkyViewLutPush.
         PushConstant SkyViewPush
         {
-            vec4 CameraPositionWorld; // xyz = camera position in WORLD UNITS (centimetres)
+            vec4 CameraPositionWorld; // xyz = camera position in WORLD UNITS (centimetres), w = atmosphere
+                                      // light index this fill integrates (0 = sun, 1 = light 1, the moon)
         };
 
         // The transmittance LUT is addressed straight from its distance parameterisation: no
@@ -115,7 +116,12 @@ Shader "SkyViewLut"
             // Local frame: zenith = +Y, sun in the XY plane. The sun's zenith cosine is measured in
             // the WORLD (against the camera's real zenith) and survives the frame change.
             vec3  zenithWorld  = SkyViewZenith(cameraKm, atm.BottomRadiusKm);
-            float sunZenithCos = clamp(dot(zenithWorld, UnpackSunDirection(s)), -1.0f, 1.0f);
+            // THE LUT IS PARAMETERISED AROUND ITS LIGHT (symmetric about that light's azimuth), so each
+            // atmosphere light has a LUT of its own: light 1 folded into the sun's frame would lose which side
+            // of the sun's plane it stands on and glow at its mirror image too.
+            const bool lightIsSecond = CameraPositionWorld.w > 0.5f;
+            vec3 lightWorld   = lightIsSecond ? UnpackLight1Direction(s) : UnpackSunDirection(s);
+            float sunZenithCos = clamp(dot(zenithWorld, lightWorld), -1.0f, 1.0f);
             float sunZenithSin = sqrt(max(1.0f - sunZenithCos * sunZenithCos, 0.0f));
 
             vec3 originKm = vec3(0.0f, viewHeight, 0.0f);
@@ -124,7 +130,7 @@ Shader "SkyViewLut"
 
             // Outer-space sun illuminance: the authored sun colour times intensity — the same pair
             // the gradient's disc reads, reinterpreted as illuminance by the physical model.
-            vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
+            vec3 sunIlluminance = lightIsSecond ? UnpackLight1Illuminance(s) : UnpackAtmosphereLightIlluminance(s);
 
             SkyScatterResult result = SkyIntegrateScatteredLuminance(atm, originKm, rayDir, sunDir,
                                                                      sunIlluminance, kSkyViewSampleCount);

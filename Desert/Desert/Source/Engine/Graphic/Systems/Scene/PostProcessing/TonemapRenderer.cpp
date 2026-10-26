@@ -75,7 +75,11 @@ namespace Desert::Graphic::System
              .Texture( TonemapShaderParameters::LightShaftTexture, inputs.LightShafts, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::Mip( 0 ) )
              .Texture( TonemapShaderParameters::LensFlareTexture, inputs.LensFlare, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::Mip( 0 ) );
+                       RDG::SubresourceRange::Mip( 0 ) )
+             .Texture( TonemapShaderParameters::LumBilateralGrid, inputs.LocalExposureGrid, RDG::Access::SampledGraphics,
+                       RDG::SubresourceRange::All() )
+             .Texture( TonemapShaderParameters::BlurredLogLuminance, inputs.BlurredLogLuminance,
+                       RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
     }
 
     void TonemapRenderer::FillMaterial( const GraphInputs& inputs )
@@ -87,10 +91,20 @@ namespace Desert::Graphic::System
         const float lightShaftIntensity = inputs.LightShaftsProduced ? m_LightShaftIntensity : 0.0f;
         const float lensFlareIntensity  = inputs.LensFlareProduced ? m_LensFlareIntensity : 0.0f;
 
-        const MaterialTonemap::Params params{
+        MaterialTonemap::Params params{
              m_TonemapOperator,     m_Exposure,         bloomIntensity, m_ExposureKey,
              m_AutoExposureEnabled, m_ChromaticBloom,   m_WhitePoint,   lightShaftIntensity,
              m_LightShaftTint,      lensFlareIntensity, m_LensFlareTint,    m_PreExposure };
+        // Local exposure: identity values + enabled 0 when its nodes did not run (the inputs are then black).
+        const LocalExposureFrame& le = m_LocalExposure;
+        const LocalExposureParams  p  = le.Produced ? le.Params : LocalExposureParams{};
+        params.LocalExposureContrast  = glm::vec4( p.HighlightContrast, p.ShadowContrast, p.DetailStrength, p.BlurredLumBlend );
+        params.LocalExposureThreshold = glm::vec4( p.HighlightThreshold, p.ShadowThreshold, p.HighlightThresholdStrength,
+                                                   p.ShadowThresholdStrength );
+        params.LocalExposureUV        = glm::vec4( le.GridUVScale, le.BlurUVScale );
+        // w: 0 off, 1 applied, 2 applied + visualised, 3 visualised without the passes (identity: exposure 1).
+        const float mode = le.Produced ? ( le.Visualize ? 2.0f : 1.0f ) : ( le.Visualize ? 3.0f : 0.0f );
+        params.LocalExposureSlice = glm::vec4( le.LogMiddleGrey, le.SliceLogMin, 1.0f / kLocalExposureSliceEV, mode );
 
         m_MaterialTonemap->BindValues( params );
     }

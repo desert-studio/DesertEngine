@@ -192,6 +192,15 @@ namespace Desert::Editor
                                   EditorPreferences::Save();
                                   return PaletteCommandDone();
                               } } );
+        // UE's Local Exposure visualisation under a name: the proof frame of LOCAL-EXPOSURE is taken over the channel.
+        commands.push_back( { "View", "View mode: Local Exposure", []
+                              {
+                                  auto& view = EditorPreferences::Get().DebugView;
+                                  view.ClearViewMode();
+                                  view.DeferredDebug = Graphic::DeferredDebugMode::LocalExposure;
+                                  EditorPreferences::Save();
+                                  return PaletteCommandDone();
+                              } } );
         // Lit and Wireframe under names (the dropdown's first two entries): the CubeGrid seam check is "no
         // interior faces", which only a wireframe frame shows, and a mode reachable only by the toolbar
         // combo could not be photographed over the channel. Same channel reset as the dropdown

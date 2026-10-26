@@ -73,7 +73,17 @@ WIP_COMMIT = re.compile(r"\bgit\b[^;&|]*\bcommit\b[^;&|]*(-m\s*[\"']wip|-F\s*-\s
 CODE_FILE = re.compile(r"\.(cpp|hpp|h|glslh|shader|mm)\b")
 CODE_READ = re.compile(r"(^|[;&|(]\s*)(cat|head|tail|sed|grep|awk|less|more)\s")
 MAX_READ_LINES = 150
-WORKTREE = re.compile(r"(/Users/[^\s\"']+/DesertEngine-[A-Za-z0-9]+)(?:/|\b)")
+# A task tree: Mac /Users/…/DesertEngine-<X>; Windows F:/DesertEngine-<X> or F:/wt/<X>, also spelled /f/… or F:\….
+WORKTREE = re.compile(r"(/Users/[^\s\"']+/DesertEngine-[A-Za-z0-9]+"
+                      r"|(?:[A-Za-z]:|/[a-z])[/\\](?:DesertEngine-[A-Za-z0-9]+|wt[/\\][A-Za-z0-9_.-]+))(?=[/\\\s\"']|$)")
+
+
+def worktree_dir(spelled):
+    """A WORKTREE match as a path this Python can open: Git Bash's /f/… becomes F:/… on Windows."""
+    p = spelled.replace("\\", "/")
+    if os.name == "nt" and re.match(r"^/[a-z]/", p):
+        p = p[1].upper() + ":" + p[2:]
+    return p
 EDITOR_RUN = re.compile(r"Bin/(Debug|Release)/(Editor|Runtime)\b")
 # Owner 2026-09-29: an agent never waits for CI — the idle cache expires and the whole context is written again
 # (CI12: 1.5 of 3.2 M units). Push, report the run id, the lead watches it from a background shell for free.
@@ -608,19 +618,24 @@ def main():
         # Owner 2026-09-29 («может агент автоматически будет её строить?»): the injected map is dev's, and a task
         # branch's new folders are not in it (the night's continuation agents searched 30-46 % for them). The first
         # call that names a worktree (/…/DesertEngine-<X>/) builds THAT tree's map (0.3 s, no tokens) and points to it.
-        if not state.get("branch_map"):
-            tm = WORKTREE.search(pin.get("command", "") or pin.get("file_path", "") or "")
-            if tm and os.path.isdir(tm.group(1)):
-                out = os.path.join(STATE_DIR, "maps", agent + "-CODEMAP.md")
-                os.makedirs(os.path.dirname(out), exist_ok=True)
-                gen = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gen_codemap.py")
-                subprocess.run([sys.executable, gen], cwd=tm.group(1), env=dict(os.environ, CODEMAP_OUT=out),
-                               capture_output=True, timeout=30)
-                state["branch_map"] = out
-                save_state(state, path)
-                if os.path.exists(out):
-                    emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
-                          map_digest(out, tm.group(1))}})
+        # Owner 2026-10-24: the map then follows the agent's own commits — each `git commit` in the tree rebuilds it,
+        # so files the agent created are in it for the rest of its run (only a one-line note, not the digest again).
+        tm = WORKTREE.search(pin.get("command", "") or pin.get("file_path", "") or "")
+        tree = worktree_dir(tm.group(1)) if tm else None
+        committed = data.get("tool_name") == "Bash" and GIT_COMMIT.search(pin.get("command", "") or "")
+        if tree and os.path.isdir(tree) and (not state.get("branch_map") or committed):
+            first = not state.get("branch_map")
+            out = os.path.join(STATE_DIR, "maps", agent + "-CODEMAP.md")
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            gen = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gen_codemap.py")
+            subprocess.run([sys.executable, gen], cwd=tree, env=dict(os.environ, CODEMAP_OUT=out),
+                           capture_output=True, timeout=30)
+            state["branch_map"] = out
+            save_state(state, path)
+            if os.path.exists(out):
+                emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
+                      map_digest(out, tree) if first else
+                      "[agent_guard] Карта дерева пересобрана после коммита: " + out}})
         if data.get("tool_name") == "Bash" and pin.get("run_in_background"):
             # Any background job, not only build_quiet.sh: T6c5 ran suite.sh in the background and went idle.
             emit({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":

@@ -48,13 +48,15 @@ Shader "RadianceCacheAllocate"
             return HashMix( HashMix( HashMix( hash, floatBitsToUint( v.x ) ), floatBitsToUint( v.y ) ), floatBitsToUint( v.z ) );
         }
 
-        // Everything that lights the probe's cell directly: the sun, and each light the world grid lists there
+        // Everything that lights the probe's cell directly: the sun, atmosphere light 1, and each light the world grid lists there
         // with what it emits and where.
         uint LightHash( vec3 centre )
         {
             uint hash = 2166136261u;
             hash      = HashVec3( hash, giFrame.sunTravel.xyz * giFrame.sunTravel.w );
             hash      = HashVec3( hash, giFrame.sunRadiance.rgb * giFrame.sunTravel.w );
+            hash      = HashVec3( hash, giFrame.light1Travel.xyz * giFrame.light1Travel.w );
+            hash      = HashVec3( hash, giFrame.light1Radiance.rgb * ( 1.0 + giFrame.light1Radiance.w ) * giFrame.light1Travel.w );
             const LightGridWorldRange range = LightGridWorldLightsAt( lightGrid, centre );
             for ( uint k = 0u; k < range.count; ++k )
             {

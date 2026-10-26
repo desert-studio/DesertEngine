@@ -2,9 +2,12 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 
+#include <Common/Core/Profiler.hpp>
+
 #include <format>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -126,8 +129,19 @@ namespace Desert::Graphic::API::Vulkan
         return AllocateOneShot( m_TransferOpsFamily, begin );
     }
 
-    Common::ResultStr<VkResult> CommandBufferAllocator::FlushOneShot( VkCommandBuffer commandBuffer,
-                                                                      VkQueue         queue )
+    const char* CommandBufferAllocator::WaitSiteName( const std::source_location& where )
+    {
+        std::string_view file = where.file_name();
+        if ( const size_t slash = file.find_last_of( "/\\" ); slash != std::string_view::npos )
+            file.remove_prefix( slash + 1 );
+        std::string            name = std::format( "FlushOneShot wait: {}:{}", file, where.line() );
+        const std::scoped_lock pools( m_PoolMutex );
+        return m_WaitSites.insert( std::move( name ) ).first->c_str();
+    }
+
+    Common::ResultStr<VkResult> CommandBufferAllocator::FlushOneShot( VkCommandBuffer             commandBuffer,
+                                                                      VkQueue                     queue,
+                                                                      const std::source_location& where )
     {
         OneShotPool* pool = nullptr;
         {
@@ -195,28 +209,39 @@ namespace Desert::Graphic::API::Vulkan
              submitted != VK_SUCCESS )
             return refuse( std::format( "vkQueueSubmit failed: {}", VkResultToString( submitted ) ), fence );
 
-        VK_CHECK_RESULT( vkWaitForFences( m_LogicalDevice, 1, &fence, VK_TRUE, UINT64_MAX ) );
+        {
+            // The x column of these rows is the number of one-off CPU waits a frame (all of them, and this
+            // call site's); a frame's budget is zero.
+            DESERT_PROFILE_SCOPE( "Vulkan: FlushOneShot fence wait" );
+#if DESERT_DEV_INSTRUMENTS
+            const char* const site = WaitSiteName( where );
+            DESERT_PROFILE_SCOPE_DYNAMIC( site );
+#else
+            (void)where;
+#endif
+            VK_CHECK_RESULT( vkWaitForFences( m_LogicalDevice, 1, &fence, VK_TRUE, UINT64_MAX ) );
+        }
         vkDestroyFence( m_LogicalDevice, fence, nullptr );
         ReleaseOneShot( *pool, commandBuffer );
         return Common::MakeSuccess( VK_SUCCESS );
     }
 
     Common::ResultStr<VkResult>
-    CommandBufferAllocator::RT_FlushCommandBufferCompute( VkCommandBuffer commandBuffer )
+    CommandBufferAllocator::RT_FlushCommandBufferCompute( VkCommandBuffer commandBuffer, std::source_location where )
     {
-        return FlushOneShot( commandBuffer, m_ComputeQueue );
+        return FlushOneShot( commandBuffer, m_ComputeQueue, where );
     }
 
     Common::ResultStr<VkResult>
-    CommandBufferAllocator::RT_FlushCommandBufferGraphic( VkCommandBuffer commandBuffer )
+    CommandBufferAllocator::RT_FlushCommandBufferGraphic( VkCommandBuffer commandBuffer, std::source_location where )
     {
-        return FlushOneShot( commandBuffer, m_GraphicsQueue );
+        return FlushOneShot( commandBuffer, m_GraphicsQueue, where );
     }
 
     Common::ResultStr<VkResult>
-    CommandBufferAllocator::RT_FlushCommandBufferTransferOps( VkCommandBuffer commandBuffer )
+    CommandBufferAllocator::RT_FlushCommandBufferTransferOps( VkCommandBuffer commandBuffer, std::source_location where )
     {
-        return FlushOneShot( commandBuffer, m_TransferOpsQueue );
+        return FlushOneShot( commandBuffer, m_TransferOpsQueue, where );
     }
 
     Common::ResultStr<CommandBufferAllocator::Submitted>

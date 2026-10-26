@@ -168,6 +168,8 @@ Shader "DeferredLighting"
         	mat4 JitteredWorldToClip;    // the matrix itself: the contact shadows march the depth in its space
         	vec4 ScreenSpaceGi;  // x = the screen-space gather's samples per pixel (Scalability
         	                       // GlobalIllumination.ScreenSpaceSamples); y = ViewFrame::PreExposure; zw unused
+        	vec4 Light1Direction; // atmosphere light 1 (UE Atmosphere Sun Light Index 1, the moon): xyz = travel
+        	vec4 Light1Color;     // rgb = colour, a = intensity (after the atmosphere's transmittance); a == 0: none
         };
 
         float ssgiHash(vec2 p)
@@ -483,6 +485,15 @@ Shader "DeferredLighting"
 
         	vec3 result = DesertEvaluateShadingModel(
         	     shadingModel, DesertSunLight(LightDirection.xyz, radiance, shadow, transmissionShadow), surface, payload);
+
+        	// ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): the same shading model, its own
+        	// direction and transmitted illuminance. The cascades, the contact march, the relief self-shadow and the
+        	// cloud shadow map are all fitted to the SUN's direction, so none of them may occlude this light; it
+        	// is shaded unoccluded until it has its own shadow (REMAINDER). Absent (a == 0) adds nothing at all.
+        	if (Light1Color.a > 0.0)
+        		result += DesertEvaluateShadingModel(
+        		     shadingModel, DesertSunLight(Light1Direction.xyz, Light1Color.rgb * Light1Color.a, 1.0, 1.0),
+        		     surface, payload);
 
         	// Point and spot lights (the city payoff): full Cook-Torrance lit, each occluded by its atlas views when it
         	// casts shadows — the lights of this pixel's froxel only, in the order the full loop would sum them. An
