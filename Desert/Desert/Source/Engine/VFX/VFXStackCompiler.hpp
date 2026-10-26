@@ -99,11 +99,9 @@ namespace Desert::VFX
         [[nodiscard]] bool operator==( const VFXParticleModule& ) const = default;
     };
 
-    /// The inside of a `.dfxmod` module block (VFXModuleFormat.hpp): the `Attribute` / `Input` declaration
-    /// lines, then the GLSL. @p requireModuleFunction is false only for a module with no particle stage, which
-    /// declares inputs and has no GLSL.
-    Common::ResultStr<VFXParticleModule> ParseModuleBlock( const std::string& source, std::string_view where,
-                                                           bool requireModuleFunction );
+    /// The inside of a `.dfxmod` module block (VFXModuleFormat.hpp): the `Usage` line, the `Attribute` / `Input`
+    /// declaration lines, then the GLSL. A module whose Usage has no particle stage declares inputs and no GLSL.
+    Common::ResultStr<VFXParticleModule> ParseModuleBlock( const std::string& source, std::string_view where );
 
     /// The GLSL spelling of a value type ("float", "vec3", "int", "bool"...).
     [[nodiscard]] std::string_view GlslTypeName( VFXValueType type );

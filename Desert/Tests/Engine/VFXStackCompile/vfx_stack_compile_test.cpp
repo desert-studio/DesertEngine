@@ -105,7 +105,7 @@ namespace
         module.Guid        = Common::Content::AssetGuid{ 0x1417000000000001ull, 0x7e57ull };
         module.DisplayName = "Init";
         module.Category    = "Initialize";
-        auto parsed        = VFX::ParseModuleBlock( block, "Init", true );
+        auto parsed        = VFX::ParseModuleBlock( block, "Init" );
         EXPECT_TRUE( parsed.IsSuccess() ) << parsed.GetError();
         if ( parsed.IsSuccess() )
             module.Block = parsed.ExtractValue();
