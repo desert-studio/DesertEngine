@@ -12,14 +12,17 @@
 // gets the cap's voxels (UE leaves it to artists to split such a mesh).
 // UE: one Embree device per mesh build (FEmbreeScene). Here one device per process (EmbreeDevice) and one scene
 // per build - the device only holds the thread pool and the error state, the scene is the mesh.
-// UE: the bricks of a mip are a ParallelFor. Here a field is built on one thread: the distance-field workers
-// build several fields at once (MeshDistanceField.cpp), which is the same parallelism over a project.
+// The bricks of a mip are a ParallelFor, as UE; the distance-field workers also build several fields at once
+// (MeshDistanceField.cpp), and the worker building a field takes part in its loop.
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Assets/StratifiedHemisphereSamples.hpp>
+
+#include <Common/Core/JobSystem.hpp>
 
 #include <embree4/rtcore.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <format>
 #include <limits>
@@ -315,37 +318,55 @@ namespace Desert::Assets
                 mip.DistanceFieldToVolumeScaleBias = scaleBias;
                 mip.IndirectionTable.assign( static_cast<size_t>( dims.x ) * dims.y * dims.z,
                                              kDistanceFieldInvalidBrick );
-                std::vector<uint8_t> brick( kDistanceFieldBrickVoxels );
-                for ( int bz = 0; bz < dims.z; ++bz )
-                    for ( int by = 0; by < dims.y; ++by )
-                        for ( int bx = 0; bx < dims.x; ++bx )
-                        {
-                            if ( cancel.IsCancelled() )
-                                return std::nullopt;
-                            const glm::vec3 brickMin = volumeMin + glm::vec3( bx, by, bz ) * indirection;
-                            uint8_t         lowest = 255, highest = 0;
-                            for ( int z = 0; z < kBrick; ++z )
-                                for ( int y = 0; y < kBrick; ++y )
-                                    for ( int x = 0; x < kBrick; ++x )
-                                    {
-                                        const glm::vec3 p = brickMin + glm::vec3( x, y, z ) * voxel;
-                                        const float   d = SignedSampleDistance( mesh, scene, directions, p, trace,
-                                                                                volumeMin, volumeMax );
-                                        const uint8_t q = Quantize( d, localToVolume, scaleBias );
-                                        brick[( z * kBrick + y ) * kBrick + x] = q;
-                                        lowest                                 = std::min( lowest, q );
-                                        highest                                = std::max( highest, q );
-                                    }
-                            // UE keeps a brick only when it is not saturated at one end: all 255 is "outside, at
-                            // least the band away" and all 0 "inside, at least the band deep" - both read back as
-                            // the mip's maximum encoded distance without a brick.
-                            if ( lowest < 255 && highest > 0 )
-                            {
-                                mip.IndirectionTable[( static_cast<size_t>( bz ) * dims.y + by ) * dims.x + bx] =
-                                     mip.BrickCount();
-                                mip.BrickData.insert( mip.BrickData.end(), brick.begin(), brick.end() );
-                            }
-                        }
+                // UE's DoWork: the bricks of a mip are a ParallelFor (each brick its own task, the results
+                // gathered in brick order afterwards, so the field is the same bytes whatever the schedule). The
+                // calling distance-field worker takes part, so a nested loop never waits on a busy pool.
+                const size_t                      brickCount = mip.IndirectionTable.size();
+                std::vector<std::vector<uint8_t>> bricks( brickCount );
+                std::atomic<bool>                 stopped{ false };
+                Common::JobSystem::Get().ParallelFor(
+                     brickCount,
+                     [&]( const size_t index )
+                     {
+                         if ( stopped.load( std::memory_order_relaxed ) )
+                             return;
+                         if ( cancel.IsCancelled() )
+                         {
+                             stopped.store( true, std::memory_order_relaxed );
+                             return;
+                         }
+                         const int bx = static_cast<int>( index % static_cast<size_t>( dims.x ) );
+                         const int by = static_cast<int>( ( index / static_cast<size_t>( dims.x ) ) % dims.y );
+                         const int bz = static_cast<int>( index / ( static_cast<size_t>( dims.x ) * dims.y ) );
+                         const glm::vec3      brickMin = volumeMin + glm::vec3( bx, by, bz ) * indirection;
+                         std::vector<uint8_t> brick( kDistanceFieldBrickVoxels );
+                         uint8_t              lowest = 255, highest = 0;
+                         for ( int z = 0; z < kBrick; ++z )
+                             for ( int y = 0; y < kBrick; ++y )
+                                 for ( int x = 0; x < kBrick; ++x )
+                                 {
+                                     const glm::vec3 p = brickMin + glm::vec3( x, y, z ) * voxel;
+                                     const float     d = SignedSampleDistance( mesh, scene, directions, p, trace,
+                                                                               volumeMin, volumeMax );
+                                     const uint8_t   q = Quantize( d, localToVolume, scaleBias );
+                                     brick[( z * kBrick + y ) * kBrick + x] = q;
+                                     lowest                                 = std::min( lowest, q );
+                                     highest                                = std::max( highest, q );
+                                 }
+                         // UE keeps a brick only when it is not saturated at one end: all 255 is "outside, at
+                         // least the band away" and all 0 "inside, at least the band deep" - both read back as
+                         // the mip's maximum encoded distance without a brick.
+                         if ( lowest < 255 && highest > 0 )
+                             bricks[index] = std::move( brick );
+                     } );
+                if ( stopped.load( std::memory_order_relaxed ) || cancel.IsCancelled() )
+                    return std::nullopt;
+                for ( size_t index = 0; index < brickCount; ++index )
+                    if ( !bricks[index].empty() )
+                    {
+                        mip.IndirectionTable[index] = mip.BrickCount();
+                        mip.BrickData.insert( mip.BrickData.end(), bricks[index].begin(), bricks[index].end() );
+                    }
                 // Account for the border voxels: [-VolumePositionExtent, VolumePositionExtent] -> [uvMin, uvMin +
                 // uvSize].
                 const glm::vec3 uvMin   = glm::vec3( kBorder ) / glm::vec3( dims * kUnique );
