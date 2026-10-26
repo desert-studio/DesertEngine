@@ -137,9 +137,9 @@ namespace Desert::Editor
             ++bounds.Tiles;
         }
 
-        // Effects: the system's fixed bounds through the entity's world transform (UE: a Niagara component's
-        // Bounds from UNiagaraSystem::FixedBounds). A system still being read is Missing; one that failed to
-        // read draws nothing and is left out (its service has already said why).
+        // Effects: the enabled emitters' fixed bounds through the entity's world transform (UE: a Niagara
+        // component's Bounds from UNiagaraSystem::FixedBounds). A system still being read is Missing; one that
+        // failed to read draws nothing and is left out (its service has already said why).
         for ( const auto handle : registry.view<ECS::TransformComponent, ECS::VFXComponent>() )
         {
             const auto& vfx = registry.get<ECS::VFXComponent>( handle );
@@ -153,9 +153,13 @@ namespace Desert::Editor
                 ++bounds.Missing;
                 continue;
             }
-            const auto& fixed = resolved.GetValue()->Bounds;
-            Grow( bounds, Geometry::TransformBounds( ECS::Entity( handle, registry ).GetWorldTransform(),
-                                                     { fixed.Min, fixed.Max } ) );
+            // The union of the enabled emitters' fixed bounds (VFXSystemExtent), placed by the same rule the
+            // renderer culls with (VFXBoundsAt); a system with no enabled emitter draws nothing and is left out.
+            const auto extent = Assets::Serialization::VFXSystemExtent( *resolved.GetValue() );
+            if ( !extent )
+                continue;
+            Grow( bounds, Assets::Serialization::VFXBoundsAt(
+                               *extent, ECS::Entity( handle, registry ).GetWorldTransform() ) );
             ++bounds.Effects;
         }
         return bounds;

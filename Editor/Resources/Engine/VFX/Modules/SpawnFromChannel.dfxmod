@@ -1,0 +1,16 @@
+// DesertAsset {"Kind":"VFXModule","Guid":"c3e1a7d94b2f4e6a8d05f1b97a6e2c48","Versions":{"VFXM":1},"Dependencies":[]}
+Module "SpawnFromChannel"
+{
+    Category Spawn
+    Description "Spawns particles from the entries of a data channel."
+    Usage EmitterUpdate
+    Input Channel int = Binding
+    Input ParticlesPerEntry int = 1
+    Input MaxEntriesPerFrame int = 1024
+    Input MaxDistance float = 0
+
+    // Engine CPU module SpawnFromChannel (VFX-10, UE Spawn From Data Channel): turns this frame's entries of the
+    // bound channel into spawns of the tick's first step (VFX::GatherChannelSpawns). Optional bindings Position /
+    // Direction / Color / Lifetime / Size and Filter + FilterOp + FilterValue (VFX/VFXEmitterSpawn.hpp). The
+    // newborns' fields are read by the Initialize* modules through VFXSim (no GLSL here).
+}

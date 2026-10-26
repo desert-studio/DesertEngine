@@ -128,12 +128,16 @@ namespace Desert::Editor
 
         /// A state tree (`.dstatetree`, UE UStateTree): its own type for the grass type's reason - colour, icon
         /// and filter; a tree of states and transitions has no picture of its own.
-        StateTree
+        StateTree,
+
+        /// A VFX module (`.dfxmod`, UE's Niagara module script): its inputs, attributes and GLSL; a block of text
+        /// has no picture, so it shows the class icon as UE does.
+        VFXModule
     };
 
     /// The last enumerator: the censuses that walk the enum (ThumbnailProducers) stop here, so adding a kind
     /// is one edit of this line rather than a bound hidden in each suite.
-    inline constexpr FileType kLastFileType = FileType::StateTree;
+    inline constexpr FileType kLastFileType = FileType::VFXModule;
 
     /// ONE MAP: EXTENSION -> KIND (THM1n-3). The link before ThumbnailProducers in the chain
     /// "extension -> FileType -> producer" — the Content Browser types a file here and nowhere else, and the
@@ -205,6 +209,7 @@ namespace Desert::Editor
          { "dfxtype", FileType::VFXEffectType },
          { "degrasstype", FileType::LandscapeGrassType },
          { "dstatetree", FileType::StateTree },
+         { "dfxmod", FileType::VFXModule },
          { "deimport", FileType::ImportSettings },
          { "skmesh", FileType::SkinnedMesh },
          { "skeleton", FileType::Skeleton },

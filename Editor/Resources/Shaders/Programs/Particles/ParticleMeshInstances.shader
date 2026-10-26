@@ -152,11 +152,22 @@ Shader "ParticleMeshInstances"
             vec3 x = vec3( 1.0 - 2.0 * ( q.y * q.y + q.z * q.z ), 2.0 * ( q.x * q.y + q.w * q.z ), 2.0 * ( q.x * q.z - q.w * q.y ) );
             vec3 y = vec3( 2.0 * ( q.x * q.y - q.w * q.z ), 1.0 - 2.0 * ( q.x * q.x + q.z * q.z ), 2.0 * ( q.y * q.z + q.w * q.x ) );
             vec3 z = vec3( 2.0 * ( q.x * q.z + q.w * q.y ), 2.0 * ( q.y * q.z - q.w * q.x ), 1.0 - 2.0 * ( q.x * q.x + q.y * q.y ) );
-            const mat4 world = mat4( vec4( x * scale.x, 0.0 ), vec4( y * scale.y, 0.0 ), vec4( z * scale.z, 0.0 ),
-                                     vec4( ParticleWorldPosition( n ), 1.0 ) );
+            // A Local emitter's mesh goes through the entity's full transform as a whole - its position, its
+            // MeshOrientation and its Scale are the placement frame's (UE: the local-space LocalToWorld of the mesh
+            // vertex factory); a World emitter's frame is the identity.
+            const uint pc = DrawLayoutData.Columns0.x;
+            const vec3 p  = vec3( ParticleFloat( n, pc, 0u, 0.0 ), ParticleFloat( n, pc, 1u, 0.0 ),
+                                  ParticleFloat( n, pc, 2u, 0.0 ) );
+            const mat4 world = ParticleSimulationToWorld() *
+                               mat4( vec4( x * scale.x, 0.0 ), vec4( y * scale.y, 0.0 ), vec4( z * scale.z, 0.0 ),
+                                     vec4( p, 1.0 ) );
             InstanceTransforms[t] = world;
             if ( Lod.x > 1u )
-                atomicMin( Arguments[LodReduceWord()], ParticleMeshLevel( world, scale ) );
+                // The instance's world scale per axis (its columns' lengths): the particle's Scale, and for a Local
+                // emitter the entity's too.
+                atomicMin( Arguments[LodReduceWord()],
+                           ParticleMeshLevel( world, vec3( length( world[0].xyz ), length( world[1].xyz ),
+                                                           length( world[2].xyz ) ) ) );
 
             const uint                id   = PoolSlotsData[pool].Id;
             const ParticleMeshHistory last = HistoryEntries[n];

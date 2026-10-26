@@ -27,9 +27,9 @@ namespace Desert::Graphic
     // JFA ping-pong, SSR trace/tiles, cloud trace/guide, the exposure histogram) stays a local of that
     // AddFrame*. A history (read in a LATER frame) is never here: it is an external the renderer owns.
     // The struct is rebuilt with every graph and dies with it.
-    // The most shadow cascades a lit pass samples (the layers of ShadowCascadesTexture); SceneResources::kMaxCascades
-    // is asserted equal where both are visible (MeshRendererInternal.hpp).
-    inline constexpr uint32_t kSceneViewShadowCascades = 4;
+    // The most shadow cascades a lit pass samples (the layers of ShadowCascadesTexture: every shadowed directional
+    // light's); SceneResources::kMaxCascadeViews is asserted equal where both are visible (MeshRendererInternal.hpp).
+    inline constexpr uint32_t kSceneViewShadowCascades = 8;
 
     // The view's dynamic lights as buffers of THIS frame's graph (SceneRenderer::AddFrameLightGrid, before any lit
     // node): the point and spot rows, the local shadow views their ShadowView indices name, and the view's light

@@ -65,7 +65,7 @@ namespace Desert::Graphic
 
     // A RENDERER THAT WILL NEVER DRAW A SHADOW, and therefore holds no map to draw one into. Zero is a
     // legal cascade count everywhere the count already travels: ComputeShadowCascades returns 0,
-    // ShadowCascadePasses hands no pass, and SceneShadowBind writes 0 into ShadowParams.w so the
+    // ShadowCascadePasses hands no pass, and SceneShadowBind packs a slot's fitted count 0 so the
     // shader's own loop selects no cascade and ShadowFactor returns "lit" without sampling a map.
     //
     // WHY THIS, AND NOT `SceneSettings::EnableShadows`. The flag looks like the same decision and is a
@@ -93,10 +93,12 @@ namespace Desert::Graphic
     // this figure had two independent spellings (the renderer's log line and the test's own lambda) and a
     // third would have been written the next time somebody wanted it. Asked of CalculateImageSize, not
     // of a bytes-per-texel product, so the figure stays right whatever format either constant names.
-    [[nodiscard]] inline constexpr uint64_t ShadowAttachmentBytes( const ShadowQuality& quality )
+    // @p directionalLights: how many directional lights hold cascades at this budget (MeshRenderer's slots).
+    [[nodiscard]] inline constexpr uint64_t ShadowAttachmentBytes( const ShadowQuality& quality,
+                                                                   const uint32_t       directionalLights = 1u )
     {
         const uint32_t side = quality.ShadowMapSize;
-        return static_cast<uint64_t>( quality.CascadeCount ) * kShadowImagesPerCascade *
+        return static_cast<uint64_t>( quality.CascadeCount ) * directionalLights * kShadowImagesPerCascade *
                Core::Formats::CalculateImageSize( side, side, ViewTargetFormats::kShadowDepth );
     }
 
@@ -115,8 +117,8 @@ namespace Desert::Graphic
     public:
         ShadowAttachmentLease() = default;
 
-        explicit ShadowAttachmentLease( const ShadowQuality& quality )
-             : m_Bytes( ShadowAttachmentBytes( quality ) )
+        explicit ShadowAttachmentLease( const ShadowQuality& quality, const uint32_t directionalLights = 1u )
+             : m_Bytes( ShadowAttachmentBytes( quality, directionalLights ) )
         {
             if ( m_Bytes != 0 )
             {

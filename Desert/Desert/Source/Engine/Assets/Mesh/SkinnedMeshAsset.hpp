@@ -112,8 +112,9 @@ namespace Desert::Assets
         }
 
     private:
-        // Runtime + any section Height: the topology slot and its derive job (DDC hit or editor build).
-        void ResolveDisplacementTopology( AssetManager& manager );
+        // Runtime: the topology slot and its derive job (DDC hit or editor build); the component's materials
+        // decide per frame which sections move.
+        void ResolveDisplacementTopology();
 
         // Skinning geometry
         std::vector<SkinnedVertex> m_Vertices;

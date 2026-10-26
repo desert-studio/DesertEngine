@@ -1,6 +1,9 @@
 #include "VFXOverviewOverlay.hpp"
 
+#include <Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
+
+#include <algorithm>
 
 #include <cstdint>
 #include <format>
@@ -9,9 +12,19 @@
 
 namespace Desert::Editor
 {
-    void DrawVFXOverviewOverlay( const VFX::VFXDebugStats& stats, const ImVec2& viewportMin,
-                                 const ImVec2& viewportMax )
+    void DrawVFXOverviewOverlay( const VFX::VFXDebugStats&                                  stats,
+                                 std::span<const Graphic::System::ParticleViewEmitterCull> culls,
+                                 const ImVec2& viewportMin, const ImVec2& viewportMax )
     {
+        const auto culled = [culls]( std::uint32_t entity, std::uint32_t emitter )
+        {
+            return std::any_of( culls.begin(), culls.end(),
+                                [&]( const Graphic::System::ParticleViewEmitterCull& c )
+                                { return c.Culled && c.EntityId == entity && c.Emitter == emitter; } );
+        };
+        const auto culledCount = std::count_if( culls.begin(), culls.end(),
+                                                []( const Graphic::System::ParticleViewEmitterCull& c )
+                                                { return c.Culled; } );
         std::uint64_t emitters = 0, alive = 0, capacity = 0, overflow = 0;
         for ( const VFX::VFXSystemDebugStats& system : stats.Systems )
             for ( const VFX::VFXEmitterDebugStats& e : system.Emitters )
@@ -23,8 +36,9 @@ namespace Desert::Editor
             }
 
         std::vector<std::string> rows;
-        rows.push_back( std::format( "VFX: {} system(s), {} emitter(s), alive {} / {}{}{}", stats.Systems.size(),
-                                     emitters, alive, capacity, overflow > 0 ? std::format( ", overflow {}", overflow ) : "",
+        rows.push_back( std::format( "VFX: {} system(s), {} emitter(s), culled {}, alive {} / {}{}{}",
+                                     stats.Systems.size(), emitters, culledCount, alive, capacity,
+                                     overflow > 0 ? std::format( ", overflow {}", overflow ) : "",
                                      stats.Frozen ? " - FROZEN" : "" ) );
         if ( !stats.GpuCounts )
             rows.emplace_back( "  (GPU counts not read back yet)" );
@@ -32,9 +46,10 @@ namespace Desert::Editor
         {
             rows.push_back( std::format( "  {}", system.EntityUuid ) );
             for ( const VFX::VFXEmitterDebugStats& e : system.Emitters )
-                rows.push_back( std::format( "    {}: {} / {}{}{}", e.Name,
+                rows.push_back( std::format( "    {}: {} / {}{}{}{}", e.Name,
                                              e.GpuRead ? std::to_string( e.Alive ) : std::string( "-" ), e.Capacity,
                                              e.Runs ? "" : " (inactive)",
+                                             culled( system.EntityId, e.Emitter ) ? " (culled)" : "",
                                              e.Channel.Overflow > 0 ? std::format( ", overflow {}", e.Channel.Overflow )
                                                                     : "" ) );
         }

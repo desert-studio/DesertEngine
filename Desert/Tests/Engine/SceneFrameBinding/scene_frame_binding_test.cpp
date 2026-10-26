@@ -413,9 +413,11 @@ TEST_F( SceneFrameBindingShaderRoot, TheThreeMeshLitShadersDeclareOneSceneContra
 // and lands in three different descriptor sets.
 TEST_F( SceneFrameBindingShaderRoot, TheShadowBlockIsTheSameBytesInTheApplierAndInEveryMeshLitShader )
 {
-    // 4 x mat4 + 7 x vec4 (the contact shadows' two, then the PCSS filter). Spelt out so a silently added member
-    // is visible as a number here.
-    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascades * 64u + 7u * 16u;
+    // One mat4 per cascade view (every shadowed directional light's cascades), three vec4 per light (its slot
+    // word, texel sizes and depth ranges), then four vec4 (debug, the contact shadows' two, the PCSS filter).
+    // Spelt out so a silently added member is visible as a number here.
+    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascadeViews * 64u +
+                                        3u * SceneResources::kMaxShadowedDirectionalLights * 16u + 4u * 16u;
     EXPECT_EQ( sizeof( SceneResources::ShadowUBData ), kExpectedBytes );
 
     for ( const auto& shader : kMeshShaders )

@@ -273,6 +273,9 @@ namespace Common::Scalability
         PathTracingMaxBounces,      // bounces after the camera ray's hit, 0..64 (UE r.PathTracing.MaxBounces)
         PathTracingSamplesPerPixel, // paths per pixel after which the view stops tracing, 1..65536 (UE
                                     // r.PathTracing.SamplesPerPixel: the image is converged and kept)
+        PathTracingMaxPathIntensity, // the brightest one path's contribution may be, in exposed units (1 ~ the
+                                     // image's white), 0 = no clamp, 0..65536 (UE r.PathTracing.MaxPathIntensity /
+                                     // PostProcessSettings.PathTracingMaxPathIntensity, default 24)
         // GI SoftwareTraced / HardwareTraced screen probe layout, read by SceneRenderer::BeginScene into
         // ScreenProbeGatherInputs: the gather compiles its programs under it (ScreenProbeLayout, the shaders'
         // SP_DOWNSAMPLE_LOG2 / SP_TRACED_TEXELS permutation) and resizes its atlases on a change.
