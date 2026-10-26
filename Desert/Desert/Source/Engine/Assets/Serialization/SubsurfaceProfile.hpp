@@ -36,7 +36,7 @@ namespace Desert::Assets::Serialization
     }
 
     // UE FSubsurfaceProfileImplementationTechniqueHint (SubsurfaceProfile.h:13-24).
-    enum class SubsurfaceImplementation : uint8_t
+    enum class SubsurfaceImplementation
     {
         AdaptiveFilteredImportanceSampling,
         Separable

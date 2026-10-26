@@ -2,6 +2,7 @@
 #include <Engine/Assets/TextAssetHeaderCheck.hpp>
 
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Core/Serialization/GlmReflection.hpp>
 #include <Common/Json/Json.hpp>
 
 #include <cmath>
