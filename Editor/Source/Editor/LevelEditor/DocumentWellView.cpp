@@ -2,7 +2,7 @@
 #include "Editor/Core/DocumentWell.hpp"
 #include "Editor/Core/EditorSubject.hpp"
 #include "Editor/Core/IconsMaterialDesignIcons.hpp"
-#include "Editor/Panels/IPanel.hpp"
+#include "Editor/Core/IPanel.hpp"
 #include <cstddef>
 #include <format>
 #include <functional>

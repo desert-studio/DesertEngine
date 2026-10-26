@@ -3,14 +3,13 @@ deps = include('Dependencies.lua')
 -- and Desert/Dependencies.lua was already included by the engine projects.
 local engineDeps = dofile(_MAIN_SCRIPT_DIR .. '/Desert/Dependencies.lua')
 
--- THE EDITOR IS TWO PROJECTS, AS UNREAL'S IS (BLD-EDITORCORE). EditorCore is every editor source but the
--- entry point, built once as a static library -- UnrealEd's place: the executable and the test runner both
--- LINK it. Before, Editor was an executable and nothing could link it, so Desert/Tests/premake5.lua kept a
--- hand-written list of the editor sources its suites test and compiled them a second time (67 TUs, each a
--- list entry somebody had to remember). Editor is now Sandbox.cpp -- CreateApplication and the engine's
--- main (Engine/EntryPoint.hpp) -- plus the link, which takes EditorCore WHOLE (DesertPlatform.LinkWholeArchive).
+-- THE EDITOR IS AN EXECUTABLE OVER LIBRARIES, AS UNREAL'S IS OVER UnrealEd (BLD-EDITORCORE, EDITOR-LIBS). Every
+-- editor source but the entry point is built into five layered static libraries (BuildScripts/EditorLibs.lua:
+-- EditorCore <- EditorImport <- EditorWidgets <- EditorPanels <- EditorLevel); the executable and the test
+-- runners both LINK them. Editor is Sandbox.cpp -- CreateApplication and the engine's main
+-- (Engine/EntryPoint.hpp) -- plus the link, which takes every library WHOLE (DesertEditorLibs.Link( true )).
 --
--- Compiling a translation unit that includes editor headers takes the same paths and macros in both
+-- Compiling a translation unit that includes editor headers takes the same paths and macros in all of those
 -- projects, so they are written once, here.
 local function EditorCompileSettings()
     includedirs(DesertModuleLibs.IncludeDirs())
@@ -87,49 +86,72 @@ local function EditorCompileSettings()
     filter {}
 end
 
-project "EditorCore"
+-- ONE PROJECT PER LAYER, lowest first (the table, the layer of every directory and why, is
+-- BuildScripts/EditorLibs.lua). The libraries never `links` each other: lib.exe would copy a linked library
+-- INTO the one naming it (BuildScripts/DesertModuleLibs.lua, SetPrebuiltLibraries). The executables link all
+-- five.
+--
+-- THE PRECOMPILED HEADER (Editor/Source/EditorPCH.hpp) is each library's own, compiled from EditorPCH.cpp and
+-- force-included into every source, as the engine's module libraries do with pch.hpp: none of the 280-odd
+-- editor translation units used one before, and each re-parsed the standard library, ImGui, spdlog and the
+-- engine's scene and component headers on its own.
+local function EditorLibrary( layer, index )
+    project( layer.Name )
     kind "StaticLib"
     DesertUnity.EnableForProject() -- no-op without --unity (BuildScripts/UnityBuild.lua)
 
-    -- DesertHeaderTool over the editor's sources: routed-event handlers verified (a build error at
-    -- file:line) and the DESERT_SUBSYSTEM( Editor ) list emitted for EditorLayer.
-    -- The engine's codegen too, though a static library links nothing: the editor sources compile against what the
-    -- engine's prebuild generates, an order the executable used to get from its `links` and a library does not.
-    dependson { "DesertHeaderTool" }
+    pchheader "EditorPCH.hpp"
+    pchsource "Source/EditorPCH.cpp"
+    forceincludes { "EditorPCH.hpp" }
+
+    -- The editor sources compile against what the engine's prebuild generates, an order an executable gets
+    -- from its `links` and a library does not.
     DesertModuleLibs.DependOnCodegen()
-    prebuildcommands {
-        DesertPlatform.BuiltToolPath("DesertHeaderTool")
-            .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
-            .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source"'
-            .. DesertModuleLibs.HeaderToolRoots("context")
-            .. ' --subsystems Editor Desert::Editor::EditorLayer EditorLayer.hpp'
-            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source/Editor/Generated/EditorSubsystems.gen.cpp"'
-    }
+    if layer.Name == DesertEditorLibs.CodegenLib then
+        -- DesertHeaderTool over ALL the editor's sources, not this library's: routed-event handlers verified
+        -- (a build error at file:line) and the DESERT_SUBSYSTEM( Editor ) list emitted for EditorLayer -- into
+        -- Editor/Generated, which this library compiles, so no other library has to wait for it.
+        dependson { "DesertHeaderTool" }
+        prebuildcommands {
+            DesertPlatform.BuiltToolPath("DesertHeaderTool")
+                .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
+                .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source"'
+                .. DesertModuleLibs.HeaderToolRoots("context")
+                .. ' --subsystems Editor Desert::Editor::EditorLayer EditorLayer.hpp'
+                .. ' "' .. _MAIN_SCRIPT_DIR .. '/Editor/Source/Editor/Generated/EditorSubsystems.gen.cpp"'
+        }
+    end
 
-    files { 
-        -- Engine 
-        "Source/**.cpp", 
-        "Source/**.hpp",
-        "ThirdParty/ImGuizmo/ImGuizmo.cpp",
-
-    }
-    -- The entry point is the executable's (project "Editor" below), never the library's: a test runner
-    -- that links EditorCore has its own main.
-    removefiles { "Source/Sandbox.cpp", "Source/Sandbox.hpp" }
+    files { "Source/EditorPCH.cpp", "Source/EditorPCH.hpp" }
+    files( DesertEditorLibs.FilesOf( layer.Name ) )
+    if index == 1 then
+        files { "ThirdParty/ImGuizmo/ImGuizmo.cpp" }
+    end
 
     EditorCompileSettings()
 
-    -- THE START-UP SPLASH HAS ONE IMPLEMENTATION PER PLATFORM (Editor/Splash/SplashScreen.hpp). The
-    -- Source/** glob above picks the Windows one up everywhere, so it is dropped where it cannot build;
-    -- the macOS one is Objective-C++, which the glob does not match at all and is added by name.
-    -- The system file dialogs (Editor/Platform/DesktopPlatform.hpp) follow the same shape.
+    -- THE START-UP SPLASH HAS ONE IMPLEMENTATION PER PLATFORM (Editor/Splash/SplashScreen.hpp). The Windows
+    -- one is dropped where it cannot build; the macOS one is Objective-C++, which FilesOf does not list and
+    -- the EditorObjC library below compiles. The system file dialogs (Editor/Platform/DesktopPlatform.hpp)
+    -- follow the same shape. Each pattern only matches in the library that holds that directory.
     filter "system:not windows"
         removefiles { "Source/Editor/Splash/Windows/**", "Source/Editor/Platform/Windows/**" }
 
-    filter "system:macosx"
-        files { "Source/Editor/Splash/MacOS/**.mm", "Source/Editor/Platform/MacOS/**.mm" }
-
     filter {}
+end
+
+for index, layer in ipairs( DesertEditorLibs.Layers ) do
+    EditorLibrary( layer, index )
+end
+
+-- The editor's Objective-C++ (macOS only), without the precompiled header (BuildScripts/EditorLibs.lua, ObjCLib).
+if DesertPlatform.IsMacOS then
+    project( DesertEditorLibs.ObjCLib )
+    kind "StaticLib"
+    DesertModuleLibs.DependOnCodegen()
+    files( DesertEditorLibs.ObjCFiles() )
+    EditorCompileSettings()
+end
 
 project "Editor"
     kind "ConsoleApp"
@@ -143,8 +165,10 @@ project "Editor"
 
     EditorCompileSettings()
 
+    -- Every editor source but this entry point (the libraries above), whole: the component editors register from
+    -- static initialisers nothing references. First, so gmake resolves them before what they use.
+    DesertEditorLibs.Link( true )
     links{
-        "EditorCore", -- every editor source but this entry point (project above); first, so gmake resolves it before what it uses
         "GLFW",
         "Optick",
         "MeshOptimizer",
@@ -167,9 +191,6 @@ project "Editor"
     }
     -- The engine, one library per module (BuildScripts/DesertModuleLibs.lua), after what uses it.
     DesertModuleLibs.Link()
-    -- ALL of EditorCore, not what Sandbox.cpp happens to reach: the component editors register from static
-    -- initialisers nothing references (BuildScripts/Platform.lua, LinkWholeArchive).
-    DesertPlatform.LinkWholeArchive( "EditorCore" )
 
     if os.isdir( _MAIN_SCRIPT_DIR .. "/ThirdParty/dlib" ) then
         links       { "Dlib" }

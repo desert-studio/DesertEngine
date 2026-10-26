@@ -2,7 +2,7 @@
 
 #include "Editor/Core/AssetOpen.hpp"
 #include "Editor/Core/Commands/CommandRegistry.hpp"
-#include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
+#include "Editor/Panels/Landscape/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include "Editor/Core/Commands/WorldPartitionEditCommand.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp"
@@ -14,7 +14,7 @@
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/Selection/ModelingState.hpp"
 #include "Editor/Core/Selection/ModelingStateProperties.hpp"
-#include "Editor/Core/Selection/FoliageToolProperties.hpp"
+#include "Editor/Panels/Foliage/FoliageToolProperties.hpp"
 #include "Editor/Core/Selection/ViewportMode.hpp"
 #include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"

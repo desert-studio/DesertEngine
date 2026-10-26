@@ -7,7 +7,7 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <ImGui/imgui.h>
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
-#include "Editor/Panels/IPanel.hpp"
+#include "Editor/Core/IPanel.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"

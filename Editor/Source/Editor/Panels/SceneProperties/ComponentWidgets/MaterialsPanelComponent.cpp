@@ -16,7 +16,7 @@
 #include <Editor/Widgets/AssetFieldOpen.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>

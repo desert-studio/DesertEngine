@@ -4,7 +4,7 @@
 // pin the relation the owner's defect broke: the same bytes must give the same answer however the file's
 // clock, path or load order moved, and an edit must give "capture" exactly once.
 
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 
 #include <gtest/gtest.h>
 

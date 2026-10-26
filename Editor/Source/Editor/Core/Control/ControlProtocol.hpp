@@ -198,7 +198,7 @@ namespace Desert::Editor::Control
         Selection, ///< the selected entity's transform (Core/Selection/SelectionTransformProperties.hpp)
         Entity,    ///< one entity's reflected components, addressed by 'entity' (its UUID); values as 'text'
         World,     ///< the open scene's SceneSettings (World Settings); values as 'text'
-        Tool,      ///< the active editor mode's tool settings (Foliage: Core/Selection/FoliageToolProperties.hpp);
+        Tool,      ///< the active editor mode's tool settings (Foliage: Panels/Foliage/FoliageToolProperties.hpp);
                    ///< 'text'
     };
 

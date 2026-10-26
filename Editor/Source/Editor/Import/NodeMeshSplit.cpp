@@ -3,7 +3,7 @@
 
 #include "CookPaths.hpp"
 #include "ImportedMeshAsset.hpp"
-#include "StaticMeshOutput.hpp"
+#include <Editor/Core/StaticMeshOutput.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>

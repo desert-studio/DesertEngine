@@ -2,7 +2,7 @@
 
 #include <array>
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 
 #include <Engine/Assets/Serialization/LandscapeLayerInfo.hpp>
 #include <Engine/ECS/Components.hpp>

@@ -1110,7 +1110,7 @@ namespace
            "THM: the stamp is only the key ThumbnailPrefetch::Acquire matches a worker's pixels by; freshness is "
            "Common::Utils::WriteWatch's (it hashes while the stamp is racy) and ThumbnailOutdated's read moment, "
            "and a taken entry leaves the store, so a same-tick rewrite is flagged and decoded again" },
-         { "Editor/Source/Editor/Widgets/ThumbnailFreshness.hpp",
+         { "Editor/Source/Editor/Core/ThumbnailFreshness.hpp",
            "FIX2: the record's writer tells the memo what it wrote, so the stamp is never the only witness" },
     };
 } // namespace

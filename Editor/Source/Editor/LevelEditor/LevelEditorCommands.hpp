@@ -13,7 +13,7 @@
 
 #include "Editor/Core/CommandPalette.hpp"
 #include "Editor/Core/Commands/CommandRegistry.hpp"
-#include "Editor/Core/Selection/EntityCommands.hpp"
+#include "EntityCommands.hpp"
 #include "Editor/Panels/FileExplorer/AssetCommands.hpp"
 #include <Common/Core/ResultStr.hpp>
 

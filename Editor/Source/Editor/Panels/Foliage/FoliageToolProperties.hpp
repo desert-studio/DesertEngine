@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
-#include <Editor/Core/Selection/FoliagePaint.hpp>
+#include <Editor/Panels/Foliage/FoliagePaint.hpp>
 
 #include <array>
 #include <cmath>

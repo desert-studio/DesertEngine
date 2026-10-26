@@ -16,7 +16,7 @@
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
-#include <Editor/Core/Selection/FoliagePaint.hpp>
+#include <Editor/Panels/Foliage/FoliagePaint.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
