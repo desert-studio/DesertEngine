@@ -23,8 +23,8 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Animation/Rig` — 12 files, 4,516 lines: ControlBoneDrive, ControlDrag, ControlElement, ControlHierarchy, ControlKeyTarget, ControlKeyer, ControlLimit, ControlRigStage, ControlShape, ControlShapeDraw, ControlShapeLibrary, ControlShapePolyline, … (+16)
 - `Animation/Solvers` — 2 files, 270 lines: TwoBoneIKChain, TwoBoneIKGoal, TwoBoneIKSolution
 - `Animation/Timeline` — 18 files, 4,867 lines: AnimationSample, AnimationSectionContent, ApplyReport, AudioCommand, AudioSample, AudioSectionContent, AudioVoices, Binding, BindingGuid, BoneBindingTable, BoneRename, BoolChannel, … (+26)
-- `Assets` — 134 files, 29,420 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+135)
-- `Assets/Mesh` — 14 files, 2,813 lines: AnimationAsset, MeshAsset, ReloadTwinTag, SkeletonAsset, SkeletonReferrers, SkinnedMeshAsset, StaticMeshAsset, SurfaceMaterialAsset
+- `Assets` — 134 files, 29,430 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+135)
+- `Assets/Mesh` — 14 files, 2,818 lines: AnimationAsset, MeshAsset, ReloadTwinTag, SkeletonAsset, SkeletonReferrers, SkinnedMeshAsset, StaticMeshAsset, SurfaceMaterialAsset
 - `Assets/Prefab` — 9 files, 1,500 lines: AnimationComponentSer, EntityData, InstanceRootTransform, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, PrefabAsset, PrefabBoundsSer, PrefabData, PrefabDiffReport, PrefabOverrideData, … (+6)
 - `Assets/Serialization` — 44 files, 11,177 lines: AnimationAssetData, Box, ControlDriveData, ControlElementData, ControlLimitData, ControlRigData, ControlSpaceData, CookedPanorama, Document, FoliageFloatInterval, FoliageProcedural, FoliageScaleCurveKey, … (+77)
 - `Assets/Shader` — 2 files, 325 lines: ShaderAsset
@@ -46,7 +46,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `GameplayDebugger` — 5 files, 566 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerShape, IGameplayDebuggerCategory
 - `GameplayTags` — 1 files, 113 lines: GameplayTag, GameplayTagContainer, GameplayTagRegistry
 - `Generated` — 31 files, 2,447 lines
-- `Geometry` — 87 files, 19,803 lines: AutoUVSettings, BakeOptions, BakeSurface, BoneBounds, BooleanOutcome, Cell, CutPlane, DeformOutcome, DisplacedRange, DisplacedSurface, DisplacementCluster, DisplacementHeightImage, … (+108)
+- `Geometry` — 87 files, 19,900 lines: AutoUVSettings, BakeOptions, BakeSurface, BoneBounds, BooleanOutcome, Cell, CutPlane, DeformOutcome, DisplacedRange, DisplacedSurface, DisplacementCluster, DisplacementHeightImage, … (+108)
 - `Geometry/Errors` — 1 files, 20 lines
 - `Geometry/MeshCore` — 26 files, 6,411 lines: AxisAlignedBox3, BaseIterator, BaseValueIterator, Block, ConstIterator, DynamicMeshCompactMaps, DynamicMeshEditResult, DynamicMeshEditor, DynamicSubmesh3, DynamicVector, DynamicVectorN, EdgeLoop, … (+35)
 - `Geometry/MeshCore/CompGeom` — 8 files, 1,362 lines: ConstrainedDelaunay2, Delaunay2
@@ -65,7 +65,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Geometry/MeshCore/Spatial` — 3 files, 1,208 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
 - `Graphic` — 119 files, 25,093 lines: ActiveViewScope, AllocationLedger, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, BlockDeclaration, … (+187)
 - `Graphic/API` — 2 files, 31 lines
-- `Graphic/API/Vulkan` — 86 files, 23,680 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CatalogProbe, CommandBufferAllocator, DescriptorIndexingLimits, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, … (+100)
+- `Graphic/API/Vulkan` — 86 files, 23,832 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CatalogProbe, CommandBufferAllocator, DescriptorIndexingLimits, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, … (+101)
 - `Graphic/API/Vulkan/FidelityFX` — 2 files, 225 lines: DeviceRequirements
 - `Graphic/API/Vulkan/Streamline` — 2 files, 1,364 lines: DlssEvaluation, DlssImage, DlssOptions, DlssRenderRange, FeatureState, Runtime
 - `Graphic/API/Vulkan/VulkanUtils` — 4 files, 565 lines: DescriptorSetBuilder
@@ -185,7 +185,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Import` — 44 files, 8,929 lines: AsyncMeshLoader, DdsBlockChain, DdsSourceImage, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedLight, ImportedMaterial, … (+16)
 - `Import/Assimp` — 12 files, 2,244 lines: AssimpImporter, SceneVertexStreams, SourceAlpha, SourceMaterialRead, SourceTextureFile
 - `Import/Blend` — 2 files, 236 lines: BlendImporter
-- `LevelEditor` — 53 files, 14,582 lines: AssetCompiling, ControlService, DockLayout, DocumentHost, EditorImGuiHost, EditorPanelHandles, EditorStartup, EntityCommands, LevelEditorCommands, LevelToolbar, MainMenu, MainMenuActions, … (+18)
+- `LevelEditor` — 53 files, 14,572 lines: AssetCompiling, ControlService, DockLayout, DocumentHost, EditorImGuiHost, EditorPanelHandles, EditorStartup, EntityCommands, LevelEditorCommands, LevelToolbar, MainMenu, MainMenuActions, … (+18)
 - `Packaging` — 8 files, 2,749 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
 - `Panels` — 1 files, 41 lines
 - `Panels/Animation` — 10 files, 4,146 lines: AnimGraphCanvas, AnimGraphPanel, ControlRigPanel, PoseFieldEdit, PoseGraphCanvas, PoseGraphTarget, PosePinRef, PoseWireRef, StatePosition, TransitionRef, WarningTarget
@@ -320,7 +320,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `DomeSheet` — 1 files, 36 lines
 - `DomeSheet/Source` — 2 files, 698 lines: DomeSample, Image, SheetGeometry
 - `FbxMeshSplitter` — 4 files, 688 lines: FbxSplitResult
-- `GamePackager` — 1 files, 134 lines
+- `GamePackager` — 1 files, 135 lines
 - `GamePackager/Source` — 1 files, 208 lines
 - `ImageDiff` — 1 files, 37 lines
 - `ImageDiff/Source` — 2 files, 306 lines: DiffResult
@@ -341,7 +341,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `UIMockup` — 1 files, 82 lines
 - `UIMockup/Source` — 3 files, 583 lines: Fonts, Mockup
 - `UIMockup/Source/Mockups` — 2 files, 810 lines
-- `WorldCook` — 1 files, 106 lines
+- `WorldCook` — 1 files, 107 lines
 - `WorldCook/Source` — 3 files, 343 lines
 - `WorldGen` — 1 files, 91 lines
 - `WorldGen/Source` — 5 files, 1,925 lines: FoliageTypeRef, LandscapeContent, LandscapeLayerRef, LandscapeWorld, LandscapeWorldSpec, LandscapeWorldTile, MaterialRef, MeshRef, PropRef, PropTheme, WorldSpec, WorldStats
