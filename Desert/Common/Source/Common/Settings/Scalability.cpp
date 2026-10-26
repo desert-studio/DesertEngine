@@ -248,6 +248,10 @@ namespace Common::Scalability
              { P::PathTracingSamplesPerPixel, G::GlobalIllumination, "PathTracing.SamplesPerPixel", 1, 65536,
                CL::None,
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths per pixel until it stops)" },
+             { P::PathTracingMaxPathIntensity, G::GlobalIllumination, "PathTracing.MaxPathIntensity", 0, 65536,
+               CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the clamp of one path's exposed "
+               "contribution)" },
              { P::PathTracingDenoiser, G::GlobalIllumination, "PathTracing.Denoiser", 0, 1, CL::None,
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the image denoised every frame: by "
                "DLSS "
