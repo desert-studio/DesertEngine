@@ -18,7 +18,7 @@
         },
         {
             "Name": "HeightScale",
-            "Value": [12.0, 0.0, 0.0, 0.0]
+            "Value": [25.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "HeightCenter",
