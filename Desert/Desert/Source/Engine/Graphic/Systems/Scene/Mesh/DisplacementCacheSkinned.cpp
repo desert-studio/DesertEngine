@@ -742,6 +742,9 @@ namespace Desert::Graphic::System
             m_Stats.Entries += 1;
             if ( entry.Pending.valid() )
                 ++m_Stats.Pending;
+            if ( !m_PipelineRefusalLogged &&
+                 ( entry.Pending.valid() || ( !entry.Current && !entry.RefusalLogged && !entry.Using.empty() ) ) )
+                ++m_Stats.Unsettled;
             if ( entry.Lowered > 0 )
                 m_Stats.LevelsHeld += entry.Lowered;
             if ( entry.Current )
