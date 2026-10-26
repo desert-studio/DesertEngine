@@ -35,9 +35,11 @@ namespace Desert::Editor
         {
         }
 
-        virtual void OnPreUpdate()               {}
-        virtual ~IPanel()                        = default;
-        virtual void       OnUIRender()          = 0;
+        virtual void OnPreUpdate()
+        {
+        }
+        virtual ~IPanel()         = default;
+        virtual void OnUIRender() = 0;
 
         // Multi-scene editing: rebind a scene-bound panel to the newly-focused scene so the Outliner,
         // Details, Settings, etc. follow whichever viewport the user is working in. No-op for panels that

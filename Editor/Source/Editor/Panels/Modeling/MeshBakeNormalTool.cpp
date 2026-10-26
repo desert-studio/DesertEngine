@@ -110,12 +110,12 @@ namespace Desert::Editor::Core
                                                                 static_cast<uint64_t>( shader ) );
             const auto source = Common::Utils::FileSystem::ReadFileContent( meta->Filepath );
             if ( !source.IsSuccess() )
-                return Common::MakeFormattedError<std::string>( "template '{}': {}", meta->Filepath.generic_string(),
-                                                                source.GetError() );
+                return Common::MakeFormattedError<std::string>(
+                     "template '{}': {}", meta->Filepath.generic_string(), source.GetError() );
             const auto parsed = ::Desert::Core::Preprocess::DShaderParser::Parse( source.GetValue() );
             if ( !parsed )
-                return Common::MakeFormattedError<std::string>( "template '{}': {}", meta->Filepath.generic_string(),
-                                                                parsed.GetError() );
+                return Common::MakeFormattedError<std::string>(
+                     "template '{}': {}", meta->Filepath.generic_string(), parsed.GetError() );
             std::vector<std::string> slots;
             for ( const auto& param : parsed.GetValue().Meta.Params )
                 if ( param.IsTexture && param.SlotIntent == intent )

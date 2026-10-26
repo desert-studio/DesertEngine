@@ -41,8 +41,8 @@ namespace Desert::Editor::Core
 
     struct BakeNormalMapOutcome
     {
-        std::filesystem::path TextureAsset; // the .detex
-        std::filesystem::path Material;     // the .demat assigned
+        std::filesystem::path TextureAsset;   // the .detex
+        std::filesystem::path Material;       // the .demat assigned
         std::filesystem::path OcclusionAsset; // the AO .detex, empty unless Settings.Occlusion
         std::filesystem::path CurvatureAsset; // the Curvature .detex, empty unless Settings.Curvature
         std::size_t           CoveredTexels = 0;
