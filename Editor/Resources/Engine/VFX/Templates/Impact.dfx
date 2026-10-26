@@ -3,7 +3,7 @@
         "Kind": "VFXSystem",
         "Guid": "b41d7e2a9c3f4a6e8d15f07c2e9a3b81",
         "Versions": {
-            "VFXS": 4
+            "VFXS": 5
         },
         "Dependencies": ["02637a2ef2774901a0a88452af542abd", "0caef28c515f4a4e93363f1616ed3ca3", "240adf0c6a0f407489419764780491eb", "2d5323b9c4d349f8b91c4fc795599f4f", "3435fcff54c84b3499fa6ed992a4bfd3", "37ef32a37dfc4501bb57e95fc9919372", "55923c5734e04fc78e068ad051c4772c", "8079c58d9d214db694607abaf9c1a4b2", "94456c88cf0e495e9396474e052d53bd", "9488cdf80a5f4f4fba16c02d431bc8e0", "a0f042db0b6248cab1bcf38605abbf78", "bd19bb728e4646919475240f1a19369d", "d1378c9a2062498ab14e47e7ef29cccb", "dff69e4e958a45f5a4fd4f19ba7de22c", "e64f581d72684d28ab4dc2f70e9c807a"]
     },
@@ -13,10 +13,6 @@
     "Duration": 1.5,
     "Loop": false,
     "Seed": 7171,
-    "Bounds": {
-        "Min": [-150.0, -150.0, -150.0],
-        "Max": [150.0, 150.0, 150.0]
-    },
     "UserParams": [
         {
             "Name": "SurfaceNormal",
@@ -30,6 +26,10 @@
             "Enabled": true,
             "Space": "World",
             "Capacity": 64,
+            "Bounds": {
+                "Min": [-150.0, -150.0, -150.0],
+                "Max": [150.0, 150.0, 150.0]
+            },
             "Lifecycle": {
                 "Delay": 0.0,
                 "LoopDuration": 1.5,
@@ -435,6 +435,10 @@
             "Enabled": true,
             "Space": "World",
             "Capacity": 16,
+            "Bounds": {
+                "Min": [-150.0, -150.0, -150.0],
+                "Max": [150.0, 150.0, 150.0]
+            },
             "Lifecycle": {
                 "Delay": 0.0,
                 "LoopDuration": 1.5,
@@ -737,6 +741,10 @@
             "Enabled": true,
             "Space": "World",
             "Capacity": 128,
+            "Bounds": {
+                "Min": [-150.0, -150.0, -150.0],
+                "Max": [150.0, 150.0, 150.0]
+            },
             "Lifecycle": {
                 "Delay": 0.0,
                 "LoopDuration": 1.5,

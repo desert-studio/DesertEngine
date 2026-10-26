@@ -3,7 +3,7 @@
         "Kind": "VFXSystem",
         "Guid": "f946bb8dcde840e9ad64baceb24b6ec4",
         "Versions": {
-            "VFXS": 4
+            "VFXS": 5
         },
         "Dependencies": [
             "0caef28c515f4a4e93363f1616ed3ca3",
@@ -35,18 +35,6 @@
     "Duration": 1.0,
     "Loop": true,
     "Seed": 5150,
-    "Bounds": {
-        "Min": [
-            -2000.0,
-            -2000.0,
-            -2000.0
-        ],
-        "Max": [
-            2000.0,
-            2000.0,
-            2000.0
-        ]
-    },
     "UserParams": [],
     "Emitters": [
         {
@@ -54,6 +42,18 @@
             "Enabled": true,
             "Space": "World",
             "Capacity": 2048,
+            "Bounds": {
+                "Min": [
+                    -2000.0,
+                    -2000.0,
+                    -2000.0
+                ],
+                "Max": [
+                    2000.0,
+                    2000.0,
+                    2000.0
+                ]
+            },
             "Lifecycle": {
                 "Delay": 0.0,
                 "LoopDuration": 1.0,
@@ -637,6 +637,18 @@
             "Enabled": true,
             "Space": "World",
             "Capacity": 1024,
+            "Bounds": {
+                "Min": [
+                    -2000.0,
+                    -2000.0,
+                    -2000.0
+                ],
+                "Max": [
+                    2000.0,
+                    2000.0,
+                    2000.0
+                ]
+            },
             "Lifecycle": {
                 "Delay": 0.0,
                 "LoopDuration": 1.0,
@@ -1214,6 +1226,18 @@
             "Enabled": true,
             "Space": "World",
             "Capacity": 1024,
+            "Bounds": {
+                "Min": [
+                    -2000.0,
+                    -2000.0,
+                    -2000.0
+                ],
+                "Max": [
+                    2000.0,
+                    2000.0,
+                    2000.0
+                ]
+            },
             "Lifecycle": {
                 "Delay": 0.0,
                 "LoopDuration": 1.0,
@@ -1623,6 +1647,18 @@
             "Enabled": true,
             "Space": "World",
             "Capacity": 1024,
+            "Bounds": {
+                "Min": [
+                    -2000.0,
+                    -2000.0,
+                    -2000.0
+                ],
+                "Max": [
+                    2000.0,
+                    2000.0,
+                    2000.0
+                ]
+            },
             "Lifecycle": {
                 "Delay": 0.0,
                 "LoopDuration": 1.0,

@@ -2389,7 +2389,7 @@ namespace Desert::Migration
         // its longest life at the top speed under gravity, plus the larger sprite.
         const float reach = std::abs( speedMax ) * lifeMax + 0.5f * glm::length( d.Gravity ) * lifeMax * lifeMax +
                             std::max( std::abs( d.StartSize ), std::abs( d.EndSize ) );
-        system.Bounds = S::VFXBounds{ glm::vec3( -reach ), glm::vec3( reach ) };
+        emitter.Bounds = S::VFXBounds{ glm::vec3( -reach ), glm::vec3( reach ) };
         system.Emitters.push_back( std::move( emitter ) );
         return system;
     }
@@ -3687,59 +3687,6 @@ namespace Desert::Migration
         if ( auto reread = S::ParseVFXEffectType( written ); !reread )
             return Common::MakeFormattedError<std::string>( "the raised file does not read as VFXT 2: {}",
                                                             reread.GetError() );
-        return Common::MakeSuccess( std::move( written ) );
-    }
-
-    Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text )
-    {
-        namespace S = Assets::Serialization;
-        // VFXS 3 IS VFXS 2 IS VFXS 1 PLUS OPTIONAL KEYS, so the v1 body reads as the current type; what a v1 row
-        // lacks is filled on the typed data, not by splicing text.
-        const auto v1 = Common::Json::Read<S::VFXSystemData>( text );
-        if ( !v1 )
-            return Common::MakeFormattedError<std::string>( "VFXS 1 body does not read: {}", v1.GetError() );
-        S::VFXSystemData data = v1.GetValue();
-        if ( !data.Header )
-            return Common::MakeFormattedError<std::string>(
-                 "the file states no header, and this step raises VFXS 1 only" );
-        const auto stated = data.Header->Versions.find( "VFXS" );
-        if ( stated == data.Header->Versions.end() || ( stated->second != 1u && stated->second != 2u ) )
-            return Common::MakeFormattedError<std::string>(
-                 "the header states VFXS {}, and this step raises VFXS 1 and 2 only",
-                 stated == data.Header->Versions.end() ? std::string( "nothing" )
-                                                       : std::to_string( stated->second ) );
-
-        const bool fromV1 = stated->second == 1u;
-        for ( S::VFXEmitterData& e : data.Emitters )
-            for ( S::VFXRendererData& r : e.Renderers )
-            {
-                if ( !fromV1 )
-                    break;
-                if ( r.Material || r.Ribbon || r.Mesh )
-                    return Common::MakeFormattedError<std::string>(
-                         "emitter '{}': a VFXS 1 renderer row states VFXS 2 keys", e.Name );
-                if ( r.Kind == S::VFXRendererKind::Ribbon )
-                    r.Ribbon = S::VFXRibbonRendererData{};
-                else if ( r.Kind == S::VFXRendererKind::Mesh )
-                    return Common::MakeFormattedError<std::string>(
-                         "emitter '{}': a VFXS 1 Mesh row names no mesh, and VFXS 2 needs one", e.Name );
-            }
-        if ( data.EffectType )
-            return Common::MakeFormattedError<std::string>(
-                 "a VFXS {} system already names EffectType '{}', a VFXS 3 key", stated->second,
-                 *data.EffectType );
-        data.EffectType = "Default";
-
-        // WriteVFXSystem stamps the header at the engine's VFXS, keeps the loaded GUID and states the
-        // Dependencies.
-        std::string written = S::WriteVFXSystem( data );
-        const auto  reread  = Common::Json::Read<S::VFXSystemData>( written );
-        if ( !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as VFXS 3: {}",
-                                                            reread.GetError() );
-        if ( auto valid = S::ValidateVFXSystemData( reread.GetValue() ); !valid )
-            return Common::MakeFormattedError<std::string>( "the raised file is not a valid VFXS 3 system: {}",
-                                                            valid.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }
 
@@ -5306,54 +5253,150 @@ namespace Desert::Migration
         return outcome;
     }
 
-    Common::ResultStr<std::string> MigrateVFXSystemToModuleAssets( const std::string& text )
+    namespace
     {
-        using Result = std::string;
-        auto read    = rfl::json::read<rfl::Generic::Object>( text );
-        if ( !read )
-            return Common::MakeFormattedError<Result>( "the body does not read: {}", read.error().what() );
-        const rfl::Generic::Object& old = read.value();
-
-        const auto header   = old.get( "Header" ).value_or( rfl::Generic() ).to_object();
-        const auto versions = header ? header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object()
-                                     : rfl::Result<rfl::Generic::Object>( rfl::Error( "no header" ) );
-        const auto stated   = versions ? versions.value().get( "VFXS" ).value_or( rfl::Generic() ).to_int()
-                                       : rfl::Result<int>( rfl::Error( "no versions" ) );
-        if ( !stated || stated.value() != 1 )
-            return Common::MakeFormattedError<Result>( "the header states VFXS {}, and this step raises VFXS 1 only",
-                                                       stated ? std::to_string( stated.value() ) : "nothing" );
-
-        rfl::Generic::Object raised;
-        for ( const auto& [key, field] : old )
+        // VFXS 4 -> 5 on the untyped body: the system's "Bounds" goes, and every emitter states it right after its
+        // Capacity (the key order of VFXEmitterData). An emitter that already states Bounds is an error.
+        Common::BoolResultStr MoveVFXSystemBoundsIntoEmitters( rfl::Generic::Object& system )
         {
-            if ( key == "LocalModules" )
-            {
-                const auto local = field.to_array();
-                if ( local && !local.value().empty() )
-                    return Common::MakeFormattedError<Result>(
-                         "the system states {} LocalModules; VFXS 3 has none - each becomes a project .dfxmod "
-                         "by hand (the corpus had none)",
-                         local.value().size() );
-                continue;
-            }
-            if ( key != "Emitters" )
-            {
-                raised[key] = field;
-                continue;
-            }
-            const auto emitters = field.to_array();
+            const auto bounds = system.get( "Bounds" );
+            if ( !bounds || !bounds.value().to_object() )
+                return Common::MakeFormattedError<bool>(
+                     "the system states no Bounds object to move into its emitters" );
+            const auto emitters = system.get( "Emitters" ).value_or( rfl::Generic() ).to_array();
             if ( !emitters )
-                return Common::MakeFormattedError<Result>( "Emitters is not an array" );
+                return Common::MakeFormattedError<bool>( "Emitters is not an array" );
+            rfl::Generic::Array outEmitters;
+            for ( const rfl::Generic& e : emitters.value() )
+            {
+                const auto emitter = e.to_object();
+                if ( !emitter )
+                    return Common::MakeFormattedError<bool>( "an emitter is not an object" );
+                rfl::Generic::Object out;
+                bool                 placed = false;
+                for ( const auto& [key, field] : emitter.value() )
+                {
+                    if ( key == "Bounds" )
+                        return Common::MakeFormattedError<bool>(
+                             "emitter '{}' already states Bounds, a VFXS 5 key",
+                             emitter.value().get( "Name" ).value_or( rfl::Generic() ).to_string().value_or( "?" ) );
+                    out[key] = field;
+                    if ( key == "Capacity" )
+                    {
+                        out["Bounds"] = bounds.value();
+                        placed        = true;
+                    }
+                }
+                if ( !placed )
+                    out["Bounds"] = bounds.value(); // no Capacity stated (the reader's default): after the rest
+                outEmitters.push_back( out );
+            }
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : system )
+            {
+                if ( key == "Bounds" )
+                    continue;
+                if ( key == "Emitters" )
+                    raised[key] = outEmitters;
+                else
+                    raised[key] = field;
+            }
+            system = std::move( raised );
+            return BOOLSUCCESS;
+        }
+
+        // VFXS 1 -> 2 (VFX-09) on the untyped body: a Ribbon row gets the default ribbon settings (one ribbon per
+        // emitter, 10 cm wide, U stretched), no row a Material (v1 drew the engine's particle material). A v1 row
+        // stating a VFXS 2 key, or a v1 Mesh row (it names no mesh, and VFXS 2 needs one), is an error naming the
+        // emitter.
+        Common::BoolResultStr RaiseVFXSystemRenderersTo2( rfl::Generic::Object& system )
+        {
+            const auto ribbon = rfl::json::read<rfl::Generic>(
+                 Common::Json::Write( Assets::Serialization::VFXRibbonRendererData{} ) );
+            if ( !ribbon )
+                return Common::MakeFormattedError<bool>( "the default ribbon settings do not read back: {}",
+                                                         ribbon.error().what() );
+            const auto emitters = system.get( "Emitters" ).value_or( rfl::Generic() ).to_array();
+            if ( !emitters )
+                return Common::MakeFormattedError<bool>( "Emitters is not an array" );
             rfl::Generic::Array outEmitters;
             for ( const rfl::Generic& e : emitters.value() )
             {
                 auto emitter = e.to_object();
                 if ( !emitter )
-                    return Common::MakeFormattedError<Result>( "an emitter is not an object" );
+                    return Common::MakeFormattedError<bool>( "an emitter is not an object" );
+                const std::string name =
+                     emitter.value().get( "Name" ).value_or( rfl::Generic() ).to_string().value_or( "?" );
+                const auto rows = emitter.value().get( "Renderers" ).value_or( rfl::Generic() ).to_array();
+                if ( rows )
+                {
+                    rfl::Generic::Array outRows;
+                    for ( const rfl::Generic& r : rows.value() )
+                    {
+                        auto row = r.to_object();
+                        if ( !row )
+                            return Common::MakeFormattedError<bool>( "emitter '{}': a renderer row is not an object",
+                                                                     name );
+                        for ( const char* key : { "Material", "Ribbon", "Mesh" } )
+                            if ( row.value().get( key ) )
+                                return Common::MakeFormattedError<bool>(
+                                     "emitter '{}': a VFXS 1 renderer row states {}, a VFXS 2 key", name, key );
+                        const std::string kind =
+                             row.value().get( "Kind" ).value_or( rfl::Generic() ).to_string().value_or( "" );
+                        if ( kind == "Mesh" )
+                            return Common::MakeFormattedError<bool>(
+                                 "emitter '{}': a VFXS 1 Mesh row names no mesh, and VFXS 2 needs one", name );
+                        if ( kind == "Ribbon" )
+                            row.value()["Ribbon"] = ribbon.value();
+                        outRows.push_back( row.value() );
+                    }
+                    emitter.value()["Renderers"] = outRows;
+                }
+                outEmitters.push_back( emitter.value() );
+            }
+            system["Emitters"] = outEmitters;
+            return BOOLSUCCESS;
+        }
+
+        // VFXS 2 -> 3 (VFX-11) on the untyped body: the system names the project's `Default` effect type (UE
+        // UNiagaraSettings::DefaultEffectType). A system already naming one is an error.
+        Common::BoolResultStr RaiseVFXSystemEffectTypeTo3( rfl::Generic::Object& system )
+        {
+            if ( const auto stated = system.get( "EffectType" ) )
+                return Common::MakeFormattedError<bool>(
+                     "the system already names EffectType '{}', a VFXS 3 key",
+                     stated.value().to_string().value_or( "?" ) );
+            system["EffectType"] = std::string( "Default" );
+            return BOOLSUCCESS;
+        }
+
+        // VFXS 3 -> 4 (VFX-MODULE-ASSET) on the untyped body: every stack row's `engine:<Name>` becomes {Guid, Path}
+        // of <Name>.dfxmod in the engine module library (kEngineVFXModulesV3), LocalModules goes (a non-empty list
+        // is an error - a local module becomes a project .dfxmod by hand).
+        Common::BoolResultStr RaiseVFXSystemModulesTo4( rfl::Generic::Object& system )
+        {
+            if ( const auto local = system.get( "LocalModules" ) )
+            {
+                const auto rows = local.value().to_array();
+                if ( rows && !rows.value().empty() )
+                    return Common::MakeFormattedError<bool>(
+                         "the system states {} LocalModules; VFXS 4 has none - each becomes a project .dfxmod by "
+                         "hand (the corpus had none)",
+                         rows.value().size() );
+            }
+            const auto emitters = system.get( "Emitters" ).value_or( rfl::Generic() ).to_array();
+            if ( !emitters )
+                return Common::MakeFormattedError<bool>( "Emitters is not an array" );
+            rfl::Generic::Array outEmitters;
+            for ( const rfl::Generic& e : emitters.value() )
+            {
+                auto emitter = e.to_object();
+                if ( !emitter )
+                    return Common::MakeFormattedError<bool>( "an emitter is not an object" );
                 auto stack = emitter.value().get( "Stack" ).value_or( rfl::Generic() ).to_object();
                 if ( stack )
                 {
-                    for ( const char* group : { "EmitterUpdate", "ParticleSpawn", "ParticleUpdate" } )
+                    for ( const char* group : { "EmitterSpawn", "EmitterUpdate", "ParticleSpawn", "ParticleUpdate" } )
                     {
                         const auto uses = stack.value().get( group ).value_or( rfl::Generic() ).to_array();
                         if ( !uses )
@@ -5363,17 +5406,17 @@ namespace Desert::Migration
                         {
                             auto use = u.to_object();
                             if ( !use )
-                                return Common::MakeFormattedError<Result>( "a {} row is not an object", group );
+                                return Common::MakeFormattedError<bool>( "a {} row is not an object", group );
                             const auto module = use.value().get( "Module" ).value_or( rfl::Generic() ).to_string();
                             constexpr std::string_view kEngine = "engine:";
                             if ( !module || !module.value().starts_with( kEngine ) )
-                                return Common::MakeFormattedError<Result>(
+                                return Common::MakeFormattedError<bool>(
                                      "a {} row's Module '{}' is not engine:<Name>", group,
                                      module ? module.value() : std::string( "?" ) );
                             const auto ref =
                                  EngineVFXModuleRefV3( std::string_view( module.value() ).substr( kEngine.size() ) );
                             if ( !ref )
-                                return Common::MakeFormattedError<Result>(
+                                return Common::MakeFormattedError<bool>(
                                      "a {} row names '{}', which the engine module library never had", group,
                                      module.value() );
                             rfl::Generic::Object moduleRef;
@@ -5388,16 +5431,54 @@ namespace Desert::Migration
                 }
                 outEmitters.push_back( emitter.value() );
             }
-            raised[key] = outEmitters;
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : system )
+            {
+                if ( key == "LocalModules" )
+                    continue;
+                raised[key] = key == "Emitters" ? rfl::Generic( outEmitters ) : field;
+            }
+            system = std::move( raised );
+            return BOOLSUCCESS;
         }
+    } // namespace
 
-        // The engine's reader and writer give the VFXS 3 text: the writer stamps the current generation and
-        // states the header's Dependencies from the stacks (VFXSystemDependencies).
-        auto typed = Common::Json::Read<Assets::Serialization::VFXSystemData>( rfl::json::write( raised ) );
+    Common::ResultStr<std::string> MigrateVFXSystem( const std::string& text )
+    {
+        using Result = std::string;
+        auto read    = rfl::json::read<rfl::Generic::Object>( text );
+        if ( !read )
+            return Common::MakeFormattedError<Result>( "the body does not read: {}", read.error().what() );
+        rfl::Generic::Object system = read.value();
+
+        const auto header   = system.get( "Header" ).value_or( rfl::Generic() ).to_object();
+        const auto versions = header ? header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object()
+                                     : rfl::Result<rfl::Generic::Object>( rfl::Error( "no header" ) );
+        const auto stated   = versions ? versions.value().get( "VFXS" ).value_or( rfl::Generic() ).to_int()
+                                       : rfl::Result<int>( rfl::Error( "no versions" ) );
+        constexpr int kCurrent = static_cast<int>( Assets::kVFXSystemSchemaVersion );
+        static_assert( kCurrent == 5, "a new VFXS needs its step in this chain" );
+        if ( !stated || stated.value() < 1 || stated.value() >= kCurrent )
+            return Common::MakeFormattedError<Result>(
+                 "the header states VFXS {}, and this chain raises VFXS 1 .. {} only",
+                 stated ? std::to_string( stated.value() ) : "nothing", kCurrent - 1 );
+
+        // One step per generation, each on the untyped body (no step reads a typed struct of a later layout).
+        using Step = Common::BoolResultStr ( * )( rfl::Generic::Object& );
+        constexpr std::array<Step, 4> kSteps{ RaiseVFXSystemRenderersTo2, RaiseVFXSystemEffectTypeTo3,
+                                              RaiseVFXSystemModulesTo4, MoveVFXSystemBoundsIntoEmitters };
+        for ( int from = stated.value(); from < kCurrent; ++from )
+            if ( auto raised = kSteps[static_cast<std::size_t>( from - 1 )]( system ); !raised )
+                return Common::MakeFormattedError<Result>( "VFXS {} -> {}: {}", from, from + 1, raised.GetError() );
+
+        // The engine's reader and writer give the current text: the writer stamps the current generation, keeps the
+        // GUID and states the header's Dependencies from the stacks (VFXSystemDependencies).
+        auto typed = Common::Json::Read<Assets::Serialization::VFXSystemData>( rfl::json::write( system ) );
         if ( !typed )
             return Common::MakeFormattedError<Result>( "the raised system does not read: {}", typed.GetError() );
         if ( auto valid = Assets::Serialization::ValidateVFXSystemData( typed.GetValue() ); !valid )
             return Common::MakeFormattedError<Result>( "the raised system is not valid: {}", valid.GetError() );
         return Common::MakeSuccess( Assets::Serialization::WriteVFXSystem( typed.GetValue() ) );
     }
+
 } // namespace Desert::Migration

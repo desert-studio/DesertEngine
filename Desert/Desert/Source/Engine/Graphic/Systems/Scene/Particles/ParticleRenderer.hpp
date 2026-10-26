@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -64,6 +65,14 @@ namespace Desert::Graphic::System
     // blend from the cell's template (ApplySurfaceBlendMode), depth-TESTED against the scene depth it holds
     // read-only (and samples for the depth fade where the cell does), INDIRECT from the last compact's slot of
     // the emitter's Counters - six vertices per particle the compact found alive.
+    // One emitter of the frame's tick as one view's cull saw it (ParticleRenderer::ViewEmitterCulls).
+    struct ParticleViewEmitterCull
+    {
+        uint32_t EntityId = 0; // the raw entt entity value, as VFXSystemDebugStats::EntityId
+        uint32_t Emitter  = 0; // the emitter's index in its system
+        bool     Culled   = false;
+    };
+
     class ParticleRenderer final : public RenderSystem
     {
     public:
@@ -96,10 +105,19 @@ namespace Desert::Graphic::System
             return m_Simulates;
         }
 
-        // The particle part of SceneRenderer::LocalShadowMapsRead / SunCascadesRead: an emitter of this view
-        // (PrepareFrame's m_ViewEmitters) draws with a sprite program that samples @p textureName. Emitters carry
-        // no bounds here, so every view emitter counts (conservative: the maps are drawn, never missed).
+        // The particle part of SceneRenderer::LocalShadowMapsRead / SunCascadesRead: an emitter this view draws
+        // (PrepareFrame's m_ViewEmitters, its fixed Bounds in the view's frustum) draws with a sprite program that
+        // samples @p textureName.
         [[nodiscard]] bool ViewEmittersSample( std::string_view textureName ) const;
+
+        // VFX-PORT-2 (UE: the Niagara fixed-bounds view cull, stat Niagara's culled count): every emitter of this
+        // frame's tick and whether this view culled it - its fixed Bounds (ParticleFrameEmitter::WorldBounds) out
+        // of the view's frustum, so none of its sprite / ribbon rows and none of its Mesh rows' geometry draws in
+        // this view (the cascades cull the Mesh rows by their own frustum). Built by PrepareFrame.
+        [[nodiscard]] std::span<const ParticleViewEmitterCull> ViewEmitterCulls() const
+        {
+            return m_ViewCulls;
+        }
 
         // How many fixed steps this frame simulates: the most any declared emitter runs (0 in a view that does not
         // simulate).
@@ -295,6 +313,7 @@ namespace Desert::Graphic::System
             RDG::BufferRef              LightRef;
             bool                        Lit      = false;
             bool                        Declared = false;
+            bool                        InView   = false; // its fixed Bounds meet this view's frustum (PrepareFrame)
             bool                        Sorted   = false; // the draw reads m_SortedRef, not AliveList
             bool                        Ribboned = false; // its ribbon link order is in m_RibbonRef
         };
@@ -357,6 +376,7 @@ namespace Desert::Graphic::System
         const ParticleWorldGpu*                        m_World     = nullptr;
         bool                                          m_Simulates = false;
         std::vector<ViewEmitter>                      m_ViewEmitters;
+        std::vector<ParticleViewEmitterCull>          m_ViewCulls; // one per m_ViewEmitters entry
         ViewPool                                      m_Pool;
     };
 } // namespace Desert::Graphic::System

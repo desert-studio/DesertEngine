@@ -61,8 +61,15 @@ namespace Desert::Graphic::System
             m_GpuInstancedStamp = materials->GetInvalidationVersion();
         }
 
+        // A section with a box is drawn only where the view's frustum meets it (GpuInstancedRenderData::WorldBounds).
+        const auto*                        camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        const std::optional<Core::Frustum> frustum =
+             camera != nullptr ? std::optional<Core::Frustum>( camera->GetFrustum() ) : std::nullopt;
+
         for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
         {
+            if ( gpu.WorldBounds && frustum && !frustum->Intersects( *gpu.WorldBounds ) )
+                continue;
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
             const uint32_t            view = kGpuInstancedViewBase + gpu.Key * 2u + ( pass == MeshPass::GBuffer );
             DataDrivenMaterial*       cell = parent != nullptr && materials->Owns( parent )
@@ -118,9 +125,14 @@ namespace Desert::Graphic::System
         auto* materials = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr )
             return;
+        // The cascade's caster box (as BuildShadowCascadeDraws culls the static casters): a section with a box casts
+        // only into the cascades it meets.
+        const Core::Frustum cascadeFrustum( m_CascadeCasterVP[shadowView], glm::mat4( 1.0f ) );
         for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
         {
             if ( !gpu.CastShadows )
+                continue;
+            if ( gpu.WorldBounds && !cascadeFrustum.Intersects( *gpu.WorldBounds ) )
                 continue;
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
             const uint32_t            view   = kGpuInstancedViewBase + 0x08000000u + gpu.Key * kMaxCascades + c;

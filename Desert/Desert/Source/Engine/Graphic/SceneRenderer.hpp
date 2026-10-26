@@ -438,6 +438,8 @@ namespace Desert::Graphic
         }
         // The GI / reflection / shadow methods this view renders and why any came out below its request — what
         // the viewport overlay draws (Graphic/RenderMethods.hpp). Refreshed every BeginScene.
+        // VFX-PORT-2: this view's particle cull (ParticleRenderer::ViewEmitterCulls); empty without the system.
+        [[nodiscard]] std::span<const System::ParticleViewEmitterCull> ParticleViewEmitterCulls() const;
         [[nodiscard]] const RenderMethods& GetRenderMethods() const
         {
             return m_RenderMethods;

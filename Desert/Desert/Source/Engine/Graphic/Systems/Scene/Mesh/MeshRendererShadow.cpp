@@ -378,7 +378,7 @@ namespace Desert::Graphic::System
                 movable = true;
         }
         for ( const auto& gpu : m_GpuInstancedQueue )
-            if ( gpu.CastShadows )
+            if ( gpu.CastShadows && ( !gpu.WorldBounds || frustum.Intersects( *gpu.WorldBounds ) ) )
                 movable = true; // regenerated around the camera every frame
         if ( m_GpuInstancedCastersExpected )
             movable = true; // submitted later this frame (ExpectGpuInstancedCasters)
