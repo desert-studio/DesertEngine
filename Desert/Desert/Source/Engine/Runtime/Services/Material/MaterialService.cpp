@@ -104,6 +104,32 @@ namespace Desert::Runtime
         }
     } // namespace
 
+    namespace
+    {
+    // The row a stated profile occupies in the atlas; 255 (not scattered) when it cannot be read, said once per ask.
+    float SubsurfaceProfileRow( const Assets::AssetGuidRef& profile )
+    {
+        const auto index = ResourceRegistry::GetSubsurfaceProfileService()->IndexFor( profile );
+        if ( !index )
+            LOG_ERROR( "[MaterialService] {}; the material is drawn unscattered", index.GetError() );
+        const float row = index ? static_cast<float>( index.GetValue() )
+                                : static_cast<float>( Graphic::SubsurfaceProfileRegistry::kInvalidIndex );
+        return row;
+    }
+
+    template <class MaterialT> void ApplySubsurfaceProfile( MaterialT& material,
+                                                             const std::optional<Assets::AssetGuidRef>& profile )
+    {
+        if ( !profile.has_value() )
+            return;
+        const glm::vec4 row( SubsurfaceProfileRow( *profile ) );
+        if constexpr ( requires { material.SetParamFromVec4( "", row ); } )
+            material.SetParamFromVec4( "SubsurfaceProfileIndex", row );
+        else
+            material.SetParam( "SubsurfaceProfileIndex", row );
+    }
+    } // namespace
+
     void ApplySurfaceAsset( Graphic::DataDrivenMaterial& material, const Assets::SurfaceMaterialAsset& asset )
     {
         // Seed schema defaults, then overlay the asset's persisted parameter values.
@@ -112,6 +138,9 @@ namespace Desert::Runtime
         const auto& data = asset.Data();
         for ( const auto& p : data.Params )
             material.SetParamRaw( p.Name, p.Value );
+        // SSS-PROFILE: the material's profile reference becomes the template's SubsurfaceProfileIndex row field (UE
+        // GetSubsurfaceProfileId at the base pass). Absent = the template's default, 255 = not scattered.
+        ApplySubsurfaceProfile( material, data.SubsurfaceProfile );
         // The template's `Surface { TwoSided }` is the material's DEFAULT (UE: the parent material's TwoSided);
         // the asset states it only to override. The parser publishes it as the default cell's Cull None
         // (DShaderParser: Meta.State = the default cell's state), so every draw path — including the batched
@@ -758,6 +787,8 @@ namespace Desert::Runtime
         {
             for ( const auto& p : ( *it )->Data().Params )
                 instance->SetParamFromVec4( p.Name, p.Value );
+            // UE bOverrideSubsurfaceProfile: the childmost instance that states a profile wins.
+            ApplySubsurfaceProfile( *instance, ( *it )->Data().SubsurfaceProfile );
             // The childmost instance that states TwoSided wins, as its parameters do.
             if ( ( *it )->Data().TwoSided.has_value() )
                 instance->SetTwoSidedOverride( ( *it )->Data().TwoSided );

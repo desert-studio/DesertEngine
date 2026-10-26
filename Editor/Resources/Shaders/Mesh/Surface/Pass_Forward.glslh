@@ -178,7 +178,7 @@ void main()
     const float sunVisibility = texelFetch( ScreenShadowMaskTexture, ivec2( gl_FragCoord.xy ), 0 ).r;
 #else
     int         cascade;
-    const float sunVisibility = ShadowFactor( i.WorldPosition, N, sunDir, cascade );
+    const float sunVisibility = ShadowFactor( kShadowLightSun, i.WorldPosition, N, sunDir, cascade );
 #endif
     const bool  receivesSun = s.ReceiveSunShadows >= 0.5;
     const float sunContact =
@@ -193,7 +193,7 @@ void main()
 #else
     const float sunTransmission =
          subsurfaceOpacity >= 0.0
-              ? TransmissionShadowFactor( i.WorldPosition, ContactShadowSubsurfaceDensity( subsurfaceOpacity ) )
+              ? TransmissionShadowFactor( kShadowLightSun, i.WorldPosition, ContactShadowSubsurfaceDensity( subsurfaceOpacity ) )
               : 1.0;
 #endif
     float transmissionShadow = ( receivesSun && subsurfaceOpacity >= 0.0 ) ? sunTransmission * sunContact : 1.0;
@@ -236,14 +236,14 @@ void main()
     // Shadow debug: mode 2 tints by cascade, mode 1 is the raw factor (1 = lit). A traced sun has no cascades:
     // mode 2 shows the raw factor there.
 #ifndef DESERT_SUN_SHADOW_SCREEN_MASK
-    if ( ShadowParams.z > 1.5 )
+    if ( DebugParams.z > 1.5 )
     {
         oColor = vec4( cascadeDebugColor( cascade ) * ( shadow * 0.7 + 0.3 ), 1.0 );
         oColor.rgb *= cameraUB.PreExposure; // stored pre-exposed like the lit colour below
         return;
     }
 #endif
-    if ( ShadowParams.z > 0.5 )
+    if ( DebugParams.z > 0.5 )
     {
         oColor = vec4( vec3( shadow ), 1.0 );
         oColor.rgb *= cameraUB.PreExposure; // stored pre-exposed like the lit colour below

@@ -762,7 +762,11 @@ namespace Desert::Graphic
             // AddFrameRayTracedSunShadow logged why a mask is missing; the sun is then unshadowed (System.White),
             // never shadowed by cascades no pass drew.
             inputs.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : refs.System.White;
-            shadow.Sun           = DeferredScreenShadowMask{ .Mask = inputs.SunShadowMask };
+            // The sun is the mask's; every other shadowed directional light keeps its cascades under it.
+            shadow.Sun = DeferredScreenShadowMask{ .Mask   = inputs.SunShadowMask,
+                                                   .Lights = meshRenderer != nullptr
+                                                                  ? meshRenderer->DirectionalShadows()
+                                                                  : SceneResources::DirectionalShadowViews{} };
             // Shadows Stochastic: MegaLights' local lighting (AddFrameMegaLights logged why one is missing; a view
             // without local lights has none to add): black adds no local light, never the unshadowed grid loop.
             shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
@@ -773,12 +777,7 @@ namespace Desert::Graphic
             inputs.LocalShadowMasks     = localShadowMasks;
         }
         else if ( meshRenderer != nullptr )
-            shadow.Sun = DeferredCascadeShadow{ .CascadeVP            = meshRenderer->GetCascadeViewProj(),
-                                                .Count                = meshRenderer->GetValidCascadeCount(),
-                                                .Enabled              = meshRenderer->AreShadowsEnabled(),
-                                                .CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel(),
-                                                .CascadeDepthRange    = meshRenderer->GetCascadeDepthRange(),
-                                                .SourceTanHalf        = meshRenderer->GetSunSourceTanHalf() };
+            shadow.Sun = DeferredCascadeShadow{ .Lights = meshRenderer->DirectionalShadows() };
         inputs.MegaLightsDiffuse  = megaLights.Diffuse.IsValid() ? megaLights.Diffuse : refs.System.Black;
         inputs.MegaLightsSpecular = megaLights.Specular.IsValid() ? megaLights.Specular : refs.System.Black;
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
@@ -835,11 +834,8 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.
-                 const glm::vec4 light1Dir =
-                      m_AtmosphereLight1 ? m_AtmosphereLight1->Light.Direction : glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f );
-                 const glm::vec4 light1Color =
-                      m_AtmosphereLight1 ? m_AtmosphereLight1->Light.ColorIntensity : glm::vec4( 0.0f );
-                 deferred->FillMaterial( lightDir, lightColor, light1Dir, light1Color, cameraPos,
+                 const FrameSun light1 = GetFrameLight1();
+                 deferred->FillMaterial( lightDir, lightColor, light1.Direction, light1.ColorIntensity, cameraPos,
                                          frame.InvJitteredViewProjection,
                                          m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure
                                               ? 0 // a post view mode: the lighting draws Lit
@@ -1197,7 +1193,8 @@ namespace Desert::Graphic
         payload.Camera            = glm::vec4( frame.CameraPosition, 1.0f );
         const bool hasSun         = !m_DirectionLights.DirectionLights.empty();
         payload.SunTravel         = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
-        payload.SunRadiance       = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
+        // w: the sun's CastShadows (ViewShadowSettings::Enabled), as light 1's below - off, no ray of it is occluded.
+        payload.SunRadiance = glm::vec4( glm::vec3( lightColor ) * lightColor.w, m_SunCastsShadows ? 1.0f : 0.0f );
         // Atmosphere light 1 (the moon), as the deferred pass shades it (OnUpdate applied its transmittance).
         if ( m_AtmosphereLight1 )
         {

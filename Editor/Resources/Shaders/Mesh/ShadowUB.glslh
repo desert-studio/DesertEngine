@@ -13,11 +13,13 @@
 // Read by Mesh/CascadedShadow.glslh, Common/ContactShadow.glslh and Mesh/LocalLightShadow.glslh by these names.
 Uniform(7) ShadowUB
 {
-    mat4 LightViewProjection[4];  // SceneResources::kMaxCascades
-    vec4 ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
-    vec4 DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
-    vec4 CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
-    vec4 CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
+    mat4 LightViewProjection[8];  // [light * 4 + cascade] (SceneResources::kMaxCascadeViews)
+    vec4 DirectionalShadow[2];    // per directional light slot (SceneResources::kMaxShadowedDirectionalLights; 0 the
+                                  // sun, 1 the moon): x = tan(source angle / 2), y = casts shadows (>0.5),
+                                  // z = cascades fitted, w = first layer in ShadowCascadesTexture
+    vec4 CascadeTexelWorld[2];    // per slot: world size of one shadow-map texel (x..w = cascade 0..3)
+    vec4 CascadeDepthRange[2];    // per slot: world length the [0,1] map depth spans (x..w = cascade 0..3)
+    vec4 DebugParams;       // x = show normals (>0.5), y = light debug (>0.5), z = cascade debug mode (0/1/2)
     vec4 ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
     vec4 SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
                               // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity

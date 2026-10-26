@@ -23,9 +23,9 @@ namespace Desert::Graphic::System
     constexpr std::uint32_t kParticleSlotStride = 8;
 
     // The size of an emitter's draw layout (Common/ParticleDrawLayout.glslh `struct ParticleDrawLayout`, the
-    // C++ ParticleDrawLayoutGpu): six 16-byte members - range, three rows of attribute columns, emitter position,
-    // the Ribbon row.
-    constexpr std::uint32_t kParticleDrawLayoutSize = 96;
+    // C++ ParticleDrawLayoutGpu): five 16-byte members - range, three rows of attribute columns, the Ribbon row -
+    // and the 64-byte placement transform.
+    constexpr std::uint32_t kParticleDrawLayoutSize = 144;
 
     // The x of ParticleSimulate's LocalSize, which is the number the dispatch divides MaxParticles by
     // to get its group count. Too large here and the tail of every emitter is never simulated (those

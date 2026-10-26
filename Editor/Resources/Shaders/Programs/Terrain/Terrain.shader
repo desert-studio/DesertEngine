@@ -265,7 +265,7 @@ Shader "Terrain"
             // Pass_Forward and the deferred composite assemble it in. The ground always receives sun shadows.
             const vec3  sunDir = normalize( -directionLights.directionLights.Direction.xyz ); // toward the sun
             int         cascade;
-            const float shadow = ShadowFactor( v_WorldPos, N, sunDir, cascade ) *
+            const float shadow = ShadowFactor( kShadowLightSun, v_WorldPos, N, sunDir, cascade ) *
                                  ContactShadowFactor( v_WorldPos, N, sunDir, SunContactShadow, -1.0 ) *
                                  CloudShadowFactor( v_WorldPos );
 

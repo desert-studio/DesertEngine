@@ -154,7 +154,8 @@ namespace Desert
         {
             m_DisplacedMesh = std::move( slot );
         }
-        // Baked mode: a displaced surface with no runtime topology (Runtime mode has both).
+        // Baked mode: a displaced surface with no runtime topology (Runtime has the topology, and the surface when
+        // the asset's own materials assign a Height).
         [[nodiscard]] bool IsBakedDisplaced() const
         {
             return m_DisplacedMesh != nullptr && m_DisplacementTopology == nullptr;

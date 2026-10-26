@@ -399,11 +399,12 @@ Shader "PathTracer"
             {
                 return d == 0u ? SunParams.x : SunParams.z;
             }
-            // Light 1 with CastShadows off is never occluded (UE: a light without PATHTRACER_FLAG_CAST_SHADOW_MASK
-            // traces no visibility ray), as the deferred pass shades it; the sun's light ray is always traced.
+            // A directional light with CastShadows off is never occluded (UE: a light without
+            // PATHTRACER_FLAG_CAST_SHADOW_MASK traces no visibility ray), as the deferred pass shades it: the sun's
+            // flag in sunRadiance.w, light 1's in light1Radiance.w (GIFrame.glslh).
             bool PathTracingDirectionalCastsShadows(uint d)
             {
-                return d == 0u || giFrame.light1Radiance.w > 0.5;
+                return (d == 0u ? giFrame.sunRadiance.w : giFrame.light1Radiance.w) > 0.5;
             }
             // The cloud shadow map is projected along the sun: only the sun's light is weighed by it (the deferred
             // pass shades light 1 without it as well).

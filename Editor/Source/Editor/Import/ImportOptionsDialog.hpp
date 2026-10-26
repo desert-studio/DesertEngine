@@ -43,6 +43,11 @@ namespace Desert::Editor
         Common::BoolResultStr SetUniformScale( Assets::SourceImportSettings& settings, float scale );
         void                  SetUpAxis( Assets::SourceImportSettings& settings, Assets::MeshSourceUpAxis axis );
         void                  SetCombineMeshes( Assets::SourceImportSettings& settings, bool on );
+        // Displacement (CONTRACT-DISPLACE §9.7): None / Runtime / Baked; Baked is refused for @p kind SkeletalMesh
+        // (§9.8). The Shown one probes what the shown source holds to know its kind.
+        Common::BoolResultStr SetDisplacement( Assets::SourceImportSettings& settings,
+                                               Assets::MeshDisplacementMode mode, ImportContentKind kind );
+        Common::BoolResultStr SetShownDisplacement( Assets::MeshDisplacementMode mode );
         Common::BoolResultStr SetShownUniformScale( float scale );
         Common::BoolResultStr SetShownUpAxis( Assets::MeshSourceUpAxis axis );
         Common::BoolResultStr SetShownCombineMeshes( bool on );

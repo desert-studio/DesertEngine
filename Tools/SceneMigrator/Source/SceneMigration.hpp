@@ -922,6 +922,22 @@ namespace Desert::Migration
     // ANGR 2, or whose body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateAnimGraphV2ToV3( const std::string& text );
 
+    // The current VFXS text of a VFXS 1 .. 4 `.dfx`: one step per generation, each on the UNTYPED body (no step
+    // reads a typed struct of a later layout), then the engine's reader, validator and writer (current header,
+    // GUID kept, Dependencies stamped from the stacks).
+    //   1 -> 2 (VFX-09): a Ribbon row gets the default ribbon settings, no row a Material; a v1 Mesh row (no mesh)
+    //          or a v1 row stating a VFXS 2 key is an error naming the emitter.
+    //   2 -> 3 (VFX-11): the system names the project's `Default` effect type (the caller creates the project's
+    //          VFX/Default.dfxtype from DefaultVFXEffectTypeForV3 when it has none).
+    //   3 -> 4 (VFX-MODULE-ASSET): every stack row's `engine:<Name>` becomes {Guid, Path} of <Name>.dfxmod in the
+    //          engine module library (the frozen kEngineVFXModulesV3); LocalModules goes (a non-empty list is an
+    //          error - a local module becomes a project .dfxmod by hand).
+    //   4 -> 5 (VFX-PORT-2): the system's fixed Bounds move into every emitter (VFXEmitterData::Bounds, UE
+    //          UNiagaraEmitter::FixedBounds); a system without Bounds or an emitter already stating them is an error.
+    // A file that states no VFXS, or the current one or later, is an error naming what it states. PURE - no
+    // filesystem access.
+    Common::ResultStr<std::string> MigrateVFXSystem( const std::string& text );
+
     // ANIM-SKELREF: one .skeleton as the TargetSkeleton step matches it - header GUID, path relative to its
     // `Assets` root (ReadSkeletonCandidate's form) and every bone name.
     struct TargetSkeletonRig
@@ -1027,13 +1043,9 @@ namespace Desert::Migration
     // naming it. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateMaterialV5ToV6( const std::string& text );
 
-    // The VFXS 3 text of a v1 or v2 `.dfx`. 1 -> 2 (VFX-09): every v1 value kept, a Ribbon row given the default
-    // ribbon settings (one ribbon per emitter, 10 cm wide, U stretched), no row a Material (v1 drew the engine's
-    // particle material); a v1 Mesh row names no mesh, so it is an error naming the emitter. 2 -> 3 (VFX-11): the
-    // system names the project's `Default` effect type (UE UNiagaraSettings::DefaultEffectType; the project's
-    // VFX/Default.dfxtype must exist for it to play). The header's GUID kept and its Dependencies stamped; a file
-    // that states neither VFXS 1 nor 2 is an error naming what it states. PURE - no filesystem access.
-    Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text );
+    // The v7 text of a v6 `.demat` (SSS-PROFILE): every value kept, the tag raised - the SubsurfaceProfile
+    // reference is additive. A file that does not state MATL 6 is an error naming what it states. PURE.
+    Common::ResultStr<std::string> MigrateMaterialV6ToV7( const std::string& text );
 
     // The `Default` effect type the 2 -> 3 step names (VFX-11): the global distance ladder VFXS 2 culled by
     // (the removed Effects.MaxDistance row, Low .. Cinematic 5000 / 10000 / 20000 / 50000 / 0 cm) with no spawn

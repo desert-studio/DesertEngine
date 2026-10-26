@@ -27,22 +27,22 @@
 
 namespace Desert::Graphic
 {
-    // The sun's cascades (mirrors Graphic::SceneShadowBind): the composite's default program samples them.
+    // Every shadowed directional light's cascades (the same views Graphic::SceneShadowBind packs): the composite's
+    // default program samples them for the sun and for atmosphere light 1 alike.
     struct DeferredCascadeShadow
     {
-        const glm::mat4* CascadeVP            = nullptr; // [Count] light view-proj matrices
-        uint32_t         Count                = 0;
-        bool             Enabled              = true;
-        glm::vec4        CascadeWorldPerTexel = glm::vec4( 1.0f );
-        glm::vec4        CascadeDepthRange    = glm::vec4( 1.0f );
-        float            SourceTanHalf        = 0.0f;
+        SceneResources::DirectionalShadowViews Lights{};
     };
 
-    // "Shadows: Ray Traced Sun" (UE FScreenShadowMaskTexture): the denoised screen visibility mask, read by the
-    // composite's DESERT_SUN_SHADOW_SCREEN_MASK program in place of the cascades.
+    // "Shadows: Ray Traced Sun" (UE FScreenShadowMaskTexture): the denoised screen visibility mask of the SUN, read by
+    // the composite's DESERT_SUN_SHADOW_SCREEN_MASK program in place of the sun's cascades. The other shadowed
+    // directional lights keep their cascades under it (Lights below).
     struct DeferredScreenShadowMask
     {
         RDG::TextureRef Mask; // r = visibility, 1 = lit
+        // The cascades of the lights the mask does not cover (slot kDirectionalShadowSun is the mask's and is
+        // packed unshadowed-by-cascades).
+        SceneResources::DirectionalShadowViews Lights{};
     };
 
     // What the deferred lighting pass shadows the sun with: the arm IS the program (no method uniform).
@@ -74,39 +74,27 @@ namespace Desert::Graphic
         float PreExposure = 1.0f;
     };
 
-    // PURE. The ShadowUB values of @p shadow (x the sun's angular radius tangent for the soft shadow; y enabled;
-    // z debug mode 0; w cascade count; the cascades' depth ranges and the contact shadow settings) - the deferred
-    // composite's and the surface-cache lighting's one packer.
+    // PURE. The ShadowUB values of @p shadow (every shadowed directional light's slot, PackDirectionalShadows; the
+    // debug word 0; the contact shadow settings and the PCSS taps) - the deferred composite's and the surface-cache
+    // lighting's one packer. Under a screen mask the sun's slot keeps its CastShadows but no cascade: the mask
+    // program reads the mask for it.
     [[nodiscard]] inline SceneResources::ShadowUBData PackDeferredShadow( const DeferredShadowInput& shadow )
     {
-        constexpr uint32_t           kCascades = SceneResources::kMaxCascades;
         SceneResources::ShadowUBData data{};
-        data.DebugParams = glm::vec4( 0.0f );
         std::visit(
              [&data]( const auto& sun )
              {
                  using Arm = std::decay_t<decltype( sun )>;
-                 if constexpr ( std::is_same_v<Arm, DeferredCascadeShadow> )
+                 SceneResources::DirectionalShadowViews lights = sun.Lights;
+                 if constexpr ( std::is_same_v<Arm, DeferredScreenShadowMask> )
                  {
-                     const uint32_t n = sun.Count < kCascades ? sun.Count : kCascades;
-                     for ( uint32_t i = 0; i < kCascades; ++i )
-                         data.LightViewProj[i] = ( i < n && sun.CascadeVP ) ? sun.CascadeVP[i] : glm::mat4( 1.0f );
-                     data.Params =
-                          glm::vec4( sun.SourceTanHalf, sun.Enabled ? 1.0f : 0.0f, 0.0f, static_cast<float>( n ) );
-                     data.CascadeTexelWorld = sun.CascadeWorldPerTexel;
-                     data.CascadeDepthRange = sun.CascadeDepthRange;
+                     lights[SceneResources::kDirectionalShadowSun].CascadeVP = nullptr;
+                     lights[SceneResources::kDirectionalShadowSun].Count     = 0;
                  }
-                 else
-                 {
-                     // The mask program reads no cascade: the block keeps only its "enabled" word.
-                     for ( glm::mat4& viewProj : data.LightViewProj )
-                         viewProj = glm::mat4( 1.0f );
-                     data.Params            = glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f );
-                     data.CascadeTexelWorld = glm::vec4( 1.0f );
-                     data.CascadeDepthRange = glm::vec4( 1.0f );
-                 }
+                 SceneResources::PackDirectionalShadows( data, lights );
              },
              shadow.Sun );
+        data.DebugParams = glm::vec4( 0.0f );
         SceneResources::PackContactShadow( data, shadow.Contact );
         SceneResources::PackShadowFilter( data, shadow.Filter );
         return data;

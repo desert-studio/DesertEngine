@@ -138,39 +138,29 @@ namespace Desert::Graphic
             ub->SetRawData( reinterpret_cast<const std::byte*>( &counts ), sizeof( counts ) );
     }
 
-    /// The cascaded directional shadow maps (D32F light-space depth) and their per-cascade light
-    /// view-projections, enable flag and debug switches — the `ShadowUB` block plus the ShadowCascadesTexture array. No
-    /// depth bias: the casters wrote it into the maps (Graphic::CascadeCasterBias). Params.x is the sun's
-    /// tan(SourceAngle / 2) and CascadeDepthRange each cascade's depth span: the soft shadow's penumbra
-    /// (Mesh/CascadedShadow.glslh). The same block carries the view's contact shadows
+    /// The cascaded directional shadow maps (D32F light-space depth) of every shadowed directional light and their
+    /// per-cascade light view-projections, debug switches — the `ShadowUB` block plus the ShadowCascadesTexture
+    /// array (slot s's cascade c at layer FirstLayer + c). No depth bias: the casters wrote it into the maps
+    /// (Graphic::CascadeCasterBias). Each slot's tan(SourceAngle / 2) and CascadeDepthRange are its soft shadow's
+    /// penumbra (Mesh/CascadedShadow.glslh). The same block carries the view's contact shadows
     /// (Common/ContactShadow.glslh).
-    inline void SceneShadowBind( Material* material, const glm::mat4* cascadeViewProj, uint32_t numCascades,
-                                 bool enabled, int debugMode, bool showNormals,
-                                 const glm::vec4& cascadeWorldPerTexel, const glm::vec4& cascadeDepthRange,
-                                 float sourceTanHalf, bool lightingDebug,
+    inline void SceneShadowBind( Material* material, const SceneResources::DirectionalShadowViews& lights,
+                                 int debugMode, bool showNormals, bool lightingDebug,
                                  const SceneResources::ContactShadowSettings& contact,
                                  const SceneResources::ShadowFilterSettings&  filter )
     {
-        if ( material == nullptr || cascadeViewProj == nullptr )
+        if ( material == nullptr )
             return;
 
-        // The block's layout and its cascade count are NOT restated here. They are one mirror
-        // (SceneResources::ShadowUBData / ::kMaxCascades), and the reason is the defect shape this whole
+        // The block's layout and its cascade counts are NOT restated here. They are one mirror
+        // (SceneResources::ShadowUBData / PackDirectionalShadows), and the reason is the defect shape this whole
         // seam exists to remove: a second declaration of one layout is a disagreement waiting to happen,
         // and Desert/Tests/Engine/SceneFrameBinding asserts that mirror against the reflected GLSL block —
         // an assertion a private copy here would quietly stop covering.
-        constexpr uint32_t kMaxCascades = SceneResources::kMaxCascades;
-
         SceneResources::ShadowUBData data{};
-
-        const uint32_t n = numCascades < kMaxCascades ? numCascades : kMaxCascades;
-        for ( uint32_t i = 0; i < kMaxCascades; ++i )
-            data.LightViewProj[i] = ( i < n ) ? cascadeViewProj[i] : glm::mat4( 1.0f );
-        data.Params            = glm::vec4( sourceTanHalf, enabled ? 1.0f : 0.0f, static_cast<float>( debugMode ),
-                                            static_cast<float>( n ) );
-        data.DebugParams       = glm::vec4( showNormals ? 1.0f : 0.0f, lightingDebug ? 1.0f : 0.0f, 0.0f, 0.0f );
-        data.CascadeTexelWorld = cascadeWorldPerTexel;
-        data.CascadeDepthRange = cascadeDepthRange;
+        SceneResources::PackDirectionalShadows( data, lights );
+        data.DebugParams = glm::vec4( showNormals ? 1.0f : 0.0f, lightingDebug ? 1.0f : 0.0f,
+                                      static_cast<float>( debugMode ), 0.0f );
         SceneResources::PackContactShadow( data, contact );
         SceneResources::PackShadowFilter( data, filter );
 

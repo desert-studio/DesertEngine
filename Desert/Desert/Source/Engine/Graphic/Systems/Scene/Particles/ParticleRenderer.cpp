@@ -203,6 +203,7 @@ namespace Desert::Graphic::System
     void ParticleRenderer::OnSceneReplaced()
     {
         m_ViewEmitters.clear();
+        m_ViewCulls.clear();
         m_World     = nullptr;
         m_Simulates = false;
         std::size_t rows = 0;
@@ -220,6 +221,8 @@ namespace Desert::Graphic::System
         for ( const ViewEmitter& emitter : m_ViewEmitters )
             for ( const ViewDraw& draw : emitter.Draws )
             {
+                if ( !emitter.InView )
+                    continue;
                 if ( draw.Sprite == nullptr || !draw.Sprite->Pipeline )
                     continue;
                 const auto& shader = draw.Sprite->Pipeline->GetSpecification().Shader;
@@ -232,6 +235,7 @@ namespace Desert::Graphic::System
     void ParticleRenderer::PrepareFrame( const ::Desert::Core::Scene& scene )
     {
         m_ViewEmitters.clear();
+        m_ViewCulls.clear();
 
         ParticleWorldGpu& world = ParticleWorldGpu::Of( scene.GetVFXWorld() );
         m_World                 = &world;
@@ -246,11 +250,20 @@ namespace Desert::Graphic::System
         // deletion ring with it, so the frame still reading it finishes first.
         RetireDestroyedEmitters( m_Materials, scene.GetRegistry() );
         m_ViewEmitters.reserve( world.FrameEmitters().size() );
+        m_ViewCulls.reserve( world.FrameEmitters().size() );
+        // UE's fixed-bounds view cull: an emitter whose box misses this view's frustum draws nothing in it. Its
+        // simulation runs regardless (the simulating view dispatches every declared emitter), and its Mesh rows
+        // still reach the mesh renderer, whose cascades cull them by their own frustum (AddMeshInstances).
+        const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        const std::optional<Core::Frustum> frustum =
+             camera != nullptr ? std::optional<Core::Frustum>( camera->GetFrustum() ) : std::nullopt;
         for ( const ParticleFrameEmitter& fe : world.FrameEmitters() )
         {
             EmitterMaterials& materials = m_Materials[fe.EntityId];
             ViewEmitter       ve;
-            ve.Frame = &fe;
+            ve.Frame  = &fe;
+            ve.InView = frustum && frustum->Intersects( fe.WorldBounds );
+            m_ViewCulls.push_back( { fe.EntityId, fe.Emitter, !ve.InView } );
             // One draw per enabled renderer row, in `.dfx` order (UE: every renderer of the emitter draws), each
             // with its own material instance keyed by (emitter, row).
             ve.Draws.reserve( fe.Renderers.size() );
@@ -754,7 +767,7 @@ namespace Desert::Graphic::System
 
     bool ParticleRenderer::IsDrawn( const ViewEmitter& ve )
     {
-        return ve.Declared && !ve.Draws.empty();
+        return ve.Declared && ve.InView && !ve.Draws.empty();
     }
 
     ParticleRenderer::SpriteDraw* ParticleRenderer::SpriteDrawFor( const std::string& cellShader )
@@ -1278,7 +1291,7 @@ namespace Desert::Graphic::System
                      } );
 
                 // Each material section drawn by the GBuffer and the cascades through its Instanced cell; the
-                // view-variant keys sit above the grass's (Key * 64 + section, kept below 2^31 / kMaxCascades).
+                // view-variant keys sit above the grass's (Key * 64 + section, kept below 2^31 / kCascadeViews).
                 for ( uint32_t s = 0; s < static_cast<uint32_t>( state.Sections.size() ); ++s )
                     meshes.SubmitGpuInstanced( { .Mesh               = state.Mesh,
                                                  .Path               = MeshVertexPath::Instanced,
@@ -1288,7 +1301,8 @@ namespace Desert::Graphic::System
                                                  .Instances          = state.Instances,
                                                  .Refs               = &state.Refs,
                                                  .Key                = 0x08000000u + state.Key * 64u + s,
-                                                 .PrevInstanceOffset = state.Capacity } );
+                                                 .PrevInstanceOffset = state.Capacity,
+                                                 .WorldBounds        = ve.Frame->WorldBounds } );
             }
         }
     }

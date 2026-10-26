@@ -1158,16 +1158,21 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( stated.GetValue() == 5u )
+            if ( stated.GetValue() == 5u || stated.GetValue() == 6u )
             {
-                const auto raised = Desert::Migration::MigrateMaterialV5ToV6( source );
+                // The chain: 5 -> 6 (SHADER-NAMING), 6 -> 7 (SSS-PROFILE).
+                auto raised = stated.GetValue() == 5u ? Desert::Migration::MigrateMaterialV5ToV6( source )
+                                                      : Common::MakeSuccess( std::string( source ) );
+                if ( raised )
+                    raised = Desert::Migration::MigrateMaterialV6ToV7( raised.GetValue() );
                 if ( !raised )
                 {
-                    err << "FAIL   " << path.string() << " — MATL 5 -> 6: " << raised.GetError() << "\n";
+                    err << "FAIL   " << path.string() << " — MATL " << stated.GetValue() << " -> 7: "
+                        << raised.GetError() << "\n";
                     ++failed;
                     continue;
                 }
-                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL 5 -> "
+                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL " << stated.GetValue() << " -> "
                     << Desert::Assets::kMaterialSchemaVersion << "\n";
                 if ( !check && !WriteText( path, raised.GetValue(), err ) )
                 {
@@ -1632,14 +1637,15 @@ namespace Desert::Migration
                     continue;
                 }
             }
-            // VFXS 1 -> 2 (VFX-09): renderer rows state their Material / Ribbon / Mesh; 2 -> 3 (VFX-11): the
-            // system names the Default effect type.
+            // VFXS 1 .. 4 -> current, one chain on the untyped body (MigrateVFXSystem): 1 -> 2 renderer rows
+            // (VFX-09), 2 -> 3 the Default effect type (VFX-11), 3 -> 4 module assets (VFX-MODULE-ASSET), 4 -> 5
+            // emitter bounds (VFX-PORT-2).
             if ( path.extension() == Desert::Assets::Serialization::kVFXSystemExtension )
             {
                 const auto stated = ReadStatedVersion( path, text, "VFXS" );
                 if ( stated && stated.GetValue() < Desert::Assets::kVFXSystemSchemaVersion )
                 {
-                    const auto raised = Desert::Migration::MigrateVFXSystemToV3( text );
+                    const auto raised = Desert::Migration::MigrateVFXSystem( text );
                     if ( !raised )
                     {
                         err << "FAIL   " << path.string() << " — VFXS " << stated.GetValue() << " -> "
@@ -1654,8 +1660,15 @@ namespace Desert::Migration
                         ++failed;
                         continue;
                     }
-                    // The step names `Default`: the project's VFX root must hold it (UE DefaultEffectType). Created
-                    // once, beside the first system raised, when the project has none; an existing one is kept.
+                    if ( stated.GetValue() >= 3u )
+                    {
+                        // Already named its effect type: the 2 -> 3 step did not run.
+                        ++vfxSystemsRaised;
+                        continue;
+                    }
+                    // The 2 -> 3 step names `Default`: the project's VFX root must hold it (UE DefaultEffectType).
+                    // Created once, beside the first system raised, when the project has none; an existing one is
+                    // kept.
                     const auto vfxRoot = Common::Constants::Path::RootForContentPath(
                          Common::Constants::Path::ContentDir::VFX, path );
                     if ( !vfxRoot )

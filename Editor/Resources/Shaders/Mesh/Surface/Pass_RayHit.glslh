@@ -9,7 +9,7 @@
 //                ray generation lights the payload (UE's hit lighting does the same), so one hit group serves
 //                every ray tracing pass;
 //                A Translucent template also writes the payload's Transmission and Ior (the path tracer's
-//                dielectric; its primitives carry RayTracingScene.hpp kMaskTranslucent alone);
+//                dielectric; its primitives carry RayTracingScene.hpp kMaskTranslucent, no opaque bit);
 //   any hit      Masked templates only (DESERT_SURFACE_RAY_ANY_HIT): the template's OpacityMask against its clip
 //                value, ignoreIntersectionEXT below it - the same test the masked cells' DESERT_SURFACE_CLIP makes.
 //
@@ -17,12 +17,19 @@
 // the ray's origin, the hit widens it by the distance and divides by the triangle's world-per-UV footprint.
 
 #include <Common/RayTracingHitTriangle.glslh>
+#include <Common/MeshTextureCoord.glslh>
 
 // The surface input at the hit: world position along the ray, the world normal (inverse-transpose of the instance
 // transform), the tangent frame from the triangle's UV gradient (the record carries no tangent stream; a segment
 // without UVs gets an arbitrary frame around the normal), facing as the raster's two-sided rule.
 SurfaceInput DesertRayHitSurfaceInput( DesertRayHitTriangle t )
 {
+    // The texture's coordinates, as the raster vertex paths hand them to the same surface function (one convention,
+    // Common/MeshTextureCoord.glslh); the tangent frame below is built from these, as the raster's matches them.
+    t.UV0 = DesertMeshTextureUV( t.UV0 );
+    t.UV1 = DesertMeshTextureUV( t.UV1 );
+    t.UV2 = DesertMeshTextureUV( t.UV2 );
+    t.UV  = DesertMeshTextureUV( t.UV );
     const vec3 worldPosition = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
     const vec3 N             = normalize( ( t.Normal * gl_WorldToObjectEXT ).xyz );
     const mat3 objectToWorld = mat3( gl_ObjectToWorldEXT );

@@ -125,7 +125,7 @@ DesertModules.Placement = {
     P( "Landscape",       [[Engine/World/Landscape/|Engine/Assets/(LandscapeLayerInfoAsset|Serialization/LandscapeLayerInfo)\.|Engine/Runtime/Services/Landscape/|Engine/ECS/(System/Landscape\w*|LandscapeRootOf|LandscapeLayerRules)\.]] ),
     P( "Foliage",         [[Engine/World/Foliage/|Engine/Assets/(FoliageTypeAsset|Serialization/FoliageType)\.|Engine/Runtime/Services/Foliage/|Engine/ECS/ProceduralFoliageComponent\.]] ),
     P( "Destruction",     [[Engine/Destruction/|Engine/Assets/FractureAsset\.|Engine/Runtime/Services/Destruction/|Engine/ECS/(DestructibleComponent|System/Destructible\w*|System/DestructionFields)\.]] ),
-    P( "VFX",             [[Engine/VFX/|Engine/Assets/(VFXSystemAsset|Serialization/VFXSystem)\.]] ),
+    P( "VFX",             [[Engine/VFX/|Engine/Assets/(VFXSystemAsset|VFXModuleAsset|Serialization/VFXSystem)\.]] ),
     P( "Water",           [[Engine/Water/|Engine/Assets/(WaterWavesAsset|Serialization/WaterWaves)\.]] ),
     P( "Hair",            [[Engine/Hair/]] ),
     P( "ScriptLuau",      [[Engine/Scripting/Luau/]] ),

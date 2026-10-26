@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "c2407e5571ff7898af741eafd1abdfeb",
         "Versions": {
-            "MATL": 6
+            "MATL": 7
         },
         "Dependencies": ["9d6d6db70d7f0b397eac782bfb709efd"]
     },
