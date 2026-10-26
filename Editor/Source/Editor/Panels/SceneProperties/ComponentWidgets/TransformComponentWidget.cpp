@@ -1,6 +1,5 @@
 #include "TransformComponentWidget.hpp"
 #include <Editor/Core/ImGuiUtilities.hpp>
-#include <Editor/Widgets/Controls/Controls.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 
 #include <ImGui/imgui.h>
@@ -17,15 +16,6 @@ namespace Desert::Editor
     void TransformComponentWidget::Render( ECS::Entity& entity, ::Desert::Core::Scene* /*scene*/ )
     {
         auto& transform = entity.GetComponent<ECS::TransformComponent>();
-
-        // A directional light has no meaningful position — its transform IS a direction, and the dial
-        // says so far better than three numbers.
-        if ( entity.HasComponent<ECS::DirectionLightComponent>() )
-        {
-            ImGui::Dummy( ImVec2( 0, 4 ) );
-            Widgets::DrawDirectionWidget( "Direction", transform.Translation );
-            return;
-        }
 
         // UE's three rows, on the panel's shared grid and with its own names: Location / Rotation /
         // Scale, each an axis-coloured vector field. The label column is the panel's, so the transform

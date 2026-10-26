@@ -1,0 +1,17 @@
+# PORT-SUN-ROTATION: a directional light is aimed by its Rotation (forward -Z), as UE's ULightComponent::GetDirection;
+# Translation no longer encodes a direction. Every scene/prefab is raised by the light chain (LGHT v1, SceneMigrator
+# MigrateLightRotationV0ToV1). Details shows ONE direction widget on the sun: compass + horizon arc + Elevation/Azimuth.
+# The Starter sun is entity 13376537502658031226 ("Sun").
+Дано run Scene "Open Scene Starter.desce"
+Дано run Entity "Sun"
+Тогда 1_migrated frame and shadows as on dev before the migration (the sun lights from the same place); Details on Sun shows the Sun Direction widget
+# The widget's Elevation number, through the same rule (Rules::SunAngles -> AimDirectionalLight, one undo step).
+Когда --subject selection set SunElevation 5
+Тогда 2_low_sun long shadows, sunset sky; Details: one direction widget (compass + horizon arc, Elevation 5.0), no second direction control
+# The rotate gizmo's write: the same TransformCommand, the azimuth turned by 90 deg.
+Когда run Transform Rotate
+Когда --subject selection set SunAzimuth 90
+Тогда 3_gizmo shadows turned by 90 deg; the widget shows the new azimuth
+Когда run Action Undo
+Когда run Action Undo
+Тогда 4_undo frame as 1_migrated

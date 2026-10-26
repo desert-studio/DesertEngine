@@ -5,6 +5,7 @@
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -131,26 +132,19 @@ namespace Desert::Editor
         {
             auto& atmosphere = en.GetComponent<C>();
 
-            // The sun's elevation comes from the scene's directional light (its Translation is the
-            // direction light TRAVELS, so the sun is the other way).
+            // The sun's elevation comes from the light the sky stands on (ECS::PickAtmosphereSun, the same
+            // call the sky collector makes), aimed by its Rotation.
             float sunElevation = 0.0f;
             bool  haveSun      = false;
             if ( scene )
             {
-                auto view = scene->GetRegistry().view<ECS::DirectionLightComponent, ECS::TransformComponent>();
-                for ( const auto lightEntity : view )
+                const entt::registry& registry = scene->GetRegistry();
+                if ( const auto sun = ECS::PickAtmosphereSun( registry, ECS::SunCandidacy::Lit ).Sun() )
                 {
-                    const glm::vec3 travel = view.template get<ECS::TransformComponent>( lightEntity ).Translation;
-                    // Through the rules, not a second copy of them: the epsilon was spelled 1e-4f here
-                    // and the negation was open-coded, while SystemRules.hpp calls itself "the engine's
-                    // ONE negation" and says every one of them goes through it. It did not.
-                    if ( ECS::Rules::IsSunDirectionValid( travel ) )
-                    {
-                        const glm::vec3 toSun = ECS::Rules::AtmosphereSunDirection( travel );
-                        sunElevation          = glm::degrees( std::asin( glm::clamp( toSun.y, -1.0f, 1.0f ) ) );
-                        haveSun               = true;
-                        break;
-                    }
+                    const glm::vec3 toSun =
+                         ECS::Rules::AtmosphereSunDirection( ECS::WorldRotation( registry, *sun ) );
+                    sunElevation = glm::degrees( std::asin( glm::clamp( toSun.y, -1.0f, 1.0f ) ) );
+                    haveSun      = true;
                 }
             }
 

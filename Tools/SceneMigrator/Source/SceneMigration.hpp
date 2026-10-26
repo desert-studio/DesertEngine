@@ -444,6 +444,24 @@ namespace Desert::Migration
                    "the last asset-reference step and the engine's required asset-reference version must be the "
                    "same generation - raise Core::kAssetRefVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
+    // THE LIGHT COMPONENTS' OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a file states under
+    // Assets::kLightSchemaTag and run after the asset-reference chain.
+    //
+    //   1 - A DIRECTIONAL LIGHT IS AIMED BY ITS ROTATION (PORT-SUN-ROTATION), as in UE: the light travels along
+    //       the entity's world forward axis (-Z) and its Translation is only where it sits. Every record with a
+    //       DirectionLight block whose Translation is a direction (longer than 1e-4, the old engine's gate) gets
+    //       the Rotation that aims its world forward axis along normalize(Translation) - the parents' stated
+    //       Rotations divided out - and a zero Translation, so no direction is stored twice. A light whose
+    //       Translation was no direction emitted nothing before; it keeps its Rotation and is counted. A prefab
+    //       override that states a Translation beside a DirectionLight block is converted the same way, its
+    //       parent rotation unknown here and taken as identity, and counted (MigrateLightRotationV0ToV1).
+    //       Scenes and prefabs alike.
+    inline constexpr int kLightVersionRotation = 1;
+
+    static_assert( kLightVersionRotation == Core::kLightVersion,
+                   "the last light step and the engine's required light version must be the same generation - "
+                   "raise Core::kLightVersion in Engine/Core/Serialize/SceneFormat.hpp" );
+
     // What MigrateReflectedAssetRefsV0ToV1 did to one file.
     struct ReflectedAssetRefsReport
     {
@@ -799,6 +817,18 @@ namespace Desert::Migration
     // prefab override. PURE.
     DisplayTransferReport MigrateDisplayTransferV64ToV65( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateLightRotationV0ToV1 did to one file.
+    struct SunRotationReport
+    {
+        std::size_t Aimed      = 0; // records whose Translation became their Rotation
+        std::size_t Overrides  = 0; // prefab overrides converted with an identity parent rotation
+        std::size_t Undirected = 0; // lights whose Translation was no direction; Rotation kept as stated
+    };
+
+    // Moves every directional light's direction from its Translation into its Rotation, under the rule
+    // kLightVersionRotation states. PURE.
+    SunRotationReport MigrateLightRotationV0ToV1( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
@@ -1147,6 +1177,10 @@ namespace Desert::Migration
         int                      StatedAssetRefVersion = 0;
         bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
         ReflectedAssetRefsReport ReflectedAssetRefs;
+        // The light chain (keyed by the LGHT number the file states).
+        int               StatedLightVersion = 0;
+        bool              SunRotationRaised  = false; // below kLightVersionRotation
+        SunRotationReport SunRotation;
         std::size_t RootSiblingIndexDropped = 0;     // root records that lost their siblingIndex
 
         bool                      AssetKeysRaised = false; // below kSceneVersionAssetKeys
@@ -1195,7 +1229,8 @@ namespace Desert::Migration
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
-                   RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised;
+                   RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
+                   SunRotationRaised;
         }
     };
 

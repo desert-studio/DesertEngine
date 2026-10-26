@@ -558,6 +558,13 @@ namespace
                 << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks
                 << " Static Mesh block(s) and " << report.ReflectedAssetRefs.MaterialFields
                 << " material field(s) restated as {Guid, Path})";
+        if ( report.SunRotationRaised && ( report.SunRotation.Aimed > 0 || report.SunRotation.Overrides > 0 ||
+                                           report.SunRotation.Undirected > 0 ) )
+            out << std::format( " lights v{}->v{} ({} directional light(s) aimed by Rotation, {} override(s) "
+                                "with an identity parent, {} without a direction kept their Rotation)",
+                                report.StatedLightVersion,
+                                Desert::Migration::kLightVersionRotation, report.SunRotation.Aimed,
+                                report.SunRotation.Overrides, report.SunRotation.Undirected );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never
