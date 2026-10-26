@@ -742,21 +742,24 @@ namespace Desert::Core
         // entity's transform, as this frame's debug lines (DebugDraw ticked above, so they draw this frame).
         if ( m_VFXWorld.GetDebugSettings().DrawBounds )
             for ( const VFX::VFXSystemDebugStats& system : m_VFXWorld.GetDebugStats().Systems )
-            {
-                const glm::vec3 lo = system.Bounds.Min;
-                const glm::vec3 hi = system.Bounds.Max;
-                glm::vec3       corner[8];
-                for ( int i = 0; i < 8; ++i )
-                    corner[i] = glm::vec3( system.Transform * glm::vec4( ( i & 1 ) ? hi.x : lo.x,
-                                                                         ( i & 2 ) ? hi.y : lo.y,
-                                                                         ( i & 4 ) ? hi.z : lo.z, 1.0f ) );
-                DebugDrawStyle style;
-                style.Color = glm::vec4( 1.0f, 0.55f, 0.1f, 1.0f );
-                for ( int i = 0; i < 8; ++i )
-                    for ( int axis = 1; axis < 8; axis <<= 1 )
-                        if ( ( i & axis ) == 0 )
-                            DebugDraw::Line( *this, corner[i], corner[i | axis], style ); // the 12 edges
-            }
+                for ( const VFX::VFXEmitterDebugStats& emitter : system.Emitters )
+                {
+                    if ( emitter.Capacity == 0 )
+                        continue; // disabled: draws nothing, culls nothing
+                    // The box the renderer culls the emitter by (VFXBoundsAt: the entity's full transform).
+                    const Common::Math::AABB box =
+                         Assets::Serialization::VFXBoundsAt( emitter.Bounds, glm::mat4( system.Transform ) );
+                    glm::vec3 corner[8];
+                    for ( int i = 0; i < 8; ++i )
+                        corner[i] = glm::vec3( ( i & 1 ) ? box.Max.x : box.Min.x, ( i & 2 ) ? box.Max.y : box.Min.y,
+                                               ( i & 4 ) ? box.Max.z : box.Min.z );
+                    DebugDrawStyle style;
+                    style.Color = glm::vec4( 1.0f, 0.55f, 0.1f, 1.0f );
+                    for ( int i = 0; i < 8; ++i )
+                        for ( int axis = 1; axis < 8; axis <<= 1 )
+                            if ( ( i & axis ) == 0 )
+                                DebugDraw::Line( *this, corner[i], corner[i | axis], style ); // the 12 edges
+                }
 #endif
 
         // Dir lights
@@ -782,7 +785,11 @@ namespace Desert::Core
             }
 
             // ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): lit by the deferred pass beside
-            // the sun, never a stand-in for it — it has no fallback and casts no cascades (index 0 owns them).
+            // the sun, never a stand-in for it — it has no fallback. When it casts shadows it gets cascades of its
+            // own (SceneResources slot 1, MeshRenderer::UpdateCascades), fitted from these same fields.
+            static_assert( static_cast<int>( Graphic::SceneResources::kMaxShadowedDirectionalLights ) ==
+                                ECS::Rules::kAtmosphereLightCount,
+                           "a cascade slot per atmosphere light: the slot IS the Atmosphere Sun Light Index" );
             const ECS::AtmosphereSunPick secondPick =
                  ECS::PickAtmosphereLight( m_Registry, ECS::SunCandidacy::Lit, 1 );
             const auto second = secondPick.Sun();
@@ -796,7 +803,11 @@ namespace Desert::Core
                          .Light = Graphic::ShaderProtocols::DirectionLightPayload{
                               glm::vec4( *travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) },
                          .SourceAngleDegrees = light.Data.SourceAngle,
-                         .CastShadows        = light.Data.CastShadows };
+                         .CastShadows        = light.Data.CastShadows,
+                         .ShadowBias         = { .BiasCm       = light.Data.ShadowBias,
+                                                 .SlopeBiasCm  = light.Data.ShadowSlopeBias,
+                                                 .Distribution = light.Data.ShadowCascadeBiasDistribution },
+                         .CascadeSplitLambda = light.Data.CascadeSplitLambda };
             }
 
             // WHICH LIGHTS EMIT NOTHING, AND WHY ANYONE SHOULD HEAR ABOUT IT.

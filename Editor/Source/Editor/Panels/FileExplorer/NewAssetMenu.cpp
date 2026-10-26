@@ -25,6 +25,7 @@
 #include <Engine/Assets/VFXDataChannelAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
+#include <Engine/Assets/VFXModuleAsset.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
@@ -123,6 +124,9 @@ namespace Desert::Editor
                         LOG_ERROR( "[Content] {}", created.GetError() );
             ImGui::EndMenu();
         }
+        if ( ImGui::Selectable( std::string( kNewVFXModuleLabel ).c_str() ) )
+            if ( const auto created = CreateNewVFXModule( &folder ); !created )
+                LOG_ERROR( "[Content] {}", created.GetError() );
 
         // Pick the domain up front (like Unreal's Material Domain / Godot's Mode): it decides the output node,
         // vertex contract and palette of the new graph.
@@ -398,6 +402,27 @@ namespace Desert::Editor
         const auto path = UniqueIn( *folder, name, std::string( S::kVFXSystemExtension ) );
         if ( const auto saved = Assets::VFXSystemAsset::Save( path, data ); !saved )
             return Common::MakeFormattedError( "New VFX System from template '{}': {}", name, saved.GetError() );
+        m_On.OnSelectAfterRefresh( path.generic_string() );
+        m_On.OnRefresh();
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr NewAssetMenu::CreateNewVFXModule( const DirectoryInformation* folder )
+    {
+        if ( folder == nullptr )
+            return Common::MakeError( "New VFX Module: the Assets window has no folder open" );
+        const auto path = UniqueIn( *folder, "NewVFXModule", std::string( VFX::kVFXModuleExtension ) );
+        // UE's new module script is an empty graph between its input and output maps; ours is the least block the
+        // stack compiler accepts: one input and a Module() that leaves the particle as it is.
+        VFX::VFXModuleDefinition module;
+        module.Guid        = Common::Content::AssetGuid::Generate();
+        module.DisplayName = path.stem().string();
+        module.Category    = "Custom";
+        module.Block.Usage  = VFX::UsageBit( VFX::VFXStage::ParticleUpdate );
+        module.Block.Inputs = { { "Scale", Assets::Serialization::VFXValueType::Float, glm::vec4( 1.0f ) } };
+        module.Block.Body   = "void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )\n{\n}\n";
+        if ( const auto saved = Assets::VFXModuleAsset::Save( path, module ); !saved )
+            return Common::MakeFormattedError( "New VFX Module: {}", saved.GetError() );
         m_On.OnSelectAfterRefresh( path.generic_string() );
         m_On.OnRefresh();
         return Common::MakeSuccess( true );

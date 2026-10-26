@@ -11,7 +11,7 @@ struct GIFrame {
     mat4 invViewProjection; // its inverse
     vec4 camera;            // xyz = camera world position (cm)
     vec4 sunTravel;         // xyz = direction the sunlight travels, w = 1 when the scene has a sun
-    vec4 sunRadiance;       // rgb = colour * intensity
+    vec4 sunRadiance;       // rgb = colour * intensity, w = 1 when it casts shadows (its CastShadows)
     // Atmosphere light 1 (UE's Atmosphere Sun Light Index 1, the moon): the scene's second directional light, which
     // every GI pass and the path tracer light as they light the sun (UE's path tracer and Lumen light every
     // directional light). Its radiance has crossed the atmosphere, as the deferred pass shades it.

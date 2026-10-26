@@ -152,6 +152,14 @@ namespace Desert::Core::ShadingModels
         // model is subsurface: a light's contact shadow on it fades with the hit distance by the density that
         // opacity stands for (Common/ContactShadow.glslh, DesertSubsurfaceOpacity). Empty = not subsurface.
         std::string              SubsurfaceOpacityPin;
+        // UE MSM_SubsurfaceProfile + CustomData.r (SSS-PROFILE): the optional `SubsurfaceProfile <pin>;` line after
+        // SubsurfaceOpacity names the payload pin that carries the material's profile row in the profile atlas
+        // (index / 255; 255 = none). Set = the model is SCATTERED IN SCREEN SPACE: the deferred composite splits its
+        // demodulated diffuse into the SubsurfaceDiffuse target and the Burley pass scatters it
+        // (DesertShadingModelScattersInScreenSpace). Such a model must define a 4th function,
+        // `vec3 EvaluateAmbientSpecular( DesertAmbient, DesertSurface, DesertPayload )` - the parser refuses it
+        // otherwise. Empty = not scattered.
+        std::string              SubsurfaceProfilePin;
         // UE GetMaterialSubsurfaceData, as the Lumen card capture reads it: the optional `SubsurfaceColor <fn>;`
         // line (after SubsurfaceOpacity) names the body's `vec3 <fn>( DesertPayload P )` that decodes the model's
         // subsurface colour from its payload - the light the surface lets through to its far side. The surface

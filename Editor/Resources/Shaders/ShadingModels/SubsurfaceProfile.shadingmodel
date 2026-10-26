@@ -1,0 +1,62 @@
+// SubsurfaceProfile — UE's MSM_SubsurfaceProfile (ShadingModels.ush SubsurfaceProfileBxDF): DefaultLit's lobes, but
+// the DIFFUSE light is scattered in screen space by the material's Burley profile (SSS-PROFILE). The model only
+// says so: the `SubsurfaceProfile` line below marks it screen-space scattered, the deferred composite then writes
+// its demodulated diffuse (BaseColor = 1, UE AdjustBaseColorAndSpecularColorForSubsurfaceProfileLighting) into the
+// SubsurfaceDiffuse target instead of SceneColor, and Graphic::SubsurfaceRenderer blurs it with the profile and
+// recombines it times BaseColor (UE AddSubsurfacePass). The split rule is the contract's: diffuse = Evaluate -
+// EvaluateSpecular, ambient diffuse = EvaluateAmbient - EvaluateAmbientSpecular.
+//
+// The payload is UE's: CustomData.r = the profile's row in the atlas (index / 255, UE EncodeSubsurfaceProfile),
+// written from the material row's SubsurfaceProfileIndex by the template - never by the author - and
+// CustomData.a = Opacity (the contact shadows' subsurface density, as TwoSidedFoliage's).
+Guid 200520258705317613;
+Payload
+{
+    CustomData0 SubsurfaceProfileId; // the profile's atlas row / 255 (255 = none)
+    CustomData3 SubsurfaceOpacity;   // UE CustomData.a = Opacity
+}
+Inputs
+{
+    BaseColor;
+    Metallic;
+    Roughness;
+}
+SubsurfaceOpacity CustomData3;
+SubsurfaceProfile CustomData0;
+
+#include <Mesh/BRDF.glslh>
+#include <Mesh/DirectLighting.glslh>
+#ifndef AMBIENT_IBL_GLSLH
+#define AMBIENT_IBL_NO_SAMPLERS
+#include <Mesh/AmbientIBL.glslh>
+#endif
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return EvaluateDirectLight( L.L, L.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Metallic, S.Roughness,
+                                S.BaseColor ) *
+           L.Shadow;
+}
+
+vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Roughness ) * L.Shadow;
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    const vec3  F0       = DesertSpecularF0( S );
+    const vec3  diffuse  = EvaluateAmbientIBLDiffuse( A.Irradiance, A.SpecularBRDF, F0, S.BaseColor, S.Metallic );
+    const vec3  specular = EvaluateAmbientIBLSpecular( A.Prefiltered, A.SpecularBRDF, F0 );
+    const float specularOcclusion = DesertSpecularOcclusion( max( dot( S.N, S.V ), 0.0 ), S.Roughness, A.Occlusion );
+    return ComposeAmbient( diffuse, specular, S.BaseColor, A.Occlusion, specularOcclusion, A.Indirect );
+}
+
+// The specular half of EvaluateAmbient (the term ComposeAmbient adds for the reflection).
+vec3 EvaluateAmbientSpecular( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    const vec3  F0       = DesertSpecularF0( S );
+    const vec3  specular = EvaluateAmbientIBLSpecular( A.Prefiltered, A.SpecularBRDF, F0 );
+    const float specularOcclusion = DesertSpecularOcclusion( max( dot( S.N, S.V ), 0.0 ), S.Roughness, A.Occlusion );
+    return specular * specularOcclusion;
+}

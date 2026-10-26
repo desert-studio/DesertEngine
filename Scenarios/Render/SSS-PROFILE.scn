@@ -1,0 +1,15 @@
+# SSS-PROFILE: UE Subsurface Profile (Burley). Test object = CONTRACT §9 Q7 (a scanned head with the default skin
+# profile + a Bistro plant given a profile); hard side light, Lit.
+# p2 (MATL 7): dev's materials after scripts/Dev/migrate.sh --write must load and look the same. Starter = 16 .demat
+# materials, opens at startup (FIELD_Barn did not settle within 695 s on a loaded machine). 0a = dev build, 0b = this branch.
+# Frames 1-3 below need the SubsurfaceRenderer pass (p3); play only the 0a/0b block until then.
+Дано state
+Когда run View "View mode: Lit"
+Тогда-вид 0a_dev Starter on dev: every material textured/coloured, none pink or default grey
+Тогда-вид 0b_matl7 the same view after migration: identical materials, no pink/default, editor.log 0 material load errors
+Дано: the Q7 test object under a hard side light, Lit; material without a profile.
+Тогда 1_no_profile hard terminator, no bleed — same as dev.
+Когда: the material names the default skin profile (.dsssprofile).
+Тогда 2_profile light bleeds past the terminator with red-shifted falloff, thin parts glow, no screen-edge or depth-edge halos onto the background.
+Когда: PPV SubsurfaceScattering off.
+Тогда 3_ppv_off identical to frame 1.

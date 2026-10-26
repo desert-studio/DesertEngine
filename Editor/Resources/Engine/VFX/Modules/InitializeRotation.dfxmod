@@ -1,0 +1,21 @@
+// DesertAsset {"Kind":"VFXModule","Guid":"e64f581d72684d28ab4dc2f70e9c807a","Versions":{"VFXM":1},"Dependencies":[]}
+Module "InitializeRotation"
+{
+    Category Initialize
+    Description "Sets a newborn's sprite rotation and rotation rate."
+    Usage ParticleSpawn
+    Attribute SpriteRotation float
+    Attribute SpriteRotationRate float
+    Input Rotation float = 0
+    Input RotationRate float = 0
+
+    // Engine VFX module InitializeRotation (UE Initialize Particle's Sprite Rotation + the rate of
+    // NiagaraStatelessModule_SpriteRotationRate.ush:8-21): the newborn's sprite rotation (degrees) and its rotation
+    // rate (degrees per second). A Random-source range on either is UE's RandomScaleBiasFloat — drawn once, here, so
+    // it stays the particle's own. Spawn group; UpdateRotation turns it.
+    void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
+    {
+        p.SpriteRotation     = mod( i.Rotation, 360.0 );
+        p.SpriteRotationRate = i.RotationRate;
+    }
+}

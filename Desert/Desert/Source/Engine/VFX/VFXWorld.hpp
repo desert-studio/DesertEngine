@@ -123,6 +123,7 @@ namespace Desert::VFX
         std::string           Name;
         bool                  Runs     = false; // enabled, compiled and the component auto-activates
         std::uint32_t         Capacity = 0;     // the emitter's pool size (0 = disabled)
+        Assets::Serialization::VFXBounds Bounds; // the emitter's fixed bounds around the placement, cm (VFXS 5)
         std::uint32_t         Steps    = 0;     // fixed steps of the last Tick
         std::uint32_t         Spawned  = 0;     // ids reserved by the last Tick's steps (rate, bursts, channel)
         std::uint32_t         NextId   = 0;     // ids handed out since the last reset
@@ -138,7 +139,6 @@ namespace Desert::VFX
         std::uint64_t                     EntityUuid = 0;
         std::uint32_t                     EntityId   = 0; // the entt entity, as the renderer keys systems
         glm::mat4                         Transform  = glm::mat4( 1.0f );
-        Assets::Serialization::VFXBounds  Bounds;         // the system's fixed local bounds, cm
         std::vector<VFXEmitterDebugStats> Emitters;
     };
     struct VFXDebugStats
