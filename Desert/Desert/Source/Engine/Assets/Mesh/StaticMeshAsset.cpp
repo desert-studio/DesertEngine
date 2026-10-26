@@ -344,7 +344,8 @@ namespace Desert::Assets
                                              DisplacedMeshSlot* displacedSlot, std::string& error )
         {
             // Undisplaced, the cards and the field are keyed on the triangles they are built from (the content
-            // key), not on the render data: a mesh builder change that leaves those triangles alone keeps the cache.
+            // key), not on the render data: a mesh builder change that leaves those triangles alone keeps the
+            // cache.
             FieldSurface surface{ MeshDistanceFieldInputContentKey( *base ),
                                   [base]() -> Common::ResultStr<MeshDistanceFieldBuildInput>
                                   { return Common::MakeSuccess( *base ); } };
