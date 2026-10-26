@@ -164,6 +164,19 @@ namespace Desert::Core::ShadingModels
         }
         else
             c.Pos = bodyStart;
+        if ( c.Word() == "SubsurfaceProfile" )
+        {
+            const std::string_view pin = c.Word();
+            if ( std::ranges::find( manifest.Payload, pin, &PayloadSlot::Pin ) == manifest.Payload.end() )
+                return Refuse( sourcePath,
+                               std::format( "SubsurfaceProfile pin '{}' is not one of the Payload's", pin ) );
+            if ( !c.Punct( ';' ) )
+                return Refuse( sourcePath, "expected ';' after the SubsurfaceProfile pin" );
+            manifest.SubsurfaceProfilePin = std::string( pin );
+            bodyStart                     = c.Pos;
+        }
+        else
+            c.Pos = bodyStart;
         if ( c.Word() == "SubsurfaceColor" )
         {
             const std::string_view function = c.Word();
@@ -177,6 +190,10 @@ namespace Desert::Core::ShadingModels
             c.Pos = bodyStart;
 
         manifest.Body = std::string( text.substr( c.Pos ) );
+        if ( !manifest.SubsurfaceProfilePin.empty() &&
+             manifest.Body.find( "EvaluateAmbientSpecular" ) == std::string::npos )
+            return Refuse( sourcePath, "a SubsurfaceProfile model must define EvaluateAmbientSpecular (the ambient "
+                                       "half of its diffuse/specular split)" );
         return Common::MakeSuccess( std::move( manifest ) );
     }
 } // namespace Desert::Core::ShadingModels

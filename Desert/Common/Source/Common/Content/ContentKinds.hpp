@@ -90,6 +90,7 @@ namespace Common::Content
         WeatherPreset,
         VFXEffectType,
         StateTree,
+        SubsurfaceProfile,
         COUNT,
     };
 
@@ -210,6 +211,9 @@ namespace Common::Content
              // UE's UStateTree: the authored tree an AI controller runs (Engine/AI/StateTree/StateTree.hpp). Under
              // the assets root, as a sound is: a tree sits beside the AI that runs it.
              /* StateTree            */ { "StateTree", ".dstatetree", &P::ASSETS_PATH },
+             // UE USubsurfaceProfile: one Burley subsurface profile a material names (Engine/Assets/Serialization/
+             // SubsurfaceProfile.hpp, SSS-PROFILE). Under the assets root, beside the materials that name it.
+             /* SubsurfaceProfile    */ { "SubsurfaceProfile", ".dsssprofile", &P::ASSETS_PATH },
         } };
     }
 
