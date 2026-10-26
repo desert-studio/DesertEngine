@@ -298,11 +298,11 @@ namespace Desert::VFX
                  // The world box of the enabled emitters' fixed bounds, placed as the renderer culls them
                  // (VFXBoundsAt: the placement's full transform); no enabled emitter - the placement's point.
                  const auto extent = Assets::Serialization::VFXSystemExtent( *data );
-                 const Common::Math::AABB placed =
+                 const Common::Math::AABB worldBounds =
                       extent ? Assets::Serialization::VFXBoundsAt( *extent, world )
                              : Common::Math::AABB{ emitterCm, emitterCm };
-                 const glm::vec3 minCm = placed.Min;
-                 const glm::vec3 maxCm = placed.Max;
+                 const glm::vec3 minCm = worldBounds.Min;
+                 const glm::vec3 maxCm = worldBounds.Max;
                  // The system's effect type (ValidateVFXSystemData requires one); a missing type spawns nothing.
                  const std::string&                              typeName = data->EffectType.value();
                  const Assets::Serialization::VFXEffectTypeData* type     = EffectType( typeName );
