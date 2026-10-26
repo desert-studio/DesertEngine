@@ -434,7 +434,7 @@ namespace Desert::Editor
     }
 
     std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled,
-                                                              const bool subsurfaceHistoryConverging )
+                                                             const bool subsurfaceHistoryConverging )
     {
         ++m_FrameIndex;
         // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
@@ -443,8 +443,9 @@ namespace Desert::Editor
         // after "Open Scene" or a Quality change had asked for nothing yet, read as settled, and was photographed
         // with the base mesh (DISPLACE 1_on: 4,696 tris drawn instead of 111,268).
         m_FrameQuiescence.Set( Control::PendingWork::Displacement, displacementUnsettled );
-        // The same kind of after-the-frame fact: the frame's renderer decides whether the scatter it just built read
-        // a full history window (SSS-PROFILE 3_scale4: a shot right after `SubsurfaceScale 4` saw fresh texels).
+        // The same kind of after-the-frame fact: the frame's renderer decides whether the scatter it just built
+        // read a full history window (SSS-PROFILE 3_scale4: a shot right after `SubsurfaceScale 4` saw fresh
+        // texels).
         m_FrameQuiescence.Set( Control::PendingWork::SubsurfaceHistory, subsurfaceHistoryConverging );
 
         if ( !m_ControlSocket.IsListening() )

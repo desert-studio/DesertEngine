@@ -94,9 +94,9 @@ namespace Desert::Graphic::System
      * (compute) scatters the composite's SubsurfaceDiffuse with each texel's Burley profile, and "Subsurface:
      * Recombine" (raster, ONE/ONE onto the scene target) adds BaseColor x lerp(diffuse, scattered, Tint) back.
      * The scatter keeps its own temporal history (UE SubsurfaceHistory, r.SSS.Burley.Quality 1): two ping-pong
-     * pairs (running mean + frame count, luminance moment + profile row + device depth), read only when they hold the
-     * view's previous frame (PassHistory.hpp) at the same Scale and profile rows.
-     * Added by SceneRenderer only when the view's SubsurfaceScattering is on and a profile is registered.
+     * pairs (running mean + frame count, luminance moment + profile row + device depth), read only when they hold
+     * the view's previous frame (PassHistory.hpp) at the same Scale and profile rows. Added by SceneRenderer only
+     * when the view's SubsurfaceScattering is on and a profile is registered.
      */
     class SubsurfaceRenderer final : public RenderSystem
     {
@@ -122,9 +122,10 @@ namespace Desert::Graphic::System
         }
 
         // THE CONTROL GATE'S QUESTION (PendingWork::SubsurfaceHistory): the last scatter built read a history that
-        // had not yet averaged kHistoryFrames estimates - a frame photographed now shows the fresh, noisy texels of
-        // a Scale change or a camera cut, not the picture the accumulation converges to. Counted per view on the
-        // build side: consecutive frames whose history was readable (PassHistory), reset by every invalidation.
+        // had not yet averaged kHistoryFrames estimates - a frame photographed now shows the fresh, noisy texels
+        // of a Scale change or a camera cut, not the picture the accumulation converges to. Counted per view on
+        // the build side: consecutive frames whose history was readable (PassHistory), reset by every
+        // invalidation.
         [[nodiscard]] bool HistoryConverging() const noexcept
         {
             return m_ReadableFrames < kHistoryFrames;
@@ -346,10 +347,10 @@ namespace Desert::Graphic::System
         }
 
         std::array<HistorySlot, 2> m_Slots;
-        uint32_t                   m_Parity       = 0;
-        float                      m_HistoryScale = -1.0f;
+        uint32_t                   m_Parity         = 0;
+        float                      m_HistoryScale   = -1.0f;
         uint32_t                   m_ReadableFrames = 0; // consecutive scatters that read their history
-        std::vector<std::byte>     m_HistoryRows; // the profile rows the history was scattered with
+        std::vector<std::byte>     m_HistoryRows;        // the profile rows the history was scattered with
 
         std::shared_ptr<Shader>           m_BurleyShader;
         mutable ShaderBindingLayoutCache  m_BurleyLayout;
