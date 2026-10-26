@@ -707,6 +707,9 @@ namespace Desert::Graphic
         /// THE view's sun PCSS kernel (Scalability Shadows.BlockerSearchTaps / Shadows.FilterTaps), packed into
         /// ShadowUB by every lit pass that samples the cascades.
         [[nodiscard]] SceneResources::ShadowFilterSettings GetShadowFilterSettings() const;
+        /// SSS-PROFILE: this view scatters and its Burley history has not yet averaged its full window (a Scale
+        /// change, a camera cut, the first frames) - the control gate's PendingWork::SubsurfaceHistory.
+        [[nodiscard]] bool SubsurfaceHistoryConverging() const;
 
     private:
         // THIS VIEW in the resource ledger (RT-LEDGER-2). Its RT rows — the TLAS storage, the landscape tiles'

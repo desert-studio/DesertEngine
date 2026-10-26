@@ -11,13 +11,20 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/SubsurfaceProfiles/SubsurfaceProfileRegistry.hpp>
+#include <Engine/Graphic/View/PassHistory.hpp>
+#include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
+#include <cstring>
 #include <format>
 #include <span>
+#include <string>
+#include <vector>
 
 namespace Desert::Graphic::System
 {
@@ -31,6 +38,10 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, SubsurfaceProfileAtlasUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, SubsurfaceViewUB );
         DESERT_SHADER_PARAMETER( StorageTexture, SubsurfaceScatteredTexture );
+        DESERT_SHADER_PARAMETER( Texture, SubsurfaceHistoryTexture );
+        DESERT_SHADER_PARAMETER( Texture, SubsurfaceHistoryMomentsTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SubsurfaceHistoryOutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SubsurfaceHistoryMomentsOutTexture );
     };
 
     // The slot names "Subsurface: Recombine" binds.
@@ -48,9 +59,12 @@ namespace Desert::Graphic::System
     {
         glm::mat4 WorldToClip{ 1.0f };
         glm::mat4 ClipToWorld{ 1.0f };
-        glm::vec4 Params{ 0.0f }; // x scale, y samples, z frame index
+        glm::vec4 Params{ 0.0f }; // x scale, y most samples, z frame index, w fewest samples
+        glm::mat4 PrevWorldToClip{ 1.0f };
+        glm::mat4 PrevClipToWorld{ 1.0f };
+        glm::vec4 HistoryParams{ 0.0f }; // x history readable, y PreExposure / PrevPreExposure, z most frames
     };
-    static_assert( sizeof( SubsurfaceViewGpu ) == 144 );
+    static_assert( sizeof( SubsurfaceViewGpu ) == 288 );
 
     // What the passes read, as refs of THIS frame's graph (CONTRACT §3.5).
     struct SubsurfaceInputs
@@ -61,13 +75,10 @@ namespace Desert::Graphic::System
         RDG::TextureRef Depth;             // the G-buffer's device depth
     };
 
-    // The view's settings (PostProcessSettings, CONTRACT §6) and its matrices.
+    // The view's settings (PostProcessSettings, CONTRACT §6); its matrices come from the ViewFrame.
     struct SubsurfaceSettings
     {
-        float     Scale = 1.0f;
-        glm::mat4 JitteredViewProjection{ 1.0f };
-        glm::mat4 InvJitteredViewProjection{ 1.0f };
-        uint64_t  FrameIndex = 0;
+        float Scale = 1.0f;
     };
 
     // The graph refs the Recombine node binds, made by AddScatter.
@@ -82,15 +93,43 @@ namespace Desert::Graphic::System
      * by the graph (SubsurfaceProfileRegistry's rows, every frame: 66 vec4 per profile), "Subsurface: Burley"
      * (compute) scatters the composite's SubsurfaceDiffuse with each texel's Burley profile, and "Subsurface:
      * Recombine" (raster, ONE/ONE onto the scene target) adds BaseColor x lerp(diffuse, scattered, Tint) back.
-     * Added by SceneRenderer only when the view's SubsurfaceScattering is on and a profile is registered.
+     * The scatter keeps its own temporal history (UE SubsurfaceHistory, r.SSS.Burley.Quality 1): two ping-pong
+     * pairs (running mean + frame count, luminance moment + profile row + device depth), read only when they hold
+     * the view's previous frame (PassHistory.hpp) at the same Scale and profile rows. Added by SceneRenderer only
+     * when the view's SubsurfaceScattering is on and a profile is registered.
      */
     class SubsurfaceRenderer final : public RenderSystem
     {
     public:
         using RenderSystem::RenderSystem;
 
-        // AFIS at a fixed count (UE r.SSS.Burley.Quality 0); the variance-adaptive count with history is p5.
-        static constexpr uint32_t kBurleySamples = 32;
+        // AFIS with the variance-adaptive count (UE r.SSS.Burley.Quality 1): a fresh texel draws the most, a
+        // converged one as few as its running variance allows; the history averages up to kHistoryFrames
+        // estimates.
+        static constexpr uint32_t kBurleySamples       = 32;
+        static constexpr uint32_t kBurleyFewestSamples = 8;
+        static constexpr uint32_t kHistoryFrames       = 32;
+
+        // The previous frame is a different world - see IRenderSystem::OnSceneReplaced.
+        void OnSceneReplaced() override
+        {
+            InvalidateHistory();
+        }
+        // Camera cut - see IRenderSystem::OnTemporalHistoryReset.
+        void OnTemporalHistoryReset() override
+        {
+            InvalidateHistory();
+        }
+
+        // THE CONTROL GATE'S QUESTION (PendingWork::SubsurfaceHistory): the last scatter built read a history that
+        // had not yet averaged kHistoryFrames estimates - a frame photographed now shows the fresh, noisy texels
+        // of a Scale change or a camera cut, not the picture the accumulation converges to. Counted per view on
+        // the build side: consecutive frames whose history was readable (PassHistory), reset by every
+        // invalidation.
+        [[nodiscard]] bool HistoryConverging() const noexcept
+        {
+            return m_ReadableFrames < kHistoryFrames;
+        }
 
         Common::BoolResultStr Initialize() override
         {
@@ -130,25 +169,56 @@ namespace Desert::Graphic::System
         }
 
         // GRAPH BUILD: the atlas of @p registry and the view's parameters as graph buffers, then "Subsurface:
-        // Burley" into a new @p width x @p height transient. Empty refs when not ready or nothing is registered.
+        // Burley" into a new @p width x @p height transient, reading last frame's history and writing this
+        // frame's. Empty refs when not ready or nothing is registered.
         [[nodiscard]] SubsurfaceScatter AddScatter( RDG::Builder& graph, const SubsurfaceProfileRegistry& registry,
                                                     const SubsurfaceInputs&   inputs,
-                                                    const SubsurfaceSettings& settings, const uint32_t width,
-                                                    const uint32_t height ) const
+                                                    const SubsurfaceSettings& settings, const ViewFrame& frame,
+                                                    const uint32_t width, const uint32_t height )
         {
             const std::span<const SubsurfaceProfileRow> rows = registry.Rows();
             if ( !IsReady() || rows.empty() || width == 0u || height == 0u )
                 return {};
+            // A history scattered at another Scale or with other profiles is another picture.
+            const std::span<const std::byte> rowBytes = std::as_bytes( rows );
+            if ( settings.Scale != m_HistoryScale || rowBytes.size() != m_HistoryRows.size() ||
+                 std::memcmp( rowBytes.data(), m_HistoryRows.data(), rowBytes.size() ) != 0 )
+            {
+                InvalidateHistory();
+                m_HistoryScale = settings.Scale;
+                m_HistoryRows.assign( rowBytes.begin(), rowBytes.end() );
+            }
+            HistorySlot& previous = m_Slots[m_Parity];
+            HistorySlot& next     = m_Slots[1u - m_Parity];
+            // Decided at build time: the exec runs after the frame was built (PassHistory.hpp).
+            const bool readable = previous.Built && previous.Width == width && previous.Height == height &&
+                                  previous.Stamp.ReadableIn( frame );
+            m_ReadableFrames = readable ? std::min( m_ReadableFrames + 1u, kHistoryFrames ) : 0u;
+            std::array<RDG::TextureRef, 2> history = { inputs.SubsurfaceDiffuse, inputs.SubsurfaceDiffuse };
+            if ( readable )
+                history =
+                     AcquireSlot( graph, previous, width, height, std::format( "SubsurfaceHistory{}", m_Parity ) );
+            const std::array<RDG::TextureRef, 2> written =
+                 AcquireSlot( graph, next, width, height, std::format( "SubsurfaceHistory{}", 1u - m_Parity ) );
+            m_Parity                   = 1u - m_Parity;
+            HistorySlot* const stamped = &next;
             SubsurfaceScatter scatter;
             scatter.Atlas =
                  graph.CreateBuffer( RDG::BufferDesc{ .Bytes = rows.size_bytes() }, "Subsurface: Profile Atlas" );
             graph.QueueBufferUpload( scatter.Atlas, std::as_bytes( rows ) );
 
             SubsurfaceViewGpu view;
-            view.WorldToClip = settings.JitteredViewProjection;
-            view.ClipToWorld = settings.InvJitteredViewProjection;
-            view.Params      = glm::vec4( settings.Scale, static_cast<float>( kBurleySamples ),
-                                          static_cast<float>( settings.FrameIndex % 1024u ), 0.0f );
+            view.WorldToClip     = frame.JitteredViewProjection;
+            view.ClipToWorld     = frame.InvJitteredViewProjection;
+            view.Params          = glm::vec4( settings.Scale, static_cast<float>( kBurleySamples ),
+                                              static_cast<float>( frame.FrameIndex % 1024u ),
+                                              static_cast<float>( kBurleyFewestSamples ) );
+            view.PrevWorldToClip = frame.PrevJitteredViewProjection;
+            view.PrevClipToWorld = glm::inverse( frame.PrevJitteredViewProjection );
+            view.HistoryParams =
+                 glm::vec4( readable ? 1.0f : 0.0f,
+                            frame.PrevPreExposure > 0.0f ? frame.PreExposure / frame.PrevPreExposure : 1.0f,
+                            static_cast<float>( kHistoryFrames ), 0.0f );
             const RDG::BufferRef viewBuffer =
                  graph.CreateBuffer( RDG::BufferDesc{ .Bytes = sizeof( SubsurfaceViewGpu ) }, "Subsurface: View" );
             graph.QueueBufferUpload( viewBuffer, std::as_bytes( std::span( &view, 1 ) ) );
@@ -177,14 +247,26 @@ namespace Desert::Graphic::System
                           .Storage( SubsurfaceBurleyShaderParameters::SubsurfaceViewUB, viewBuffer,
                                     RDG::Access::StorageRead )
                           .Storage( SubsurfaceBurleyShaderParameters::SubsurfaceScatteredTexture,
-                                    scatter.Scattered, RDG::Access::StorageWrite );
+                                    scatter.Scattered, RDG::Access::StorageWrite )
+                          .Texture( SubsurfaceBurleyShaderParameters::SubsurfaceHistoryTexture, history[0], kRead,
+                                    all )
+                          .Texture( SubsurfaceBurleyShaderParameters::SubsurfaceHistoryMomentsTexture, history[1],
+                                    kRead, all )
+                          .Storage( SubsurfaceBurleyShaderParameters::SubsurfaceHistoryOutTexture, written[0],
+                                    RDG::Access::StorageWrite )
+                          .Storage( SubsurfaceBurleyShaderParameters::SubsurfaceHistoryMomentsOutTexture,
+                                    written[1], RDG::Access::StorageWrite );
                  },
-                 [pipeline = m_BurleyPipeline, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [pipeline = m_BurleyPipeline, stamped, index = frame.FrameIndex, width,
+                  height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "Subsurface: Burley" );
-                     const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                     return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, ( width + 7u ) / 8u,
-                                                                     ( height + 7u ) / 8u, 1 );
+                     const RDG::PassBindings     bindings( context, context.GetBindingBlock( 0 ) );
+                     const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
+                          bindings, *pipeline, ( width + 7u ) / 8u, ( height + 7u ) / 8u, 1 );
+                     if ( dispatched.IsSuccess() )
+                         stamped->Stamp.Stamp( index );
+                     return dispatched;
                  } );
             return scatter;
         }
@@ -218,6 +300,58 @@ namespace Desert::Graphic::System
         }
 
     private:
+        // One history pair: the running mean (rgb) + its frame count (a), and the luminance moment + the texel's
+        // identity (profile row, device depth); graph textures created once (CreateTexture +
+        // Extract) and registered every frame after (RegisterExternal), as ScreenSpaceDenoiser's slots.
+        struct HistorySlot
+        {
+            RDG::ExternalTexture Mean;
+            RDG::ExternalTexture Moments;
+            bool                 Built  = false;
+            uint32_t             Width  = 0;
+            uint32_t             Height = 0;
+            PassHistoryStamp     Stamp; // which view frame wrote it
+        };
+
+        void InvalidateHistory()
+        {
+            m_ReadableFrames = 0;
+            for ( HistorySlot& slot : m_Slots )
+                slot.Stamp.Invalidate();
+        }
+
+        static std::array<RDG::TextureRef, 2> AcquireSlot( RDG::Builder& graph, HistorySlot& slot,
+                                                           const uint32_t width, const uint32_t height,
+                                                           const std::string& name )
+        {
+            if ( slot.Built && slot.Width == width && slot.Height == height )
+                return { graph.RegisterExternal( slot.Mean, name ),
+                         graph.RegisterExternal( slot.Moments, name + ".Moments" ) };
+            slot.Mean    = {};
+            slot.Moments = {};
+            slot.Stamp.Invalidate();
+            const RDG::TextureRef mean =
+                 graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = width, .Height = height },
+                                                        .Format = Core::Formats::ImageFormat::RGBA16F },
+                                      name );
+            const RDG::TextureRef moments =
+                 graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = width, .Height = height },
+                                                        .Format = Core::Formats::ImageFormat::RGBA32F },
+                                      name + ".Moments" );
+            graph.Extract( mean, slot.Mean, RDG::Access::SampledCompute );
+            graph.Extract( moments, slot.Moments, RDG::Access::SampledCompute );
+            slot.Built  = true;
+            slot.Width  = width;
+            slot.Height = height;
+            return { mean, moments };
+        }
+
+        std::array<HistorySlot, 2> m_Slots;
+        uint32_t                   m_Parity         = 0;
+        float                      m_HistoryScale   = -1.0f;
+        uint32_t                   m_ReadableFrames = 0; // consecutive scatters that read their history
+        std::vector<std::byte>     m_HistoryRows;        // the profile rows the history was scattered with
+
         std::shared_ptr<Shader>           m_BurleyShader;
         mutable ShaderBindingLayoutCache  m_BurleyLayout;
         std::shared_ptr<ComputePipeline>  m_BurleyPipeline;
