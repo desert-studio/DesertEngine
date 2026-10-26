@@ -1,17 +1,27 @@
 # PORT-SUN-ROTATION: a directional light is aimed by its Rotation (forward -Z), as UE's ULightComponent::GetDirection;
 # Translation no longer encodes a direction. Every scene/prefab is raised by the light chain (LGHT v1, SceneMigrator
 # MigrateLightRotationV0ToV1). Details shows ONE direction widget on the sun: compass + horizon arc + Elevation/Azimuth.
-# The Starter sun is entity 13376537502658031226 ("Sun").
+# The Starter sun is entity 13376537502658031226 ("Sun"); after the migration its Translation is 0,0,0.
 Дано run Scene "Open Scene Starter.desce"
 Дано run Entity "Sun"
+Дано --subject viewport set Camera.FOV 60
+Дано --subject viewport set Camera.Position 0,400,1500
+Дано --subject viewport set Camera.Direction 0,-0.2,-1
 Тогда 1_migrated frame and shadows as on dev before the migration (the sun lights from the same place); Details on Sun shows the Sun Direction widget
 # The widget's Elevation number, through the same rule (Rules::SunAngles -> AimDirectionalLight, one undo step).
 Когда --subject selection set SunElevation 5
 Тогда 2_low_sun long shadows, sunset sky; Details: one direction widget (compass + horizon arc, Elevation 5.0), no second direction control
-# The rotate gizmo's write: the same TransformCommand, the azimuth turned by 90 deg.
+# A REAL drag on the rotate gizmo's world-Y (azimuth) ring. The camera looks straight down on the sun at the origin, so
+# the gizmo centre is the viewport centre (~1431x857 pt -> 715,428) and the Y ring is a circle of ImGuizmo's radius:
+# 0.1 clip-space size x rotationDisplayFactor 1.2 = 0.12 of the half-width = ~86 pt. Ring right -> ring top = 90 deg.
 Когда run Transform Rotate
-Когда --subject selection set SunAzimuth 90
-Тогда 3_gizmo shadows turned by 90 deg; the widget shows the new azimuth
+Когда --subject viewport set Camera.Position 0,1500,0
+Когда --subject viewport set Camera.Direction 0,-1,-0.0001
+Тогда-вид 3a_probe rotate gizmo centred in the viewport, its Y ring a circle of radius ~86 pt
+Когда --subject viewport drag 801,428 715,342 24
+Тогда 3_gizmo shadows turned by 90 deg (seen from above); the widget shows the azimuth changed by 90
+Когда --subject viewport set Camera.Position 0,400,1500
+Когда --subject viewport set Camera.Direction 0,-0.2,-1
 Когда run Action Undo
 Когда run Action Undo
 Тогда 4_undo frame as 1_migrated
