@@ -139,11 +139,16 @@ namespace Desert::Graphic::API::Vulkan
         return VK_FALSE;
     }
 
-#ifdef DESERT_CONFIG_DEBUG
-    static bool s_DebugValidation = true;
-#else
-    static bool s_DebugValidation = false;
-#endif
+    // OPT-IN, AS IN UE (-vulkandebug / r.Vulkan.EnableValidation): the Khronos layer with synchronization
+    // validation tracks every buffer, descriptor and access range, and on the Bistro street that was
+    // 2.75 million host allocations, 1.36 GB of the Debug editor's 6 GB (heap -s, BISTRO-LOOK p10) - the
+    // editor died at its memory cap before its first frame. Asked for with DESERT_VULKAN_VALIDATION=1.
+    // NOLINTNEXTLINE(concurrency-mt-unsafe): read once at static initialisation, before any thread exists
+    static const bool s_DebugValidation = []
+    {
+        const char* value = std::getenv( "DESERT_VULKAN_VALIDATION" );
+        return value != nullptr && value[0] != '\0' && value[0] != '0';
+    }();
 
     VulkanContext::VulkanContext( const std::shared_ptr<Window>& window ) : m_Window( window )
     {

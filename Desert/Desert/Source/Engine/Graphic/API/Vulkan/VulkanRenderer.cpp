@@ -184,6 +184,7 @@ namespace Desert::Graphic::API::Vulkan
         SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
              ->GetVulkanAllocator()
              ->ProcessDeletionQueue();
+        (void)CommandBufferAllocator::GetInstance().CollectFinished();
         return BOOLSUCCESS;
     }
 

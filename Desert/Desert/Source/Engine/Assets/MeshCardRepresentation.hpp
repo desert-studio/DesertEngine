@@ -18,11 +18,10 @@
 //     along it), so the thin axis is resolved as finely as the long ones need.
 //   * UE's cluster thresholds are in voxel units of that one voxel; here they stay in voxel units, so a card is
 //     accepted by the same density/coverage rule, measured on the finer lattice.
-//   * UE caps the lattice at 64 voxels along the longest side whatever the mesh's size, and its cluster floor is
-//     15 voxels of coverage: on a 64 m street a voxel is 1 m and a card needs 15 m2 of surface, so Bistro's
-//     street and four of its buildings got NO card. Here the cap grows with the mesh (TargetVoxelSize up to
-//     MaxVoxelsLarge voxels, the surfel budget with it), so a card's floor stays near 15 x (10 cm)2 to
-//     15 x (25 cm)2 up to a 64 m mesh.
+//   * As UE, the lattice is capped at MaxVoxels (64) along the longest side and halved while its surfels exceed
+//     TargetSurfels; UE re-casts every surfel's visibility rays on each halving, here the budget counts the
+//     lattice's candidates and the hemisphere rays are cast once, on the chosen lattice (BISTRO-LOOK p5: a
+//     grown 256 cap re-cast per halving cost 20-30 s per Bistro mesh).
 //   * UE takes a near plane's surfels as ONE cluster over the whole face of the box, dropped when sparser than
 //     MinDensity of that face; a large mesh is sparse in its own box (a cross of lanes in a square). Here a slab
 //     too sparse for one card is cut into its connected regions (MeshCardBuild.cpp ValidRegions).
@@ -87,14 +86,10 @@ namespace Desert::Assets
         float    TargetVoxelSize         = 10.0f; // cm, UE TargetVoxelSize
         float    MinVoxelSize            = 1.0f;  // cm: the finest a thin axis is cut
         uint32_t MinVoxelsAcrossThinAxis = 4;     // a thin axis gets at least this many voxels (UE: one voxel)
-        // The lattice's cap per axis grows with the mesh: TargetVoxelSize along the longest side, between
-        // MaxVoxels (UE's fixed 64) and MaxVoxelsLarge; the surfel budget grows with the square of that cap (a
-        // one-sided mesh's surfels grow with its faces), and the cap is halved while the surfels exceed it (UE
-        // InitSurfelScene). A mostly two-sided mesh keeps UE's fixed cap and budget: dense foliage is what they
-        // are for.
+        // UE InitSurfelScene: the lattice's cap per axis (the voxel follows from the bounds), halved while the
+        // lattice's surfels exceed TargetSurfels; the visibility rays are cast once, on the chosen lattice.
         uint32_t MaxVoxels               = 64;    // per axis, UE MaxVoxels
-        uint32_t MaxVoxelsLarge          = 256;   // per axis, the largest cap a large mesh grows to
-        uint32_t TargetSurfels           = 10000; // UE TargetNumSufels, at a cap of MaxVoxels
+        uint32_t TargetSurfels           = 10000; // UE TargetNumSufels
         float    MinDensity              = 0.2f;  // UE r.MeshCardRepresentation.MinDensity
         float    NormalThreshold         = 0.25f; // UE r.MeshCardRepresentation.NormalTreshold
         uint32_t MaxCards                = kMaxCardsPerMesh;
@@ -119,8 +114,8 @@ namespace Desert::Assets
     inline constexpr Common::DDC::Deriver kMeshCardsDeriver{
          "MeshCards", ".mcard", { 0x2F86C1D94B0E73A5ULL, 0x9D3E5A71C6B2F048ULL } };
     // 1: UE's surfel clustering on a per-axis voxel lattice; 2: a slab too sparse for one card is cut into its
-    // connected regions (MeshCardBuild.cpp ValidRegions), the lattice cap and the surfel budget grow with the mesh
-    inline constexpr uint32_t kMeshCardsBuilderVersion = 2;
+    // connected regions (MeshCardBuild.cpp ValidRegions); 3: UE's fixed lattice cap, visibility rays cast once
+    inline constexpr uint32_t kMeshCardsBuilderVersion = 3;
 
     // Render-data key + settings + builder version + every submesh's sidedness -> this bucket's key.
     [[nodiscard]] uint64_t MeshCardsDerivedDataKey( uint64_t renderDataKey, const MeshCardsBuildSettings& settings,

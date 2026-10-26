@@ -45,6 +45,7 @@
 
 // 1. Engine Core
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
@@ -663,7 +664,12 @@ namespace Desert::Editor
     void EditorLayer::OnFramePresented()
     {
         m_Startup.RevealWhenReady();
-        if ( const auto quit = m_Control.OnFramePresented() )
+        // What the frame just presented drew: displaced primitives still on their base mesh (ControlService).
+        const auto& scene = m_Workspace.ActiveScene();
+        const bool  displacementUnsettled =
+             scene && scene->GetRayTracingCache().GetDisplacement().GetStats().Unsettled > 0;
+        if ( const auto quit =
+                  m_Control.OnFramePresented( displacementUnsettled, m_Workspace.SubsurfaceHistoryConverging() ) )
             m_Application->Close( *quit );
     }
 

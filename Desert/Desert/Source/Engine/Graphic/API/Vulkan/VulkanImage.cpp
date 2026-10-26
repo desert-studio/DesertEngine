@@ -686,8 +686,15 @@ namespace Desert::Graphic::API::Vulkan
 
             // The bytes are in the staging copy now; the image keeps no second copy of them (ImageFormat.hpp).
             Core::Formats::ReleaseUploadedPixels( m_Specification );
-            const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
-            allocator->RT_ReleaseStaging( staging, stagingAlloc, flushed );
+            // SUBMITTED, NOT WAITED FOR (as UE's deferred texture upload): every sampler of this image is on
+            // the graphics queue after this submission, so submission order plus the barrier above is the
+            // whole dependency. The staging copy is released once the fence is seen signalled.
+            const auto submitted = CommandBufferAllocator::GetInstance().RT_SubmitGraphicThenRelease(
+                 cmd, [allocator, staging, stagingAlloc]
+                 { allocator->RT_ReleaseStaging( staging, stagingAlloc, Common::MakeSuccess( VK_SUCCESS ) ); } );
+            if ( !submitted.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "Image2D '{}': the upload was not submitted: {}",
+                                                         m_Specification.Tag, submitted.GetError() );
         }
         else
         {

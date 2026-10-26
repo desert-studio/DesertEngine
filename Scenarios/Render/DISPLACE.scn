@@ -1,11 +1,11 @@
 # DISPLACE-MAC: Windows' DISPLACE 1-5 (compute displacement = Nanite tessellation, raster + skin cache) proven on Mac (raster only).
 # Content: Meshes/Displace/{DisplaceSlab.gltf,CesiumMan.glb} imported by DISPLACE-IMPORT.scn (Displacement Runtime); DISPLACE_Probe.desce
-# = slab + CesiumMan with Materials/M_DisplaceStones.demat (Height = disp map, HeightScale 12 cm), sun grazing ~10 deg.
+# = slab + CesiumMan with Materials/M_DisplaceStones.demat (Height = disp map, HeightScale 25 cm), sun grazing ~10 deg.
 Дано run Scene "Open Scene DISPLACE_Probe.desce"
 Дано --subject viewport set Camera.Position 0,60,520
 Дано --subject viewport set Camera.Direction 0,-0.22,-1
 Когда run Quality "Quality: ViewDistance Cinematic"
-Тогда 1_on silhouette and self-shadow show real displaced geometry (bumps break the slab's top edge), no cracks along the UV seams at the slab edges
+Тогда 1_on (reply waits on PendingWork::Displacement) silhouette and self-shadow show real displaced geometry (bumps break the slab's top edge), no cracks along the UV seams at the slab edges
 Когда run Quality "Quality: ViewDistance Low"
 Тогда 2_off same view flat (DisplacementDicingRate 0 parks the twins), no crash, no stale geometry
 Когда run Quality "Quality: ViewDistance Cinematic"

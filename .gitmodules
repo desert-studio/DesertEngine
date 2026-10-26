@@ -52,3 +52,6 @@
 [submodule "ThirdParty/FidelityFX-SDK"]
 	path = ThirdParty/FidelityFX-SDK
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK.git
+[submodule "ThirdParty/embree"]
+	path = ThirdParty/embree
+	url = https://github.com/RenderKit/embree.git

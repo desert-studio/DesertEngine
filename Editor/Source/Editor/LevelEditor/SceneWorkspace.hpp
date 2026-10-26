@@ -101,6 +101,9 @@ namespace Desert::Editor
         // before any pass of the frame opens (Vulkan has no nested render pass).
         void TickRenderTextures( const Common::Timestep& ts );
         void RebuildRenderRegistry();
+        // Any view's subsurface scatter still averaging its history (SceneRenderer::SubsurfaceHistoryConverging):
+        // the control gate's PendingWork::SubsurfaceHistory, asked after the frame like Displacement.
+        [[nodiscard]] bool SubsurfaceHistoryConverging() const;
 
         // THE ACTIVE SCENE'S WORLD WAS REPLACED (Open, New, Stop's snapshot restore): its entities were torn down
         // and rebuilt. Everything keyed by the old entities follows the world, in ONE place for all three paths:

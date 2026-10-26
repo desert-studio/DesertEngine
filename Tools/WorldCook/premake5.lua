@@ -72,6 +72,7 @@ project "WorldCook"
         "Voro",
         "MikkTSpace",
         "OpenSubdiv",
+        "Embree", -- BuildScripts/ThirdParty/Embree.lua: the distance-field builder
         "OpenEXRCore",
         "Dav1d",
         "Opus",
