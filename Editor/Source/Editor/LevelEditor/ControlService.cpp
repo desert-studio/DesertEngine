@@ -34,7 +34,9 @@
 
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -433,7 +435,8 @@ namespace Desert::Editor
         m_FrameQuiescence = quiescence;
     }
 
-    std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled )
+    std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled,
+                                                             const bool subsurfaceHistoryConverging )
     {
         ++m_FrameIndex;
         // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
@@ -442,6 +445,10 @@ namespace Desert::Editor
         // after "Open Scene" or a Quality change had asked for nothing yet, read as settled, and was photographed
         // with the base mesh (DISPLACE 1_on: 4,696 tris drawn instead of 111,268).
         m_FrameQuiescence.Set( Control::PendingWork::Displacement, displacementUnsettled );
+        // The same kind of after-the-frame fact: the frame's renderer decides whether the scatter it just built
+        // read a full history window (SSS-PROFILE 3_scale4: a shot right after `SubsurfaceScale 4` saw fresh
+        // texels).
+        m_FrameQuiescence.Set( Control::PendingWork::SubsurfaceHistory, subsurfaceHistoryConverging );
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;
@@ -708,6 +715,9 @@ namespace Desert::Editor
                     if ( !selected )
                         return Control::Response::Failure( request.Id, selected.GetError() );
                     const auto& [uuid, before] = selected.GetValue();
+                    if ( request.Property == Core::kSelectionSunElevation ||
+                         request.Property == Core::kSelectionSunAzimuth )
+                        return SetSelectedSunAngle( request, uuid, before );
                     const auto after = Core::WriteSelectionTransform( before, request.Property, request.Value );
                     if ( !after )
                         return Control::Response::Failure( request.Id, after.GetError() );
@@ -997,6 +1007,36 @@ namespace Desert::Editor
         return "the active view is not the editor's fly camera — the scene is in Play and its own "
                "CameraComponent is driving. Leave Play ('Action' / 'Stop' in the palette) and ask again; "
                "moving the editor camera now would change a view nobody is looking through.";
+    }
+
+    // `selection set SunElevation|SunAzimuth <deg>`: the Details direction widget's two numbers, through the same
+    // rule (ECS::Rules::SunAngles -> ECS::AimDirectionalLight) and the same one-step TransformCommand.
+    Control::Response ControlService::SetSelectedSunAngle( const Control::Request& request, Common::UUID uuid,
+                                                           const Core::SelectionTransform& before )
+    {
+        const auto ref = m_Workspace.ActiveScene()->FindEntityByID( uuid );
+        if ( !ref )
+            return Control::Response::Failure(
+                 request.Id, fmt::format( "the selected entity {} is not in the scene", static_cast<uint64_t>( uuid ) ) );
+        const ECS::Entity entity = ref->get();
+        if ( !entity.HasComponent<ECS::DirectionLightComponent>() )
+            return Control::Response::Failure(
+                 request.Id, fmt::format( "'{}' is a directional light's property; the selected entity {} has no "
+                                          "Directional Light component",
+                                          request.Property, static_cast<uint64_t>( uuid ) ) );
+        if ( request.Value.size() != 1 || !std::isfinite( request.Value[0] ) )
+            return Control::Response::Failure(
+                 request.Id, fmt::format( "'{}' takes one finite number of degrees", request.Property ) );
+        entt::registry&         registry = *entity.GetRegistry();
+        ECS::Rules::SunAngles   angles   = ECS::Rules::SunAnglesFromToward(
+             ECS::Rules::AtmosphereSunDirection( ECS::WorldRotation( registry, entity.GetHandle() ) ) );
+        if ( request.Property == Core::kSelectionSunElevation )
+            angles.ElevationDeg = glm::clamp( request.Value[0], -90.0f, 90.0f );
+        else
+            angles.AzimuthDeg = request.Value[0];
+        ECS::AimDirectionalLight( registry, entity.GetHandle(), -ECS::Rules::TowardSunFromAngles( angles ) );
+        Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
+        return Control::Response::Success( request.Id );
     }
 
     Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>> ControlService::SelectedTransform() const

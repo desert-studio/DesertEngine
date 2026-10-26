@@ -555,6 +555,12 @@ namespace Desert::Graphic
                     LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable: {}",
                               deferredInit.GetError() );
                 m_ProgramRefusals.Shadows = deferred->Refusals().Shadows;
+                // The screen-space subsurface scatter (SSS-PROFILE): without it the profile materials shade unsplit.
+                RegisterSystem<System::SubsurfaceRenderer>( "SubsurfaceSystem", this, m_TargetFramebuffer );
+                if ( const auto subsurfaceInit =
+                          SP_CAST( System::SubsurfaceRenderer, m_RenderSystems["SubsurfaceSystem"] )->Initialize();
+                     !subsurfaceInit )
+                    LOG_ERROR( "[SceneRenderer] Subsurface scattering unavailable: {}", subsurfaceInit.GetError() );
                 return "DeferredLighting";
             }
             case 20:
@@ -988,6 +994,8 @@ namespace Desert::Graphic
             m_AAMode                           = Common::Scalability::AntiAliasingMethod::None;
         }
         m_GIIntensity    = post.GIIntensity;
+        m_SubsurfaceScattering = post.SubsurfaceScattering;
+        m_SubsurfaceScale      = post.SubsurfaceScale;
         m_SSRIntensity   = post.SSRIntensity;
         m_SSRMaxDistance = post.SSRMaxDistance;
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
@@ -2036,8 +2044,21 @@ namespace Desert::Graphic
                                                               ? AddFrameRayTracedLocalShadows( graph, textures,
                                                                                                gbuffer, frame )
                                                               : RDG::TextureRef{};
+                // SSS-PROFILE: the composite splits the scattered texels' diffuse into this target when the view
+                // scatters; Burley + Recombine add it back BEFORE the forward meshes (AddFrameGeneric), which may
+                // stand in front of a scattered texel and must not receive its diffuse.
+                const RDG::TextureRef subsurfaceDiffuse =
+                     SubsurfaceRuns()
+                          ? graph.CreateTexture(
+                                 RDG::TextureDesc{ .Size   = { .Width  = m_TargetFramebuffer->GetFramebufferWidth(),
+                                                               .Height = m_TargetFramebuffer->GetFramebufferHeight() },
+                                                   .Format = ViewTargetFormats::kSubsurfaceDiffuse },
+                                 "SubsurfaceDiffuse" )
+                          : RDG::TextureRef{};
                 AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, localShadowMasks,
-                                   megaLights, meshRenderer, lightDir, lightColor, frame );
+                                   megaLights, meshRenderer, lightDir, lightColor, frame, subsurfaceDiffuse );
+                if ( subsurfaceDiffuse.IsValid() )
+                    AddFrameSubsurface( graph, textures, gbuffer, subsurfaceDiffuse, frame );
                 AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask, localShadowMasks );
 
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type

@@ -690,7 +690,8 @@ namespace Desert::Graphic
                                            const RDG::TextureRef             localShadowMasks,
                                            const System::MegaLightsLighting& megaLights,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const ViewFrame& frame )
+                                           const glm::vec4& lightColor, const ViewFrame& frame,
+                                           const RDG::TextureRef subsurfaceDiffuse )
     {
         // w: what SsrTexture holds (DeferredLighting.shader REFLECTION_INPUT_*): 0 nothing, 1 the screen trace, 2 the
         // traced reflection, which the composite fades into the traced GI's rough specular past
@@ -780,6 +781,13 @@ namespace Desert::Graphic
             shadow.Sun = DeferredCascadeShadow{ .Lights = meshRenderer->DirectionalShadows() };
         inputs.MegaLightsDiffuse  = megaLights.Diffuse.IsValid() ? megaLights.Diffuse : refs.System.Black;
         inputs.MegaLightsSpecular = megaLights.Specular.IsValid() ? megaLights.Specular : refs.System.Black;
+        // SSS-PROFILE: the split's target, or a 1x1 transient the composite never writes (SubsurfaceSplit off).
+        inputs.SubsurfaceDiffuse =
+             subsurfaceDiffuse.IsValid()
+                  ? subsurfaceDiffuse
+                  : graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 1u, .Height = 1u },
+                                                           .Format = ViewTargetFormats::kSubsurfaceDiffuse },
+                                         "SubsurfaceDiffuse (unsplit)" );
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
         shadow.Contact                       = GetContactShadowSettings( frame, true );
         shadow.Filter                        = GetShadowFilterSettings();
@@ -815,7 +823,8 @@ namespace Desert::Graphic
         const DeferredGIInput compositeGI{ .Mode      = giMode,
                                            .Intensity = gi == GIMethod::ScreenSpace ? m_GIIntensity : 0.0f,
                                            .ScreenSpaceSamples = m_ScreenSpaceGISamples,
-                                           .PreExposure        = frame.PreExposure };
+                                           .PreExposure        = frame.PreExposure,
+                                           .SubsurfaceSplit    = subsurfaceDiffuse.IsValid() };
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
@@ -848,6 +857,70 @@ namespace Desert::Graphic
              },
              [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->Record( context ); } );
+    }
+
+    bool SceneRenderer::SubsurfaceRuns() const
+    {
+        if ( !m_SubsurfaceScattering || m_SubsurfaceScale <= 0.0f )
+            return false;
+        // The debug channels return before the split: only the Lit view (and the post view modes drawn Lit).
+        if ( static_cast<int>( m_DebugView.DeferredDebug ) != 0 &&
+             m_DebugView.DeferredDebug != DeferredDebugMode::LocalExposure )
+            return false;
+        const auto it = m_RenderSystems.find( "SubsurfaceSystem" );
+        if ( it == m_RenderSystems.end() )
+            return false;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* const subsurface = static_cast<const System::SubsurfaceRenderer*>( it->second.get() );
+        auto* const       profiles   = Runtime::ResourceRegistry::GetSubsurfaceProfileService();
+        return subsurface->IsReady() && profiles != nullptr && profiles->Registry().Count() > 0u;
+    }
+
+    bool SceneRenderer::SubsurfaceHistoryConverging() const
+    {
+        if ( !SubsurfaceRuns() )
+            return false;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* const subsurface =
+             static_cast<const System::SubsurfaceRenderer*>( m_RenderSystems.at( "SubsurfaceSystem" ).get() );
+        return subsurface->HistoryConverging();
+    }
+
+    void SceneRenderer::AddFrameSubsurface( RDG::Builder& graph, FrameTextures& textures,
+                                            const std::vector<RDG::TextureRef>& gbuffer,
+                                            const RDG::TextureRef subsurfaceDiffuse, const ViewFrame& frame )
+    {
+        if ( gbuffer.size() < 2 )
+            return;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* const subsurface = UNIQUE_GET_AS( System::SubsurfaceRenderer, m_RenderSystems["SubsurfaceSystem"] );
+        const System::SubsurfaceInputs inputs{ .SubsurfaceDiffuse = subsurfaceDiffuse,
+                                               .GBufferA          = gbuffer[0],
+                                               .GBufferB          = gbuffer[1],
+                                               .Depth             = textures.Depth( m_GBuffer, "GBuffer" ) };
+        const System::SubsurfaceSettings settings{ .Scale = m_SubsurfaceScale };
+        const System::SubsurfaceScatter  scatter = subsurface->AddScatter(
+             graph, Runtime::ResourceRegistry::GetSubsurfaceProfileService()->Registry(), inputs, settings, frame,
+             m_TargetFramebuffer->GetFramebufferWidth(), m_TargetFramebuffer->GetFramebufferHeight() );
+        if ( !scatter.Scattered.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] Subsurface: Burley was not added (no atlas rows or no pipeline)" );
+            return;
+        }
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Subsurface: Recombine" );
+        if ( !targets )
+            return;
+        const RDG::ImportedFramebuffer& target = *targets;
+        const std::vector<RDG::LoadOp>  loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
+        graph.AddPass(
+             "Subsurface: Recombine", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 subsurface->DeclareRecombineBindings( pass, inputs, scatter );
+                 DeferredFrameNodes::LoadTarget( pass, target, loads );
+             },
+             [subsurface]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return subsurface->RecordRecombine( context ); } );
     }
 
     bool SceneRenderer::GlobalDistanceFieldRead() const

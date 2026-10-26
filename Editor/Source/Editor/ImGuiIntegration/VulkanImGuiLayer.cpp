@@ -64,6 +64,10 @@ namespace
                         key( window, step.Code, glfwGetKeyScancode( step.Code ),
                              step.Action == InputAction::KeyDown ? GLFW_PRESS : GLFW_RELEASE, step.Mods );
                     break;
+                case InputAction::Scroll:
+                    if ( const auto scroll = CurrentGlfwCallback( window, &glfwSetScrollCallback ) )
+                        scroll( window, 0.0, static_cast<double>( step.Code ) );
+                    break;
                 case InputAction::Drop:
                     if ( const auto drop = CurrentGlfwCallback( window, &glfwSetDropCallback ) )
                     {

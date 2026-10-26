@@ -62,6 +62,7 @@ namespace Desert::Editor::Control
         TexturesStreaming,  ///< texture loads are in flight (the frame shows placeholders where they land)
         ModelingAccept,     ///< a modeling tool's Accept is raised and waits for its background compute to land
         Displacement, ///< the frame drew a displaced primitive's base mesh while its twin was still tessellating
+        SubsurfaceHistory, ///< a view's subsurface scatter has not yet averaged its full history window
         Count
     };
 
@@ -83,6 +84,7 @@ namespace Desert::Editor::Control
          "textures are still streaming in",
          "a modeling tool's Accept is waiting for its background compute",
          "displaced geometry is still being tessellated (the frame drew the base mesh)",
+         "the subsurface scatter's history is still converging (a Scale change, a camera cut or the first frames)",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),

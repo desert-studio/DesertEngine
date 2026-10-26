@@ -55,6 +55,19 @@ namespace Desert::Editor
         m_PrimaryScene  = m_ActiveScene; // the always-present document #-1 (see SetActiveScene)
     }
 
+    bool SceneWorkspace::SubsurfaceHistoryConverging() const
+    {
+        if ( m_SceneRenderer && m_SceneRenderer->SubsurfaceHistoryConverging() )
+            return true;
+        for ( const auto& document : m_ExtraScenes )
+            if ( document->Renderer && document->Renderer->SubsurfaceHistoryConverging() )
+                return true;
+        for ( const auto& viewport : m_ExtraViewports )
+            if ( viewport->Renderer && viewport->Renderer->SubsurfaceHistoryConverging() )
+                return true;
+        return false;
+    }
+
     void SceneWorkspace::RebuildRenderRegistry()
     {
         m_RenderRegistry.reset();
