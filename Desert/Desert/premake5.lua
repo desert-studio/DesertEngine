@@ -74,6 +74,18 @@ local function EngineModuleLibrary(module)
     pchsource "Source/pch.cpp"
     forceincludes { "pch.hpp" }
 
+    -- THE DERIVED-DATA BUILDERS ARE OPTIMISED IN EVERY CONFIGURATION (UE builds its editor's engine modules
+    -- optimised in DebugGame for the same reason: the cook-time builders are the hot loops). At -O0 one Bistro
+    -- facade's distance field (98 sign rays per band sample through the TriangleBvh, all glm dvec3 calls)
+    -- took minutes: 1291 queued, 0 built in 257 s on 8 workers (BISTRO-LOOK p4, `sample` showed every worker
+    -- in DfInsideByRays). Off the PCH: an -O2 source cannot take the -O0 .gch (__OPTIMIZE__ differs).
+    -- gmake only: MSVC's Debug /RTC1 refuses /O2 in the same compile (D8016) - REMAINDER for Windows.
+    filter { "configurations:Debug", "action:gmake*",
+             "files:**/Engine/Assets/MeshDistanceFieldBuild.cpp or **/Engine/Assets/MeshCardBuild.cpp" }
+        flags { "NoPCH" }
+        buildoptions { "-O2" }
+    filter {}
+
     if DesertModules.LegacyLibName(module.Name) == DesertModuleLibs.CodegenLib() then
         dependson { "DesertHeaderTool" }
         prebuildcommands { kHeaderToolCommand }

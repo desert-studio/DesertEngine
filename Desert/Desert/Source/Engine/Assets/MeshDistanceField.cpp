@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <Common/Core/JobSystem.hpp>
+#include <Common/Utilities/PakFile.hpp>
 
 #include <chrono>
 #include <condition_variable>
@@ -260,6 +261,15 @@ namespace Desert::Assets
             return Common::MakeFormattedError<MeshDistanceFieldData>( "mesh distance field has {} trailing bytes",
                                                                       reader.Remaining() );
         return Common::MakeSuccess( std::move( data ) );
+    }
+
+    uint64_t MeshDistanceFieldInputContentKey( const MeshDistanceFieldBuildInput& input )
+    {
+        const uint64_t positions =
+             Common::Utils::PakContentHash( input.Positions.data(), input.Positions.size() * sizeof( glm::vec3 ) );
+        const uint64_t indices =
+             Common::Utils::PakContentHash( input.Indices.data(), input.Indices.size() * sizeof( uint32_t ) );
+        return Common::DDC::MakeKey( kMeshDistanceFieldDeriver, positions, &indices, sizeof( indices ) );
     }
 
     uint64_t MeshDistanceFieldDerivedDataKey( const uint64_t                        renderDataKey,

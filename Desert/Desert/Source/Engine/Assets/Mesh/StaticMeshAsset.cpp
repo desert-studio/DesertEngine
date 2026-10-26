@@ -140,7 +140,8 @@ namespace Desert::Assets
             m_MorphTargets.push_back( MorphTarget{ mt.Name, mt.DeltaPositions, mt.DeltaNormals } );
         m_VertexStreams = PackMeshVertexStreams( data.Colors, data.UV1, m_Vertices.size() );
 
-        // The distance field is keyed on this render data; ResolveDependencies derives it once the materials load.
+        // The displaced products are keyed on this render data (the cards and the undisplaced field on their own
+        // triangles, MeshDistanceFieldInputContentKey); ResolveDependencies derives them once the materials load.
         m_RenderDataKey  = raw.GetValue().Key;
         m_ImportSettings = raw.GetValue().Settings;
         m_DistanceField.reset();
@@ -342,7 +343,10 @@ namespace Desert::Assets
                                              DisplacementTopologySlot*                          topologySlot,
                                              DisplacedMeshSlot* displacedSlot, std::string& error )
         {
-            FieldSurface surface{ key, [base]() -> Common::ResultStr<MeshDistanceFieldBuildInput>
+            // Undisplaced, the cards and the field are keyed on the triangles they are built from (the content
+            // key), not on the render data: a mesh builder change that leaves those triangles alone keeps the cache.
+            FieldSurface surface{ MeshDistanceFieldInputContentKey( *base ),
+                                  [base]() -> Common::ResultStr<MeshDistanceFieldBuildInput>
                                   { return Common::MakeSuccess( *base ); } };
             if ( !plan.has_value() )
                 return surface;

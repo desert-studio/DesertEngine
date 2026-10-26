@@ -181,8 +181,15 @@ namespace Desert::Assets
     // padded by two chunk voxels, so a sheet's inside is stored beyond its centimetre-deep triangle box
     inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 6;
 
-    // Render-data key (MeshAssetDerivedDataKey) + settings + builder version + every submesh's material
-    // sidedness -> this bucket's key.
+    // THE SURFACE'S CONTENT KEY (UE keys derived data on what the builder reads, so a cache entry survives every
+    // engine change that does not change it): a hash of exactly the triangles the field and the cards are built
+    // from - positions and indices - and nothing else. Keyed on the mesh's render-data key instead, every mesh
+    // builder bump (LOD reduction, UVs, the MeshBinary layout) re-derived every field and card of a project
+    // whose triangles had not moved (Bistro: 1291 meshes, BISTRO-LOOK p4).
+    [[nodiscard]] uint64_t MeshDistanceFieldInputContentKey( const MeshDistanceFieldBuildInput& input );
+
+    // Surface key (MeshDistanceFieldInputContentKey, or a displaced surface's key) + settings + builder version
+    // + every submesh's material sidedness -> this bucket's key.
     [[nodiscard]] uint64_t MeshDistanceFieldDerivedDataKey( uint64_t                              renderDataKey,
                                                             const MeshDistanceFieldBuildSettings& settings,
                                                             const std::vector<uint8_t>& submeshTwoSided );
