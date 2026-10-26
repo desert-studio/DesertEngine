@@ -2244,7 +2244,8 @@ namespace Desert::Editor
                                             renderer->TakeLedgerMemory(), viewportMin, viewportMax );
                 // VFX-16: the effects world's overview (Particle Debugger -> Viewport overview).
                 if ( m_Scene->GetVFXWorld().GetDebugSettings().Overview )
-                    DrawVFXOverviewOverlay( m_Scene->GetVFXWorld().GetDebugStats(), viewportMin, viewportMax );
+                    DrawVFXOverviewOverlay( m_Scene->GetVFXWorld().GetDebugStats(),
+                                            renderer->ParticleViewEmitterCulls(), viewportMin, viewportMax );
             }
 
         // Perf HUD (View -> Perf HUD): FPS + frame graph + top CPU scopes, useful in Play too.

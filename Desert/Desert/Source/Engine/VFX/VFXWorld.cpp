@@ -76,7 +76,6 @@ namespace Desert::VFX
             out.Transform            = system.Transform;
             if ( !system.System )
                 continue;
-            out.Bounds = system.System->Bounds;
             out.Emitters.reserve( system.Emitters.size() );
             for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
             {
@@ -87,6 +86,7 @@ namespace Desert::VFX
                 e.Name     = data.Name;
                 e.Runs     = system.Runs[k];
                 e.Capacity = data.Enabled ? static_cast<std::uint32_t>( data.Capacity ) : 0u;
+                e.Bounds   = data.Bounds;
                 e.Steps    = static_cast<std::uint32_t>( instance.Steps.size() );
                 for ( const EmitterStep& step : instance.Steps )
                     e.Spawned += step.Budget;
@@ -295,18 +295,14 @@ namespace Desert::VFX
                  const glm::mat4 world = transform ? glm::mat4( transform->GetTransform() ) : glm::mat4( 1.0f );
                  const glm::vec3 emitterCm( world[3] );
                  system.Transform = world;
-                 // The world AABB of the system's fixed local bounds (Arvo: each axis of the box through the
-                 // transform's linear part).
-                 glm::vec3 minCm = emitterCm;
-                 glm::vec3 maxCm = emitterCm;
-                 for ( int axis = 0; axis < 3; ++axis )
-                     for ( int col = 0; col < 3; ++col )
-                     {
-                         const float lo = world[col][axis] * data->Bounds.Min[col];
-                         const float hi = world[col][axis] * data->Bounds.Max[col];
-                         minCm[axis] += std::min( lo, hi );
-                         maxCm[axis] += std::max( lo, hi );
-                     }
+                 // The world box of the enabled emitters' fixed bounds, placed as the renderer culls them
+                 // (VFXBoundsAt: the placement's full transform); no enabled emitter - the placement's point.
+                 const auto extent = Assets::Serialization::VFXSystemExtent( *data );
+                 const Common::Math::AABB worldBounds =
+                      extent ? Assets::Serialization::VFXBoundsAt( *extent, world )
+                             : Common::Math::AABB{ emitterCm, emitterCm };
+                 const glm::vec3 minCm = worldBounds.Min;
+                 const glm::vec3 maxCm = worldBounds.Max;
                  // The system's effect type (ValidateVFXSystemData requires one); a missing type spawns nothing.
                  const std::string&                              typeName = data->EffectType.value();
                  const Assets::Serialization::VFXEffectTypeData* type     = EffectType( typeName );

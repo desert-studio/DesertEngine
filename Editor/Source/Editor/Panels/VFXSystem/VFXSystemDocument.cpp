@@ -1,4 +1,5 @@
 #include "VFXSystemDocument.hpp"
+#include <Engine/Assets/VFXModuleAsset.hpp>
 #include <charconv>
 #include "VFXCurveInputEditor.hpp"
 
@@ -157,6 +158,22 @@ namespace Desert::Editor
         };
 
         // The census both EditableProperties and SetEditableProperty read: one list, so a name means one input.
+        /// The name a stack row shows and addresses its inputs by: its `.dfxmod`'s file stem (the engine library
+        /// names each file after its module), so `engine:Engine/VFX/Modules/Gravity.dfxmod` reads `Gravity`.
+        std::string ModuleName( const Assets::AssetGuidRef& module )
+        {
+            return std::filesystem::path( module.Path ).stem().string();
+        }
+
+        /// The module of the registry whose row key is @p path.
+        std::optional<Assets::AssetGuidRef> FindModule( const VFX::VFXModuleResolver& modules, const std::string& path )
+        {
+            for ( Assets::AssetGuidRef& ref : modules.List() )
+                if ( ref.Path == path )
+                    return ref;
+            return std::nullopt;
+        }
+
         std::vector<InputAddress> AddressInputs( const S::VFXSystemData& data )
         {
             std::vector<InputAddress> out;
@@ -168,9 +185,7 @@ namespace Desert::Editor
                     std::unordered_map<std::string, int> seen;
                     for ( std::size_t m = 0; m < modules.size(); ++m )
                     {
-                        const std::string& full  = modules[m].Module;
-                        const auto         colon = full.find( ':' );
-                        std::string        name  = colon == std::string::npos ? full : full.substr( colon + 1 );
+                        std::string name = ModuleName( modules[m].Module );
                         if ( const int repeat = ++seen[name]; repeat > 1 )
                             name = std::format( "{}#{}", name, repeat );
                         for ( std::size_t i = 0; i < modules[m].Inputs.size(); ++i )
@@ -208,15 +223,10 @@ namespace Desert::Editor
         // stage - the same words AddressInputs builds input names from.
         std::string ModuleKey( const std::vector<S::VFXModuleUse>& modules, const std::size_t module )
         {
-            const auto name = []( const std::string& full )
-            {
-                const auto colon = full.find( ':' );
-                return colon == std::string::npos ? full : full.substr( colon + 1 );
-            };
-            const std::string own    = name( modules[module].Module );
+            const std::string own    = ModuleName( modules[module].Module );
             int               repeat = 0;
             for ( std::size_t m = 0; m <= module; ++m )
-                repeat += name( modules[m].Module ) == own ? 1 : 0;
+                repeat += ModuleName( modules[m].Module ) == own ? 1 : 0;
             return repeat > 1 ? std::format( "{}#{}", own, repeat ) : own;
         }
 
@@ -282,7 +292,9 @@ namespace Desert::Editor
         m_UIHelper->Init();
         m_PreviewLive = true;
         // The preview scene's own VFXComponent plays the system the VFXSystemService holds for this handle.
-        m_Preview->SetVFXSystem( Assets::AssetHandle( Subject().Owner ), m_Working.Bounds );
+        // Framed by the enabled emitters' boxes (VFXSystemExtent); a system with none frames the default box.
+        m_Preview->SetVFXSystem( Assets::AssetHandle( Subject().Owner ),
+                                 S::VFXSystemExtent( m_Working ).value_or( S::VFXBounds{} ) );
     }
 
     void VFXSystemDocument::ReleaseView()
@@ -488,6 +500,21 @@ namespace Desert::Editor
         if ( !m_Refusal.empty() )
             ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ), "%s", m_Refusal.c_str() );
         ImGui::Separator();
+        // UE emitter properties' Fixed Bounds: the box (cm, the placement frame; VFXBounds) every view and shadow
+        // view culls the emitter by. Each corner is one undo step, committed on Enter; a box the format refuses
+        // (Min above Max) is put back with the reason above.
+        if ( ImGui::CollapsingHeader( "Fixed Bounds", ImGuiTreeNodeFlags_DefaultOpen ) )
+        {
+            S::VFXBounds bounds = emitter.Bounds;
+            ImGui::PushID( "FixedBounds" );
+            const bool minSet = ImGui::InputFloat3( "Min (cm)", &bounds.Min.x, "%.1f",
+                                                    ImGuiInputTextFlags_EnterReturnsTrue );
+            const bool maxSet = ImGui::InputFloat3( "Max (cm)", &bounds.Max.x, "%.1f",
+                                                    ImGuiInputTextFlags_EnterReturnsTrue );
+            ImGui::PopID();
+            if ( minSet || maxSet )
+                (void)SetEmitterBounds( m_SelectedEmitter, bounds );
+        }
         // UE's stack order: Emitter Update runs once per tick, Particle Spawn once per new particle, Particle
         // Update per live particle per tick, then the Render rows.
         DrawStage( "Emitter Spawn", m_SelectedEmitter, 0 );
@@ -614,7 +641,7 @@ namespace Desert::Editor
                     structural = [this, emitter, stage, m, enabled]
                     { (void)SetModuleEnabled( emitter, stage, m, enabled ); };
                 ImGui::SameLine();
-                const std::string label = std::format( "{}{}", use.Module, use.Enabled ? "" : "  (disabled)" );
+                const std::string label = std::format( "{}{}", ModuleName( use.Module ), use.Enabled ? "" : "  (disabled)" );
                 const bool        open  = ImGui::TreeNodeEx(
                      "##module", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap, "%s",
                      label.c_str() );
@@ -861,6 +888,16 @@ namespace Desert::Editor
         ImGui::PopID();
     }
 
+    Common::BoolResultStr VFXSystemDocument::SetEmitterBounds( const std::size_t emitter, const S::VFXBounds bounds )
+    {
+        if ( emitter >= m_Working.Emitters.size() )
+            return Common::MakeFormattedError<bool>( "the system has no emitter {}", emitter );
+        auto before                          = m_Working;
+        m_Working.Emitters[emitter].Bounds = bounds;
+        // ValidateVFXSystemData refuses a box whose Min is above its Max: put back, said in the stack.
+        return Commit( std::move( before ), std::format( "Set {} Fixed Bounds", m_Working.Emitters[emitter].Name ) );
+    }
+
     Common::BoolResultStr VFXSystemDocument::Commit( Assets::Serialization::VFXSystemData before,
                                                      const std::string&                   label )
     {
@@ -958,13 +995,27 @@ namespace Desert::Editor
                     EditableProperty row;
                     row.Name       = std::format( "{}.{}.{}", m_Working.Emitters[e].Name, kStageKeys[st],
                                                   ModuleKey( modules, m ) );
-                    row.Label      = modules[m].Module;
+                    row.Label      = ModuleName( modules[m].Module );
                     row.Group      = std::format( "{}.{}", m_Working.Emitters[e].Name, kStageKeys[st] );
                     row.Type       = "bool";
                     row.Components = 1;
                     row.Value[0]   = modules[m].Enabled ? 1.0f : 0.0f;
                     out.push_back( std::move( row ) );
                 }
+            }
+            // The emitter's Fixed Bounds corners: `<Emitter>.Bounds.Min|Max`, three numbers (cm, placement frame).
+            for ( const bool max : { false, true } )
+            {
+                const glm::vec3& corner = max ? m_Working.Emitters[e].Bounds.Max : m_Working.Emitters[e].Bounds.Min;
+                EditableProperty row;
+                row.Name       = std::format( "{}.Bounds.{}", m_Working.Emitters[e].Name, max ? "Max" : "Min" );
+                row.Label      = max ? "Fixed Bounds Max (cm)" : "Fixed Bounds Min (cm)";
+                row.Group      = std::format( "{}.Bounds", m_Working.Emitters[e].Name );
+                row.Type       = "float3";
+                row.Components = 3;
+                for ( int c = 0; c < 3; ++c )
+                    row.Value[static_cast<std::size_t>( c )] = corner[c];
+                out.push_back( std::move( row ) );
             }
         }
         // Each renderer row: `<Emitter>.Render.<row>.Enabled`, and a Light row's settings beside it (VFX-LIGHT).
@@ -1056,6 +1107,18 @@ namespace Desert::Editor
         if ( auto renderer = SetRendererProperty( name, value ) )
             return *renderer;
         for ( std::size_t e = 0; e < m_Working.Emitters.size(); ++e )
+            for ( const bool max : { false, true } )
+            {
+                if ( name != std::format( "{}.Bounds.{}", m_Working.Emitters[e].Name, max ? "Max" : "Min" ) )
+                    continue;
+                if ( value.size() != 3 )
+                    return Common::MakeFormattedError<bool>( "'{}' is a float3 (cm) and takes 3 numbers, not {}",
+                                                             name, value.size() );
+                S::VFXBounds bounds = m_Working.Emitters[e].Bounds;
+                ( max ? bounds.Max : bounds.Min ) = glm::vec3( value[0], value[1], value[2] );
+                return SetEmitterBounds( e, bounds );
+            }
+        for ( std::size_t e = 0; e < m_Working.Emitters.size(); ++e )
         {
             for ( std::size_t st = 0; st < kStageKeys.size(); ++st )
             {
@@ -1108,17 +1171,18 @@ namespace Desert::Editor
     {
         std::vector<ModuleChoice> out;
         const uint8_t             bit = VFX::UsageBit( static_cast<VFX::VFXStage>( stage ) );
-        for ( const std::string& ref : VFX::ListModules( m_Working, VFX::EngineModuleDir() ) )
+        const Assets::RegistryVFXModuleResolver modules;
+        for ( const Assets::AssetGuidRef& ref : modules.List() )
         {
-            const auto described = VFX::DescribeModule( m_Working, ref, VFX::EngineModuleDir() );
+            const auto described = VFX::DescribeModule( ref, modules );
             if ( !described.IsSuccess() )
-                out.push_back( { ref, described.GetError() } );
+                out.push_back( { ref.Path, described.GetError() } );
             else if ( ( described.GetValue().Usage & bit ) != 0 )
             {
                 bool needsChannel = false;
                 for ( const auto& decl : described.GetValue().Inputs )
                     needsChannel = needsChannel || decl.BindingRequired;
-                out.push_back( { ref, {}, needsChannel } );
+                out.push_back( { ref.Path, {}, needsChannel } );
             }
         }
         return out;
@@ -1129,7 +1193,14 @@ namespace Desert::Editor
     {
         if ( emitter >= m_Working.Emitters.size() || stage >= kStageKeys.size() )
             return Common::MakeFormattedError<bool>( "'{}' can be added only to a stage of an emitter", module );
-        auto described = VFX::DescribeModule( m_Working, module, VFX::EngineModuleDir() );
+        const Assets::RegistryVFXModuleResolver modules;
+        const auto                              ref = FindModule( modules, module );
+        if ( !ref )
+        {
+            m_Refusal = std::format( "Add {}: no VFX module of the content registry has that path", module );
+            return Common::MakeError<bool>( m_Refusal );
+        }
+        auto described = VFX::DescribeModule( *ref, modules );
         if ( !described.IsSuccess() )
         {
             m_Refusal = std::format( "Add {}: {}", module, described.GetError() );
@@ -1141,7 +1212,7 @@ namespace Desert::Editor
             return Common::MakeError<bool>( m_Refusal );
         }
         S::VFXModuleUse use;
-        use.Module = module;
+        use.Module = *ref;
         for ( const auto& decl : described.GetValue().Inputs )
         {
             S::VFXModuleInput input;
@@ -1363,10 +1434,17 @@ namespace Desert::Editor
         auto before = m_Working;
         auto& modules = StageModules( m_Working.Emitters[emitter].Stack, spawn );
         for ( S::VFXModuleUse& use : modules )
-            if ( use.Module.starts_with( "engine:Shape" ) )
+            if ( ModuleName( use.Module ).starts_with( "Shape" ) )
                 use.Enabled = false;
+        const Assets::RegistryVFXModuleResolver library;
+        const auto pointSet = FindModule( library, "engine:Engine/VFX/Modules/ShapePointSet.dfxmod" );
+        if ( !pointSet )
+        {
+            m_Refusal = "Spawn from point set: the engine module library has no ShapePointSet.dfxmod";
+            return Common::MakeError<bool>( m_Refusal );
+        }
         S::VFXModuleUse use;
-        use.Module = "engine:ShapePointSet";
+        use.Module = *pointSet;
         S::VFXModuleInput location;
         location.Name    = "Location";
         location.Type    = S::VFXValueType::Vec3;
