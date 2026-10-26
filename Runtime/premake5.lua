@@ -54,6 +54,7 @@ project "Runtime"
         "Optick",
         "MeshOptimizer",
         "Voro",
+        "Embree",
         "Dav1d", -- Engine/Media (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua)
         "Opus",
     }

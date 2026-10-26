@@ -282,7 +282,6 @@ namespace Desert::Assets
         DfPutF32( image, settings.VoxelDensity );
         DfPutU32( image, settings.MaxPerMeshResolution );
         DfPutF32( image, settings.ResolutionScale );
-        DfPutF32( image, settings.ChunkVoxelSize );
         // The materials' sidedness shapes the sign (UE keys the field on each section's bTwoSided): turning a
         // material two-sided re-derives every mesh drawing it, with no change to the mesh's render data.
         DfPutU32( image, static_cast<uint32_t>( submeshTwoSided.size() ) );

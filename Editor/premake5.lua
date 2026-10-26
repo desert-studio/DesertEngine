@@ -150,6 +150,7 @@ project "Editor"
         "MeshOptimizer",
         "Voro",
         "OpenSubdiv",
+        "Embree", -- BuildScripts/ThirdParty/Embree.lua: the distance-field builder
         -- THE TOOLKIT ITSELF, NAMED HERE RATHER THAN INHERITED. It used to arrive through Desert.vcxproj,
         -- because the engine listed it and MSVC links project references transitively; the engine does not
         -- list it any more (see Desert/Desert/premake5.lua), so the Editor is now the only project that

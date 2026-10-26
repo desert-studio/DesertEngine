@@ -187,6 +187,7 @@ end
         "MeshOptimizer",
         "Voro",
         "OpenSubdiv",
+        "Embree", -- BuildScripts/ThirdParty/Embree.lua: the distance-field builder
         "Dav1d",
         "Opus",
     }

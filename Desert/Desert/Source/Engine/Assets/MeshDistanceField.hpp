@@ -55,11 +55,6 @@ namespace Desert::Assets
         float    VoxelDensity         = 0.2f; // voxels per centimetre: one voxel per 5 cm
         uint32_t MaxPerMeshResolution = 256;  // voxels along the longest axis; half of it at ResolutionScale <= 1
         float    ResolutionScale      = 1.0f; // UE FMeshBuildSettings::DistanceFieldResolutionScale
-        // THE CHUNK VOXEL (centimetres). A mesh whose voxel under MaxPerMeshResolution would be larger than its
-        // thinnest box extent - a 160 m pavement 29 cm high gets 130 cm voxels, so the slab has no sample inside
-        // it and no zero crossing - is built as several SPATIAL VOLUMES of at most that cap each, at this voxel
-        // (or the density's, when that is coarser). See MeshDistanceFieldData::Volumes.
-        float ChunkVoxelSize = 8.0f;
     };
 
     // One mip of the sparse volume (UE FSparseDistanceFieldMip + its bulk data).
@@ -97,13 +92,10 @@ namespace Desert::Assets
         [[nodiscard]] float     LocalToVolumeScale() const;
     };
 
-    // A STATIC MESH'S FIELD: one volume over the mesh box (every mesh UE's per-mesh cap serves - UE stops here),
-    // or, for a mesh too large for the cap at its thinnest extent, several volumes over disjoint boxes of its
-    // space (MeshDistanceFieldBuildSettings::ChunkVoxelSize) - in UE so a 160 m kerb ring gets 130 cm voxels and
-    // rays pass through it (UE leaves it to artists to split the mesh). Each volume is built from every triangle
-    // within its coarsest mip's band, so the minimum over the volumes is the mesh's distance across their seams;
-    // the GPU scene places each volume as its own object (own box, own bricks, own mip streaming). Empty when
-    // the mesh has no triangles.
+    // A STATIC MESH'S FIELD: one volume over the mesh box, as UE (MeshDistanceFieldBuild.cpp builds exactly one; a
+    // mesh too large for the per-mesh cap gets the cap's voxels, and UE leaves it to artists to split it). The
+    // format and the GPU scene take several, each placed as its own object (own box, own bricks, own mip
+    // streaming), the minimum over them being the mesh's distance. Empty when the mesh has no triangles.
     struct MeshDistanceFieldData
     {
         std::vector<MeshDistanceFieldVolume> Volumes;
@@ -178,8 +170,10 @@ namespace Desert::Assets
     // 2: two-sided triangles do not vote; 3: behind an open one-sided sheet is inside (BehindOneSidedFace);
     // 4: the sign by UE's backface rays (98 per band sample) in place of the parity vote; 5: a mesh too large for
     // the cap at its thinnest extent is built as spatial volumes (ChunkVoxelSize); 6: each spatial volume is
-    // padded by two chunk voxels, so a sheet's inside is stored beyond its centimetre-deep triangle box
-    inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 6;
+    // padded by two chunk voxels, so a sheet's inside is stored beyond its centimetre-deep triangle box; 7: built
+    // on Embree as UE (point query + rtcIntersect1, float), one volume per mesh (no spatial volumes), the
+    // mostly-two-sided bounds expansion
+    inline constexpr uint32_t kMeshDistanceFieldBuilderVersion = 7;
 
     // THE SURFACE'S CONTENT KEY (UE keys derived data on what the builder reads, so a cache entry survives every
     // engine change that does not change it): a hash of exactly the triangles the field and the cards are built
