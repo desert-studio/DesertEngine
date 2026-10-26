@@ -2,13 +2,15 @@
 # Lee Perry-Smith head scan (CC BY 3.0, Infinite-Realities; docs licence record) in Projects/Desert/Content/Meshes/Test,
 # material M_Skin_SSS (SubsurfaceProfileSurface, profile Materials/Subsurface/Skin.dsssprofile = UE skin defaults),
 # put on Starter's Metal_40 sphere entity; the sun turned to light it from the side.
+# A DirectionLightComponent takes its travel direction from its TRANSLATION (Scene.cpp:815), Rotation is ignored: -100,-50,0 = from +X, 27 deg up.
+# The .deimport beside the glb was written by the editor (Content Browser > Reimport), not by hand.
 Дано run View "View mode: Lit"
 Дано set 106508827693059193 StaticMeshComponent.MeshHandle assets:Meshes/Test/LeePerrySmith.stmesh
 Дано set 106508827693059193 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Skin_SSS.demat
 Дано run Entity Metal_40
 Дано --subject selection set Scale 0.03,0.03,0.03
 Дано run Entity Sun
-Дано --subject selection set Translation -100,-25,-10
+Дано --subject selection set Translation -100,-50,0
 Дано --subject viewport set Camera.Position -70,60,-395
 Дано --subject viewport set Camera.Direction 0,0,-1
 Когда set 17921165617746467452 PostProcessVolumeData.Settings.SubsurfaceScattering true
