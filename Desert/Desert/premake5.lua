@@ -79,11 +79,18 @@ local function EngineModuleLibrary(module)
     -- facade's distance field (98 sign rays per band sample through the TriangleBvh, all glm dvec3 calls)
     -- took minutes: 1291 queued, 0 built in 257 s on 8 workers (BISTRO-LOOK p4, `sample` showed every worker
     -- in DfInsideByRays). Off the PCH: an -O2 source cannot take the -O0 .gch (__OPTIMIZE__ differs).
-    -- gmake only: MSVC's Debug /RTC1 refuses /O2 in the same compile (D8016) - REMAINDER for Windows.
+    -- MSVC: /O2 per file (optimize "Speed" -> the file's <Optimization>MaxSpeed>) with the Debug /RTC1 off for
+    -- the same files (runtimechecks "Off" -> <BasicRuntimeChecks>Default>), as /RTC1 and /O2 together are D8016;
+    -- Debug is /Zi (Configurations.lua), which takes /O2.
     filter { "configurations:Debug", "action:gmake*",
              "files:**/Engine/Assets/MeshDistanceFieldBuild.cpp or **/Engine/Assets/MeshCardBuild.cpp" }
         flags { "NoPCH" }
         buildoptions { "-O2" }
+    filter { "configurations:Debug", "action:vs*",
+             "files:**/Engine/Assets/MeshDistanceFieldBuild.cpp or **/Engine/Assets/MeshCardBuild.cpp" }
+        flags { "NoPCH" }
+        optimize "Speed"
+        runtimechecks "Off"
     filter {}
 
     if DesertModules.LegacyLibName(module.Name) == DesertModuleLibs.CodegenLib() then
