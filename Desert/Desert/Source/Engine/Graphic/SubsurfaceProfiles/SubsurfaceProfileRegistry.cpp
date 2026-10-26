@@ -21,7 +21,8 @@ namespace Desert::Graphic
         }
 
         // UE GetSearchLightDiffuseScalingFactor: s for the searchlight configuration, the one the screen pass and
-        // the transmission profile shape the diffusion with (SubsurfaceProfileCommon.ush LIGHT_PERPENDICULAR_DIFFUSE_SURFACE).
+        // the transmission profile shape the diffusion with (SubsurfaceProfileCommon.ush
+        // LIGHT_PERPENDICULAR_DIFFUSE_SURFACE).
         float SearchLightScalingFactor( float albedo )
         {
             const float a  = albedo - 0.33f;
@@ -35,7 +36,9 @@ namespace Desert::Graphic
         {
             if ( dmfp <= 0.0f )
                 return 0.0f;
-            return 0.25f * albedo * ( std::exp( -scaling * radius / dmfp ) + 3.0f * std::exp( -scaling * radius / ( 3.0f * dmfp ) ) );
+            return 0.25f * albedo *
+                   ( std::exp( -scaling * radius / dmfp ) +
+                     3.0f * std::exp( -scaling * radius / ( 3.0f * dmfp ) ) );
         }
 
         // UE ProfileRadiusOffset (BurleyNormalizedSSS.cpp:20), cm: the half-texel the profile is sampled past.
@@ -60,8 +63,10 @@ namespace Desert::Graphic
         row[L::kTint]          = glm::vec4( p.Tint, static_cast<float>( p.Implementation ) );
         row[L::kSurfaceAlbedo] = glm::vec4( p.SurfaceAlbedo, 1.0f );
         // UE stores the DIFFUSE mean free path (SubsurfaceProfile.cpp:541-553); centimetres, the project unit
-        // (CONTRACT §2.5, Q2): no WorldUnitScale, no mm. a = the widest channel's (UE SetupSurfaceAlbedoAndDiffuseMeanFreePath).
-        const glm::vec3 dmfp = DiffuseMeanFreePathFromMeanFreePath( p.SurfaceAlbedo, p.MeanFreePathColor * p.MeanFreePathDistance );
+        // (CONTRACT §2.5, Q2): no WorldUnitScale, no mm. a = the widest channel's (UE
+        // SetupSurfaceAlbedoAndDiffuseMeanFreePath).
+        const glm::vec3 dmfp =
+             DiffuseMeanFreePathFromMeanFreePath( p.SurfaceAlbedo, p.MeanFreePathColor * p.MeanFreePathDistance );
         row[L::kDiffuseMeanFreePath] = glm::vec4( dmfp, std::max( dmfp.r, std::max( dmfp.g, dmfp.b ) ) );
         row[L::kTransmission] =
              glm::vec4( p.ExtinctionScale, p.NormalScale, p.ScatteringDistribution, 1.0f / p.IOR );
@@ -69,21 +74,22 @@ namespace Desert::Graphic
         row[L::kDualSpecular]       = glm::vec4( p.Roughness0, p.Roughness1, p.LobeMix, 0.0f );
 
         // UE ComputeTransmissionProfileBurley (BurleyNormalizedSSS.cpp:171-219): texel i = thickness
-        // i / size * kMaxTransmissionDistance, the profile read at that radius (+ the offset) over DistanceScale, the
-        // same DMFP as the screen pass and searchlight s, albedo white (the recombine applies the base colour),
-        // tinted; a = UE's shadow term e^(-thickness(mm) * ExtinctionScale). The last texel is black.
+        // i / size * kMaxTransmissionDistance, the profile read at that radius (+ the offset) over DistanceScale,
+        // the same DMFP as the screen pass and searchlight s, albedo white (the recombine applies the base
+        // colour), tinted; a = UE's shadow term e^(-thickness(mm) * ExtinctionScale). The last texel is black.
         glm::vec3 scaling;
         for ( int c = 0; c < 3; ++c )
             scaling[c] = SearchLightScalingFactor( p.SurfaceAlbedo[c] );
         const float invUnitScale = 1.0f / std::max( p.DistanceScale, 1e-4f );
         for ( uint32_t i = 0; i < L::kTransmissionProfileSize; ++i )
         {
-            const float thickness = L::kMaxTransmissionDistance * static_cast<float>( i ) / float( L::kTransmissionProfileSize );
-            const float radius    = ( thickness + kProfileRadiusOffset ) * invUnitScale;
+            const float thickness =
+                 L::kMaxTransmissionDistance * static_cast<float>( i ) / float( L::kTransmissionProfileSize );
+            const float radius = ( thickness + kProfileRadiusOffset ) * invUnitScale;
             glm::vec3   transmission;
             for ( int c = 0; c < 3; ++c )
                 transmission[c] = BurleyTransmission( 1.0f, scaling[c], dmfp[c], radius );
-            const float shadow = std::exp( -thickness * invUnitScale * kCmToMm * p.ExtinctionScale );
+            const float shadow               = std::exp( -thickness * invUnitScale * kCmToMm * p.ExtinctionScale );
             row[L::kTransmissionProfile + i] = glm::vec4( transmission * p.TransmissionTintColor, shadow );
         }
         row[L::kTransmissionProfile + L::kTransmissionProfileSize - 1] = glm::vec4( 0.0f );

@@ -43,17 +43,18 @@ namespace Desert::Assets::Serialization
     };
 
     // Defaults = UE's default skin (SubsurfaceProfile.h:139-165 after UpgradeSubsurfaceProfileParameters,
-    // SubsurfaceProfile.cpp:108-155): FalloffColor (1, 0.37, 0.3) mapped to Burley, its DMFP turned into the mean free
-    // path, MFP < 0.1 cm folded into the colour. Not taken: the slot-0 back-compat factors (ExtinctionScale x3.1,
-    // DistanceScale x10, TransmissionTint x albedo, :165-175) and WorldUnitScale (the profile is physical cm).
+    // SubsurfaceProfile.cpp:108-155): FalloffColor (1, 0.37, 0.3) mapped to Burley, its DMFP turned into the mean
+    // free path, MFP < 0.1 cm folded into the colour. Not taken: the slot-0 back-compat factors (ExtinctionScale
+    // x3.1, DistanceScale x10, TransmissionTint x albedo, :165-175) and WorldUnitScale (the profile is physical
+    // cm).
     struct SubsurfaceProfileData
     {
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
 
         // -- Burley Normalized
-        glm::vec3 SurfaceAlbedo        = { 0.90604f, 0.33526f, 0.27184f };    // colour, [0.01, 1]
-        glm::vec3 MeanFreePathColor    = { 0.212037f, 0.182126f, 0.173584f }; // colour, [0.001, 1]
-        float     MeanFreePathDistance = 0.1f;                               // MEAN free path, cm, [0.1, 50]
+        glm::vec3                SurfaceAlbedo        = { 0.90604f, 0.33526f, 0.27184f };    // colour, [0.01, 1]
+        glm::vec3                MeanFreePathColor    = { 0.212037f, 0.182126f, 0.173584f }; // colour, [0.001, 1]
+        float                    MeanFreePathDistance = 0.1f; // MEAN free path, cm, [0.1, 50]
         glm::vec3 Tint                 = { 1.0f, 1.0f, 1.0f };             // per channel: original <-> scattered
         glm::vec3 BoundaryColorBleed   = { 1.0f, 1.0f, 1.0f };
         SubsurfaceImplementation Implementation = SubsurfaceImplementation::AdaptiveFilteredImportanceSampling;
