@@ -89,6 +89,7 @@ namespace Desert::Editor
          { "--camera", true, "0,200,0" },
          { "--look", true, "0,0.9,-1" },
          { "--camera-to", true, "0,200,-100" },
+         { "--shot-motion-frames", true, "9", "--camera-to 0,200,-100" },
          { "--look-to", true, "0,0.5,-1" },
          { "--shot-sequence", true, "/tmp/seq" },
          { "--shot-every", true, "1" },
@@ -407,6 +408,17 @@ namespace Desert::Editor
                 options.Shot.Frames = frames;
                 shotFramesGiven     = true;
             }
+            else if ( arg == "--shot-motion-frames" )
+            {
+                int frames = 0;
+                if ( !ParseIntStrict( value, frames ) || frames < 2 )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--shot-motion-frames '{}' is not a frame count of a path (a whole number, at least 2).",
+                         value );
+                }
+                options.Shot.MotionFrames = frames;
+            }
             else if ( arg == "--shot-every" )
             {
                 int every = 0;
@@ -576,6 +588,12 @@ namespace Desert::Editor
             }
             if ( shot.FlightRoute->FilePath.empty() )
                 ArmFlight( options.Shot );
+        }
+        if ( options.Shot.MotionFrames > 0 && !options.Shot.HasMotion() )
+        {
+            return Common::MakeError<CommandLineOptions>(
+                 "--shot-motion-frames walks the --camera-to / --look-to path over the last frames; without either "
+                 "the camera has no path to walk" );
         }
 
         return Common::MakeSuccess( std::move( options ) );

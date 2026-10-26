@@ -4,6 +4,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -145,6 +146,10 @@ namespace Desert::Editor
         glm::vec3 PositionTo{ 0.0f, 0.0f, 0.0f }; // --camera-to x,y,z
         bool      HasForwardTo = false;
         glm::vec3 ForwardTo{ 0.0f, 0.0f, -1.0f }; // --look-to   x,y,z
+        // --shot-motion-frames N: the camera holds the start pose and walks the path over the LAST N frames only
+        // (a still warm-up, then a pan of N - 1 steps ending on the captured frame: the path tracer's denoiser
+        // measured right after motion). 0 = the path spans every frame.
+        int MotionFrames = 0;
 
         std::string Sequence;          // --shot-sequence <dir>; every Nth frame written there
         int         SequenceEvery = 1; // --shot-every N
@@ -289,9 +294,11 @@ namespace Desert::Editor
         // last at 1, so `--camera-to` names the pose the captured frame is actually taken from.
         float Parameter( int frame ) const
         {
-            if ( Frames <= 1 )
+            const int span = MotionFrames > 0 ? std::min( MotionFrames, Frames ) : Frames;
+            if ( span <= 1 )
                 return 0.0f;
-            return glm::clamp( static_cast<float>( frame ) / static_cast<float>( Frames - 1 ), 0.0f, 1.0f );
+            return glm::clamp( static_cast<float>( frame - ( Frames - span ) ) / static_cast<float>( span - 1 ),
+                               0.0f, 1.0f );
         }
 
         // The pose at normalized time @p t. With no motion flags this is the constant (Position, Forward)
