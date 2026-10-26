@@ -43,6 +43,8 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 DESERT_SURFACE_VARYINGS( out )
 #endif
 
+#include <Common/MeshTextureCoord.glslh>
+
 void main()
 {
     const mat4       model  = transforms[gl_InstanceIndex];
@@ -60,8 +62,8 @@ void main()
     colour *= mix( vec3( 0.75, 0.9, 0.85 ), vec3( 1.2, 1.1, 0.8 ), model[2].w );
     v_Surface.WorldPosition = blade.Position;
     v_Surface.Normal        = normal;
-    v_Surface.UV0           = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
-    v_Surface.UV1           = vec2( a_TexCoord1.x, 1.0 - a_TexCoord1.y );
+    v_Surface.UV0           = DesertMeshTextureUV( a_TextureCoord );
+    v_Surface.UV1           = DesertMeshTextureUV( a_TexCoord1 );
     v_Surface.VertexColor   = vec4( colour, 1.0 ) * a_Color;
     v_Surface.TBN           = mat3( blade.Right, along, normal );
 #endif

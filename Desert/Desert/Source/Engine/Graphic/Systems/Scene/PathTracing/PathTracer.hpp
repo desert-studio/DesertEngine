@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -95,7 +96,20 @@ namespace Desert::Graphic::System
     // a skipped frame), the camera moved (ViewProjection != PrevViewProjection), MaxBounces changed, geometry was
     // rebuilt under unchanged rows (RayTracingSceneFrame::DynamicGeometry), or the scene's hash moved
     // (FrameInputs::SceneHash: the TLAS rows, the lights, the sun and sky, the environment, the hit groups'
-    // material rows - SceneRenderer::PathTracingSceneHash).
+    // material rows - SceneRenderer::PathTracingSceneHash), MaxPathIntensity changed, or the exposure the clamp
+    // was set at moved by more than kClampExposureStops (below).
+    //
+    // THE PATH INTENSITY CLAMP (UE PathTracingCore.ush AccumulateRadiance, r.PathTracing.MaxPathIntensity): every
+    // contribution a path adds - each light sample, emission or sky its material rays meet - is scaled down, hue
+    // kept, to at most MaxPathIntensity in exposed units; what the camera ray itself sees (through delta glass
+    // interfaces too) is never clamped. That bounds a pixel's variance (the fireflies a small bright emitter met by a
+    // diffuse bounce makes) at the price of a bias toward darker highlights. The clamp is stated in exposed units,
+    // so the trace receives MaxPathIntensity / PreExposure - the PreExposure of the frame the sum (re)started at
+    // (m_ClampPreExposure). A sum keeps one clamp: clamping is not linear, so paths clamped at another value cannot
+    // be summed with it. In UE the clamp follows the current exposure and a change of it is a change of the
+    // config; here eye adaptation moves PreExposure a little every frame (the path-traced image feeds the
+    // histogram), and restarting on each move would never converge, so the sum restarts only when the exposure
+    // left the one it was clamped at by more than kClampExposureStops.
     //
     // THE SKY LIGHT (UE PathTracingSkylightPrepare.usf): each traced frame the environment cube is resampled into
     // an equal-area square of side S (the cube face rounded up to a power of two, UE: the capture size) and the
@@ -121,12 +135,21 @@ namespace Desert::Graphic::System
     public:
         using RenderSystem::RenderSystem;
 
+        // How far (in stops) the view's PreExposure may move from the one the sum's clamp was stated at before the
+        // sum restarts (THE PATH INTENSITY CLAMP above): the clamp holds to within a factor of 2 of the image's
+        // white, and the noise of a converging sum through eye adaptation never reaches a stop.
+        static constexpr float kClampExposureStops = 1.0f;
+
         // Scalability PathTracing.* (BeginScene).
         struct Settings
         {
             uint32_t SamplesPerPixel = 1024; // the total per pixel; tracing stops once summed (UE's meaning)
             uint32_t PathsPerFrame   = 1;    // paths added per pixel each frame (UE traces one)
             uint32_t MaxBounces      = 8;
+            // UE r.PathTracing.MaxPathIntensity: the brightest one path's contribution may be, in EXPOSED units (1 ~
+            // the image's white); a brighter one is scaled down to it with its hue kept (PathTracer.shader
+            // PathTracingAccumulate). 0 = no clamp.
+            float MaxPathIntensity = 24.0f;
         };
 
         // What one frame's paths read, all of this frame's graph (SceneRenderer::AddFramePathTracing).
@@ -297,15 +320,21 @@ namespace Desert::Graphic::System
             m_TraceFailed = false;
             const bool resized =
                  !m_Accumulation.Built || m_Accumulation.Width != width || m_Accumulation.Height != height;
+            const bool exposureLeft =
+                 settings.MaxPathIntensity > 0.0f &&
+                 !( std::abs( std::log2( frame.PreExposure / m_ClampPreExposure ) ) <= kClampExposureStops );
             const bool restart =
                  resized || !m_Stamp.ReadableIn( frame ) || frame.ViewProjection != frame.PrevViewProjection ||
-                 settings.MaxBounces != m_MaxBounces || inputs.SceneHash != m_SceneHash || inputs.DynamicGeometry;
+                 settings.MaxBounces != m_MaxBounces || inputs.SceneHash != m_SceneHash || inputs.DynamicGeometry ||
+                 settings.MaxPathIntensity != m_MaxPathIntensity || exposureLeft;
             if ( restart )
             {
                 m_Summed = 0;
                 ++m_Restarts;
+                m_ClampPreExposure = frame.PreExposure;
             }
             m_MaxBounces                       = settings.MaxBounces;
+            m_MaxPathIntensity                 = settings.MaxPathIntensity;
             m_SceneHash                        = inputs.SceneHash;
             const RDG::TextureRef accumulation = AcquireAccumulation( graph, width, height );
 
@@ -338,7 +367,8 @@ namespace Desert::Graphic::System
         {
             glm::uvec4 Counts; // point lights, spot lights, paths already summed (0: overwrite), max bounces
             glm::uvec4 Sky;    // sky side S, its levels, frame seed, paths this frame
-            glm::vec4  Sun;    // sin of half the sun's angle, pixel spread angle, sin of half atmosphere light 1's angle
+            glm::vec4  Sun;    // sin of half the sun's angle, pixel spread angle, sin of half atmosphere light 1's angle,
+                               // the path intensity clamp in radiance (MaxPathIntensity / m_ClampPreExposure; 0: none)
             glm::uvec4 Emissive;        // EmissiveLightsFrame::StaticParams
             glm::uvec4 EmissiveDynamic; // EmissiveLightsFrame::DynamicParams
         };
@@ -476,7 +506,8 @@ namespace Desert::Graphic::System
             const TracePush push{
                  glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount, m_Summed, m_MaxBounces ),
                  glm::uvec4( sky.Side, sky.Levels, m_Restarts, traced ),
-                 glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, inputs.Light1SinHalfAngle, 0.0f ),
+                 glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, inputs.Light1SinHalfAngle,
+                            m_MaxPathIntensity > 0.0f ? m_MaxPathIntensity / m_ClampPreExposure : 0.0f ),
                  inputs.Emissive.StaticParams(), inputs.Emissive.DynamicParams() };
             graph.AddPass(
                  "PathTracing: Trace", RDG::PassFlags::Compute,
@@ -589,6 +620,8 @@ namespace Desert::Graphic::System
         PassHistoryStamp   m_Stamp;               // the view frame whose resolve last stood behind the sum
         uint32_t           m_Summed      = 0;     // paths per pixel in the sum
         uint32_t           m_MaxBounces  = 0;     // the bounces the sum was traced with
+        float              m_MaxPathIntensity = 0.0f; // Settings::MaxPathIntensity the sum was clamped with
+        float              m_ClampPreExposure = 1.0f; // the PreExposure that clamp was stated at (its restart's)
         uint64_t           m_SceneHash   = 0;     // FrameInputs::SceneHash the sum was traced over
         uint32_t           m_Restarts    = 0;     // the random sequence's seed: each restart draws new paths
         bool               m_TraceFailed = false; // this frame's trace was refused (set at execution)

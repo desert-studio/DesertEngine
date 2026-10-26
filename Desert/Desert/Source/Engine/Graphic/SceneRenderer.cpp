@@ -1046,8 +1046,11 @@ namespace Desert::Graphic
         m_PathTracingSettings                 = System::PathTracer::Settings{
                              .SamplesPerPixel = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
                              .PathsPerFrame   = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
-                             .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ) };
+                             .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
+                             .MaxPathIntensity =
+                                  quality.As<float>( Parameter::PathTracingMaxPathIntensity ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
+        m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
         m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
         m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;
@@ -1881,13 +1884,28 @@ namespace Desert::Graphic
             // after a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it). A
             // path-traced frame reads no cascade: its paths trace the sun's visibility through the TLAS, and the
             // lit passes that sample the maps do not run.
-            m_FrameSunCascades = meshes != nullptr && !PathTraced( m_RenderMethods ) &&
-                                 ( !SunShadowIsScreenMask() || SunCascadesRead() );
-            if ( !m_FrameSunCascades )
+            // EVERY OTHER DIRECTIONAL LIGHT keeps its cascades under the sun's mask (the moon, slot
+            // kShadowLightAtmosphere1: DeferredScreenShadowMask::Lights, the surface cache's cascade arm), so the
+            // array is drawn while any slot casts. The sun's own slot is dropped when nothing reads it
+            // (MeshRenderer::DropDirectionalShadow): its layers are not drawn for the moon's sake, and the receivers
+            // that pack DirectionalShadows() below (the composite, the surface cache) see it with no cascade.
+            const bool sunCascadesUnread = SunShadowIsScreenMask() && !SunCascadesRead();
+            if ( meshes != nullptr && sunCascadesUnread )
+                meshes->DropDirectionalShadow( SceneResources::kDirectionalShadowSun );
+            const auto anySlotCasts = [meshes]
+            {
+                for ( const SceneResources::DirectionalShadowView& light : meshes->DirectionalShadows() )
+                    if ( light.CastShadows && light.Count > 0 )
+                        return true;
+                return false;
+            };
+            m_FrameCascades = meshes != nullptr && !PathTraced( m_RenderMethods ) &&
+                              ( !sunCascadesUnread || anySlotCasts() );
+            if ( !m_FrameCascades )
                 textures.Transients.ShadowCascades = AddFrameNoSunCascades( graph );
-            else if ( !m_SunCascadesDrawnLastFrame )
+            else if ( !m_CascadesDrawnLastFrame )
                 meshes->InvalidateCascadeCaches();
-            m_SunCascadesDrawnLastFrame = m_FrameSunCascades;
+            m_CascadesDrawnLastFrame = m_FrameCascades;
         }
 
         // A face view draws no particles (UE: a capture's ShowFlags.Particles = 0, "usually dynamic, and can't be

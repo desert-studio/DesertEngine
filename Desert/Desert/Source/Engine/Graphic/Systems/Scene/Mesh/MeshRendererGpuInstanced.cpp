@@ -135,7 +135,7 @@ namespace Desert::Graphic::System
             if ( gpu.WorldBounds && !cascadeFrustum.Intersects( *gpu.WorldBounds ) )
                 continue;
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
-            const uint32_t            view   = kGpuInstancedViewBase + 0x08000000u + gpu.Key * kMaxCascades + c;
+            const uint32_t            view   = kGpuInstancedViewBase + 0x08000000u + gpu.Key * kCascadeViews + c;
             // Its own (Instanced x ShadowDepth) cell, masked or not: the shared instanced caster's transforms are
             // the CPU-batched ISMs'.
             DataDrivenMaterial* caster =

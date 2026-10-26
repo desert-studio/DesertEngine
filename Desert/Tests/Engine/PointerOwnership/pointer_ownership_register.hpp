@@ -508,9 +508,11 @@ namespace Desert::Tests::PointerCensus
           "member m_Storage (SceneRendererFrame.hpp:67-73), a vector<unique_ptr<ExternalTexture>> that is never "
           "erased from; growing the vector moves the unique_ptrs, not their pointees, so each address is stable "
           "for the FrameTextures' whole life and dies with it" },
-        { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp",
-          "DeferredCascadeShadow", "CascadeVP", Guard::CallScoped,
-          kWhyArgumentPack },
+        { "Desert/Desert/Source/Engine/Graphic/Materials/SceneResources.hpp",
+          "DirectionalShadowView", "CascadeVP", Guard::CallScoped,
+          "a per-frame view of one directional light's cascade matrices: MeshRenderer::DirectionalShadows points it "
+          "at the renderer's own m_CascadeVP member and every receiver packs it into its ShadowUB inside the same "
+          "frame's call (SceneShadowBind / PackDeferredShadow); never stored past the frame" },
         { "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp",
           "DeferredEnvironmentInput", "Irradiance", Guard::CallScoped,
           kWhyArgumentPack },
@@ -549,9 +551,6 @@ namespace Desert::Tests::PointerCensus
           "SceneFrameBinding is always a function-local consumed by ApplyTo in the same scope; every field points at a member of the SceneRenderer or MeshRenderer that built it" },
         { "Desert/Desert/Source/Engine/Graphic/Materials/SceneFrameBinding.hpp",
           "SceneFrameBinding", "DirectionLights", Guard::CallScoped,
-          "SceneFrameBinding is always a function-local consumed by ApplyTo in the same scope; every field points at a member of the SceneRenderer or MeshRenderer that built it" },
-        { "Desert/Desert/Source/Engine/Graphic/Materials/SceneFrameBinding.hpp",
-          "SceneFrameBinding", "CascadeViewProj", Guard::CallScoped,
           "SceneFrameBinding is always a function-local consumed by ApplyTo in the same scope; every field points at a member of the SceneRenderer or MeshRenderer that built it" },
         { "Desert/Desert/Source/Engine/Graphic/Materials/SceneFrameBinding.hpp",
           "SceneFrameBinding", "IrradianceMap", Guard::CallScoped,

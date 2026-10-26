@@ -61,16 +61,10 @@ namespace Desert::Graphic
         const ShaderProtocols::SpotLight*      SpotLights      = nullptr;
         const ShaderProtocols::DirectionLight* DirectionLights = nullptr;
 
-        const glm::mat4* CascadeViewProj = nullptr; // SceneResources::kMaxCascades entries
-        // How many of the matrices above are REAL (the cascade array's layers are bound through the graph). The
-        // producing renderer's own shadow budget (Graphic::ShadowQuality), not the ceiling: an asset preview
-        // allocates one cascade, and the shader's cascade loop is driven by this number. It defaults to the
-        // ceiling so a snapshot built by hand behaves as every snapshot did before the budget existed.
-        uint32_t  CascadeCount = SceneResources::kMaxCascades;
-        glm::vec4 CascadeTexelWorld{ 0.0f };
-        glm::vec4 CascadeDepthRange{ 1.0f }; // MeshRenderer::GetCascadeDepthRange
-        float     SunSourceTanHalf = 0.0f;   // MeshRenderer::GetSunSourceTanHalf
-        bool      ShadowsEnabled  = true;
+        // Every shadowed directional light's cascades this frame (MeshRenderer::DirectionalShadows): the counts
+        // FITTED, not the budget, so the shader's cascade loop walks only matrices this frame wrote. Default: no
+        // light shadowed (a snapshot built by hand binds no cascade).
+        SceneResources::DirectionalShadowViews DirectionalShadows{};
         // The view's contact shadows (SceneResources::ContactShadowSettings), packed into the same ShadowUB.
         SceneResources::ContactShadowSettings ContactShadow{};
         // The sun's PCSS taps (SceneResources::ShadowFilterSettings), packed into the same ShadowUB.

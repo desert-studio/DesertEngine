@@ -785,7 +785,11 @@ namespace Desert::Core
             }
 
             // ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): lit by the deferred pass beside
-            // the sun, never a stand-in for it — it has no fallback and casts no cascades (index 0 owns them).
+            // the sun, never a stand-in for it — it has no fallback. When it casts shadows it gets cascades of its
+            // own (SceneResources slot 1, MeshRenderer::UpdateCascades), fitted from these same fields.
+            static_assert( static_cast<int>( Graphic::SceneResources::kMaxShadowedDirectionalLights ) ==
+                                ECS::Rules::kAtmosphereLightCount,
+                           "a cascade slot per atmosphere light: the slot IS the Atmosphere Sun Light Index" );
             const ECS::AtmosphereSunPick secondPick =
                  ECS::PickAtmosphereLight( m_Registry, ECS::SunCandidacy::Lit, 1 );
             const auto second = secondPick.Sun();
@@ -799,7 +803,11 @@ namespace Desert::Core
                          .Light = Graphic::ShaderProtocols::DirectionLightPayload{
                               glm::vec4( *travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) },
                          .SourceAngleDegrees = light.Data.SourceAngle,
-                         .CastShadows        = light.Data.CastShadows };
+                         .CastShadows        = light.Data.CastShadows,
+                         .ShadowBias         = { .BiasCm       = light.Data.ShadowBias,
+                                                 .SlopeBiasCm  = light.Data.ShadowSlopeBias,
+                                                 .Distribution = light.Data.ShadowCascadeBiasDistribution },
+                         .CascadeSplitLambda = light.Data.CascadeSplitLambda };
             }
 
             // WHICH LIGHTS EMIT NOTHING, AND WHY ANYONE SHOULD HEAR ABOUT IT.
