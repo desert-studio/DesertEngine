@@ -317,6 +317,32 @@ namespace Desert::Editor::ImportOptions
         settings.CombineMeshes = on;
     }
 
+    Common::BoolResultStr SetDisplacement( Assets::SourceImportSettings&      settings,
+                                           const Assets::MeshDisplacementMode mode, const ImportContentKind kind )
+    {
+        // CONTRACT-DISPLACE §9.8: a skeletal mesh is displaced over its skinned pose each frame; a bake is one
+        // pose.
+        if ( kind == ImportContentKind::SkeletalMesh && mode == Assets::MeshDisplacementMode::Baked )
+            return Common::MakeFormattedError<bool>(
+                 "Displacement {}: a skeletal mesh is displaced None or Runtime",
+                 Assets::MeshDisplacementModeName( mode ) );
+        settings.Mesh.Displacement = mode;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SetShownDisplacement( const Assets::MeshDisplacementMode mode )
+    {
+        const auto shown = ShownSettings();
+        if ( !shown )
+            return Common::MakeError<bool>( shown.GetError() );
+        QueuedSource& source = Window().Queue.front(); // the shown one (DrawWindow shows the queue's front)
+        if ( !source.Kind )
+            source.Kind = SharedImporter().ProbeContent( source.Source );
+        if ( !*source.Kind )
+            return Common::MakeError<bool>( source.Kind->GetError() );
+        return SetDisplacement( *shown.GetValue(), mode, source.Kind->GetValue() );
+    }
+
     Common::BoolResultStr SetShownUniformScale( const float scale )
     {
         const auto shown = ShownSettings();
@@ -522,8 +548,12 @@ namespace Desert::Editor::ImportOptions
                 mode = static_cast<int>( i );
         if ( ImGui::Combo( "##Displacement", &mode, kDisplacementLabels.data(), modeCount ) )
         {
-            settings.Mesh.Displacement = kDisplacementModes[static_cast<std::size_t>( mode )];
-            changed                    = true;
+            if ( const auto set =
+                      SetDisplacement( settings, kDisplacementModes[static_cast<std::size_t>( mode )], kind );
+                 !set )
+                ImGui::SetTooltip( "%s", set.GetError().c_str() );
+            else
+                changed = true;
         }
         UI::EndPropertyRow();
 
