@@ -102,7 +102,8 @@ namespace Desert::Graphic::System
         using RenderSystem::RenderSystem;
 
         // AFIS with the variance-adaptive count (UE r.SSS.Burley.Quality 1): a fresh texel draws the most, a
-        // converged one as few as its running variance allows; the history averages up to kHistoryFrames estimates.
+        // converged one as few as its running variance allows; the history averages up to kHistoryFrames
+        // estimates.
         static constexpr uint32_t kBurleySamples       = 32;
         static constexpr uint32_t kBurleyFewestSamples = 8;
         static constexpr uint32_t kHistoryFrames       = 32;
@@ -156,8 +157,8 @@ namespace Desert::Graphic::System
         }
 
         // GRAPH BUILD: the atlas of @p registry and the view's parameters as graph buffers, then "Subsurface:
-        // Burley" into a new @p width x @p height transient, reading last frame's history and writing this frame's.
-        // Empty refs when not ready or nothing is registered.
+        // Burley" into a new @p width x @p height transient, reading last frame's history and writing this
+        // frame's. Empty refs when not ready or nothing is registered.
         [[nodiscard]] SubsurfaceScatter AddScatter( RDG::Builder& graph, const SubsurfaceProfileRegistry& registry,
                                                     const SubsurfaceInputs&   inputs,
                                                     const SubsurfaceSettings& settings, const ViewFrame& frame,
@@ -182,10 +183,11 @@ namespace Desert::Graphic::System
                                   previous.Stamp.ReadableIn( frame );
             std::array<RDG::TextureRef, 2> history = { inputs.SubsurfaceDiffuse, inputs.SubsurfaceDiffuse };
             if ( readable )
-                history = AcquireSlot( graph, previous, width, height, std::format( "SubsurfaceHistory{}", m_Parity ) );
+                history =
+                     AcquireSlot( graph, previous, width, height, std::format( "SubsurfaceHistory{}", m_Parity ) );
             const std::array<RDG::TextureRef, 2> written =
                  AcquireSlot( graph, next, width, height, std::format( "SubsurfaceHistory{}", 1u - m_Parity ) );
-            m_Parity               = 1u - m_Parity;
+            m_Parity                   = 1u - m_Parity;
             HistorySlot* const stamped = &next;
             SubsurfaceScatter scatter;
             scatter.Atlas =
@@ -199,10 +201,10 @@ namespace Desert::Graphic::System
                                               static_cast<float>( frame.FrameIndex % 1024u ),
                                               static_cast<float>( kBurleyFewestSamples ) );
             view.PrevWorldToClip = frame.PrevJitteredViewProjection;
-            view.HistoryParams   = glm::vec4( readable ? 1.0f : 0.0f,
-                                              frame.PrevPreExposure > 0.0f ? frame.PreExposure / frame.PrevPreExposure
-                                                                           : 1.0f,
-                                              static_cast<float>( kHistoryFrames ), 0.0f );
+            view.HistoryParams =
+                 glm::vec4( readable ? 1.0f : 0.0f,
+                            frame.PrevPreExposure > 0.0f ? frame.PreExposure / frame.PrevPreExposure : 1.0f,
+                            static_cast<float>( kHistoryFrames ), 0.0f );
             const RDG::BufferRef viewBuffer =
                  graph.CreateBuffer( RDG::BufferDesc{ .Bytes = sizeof( SubsurfaceViewGpu ) }, "Subsurface: View" );
             graph.QueueBufferUpload( viewBuffer, std::as_bytes( std::span( &view, 1 ) ) );
@@ -238,8 +240,8 @@ namespace Desert::Graphic::System
                                     kRead, all )
                           .Storage( SubsurfaceBurleyShaderParameters::SubsurfaceHistoryOutTexture, written[0],
                                     RDG::Access::StorageWrite )
-                          .Storage( SubsurfaceBurleyShaderParameters::SubsurfaceHistoryMomentsOutTexture, written[1],
-                                    RDG::Access::StorageWrite );
+                          .Storage( SubsurfaceBurleyShaderParameters::SubsurfaceHistoryMomentsOutTexture,
+                                    written[1], RDG::Access::StorageWrite );
                  },
                  [pipeline = m_BurleyPipeline, stamped, index = frame.FrameIndex, width,
                   height]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -313,12 +315,14 @@ namespace Desert::Graphic::System
             slot.Mean    = {};
             slot.Moments = {};
             slot.Stamp.Invalidate();
-            const RDG::TextureRef mean = graph.CreateTexture(
-                 RDG::TextureDesc{ .Size = { .Width = width, .Height = height }, .Format = Core::Formats::ImageFormat::RGBA16F },
-                 name );
-            const RDG::TextureRef moments = graph.CreateTexture(
-                 RDG::TextureDesc{ .Size = { .Width = width, .Height = height }, .Format = Core::Formats::ImageFormat::RGBA32F },
-                 name + ".Moments" );
+            const RDG::TextureRef mean =
+                 graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = width, .Height = height },
+                                                        .Format = Core::Formats::ImageFormat::RGBA16F },
+                                      name );
+            const RDG::TextureRef moments =
+                 graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = width, .Height = height },
+                                                        .Format = Core::Formats::ImageFormat::RGBA32F },
+                                      name + ".Moments" );
             graph.Extract( mean, slot.Mean, RDG::Access::SampledCompute );
             graph.Extract( moments, slot.Moments, RDG::Access::SampledCompute );
             slot.Built  = true;
