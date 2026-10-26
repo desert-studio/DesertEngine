@@ -5,8 +5,8 @@ Shader "SubsurfaceBurley"
     // composite's SubsurfaceDiffuse - UE PostProcessSubsurface.usf MainIndirectDispatchCS + SubsurfaceBurleyNormalized.ush
     // BurleyNormalizedSS, the importance-sampled (AFIS) form at a fixed sample count. Each scattered texel draws its
     // samples on the TANGENT PLANE in world space (radius importance-sampled from the profile's widest channel),
-    // projects them, and weights each by the profile of the true 3D distance to the surface it hit over the pdf it
-    // was drawn with - so a depth step (the nose over the cheek) contributes little, and a sample on another
+    // projects them, and weights each by the profile of the bilateral radius sqrt(r^2 + off-plane^2) over the pdf
+    // it was drawn with - so a depth step (the nose over the cheek) contributes little, and a sample on another
     // profile, an unscattered surface or the sky contributes nothing (no halo onto the background). The weights are
     // normalized per channel (UE: the sum of weights), so a texel keeps its energy wherever its samples land.
     Compute
@@ -108,8 +108,14 @@ Shader "SubsurfaceBurley"
         			continue;
         		const float sampleDepth = texelFetch(SceneDepthTexture, at, 0).r;
         		const vec3  hit = ReconstructWorldPosition((vec2(at) + 0.5) * texel, sampleDepth, ClipToWorld);
-        		// The profile of the distance actually travelled over the pdf the radius was drawn with.
-        		const vec3 w = BurleyProfile(distance(hit, P), d) / BurleyProfile1(r, dMax);
+        		// UE BurleyNormalizedSS's bilateral radius: the drawn radius r lengthened by how far the surface actually
+        		// hit lies off the tangent-plane point that was aimed at (UE: sqrt(r^2 + DeltaDepth^2)), never shortened.
+        		// Weighting by the raw |hit - P| instead let a far-drawn sample that lands on a fold close to P (the
+        		// ear's concha) take profile(small)/pdf(large r) - unbounded as the radius grows, so at Scale x4 one
+        		// shadowed sample owned the texel: the dark dots. With the radius >= r each weight is <= R(r)/pdf(r).
+        		const float offPlane = distance(hit, world);
+        		const float radius   = sqrt(r * r + offPlane * offPlane);
+        		const vec3  w        = BurleyProfile(radius, d) / BurleyProfile1(r, dMax);
         		sum     += w * s.rgb;
         		weights += w;
         	}
