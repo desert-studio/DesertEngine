@@ -7,18 +7,24 @@
 Дано --subject viewport set Camera.FOV 60
 Дано --subject viewport set Camera.Position 0,400,1500
 Дано --subject viewport set Camera.Direction 0,-0.2,-1
+# Details scrolled with the mouse wheel down to the Sun Direction widget (it sits below Transform/Light/Atmosphere).
+Дано input scroll Details 150,300 -6
 Тогда 1_migrated frame and shadows as on dev before the migration (the sun lights from the same place); Details on Sun shows the Sun Direction widget
 # The widget's Elevation number, through the same rule (Rules::SunAngles -> AimDirectionalLight, one undo step).
 Когда --subject selection set SunElevation 5
-Тогда 2_low_sun long shadows, sunset sky; Details: one direction widget (compass + horizon arc, Elevation 5.0), no second direction control
-# A REAL drag on the rotate gizmo's world-Y (azimuth) ring. The camera looks straight down on the sun at the origin, so
-# the gizmo centre is the viewport centre (~1431x857 pt -> 715,428) and the Y ring is a circle of ImGuizmo's radius:
-# 0.1 clip-space size x rotationDisplayFactor 1.2 = 0.12 of the half-width = ~86 pt. Ring right -> ring top = 90 deg.
+Тогда 2_low_sun long shadows; Details: the whole direction widget in view (compass + horizon arc + Elevation/Azimuth), Elevation 5.0, no second direction control
+# The horizon, looking towards the sun (azimuth of the low sun).
+Когда --subject viewport set Camera.Position 0,150,1500
+Когда --subject viewport set Camera.Direction SUNDIR
+Тогда-вид 2b_horizon sunset sky, the sun disc just above the horizon
+# A REAL drag on the rotate gizmo's world-Y (azimuth) ring, seen from above. The camera clamps its pitch short of
+# straight down, so the gizmo centre is NOT the viewport centre: measured on the frame at (715.5, 451) pt, the ring
+# a circle of radius 86 pt (ImGuizmo 0.1 clip x rotationDisplayFactor 1.2 of the half-width). Points ON the drawn
+# ring are points on the world ring, so ring right -> ring top is exactly 90 deg around +Y.
 Когда run Transform Rotate
 Когда --subject viewport set Camera.Position 0,1500,0
 Когда --subject viewport set Camera.Direction 0,-1,-0.0001
-Тогда-вид 3a_probe rotate gizmo centred in the viewport, its Y ring a circle of radius ~86 pt
-Когда --subject viewport drag 801,428 715,342 24
+Когда --subject viewport drag 801.5,451 715.5,365 24
 Тогда 3_gizmo shadows turned by 90 deg (seen from above); the widget shows the azimuth changed by 90
 Когда --subject viewport set Camera.Position 0,400,1500
 Когда --subject viewport set Camera.Direction 0,-0.2,-1
