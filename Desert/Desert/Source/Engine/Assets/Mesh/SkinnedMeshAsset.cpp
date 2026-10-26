@@ -174,28 +174,15 @@ namespace Desert::Assets
         m_IsReadyForUse = false;
         return BOOLSUCCESS;
     }
-    void SkinnedMeshAsset::ResolveDisplacementTopology( AssetManager& manager )
+    void SkinnedMeshAsset::ResolveDisplacementTopology()
     {
         // Once per load: the slot is kept across re-runs (Load and Unload drop it), so EnsureLoaded's repeated
         // resolves never queue the same derive twice.
+        // Runtime mode derives the topology whatever the asset's own materials assign: the material that
+        // displaces is the one the COMPONENT draws with (its override, or the asset's), resolved per frame by
+        // MeshRenderer::ApplyDisplacement - as UE, where the mesh enables tessellation and the material on the
+        // component decides the displacement. The topology itself is material-independent.
         if ( !m_IsReadyForUse || m_Displacement != MeshDisplacementMode::Runtime || m_DisplacementTopology )
-            return;
-        bool anyHeight = false;
-        for ( size_t i = 0; i < m_Submeshes.size() && i < m_MaterialGuids.size(); ++i )
-        {
-            if ( m_MaterialGuids[i].IsNull() )
-                continue;
-            auto height = ResolveSubmeshHeight( manager, m_MaterialGuids[i] );
-            if ( !height.IsSuccess() )
-            {
-                LOG_ERROR( "SkinnedMeshAsset '{}': submesh {} has no resolvable height ({}); the mesh is drawn "
-                           "undisplaced",
-                           m_Metadata.Filepath.string(), i, height.GetError() );
-                return;
-            }
-            anyHeight = anyHeight || height.GetValue().has_value();
-        }
-        if ( !anyHeight )
             return;
 
         // THE TOPOLOGY OVER THE REST POSE (§9.8): clusters, welds and directions are a function of the bind-pose
@@ -244,7 +231,7 @@ namespace Desert::Assets
     {
         m_SkeletonDependency.Handle = Common::AssetHandle::Null();
         m_SkeletonDependency.Cached.reset();
-        ResolveDisplacementTopology( manager );
+        ResolveDisplacementTopology();
 
         // A NULL GUID IS "NOT PARSED YET" (or a mesh naming no skeleton, which Load refuses): nothing is bound.
         // AssetBase::EnsureLoaded runs this again once the parse fills the reference in.

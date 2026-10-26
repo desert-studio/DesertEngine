@@ -20,10 +20,10 @@ namespace Desert::VFX
     {
         std::string_view Trim( std::string_view s )
         {
-            const auto first = s.find_first_not_of( " \t\r" );
+            const auto first = s.find_first_not_of( " \t\r\n" );
             if ( first == std::string_view::npos )
                 return {};
-            const auto last = s.find_last_not_of( " \t\r" );
+            const auto last = s.find_last_not_of( " \t\r\n" );
             return s.substr( first, last - first + 1 );
         }
 
