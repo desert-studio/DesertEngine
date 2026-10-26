@@ -5,12 +5,10 @@
 Дано --subject viewport set Camera.Position 0,60,520
 Дано --subject viewport set Camera.Direction 0,-0.22,-1
 Когда run Quality "Quality: ViewDistance Cinematic"
-Тогда 0_open first frames after open: base mesh may still draw while the displacement pipelines compile on first use (Debug)
-Тогда 1_on silhouette and self-shadow show real displaced geometry (bumps break the slab's top edge), no cracks along the UV seams at the slab edges
+Тогда 1_on (reply waits on PendingWork::Displacement) silhouette and self-shadow show real displaced geometry (bumps break the slab's top edge), no cracks along the UV seams at the slab edges
 Когда run Quality "Quality: ViewDistance Low"
 Тогда 2_off same view flat (DisplacementDicingRate 0 parks the twins), no crash, no stale geometry
 Когда run Quality "Quality: ViewDistance Cinematic"
-Тогда 2b_reon displacement back on: twins re-tessellate on workers, the base may draw for a few frames
 Когда --subject viewport set Camera.Position 110,10,260
 Когда --subject viewport set Camera.Direction 0,-0.1,-1
 Тогда 3_skinned CesiumMan (Displacement Runtime, M_DisplaceStones) mid-walk: displaced, no swimming, no cracks
