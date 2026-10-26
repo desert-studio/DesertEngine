@@ -910,12 +910,16 @@ namespace Desert::Graphic::System
         m_Stats.Entries       = static_cast<uint32_t>( m_Entries.size() );
         m_Stats.Displaced     = 0;
         m_Stats.Pending       = 0;
+        m_Stats.Unsettled     = 0;
         m_Stats.BufferBytes   = 0;
         m_Stats.TopologyBytes = 0;
         for ( const auto& [key, entry] : m_Entries )
         {
             if ( entry.Pending.valid() )
                 ++m_Stats.Pending;
+            if ( !m_PipelineRefusalLogged &&
+                 ( entry.Pending.valid() || ( !entry.Current && !entry.RefusalLogged && !entry.Using.empty() ) ) )
+                ++m_Stats.Unsettled;
             if ( entry.Current )
             {
                 ++m_Stats.Displaced;

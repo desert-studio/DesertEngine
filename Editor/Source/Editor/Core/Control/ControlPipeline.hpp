@@ -61,6 +61,7 @@ namespace Desert::Editor::Control
         ReflectionCaptures, ///< the active scene's reflection captures are still being written for the first time
         TexturesStreaming,  ///< texture loads are in flight (the frame shows placeholders where they land)
         ModelingAccept,     ///< a modeling tool's Accept is raised and waits for its background compute to land
+        Displacement, ///< the frame drew a displaced primitive's base mesh while its twin was still tessellating
         Count
     };
 
@@ -81,6 +82,7 @@ namespace Desert::Editor::Control
          "the reflection captures are still being filled for the first time",
          "textures are still streaming in",
          "a modeling tool's Accept is waiting for its background compute",
+         "displaced geometry is still being tessellated (the frame drew the base mesh)",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),

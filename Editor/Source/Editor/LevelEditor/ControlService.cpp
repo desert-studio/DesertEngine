@@ -433,9 +433,15 @@ namespace Desert::Editor
         m_FrameQuiescence = quiescence;
     }
 
-    std::optional<int32_t> ControlService::OnFramePresented()
+    std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled )
     {
         ++m_FrameIndex;
+        // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
+        // it: its renderer asks for the displaced twins, launches their tessellation and swaps in the ones that
+        // landed, all while it is drawn. Sampled at OnUpdate it would describe the PREVIOUS frame - and the frame
+        // after "Open Scene" or a Quality change had asked for nothing yet, read as settled, and was photographed
+        // with the base mesh (DISPLACE 1_on: 4,696 tris drawn instead of 111,268).
+        m_FrameQuiescence.Set( Control::PendingWork::Displacement, displacementUnsettled );
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;

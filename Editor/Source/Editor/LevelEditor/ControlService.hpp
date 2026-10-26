@@ -78,7 +78,9 @@ namespace Desert::Editor
         void RecordWindowCaptureIfDue();
         // The frame is out: judge it, take a `shot.*`, release the reply. Returns the exit status of a `quit`
         // whose reply has gone out — the layer closes the application with it.
-        [[nodiscard]] std::optional<int32_t> OnFramePresented();
+        // @p displacementUnsettled: the presented frame drew a displaced primitive's base while its twin was on
+        // its way (DisplacementStats::Unsettled, read after the frame's EndFrame).
+        [[nodiscard]] std::optional<int32_t> OnFramePresented( bool displacementUnsettled );
 
         // OnDetach: abandon a request still in flight (logged, never answered) and remove the socket file.
         void Close();
