@@ -3,8 +3,9 @@ Shader "SubsurfaceRecombine"
 {
     // "Subsurface: Recombine" (SSS-PROFILE, CONTRACT §5.4), UE PostProcessSubsurface.usf SubsurfaceRecombinePS: adds
     // StoredBaseColor x lerp(diffuse, scattered, Tint) onto the scene colour, which the composite left holding the
-    // scattered texels' specular + emissive only. Drawn with ONE/ONE blending over the scene target's four colours:
-    // every other attachment receives 0 (unchanged); a texel the composite did not mark is discarded.
+    // scattered texels' specular + emissive only. Drawn with ONE/ONE blending over the scene target; the stage writes
+    // the colour only, so the velocity, responsive-AA and thin-geometry attachments are masked (VulkanPipeline
+    // CreateColorBlendState) and keep what the G-buffer wrote. A texel the composite did not mark is discarded.
 
     Vertex
     {
@@ -37,9 +38,6 @@ Shader "SubsurfaceRecombine"
 
         In(0) vec2 v_TexCoord;
         Out(0) vec4 oColor;
-        Out(1) vec4 oVelocity;
-        Out(2) vec4 oResponsiveAA;
-        Out(3) vec4 oThinGeometry;
 
         void main()
         {
@@ -51,10 +49,7 @@ Shader "SubsurfaceRecombine"
         	const vec3 tint      = profileAtlas[row + SSSS_TINT].rgb;
         	const vec3 scattered = texelFetch(SubsurfaceScatteredTexture, pixel, 0).rgb;
         	const vec3 baseColor = texelFetch(GBufferATexture, pixel, 0).rgb;
-        	oColor        = vec4(baseColor * mix(diffuse.rgb, scattered, tint), 0.0);
-        	oVelocity     = vec4(0.0);
-        	oResponsiveAA = vec4(0.0);
-        	oThinGeometry = vec4(0.0);
+        	oColor = vec4(baseColor * mix(diffuse.rgb, scattered, tint), 0.0);
         }
     }
 }

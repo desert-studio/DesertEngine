@@ -9,6 +9,13 @@ Shader "SubsurfaceBurley"
     // it was drawn with - so a depth step (the nose over the cheek) contributes little, and a sample on another
     // profile, an unscattered surface or the sky contributes nothing (no halo onto the background). The weights are
     // normalized per channel (UE: the sum of weights), so a texel keeps its energy wherever its samples land.
+    // THE HISTORY (UE PostProcessSubsurface SubsurfaceHistory, r.SSS.Burley.Quality 1): the sample disc's rotation
+    // differs per pixel and per frame, and the temporal AA does not integrate that noise - its neighbourhood clamp
+    // keeps a pixel's own outlier inside the box, so the dots survive any number of frames. The scatter therefore
+    // keeps its own accumulation: each texel reprojects its world point into the previous frame, takes that
+    // texel's running mean when it is the same surface (same profile, same depth, same lighting), and blends the
+    // new estimate in at 1/(n+1) up to the most frames; the running second moment of the luminance gives the
+    // variance, which picks this frame's sample count (UE's variance-adaptive count): a converged texel draws fewer.
     Compute
     {
         #include <Common/ReconstructPosition.glslh>
@@ -29,9 +36,22 @@ Shader "SubsurfaceBurley"
         {
         	mat4 WorldToClip;  // the jittered view-projection the G-buffer was rasterised with
         	mat4 ClipToWorld;  // its inverse
-        	vec4 ViewParams;   // x = PostProcessSettings SubsurfaceScale, y = samples, z = frame index, w unused
+        	vec4 ViewParams;   // x = PostProcessSettings SubsurfaceScale, y = most samples, z = frame index, w = fewest
+        	mat4 PrevWorldToClip; // the previous frame's jittered view-projection (the history's raster)
+        	vec4 HistoryParams;   // x = history readable (1/0), y = PreExposure / PrevPreExposure, z = most frames, w unused
         };
         layout(binding = 5, rgba16f) writeonly uniform image2D SubsurfaceScatteredTexture;
+        Uniform(6) texture2D SubsurfaceHistoryTexture;        // previous frame: rgb = running mean, a = frames in it
+        #define SubsurfaceHistoryTexture sampler2D(SubsurfaceHistoryTexture, PointClampSampler)
+        Uniform(7) texture2D SubsurfaceHistoryMomentsTexture; // r = mean luminance^2, g = profile row + 1, b = device depth, a = centre luminance
+        #define SubsurfaceHistoryMomentsTexture sampler2D(SubsurfaceHistoryMomentsTexture, PointClampSampler)
+        layout(binding = 8, rgba16f) writeonly uniform image2D SubsurfaceHistoryOutTexture;
+        layout(binding = 9, rgba32f) writeonly uniform image2D SubsurfaceHistoryMomentsOutTexture;
+
+        float SubsurfaceLuminance(vec3 c)
+        {
+        	return dot(c, vec3(0.2126, 0.7152, 0.0722));
+        }
 
         // Interleaved gradient noise (Jimenez 2014), rotated per frame: the temporal AA integrates the rotations.
         float SubsurfaceNoise(vec2 pixel, float frame)
@@ -60,6 +80,8 @@ Shader "SubsurfaceBurley"
         	if (centre.a < 0.5 || depth <= 0.0)
         	{
         		imageStore(SubsurfaceScatteredTexture, pixel, vec4(0.0));
+        		imageStore(SubsurfaceHistoryOutTexture, pixel, vec4(0.0));
+        		imageStore(SubsurfaceHistoryMomentsOutTexture, pixel, vec4(0.0));
         		return;
         	}
         	const uint row    = (uint(centre.a + 0.5) - 1u) * SSSS_ATLAS_WIDTH;
@@ -72,6 +94,8 @@ Shader "SubsurfaceBurley"
         	if (dMax <= 1e-3)
         	{
         		imageStore(SubsurfaceScatteredTexture, pixel, vec4(centre.rgb, 1.0));
+        		imageStore(SubsurfaceHistoryOutTexture, pixel, vec4(0.0));
+        		imageStore(SubsurfaceHistoryMomentsOutTexture, pixel, vec4(0.0));
         		return;
         	}
 
@@ -83,7 +107,48 @@ Shader "SubsurfaceBurley"
         	const vec3 T     = normalize(cross(up, N));
         	const vec3 B     = cross(N, T);
 
-        	const int   samples  = max(int(ViewParams.y + 0.5), 1);
+        	// The previous frame's texel this surface point was in, when it is the same surface.
+        	const float centreLum = SubsurfaceLuminance(centre.rgb);
+        	const float exposure  = HistoryParams.y;
+        	float frames = 0.0;
+        	vec3  mean   = vec3(0.0);
+        	float moment = 0.0;
+        	if (HistoryParams.x > 0.5)
+        	{
+        		const vec4 prevClip = PrevWorldToClip * vec4(P, 1.0);
+        		const vec2 prevUV   = prevClip.w > 0.0 ? NdcToUV(prevClip.xy / prevClip.w) : vec2(-1.0);
+        		if (all(greaterThanEqual(prevUV, vec2(0.0))) && all(lessThan(prevUV, vec2(1.0))))
+        		{
+        			const ivec2 at          = ivec2(prevUV * vec2(size));
+        			const vec4  history     = texelFetch(SubsurfaceHistoryTexture, at, 0);
+        			const vec4  moments     = texelFetch(SubsurfaceHistoryMomentsTexture, at, 0);
+        			const float prevDepth   = prevClip.z / prevClip.w;
+        			const bool  sameProfile = history.a > 0.5 && abs(moments.g - centre.a) < 0.25;
+        			// Device depth is reciprocal in the view distance, so its relative change is the distance's.
+        			const bool  sameDepth   = abs(prevDepth - moments.b) <= 0.02 * max(prevDepth, moments.b);
+        			// The centre's own diffuse is noise-free: a large change is a light switched or moved, or another
+        			// surface of the same profile uncovered - restart; a moderate one shortens the history (UE's
+        			// responsive history: the mean follows the light within a few frames instead of the most frames).
+        			const float prevLum = moments.a * exposure;
+        			const float change  = abs(centreLum - prevLum) / max(max(centreLum, prevLum), 1e-6);
+        			if (sameProfile && sameDepth && change < 0.5)
+        			{
+        				frames = change < 0.2 ? history.a : min(history.a, 4.0);
+        				mean   = history.rgb * exposure;
+        				moment = moments.r * exposure * exposure;
+        			}
+        		}
+        	}
+        	// Variance-adaptive sample count: the running relative deviation of the luminance against the deviation the
+        	// accumulated mean may keep; a fresh texel draws the most.
+        	int samples = max(int(ViewParams.y + 0.5), 1);
+        	if (frames >= 4.0)
+        	{
+        		const float meanLum  = SubsurfaceLuminance(mean);
+        		const float relative = sqrt(max(moment - meanLum * meanLum, 0.0)) / max(meanLum, 1e-6);
+        		const float fewest   = max(ViewParams.w, 1.0);
+        		samples = int(ceil(clamp(ViewParams.y * relative / 0.05, fewest, ViewParams.y)));
+        	}
         	const float rotation = SubsurfaceNoise(vec2(pixel), ViewParams.z) * 6.28318530718;
         	const float golden   = 2.39996322973; // the golden angle: a Fibonacci spiral of the stratified radii
         	// The centre itself, weighted by the profile's mass inside half a pixel's footprint stand-in (its first
@@ -119,7 +184,14 @@ Shader "SubsurfaceBurley"
         		sum     += w * s.rgb;
         		weights += w;
         	}
-        	imageStore(SubsurfaceScatteredTexture, pixel, vec4(sum / max(weights, vec3(1e-6)), 1.0));
+        	const vec3  current = sum / max(weights, vec3(1e-6));
+        	const float n       = min(frames + 1.0, HistoryParams.z);
+        	const float lum     = SubsurfaceLuminance(current);
+        	mean   = frames > 0.0 ? mix(mean, current, 1.0 / n) : current;
+        	moment = frames > 0.0 ? mix(moment, lum * lum, 1.0 / n) : lum * lum;
+        	imageStore(SubsurfaceScatteredTexture, pixel, vec4(mean, 1.0));
+        	imageStore(SubsurfaceHistoryOutTexture, pixel, vec4(mean, n));
+        	imageStore(SubsurfaceHistoryMomentsOutTexture, pixel, vec4(moment, centre.a, depth, centreLum));
         }
     }
 }

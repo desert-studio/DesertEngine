@@ -888,12 +888,9 @@ namespace Desert::Graphic
                                                .GBufferA          = gbuffer[0],
                                                .GBufferB          = gbuffer[1],
                                                .Depth             = textures.Depth( m_GBuffer, "GBuffer" ) };
-        const System::SubsurfaceSettings settings{ .Scale                     = m_SubsurfaceScale,
-                                                   .JitteredViewProjection    = frame.JitteredViewProjection,
-                                                   .InvJitteredViewProjection = frame.InvJitteredViewProjection,
-                                                   .FrameIndex                = frame.FrameIndex };
-        const System::SubsurfaceScatter scatter = subsurface->AddScatter(
-             graph, Runtime::ResourceRegistry::GetSubsurfaceProfileService()->Registry(), inputs, settings,
+        const System::SubsurfaceSettings settings{ .Scale = m_SubsurfaceScale };
+        const System::SubsurfaceScatter  scatter = subsurface->AddScatter(
+             graph, Runtime::ResourceRegistry::GetSubsurfaceProfileService()->Registry(), inputs, settings, frame,
              m_TargetFramebuffer->GetFramebufferWidth(), m_TargetFramebuffer->GetFramebufferHeight() );
         if ( !scatter.Scattered.IsValid() )
         {
