@@ -45,6 +45,13 @@ DesertEditorLibs.Layers = {
     },
 }
 
+-- THE OBJECTIVE-C++ SOURCES (macOS only: Splash/MacOS, Platform/MacOS) are their own library, outside the
+-- layers. Every layer force-includes its C++ precompiled header, and clang refuses a .gch built without
+-- Objective-C in an Objective-C++ unit; gmake applies the forced include project-wide, so a per-file filter
+-- cannot take it off. These sources need only the standard headers and a few small editor headers, so the
+-- library has no precompiled header. It sits at EditorWidgets' level (it includes Splash/ headers).
+DesertEditorLibs.ObjCLib = "EditorObjC"
+
 -- The executable's entry point (project "Editor"), in no library: a test runner that links them has its own main.
 DesertEditorLibs.EntryPoint = { ["Sandbox.cpp"] = true, ["Sandbox.hpp"] = true }
 
@@ -65,6 +72,13 @@ local function LayerOf( relative )
 end
 
 local filesByLayer = {}
+
+-- Absolute paths of every editor .mm, whichever layer's directory it sits in, sorted (DesertEditorLibs.ObjCLib).
+function DesertEditorLibs.ObjCFiles()
+    local result = os.matchfiles( DesertEditorLibs.SourceRoot .. "/Editor/**.mm" )
+    table.sort( result )
+    return result
+end
 
 -- Absolute paths of the sources a layer compiles, with the given extensions (default cpp/hpp/h/inl), sorted.
 function DesertEditorLibs.FilesOf( name, extensions )
@@ -130,6 +144,9 @@ function DesertEditorLibs.Link( wholeArchive )
     local names = {}
     for i = #DesertEditorLibs.Layers, 1, -1 do
         table.insert( names, DesertEditorLibs.Layers[i].Name )
+    end
+    if DesertPlatform.IsMacOS then
+        table.insert( names, 1, DesertEditorLibs.ObjCLib )
     end
     links( names )
     if wholeArchive then

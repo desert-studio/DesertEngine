@@ -131,20 +131,26 @@ local function EditorLibrary( layer, index )
     EditorCompileSettings()
 
     -- THE START-UP SPLASH HAS ONE IMPLEMENTATION PER PLATFORM (Editor/Splash/SplashScreen.hpp). The Windows
-    -- one is dropped where it cannot build; the macOS one is Objective-C++, which FilesOf does not list by
-    -- default and is added on macOS only. The system file dialogs (Editor/Platform/DesktopPlatform.hpp) follow
-    -- the same shape. Each pattern only matches in the library that holds that directory.
+    -- one is dropped where it cannot build; the macOS one is Objective-C++, which FilesOf does not list and
+    -- the EditorObjC library below compiles. The system file dialogs (Editor/Platform/DesktopPlatform.hpp)
+    -- follow the same shape. Each pattern only matches in the library that holds that directory.
     filter "system:not windows"
         removefiles { "Source/Editor/Splash/Windows/**", "Source/Editor/Platform/Windows/**" }
-
-    filter "system:macosx"
-        files( DesertEditorLibs.FilesOf( layer.Name, { "mm" } ) )
 
     filter {}
 end
 
 for index, layer in ipairs( DesertEditorLibs.Layers ) do
     EditorLibrary( layer, index )
+end
+
+-- The editor's Objective-C++ (macOS only), without the precompiled header (BuildScripts/EditorLibs.lua, ObjCLib).
+if DesertPlatform.IsMacOS then
+    project( DesertEditorLibs.ObjCLib )
+    kind "StaticLib"
+    DesertModuleLibs.DependOnCodegen()
+    files( DesertEditorLibs.ObjCFiles() )
+    EditorCompileSettings()
 end
 
 project "Editor"

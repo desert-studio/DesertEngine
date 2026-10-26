@@ -32,9 +32,6 @@
 #include <utility>
 #include <vector>
 
-// Objective-C++ sources (Splash/MacOS, Platform/MacOS) get the standard headers only: the engine headers are
-// C++ and are not written to be parsed under Objective-C's keywords.
-#ifndef __OBJC__
 #include <ImGui/imgui.h>
 #include <glm/glm.hpp>
 
@@ -46,4 +43,3 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#endif
