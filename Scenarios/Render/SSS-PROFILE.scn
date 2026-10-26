@@ -18,6 +18,11 @@
 Дано --subject viewport set Camera.Position -70,62,-432
 Дано --subject viewport set Camera.Direction 0,0,-1
 Когда set 17921165617746467452 PostProcessVolumeData.Settings.SubsurfaceScattering true
+Тогда-вид 0_wide framing only: the whole bust, side-lit from +X (at ~0.04 cm/px the physical skin's red mean free path is ~1 px, so bleed is judged in the close-up below)
+# Close-up as UE's skin demos are judged: the nose at the terminator. The near plane is 10 cm (kDefaultNearPlane), so the
+# camera stays ~20 cm off the nose and narrows the lens instead: horizontal FOV 30 deg -> ~10.7 cm across, ~0.0075 cm/px.
+Когда --subject viewport set Camera.Position -70,63.6,-432
+Когда --subject viewport set Camera.FOV 30
 Тогда-вид 1_skin_on soft red-tinted light bleed at the terminator and around nose/ears; specular highlights stay sharp
 Когда set 17921165617746467452 PostProcessVolumeData.Settings.SubsurfaceScattering false
 Тогда-вид 2_skin_off same view, hard Lambert terminator, no other change
