@@ -102,6 +102,9 @@ namespace Desert::Editor
         // Editor/Core/ViewportCameraProperties.hpp for why a camera pose is a property write and not a
         // palette command.
         [[nodiscard]] Control::Response SetViewportCameraProperty( const Control::Request& request );
+        // `selection set SunElevation|SunAzimuth <deg>` on a directional light (PORT-SUN-ROTATION).
+        Control::Response SetSelectedSunAngle( const Control::Request& request, Common::UUID uuid,
+                                               const Core::SelectionTransform& before );
         // The `selection` subject's entity and its transform: exactly one selected entity that has a
         // TransformComponent, or a refusal saying what is selected instead.
         [[nodiscard]] Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>>

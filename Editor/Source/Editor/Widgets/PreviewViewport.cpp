@@ -16,6 +16,7 @@
 
 #include <ImGui/imgui_internal.h>
 
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -152,8 +153,8 @@ namespace Desert::Editor
     glm::vec3 PreviewViewport::SceneSetup::LightTravel() const
     {
         // Yaw is a compass bearing about +Y, pitch the sun's ELEVATION above the horizon; this is the
-        // direction TOWARD the sun. What a directional light's Translation stores is where the light
-        // GOES, so the vector is negated exactly once, here — the engine's own rule
+        // direction TOWARD the sun. A directional light is aimed where the light GOES (its Rotation's
+        // forward axis), so the vector is negated exactly once, here — the engine's own rule
         // (ECS::Rules::AtmosphereSunDirection) negates back to get the sun again, and two negations in
         // two places is how a sky ends up lit from below.
         const float     yaw   = glm::radians( SunYawDegrees );
@@ -161,9 +162,7 @@ namespace Desert::Editor
         const float     cp    = std::cos( pitch );
         const glm::vec3 towardSun{ cp * std::sin( yaw ), std::sin( pitch ), cp * std::cos( yaw ) };
 
-        // Scaled rather than unit: nothing downstream needs a length, but a Translation that reads as a
-        // position in the outliner should not sit inside the object it lights.
-        return -towardSun * 600.0f;
+        return -towardSun;
     }
 
     PreviewViewport::SceneSetup& PreviewViewport::Setup()
@@ -267,7 +266,7 @@ namespace Desert::Editor
         auto& lightC          = m_Light.AddComponent<ECS::DirectionLightComponent>();
         lightC.Data.Intensity = m_Setup.LightIntensity;
         lightC.Data.Color     = m_Setup.LightColor;
-        m_Light.GetComponent<ECS::TransformComponent>().Translation = m_Setup.LightTravel();
+        ECS::AimDirectionalLight( *m_Light.GetRegistry(), m_Light.GetHandle(), m_Setup.LightTravel() );
 
         m_Target = m_Scene->CreateNewEntity( "PreviewTarget" );
         m_Target.AddComponent<ECS::StaticMeshComponent>();
@@ -342,7 +341,7 @@ namespace Desert::Editor
         auto& lightC          = m_Light.GetComponent<ECS::DirectionLightComponent>();
         lightC.Data.Intensity = m_Setup.LightIntensity;
         lightC.Data.Color     = m_Setup.LightColor;
-        m_Light.GetComponent<ECS::TransformComponent>().Translation = m_Setup.LightTravel();
+        ECS::AimDirectionalLight( *m_Light.GetRegistry(), m_Light.GetHandle(), m_Setup.LightTravel() );
 
         // ── The environment ───────────────────────────────────────────────────────────────────────────
         //

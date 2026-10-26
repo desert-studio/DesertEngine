@@ -64,11 +64,12 @@ namespace Desert::Editor
             for ( const Autosave::NotOfferedCopy& copy : choice.NotOffered )
             {
                 LOG_WARN( "[Recovery] not offered: '{}' states scene schema v{} / world units v{} / world "
-                          "partition v{} / asset references v{}; this build opens v{} / v{} / v{} / v{} only. "
+                          "partition v{} / asset references v{} / lights v{}; this build opens v{} / v{} / v{} / v{} / v{} only. "
                           "Autosaves are not migrated -- the file is left as it is.",
                           copy.Path.string(), copy.Stated.Scene, copy.Stated.Unit, copy.Stated.WorldPartition,
-                          copy.Stated.AssetRef, Desert::Core::kSceneVersion, Desert::Core::kUnitVersion,
-                          Desert::Core::kWorldPartitionVersion, Desert::Core::kAssetRefVersion );
+                          copy.Stated.AssetRef, copy.Stated.Light, Desert::Core::kSceneVersion, Desert::Core::kUnitVersion,
+                          Desert::Core::kWorldPartitionVersion, Desert::Core::kAssetRefVersion,
+                          Desert::Core::kLightVersion );
             }
             dock.OfferRecovery( choice.Offered );
         }

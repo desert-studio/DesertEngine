@@ -269,8 +269,7 @@ namespace Desert::ECS
             m_SunFx.OuterSpaceIlluminance             = light.Data.Color * light.Data.Intensity;
             m_SunFx.SunDiskColorScale                 = light.Data.AtmosphereSunDiskColorScale;
 
-            const auto& transform = registry.get<ECS::TransformComponent>( *sun );
-            return Rules::AtmosphereSunDirection( transform.Translation );
+            return Rules::AtmosphereSunDirection( WorldRotation( registry, *sun ) );
         }
 
         // ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): the second light the sky scatters.
@@ -284,9 +283,8 @@ namespace Desert::ECS
                 return;
 
             const auto& light                         = registry.get<ECS::DirectionLightComponent>( *light1 );
-            const auto& transform                     = registry.get<ECS::TransformComponent>( *light1 );
             m_Light1.Present                          = true;
-            m_Light1.TowardLight                      = Rules::AtmosphereSunDirection( transform.Translation );
+            m_Light1.TowardLight                      = Rules::AtmosphereSunDirection( WorldRotation( registry, *light1 ) );
             m_Light1.OuterSpaceIlluminance            = light.Data.Color * light.Data.Intensity;
             m_Light1.DiskColorScale                   = light.Data.AtmosphereSunDiskColorScale;
             m_Light1.DiskAngularRadius                = glm::radians( light.Data.SourceAngle ) * 0.5f;
