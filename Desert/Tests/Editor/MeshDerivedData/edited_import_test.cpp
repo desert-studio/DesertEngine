@@ -7,7 +7,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Editor/Import/CookPaths.hpp>
-#include <Editor/Import/EditedMeshAsset.hpp>
+#include <Editor/Core/Selection/EditedMeshAsset.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
 #include <Editor/Import/MeshDeriver.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>

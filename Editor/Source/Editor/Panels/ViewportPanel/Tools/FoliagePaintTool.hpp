@@ -5,7 +5,7 @@
 #include <Common/Core/Math/Ray.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliageBrush.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/ProceduralFoliageResimulate.hpp>
-#include <Editor/Core/Selection/FoliagePaint.hpp>
+#include <Editor/Panels/Foliage/FoliagePaint.hpp>
 
 #include <glm/glm.hpp>
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/IPanel.hpp>
 
 #include <memory>
 #include <type_traits>

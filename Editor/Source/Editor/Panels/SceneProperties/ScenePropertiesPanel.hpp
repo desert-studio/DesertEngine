@@ -2,7 +2,7 @@
 
 #include <Engine/Desert.hpp>
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 
 #include "ComponentEditor.hpp"
 

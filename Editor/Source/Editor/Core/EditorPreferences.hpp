@@ -16,7 +16,7 @@
 // this header only says where the editor's persisted copy lives.
 #include <Engine/Graphic/DebugViewState.hpp>
 
-#include "Editor/Widgets/PreviewEnvironment.hpp"
+#include "PreviewEnvironment.hpp"
 
 namespace Desert::Editor
 {

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/ECS/VolumeComponent.hpp>
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>

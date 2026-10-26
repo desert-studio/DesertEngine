@@ -1,5 +1,5 @@
 #include "PreviewEnvironmentUI.hpp"
-#include "PreviewEnvironment.hpp"
+#include <Editor/Core/PreviewEnvironment.hpp>
 #include "PreviewViewport.hpp"
 
 #include <Common/Core/AssetHandle.hpp>

@@ -55,8 +55,14 @@ namespace Desert::Editor::Core
     {
     public:
         // --- types checked for painting -----------------------------------------------------------------
-        static std::vector<Common::UUID>& ActiveTypes() { return s_Active; }
-        static bool                        HasActive() { return !s_Active.empty(); }
+        static std::vector<Common::UUID>& ActiveTypes()
+        {
+            return s_Active;
+        }
+        static bool HasActive()
+        {
+            return !s_Active.empty();
+        }
         static bool IsActive( const Common::UUID& u )
         {
             return std::find( s_Active.begin(), s_Active.end(), u ) != s_Active.end();
@@ -74,16 +80,34 @@ namespace Desert::Editor::Core
             s_Active.clear();
             s_Active.push_back( u );
         }
-        static void ClearActive() { s_Active.clear(); }
+        static void ClearActive()
+        {
+            s_Active.clear();
+        }
 
         // --- the type whose detailed settings are shown (last clicked row) ------------------------------
-        static std::optional<Common::UUID> EditingType() { return s_Editing; }
-        static void                        SetEditingType( const Common::UUID& u ) { s_Editing = u; }
-        static void                        ClearEditingType() { s_Editing.reset(); }
+        static std::optional<Common::UUID> EditingType()
+        {
+            return s_Editing;
+        }
+        static void SetEditingType( const Common::UUID& u )
+        {
+            s_Editing = u;
+        }
+        static void ClearEditingType()
+        {
+            s_Editing.reset();
+        }
 
         // --- brush --------------------------------------------------------------------------------------
-        static float& BrushRadius() { return s_Radius; }
-        static float& PaintDensity() { return s_PaintDensity; } // 0..1 multiplier on each type's Density
+        static float& BrushRadius()
+        {
+            return s_Radius;
+        }
+        static float& PaintDensity()
+        {
+            return s_PaintDensity;
+        } // 0..1 multiplier on each type's Density
         static FoliageTool& Tool()
         {
             return s_Tool;
@@ -182,10 +206,10 @@ namespace Desert::Editor::Core
         }
 
     private:
-        static inline std::vector<Common::UUID>   s_Active;
-        static inline std::optional<Common::UUID> s_Editing;
-        static inline float                       s_Radius       = 300.0f; // world units (cm) = 3 m
-        static inline float                       s_PaintDensity = 1.0f;
+        static inline std::vector<Common::UUID>     s_Active;
+        static inline std::optional<Common::UUID>   s_Editing;
+        static inline float                         s_Radius       = 300.0f; // world units (cm) = 3 m
+        static inline float                         s_PaintDensity = 1.0f;
         static inline FoliageTool                   s_Tool         = FoliageTool::Paint;
         static inline Tools::FoliageReapplySettings s_Reapply;
         static inline glm::vec3                     s_MoveOffset = glm::vec3( 0.0f, 100.0f, 0.0f );

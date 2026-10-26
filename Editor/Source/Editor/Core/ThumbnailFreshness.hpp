@@ -333,7 +333,7 @@ namespace Desert::Editor::ThumbnailFreshness
             std::string                Identity;
             std::filesystem::path      Png;
             Landed                     What = Landed::NotWritten;
-            std::optional<std::string> RecordError;  ///< Written, but the record could not be saved
+            std::optional<std::string> RecordError; ///< Written, but the record could not be saved
         };
 
         /// The renderer accepted a capture of `source` into `png`. Hash and stamp are taken NOW.

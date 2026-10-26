@@ -4,8 +4,8 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/LevelEditor/LevelToolbar.hpp>
-#include <Editor/Panels/AssetEditorToolbar.hpp>
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/AssetEditorToolbar.hpp>
+#include <Editor/Core/IPanel.hpp>
 
 #include <Engine/Assets/AssetMetadata.hpp>
 

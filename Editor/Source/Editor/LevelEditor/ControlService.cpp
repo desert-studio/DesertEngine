@@ -2,7 +2,7 @@
 
 #include "Editor/Core/AssetOpen.hpp"
 #include "Editor/Core/Commands/CommandRegistry.hpp"
-#include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
+#include "Editor/Panels/Landscape/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include "Editor/Core/Commands/WorldPartitionEditCommand.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp"
@@ -14,7 +14,7 @@
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/Selection/ModelingState.hpp"
 #include "Editor/Core/Selection/ModelingStateProperties.hpp"
-#include "Editor/Core/Selection/FoliageToolProperties.hpp"
+#include "Editor/Panels/Foliage/FoliageToolProperties.hpp"
 #include "Editor/Core/Selection/ViewportMode.hpp"
 #include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
@@ -433,9 +433,15 @@ namespace Desert::Editor
         m_FrameQuiescence = quiescence;
     }
 
-    std::optional<int32_t> ControlService::OnFramePresented()
+    std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled )
     {
         ++m_FrameIndex;
+        // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
+        // it: its renderer asks for the displaced twins, launches their tessellation and swaps in the ones that
+        // landed, all while it is drawn. Sampled at OnUpdate it would describe the PREVIOUS frame - and the frame
+        // after "Open Scene" or a Quality change had asked for nothing yet, read as settled, and was photographed
+        // with the base mesh (DISPLACE 1_on: 4,696 tris drawn instead of 111,268).
+        m_FrameQuiescence.Set( Control::PendingWork::Displacement, displacementUnsettled );
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;

@@ -133,6 +133,12 @@ namespace Desert::Graphic::System
         uint32_t Displaced     = 0; // entries drawing a twin
         uint32_t Rebuilt       = 0; // twins emitted this frame
         uint32_t Pending       = 0; // entries whose tessellation is still on a worker
+        // Entries this frame DREW WITH THEIR BASE although a twin is on its way: a tessellation on a worker, or
+        // none yet (waiting on another entry's equal key, or re-tessellating after a pool lowering). Refused
+        // entries and refused pipelines are not counted - nothing is on its way for them. Read after EndFrame
+        // it describes the frame just drawn: 0 = every displaced primitive in it drew its twin (what a
+        // screenshot waits for, as UE's HighResShot waits for outstanding compiles).
+        uint32_t Unsettled     = 0;
         uint32_t LevelsLowered = 0; // cluster levels lowered this frame to fit the pool (§5)
         uint32_t LevelsRaised  = 0; // lowerings undone this frame: the pool holds the higher levels again
         uint32_t LevelsHeld    = 0; // lowering steps still in force over all entries (overlay, [ViewMemory])

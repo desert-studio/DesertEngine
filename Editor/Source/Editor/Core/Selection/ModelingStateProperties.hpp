@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Editor/Core/EditableProperty.hpp>
-#include <Editor/Core/Selection/MeshBakeNormalTool.hpp>
+#include <Editor/Core/Selection/BakeNormalMapSettings.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
 
 #include <Common/Core/ResultStr.hpp>

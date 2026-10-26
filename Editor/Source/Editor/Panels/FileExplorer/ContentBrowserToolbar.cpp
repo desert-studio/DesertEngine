@@ -5,7 +5,7 @@
 #include <Editor/Panels/FileExplorer/AssetViewState.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserHistory.hpp>
 #include <Editor/Panels/FileExplorer/DirectoryInformation.hpp>
-#include <Editor/Panels/FileExplorer/FileType.hpp>
+#include <Editor/Core/FileType.hpp>
 
 #include <ImGui/imgui.h>
 

@@ -13,7 +13,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
-#include <Editor/Core/Selection/FoliagePaint.hpp>
+#include <Editor/Panels/Foliage/FoliagePaint.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>

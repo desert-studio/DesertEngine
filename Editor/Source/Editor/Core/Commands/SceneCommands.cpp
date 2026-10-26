@@ -5,7 +5,7 @@
 #include "InstanceFold.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Editor/Import/StaticMeshOutput.hpp>
+#include <Editor/Core/StaticMeshOutput.hpp>
 
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
