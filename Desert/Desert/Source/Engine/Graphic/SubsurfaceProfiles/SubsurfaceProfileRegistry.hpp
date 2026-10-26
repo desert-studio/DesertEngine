@@ -19,6 +19,14 @@ namespace Desert::Graphic
 {
     using SubsurfaceProfileRow = std::array<glm::vec4, SubsurfaceProfileLayout::kAtlasWidth>;
 
+    /// THE ONE UNIT CONVERSION of the profile (UE SubsurfaceScatteringMath.h
+    /// GetDiffuseMeanFreePathFromMeanFreePath, the CPU twin of BurleyNormalizedSSSCommon.ush
+    /// GetDMFPFromMFPApprox): the authored mean free path (cm) to the diffuse mean free path the Burley profile is
+    /// shaped by, DMFP = MFP * s_searchlight(A) / (0.6 * s_perp(A)). The atlas stores its result; the screen pass
+    /// and the transmission profile both read only that.
+    [[nodiscard]] glm::vec3 DiffuseMeanFreePathFromMeanFreePath( const glm::vec3& surfaceAlbedo,
+                                                                 const glm::vec3& meanFreePath );
+
     /// UE ComputeTransmissionProfileBurley + the Burley half of UE's FSubsurfaceProfileTexture row encoding
     /// (SubsurfaceProfileCommon.ush:49-58): one atlas row from a profile. The Separable kernel columns are left zero
     /// until the Separable pass lands (the card's REMAINDER); AFIS reads only the Burley columns.

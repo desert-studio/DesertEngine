@@ -245,5 +245,14 @@ namespace Desert::Core
 
         PROPERTY( DisplayName( "Chromatic Shift" ), Category( "Lens Flare" ), Range( 0.0f, 1.0f ) )
         float LensFlareChromaShift = 0.15f;
+
+        // SSS-PROFILE (CONTRACT §6): the screen-space Burley scatter of the materials that name a Subsurface Profile
+        // (UE r.SubsurfaceScattering / ShowFlag.SubsurfaceScattering). Off: those materials shade unsplit, one
+        // formula, as every other texel (UE SUBSURFACE_RECOMBINE_MODE_NO_SCATTERING).
+        PROPERTY( DisplayName( "Subsurface Scattering" ), Category( "Subsurface Scattering" ) )
+        bool SubsurfaceScattering = true;
+        // Scales every profile's mean free path (UE r.SSS.Scale): 0 = no scatter, 4 = four times the radius.
+        PROPERTY( DisplayName( "Scale" ), Category( "Subsurface Scattering" ), Range( 0.0f, 10.0f ) )
+        float SubsurfaceScale = 1.0f;
     };
 } // namespace Desert::Core

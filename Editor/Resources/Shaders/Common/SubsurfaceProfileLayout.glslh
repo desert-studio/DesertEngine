@@ -1,0 +1,23 @@
+// SSS-PROFILE: the subsurface profile atlas's row layout - the GLSL twin of
+// Desert/Desert/Source/Engine/Graphic/SubsurfaceProfiles/SubsurfaceProfileLayout.hpp (one row per profile, one vec4
+// per column), a port of UE SubsurfaceProfileCommon.ush:13-29. Change both or neither.
+#ifndef SUBSURFACE_PROFILE_LAYOUT_GLSLH
+#define SUBSURFACE_PROFILE_LAYOUT_GLSLH
+
+#define SSSS_TINT                       0u  // Tint.rgb, a = Implementation (0 AFIS, 1 Separable)
+#define SSSS_SURFACE_ALBEDO             1u  // SurfaceAlbedo.rgb
+#define SSSS_DIFFUSE_MEAN_FREE_PATH     2u  // DIFFUSE mean free path (cm).rgb, a = widest channel
+#define SSSS_TRANSMISSION               3u  // ExtinctionScale, NormalScale, ScatteringDistribution, 1/IOR
+#define SSSS_BOUNDARY_COLOR_BLEED       4u  // BoundaryColorBleed.rgb
+#define SSSS_DUAL_SPECULAR              5u  // Roughness0, Roughness1, LobeMix
+#define SSSS_KERNEL0_OFFSET             6u  // Separable kernel, 13 taps
+#define SSSS_KERNEL0_SIZE               13u
+#define SSSS_KERNEL1_OFFSET             19u // 9 taps
+#define SSSS_KERNEL1_SIZE               9u
+#define SSSS_KERNEL2_OFFSET             28u // 6 taps
+#define SSSS_KERNEL2_SIZE               6u
+#define SSSS_TRANSMISSION_PROFILE_OFFSET 34u // 32 texels of the Burley transmission over thickness
+#define SSSS_TRANSMISSION_PROFILE_SIZE  32u
+#define SSSS_ATLAS_WIDTH                66u
+
+#endif // SUBSURFACE_PROFILE_LAYOUT_GLSLH

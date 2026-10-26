@@ -76,6 +76,7 @@
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
 #include "Systems/Scene/Deferred/HZBRenderer.hpp"
+#include "Systems/Scene/Deferred/SubsurfaceRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
 #include "Systems/Scene/Deferred/SceneColorHistoryRenderer.hpp"
 #include "Systems/Scene/Particles/ParticleRenderer.hpp"
@@ -1251,7 +1252,15 @@ namespace Desert::Graphic
                                 RDG::TextureRef sunShadowMask, RDG::TextureRef localShadowMasks,
                                 const System::MegaLightsLighting& megaLights,
                                 System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                const glm::vec4& lightColor, const ViewFrame& frame );
+                                const glm::vec4& lightColor, const ViewFrame& frame,
+                                RDG::TextureRef subsurfaceDiffuse );
+        // SSS-PROFILE (CONTRACT §5): whether this view scatters - SubsurfaceScattering on with a Scale above 0, the
+        // Lit view, a profile registered and the SubsurfaceRenderer built.
+        [[nodiscard]] bool SubsurfaceRuns() const;
+        // "Subsurface: Burley" + "Subsurface: Recombine" over the composite's @p subsurfaceDiffuse (its split).
+        void AddFrameSubsurface( RDG::Builder& graph, FrameTextures& textures,
+                                 const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef subsurfaceDiffuse,
+                                 const ViewFrame& frame );
         // The scene snapshot (UE: CreateTexture from the scene colour's desc, copied by a raster node): published
         // as FrameTransients::SceneColorCopy and returned; invalid when no copy was made (no copy system, no scene
         // colour, its desc refused - logged). @p into: the imported image to copy into (the view's scene
@@ -1492,6 +1501,9 @@ namespace Desert::Graphic
 
     private:
         float                   m_GIIntensity   = 2.0f;
+        // PostProcessSettings SubsurfaceScattering / SubsurfaceScale of this view (SSS-PROFILE, CONTRACT §6).
+        bool  m_SubsurfaceScattering = true;
+        float m_SubsurfaceScale      = 1.0f;
         float                   m_SSRIntensity  = 1.0f;
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from
         // SceneSettings every frame, so this value only matters before the first Update.
