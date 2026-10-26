@@ -9,6 +9,8 @@
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/PostProcessing/LensFlareRules.hpp>
 #include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
+#include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
+#include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
@@ -184,6 +186,74 @@ namespace Desert::Graphic
              { return autoExp->RecordAverage( context ); } );
     }
 
+    void SceneRenderer::AddFrameLocalExposure( RDG::Builder& graph, FrameTextures& textures,
+                                               const std::vector<RDG::TextureRef>& sceneColor )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* le = UNIQUE_GET_AS( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+        if ( tonemap == nullptr )
+            return;
+        const bool visualize = m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure;
+        System::TonemapRenderer::LocalExposureFrame frame{ .Visualize = visualize };
+        tonemap->SetLocalExposure( frame );
+        // Identity settings: every pixel's local exposure is exactly 1 and nothing runs (UE PostProcessing.cpp:799).
+        if ( le == nullptr || !le->IsReady() || sceneColor.empty() || IsLocalExposureIdentity( le->GetParams() ) )
+            return;
+        const RDG::TextureRef                      scene     = sceneColor.front();
+        const Common::ResultStr<RDG::TextureDesc> sceneDesc = graph.GetTextureDesc( scene );
+        if ( !sceneDesc )
+        {
+            LOG_ERROR( "[SceneRenderer] local exposure skipped this frame: {}", sceneDesc.GetError() );
+            return;
+        }
+        const uint32_t width  = sceneDesc.GetValue().Size.Width;
+        const uint32_t height = sceneDesc.GetValue().Size.Height;
+
+        const RDG::TextureRef grid =
+             graph.CreateTexture( System::LocalExposureRenderer::GetGridDesc( width, height ), "LocalExposure.Grid" );
+        const RDG::TextureDesc logLumDesc = System::LocalExposureRenderer::GetLogLumDesc( width, height );
+        const RDG::TextureRef  logLum     = graph.CreateTexture( logLumDesc, "LocalExposure.LogLuminance" );
+        graph.AddPass(
+             "PostFX: LocalExposureSetup", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass ) { le->DeclareSetupBindings( pass, scene, grid, logLum ); },
+             [le, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return le->RecordSetup( context, width, height ); } );
+
+        // The blur runs only when the base layer uses it (UE PostProcessing.cpp:870); otherwise the base is the grid
+        // alone and the blurred input is the graph's black (read with weight 0, or as an empty cell's fallback 0).
+        RDG::TextureRef blurred = textures.System.Black;
+        if ( LocalExposureNeedsBlur( le->GetParams() ) )
+        {
+            const uint32_t blurW  = logLumDesc.Size.Width;
+            const uint32_t blurH  = logLumDesc.Size.Height;
+            const float    radius = LocalExposureBlurRadius( blurW, le->GetParams().BlurKernelSizePercent );
+            const RDG::TextureRef blurX = graph.CreateTexture( logLumDesc, "LocalExposure.BlurH" );
+            blurred                     = graph.CreateTexture( logLumDesc, "LocalExposure.Blurred" );
+            graph.AddPass(
+                 "PostFX: LocalExposureBlurH", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass ) { le->DeclareBlurBindings( pass, logLum, blurX ); },
+                 [le, radius, blurW, blurH]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return le->RecordBlur( context, true, radius, blurW, blurH ); } );
+            graph.AddPass(
+                 "PostFX: LocalExposureBlurV", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass ) { le->DeclareBlurBindings( pass, blurX, blurred ); },
+                 [le, radius, blurW, blurH]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return le->RecordBlur( context, false, radius, blurW, blurH ); } );
+        }
+        textures.Transients.LocalExposureGrid   = grid;
+        textures.Transients.BlurredLogLuminance = blurred;
+
+        frame.Produced      = true;
+        frame.Params        = le->GetParams();
+        frame.LogMiddleGrey = le->GetLogMiddleGrey();
+        frame.SliceLogMin   = le->GetSliceLogMin();
+        frame.GridUVScale   = LocalExposureGridUVScale( width, height );
+        frame.BlurUVScale   = LocalExposureBlurUVScale( width, height );
+        tonemap->SetLocalExposure( frame );
+    }
+
     void SceneRenderer::AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                                        const std::vector<RDG::TextureRef>& sceneColor )
     {
@@ -207,6 +277,18 @@ namespace Desert::Graphic
              autoExp ? textures.Import( autoExp->GetAdaptedLuminanceImage(), "AutoExposure.Adapted" )
                      : RDG::TextureRef{};
         const RDG::TextureRef adapted = adaptedImport.IsValid() ? adaptedImport : textures.System.White;
+        // Local exposure (UE r.Bloom.ApplyLocalExposure): AddFrameLocalExposure ran first and handed the tonemap
+        // this frame's numbers; the bloom's mip 0 applies the same ones, so the bloom is exposed like its source.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+        if ( tonemap != nullptr )
+            bloom->SetLocalExposure( tonemap->GetLocalExposure(), tonemap->GetExposure() );
+        const RDG::TextureRef leGrid    = textures.Transients.LocalExposureGrid.IsValid()
+                                               ? textures.Transients.LocalExposureGrid
+                                               : textures.System.Black3D;
+        const RDG::TextureRef leBlurred = textures.Transients.BlurredLogLuminance.IsValid()
+                                               ? textures.Transients.BlurredLogLuminance
+                                               : textures.System.Black;
 
         // Downsample: scene -> mip 0 (Karis + threshold), then mip i-1 -> mip i. One node per dispatch, each
         // declaring the one mip it samples and the one it writes.
@@ -214,7 +296,7 @@ namespace Desert::Graphic
             graph.AddPass(
                  std::format( "PostFX: BloomDownsample{}", mip ), RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
-                 { bloom->DeclareDownsampleBindings( pass, scene, chain, adapted, mip ); },
+                 { bloom->DeclareDownsampleBindings( pass, scene, chain, adapted, leGrid, leBlurred, mip ); },
                  [bloom, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return bloom->RecordDownsample( context, chainDesc, mip ); } );
         // Upsample (additive): mip i -> mip i-1, walking back to mip 0 (read-modify-write of the target mip).
@@ -381,10 +463,16 @@ namespace Desert::Graphic
              .LightShafts         = shaftsProduced ? textures.Transients.LightShafts : textures.System.Black,
              .LightShaftsProduced = shaftsProduced,
              .LensFlare           = flareProduced ? textures.Transients.LensFlare : textures.System.Black,
-             .LensFlareProduced   = flareProduced };
+             .LensFlareProduced   = flareProduced,
+             .LocalExposureGrid   = textures.Transients.LocalExposureGrid.IsValid() ? textures.Transients.LocalExposureGrid
+                                                                                    : textures.System.Black3D,
+             .BlurredLogLuminance = textures.Transients.BlurredLogLuminance.IsValid()
+                                         ? textures.Transients.BlurredLogLuminance
+                                         : textures.System.Black };
         if ( !graphInputs.Source.IsValid() || !graphInputs.AvgLuminance.IsValid() ||
              !graphInputs.Bloom.IsValid() || !graphInputs.LightShafts.IsValid() ||
-             !graphInputs.LensFlare.IsValid() )
+             !graphInputs.LensFlare.IsValid() || !graphInputs.LocalExposureGrid.IsValid() ||
+             !graphInputs.BlurredLogLuminance.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] the tonemap is missing a graph input (no scene colour, or System.Black / "
                        "System.White is not in this graph); the tonemap pass is not recorded this frame" );

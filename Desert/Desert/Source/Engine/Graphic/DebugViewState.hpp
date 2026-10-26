@@ -71,6 +71,9 @@ namespace Desert::Graphic
         // shows in a mirror under SoftwareTraced / HardwareTraced. Deferred only; under any other reflection
         // method the frame is black and the renderer refuses by name - never the screen trace in its place.
         Reflections = 18,
+        // UE's Local Exposure visualisation (PostProcessVisualizeLocalExposure.cpp): the tonemap draws each pixel's
+        // local exposure (green = lifted, red = pulled down, grey = 1) over the scene's luminance. Post only.
+        LocalExposure = 19,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a

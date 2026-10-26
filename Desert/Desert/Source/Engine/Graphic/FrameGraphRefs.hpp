@@ -67,6 +67,9 @@ namespace Desert::Graphic
         RDG::TextureRef Bloom;          // BloomRenderer chain (mip 0 read)   -> Tonemap
         RDG::TextureRef LightShafts;    // LightShaftRenderer result          -> Tonemap
         RDG::TextureRef LensFlare;      // LensFlareRenderer result           -> Tonemap
+        // LocalExposureRenderer: the bilateral grid (3D) and the blurred 1/32 log luminance -> Bloom mip 0, Tonemap
+        RDG::TextureRef LocalExposureGrid;
+        RDG::TextureRef BlurredLogLuminance;
         RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
         // SSR's full-resolution trace ray (xyz the point each pixel's reflection came from, w log2 pdf, -126 no
         // ray), set only when the temporal upscaler takes the reflection raw  -> TemporalUpscalerInputs
@@ -124,6 +127,8 @@ namespace Desert::Graphic
         // nodes use), set only when SkyboxRenderer::SkyPassSamplesLuts; invalid otherwise   -> SkyboxPass
         RDG::TextureRef SkyTransmittanceLut;
         RDG::TextureRef SkyViewLut;
+        // Atmosphere light 1's (the moon's) Sky-View LUT, set only when SkyboxRenderer::SkyPassSamplesLight1Lut.
+        RDG::TextureRef SkyViewLut1;
         // The view's lights and light grid (ViewLightBuffers); invalid refs until AddFrameLightGrid ran.
         ViewLightBuffers Lights;
         // The MegaLights translucency volume (MegaLightsVolumeRefs); invalid refs until AddFrameMegaLightsVolume.

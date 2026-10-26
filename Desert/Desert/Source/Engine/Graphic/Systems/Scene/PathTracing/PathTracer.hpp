@@ -110,7 +110,8 @@ namespace Desert::Graphic::System
     // GLASS (UE PathTracingGlass.ush, smooth): a BlendMode Translucent surface is a dielectric interface - Fresnel
     // reflection or refraction by its IOR, thin at IOR 1, Beer absorption by its tint inside a solid - and light
     // rays are attenuated by it instead of blocked (PathTracer.shader; its primitives carry
-    // RayTracing::kMaskTranslucent alone, so only these rays meet them).
+    // RayTracing::kMaskTranslucent, plus kMaskTranslucentShadowCaster with CastShadows, so only these rays meet
+    // them). Light rays trace the shadow-caster bits only: CastShadows off never occludes a path-traced light.
     //
     // Not here (each is UE's and a task of its own): a denoiser (UE's is a plugin over albedo/normal guides),
     // rough glass (the raster's glass pass reads no roughness), participating media, a Sobol sequence, pixel
@@ -145,6 +146,7 @@ namespace Desert::Graphic::System
             const RayTracing::RayTracingHitGroupTable* HitGroups = nullptr;
             RayTracing::EmissiveLightsFrame            Emissive; // this frame's emissive triangle list (Valid)
             float    SunSinHalfAngle = 0.0f; // sin of half the sun's SourceAngle (0: a delta direction)
+            float    Light1SinHalfAngle = 0.0f; // the same of atmosphere light 1 (the moon)
             float    PixelSpread     = 0.0f; // the angle one pixel covers (the ray cone)
             uint64_t SceneHash       = 0;
             bool     DynamicGeometry = false;
@@ -315,7 +317,7 @@ namespace Desert::Graphic::System
                 AddTracePass( graph, accumulation, sky, inputs, width, height, traced );
                 m_Summed += traced;
             }
-            AddResolvePass( graph, accumulation, sceneColor, frame.FrameIndex );
+            AddResolvePass( graph, accumulation, sceneColor, frame.FrameIndex, frame.PreExposure );
             return BOOLSUCCESS;
         }
 
@@ -326,11 +328,17 @@ namespace Desert::Graphic::System
         }
 
     private:
+        // PathTracerResolve.shader "ResolvePush".
+        struct ResolvePush
+        {
+            float PreExposure;
+        };
+
         struct TracePush
         {
             glm::uvec4 Counts; // point lights, spot lights, paths already summed (0: overwrite), max bounces
             glm::uvec4 Sky;    // sky side S, its levels, frame seed, paths this frame
-            glm::vec4  Sun;    // sin of half the sun's angle, pixel spread angle
+            glm::vec4  Sun;    // sin of half the sun's angle, pixel spread angle, sin of half atmosphere light 1's angle
             glm::uvec4 Emissive;        // EmissiveLightsFrame::StaticParams
             glm::uvec4 EmissiveDynamic; // EmissiveLightsFrame::DynamicParams
         };
@@ -468,7 +476,7 @@ namespace Desert::Graphic::System
             const TracePush push{
                  glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount, m_Summed, m_MaxBounces ),
                  glm::uvec4( sky.Side, sky.Levels, m_Restarts, traced ),
-                 glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, 0.0f, 0.0f ),
+                 glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, inputs.Light1SinHalfAngle, 0.0f ),
                  inputs.Emissive.StaticParams(), inputs.Emissive.DynamicParams() };
             graph.AddPass(
                  "PathTracing: Trace", RDG::PassFlags::Compute,
@@ -527,10 +535,13 @@ namespace Desert::Graphic::System
                  } );
         }
 
-        // "PathTracing: Resolve": sum / count over the scene colour, every frame (also once converged).
+        // "PathTracing: Resolve": sum / count over the scene colour, every frame (also once converged), stored
+        // pre-exposed like every other writer of the scene colour (ViewFrame::PreExposure; UE
+        // PathTracingCompositingPixelShader.usf multiplies by View.PreExposure) - the tonemap divides it back out.
         void AddResolvePass( RDG::Builder& graph, const RDG::TextureRef accumulation,
-                             const RDG::TextureRef sceneColor, const uint64_t frameIndex )
+                             const RDG::TextureRef sceneColor, const uint64_t frameIndex, const float preExposure )
         {
+            const ResolvePush push { preExposure };
             graph.AddPass(
                  "PathTracing: Resolve", RDG::PassFlags::Raster,
                  [&]( RDG::PassBuilder& pass )
@@ -539,14 +550,16 @@ namespace Desert::Graphic::System
                           .Texture( PathTracingResolveShaderParameters::AccumulationTexture, accumulation,
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                           .Sampler( PathTracingResolveShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() );
+                                    RDG::SamplerDesc::PointClamp() )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( ResolvePush ) ) );
                      // Every pixel is written: what the scene colour held is not loaded.
                      pass.ColorTarget( 0, sceneColor, RDG::LoadOp::DontCare() );
                  },
-                 [this, frameIndex]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, frameIndex, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: Resolve" );
-                     const RDG::PassBindings     bindings( context, context.GetBindingBlock( 0 ) );
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      const Common::BoolResultStr drawn =
                           Renderer::GetInstance().DrawFullscreen( bindings, *m_ResolvePipeline, nullptr );
                      if ( drawn.IsSuccess() && !m_TraceFailed )

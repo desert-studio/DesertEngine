@@ -781,6 +781,24 @@ namespace Desert::Core
                          { glm::vec4( *travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );
             }
 
+            // ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): lit by the deferred pass beside
+            // the sun, never a stand-in for it — it has no fallback and casts no cascades (index 0 owns them).
+            const ECS::AtmosphereSunPick secondPick =
+                 ECS::PickAtmosphereLight( m_Registry, ECS::SunCandidacy::Lit, 1 );
+            const auto second = secondPick.Sun();
+            sceneRendererInfo.AtmosphereLight1.reset();
+            if ( second )
+            {
+                const auto& light     = m_Registry.get<ECS::DirectionLightComponent>( *second );
+                const auto& transform = m_Registry.get<ECS::TransformComponent>( *second );
+                if ( const auto travel = ECS::Rules::DirectionalLightTravel( transform.Translation ) )
+                    sceneRendererInfo.AtmosphereLight1 = Graphic::SceneRenderer::AtmosphereLight1Frame{
+                         .Light = Graphic::ShaderProtocols::DirectionLightPayload{
+                              glm::vec4( *travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) },
+                         .SourceAngleDegrees = light.Data.SourceAngle,
+                         .CastShadows        = light.Data.CastShadows };
+            }
+
             // WHICH LIGHTS EMIT NOTHING, AND WHY ANYONE SHOULD HEAR ABOUT IT.
             //
             // A DirectionLightComponent takes its direction from its TRANSLATION, not its rotation, so a
@@ -800,7 +818,7 @@ namespace Desert::Core
             {
                 if ( !pick.Candidates[i].DirectionValid )
                     degenerate += ( degenerate.empty() ? "" : ", " ) + nameOf( pick.Entities[i] );
-                else if ( pick.Selection.Chosen != i )
+                else if ( pick.Selection.Chosen != i && pick.Entities[i] != second )
                     unused += ( unused.empty() ? "" : ", " ) + nameOf( pick.Entities[i] );
             }
 
@@ -818,9 +836,9 @@ namespace Desert::Core
                                "TRANSLATION (the direction the light travels), not from its Rotation.",
                                degenerate, ECS::Rules::kSunDirectionEpsilon );
                 if ( !unused.empty() && pick.Sun() )
-                    LOG_ERROR( "[Scene] directional light(s) {} emit NOTHING: the engine renders one directional "
-                               "light, the atmosphere sun '{}'. Remove them, or mark the one you want as "
-                               "Atmosphere Sun Light (index 0).",
+                    LOG_ERROR( "[Scene] directional light(s) {} emit NOTHING: the engine renders the two "
+                               "atmosphere lights only (the sun '{}' at index 0, a moon at index 1). Remove them, "
+                               "or mark them as Atmosphere Sun Light at a free index.",
                                unused, nameOf( *pick.Sun() ) );
                 if ( !pick.Sun() && m_Registry.view<ECS::DirectionLightComponent>().size() > 0 )
                     LOG_ERROR( "[Scene] no visible directional light with a usable direction: the scene has "

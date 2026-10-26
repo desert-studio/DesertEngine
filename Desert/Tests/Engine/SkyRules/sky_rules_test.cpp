@@ -465,7 +465,8 @@ TEST( SkyPayloadLayout, EveryAuthoredValueLandsWhereTheShaderReadsIt )
     data.SkyAndAerialPerspectiveLuminanceFactor = { 0.24f, 0.25f, 0.26f };
 
     const glm::vec3     toward = glm::normalize( glm::vec3( 0.3f, 0.9f, 0.3f ) );
-    const SkyGpuPayload p      = PackSky( toward, MakeSkySettings( data ), Desert::Graphic::SkySunInputs{} );
+    const SkyGpuPayload p      = PackSky( toward, MakeSkySettings( data ), Desert::Graphic::SkySunInputs{},
+                                         Desert::Graphic::AtmosphereLight1{} );
 
     const auto* lanes = reinterpret_cast<const glm::vec4*>( &p );
 
@@ -512,7 +513,8 @@ TEST( SkyPayloadLayout, EveryAuthoredValueLandsWhereTheShaderReadsIt )
     EXPECT_FLOAT_EQ( lanes[14].w, 0.0f ) << "reserved lane";
 
     data.Model                        = Desert::ECS::SkyModel::PhysicalAtmosphere;
-    const SkyGpuPayload physical = PackSky( toward, MakeSkySettings( data ), Desert::Graphic::SkySunInputs{} );
+    const SkyGpuPayload physical = PackSky( toward, MakeSkySettings( data ), Desert::Graphic::SkySunInputs{},
+                                         Desert::Graphic::AtmosphereLight1{} );
     const auto*         physicalLanes = reinterpret_cast<const glm::vec4*>( &physical );
     EXPECT_FLOAT_EQ( physicalLanes[13].w, 1.0f ) << "PhysicalAtmosphere packs 1";
 }

@@ -71,7 +71,7 @@ struct SkyConfig
 //                             UnpackSunAngularRadius(s), UnpackSkyConfig(s) );
 //
 // Adding a palette field is then one edit here plus one to the C++ mirror; no consumer changes a line.
-#define SKY_PACKED_VEC4_COUNT 17
+#define SKY_PACKED_VEC4_COUNT 20
 
 struct SkyPacked
 {
@@ -106,6 +106,13 @@ vec3 UnpackSunDirection( SkyPacked s )
 float UnpackSunIntensity( SkyPacked s )
 {
     return s.v[0].w;
+}
+
+// Star Intensity (SkyAtmosphereData), read by both models: the gradient's star brightness, and the physical
+// model's multiplier on AtmosphereStarPeakLuminance.
+float UnpackStarIntensity( SkyPacked s )
+{
+    return s.v[5].w;
 }
 
 // RADIANS. The component authors an angular DIAMETER in degrees; the halving and the conversion happen
@@ -197,6 +204,39 @@ vec3 UnpackSunDiskColorScale( SkyPacked s )
     return s.v[16].rgb;
 }
 
+// ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon), v[17]-v[19] (Graphic::SkyGpuPayload):
+// scattered by the same medium as the sun and drawn as its own disc. Every pass branches on
+// UnpackLight1Present, so a sky without one evaluates exactly what it did before the slot existed.
+bool UnpackLight1Present( SkyPacked s )
+{
+    return s.v[18].w > 0.5;
+}
+
+// Direction TOWARD light 1, normalized.
+vec3 UnpackLight1Direction( SkyPacked s )
+{
+    return s.v[17].xyz;
+}
+
+// Angular RADIUS of light 1's disc in radians (half the light's Source Angle, as UE draws it).
+float UnpackLight1AngularRadius( SkyPacked s )
+{
+    return s.v[17].w;
+}
+
+// Light 1's outer-space illuminance (its Color x Intensity, lux) — the moon's counterpart of
+// UnpackAtmosphereLightIlluminance.
+vec3 UnpackLight1Illuminance( SkyPacked s )
+{
+    return s.v[18].rgb;
+}
+
+// Light 1's Atmosphere Sun Disk Color Scale.
+vec3 UnpackLight1DiskColorScale( SkyPacked s )
+{
+    return s.v[19].rgb;
+}
+
 float atm_hash13( vec3 p )
 {
     p = fract( p * vec3( 443.897, 441.423, 437.195 ) );
@@ -205,6 +245,36 @@ float atm_hash13( vec3 p )
 }
 
 // Full sky radiance along a world-space view direction. sunDir = direction TOWARD the sun (normalized).
+// THE STAR FIELD, shared by both sky models (Star Intensity, SkyAtmosphereData): stable soft points fixed in
+// WORLD direction. Cells live in direction space (300 per unit of the direction vector); about 0.8% of them
+// hold a star, a soft round falloff of radius 0.35 cell around the cell centre, weighted by its hash (0.992..1).
+// Returns the star's shape in [0, 1]; each model gives it its own units.
+#define ATMOSPHERE_STAR_CELLS_PER_UNIT 300.0
+#define ATMOSPHERE_STAR_RADIUS_CELLS   0.35
+#define ATMOSPHERE_STAR_TINT           vec3( 0.9, 0.95, 1.0 )
+float AtmosphereStarField( vec3 dir )
+{
+    vec3  sp = dir * ATMOSPHERE_STAR_CELLS_PER_UNIT;
+    float h  = atm_hash13( floor( sp ) );
+    if ( h <= 0.992 )
+        return 0.0;
+    float d = length( fract( sp ) - 0.5 ); // distance from the cell centre
+    return smoothstep( ATMOSPHERE_STAR_RADIUS_CELLS, 0.0, d ) * h;
+}
+
+// THE PHYSICAL MODEL'S STAR LUMINANCE (cd/m^2) at Star Intensity 1: a magnitude-0 star (Vega, an outer-space
+// illuminance of 2.54e-6 lux) spread over the solid angle the field draws one star with, pi (0.35 / 300)^2 sr
+// (the falloff's integral is about a third of that disc, so the peak holds three times the mean). Stars are
+// outside the atmosphere: the physical pass multiplies this by the view path's transmittance, and the sky
+// in-scattering in front of them hides them by day exactly as it does in the real sky - no day/night switch.
+#define ATMOSPHERE_STAR_MAG0_ILLUMINANCE_LUX 2.54e-6
+float AtmosphereStarPeakLuminance()
+{
+    const float r          = ATMOSPHERE_STAR_RADIUS_CELLS / ATMOSPHERE_STAR_CELLS_PER_UNIT;
+    const float solidAngle = 3.14159265 * r * r;
+    return 3.0 * ATMOSPHERE_STAR_MAG0_ILLUMINANCE_LUX / solidAngle;
+}
+
 vec3 EvaluateSky( vec3 dir, vec3 sunDir, float sunIntensity, float sunDiskRadius, SkyConfig cfg )
 {
     dir    = normalize( dir );
@@ -251,17 +321,8 @@ vec3 EvaluateSky( vec3 dir, vec3 sunDir, float sunIntensity, float sunDiskRadius
     // soft round falloff around its cell centre, so stars don't pop/move blockily as the camera rotates (the
     // old per-cell threshold lit whole cells -> blocky, swimming "regenerating" look). ----
     if ( night > 0.01 && up > 0.0 )
-    {
-        vec3  sp = dir * 300.0;
-        vec3  id = floor( sp );
-        float h  = atm_hash13( id );
-        if ( h > 0.992 )
-        {
-            float d    = length( fract( sp ) - 0.5 );          // distance from the cell centre
-            float star = smoothstep( 0.35, 0.0, d ) * h;
-            sky += star * night * cfg.starIntensity * smoothstep( 0.0, 0.25, up ) * vec3( 0.9, 0.95, 1.0 );
-        }
-    }
+        sky += AtmosphereStarField( dir ) * night * cfg.starIntensity * smoothstep( 0.0, 0.25, up ) *
+               ATMOSPHERE_STAR_TINT;
 
     // ---- Ground: hazy tone below the horizon, low-contrast + C1-smooth seam (no shimmer) ----
     vec3 ground = mix( cfg.ground * 0.30, cfg.ground, day );

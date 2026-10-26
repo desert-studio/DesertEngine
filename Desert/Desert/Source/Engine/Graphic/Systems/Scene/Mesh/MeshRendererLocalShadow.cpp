@@ -42,9 +42,26 @@ namespace Desert::Graphic::System
         }
     } // namespace
 
+    void MeshRenderer::EnsureShadowViewCount( const uint32_t viewCount )
+    {
+        if ( m_CascadeCasterVP.size() < viewCount )
+        {
+            m_ShadowMaterial.resize( viewCount );
+            m_ShadowInstancedMaterial.resize( viewCount );
+            m_ShadowSkinnedMaterial.resize( viewCount );
+            m_CascadeCasterVP.resize( viewCount, glm::mat4( 1.0f ) );
+            m_CascadeCasterBias.resize( viewCount );
+        }
+        const uint32_t localViews = viewCount > kLocalShadowViewBase ? viewCount - kLocalShadowViewBase : 0u;
+        while ( m_LocalDraws.size() < localViews )
+            m_LocalDraws.push_back( std::make_unique<MeshRendererDetail::MeshDrawList>() );
+        if ( m_LocalCasters.size() < localViews )
+            m_LocalCasters.resize( localViews );
+    }
+
     bool MeshRenderer::EnsureShadowViewMaterials( const uint32_t view )
     {
-        if ( view >= kMaxShadowViews )
+        if ( view >= m_CascadeCasterVP.size() )
             return false;
         // The view's caster cells (CasterPipelinesOf): a virtual shadow map level draws the VirtualShadowDepth
         // cells through its own pipelines, every other view the ShadowDepth cells; each material is made on the
@@ -199,6 +216,7 @@ namespace Desert::Graphic::System
             std::size_t                     Index        = 0;
             uint32_t                        Size         = 0;
             float                           ScreenRadius = 0.0f;
+            float                           Distance     = 0.0f; // from the eye to the light, cm
             const LocalLightShadowSettings* Settings     = nullptr;
         };
         const auto* camera         = m_SceneRenderer->GetMainCamera();
@@ -223,7 +241,8 @@ namespace Desert::Graphic::System
             points[i].ShadowCaster = 1;
             const float r = screenRadius( points[i].Position, points[i].Radius );
             requests.push_back( { static_cast<uint64_t>( s.SourceId ) * 2u, false, i,
-                                  LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 8u ), r, &s } );
+                                  LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 8u ), r,
+                                  glm::length( points[i].Position - eye ), &s } );
         }
         for ( std::size_t i = 0; i < spots.size() && i < spotShadows.size(); ++i )
         {
@@ -233,12 +252,24 @@ namespace Desert::Graphic::System
             spots[i].ShadowCaster = 1;
             const float r = screenRadius( spots[i].Position, spots[i].Range );
             requests.push_back( { static_cast<uint64_t>( s.SourceId ) * 2u + 1u, true, i,
-                                  LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 4u ), r, &s } );
+                                  LocalShadowTileSize( r, s.ResolutionScale, atlasSide / 4u ), r,
+                                  glm::length( spots[i].Position - eye ), &s } );
         }
-        // The largest on screen first: when the pool or the view budget runs out, it is the smallest lights that
-        // go unshadowed.
-        std::stable_sort( requests.begin(), requests.end(),
-                          []( const Request& a, const Request& b ) { return a.ScreenRadius > b.ScreenRadius; } );
+        // The largest on screen first: they take the largest tiles while the pool has room (Allocate halves a
+        // request until it fits), and only when the pool cannot hold even the smallest tile does a light - the
+        // smallest on screen - go unshadowed. No count of views limits it: the atlas is the only budget.
+        // Every light the camera stands inside asks the whole view (SphereScreenRadiusPx): among equals the
+        // nearer goes first, then the light's identity - never the order the lights were gathered in, which
+        // follows the view's culling and so would hand the large tiles to other lamps as the camera turns.
+        std::sort( requests.begin(), requests.end(),
+                   []( const Request& a, const Request& b )
+                   {
+                       if ( a.ScreenRadius != b.ScreenRadius )
+                           return a.ScreenRadius > b.ScreenRadius;
+                       if ( a.Distance != b.Distance )
+                           return a.Distance < b.Distance;
+                       return a.Key < b.Key;
+                   } );
 
         if ( requests.empty() )
             return;
@@ -247,12 +278,6 @@ namespace Desert::Graphic::System
         for ( const Request& request : requests )
         {
             const uint32_t viewCount = request.Spot ? 1u : kPointShadowFaces;
-            if ( m_LocalShadowRows.size() + viewCount > kMaxLocalShadowViews )
-            {
-                ++refused;
-                continue;
-            }
-
             // ITS TILES: the ones the scene holds for it, or new ones (halving the size until the pool has room).
             // A primary view resizes a light it sized itself (or a face sized), or one whose sizer asks a smaller
             // size than it or no longer asks: the largest viewport still asking holds the size. A face never
@@ -322,9 +347,10 @@ namespace Desert::Graphic::System
             // light's (Shadow Bias / Shadow Slope Bias, in texels at the caster) and every caster of the view
             // takes it, the meshes through CameraUB and the terrain through its push (LocalCasterBias); the
             // receiver adds only its normal offset (Mesh/LocalLightShadow.glslh).
+            EnsureShadowViewCount( kLocalShadowViewBase + firstRow + viewCount );
             for ( uint32_t v = 0; v < viewCount; ++v )
             {
-                const uint32_t                view = kMaxShadowCascades + firstRow + v;
+                const uint32_t                view = kLocalShadowViewBase + firstRow + v;
                 const LocalShadowViewPayload& row  = m_LocalShadowRows[firstRow + v];
                 m_CascadeCasterBias[view] =
                      LocalCasterBias( row.Params.x, row.Params.y, row.Params.z, *request.Settings );
@@ -341,7 +367,7 @@ namespace Desert::Graphic::System
             const float     viewNear = LocalShadowNear( reach );
             m_LocalCachePlans.push_back(
                  { .Light   = request.Key,
-                   .Caster  = { .FirstView = kMaxShadowCascades + firstRow,
+                   .Caster  = { .FirstView = kLocalShadowViewBase + firstRow,
                                 .ViewCount = viewCount,
                                 .Reach     = reach,
                                 .Lod       = Geometry::LODView{
@@ -358,9 +384,9 @@ namespace Desert::Graphic::System
             if ( refused > 0 )
                 LOG_WARN(
                      "[Shadows] {} shadow-casting point/spot light(s) are drawn UNSHADOWED this frame: the "
-                     "scene's local shadow atlas ({}x{}) or this view's {} views are full. The smallest on screen "
-                     "go first.",
-                     refused, atlasSide, atlasSide, kMaxLocalShadowViews );
+                     "scene's local shadow atlas ({}x{}) has no room left even for {}x{} tiles. The smallest on "
+                     "screen go first.",
+                     refused, atlasSide, atlasSide, kMinLocalShadowTile, kMinLocalShadowTile );
         }
     }
 
@@ -381,7 +407,7 @@ namespace Desert::Graphic::System
                 continue; // its tiles went with a shadow rebudget since UpdateLocalShadows: no view to draw
             const std::optional<uint64_t> casters = LocalCasterSignature( plan.Caster );
             SignatureHash                 views;
-            AddViews( views, &m_LocalShadowRows[plan.Caster.FirstView - kMaxShadowCascades], plan.Caster.ViewCount );
+            AddViews( views, &m_LocalShadowRows[plan.Caster.FirstView - kLocalShadowViewBase], plan.Caster.ViewCount );
             // The casters' bias is drawn into the depth: a changed Shadow Bias redraws the views.
             for ( uint32_t v = 0; v < plan.Caster.ViewCount; ++v )
                 views.Add( m_CascadeCasterBias[plan.Caster.FirstView + v] );
@@ -415,7 +441,7 @@ namespace Desert::Graphic::System
         for ( const LocalShadowRedraw& redraw : m_LocalRedraws )
         {
             const uint32_t   view = redraw.View;
-            const uint32_t   slot = view - kMaxShadowCascades;
+            const uint32_t   slot = view - kLocalShadowViewBase;
             const AtlasTile  tile = redraw.Tile;
             SystemRasterPass pass{
                  .Name        = std::format( "MeshShadowLocal{}", slot ),
@@ -429,11 +455,11 @@ namespace Desert::Graphic::System
                                                  tile.Size, tile.Size );
                      renderer.ClearRegion( *atlas, static_cast<int32_t>( tile.X ), static_cast<int32_t>( tile.Y ),
                                            tile.Size, tile.Size, glm::vec4( 1.0f ), 1.0f );
-                     if ( auto drawn = m_LocalDraws[slot].Record( context ); !drawn.IsSuccess() )
+                     if ( auto drawn = m_LocalDraws[slot]->Record( context ); !drawn.IsSuccess() )
                          return drawn;
                      // The casters that are not meshes (the terrain), into THIS pass (IShadowCaster): the ones
                      // the Declare declared, each through its own blocks, with the view's caster matrix.
-                     const uint32_t view = kMaxShadowCascades + slot;
+                     const uint32_t view = kLocalShadowViewBase + slot;
                      for ( const auto& [weak, firstBlock] : m_LocalCasters[slot] )
                      {
                          const auto caster = weak.lock();
@@ -449,13 +475,13 @@ namespace Desert::Graphic::System
                  .TargetFramebuffer = atlas };
             pass.Declare = [this, view, slot]( RenderPassDeclaration& declared, const FrameGraphRefs& )
             {
-                m_LocalDraws[slot].Clear();
+                m_LocalDraws[slot]->Clear();
                 m_LocalCasters[slot].clear();
-                BuildShadowCascadeDraws( view, m_LocalDraws[slot] );
-                m_LocalDraws[slot].Declare( declared, std::nullopt );
+                BuildShadowCascadeDraws( view, *m_LocalDraws[slot] );
+                m_LocalDraws[slot]->Declare( declared, std::nullopt );
 
                 // The non-mesh casters declare their blocks after the list's (IShadowCaster::DeclareShadowView).
-                uint32_t nextBlock = m_LocalDraws[slot].BlockCount();
+                uint32_t nextBlock = m_LocalDraws[slot]->BlockCount();
                 for ( const auto& weak : m_ShadowCasters )
                 {
                     if ( const auto caster = weak.lock() )
