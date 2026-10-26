@@ -3,6 +3,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 
 #include <cstddef>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -66,6 +67,22 @@ namespace Desert::Graphic::API::Vulkan
         /// Waits for the fence (normally already signalled), then frees the buffer and destroys the fence.
         void RT_ReleaseSubmitted( const Submitted& submitted );
 
+        /// AN UPLOAD NOBODY WAITS FOR (UE's deferred texture upload: the game thread never sleeps on the GPU).
+        /// Ends and submits @p commandBuffer on the graphics queue WITHOUT waiting, and runs @p afterGpu (the
+        /// release of what the buffer reads, i.e. its staging copy) once its fence has signalled - polled by
+        /// CollectFinished on every frame and on every later submission here, or waited for at Destroy.
+        /// Readers on the graphics queue need nothing more: submission order is the dependency, the recorded
+        /// barriers make the copy visible. On a refused submit nothing reads the staging copy, so @p afterGpu
+        /// runs at once and the refusal is answered.
+        /// WHY: every texture the TextureService finished paid a blocking one-off flush behind the whole frame's
+        /// GPU work. On warm Bistro (1296 distance fields) that was 2-8 s per texture and ~45% of a 6.4 s
+        /// main-thread frame (sample of the p8 boot), and the slow frames then piled up 1 GB of owed deletions.
+        Common::BoolResultStr RT_SubmitGraphicThenRelease( VkCommandBuffer       commandBuffer,
+                                                           std::function<void()> afterGpu );
+
+        /// Releases every unwaited submission whose fence has signalled; answers how many. Never blocks.
+        std::size_t CollectFinished();
+
         /// Destroys every thread's command pools, and with them every command buffer ever allocated from one.
         /// No thread may be recording a one-off buffer by then.
         /// EXPLICIT, because this object is a Common::Singleton: its unique_ptr is a namespace-scope
@@ -101,6 +118,18 @@ namespace Desert::Graphic::API::Vulkan
         /// GUARDS m_ThreadPools, m_OneShotPools and every pool's PendingFree. Never held across a vkCmd*:
         /// the Vulkan calls on a pool are made by its owning thread only, which is what synchronises them.
         mutable std::mutex m_PoolMutex;
+
+        /// Submissions made by RT_SubmitGraphicThenRelease, oldest first, until their fence is seen signalled.
+        /// Guarded by m_InFlightMutex, which is never held while m_PoolMutex is taken by the same thread first.
+        struct InFlight
+        {
+            Submitted             Upload;
+            std::function<void()> AfterGpu;
+        };
+        std::mutex            m_InFlightMutex;
+        std::vector<InFlight> m_InFlight;
+        /// Waits for every in-flight submission and releases it (teardown only).
+        void WaitAndReleaseInFlight();
 
         /// The pools, keyed by (thread, queue family). Pools are never destroyed before Destroy(), so a
         /// OneShotPool* in m_OneShotPools or in a Submitted stays valid for the allocator's whole life.

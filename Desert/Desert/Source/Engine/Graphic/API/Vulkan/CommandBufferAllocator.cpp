@@ -314,6 +314,64 @@ namespace Desert::Graphic::API::Vulkan
         ReleaseOneShot( *submitted.Pool, submitted.Buffer );
     }
 
+    Common::BoolResultStr CommandBufferAllocator::RT_SubmitGraphicThenRelease( VkCommandBuffer       commandBuffer,
+                                                                               std::function<void()> afterGpu )
+    {
+        (void)CollectFinished();
+        auto submitted = RT_SubmitCommandBufferGraphic( commandBuffer );
+        if ( !submitted.IsSuccess() )
+        {
+            if ( afterGpu )
+                afterGpu();
+            return Common::MakeError<bool>( submitted.GetError() );
+        }
+        const std::scoped_lock inFlight( m_InFlightMutex );
+        m_InFlight.push_back( InFlight{ submitted.GetValue(), std::move( afterGpu ) } );
+        return BOOLSUCCESS;
+    }
+
+    std::size_t CommandBufferAllocator::CollectFinished()
+    {
+        // Taken out under the lock, released outside it: a release may free a buffer into its pool
+        // (m_PoolMutex) or destroy a staging copy, and neither belongs under m_InFlightMutex.
+        std::vector<InFlight> finished;
+        {
+            const std::scoped_lock inFlight( m_InFlightMutex );
+            for ( auto it = m_InFlight.begin(); it != m_InFlight.end(); )
+            {
+                if ( IsComplete( it->Upload ) )
+                {
+                    finished.push_back( std::move( *it ) );
+                    it = m_InFlight.erase( it );
+                }
+                else
+                    ++it;
+            }
+        }
+        for ( InFlight& done : finished )
+        {
+            RT_ReleaseSubmitted( done.Upload );
+            if ( done.AfterGpu )
+                done.AfterGpu();
+        }
+        return finished.size();
+    }
+
+    void CommandBufferAllocator::WaitAndReleaseInFlight()
+    {
+        std::vector<InFlight> all;
+        {
+            const std::scoped_lock inFlight( m_InFlightMutex );
+            all.swap( m_InFlight );
+        }
+        for ( InFlight& upload : all )
+        {
+            RT_ReleaseSubmitted( upload.Upload ); // waits for its fence
+            if ( upload.AfterGpu )
+                upload.AfterGpu();
+        }
+    }
+
     std::size_t CommandBufferAllocator::OutstandingOneShotCount() const
     {
         const std::scoped_lock pools( m_PoolMutex );
@@ -324,6 +382,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( m_LogicalDevice == VK_NULL_HANDLE )
             return;
+
+        // Before the pools go: the in-flight buffers are freed into them, and their staging copies released
+        // while the VMA allocator still exists (VulkanContext::Shutdown destroys it after this call).
+        WaitAndReleaseInFlight();
 
         const std::scoped_lock pools( m_PoolMutex );
 
