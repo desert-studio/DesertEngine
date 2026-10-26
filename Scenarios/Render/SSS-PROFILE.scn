@@ -11,7 +11,11 @@
 Дано --subject selection set Scale 0.03,0.03,0.03
 Дано run Entity Sun
 Дано --subject selection set Translation -100,-50,0
-Дано --subject viewport set Camera.Position -70,60,-395
+# Starter is authored unitless: Sun 1 lux under a Model-0 sky at EV100 0.53, so the sky alone lit the skin near white and
+# the sun term was invisible (p7 bisect: sphere, head, metal alike; CastShadows off changed nothing). A key light needs lux + exposure:
+Дано set 13376537502658031226 DirectionalLightData.Intensity 1000
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.ManualExposureEV100 8.5
+Дано --subject viewport set Camera.Position -70,62,-432
 Дано --subject viewport set Camera.Direction 0,0,-1
 Когда set 17921165617746467452 PostProcessVolumeData.Settings.SubsurfaceScattering true
 Тогда-вид 1_skin_on soft red-tinted light bleed at the terminator and around nose/ears; specular highlights stay sharp
