@@ -336,17 +336,29 @@ namespace Desert::Assets
         }
         else
         {
-            auto derived =
-                 Common::DDC::GetOrBuild( kMeshDistanceFieldDeriver, key,
-                                          [&builder, &input, built, &cancel]() -> Common::ResultStr<std::string>
-                                          {
-                                              if ( built != nullptr )
-                                                  *built = true;
-                                              auto in = input();
-                                              if ( !in.IsSuccess() )
-                                                  return Common::MakeError<std::string>( in.GetError() );
-                                              return builder( in.GetValue(), cancel );
-                                          } );
+            auto derived = Common::DDC::GetOrBuild(
+                 kMeshDistanceFieldDeriver, key,
+                 [&builder, &input, built, &cancel, &asset]() -> Common::ResultStr<std::string>
+                 {
+                     if ( built != nullptr )
+                         *built = true;
+                     auto in = input();
+                     if ( !in.IsSuccess() )
+                         return Common::MakeError<std::string>( in.GetError() );
+                     // One line per derived field: the build's cost lives per mesh
+                     // (UE's DDC miss notes the same), and the queue's drained total
+                     // cannot say which meshes a cold Bistro cache is waiting on.
+                     const auto start = std::chrono::steady_clock::now();
+                     auto       out   = builder( in.GetValue(), cancel );
+                     if ( out.IsSuccess() )
+                         LOG_INFO(
+                              "[MeshDistanceField] built '{}': {} triangle(s), "
+                              "{:.1f} KiB, in {:.2f} s",
+                              asset.filename().string(), in.GetValue().Indices.size() / 3,
+                              out.GetValue().size() / 1024.0,
+                              std::chrono::duration<double>( std::chrono::steady_clock::now() - start ).count() );
+                     return out;
+                 } );
             if ( !derived.IsSuccess() )
                 return Common::MakeFormattedError<Result>( "mesh asset '{}': distance field: {}", asset.string(),
                                                            derived.GetError() );
