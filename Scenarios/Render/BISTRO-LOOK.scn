@@ -1,8 +1,12 @@
-# BISTRO-LOOK p2: Bistro by day on merged dev; owner-named defects (a) green tint on brick, (b) dashed seams, (c) foliage blue-grey rim / pale leaves, (d) white sparkles on leaves; plus strongly blue street shade (p1).
-# Headless render shot (the project is outside the repo, play_scenario opens Projects/Desert only), via DesertEngine-scratch/BISTRO-LOOK/shoot.sh:
-# Editor --project BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce --camera <c> --look <l> --shot <png> --shot-frames 90
-Дано: BistroFoliageProj, Content/Scenes/B16_Bistro_Street.desce, noon sun, Lit; wide = camera -20,250,330 look -0.6,0.05,-0.8 (facades + trees); crown = 6450,150,4742 look 0.6,0.47,-0.6 (crown against brick).
-Когда: frame on merged dev as-is, then after the fix.
-Тогда 1_wide_before which of (a)-(d) + blue shade are visible, each named
-Тогда 2_wide_after the biggest one gone, the rest unchanged or better
-Тогда 3_crown_after crown green on lit and sky side, no blue rim, no sparkles
+# BISTRO-LOOK p3: why the Bistro street shade is blue — Lit, then the indirect light alone, then the lit surface cache, on the 1b_wide view.
+# The content project lives beside the engine tree (BistroFoliageProj, its own repo); «Проект» opens it with its street scene.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Когда run View "View mode: Lit"
+Тогда-вид 4_wide_lit как 1b_wide: булыжник в тени синий (43,66,92), на солнце серый
+Когда run View "View mode: Indirect Lighting (GI)"
+Тогда-вид 5_wide_indirect только непрямой свет: синева тени — одно небо (фасады почти ничего не дают) или отскок GI
+Когда run View "View mode: Lumen Scene (Lit)"
+Тогда-вид 6_wide_cache освещённый surface cache: солнечные фасады в кэше (светлые карточки) или их нет/чёрные
+Когда run View "View mode: Lit"
