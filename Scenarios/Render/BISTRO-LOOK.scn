@@ -1,8 +1,8 @@
-# BISTRO-LOOK p1: Bistro by day on current dev; owner-named defects (a) green tint on brick, (b) dashed seams, (c) foliage blue-grey rim / pale-blue leaves, (d) white sparkles on leaves.
-# Headless render shot (the project is outside the repo, play_scenario opens Projects/Desert only), run from DesertEngine-scratch/BISTRO-LOOK:
+# BISTRO-LOOK p2: Bistro by day on merged dev; owner-named defects (a) green tint on brick, (b) dashed seams, (c) foliage blue-grey rim / pale leaves, (d) white sparkles on leaves; plus strongly blue street shade (p1).
+# Headless render shot (the project is outside the repo, play_scenario opens Projects/Desert only), via DesertEngine-scratch/BISTRO-LOOK/shoot.sh:
 # Editor --project BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce --camera <c> --look <l> --shot <png> --shot-frames 90
-Дано: BistroFoliageProj, Content/Scenes/B16_Bistro_Street.desce, noon sun, Lit; view 1 = street camera -20,170,330 look -126,-93,-154; view 2 = close on a tree crown against brick.
-Когда: frame on dev as-is, then after the fix.
-Тогда 1_street_before dev today - which of (a)-(d) are visible, named on the frame
-Тогда 2_street_after the biggest surviving defect gone, the rest unchanged or better
-Тогда 3_crown_after crown green, lit side + sky side, no blue rim, no sparkles (if (c)/(d) survived)
+Дано: BistroFoliageProj, Content/Scenes/B16_Bistro_Street.desce, noon sun, Lit; wide = camera -20,250,330 look -0.6,0.05,-0.8 (facades + trees); crown = 6450,150,4742 look 0.6,0.47,-0.6 (crown against brick).
+Когда: frame on merged dev as-is, then after the fix.
+Тогда 1_wide_before which of (a)-(d) + blue shade are visible, each named
+Тогда 2_wide_after the biggest one gone, the rest unchanged or better
+Тогда 3_crown_after crown green on lit and sky side, no blue rim, no sparkles
