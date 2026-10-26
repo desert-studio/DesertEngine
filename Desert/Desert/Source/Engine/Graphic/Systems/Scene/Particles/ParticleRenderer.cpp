@@ -1278,7 +1278,7 @@ namespace Desert::Graphic::System
                      } );
 
                 // Each material section drawn by the GBuffer and the cascades through its Instanced cell; the
-                // view-variant keys sit above the grass's (Key * 64 + section, kept below 2^31 / kMaxCascades).
+                // view-variant keys sit above the grass's (Key * 64 + section, kept below 2^31 / kCascadeViews).
                 for ( uint32_t s = 0; s < static_cast<uint32_t>( state.Sections.size() ); ++s )
                     meshes.SubmitGpuInstanced( { .Mesh               = state.Mesh,
                                                  .Path               = MeshVertexPath::Instanced,
