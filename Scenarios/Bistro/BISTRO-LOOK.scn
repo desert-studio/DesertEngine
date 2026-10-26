@@ -8,3 +8,8 @@
 Тогда-вид 7_wide_cache фасады, улица и маркизы в surface cache, освещены (в 6_wide_cache была только растительность)
 Когда run View "View mode: Lit"
 Тогда-вид 8_wide_lit булыжник в тени менее синий, чем 4_wide_lit (тёплый отскок от солнечных фасадов); лог: карточки из DDC ≈ все, 0 cancelled
+# p12: the day sun is physical (100 000 lux on the atmosphere sun light, as UE) and the camera is metered at EV100 14-15,
+# so the Bistro emissives (lamps, shop windows) keep their authored luminance and read dimmer than sunlit stone by day.
+# Frame 9 stands out in the street (7/8 sit under the awning, which a camera metered for sunlight renders near black, as a real one).
+Дано --subject viewport set Camera.Position -440,300,-230
+Тогда-вид 9_day_physical дневная улица экспонирована нормально (белые фасады не выбиты, тени читаются), фонари и витрины днём не светятся ярче солнечных поверхностей
