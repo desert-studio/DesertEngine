@@ -6,7 +6,7 @@
 #include "ViewportPress.hpp"
 
 #include <Editor/Core/CommandHistory.hpp>
-#include <Editor/Core/Commands/LandscapeLayerCommands.hpp>
+#include <Editor/Panels/Landscape/LandscapeLayerCommands.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Engine/ECS/LandscapeLayerRules.hpp>

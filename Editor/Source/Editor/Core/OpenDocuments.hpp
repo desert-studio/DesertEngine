@@ -5,7 +5,7 @@
 // the render-system headers, which spell Desert::Core::Scene as an unqualified `Core::Scene` from inside
 // Desert::Editor. Make Desert::Editor::Core visible before them and every one of those names silently
 // rebinds to the wrong namespace.
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/IPanel.hpp>
 
 #include <algorithm>
 #include <cstddef>

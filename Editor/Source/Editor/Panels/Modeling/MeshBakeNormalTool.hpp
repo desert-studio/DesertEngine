@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
-#include <Engine/Geometry/MeshNormalMapBake.hpp>
+#include <Editor/Core/Selection/BakeNormalMapSettings.hpp>
 
 #include <filesystem>
 #include <string>
@@ -30,19 +30,14 @@ namespace Desert::Editor::Core
     // slot of the target, one undo step. The material is an INSTANCE of the target's slot-0 material when that
     // slot names one, so the target keeps its look and gains only the normal map; with no material it is a new
     // material on the project's Default Surface template. In UE the tool has a live preview and Accept; here it
-    // runs on one click, as Boolean does (MeshBooleanTool.hpp).
+    // runs on one click, as Boolean does (Core/Selection/MeshBooleanTool.hpp).
     //
     // Ambient Occlusion and Curvature (UE's other Bake Mesh Attribute Maps, Settings.Occlusion / .Curvature) are
     // written beside the normal map as one-channel textures `<target>_AO` and `<target>_Curvature` (Intent =
     // Mask); the occlusion is also packed into `<target>_ORM` (R = AO, G = B = 1) and bound in the template's
     // PackedMasks slot, so the target shows it at once.
-    struct BakeNormalMapArgs
-    {
-        Geometry::MeshMapBakeSettings Settings;
-    };
-
-    // The Bake palette's settings, shared by the panel and the palette command.
-    [[nodiscard]] BakeNormalMapArgs& BakeNormalMapSettings();
+    // The arguments and the palette's settings are Core's (BakeNormalMapSettings.hpp): the modeling property
+    // table reads them, and this tool, which imports textures, sits in the panel layer above it.
 
     struct BakeNormalMapOutcome
     {

@@ -74,7 +74,7 @@
 // 2. Editor Base & Infrastructure
 #include "Editor/Core/GizmoState.hpp"
 #include "Editor/Core/CommandHistory.hpp"
-#include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
+#include "Editor/Panels/Landscape/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include "Editor/Core/EditorPreferences.hpp"
 #include "Editor/Packaging/GamePackager.hpp"
@@ -115,7 +115,7 @@
 #include "Editor/Core/DebugCommands.hpp"
 #include "Editor/Panels/Modeling/ModelingCommands.hpp"
 #include "Editor/Panels/Foliage/FoliageCommands.hpp"
-#include "Editor/Core/Rigging/HumanoidCommands.hpp"
+#include "Editor/Panels/SceneHierarchy/HumanoidCommands.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ToastManager.hpp"
 #include "Editor/Core/OpenableAssets.hpp"

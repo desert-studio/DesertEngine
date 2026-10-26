@@ -8,7 +8,7 @@
 #include <Editor/Core/Commands/VFXSystemEdit.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/SubjectTitle.hpp>
-#include <Editor/Panels/AssetEditorToolbar.hpp>
+#include <Editor/Core/AssetEditorToolbar.hpp>
 #include <Editor/Widgets/PreviewEnvironmentUI.hpp>
 #include <Editor/Widgets/PreviewInput.hpp>
 #include <Editor/Widgets/PreviewViewport.hpp>

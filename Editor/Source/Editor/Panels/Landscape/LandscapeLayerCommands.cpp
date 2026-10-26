@@ -1,5 +1,5 @@
 #include "LandscapeLayerCommands.hpp"
-#include "LandscapeEditLayerEdits.hpp"
+#include <Editor/Core/Commands/LandscapeEditLayerEdits.hpp>
 
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>

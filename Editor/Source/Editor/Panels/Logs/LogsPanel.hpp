@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 
 #include <Editor/Core/LogView.hpp> // LogRepeatRun — the cached row type below
 

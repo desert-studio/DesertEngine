@@ -1,6 +1,6 @@
 #include "FoliagePaintTool.hpp"
 
-#include <Editor/Core/Selection/FoliagePaint.hpp>
+#include <Editor/Panels/Foliage/FoliagePaint.hpp>
 #include <Editor/Core/Selection/ModelingToolTarget.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Editor/Core/CommandHistory.hpp>

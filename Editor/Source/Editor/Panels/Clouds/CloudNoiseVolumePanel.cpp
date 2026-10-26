@@ -297,7 +297,7 @@ namespace Desert::Editor
         // window came to edit a different asset than the one it was opened on — which, now that the title,
         // the ImGui id and open-or-focus are all keyed on the subject handle, would leave a window called
         // one thing editing another. A different volume is a different window, opened by double-clicking it
-        // in the asset browser. See Editor/Panels/IPanel.hpp on why the subject is immutable.
+        // in the asset browser. See Editor/Core/IPanel.hpp on why the subject is immutable.
     }
 
     std::vector<unsigned char> CloudNoiseVolumePanel::BuildSlicePixels() const

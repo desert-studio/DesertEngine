@@ -6,7 +6,7 @@
 // (UE leaves the assignment to the user). See MeshBakeNormalTool.hpp.
 
 #include "MeshBakeNormalTool.hpp"
-#include "ModelingToolTarget.hpp"
+#include <Editor/Core/Selection/ModelingToolTarget.hpp>
 
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/MaterialAssetUtils.hpp>
@@ -267,12 +267,6 @@ namespace Desert::Editor::Core
             }
         }
     } // namespace
-
-    BakeNormalMapArgs& BakeNormalMapSettings()
-    {
-        static BakeNormalMapArgs s_Args;
-        return s_Args;
-    }
 
     Common::ResultStr<BakeNormalMapOutcome>
     ApplyBakeNormalMap( ::Desert::Core::Scene& scene, Assets::AssetManager& assets, const BakeNormalMapArgs& args )

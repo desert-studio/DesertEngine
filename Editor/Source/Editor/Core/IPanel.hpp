@@ -13,7 +13,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Editor/Core/EditableProperty.hpp>
-#include <Editor/Panels/AssetEditorToolbar.hpp>
+#include <Editor/Core/AssetEditorToolbar.hpp>
 #include <Editor/Core/EditorSubject.hpp>
 #include <Editor/Core/PreviewViewpoints.hpp>
 

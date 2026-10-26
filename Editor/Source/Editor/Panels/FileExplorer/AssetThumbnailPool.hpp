@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Editor/Panels/FileExplorer/FileType.hpp>
+#include <Editor/Core/FileType.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
 
 #include <cstddef>

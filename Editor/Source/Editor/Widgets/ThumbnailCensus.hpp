@@ -4,7 +4,7 @@
 
 #include <Common/Content/ContentKinds.hpp>
 
-#include <Editor/Panels/FileExplorer/FileType.hpp>
+#include <Editor/Core/FileType.hpp>
 #include <Editor/Widgets/ThumbnailProducers.hpp>
 
 #include <algorithm>

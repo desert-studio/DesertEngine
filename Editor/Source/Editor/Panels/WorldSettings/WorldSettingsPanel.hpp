@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>

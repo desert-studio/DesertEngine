@@ -135,8 +135,8 @@ namespace Desert::Editor
     Common::BoolResultStr AddComponentUndoable( ECS::Entity& entity, const ComponentEditorEntry& entry );
 
     // The registrations below run from static initialisers in files nothing else references. They reach the
-    // binary because every binary that links EditorCore links it WHOLE (DesertPlatform.LinkWholeArchive in
-    // BuildScripts/Platform.lua); a new registering file needs nothing named anywhere.
+    // binary because every binary that links the editor libraries links them WHOLE (DesertEditorLibs.Link in
+    // BuildScripts/EditorLibs.lua); a new registering file needs nothing named anywhere.
 
     // Reflected component: ZERO UI code — the panel is auto-built from the data block's REFLECT() metadata.
     // When several entities are selected, edits broadcast to all of them (multi-select Details).

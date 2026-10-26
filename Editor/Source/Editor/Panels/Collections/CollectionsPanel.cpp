@@ -15,7 +15,7 @@
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/MeshDnD.hpp>
@@ -682,7 +682,7 @@ namespace Desert::Editor
         // Rendered preview already on disk, and still a picture OF this mesh? Show it. The freshness half
         // is not decoration: asking only whether the file exists is what let a mesh edited after its
         // capture keep showing the old shape, and — because ThumbnailService used to ask the same
-        // impoverished question — never get a new one (Editor/Widgets/ThumbnailFreshness.hpp).
+        // impoverished question — never get a new one (Editor/Core/ThumbnailFreshness.hpp).
         if ( m_UIHelper && m_Thumbs &&
              ThumbnailService::JudgeMeshPicture( cookedStr ) == ThumbnailFreshness::Verdict::Show )
         {
