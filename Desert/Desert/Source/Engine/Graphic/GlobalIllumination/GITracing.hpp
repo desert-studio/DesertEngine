@@ -270,7 +270,7 @@ namespace Desert::Graphic::GlobalIllumination
         glm::mat4 InvViewProjection{ 1.0f }; // its inverse
         glm::vec4 Camera{ 0.0f };            // xyz = camera world position (cm)
         glm::vec4 SunTravel{ 0.0f };         // xyz = direction the sunlight travels, w = 1 when there is a sun
-        glm::vec4 SunRadiance{ 0.0f };       // rgb = colour * intensity
+        glm::vec4 SunRadiance{ 0.0f };       // rgb = colour * intensity, w = 1 when it casts shadows
         glm::vec4 Light1Travel{ 0.0f };   // atmosphere light 1 (the moon): xyz = travel, w = 1 when there is one
         glm::vec4 Light1Radiance{ 0.0f }; // rgb = colour * intensity, w = 1 when it casts shadows
         glm::vec4 SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f };

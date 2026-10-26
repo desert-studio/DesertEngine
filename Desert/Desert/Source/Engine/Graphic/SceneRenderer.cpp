@@ -1048,6 +1048,7 @@ namespace Desert::Graphic
                              .PathsPerFrame   = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
                              .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
+        m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
         m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
         m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;

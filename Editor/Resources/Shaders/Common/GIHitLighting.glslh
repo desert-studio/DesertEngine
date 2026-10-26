@@ -131,10 +131,12 @@ vec3 GIHitRadianceLit( GIHit hit, vec3 rayDirection, GIHitSurface surface )
         if ( dot( N, L ) > 0.0 )
             direct += GIHitLightResponse(
                  surface, N, V, L,
-                 giFrame.sunRadiance.rgb * GITraceVisibility( origin, L, GIFarFieldTMin( bias, N, L ), 1.0e6 ) );
+                 giFrame.sunRadiance.rgb *
+                      ( giFrame.sunRadiance.w > 0.5 ? GITraceVisibility( origin, L, GIFarFieldTMin( bias, N, L ), 1.0e6 )
+                                                    : 1.0 ) );
     }
-    // Atmosphere light 1 (the moon), as the sun: UE's hit lighting lights every directional light. With CastShadows
-    // off it is unoccluded, as the deferred pass shades it.
+    // Atmosphere light 1 (the moon), as the sun: UE's hit lighting lights every directional light. Either with
+    // CastShadows off is unoccluded, as the deferred pass shades it.
     if ( giFrame.light1Travel.w > 0.5 )
     {
         const vec3 L = -giFrame.light1Travel.xyz;
