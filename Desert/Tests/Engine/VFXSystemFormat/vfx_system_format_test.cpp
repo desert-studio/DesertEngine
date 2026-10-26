@@ -34,20 +34,24 @@ namespace
         data.Seed     = 1234;
         data.Bounds   = { glm::vec3( -50.0f, 0.0f, -50.0f ), glm::vec3( 50.0f, 300.0f, 50.0f ) };
         data.UserParams.push_back( { "Intensity", VFXValueType::Float, glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) } );
-        data.LocalModules.push_back( { "flicker", "Flicker", "void Mod_Flicker( inout ParticleCtx p ) {}" } );
 
         VFXEmitterData flames;
         flames.Name      = "Flames";
         flames.Capacity  = 512;
         flames.Lifecycle = { 0.25f, 2.0f, VFXLoopBehavior::Multiple, 3 };
 
-        VFXModuleUse   spawn{ "engine:SpawnRate", true, {} };
+        VFXModuleUse spawn{ { "10e483e233d547108e31d1855328a54b", "engine:Engine/VFX/Modules/SpawnRate.dfxmod" },
+                            true,
+                            {} };
         VFXModuleInput rate{ "Rate", VFXValueType::Float, VFXInputSource::Binding };
         rate.Binding = "User.Intensity";
         spawn.Inputs.push_back( rate );
         flames.Stack.EmitterUpdate.push_back( spawn );
 
-        VFXModuleUse   init{ "engine:InitializeParticle", true, {} };
+        VFXModuleUse init{ { "2d5323b9c4d349f8b91c4fc795599f4f",
+                             "engine:Engine/VFX/Modules/InitializeLifetime.dfxmod" },
+                           true,
+                           {} };
         VFXModuleInput life{ "Lifetime", VFXValueType::Float, VFXInputSource::Random };
         life.Random = VFXRandomRange{ glm::vec4( 0.5f, 0, 0, 0 ), glm::vec4( 1.5f, 0, 0, 0 ) };
         init.Inputs.push_back( life );
@@ -56,7 +60,9 @@ namespace
         init.Inputs.push_back( color );
         flames.Stack.ParticleSpawn.push_back( init );
 
-        VFXModuleUse                   scale{ "engine:ScaleSize", true, {} };
+        VFXModuleUse scale{ { "240adf0c6a0f407489419764780491eb", "engine:Engine/VFX/Modules/SizeOverLife.dfxmod" },
+                            true,
+                            {} };
         VFXModuleInput                 curve{ "Scale", VFXValueType::Vec2, VFXInputSource::Curve };
         const std::vector<VFXCurveKey> channel = {
              { 0.0f, 1.0f, 0.0f, 0.0f, Desert::Animation::KeyInterp::Cubic, Desert::Animation::TangentMode::User },
@@ -65,7 +71,9 @@ namespace
         curve.Curve = std::vector<std::vector<VFXCurveKey>>{ channel, channel };
         scale.Inputs.push_back( curve );
         flames.Stack.ParticleUpdate.push_back( scale );
-        flames.Stack.ParticleUpdate.push_back( { "local:flicker", false, {} } );
+        // A project module (UE: a module script in /Game), disabled.
+        flames.Stack.ParticleUpdate.push_back(
+             { { "5c1a7e0f3b9d4e21a6f08b2d7c4e9a13", "assets:VFX/Modules/Flicker.dfxmod" }, false, {} } );
         flames.Renderers.push_back( { VFXRendererKind::Sprite, true } );
         data.Emitters.push_back( flames );
         return data;
@@ -124,7 +132,7 @@ TEST( VFXSystemFormat, RefusesWhatNoStageCouldHonour )
     EXPECT_NE( Refusal( d ), "<accepted>" );
 
     d                                            = Campfire();
-    d.Emitters[0].Stack.ParticleUpdate[1].Module = "local:nowhere";
+    d.Emitters[0].Stack.ParticleUpdate[1].Module = { "nowhere", "assets:VFX/Modules/Nowhere.dfxmod" };
     EXPECT_NE( Refusal( d ), "<accepted>" );
 
     d                                                    = Campfire();

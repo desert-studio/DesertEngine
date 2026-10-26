@@ -1,0 +1,33 @@
+// DesertAsset {"Kind":"VFXModule","Guid":"37ef32a37dfc4501bb57e95fc9919372","Versions":{"VFXM":1},"Dependencies":[]}
+Module "AddVelocityInCone"
+{
+    Category Velocity
+    Description "Gives a newborn a velocity inside a cone around an axis."
+    Usage ParticleSpawn
+    Attribute Velocity vec3
+    Input Speed float = 100
+    Input Angle float = 45
+    Input Falloff float = 0
+    Input Axis vec3 = 0 1 0
+
+    // Engine VFX module AddVelocityInCone (port of UE NiagaraStatelessModule_SolveVelocitiesAndForces.ush:
+    // 104-121, cone velocity): a direction at an angle uniform in [0, Angle] (degrees) from Axis, at a uniform
+    // rotation around it, times Speed (cm/s); Falloff in [0, 1] slows the directions far from the axis
+    // (UE: Speed * lerp(1, cos(angle)^(Falloff * 10), Falloff)). Speed and Angle are ordinary inputs — a Random-source
+    // range is UE's RandomScaleBiasFloat on them. A Spawn from Channel direction, when the emitter binds one, is the axis
+    // in place of Axis (Angle 0 = exactly the entry's direction). Adds to the velocity, so it stacks. Spawn group.
+    void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
+    {
+        const vec4  r         = VFX_ModuleRandom( sim, i.VFXModuleKey, 0u );
+        const float angle     = radians( i.Angle ) * r.x;
+        const float rotation  = 6.28318530718 * r.y;
+        const vec2  scAngle   = vec2( sin( angle ), cos( angle ) );
+        const vec3  direction = vec3( sin( rotation ) * scAngle.x, cos( rotation ) * scAngle.x, scAngle.y );
+
+        float speed = i.Speed;
+        if ( i.Falloff > 0.0 )
+            speed *= mix( 1.0, pow( clamp( scAngle.y, 0.0, 1.0 ), i.Falloff * 10.0 ), i.Falloff );
+        const vec3 axis = sim.ChannelDirection.w > 0.5 ? sim.ChannelDirection.xyz : i.Axis;
+        p.Velocity += VFX_RotateZTo( axis, direction ) * speed;
+    }
+}

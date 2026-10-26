@@ -137,7 +137,7 @@ namespace Desert::Editor
         // @p channel: the DataChannel a BindingRequired input (SpawnFromChannel's Channel) is bound to - UE picks
         // the channel asset on the new row; a module with such an input and no channel is refused.
         /// VFX-15: the emitter is born at the placement's point set @p set (UE: a shape-location module reading
-        /// an ArrayPosition User parameter): its spawn-group shape modules are disabled and engine:ShapePointSet
+        /// an ArrayPosition User parameter): its spawn-group shape modules are disabled and ShapePointSet
         /// is added with Location bound to PointSet.<set>. One undo step.
         Common::BoolResultStr SpawnFromPointSet( std::size_t emitter, const std::string& set );
         Common::BoolResultStr AddModule( std::size_t emitter, std::size_t stage, const std::string& module,
@@ -159,12 +159,12 @@ namespace Desert::Editor
         // (Error set - shown disabled with the reason, never silently left out).
         struct ModuleChoice
         {
-            std::string Ref;
+            std::string Ref; // the module's registry path ({Guid, Path} row key), what AddModule takes
             std::string Error;
             bool        NeedsChannel = false; // an input is BindingRequired: the picker asks for the channel
         };
-        // What stage @p stage's picker offers (UE: the module picker filtered by Module Usage): the CPU emitter
-        // modules, the engine library, then this system's LocalModules.
+        // What stage @p stage's picker offers (UE: the module picker filtered by Module Usage): every `.dfxmod` of
+        // the content registry (engine library and project Content) whose Usage takes the stage.
         [[nodiscard]] std::vector<ModuleChoice> ModuleLibrary( std::size_t stage ) const;
 
         Assets::AssetManager*             m_Assets = nullptr;

@@ -58,7 +58,7 @@ namespace
     const S::VFXModuleUse& Find( const std::vector<S::VFXModuleUse>& group, const std::string& name )
     {
         for ( const auto& use : group )
-            if ( use.Module == std::format( "engine:{}", name ) )
+            if ( use.Module.Path == std::format( "engine:Engine/VFX/Modules/{}.dfxmod", name ) )
                 return use;
         ADD_FAILURE() << "no module " << name;
         return group.front();
@@ -69,7 +69,7 @@ namespace
         for ( const auto& in : use.Inputs )
             if ( in.Name == name )
                 return in;
-        ADD_FAILURE() << use.Module << " has no input " << name;
+        ADD_FAILURE() << use.Module.Path << " has no input " << name;
         return use.Inputs.front();
     }
 } // namespace

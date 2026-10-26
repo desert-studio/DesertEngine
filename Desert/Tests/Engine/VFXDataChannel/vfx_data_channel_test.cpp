@@ -237,7 +237,7 @@ TEST( VFXDataChannel, CompileSpawnPlanReadsSpawnFromChannel )
     emitter.Name                   = "Sparks";
     emitter.Lifecycle.LoopDuration = 1.0f;
     S::VFXModuleUse use;
-    use.Module = std::string( VFX::kVFXSpawnFromChannelModule );
+    use.Module = VFX::ModuleRef( VFX::kVFXSpawnFromChannelModule );
     use.Inputs = { Bound( "Channel", S::VFXValueType::Int, "DataChannel.Impacts" ),
                    Value( "ParticlesPerEntry", S::VFXValueType::Int, 4.0f ),
                    Value( "MaxEntriesPerFrame", S::VFXValueType::Int, 8.0f ),
@@ -325,7 +325,7 @@ TEST( VFXDataChannel, TheColorAndScalarPayloadReachTheSpawnRequest )
     emitter.Name                   = "Sparks";
     emitter.Lifecycle.LoopDuration = 1.0f;
     S::VFXModuleUse use;
-    use.Module = std::string( VFX::kVFXSpawnFromChannelModule );
+    use.Module = VFX::ModuleRef( VFX::kVFXSpawnFromChannelModule );
     use.Inputs = { Bound( "Channel", S::VFXValueType::Int, "DataChannel.Impacts" ),
                    Value( "ParticlesPerEntry", S::VFXValueType::Int, 1.0f ),
                    Value( "MaxEntriesPerFrame", S::VFXValueType::Int, 4.0f ),
@@ -408,7 +408,7 @@ TEST( VFXDataChannel, AFloatFieldBindsTheParticleSize )
     emitter.Name                   = "Sparks";
     emitter.Lifecycle.LoopDuration = 1.0f;
     S::VFXModuleUse use;
-    use.Module = std::string( VFX::kVFXSpawnFromChannelModule );
+    use.Module = VFX::ModuleRef( VFX::kVFXSpawnFromChannelModule );
     use.Inputs = { Bound( "Channel", S::VFXValueType::Int, "DataChannel.Impacts" ),
                    Value( "ParticlesPerEntry", S::VFXValueType::Int, 1.0f ),
                    Value( "MaxEntriesPerFrame", S::VFXValueType::Int, 4.0f ),

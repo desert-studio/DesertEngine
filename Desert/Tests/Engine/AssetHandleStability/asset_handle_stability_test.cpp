@@ -56,6 +56,7 @@
 #include <Engine/Assets/PhysicsAsset.hpp>
 #include <Engine/Assets/SoundAsset.hpp>
 #include <Engine/Assets/VFXDataChannelAsset.hpp>
+#include <Engine/Assets/VFXModuleAsset.hpp>
 #include <Engine/Assets/ControlRigAsset.hpp>
 #include <Engine/Assets/AnimGraphAsset.hpp>
 #include <Engine/Assets/RetargetAsset.hpp>
@@ -206,6 +207,8 @@ namespace
              { AssetTypeID::VFXDataChannel, "VFXDataChannelAsset", &HandleOf<Desert::Assets::VFXDataChannelAsset>,
                &MetadataTypeOf<Desert::Assets::VFXDataChannelAsset>,
                &DeclaredTypeOf<Desert::Assets::VFXDataChannelAsset> },
+             { AssetTypeID::VFXModule, "VFXModuleAsset", &HandleOf<Desert::Assets::VFXModuleAsset>,
+               &MetadataTypeOf<Desert::Assets::VFXModuleAsset>, &DeclaredTypeOf<Desert::Assets::VFXModuleAsset> },
              { AssetTypeID::StringTable, "StringTableAsset", &HandleOf<Desert::Assets::StringTableAsset>,
                &MetadataTypeOf<Desert::Assets::StringTableAsset>,
                &DeclaredTypeOf<Desert::Assets::StringTableAsset> },
@@ -1347,6 +1350,7 @@ TEST( AssetHandleStability, TheCatalogueCoversEveryAssetTypeId )
          AssetTypeID::PhysicsAsset,
          AssetTypeID::Sound,
          AssetTypeID::VFXDataChannel,
+         AssetTypeID::VFXModule,
     };
 
     // AssetTypeID::Count is the enum's own tally and exists for this assertion. Naming the last real
