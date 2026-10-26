@@ -50,6 +50,7 @@
 #include <functional>
 #include <memory>
 #include <array>
+#include <vector>
 #include <optional>
 #include <span>
 #include <string>
@@ -661,21 +662,24 @@ namespace Desert::Graphic::System
                                       : RainOcclusionUniforms{};
         }
 
-        // EVERY SHADOW VIEW THIS RENDERER DRAWS, by one index: 0..kMaxCascades-1 are the sun's cascades, the
-        // rest the point and spot lights' views (LocalShadows.hpp). The per-view caster state below
-        // (m_ShadowMaterial, m_CascadeCasterVP, ...) is indexed by it, so one caster walk
-        // (BuildShadowCascadeDraws) serves a cascade and a cube face alike.
-        // After those, one view per cascade for its MOVABLE layer: drawn in a pass of its own, possibly in the
-        // same frame as the cascade's static layer, so it needs caster materials (light-matrix UBO, instance and
-        // bone SSBOs) of its own — two passes through one material would both read whichever upload came last.
-        static constexpr uint32_t kCascadeMovableViewBase = kMaxShadowCascades + kMaxLocalShadowViews;
-        // After those, one view per clipmap level of the sun's virtual shadow map ("VSM: Raster"): its casters
-        // draw into the physical pool through the VirtualShadowDepth cells (CasterPipelinesOf), each level with
-        // caster materials of its own for the same reason as the movable views.
-        static constexpr uint32_t           kVsmViewBase    = kCascadeMovableViewBase + kMaxShadowCascades;
-        // Last, the rain occlusion's top-down view (RainOcclusionPass): the cascades' caster cells, no bias.
-        static constexpr uint32_t           kRainOcclusionView = kVsmViewBase + kVsmClipmapLevelCount;
-        static constexpr uint32_t           kMaxShadowViews    = kRainOcclusionView + 1u;
+        // EVERY SHADOW VIEW THIS RENDERER DRAWS, by one index. The FIXED views first, a known count per renderer:
+        // 0..kMaxCascades-1 the sun's cascades; then one view per cascade for its MOVABLE layer, drawn in a pass
+        // of its own, possibly in the same frame as the cascade's static layer, so it needs caster materials
+        // (light-matrix UBO, instance and bone SSBOs) of its own — two passes through one material would both
+        // read whichever upload came last; then one view per clipmap level of the sun's virtual shadow map ("VSM:
+        // Raster"), whose casters draw into the physical pool through the VirtualShadowDepth cells
+        // (CasterPipelinesOf), each level with materials of its own for the same reason; then the rain
+        // occlusion's top-down view (RainOcclusionPass). LAST, from kLocalShadowViewBase, the point and spot
+        // lights' views (LocalShadows.hpp), as many as this frame shadows: no count is fixed for them — the
+        // only budget is the scene's atlas (UE: the shadow pool, not a number of views). The per-view caster
+        // state below (m_ShadowMaterial, m_CascadeCasterVP, ...) is indexed by this index and grows with the
+        // local views (EnsureShadowViewCount), so one caster walk (BuildShadowCascadeDraws) serves a cascade
+        // and a cube face alike.
+        static constexpr uint32_t kCascadeMovableViewBase = kMaxShadowCascades;
+        static constexpr uint32_t kVsmViewBase            = kCascadeMovableViewBase + kMaxShadowCascades;
+        static constexpr uint32_t kRainOcclusionView      = kVsmViewBase + kVsmClipmapLevelCount;
+        static constexpr uint32_t kLocalShadowViewBase    = kRainOcclusionView + 1u;
+        static constexpr uint32_t kFixedShadowViews       = kLocalShadowViewBase;
         [[nodiscard]] static constexpr bool IsVirtualShadowView( const uint32_t view )
         {
             return view >= kVsmViewBase && view < kRainOcclusionView;
@@ -1134,7 +1138,8 @@ namespace Desert::Graphic::System
             Static,  // static, generic and still instanced meshes
             Movable, // skinned meshes and swaying foliage
         };
-        // The casters of shadow view @p cascade (a cascade, or a local view: kMaxShadowViews) into @p list.
+        // The casters of shadow view @p cascade (a fixed view, or a local view: kLocalShadowViewBase + row) into
+        // @p list.
         void BuildShadowCascadeDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list,
                                       ShadowCasterLayer layer = ShadowCasterLayer::All );
         // The cache decision of each cascade for this frame (UpdateCascades, after the fit): whether its static
@@ -1404,7 +1409,8 @@ namespace Desert::Graphic::System
         // frame by UpdateCascades().
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
         std::shared_ptr<Shader>           m_ShadowShader;
-        std::unique_ptr<MaterialShadow>           m_ShadowMaterial[kMaxShadowViews];
+        std::vector<std::unique_ptr<MaterialShadow>> m_ShadowMaterial =
+             std::vector<std::unique_ptr<MaterialShadow>>( kFixedShadowViews );
         // The sampled cascade maps: ONE depth array, a layer per cascade, owned by this renderer across frames
         // and handed to each frame's graph (AcquireCascadeMaps). Empty until the first frame after the budget.
         RDG::ExternalTexture m_CascadeMaps;
@@ -1433,7 +1439,8 @@ namespace Desert::Graphic::System
         // instanced draw per cascade. Optional — null if the Instanced.ShadowDepth cell is missing.
         std::shared_ptr<GraphicsPipeline>        m_ShadowInstancedPipeline;
         std::shared_ptr<Shader>                  m_ShadowInstancedShader;
-        std::unique_ptr<MaterialShadowInstanced> m_ShadowInstancedMaterial[kMaxShadowViews];
+        std::vector<std::unique_ptr<MaterialShadowInstanced>> m_ShadowInstancedMaterial =
+             std::vector<std::unique_ptr<MaterialShadowInstanced>>( kFixedShadowViews );
 
         // Skinned shadow caster: the (Skinned x ShadowDepth) cell, which did not exist — the cascade pass
         // walked the static queue by name and a character cast nothing. One material per cascade, exactly
@@ -1441,7 +1448,8 @@ namespace Desert::Graphic::System
         // Optional — null if the Skinned.ShadowDepth cell is missing, and then skinned shadows are simply off.
         std::shared_ptr<GraphicsPipeline>      m_ShadowSkinnedPipeline;
         std::shared_ptr<Shader>                m_ShadowSkinnedShader;
-        std::unique_ptr<MaterialShadowSkinned> m_ShadowSkinnedMaterial[kMaxShadowViews];
+        std::vector<std::unique_ptr<MaterialShadowSkinned>> m_ShadowSkinnedMaterial =
+             std::vector<std::unique_ptr<MaterialShadowSkinned>>( kFixedShadowViews );
 
         // The virtual shadow map's caster pipelines, by path: the (path x VirtualShadowDepth) cells of the default
         // surface, no attachment (RenderTargetLayout{}), no depth test (the pool's atomic max is the test). Null
@@ -1510,16 +1518,14 @@ namespace Desert::Graphic::System
         glm::vec4                         m_CascadeDepthRange       = glm::vec4( 1.0f );
         // The receivers sample with m_CascadeVP; the casters draw with m_CascadeCasterVP (the constant depth
         // bias folded in, CasterViewProj) and write the slope term from m_CascadeCasterBias through CameraUB.
-        // Indexed by SHADOW VIEW (kMaxShadowViews): the cascades first, then the local views, whose matrices
-        // UpdateLocalShadows writes with the light's bias (Graphic::LocalCasterBias, texels at the caster).
-        std::array<glm::mat4, kMaxShadowViews>                      m_CascadeCasterVP = IdentityShadowViews();
-        CascadeCasterBias                                           m_CascadeCasterBias[kMaxShadowViews]{};
-        [[nodiscard]] static std::array<glm::mat4, kMaxShadowViews> IdentityShadowViews()
-        {
-            std::array<glm::mat4, kMaxShadowViews> views;
-            views.fill( glm::mat4( 1.0f ) );
-            return views;
-        }
+        // Indexed by SHADOW VIEW: the fixed views first, then the local views (kLocalShadowViewBase + row),
+        // whose matrices UpdateLocalShadows writes with the light's bias (Graphic::LocalCasterBias, texels at the
+        // caster). Sized kFixedShadowViews + this frame's local views (EnsureShadowViewCount).
+        std::vector<glm::mat4> m_CascadeCasterVP = std::vector<glm::mat4>( kFixedShadowViews, glm::mat4( 1.0f ) );
+        std::vector<CascadeCasterBias> m_CascadeCasterBias = std::vector<CascadeCasterBias>( kFixedShadowViews );
+        // Grows every per-view array above (and the local views' draw lists) to hold @p viewCount views. Never
+        // shrinks: a view's caster materials are kept for the next frame that has as many local views.
+        void EnsureShadowViewCount( uint32_t viewCount );
 
         // THE LOCAL LIGHTS' SHADOW STATE OF THIS VIEW. The atlas, its tiles and what each light's tiles hold are
         // the SCENE's (Graphic/LocalShadowCache.hpp, through SceneRenderer::GetFrameLocalShadows): every view of a
@@ -1537,16 +1543,17 @@ namespace Desert::Graphic::System
         struct LocalShadowCachePlan
         {
             uint64_t               Light = 0; // its key in the scene's LocalShadowCache
-            LocalShadowCasterLight Caster;    // its views, reach and detail view (FirstView - kMaxShadowCascades =
+            LocalShadowCasterLight Caster;    // its views, reach and detail view (FirstView - kLocalShadowViewBase =
                                               // its first row of m_LocalShadowRows)
             uint64_t               Frame   = 0;     // the cache's frame the views were given in
             bool                   Primary = false; // given by a primary view (a level's viewport)
         };
         std::vector<LocalShadowCachePlan> m_LocalCachePlans;
-        MeshRendererDetail::MeshDrawList  m_LocalDraws[kMaxLocalShadowViews];
+        // Per local view (its row of m_LocalShadowRows), as many as this frame shadows (EnsureShadowViewCount).
+        std::vector<std::unique_ptr<MeshRendererDetail::MeshDrawList>> m_LocalDraws;
         // Each local view's non-mesh casters its Declare declared, with the index of its first block (as
         // m_CascadeCasters for a cascade).
-        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_LocalCasters[kMaxLocalShadowViews];
+        std::vector<std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>>> m_LocalCasters;
 
         // The rain occlusion (SetRainOcclusionQuality / UpdateRainOcclusion / RainOcclusionPass): its budget, its
         // depth target (kept across frames: redrawn only when the box moved or its casters changed), the box it

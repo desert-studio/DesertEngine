@@ -51,6 +51,10 @@ Shader "ProceduralSky"
         #define TransmittanceLutTexture sampler2D(TransmittanceLutTexture, LinearClampSampler)
         Uniform(3) texture2D SkyViewLutTexture;       // per-view 192x104, refilled every frame
         #define SkyViewLutTexture sampler2D(SkyViewLutTexture, LinearClampSampler)
+        // Atmosphere light 1's Sky-View LUT (the moon), parameterised around ITS direction; black and never
+        // sampled while the scene has no light 1 (UnpackLight1Present).
+        Uniform(4) texture2D SkyViewLut1Texture;
+        #define SkyViewLut1Texture sampler2D(SkyViewLut1Texture, LinearClampSampler)
 
         // The physical path's ON-SCREEN luminance ceiling is UnpackSkyLuminanceCeiling (Graphic::
         // SkyLuminanceCeiling, AutoExposureRules.hpp): the disc's true luminance (illuminance over its
@@ -86,6 +90,16 @@ Shader "ProceduralSky"
             vec4 lut = texture(SkyViewLutTexture, uv);
             vec3 sky = lut.rgb;
 
+            // Atmosphere light 1 (the moon): its own LUT, read through the same mapping around its own direction.
+            const bool light1 = UnpackLight1Present(s);
+            if (light1)
+            {
+                vec2 unit1 = SkyViewUnitFromParams(atm.BottomRadiusKm, viewHeight, viewZenithCos,
+                                                   SkyViewLightViewCos(zenith, dir, UnpackLight1Direction(s)));
+                sky += texture(SkyViewLut1Texture, vec2(SkyUnitToTexelUv(unit1.x, SKY_VIEW_LUT_WIDTH),
+                                                        SkyUnitToTexelUv(unit1.y, SKY_VIEW_LUT_HEIGHT))).rgb;
+            }
+
             vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
 
             // BELOW THE HORIZON THIS PASS DRAWS ONLY AIR — never a lit ground, which is what it used to
@@ -111,6 +125,10 @@ Shader "ProceduralSky"
                 // The analytic sun disc: outer-space luminance (illuminance over the disc's solid
                 // angle) times the transmittance toward the view, limb-darkened, soft-edged. Not in
                 // the LUT — 192x104 texels would alias a half-degree disc into a smear.
+                vec3 viewT = texture(TransmittanceLutTexture,
+                                     SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm, atm.TopRadiusKm,
+                                                                     viewHeight, viewZenithCos)).rgb;
+
                 float cosApex = cos(UnpackSunAngularRadius(s));
                 float vDotSun = dot(dir, sunDir);
                 float edge    = SkySunDiscSoftEdge(vDotSun, cosApex);
@@ -120,13 +138,34 @@ Shader "ProceduralSky"
                     float centerToEdge = clamp(acos(clamp(vDotSun, -1.0f, 1.0f)) / apex, 0.0f, 1.0f);
                     float solidAngle   = 2.0f * SKY_PI * (1.0f - cosApex);
 
-                    vec3 viewT = texture(TransmittanceLutTexture,
-                                         SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm,
-                                                                         atm.TopRadiusKm, viewHeight,
-                                                                         viewZenithCos)).rgb;
-
                     sky += sunIlluminance * UnpackSunDiskColorScale(s) / max(solidAngle, 1e-7f) * viewT *
                            SkySunLimbDarkening(centerToEdge) * edge;
+                }
+
+                // The stars (Star Intensity): outer-space sources like the disc, so they too reach the eye
+                // through the view path's transmittance, behind the in-scattering already in `sky` - which
+                // is what hides them by day. Common/Atmosphere.glslh states their luminance.
+                sky += AtmosphereStarField(dir) * UnpackStarIntensity(s) * AtmosphereStarPeakLuminance() *
+                       ATMOSPHERE_STAR_TINT * viewT;
+
+                // Light 1's disc (the moon): the same law at its own direction and its own Source Angle.
+                if (light1)
+                {
+                    vec3  light1Dir  = UnpackLight1Direction(s);
+                    float apex1      = max(UnpackLight1AngularRadius(s), 1e-4f);
+                    float cosApex1   = cos(apex1);
+                    float vDotLight1 = dot(dir, light1Dir);
+                    float edge1      = SkySunDiscSoftEdge(vDotLight1, cosApex1);
+                    if (edge1 > 0.0f)
+                    {
+                        float centerToEdge1 = clamp(acos(clamp(vDotLight1, -1.0f, 1.0f)) / apex1, 0.0f, 1.0f);
+                        float solidAngle1   = 2.0f * SKY_PI * (1.0f - cosApex1);
+                        vec3  viewT1 = texture(TransmittanceLutTexture,
+                                               SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm, atm.TopRadiusKm,
+                                                                               viewHeight, viewZenithCos)).rgb;
+                        sky += UnpackLight1Illuminance(s) * UnpackLight1DiskColorScale(s) / max(solidAngle1, 1e-7f) *
+                               viewT1 * SkySunLimbDarkening(centerToEdge1) * edge1;
+                    }
                 }
             }
 

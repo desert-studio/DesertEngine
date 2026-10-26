@@ -76,22 +76,14 @@ TEST( AmbientIBL, RespondsStrictlyAndMonotonicallyToTheEnvironment )
     EXPECT_GT( AmbientFor( glm::vec3( 4.0f ), glm::vec3( 4.0f ) ).r, 1.0f );
 }
 
-TEST( AmbientIBL, TheAntiBlackFloorIsNotAnAmbientModel )
+TEST( AmbientIBL, ABlackEnvironmentLeavesALitSurfaceBlack )
 {
-    // The constant that was deleted was 0.08 per channel and it WAS the deferred path's ambient. What
-    // replaces it is a floor two orders of magnitude smaller, whose only job is to keep a fully
-    // occluded face with no environment from reading as a pure-black hole. Pinned so that nobody
-    // quietly raises it back into a lighting model when a scene looks dark — that is the "knob that
-    // hides a defect" the contract forbids.
-    EXPECT_LT( glm::max( glm::max( SURFACE_AMBIENT_FLOOR.r, SURFACE_AMBIENT_FLOOR.g ), SURFACE_AMBIENT_FLOOR.b ),
-               0.02f );
-    EXPECT_GT( glm::min( glm::min( SURFACE_AMBIENT_FLOOR.r, SURFACE_AMBIENT_FLOOR.g ), SURFACE_AMBIENT_FLOOR.b ),
-               0.0f );
-
-    // Under any sky worth calling lit, the floor is noise: at unit environment radiance the real
-    // ambient must dominate it by a wide margin.
-    const glm::vec3 lit = AmbientFor( glm::vec3( 1.0f ), glm::vec3( 1.0f ) );
-    EXPECT_GT( lit.r, SURFACE_AMBIENT_FLOOR.r * 20.0f );
+    // There is no ambient floor (UE has none: the sky light and GI are the only ambient). The old
+    // SURFACE_AMBIENT_FLOOR was the whole of a night frame with no lights (Bistro night 4/255 raster vs
+    // 0.12 path-traced): an albedo-1 surface under a black sky with no GI must stay black.
+    const glm::vec3 black = ComposeAmbient( AmbientFor( glm::vec3( 0.0f ), glm::vec3( 0.0f ) ), glm::vec3( 0.0f ),
+                                            glm::vec3( 1.0f ), 1.0f, 1.0f, glm::vec3( 0.0f ) );
+    EXPECT_TRUE( glm::all( glm::epsilonEqual( black, glm::vec3( 0.0f ), 1e-6f ) ) );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -226,10 +218,6 @@ TEST( AmbientIBL, TheCompositionCarriesNoConstantTermOfItsOwn )
         EXPECT_TRUE( glm::all( glm::epsilonEqual( nothing, glm::vec3( 0.0f ), 1e-6f ) ) ) << "ao " << ao;
     }
 
-    // And with a real sky it is the sky that dominates, not the floor.
-    const glm::vec3 ibl     = AmbientFor( glm::vec3( 1.2f ), glm::vec3( 1.2f ) );
-    const glm::vec3 ambient = ComposeAmbient( ibl, glm::vec3( 0.0f ), kAlbedo, 1.0f, 1.0f, glm::vec3( 0.0f ) );
-    EXPECT_GT( ambient.r, kAlbedo.r * SURFACE_AMBIENT_FLOOR.r * 10.0f );
 }
 
 // THE relation the owner's experiment measured, and the only form in which it can be stated: not that

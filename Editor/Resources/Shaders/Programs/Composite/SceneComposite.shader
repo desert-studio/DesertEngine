@@ -18,6 +18,12 @@ Shader "SceneComposite"
         #define LightShaftTexture sampler2D(LightShaftTexture, LinearClampSampler)
         Uniform(6) texture2D LensFlareTexture;  // ghosts/halo/streak (LensFlareRenderer), quarter res
         #define LensFlareTexture sampler2D(LensFlareTexture, LinearClampSampler)
+        // Local exposure (LocalExposureRenderer): the bilateral grid (sum log luminance, count) and the blurred 1/32
+        // log luminance; System.Black3D / System.Black with mode 0 when the passes did not run.
+        Uniform(8) texture3D LumBilateralGrid;
+        #define LumBilateralGrid sampler3D(LumBilateralGrid, LinearClampSampler)
+        Uniform(9) texture2D BlurredLogLuminance;
+        #define BlurredLogLuminance sampler2D(BlurredLogLuminance, LinearClampSampler)
         Out(0) vec4 oColor;
 
         Uniform(0) TonemapUB
@@ -32,9 +38,14 @@ Shader "SceneComposite"
             float InversePreExposure;       // 1 / ViewFrame::PreExposure (the std140 slot before the vec4s)
             vec4  LightShaftTintIntensity; // rgb = the sun light's Bloom Tint, a = Bloom Scale x screen fade
             vec4  LensFlareTintIntensity;  // rgb = the lens's Tint, a = Intensity x screen fade
+            vec4  LocalExposureContrast;   // highlight contrast, shadow contrast, detail strength, blurred blend
+            vec4  LocalExposureThreshold;  // highlight / shadow threshold (EV), highlight / shadow strength
+            vec4  LocalExposureUV;         // grid UV scale xy, blurred UV scale xy
+            vec4  LocalExposureSlice;      // log2 middle grey (exposed), slice log min, 1 / EV per slice, mode
         };
 
         #include <Common/TonemapACES.glslh>
+        #include <Common/LocalExposure.glslh>
 
         // THE DISPLAY TRANSFER: the sRGB OETF (IEC 61966-2-1), the curve the display decodes with.
         // Ported from UE 5.8 Engine/Shaders/Private/GammaCorrectionCommon.ush:16-18 (LinearToSrgbBranchless),
@@ -110,8 +121,26 @@ Shader "SceneComposite"
             vec3 flare = texture(LensFlareTexture, v_TexCoord).rgb *
                          (LensFlareTintIntensity.rgb * LensFlareTintIntensity.a);
 
+            // LOCAL EXPOSURE (UE PostProcessTonemap.usf:411-423): per pixel, from the un-exposed luminance, the grid's
+            // base layer and the blurred log luminance. It scales the SCENE term only (UE :523 vs :526): the bloom
+            // carries its own from its setup. Mode (LocalExposureSlice.w): 0 off, 1 on, 2 on + visualised,
+            // 3 visualised at identity (no passes ran: exposure 1 everywhere).
+            float localExposure = 1.0;
+            const float leMode  = LocalExposureSlice.w;
+            if (leMode > 0.5 && leMode < 2.5)
+            {
+                float logLum      = log2(max(LocalExposureLuminance(scene) * InversePreExposure, 1.0e-10));
+                float logExposure = log2(max(exposure, 1.0e-10));
+                vec2  cell    = textureLod(LumBilateralGrid, vec3(v_TexCoord * LocalExposureUV.xy,
+                                           LocalExposureGridW(logLum, LocalExposureSlice.y, LocalExposureSlice.z)), 0.0).xy;
+                float blurred = textureLod(BlurredLogLuminance, v_TexCoord * LocalExposureUV.zw, 0.0).r;
+                float base    = LocalExposureBaseLogLuminance(cell, blurred, LocalExposureContrast.w, logExposure);
+                localExposure = exp2(LocalExposureLogExposure(logLum + logExposure, base, LocalExposureSlice.x,
+                                                              LocalExposureContrast, LocalExposureThreshold));
+            }
+
             // Scene, bloom, shafts and flare are all made from the pre-exposed scene colour: one division undoes it.
-            vec3 color = (scene + bloom + shafts + flare) * (exposure * InversePreExposure);
+            vec3 color = (scene * localExposure + bloom + shafts + flare) * (exposure * InversePreExposure);
 
         	// The scene's chosen operator. Both branches return LINEAR colour — the display encode below is
         	// the display transfer function and belongs to neither of them.
@@ -119,6 +148,16 @@ Shader "SceneComposite"
         	                                             : TonemapReinhard(color, WhitePoint);
 
         	vec3 mapped = LinearToSrgb(mappedColor);
+
+            // The Local Exposure view mode (UE VisualizeLocalExposure, "Local Exposure"): the picture's own grey
+            // tinted green where local exposure lifts it, red where it pulls it down, saturating at +-2 EV.
+            if (leMode > 1.5)
+            {
+                float grey = dot(mapped, vec3(0.2126, 0.7152, 0.0722));
+                float t    = clamp(log2(localExposure) * 0.5, -1.0, 1.0);
+                vec3  tint = t > 0.0 ? vec3(0.15, 0.95, 0.25) : vec3(0.95, 0.2, 0.15);
+                mapped     = mix(vec3(grey), tint, abs(t) * 0.8);
+            }
 
         	// Ordered dithering on the FINAL 8-bit output to break gradient banding. Without it, smooth gradients
         	// (esp. the procedural sky) quantize into 8-bit steps; under camera motion those steps sweep across the

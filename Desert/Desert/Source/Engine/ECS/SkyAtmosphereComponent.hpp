@@ -114,7 +114,13 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Sunset Intensity" ), Category( "Sun" ), Range( 0.0f, 3.0f ) )
         float SunsetIntensity = 1.0f;
 
-        PROPERTY( DisplayName( "Star Intensity" ), Category( "Night Sky" ), Range( 0.0f, 5.0f ) )
+        // Read by BOTH models (Common/Atmosphere.glslh AtmosphereStarField). The gradient fades it in with its
+        // night palette; the physical model draws stars at their outer-space luminance (1 = a magnitude-0
+        // star, AtmosphereStarPeakLuminance) through the view transmittance, so the day sky's in-scattering
+        // hides them and the night sky shows them, with no switch.
+        PROPERTY( DisplayName( "Star Intensity" ), Category( "Night Sky" ), Range( 0.0f, 5.0f ),
+                  Tooltip( "Star brightness. Physical Atmosphere: 1 = magnitude-0 stars at true luminance, seen "
+                           "through the atmosphere's transmittance (hidden by the day sky, visible at night)." ) )
         float StarIntensity = 1.0f;
 
         PROPERTY( DisplayName( "Auto Rebake" ), Category( "Environment Lighting" ), Advanced )

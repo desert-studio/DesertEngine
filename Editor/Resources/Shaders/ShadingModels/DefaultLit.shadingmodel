@@ -1,5 +1,5 @@
 // DefaultLit — UE's MSM_DefaultLit: Cook-Torrance for every analytic light (Mesh/DirectLighting.glslh, the
-// kd * albedo / PI diffuse plus GGX specular) and the split-sum environment with the ambient floor and the
+// kd * albedo / PI diffuse plus GGX specular) and the split-sum environment with the
 // one-bounce indirect (Mesh/AmbientIBL.glslh). The model of a surface template that names none.
 Guid 6570679776162095495;
 Payload

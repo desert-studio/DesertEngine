@@ -1,3 +1,5 @@
+#include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
+#include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
@@ -566,6 +568,12 @@ namespace Desert::Graphic
                     LOG_ERROR(
                          "[SceneRenderer] auto-exposure did not initialise; exposure stays at its default." );
                 tonemapSystem->SetAutoExposureImage( autoExposureSystem->GetAdaptedLuminanceImage() );
+                // Local exposure (UE Bilateral): grid + blurred log luminance the tonemap and the bloom read.
+                RegisterSystem<System::LocalExposureRenderer>( "LocalExposureSystem", this, m_TargetFramebuffer );
+                if ( const auto le =
+                          SP_CAST( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] )->Initialize();
+                     !le )
+                    LOG_ERROR( "[SceneRenderer] local exposure did not initialise: {}", le.GetError() );
                 return "AutoExposure";
             }
             case 21:
@@ -1125,7 +1133,23 @@ namespace Desert::Graphic
                 m_LastExposure  = lum > 0.0f ? post.AutoExposureKey / std::max( lum, 1e-4f ) : 0.0f;
                 LOG_TRACE( "[PreExposure] {}: read-back adapted luminance {} -> exposure {}",
                            m_ViewResources.GetName(), lum, m_LastExposure );
+                // UE UpdatePreExposure x AverageLocalExposure (PostProcessEyeAdaptation.cpp:1559,1587): the
+                // tonemap scales the scene term by local exposure, so the stored range follows it.
+                m_LastAverageLocalExposure = ae->GetLastAverageLocalExposure();
             }
+        }
+        if ( !post.AutoExposure || m_ViewProfile.SceneCapture )
+            m_LastAverageLocalExposure = 1.0f;
+        {
+            const LocalExposureParams localExposure = ResolveLocalExposure( post );
+            const float               logMiddleGrey = LocalExposureLogMiddleGrey(
+                 post.AutoExposureKey, localExposure.MiddleGreyBiasEV, !post.AutoExposure );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( auto* le = UNIQUE_GET_AS( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] ) )
+                le->SetParams( localExposure, logMiddleGrey, m_LastExposure > 0.0f ? m_LastExposure : manualExposure );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( auto* ae = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
+                ae->SetLocalExposure( localExposure, logMiddleGrey, post.AutoExposureKey );
         }
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
         // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
@@ -1285,6 +1309,7 @@ namespace Desert::Graphic
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
+        m_AtmosphereLight1       = sceneRenderInfo.AtmosphereLight1;
 
         // THE SUN THE ATMOSPHERE LETS THROUGH (UE's PrepareSunLightProxy). The light's authored colour
         // is its OUTER-SPACE illuminance in the physical model; what reaches the ground has crossed the
@@ -1304,6 +1329,15 @@ namespace Desert::Graphic
             const glm::vec3 transmittance = skyboxSystem->GetAtmosphere().SunTransmittanceAtGround;
 
             glm::vec4& colorIntensity = m_DirectionLights.DirectionLights[0].ColorIntensity;
+            colorIntensity.x *= transmittance.x;
+            colorIntensity.y *= transmittance.y;
+            colorIntensity.z *= transmittance.z;
+        }
+        // Atmosphere light 1 (the moon) by the same law, through its own direction's factor.
+        if ( m_AtmosphereLight1 )
+        {
+            const glm::vec3 transmittance  = skyboxSystem->GetAtmosphere().Light1TransmittanceAtGround;
+            glm::vec4&      colorIntensity = m_AtmosphereLight1->Light.ColorIntensity;
             colorIntensity.x *= transmittance.x;
             colorIntensity.y *= transmittance.y;
             colorIntensity.z *= transmittance.z;
@@ -1356,6 +1390,10 @@ namespace Desert::Graphic
         // every barrier and layout transition. A pass this frame does not run is not added. The lambdas run inside
         // Execute, after the whole graph is built, so a value one pass hands a later one travels through `values`,
         // which outlives Execute; everything else they need is captured by value.
+        // Every CPU stage of the graph's build and execution is a row of its own, so the body has no time that
+        // no child scope accounts for.
+        DESERT_PROFILE_PHASES( phases );
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: Frame setup" );
         RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
 
@@ -1445,7 +1483,7 @@ namespace Desert::Graphic
                                    ? glm::vec3( 0.0f )
                                    : glm::normalize( -glm::vec3( m_DirectionLights.DirectionLights[0].Direction ) );
         m_LastRenderScalePercent                 = inputs.RenderScalePercent;
-        inputs.LastExposure                      = m_LastExposure;
+        inputs.LastExposure                      = m_LastExposure * m_LastAverageLocalExposure;
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
         if ( !begun )
         {
@@ -1463,6 +1501,9 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
             autoExp->SetPreExposure( frame.PreExposure );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* le = UNIQUE_GET_AS( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] ) )
+            le->SetPreExposure( frame.PreExposure );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* bloom = UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] ) )
             bloom->SetPreExposure( frame.PreExposure );
@@ -1625,6 +1666,7 @@ namespace Desert::Graphic
                      "SceneColor" } } );
         };
 
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: Grass, TLAS, shadow plan" );
         AddFrameClearMainFramebuffer( graph, textures );
 
         // The landscape grass of this view, before every node that draws it (the cascades, the geometry) and
@@ -1851,6 +1893,7 @@ namespace Desert::Graphic
         // A face view draws no particles (UE: a capture's ShowFlags.Particles = 0, "usually dynamic, and can't be
         // captured well"), and simulates none: the face views render first in a frame, and the first view to
         // prepare the tick is the one that simulates it.
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: Add passes" );
         if ( !m_ViewProfile.SceneCapture )
             AddFrameParticlesSimulate( graph );
 
@@ -2150,6 +2193,7 @@ namespace Desert::Graphic
             const RDG::TextureRef postSource = postInput.empty() ? RDG::TextureRef{} : postInput.front();
             const RDG::TextureRef outlined   = AddFrameJumpFlood( graph, textures, postSource );
             AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
+            AddFrameLocalExposure( graph, textures, postInput );
             if ( m_BloomEnabled )
             {
                 AddFrameBloom( graph, textures, postInput );
@@ -2187,6 +2231,7 @@ namespace Desert::Graphic
         // the final image black for this frame.
         // A FrameFault never reaches EndFrame: the next BeginFrame still sees the last committed frame as
         // previous. A frame that executed commits as previous with what its report says it lost.
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: ExecuteGraph" );
         if ( Renderer::ExecuteGraph( graph ).IsSuccess() )
             m_ViewState.EndFrame( graph.GetExecuteReport() );
         textures.ResetInvalidatedHistories();
@@ -3110,11 +3155,12 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow,
-                                          const SkySettings& sky, const SunLightFx& fx )
+                                          const SkySettings& sky, const SunLightFx& fx,
+                                          const AtmosphereLight1& light1 )
     {
         m_SunLightFx = fx;
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
-             ->SetProceduralSky( enabled, sunDir, bakeNow, sky, fx );
+             ->SetProceduralSky( enabled, sunDir, bakeNow, sky, fx, light1 );
     }
 
     const AtmosphereEnv& SceneRenderer::GetAtmosphere() const

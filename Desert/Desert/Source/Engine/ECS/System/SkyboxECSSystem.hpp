@@ -55,6 +55,7 @@ namespace Desert::ECS
                      const Common::Timestep& /*ts*/ ) override
         {
             const auto sun = ResolveAtmosphereSun( registry );
+            ResolveAtmosphereLight1( registry );
 
             // --- Which sky entity drives the frame ---------------------------------------------------
             // Lowest UUID, not "whichever entity entt visited first": the old rule broke out of the loop
@@ -97,7 +98,8 @@ namespace Desert::ECS
                 // leave the last one it saw on screen — and would keep publishing an AtmosphereEnv marked
                 // valid for a sky that no longer exists.
                 renderCommandBuffer.Emplace<Graphic::Render::ProceduralSkyCommand>(
-                     false, kNoSunDirection, /*bakeNow=*/false, Graphic::SkySettings{}, Graphic::SunLightFx{} );
+                     false, kNoSunDirection, /*bakeNow=*/false, Graphic::SkySettings{}, Graphic::SunLightFx{},
+                     Graphic::AtmosphereLight1{} );
             }
             else
             {
@@ -126,7 +128,7 @@ namespace Desert::ECS
                 // degrees-to-radians, diameter-to-radius and kilometres-to-world-units steps all live in it.
                 renderCommandBuffer.Emplace<Graphic::Render::ProceduralSkyCommand>(
                      atmosphereEnabled, sun.value_or( kNoSunDirection ), bakeNow,
-                     Graphic::MakeSkySettings( atmosphere.Data ), m_SunFx );
+                     Graphic::MakeSkySettings( atmosphere.Data ), m_SunFx, m_Light1 );
             }
 
             // The HDR cubemap is the other Sky-pass mode: only when no atmosphere is driving the sky, and
@@ -241,7 +243,7 @@ namespace Desert::ECS
 
                 for ( const size_t i : selection.WrongIndex )
                     LOG_WARN( "[SkyAtmosphere] Entity '{}' is marked as Atmosphere Sun Light at index {}, but "
-                              "the engine renders one directional light — only index 0 drives the sky.",
+                              "the atmosphere has two lights — only indices 0 (sun) and 1 (moon) drive the sky.",
                               EntityName( registry, pick.Entities[i] ), pick.Candidates[i].Index );
 
                 if ( selection.Fallback && selection.Chosen )
@@ -270,6 +272,48 @@ namespace Desert::ECS
             const auto& transform = registry.get<ECS::TransformComponent>( *sun );
             return Rules::AtmosphereSunDirection( transform.Translation );
         }
+
+        // ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): the second light the sky scatters.
+        // Same candidacy as the sun (a hidden moon is no moon); no fallback, so it exists only when marked.
+        void ResolveAtmosphereLight1( entt::registry& registry )
+        {
+            m_Light1                 = Graphic::AtmosphereLight1{};
+            const AtmosphereSunPick pick = PickAtmosphereLight( registry, SunCandidacy::Lit, 1 );
+            const auto              light1 = pick.Sun();
+            if ( !light1 )
+                return;
+
+            const auto& light                         = registry.get<ECS::DirectionLightComponent>( *light1 );
+            const auto& transform                     = registry.get<ECS::TransformComponent>( *light1 );
+            m_Light1.Present                          = true;
+            m_Light1.TowardLight                      = Rules::AtmosphereSunDirection( transform.Translation );
+            m_Light1.OuterSpaceIlluminance            = light.Data.Color * light.Data.Intensity;
+            m_Light1.DiskColorScale                   = light.Data.AtmosphereSunDiskColorScale;
+            m_Light1.DiskAngularRadius                = glm::radians( light.Data.SourceAngle ) * 0.5f;
+            m_Light1.AffectedByAtmosphereTransmittance = light.Data.AffectedByAtmosphereTransmittance;
+
+            // SAID ONCE, WITH ITS NUMBERS: which light is atmosphere light 1 and WHERE in the sky its disc
+            // stands. Without this line a moon outside the shot's frame is indistinguishable in the log from a
+            // moon the renderer lost (MOON-FIX, 10-24: the evidence frame looked 34 deg above it).
+            if ( !m_Light1SelectionLogged )
+            {
+                m_Light1SelectionLogged = true;
+                for ( const size_t i : pick.Selection.Collisions )
+                    LOG_WARN( "[SkyAtmosphere] Entity '{}' is also marked as Atmosphere Sun Light at index 1; "
+                              "the lowest-id light is the second atmosphere light and this one is ignored.",
+                              EntityName( registry, pick.Entities[i] ) );
+                const glm::vec3& toward = m_Light1.TowardLight;
+                LOG_INFO( "[SkyAtmosphere] Atmosphere light 1 (the moon) is '{}': toward ({:.3f}, {:.3f}, {:.3f}) = "
+                          "elevation {:.1f} deg, intensity {:.3f} lux, disc {:.3f} deg across — "
+                          "lights the sky (its own Sky-View LUT), draws its disc and lights the scene unshadowed.",
+                          EntityName( registry, *light1 ), toward.x, toward.y, toward.z,
+                          glm::degrees( glm::asin( glm::clamp( toward.y, -1.0f, 1.0f ) ) ),
+                          light.Data.Intensity, light.Data.SourceAngle );
+            }
+        }
+
+        Graphic::AtmosphereLight1 m_Light1;
+        bool                      m_Light1SelectionLogged = false;
 
         // The evaluated FX slice of the chosen sun light, refreshed by ResolveAtmosphereSun each frame
         // and defaulted (shafts off, scale white) when no light is chosen.

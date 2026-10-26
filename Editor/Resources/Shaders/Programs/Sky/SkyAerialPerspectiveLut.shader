@@ -145,6 +145,13 @@ Shader "SkyAerialPerspectiveLut"
             vec3  transmittance = vec3(1.0f, 1.0f, 1.0f);
             float tPrev         = 0.0f;
 
+            // Atmosphere light 1 (the moon): its own in-scattering through the SAME air (the transmittance is
+            // the medium's, not a light's), accumulated beside the sun's and summed at the store.
+            const bool light1         = UnpackLight1Present(s);
+            vec3       light1Dir      = UnpackLight1Direction(s);
+            vec3       light1Illum    = UnpackLight1Illuminance(s);
+            vec3       light1Luminance = vec3(0.0f, 0.0f, 0.0f);
+
             for (int slice = 0; slice < size.z; ++slice)
             {
                 float unitZ = float(slice) / max(float(size.z - 1), 1.0f);
@@ -157,6 +164,11 @@ Shader "SkyAerialPerspectiveLut"
                      SkyApIntegrateSegment(atm, originKm, rayDir, sunDir, sunIlluminance,
                                            max(tPrev, startDepthKm), max(tNext, startDepthKm), luminance,
                                            transmittance);
+                if (light1)
+                    light1Luminance =
+                         SkyApIntegrateSegment(atm, originKm, rayDir, light1Dir, light1Illum,
+                                               max(tPrev, startDepthKm), max(tNext, startDepthKm), light1Luminance,
+                                               transmittance).Luminance;
                 luminance     = acc.Luminance;
                 transmittance = acc.Transmittance;
                 tPrev         = tNext;
@@ -169,7 +181,7 @@ Shader "SkyAerialPerspectiveLut"
                      (transmittance.r + transmittance.g + transmittance.b) / 3.0f;
 
                 imageStore(AerialPerspectiveLutTexture, ivec3(coord.x, coord.y, slice),
-                           vec4(luminance * apTint, meanTransmittance));
+                           vec4((light1 ? luminance + light1Luminance : luminance) * apTint, meanTransmittance));
             }
         }
     }

@@ -34,8 +34,8 @@ namespace Desert::Graphic
     //
     // EVERY DISTANCE IS IN WORLD UNITS (centimetres, Common::Units).
 
-    // How many local shadow views one renderer holds per frame: six per point light, one per spot.
-    inline constexpr uint32_t kMaxLocalShadowViews = 48;
+    // A renderer holds as many local shadow views per frame as its lights need (six per point light, one per
+    // spot): there is no fixed count. The one budget is the atlas below (UE: the shadow pool).
     // A light's payload says "no shadow" with this view index (ShaderProtocols::PointLightPayload::ShadowView).
     inline constexpr int32_t  kNoLocalShadowView = -1;
     inline constexpr uint32_t kPointShadowFaces  = 6;

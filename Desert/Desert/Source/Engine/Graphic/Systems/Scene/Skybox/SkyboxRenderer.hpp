@@ -33,7 +33,10 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, TransmittanceLutTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
         DESERT_SHADER_PARAMETER( Texture, SkyViewLutTexture );
-        static constexpr std::array kAll{ RDG::Erase( TransmittanceLutTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( SkyViewLutTexture ) };
+        // Atmosphere light 1's (the moon's) Sky-View LUT; System.Black while the scene has none.
+        DESERT_SHADER_PARAMETER( Texture, SkyViewLut1Texture );
+        static constexpr std::array kAll{ RDG::Erase( TransmittanceLutTexture ), RDG::Erase( LinearClampSampler ),
+                                          RDG::Erase( SkyViewLutTexture ), RDG::Erase( SkyViewLut1Texture ) };
     };
 
     class SkyboxRenderer final : public RenderSystem
@@ -61,7 +64,7 @@ namespace Desert::Graphic::System
         // whether this frame's AtmosphereEnv publishes a ground transmittance or the identity — both
         // inside the same evaluation everything else reads.
         void SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow, const SkySettings& sky,
-                               const SunLightFx& fx );
+                               const SunLightFx& fx, const AtmosphereLight1& light1 );
 
         // The physical sky's on-screen luminance ceiling for this view's exposure (Graphic::
         // SkyLuminanceCeiling). Set from the post-process settings; re-uploads the block when it changes.
@@ -151,6 +154,16 @@ namespace Desert::Graphic::System
         [[nodiscard]] const std::shared_ptr<Image2D>& GetSkyViewLut() const
         {
             return m_SkyViewLut;
+        }
+        // Atmosphere light 1's Sky-View LUT is sampled this frame: the pair above is, the scene has a light 1,
+        // and an earlier frame's node has written its LUT. Imported as FrameTransients::SkyViewLut1.
+        [[nodiscard]] bool SkyPassSamplesLight1Lut() const
+        {
+            return SkyPassSamplesLuts() && m_Light1.Present && m_SkyViewLut1Filled && m_SkyViewLut1;
+        }
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetSkyViewLut1() const
+        {
+            return m_SkyViewLut1;
         }
 
         const std::optional<Environment> GetEnvironment() const
@@ -256,7 +269,8 @@ namespace Desert::Graphic::System
         // imports, orders and barriers them); the exec opens the block and adds only the push constants.
         [[nodiscard]] Common::BoolResultStr DispatchTransmittanceLut( const RDG::PassContext& context );
         [[nodiscard]] Common::BoolResultStr DispatchMultiScatterLut( const RDG::PassContext& context );
-        [[nodiscard]] Common::BoolResultStr DispatchSkyViewLut( const RDG::PassContext& context );
+        // lightIndex: the atmosphere light the fill integrates, in that light's own frame (0 = sun, 1 = light 1).
+        [[nodiscard]] Common::BoolResultStr DispatchSkyViewLut( const RDG::PassContext& context, int lightIndex );
         [[nodiscard]] Common::BoolResultStr DispatchAerialPerspectiveLut( const RDG::PassContext& context );
         [[nodiscard]] Common::BoolResultStr DispatchDistantLight( const RDG::PassContext& context );
 
@@ -320,6 +334,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<Image2D>         m_TransmittanceLut;
         std::shared_ptr<Image2D>         m_MultiScatterLut;
         std::shared_ptr<Image2D>         m_SkyViewLut;
+        // Atmosphere light 1's (the moon's) Sky-View LUT: the same fill around that light's direction.
+        std::shared_ptr<Image2D>         m_SkyViewLut1;
         std::shared_ptr<Image3D>         m_AerialPerspectiveLut;
         std::shared_ptr<Image2D>         m_DistantLight;
         AtmosphereLutFingerprint         m_LutBaked;
@@ -329,6 +345,9 @@ namespace Desert::Graphic::System
         bool m_SkyViewLutFilled = false;
         // DeclareAtmosphereLutNodes declared the SkyViewLut node this frame, until SettleAtmosphereLutNodes.
         bool m_SkyViewLutFillPending = false;
+        // The same pair for m_SkyViewLut1, declared only while the scene has an atmosphere light 1.
+        bool m_SkyViewLut1Filled      = false;
+        bool m_SkyViewLut1FillPending = false;
         // What the SkyboxPass's setup (DeclareSkyDraw) chose this frame: the pipeline and material its block 0 was
         // declared against, or a refusal the exec returns (a skybox material without its pipeline). Empty when
         // nothing draws.
@@ -353,6 +372,9 @@ namespace Desert::Graphic::System
 
         // The physical sky's sun as PackSky takes it: the atmosphere sun light's outer-space illuminance and
         // disc scale (this frame's SunLightFx), and the exposure-derived ceiling.
+        // Atmosphere light 1 (the moon) as PackSky takes it; Present == false packs a slot every pass skips.
+        AtmosphereLight1 m_Light1;
+
         SkySunInputs m_SunInputs{ .OuterSpaceIlluminance = glm::vec3( 0.0f ),
                                   .DiskColorScale        = glm::vec3( 1.0f ),
                                   .LuminanceCeiling      = kSkyExposedLuminanceCeiling };
