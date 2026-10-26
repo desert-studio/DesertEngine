@@ -3,8 +3,9 @@
 # material M_Skin_SSS (SubsurfaceProfileSurface, profile Materials/Subsurface/Skin.dsssprofile = UE skin defaults),
 # put on Starter's Metal_40 sphere entity; the sun turned to light it from the side.
 Дано run View "View mode: Lit"
-Дано set 106508827693059193 StaticMesh.MeshHandle assets:Meshes/Test/LeePerrySmith.glb
-Дано set 106508827693059193 StaticMesh.MaterialSlots.0 assets:Materials/M_Skin_SSS.demat
+Дано properties 106508827693059193
+Дано set 106508827693059193 StaticMeshData.MeshHandle assets:Meshes/Test/LeePerrySmith.glb
+Дано set 106508827693059193 StaticMeshData.MaterialSlots.0 assets:Materials/M_Skin_SSS.demat
 Дано run Entity Metal_40
 Дано --subject selection set Scale 3,3,3
 Дано run Entity Sun
