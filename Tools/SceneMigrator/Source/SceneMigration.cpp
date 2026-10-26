@@ -3788,7 +3788,10 @@ namespace Desert::Migration
         }
         data.Header->Versions["MATL"] = 6u;
 
-        auto written = Assets::WriteMaterialJson( data );
+        // Not WriteMaterialJson: that stamps the engine's CURRENT generation (MATL 7) over the 6 set above, and
+        // MigrateMaterialV6ToV7 would refuse the result. The header is written as raised here; the next step
+        // restamps it (and its Dependencies, which a texture rename leaves unchanged).
+        auto written = Common::Content::CanonicalJsonTextOfWriterOutput( Common::Json::Write( data ) );
         if ( !written )
             return Common::MakeFormattedError<std::string>( "the raised material does not write: {}",
                                                             written.GetError() );
