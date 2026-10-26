@@ -55,8 +55,11 @@ local kHeaderToolCommand =
         -- request and so must follow its three operands.
         .. kReflectArguments
         -- Enums only (no reflected types): a reflected field may be typed with Common's settings enums
-        -- (PostProcessSettings' GIMethod / ReflectionMethod / ShadowMethod, Common/Settings/RenderMethods.hpp).
+        -- (PostProcessSettings' GIMethod / ReflectionMethod / ShadowMethod, Common/Settings/RenderMethods.hpp),
+        -- or with PhysicsCore's (ColliderData Shape / Axis, RigidBodyData Type, PhysicsWorld.hpp). Without the
+        -- second tree those three fields were generated as Struct with no StructType: neither written nor read.
         .. ' --reflect-enums "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source/Common/Settings"'
+        .. ' --reflect-enums "' .. _MAIN_SCRIPT_DIR .. '/Desert/PhysicsCore/Source/PhysicsCore"'
         .. ' --reflect-components "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"'
         .. DesertModuleLibs.HeaderToolRoots("check") -- every engine source root
         .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
