@@ -80,7 +80,7 @@ namespace Desert::Editor
         // whose reply has gone out — the layer closes the application with it.
         // @p displacementUnsettled: the presented frame drew a displaced primitive's base while its twin was on
         // its way (DisplacementStats::Unsettled, read after the frame's EndFrame).
-        [[nodiscard]] std::optional<int32_t> OnFramePresented( bool displacementUnsettled );
+        [[nodiscard]] std::optional<int32_t> OnFramePresented( bool displacementUnsettled, bool subsurfaceHistoryConverging );
 
         // OnDetach: abandon a request still in flight (logged, never answered) and remove the socket file.
         void Close();
