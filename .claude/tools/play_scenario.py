@@ -79,6 +79,10 @@ def main():
                            encoding="utf-8", errors="replace", timeout=2700)
         return r.returncode == 0, (r.stdout + r.stderr).strip().splitlines()[-1:] or [""]
 
+    # run_capped may queue the editor for the GPU slot longer than DesertCtl's --wait: wait for the socket itself
+    while not os.path.exists(sock) and proc.poll() is None:
+        time.sleep(1)
+
     steps = frames = thens = 0
     fail = ""
     index = []
