@@ -144,6 +144,10 @@ namespace Desert::Assets
         // A SUBSURFACE PROFILE (`.dsssprofile`): UE USubsurfaceProfile - the Burley parameters a material of the
         // SubsurfaceProfile shading model names. See Engine/Assets/SubsurfaceProfileAsset.hpp.
         SubsurfaceProfile,
+        // A VFX MODULE (`.dfxmod`): UE's UNiagaraScript of Usage Module - one stack module (its inputs, the
+        // attributes it touches, its GLSL, the stages it may run in) that a system's stack names by GUID. See
+        // Engine/Assets/VFXModuleAsset.hpp.
+        VFXModule,
 
         // NOT an asset type: the number of them. Every new type is added ABOVE this line, and adding one
         // turns the AssetHandleStability census red until the type is entered in that suite's catalogue.
@@ -270,6 +274,10 @@ namespace Desert::Assets
             case AssetTypeID::WeatherPreset:
             // A SUBSURFACE PROFILE is held by the renderer's registry for as long as a material names it.
             case AssetTypeID::SubsurfaceProfile:
+            // A VFX MODULE IS SCENE-SCOPED for the shader graph's reason: no component holds its handle, the stack
+            // compiler reads the file through the registry row of its GUID (VFX::RegistryModuleResolver), and a
+            // module asset object exists only while an editor document holds one.
+            case AssetTypeID::VFXModule:
             case AssetTypeID::Count:
                 return false;
         }
@@ -362,6 +370,8 @@ namespace Desert::Assets
                 return "VFXEffectType";
             case AssetTypeID::SubsurfaceProfile:
                 return "SubsurfaceProfile";
+            case AssetTypeID::VFXModule:
+                return "VFXModule";
             case AssetTypeID::Count:
                 return "Count";
         }

@@ -110,6 +110,7 @@ namespace Desert::Editor
         Common::BoolResultStr CreateNewVFXDataChannel();
         // A copy of an engine VFX system template (NewAssetMenu::VFXSystemTemplates) in the current folder.
         Common::BoolResultStr CreateVFXSystemFromTemplate( const std::filesystem::path& templateFile );
+        Common::BoolResultStr CreateNewVFXModule();
 
         void ChangeDirectory( DirectoryInformation* directory );
         // Hand the pictures of m_CurrentDir's tiles to ThumbnailPrefetch so a worker decodes them before

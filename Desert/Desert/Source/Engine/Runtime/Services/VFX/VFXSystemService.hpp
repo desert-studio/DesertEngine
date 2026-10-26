@@ -46,10 +46,16 @@ namespace Desert::Runtime
     private:
         void Request( const Assets::AssetHandle& handle );
         void Adopt( const Assets::AssetHandle& handle, const Assets::Asset<Assets::VFXSystemAsset>& asset );
+        /// A `.dfxmod` written since the last look (the module document's save, a re-import): every ready system
+        /// whose header Dependencies name it is handed out as a NEW pointer, which is what makes the particle world
+        /// recompile the emitter (ParticleWorldGpu compares the pointer). One serial compare while nothing was
+        /// written.
+        void ReissueOnModuleWrites();
 
         std::weak_ptr<Assets::AssetManager>                          m_Assets;
         std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
         std::unordered_map<Assets::AssetHandle, System>              m_Ready;
         std::unordered_map<Assets::AssetHandle, std::string>         m_Failed;
+        uint64_t                                                     m_ModuleSerial = 0;
     };
 } // namespace Desert::Runtime

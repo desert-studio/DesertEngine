@@ -91,6 +91,7 @@ namespace Desert::Editor
                            ICON_MDI_GRASS },
              FileTypeInfo{
                   FileType::StateTree, "State Tree", { 0.30f, 0.65f, 0.95f, 1.00f }, ICON_MDI_STATE_MACHINE },
+             FileTypeInfo{ FileType::VFXModule, "VFX Module", { 0.95f, 0.55f, 0.20f, 1.00f }, ICON_MDI_PUZZLE },
         };
 
         constexpr bool RowsAreInEnumOrder()

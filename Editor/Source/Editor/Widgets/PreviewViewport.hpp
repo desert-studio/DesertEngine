@@ -331,8 +331,9 @@ namespace Desert::Editor
         void SetVolumeMaterial( const Assets::AssetHandle& material );
 
         // A `.dfx` system played by one VFXComponent in the preview scene, on the floor, realtime (an effect moves
-        // every frame, so the change-gated render would freeze it), framed by the system's fixed Bounds (local
-        // space, cm; UE: the Niagara editor viewport frames the system's fixed bounds). Zero clears like Clear().
+        // every frame, so the change-gated render would freeze it), framed by @p bounds - the union of its
+        // emitters' fixed Bounds (Serialization::VFXSystemExtent; placement frame, cm; UE: the Niagara editor
+        // viewport frames the system's fixed bounds). Zero clears like Clear().
         void SetVFXSystem( const Assets::AssetHandle& system, const Assets::Serialization::VFXBounds& bounds );
         // UE Reset Simulation: every emitter of the previewed system starts over (VFXComponent::RequestRestart)
         // and the preview's effects clock goes back to zero, so a desired age (SetVFXDesiredAge) is replayed from

@@ -97,6 +97,9 @@ namespace Desert::Editor
         /// creation route of the context menu and the palette's "Assets / New VFX System from Template: <name>".
         Common::BoolResultStr CreateVFXSystemFromTemplate( const DirectoryInformation*  folder,
                                                            const std::filesystem::path& templateFile );
+        // UE's new Niagara module script: one Float input, a Module() that does nothing yet, Stage ParticleUpdate,
+        // under a fresh GUID.
+        Common::BoolResultStr CreateNewVFXModule( const DirectoryInformation* folder );
         /// One cloud asset in @p folder under a unique name, its document opened; the two volume formats are
         /// generated on a worker (see m_Bake).
         void CreateNewCloudAsset( const DirectoryInformation& folder, CloudAssetKind kind );
