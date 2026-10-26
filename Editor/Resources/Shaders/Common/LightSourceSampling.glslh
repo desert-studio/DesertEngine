@@ -25,4 +25,13 @@ vec3 SampleLightSourceSphere(vec3 axis, float distance, float radius, vec2 u, ou
 	return normalize(t * (cos(phi) * sinT) + b * (sin(phi) * sinT) + axis * cosT);
 }
 
+// The reach of ONE unjittered shadow ray from a receiver at @p distance cm of the sphere's centre, aimed at the
+// centre: where it meets the sphere of @p radius cm (SampleLightSourceSphere's reach on its axis). The single-ray
+// shadows of a local light - the surface cache's card lighting and the GI hit lighting - stop there, as every
+// sampled ray above does, so a caster inside the emitter (the bulb of its lamp fixture) never shadows the light.
+float LightSourceSphereAxisReach(float distance, float radius)
+{
+	return max(distance - max(radius, 0.0), 0.0);
+}
+
 #endif // DESERT_LIGHT_SOURCE_SAMPLING_GLSLH

@@ -9,7 +9,7 @@
 //                ray generation lights the payload (UE's hit lighting does the same), so one hit group serves
 //                every ray tracing pass;
 //                A Translucent template also writes the payload's Transmission and Ior (the path tracer's
-//                dielectric; its primitives carry RayTracingScene.hpp kMaskTranslucent alone);
+//                dielectric; its primitives carry RayTracingScene.hpp kMaskTranslucent, no opaque bit);
 //   any hit      Masked templates only (DESERT_SURFACE_RAY_ANY_HIT): the template's OpacityMask against its clip
 //                value, ignoreIntersectionEXT below it - the same test the masked cells' DESERT_SURFACE_CLIP makes.
 //

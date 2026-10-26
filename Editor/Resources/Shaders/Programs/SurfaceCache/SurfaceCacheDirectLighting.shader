@@ -164,6 +164,7 @@ Shader "SurfaceCacheDirectLighting"
         // The active GI tracer's reads (GlobalIllumination::DeclareTracerReads), bindings 29..39.
         #define GI_TRACER_BINDING 29
         #include <Common/GITracer.glslh>
+        #include <Common/LightSourceSampling.glslh> // LightSourceSphereAxisReach: a traced local shadow ends on the emitter
 
         PushConstant SurfaceDirectLightingPush
         {
@@ -220,9 +221,10 @@ Shader "SurfaceCacheDirectLighting"
         }
 
         // A point/spot light's shadow at the texel: its local shadow view when it has one, the distance field when
-        // it casts but the view budget gave it none.
-        float LocalLightShadowOrTrace(int shadowView, int shadowCaster, float viewShadow, vec3 lightPos, vec3 worldPos,
-                                      vec3 N)
+        // it casts but the view budget gave it none - a ray that ends on the light's emitter sphere of @p sourceRadius
+        // (the shadow view's near plane does the same, Graphic::LocalShadowNear).
+        float LocalLightShadowOrTrace(int shadowView, int shadowCaster, float viewShadow, vec3 lightPos,
+                                      float sourceRadius, vec3 worldPos, vec3 N)
         {
             if (shadowView >= 0)
                 return viewShadow;
@@ -230,7 +232,8 @@ Shader "SurfaceCacheDirectLighting"
                 return 1.0;
             const vec3  toLight = lightPos - worldPos;
             const float dist    = length(toLight);
-            return dist > 0.0 ? TracedShadow(worldPos, N, toLight / dist, dist) : 1.0;
+            return dist > 0.0 ? TracedShadow(worldPos, N, toLight / dist, LightSourceSphereAxisReach(dist, sourceRadius))
+                              : 1.0;
         }
 
         layout(location = 0) in flat uint v_CardIndex;
@@ -303,14 +306,14 @@ Shader "SurfaceCacheDirectLighting"
                         light.Shadow = LocalLightShadowOrTrace(
                             source.shadowView, source.shadowCaster,
                             source.shadowView >= 0 ? PointLightShadow(source, worldPos, N) : 1.0, source.position,
-                            worldPos, N);
+                            source.sourceRadius, worldPos, N);
                     irradiance += light.Radiance * light.Shadow * max(dot(N, light.L), 0.0);
                     if (through && dot(N, light.L) < 0.0)
                         back += light.Radiance * -dot(N, light.L) *
                                 LocalLightShadowOrTrace(
                                      source.shadowView, source.shadowCaster,
                                      source.shadowView >= 0 ? PointLightShadow(source, worldPos, -N) : 1.0,
-                                     source.position, worldPos, -N);
+                                     source.position, source.sourceRadius, worldPos, -N);
                 }
                 else
                 {
@@ -320,14 +323,14 @@ Shader "SurfaceCacheDirectLighting"
                         light.Shadow = LocalLightShadowOrTrace(
                             source.shadowView, source.shadowCaster,
                             source.shadowView >= 0 ? SpotLightShadow(source, worldPos, N) : 1.0, source.position,
-                            worldPos, N);
+                            source.sourceRadius, worldPos, N);
                     irradiance += light.Radiance * light.Shadow * max(dot(N, light.L), 0.0);
                     if (through && dot(N, light.L) < 0.0)
                         back += light.Radiance * -dot(N, light.L) *
                                 LocalLightShadowOrTrace(
                                      source.shadowView, source.shadowCaster,
                                      source.shadowView >= 0 ? SpotLightShadow(source, worldPos, -N) : 1.0,
-                                     source.position, worldPos, -N);
+                                     source.position, source.sourceRadius, worldPos, -N);
                 }
             }
 
