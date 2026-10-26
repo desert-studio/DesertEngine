@@ -302,6 +302,11 @@ namespace Desert::Editor
                     LOG_ERROR( "[Shot] the final frame was not captured to '{}'", shot.Output );
                     m_ShotFailed = true;
                 }
+                if ( !shot.HdrOutput.empty() && !m_Capture.WriteSceneColorPfm( shot.HdrOutput ) )
+                {
+                    LOG_ERROR( "[Shot] the final frame's HDR scene colour was not written to '{}'", shot.HdrOutput );
+                    m_ShotFailed = true;
+                }
                 return true;
             }
         }

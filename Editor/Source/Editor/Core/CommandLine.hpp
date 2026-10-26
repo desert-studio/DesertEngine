@@ -84,6 +84,7 @@ namespace Desert::Editor
          { "--engine-dir", true, "/opt/Desert/Editor" },
          { "--scene", true, "Scene.desce" },
          { "--shot", true, "out.png" },
+         { "--shot-hdr", true, "out.pfm", "--shot out.png" },
          { "--shot-frames", true, "90" },
          { "--camera", true, "0,200,0" },
          { "--look", true, "0,0.9,-1" },
@@ -351,6 +352,8 @@ namespace Desert::Editor
                 options.Shot.Scene = value;
             else if ( arg == "--shot" )
                 options.Shot.Output = value;
+            else if ( arg == "--shot-hdr" )
+                options.Shot.HdrOutput = value;
             else if ( arg == "--shot-sequence" )
                 options.Shot.Sequence = value;
             else if ( arg == "--control-socket" )
@@ -544,6 +547,9 @@ namespace Desert::Editor
         // no file is numbers nobody keeps, no Play is a frozen world in which nothing streams, and a
         // --camera beside a route would be silently overridden by it.
         const ShotOptions& shot    = options.Shot;
+        // The HDR dump is the --shot frame's: without --shot there is no final frame to take it of.
+        if ( !shot.HdrOutput.empty() && shot.Output.empty() )
+            return Common::MakeError<CommandLineOptions>( "--shot-hdr needs --shot: it is the same final frame" );
         const bool         flying  = shot.FlightRoute.has_value();
         const bool         partial = shot.FlightSpeed > 0.0 || !shot.FlightCsv.empty();
         if ( !flying && partial )

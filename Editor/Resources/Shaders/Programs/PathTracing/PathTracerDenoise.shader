@@ -96,8 +96,40 @@ Shader "PathTracerDenoise"
                     m /= max(weight, 1.0e-6);
                     pathVariance = max(m.y - m.x * m.x, 0.0);
                 }
+                // FIREFLY SUPPRESSION (NRD ReLAX, the firefly suppressor ahead of its a-trous): below
+                // kPathTracingDenoiseSpreadPaths each channel of the filter's input is kept within the brightest of
+                // the pixel's 3 x 3 neighbours on its surface, excluding itself - a lone spike no neighbour reaches
+                // is a firefly, not a lighting feature (a feature spans pixels). Per channel, so a one-channel spike
+                // (a specular path over a small albedo channel) is cut and does not spread as a coloured speckle.
+                // The pixel's own raw mean (Demodulated) stays unclamped: the last iteration's change is measured
+                // from it, so the suppressed energy leaves the pixel. The variance keeps the unclamped moments.
+                vec3 illumination = moments.rgb;
+                if (paths < kPathTracingDenoiseSpreadPaths)
+                {
+                    const vec3 n          = normal.xyz / max(length(normal.xyz), 1.0e-6);
+                    vec3       brightest  = vec3(0.0);
+                    bool       neighbours = false;
+                    for (int y = -1; y <= 1; ++y)
+                        for (int x = -1; x <= 1; ++x)
+                        {
+                            const ivec2 q = pixel + ivec2(x, y);
+                            if ((x == 0 && y == 0) || q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y)
+                                continue;
+                            const float qPaths = imageLoad(GuideAlbedoTexture, q).a;
+                            if (qPaths < 0.5)
+                                continue;
+                            const vec4 qNormal = imageLoad(GuideNormalTexture, q) / qPaths;
+                            const vec3 qn      = qNormal.xyz / max(length(qNormal.xyz), 1.0e-6);
+                            if (dot(n, qn) <= 0.0 || abs(qNormal.w - normal.w) > kSpatialDepthShare * normal.w)
+                                continue;
+                            brightest  = max(brightest, imageLoad(DemodulatedTexture, q).rgb / qPaths);
+                            neighbours = true;
+                        }
+                    if (neighbours)
+                        illumination = min(illumination, brightest);
+                }
                 // The variance of the pixel's MEAN illumination: the unit the filter compares in.
-                imageStore(IlluminationTexture, pixel, vec4(moments.rgb, pathVariance / paths));
+                imageStore(IlluminationTexture, pixel, vec4(illumination, pathVariance / paths));
             }
         }
     }
@@ -133,13 +165,13 @@ Shader "PathTracerDenoise"
             // The depth tolerance that remains on a plane facing the camera (zero depth gradient), as a share of
             // the camera distance: float noise in the averaged guide, not a surface boundary.
             const float kDepthFloorShare = 1.0e-3;
-            // Below this many surface paths a pixel's illumination is a few heavy-tailed samples: its luminance tells
-            // a firefly from a dark path, not a lighting edge from a flat one, so the luminance weight would keep
-            // every firefly and leave every dark pixel dark (a noisy image the tonemap then darkens). The first two
-            // iterations (taps 1 and 2 px apart, a 13 x 13 footprint) then weigh by normal and depth only, spreading
-            // each firefly's energy over its own surface (the weights are normalised: nothing is dropped); the later
-            // iterations edge-stop on the luminance of the variance those two left.
-            const float kSpreadPaths = 16.0;
+            // Below kPathTracingDenoiseSpreadPaths surface paths the luminance weight would keep every firefly and
+            // leave every dark pixel dark (a noisy image the tonemap then darkens). The first two iterations (taps
+            // 1 and 2 px apart, a 13 x 13 footprint) then weigh by normal and depth only, spreading each remaining
+            // spike's energy over its own surface (the weights are normalised: nothing is dropped); the later
+            // iterations edge-stop on the colour distance over the variance those two left.
+            // SVGF 4.2: below four paths the pixel's own moments say nothing (the variance pass's spatial case).
+            const float kTemporalMomentPaths = 4.0;
             const float kKernel[3] = float[3](3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0);
 
             struct DenoiseSurface
@@ -195,7 +227,11 @@ Shader "PathTracerDenoise"
                     const float lumWidth   = kLuminanceSigma * sqrt(max(variance, 0.0)) + 1.0e-10;
                     const float depthSlope = DepthGradient(pixel, surface.Depth);
                     const int   spacing    = int(Filter.x);
-                    const bool  spread     = imageLoad(GuideAlbedoTexture, pixel).a < kSpreadPaths && spacing <= 2;
+                    const bool  spread     = imageLoad(GuideAlbedoTexture, pixel).a < kPathTracingDenoiseSpreadPaths &&
+                                        spacing <= 2;
+                    // The luminance width relative to the centre's luminance: each channel is compared over this
+                    // share of its own value (PathTracingDenoiseChannelDistance).
+                    const float relativeWidth = lumWidth / max(luminance, 1.0e-10);
                     vec3        filtered   = vec3(0.0);
                     float       filteredVariance = 0.0;
                     float       weightSum        = 0.0;
@@ -216,7 +252,8 @@ Shader "PathTracerDenoise"
                                                       kDepthFloorShare * surface.Depth));
                                 const float wl =
                                      spread ? 1.0
-                                            : exp(-abs(PathTracingDenoiseLuminance(tap.rgb) - luminance) / lumWidth);
+                                            : exp(-PathTracingDenoiseChannelDistance(centre.rgb, tap.rgb,
+                                                                                      relativeWidth));
                                 w *= wn * wz * wl;
                             }
                             filtered += w * tap.rgb;
@@ -236,8 +273,36 @@ Shader "PathTracerDenoise"
                     vec3        image  = sum.rgb / count;
                     if (albedo.a > 0.5)
                     {
-                        const vec3 meanIllumination = imageLoad(DemodulatedTexture, pixel).rgb / albedo.a;
-                        image += albedo.rgb / count * (result.rgb - meanIllumination);
+                        const vec4 moments          = imageLoad(DemodulatedTexture, pixel) / albedo.a;
+                        const vec3 meanIllumination = moments.rgb;
+                        vec3       change           = result.rgb - meanIllumination;
+                        // THE FILTER FADES OUT AS THE ESTIMATE CONVERGES: from kTemporalMomentPaths surface paths on
+                        // (where the pixel's own moments measure its noise) the change is kept within
+                        // kLuminanceSigma standard deviations of the pixel's mean - the width the edge-stop already
+                        // calls noise - per channel in proportion to the mean's colour. The variance of the mean
+                        // is the 3 x 3 Gaussian average of the pixel's and its neighbours' own (SVGF 4.3's
+                        // prefilter), so a dark pixel among fireflies is not held dark by its own few dark paths.
+                        // As the paths sum the deviation falls as 1 / sqrt(paths) and the image becomes the
+                        // tracer's own: the converged frame is not blurred.
+                        if (albedo.a >= kTemporalMomentPaths)
+                        {
+                            float meanVariance = 0.0;
+                            for (int y = -1; y <= 1; ++y)
+                                for (int x = -1; x <= 1; ++x)
+                                {
+                                    const ivec2 q      = clamp(pixel + ivec2(x, y), ivec2(0), size - 1);
+                                    const float qPaths = max(imageLoad(GuideAlbedoTexture, q).a, 1.0);
+                                    const vec4  qm     = imageLoad(DemodulatedTexture, q) / qPaths;
+                                    const float qMean  = PathTracingDenoiseLuminance(qm.rgb);
+                                    meanVariance += float((2 - abs(x)) * (2 - abs(y))) / 16.0 *
+                                                    max(qm.a - qMean * qMean, 0.0) / qPaths;
+                                }
+                            const float meanLuminance = PathTracingDenoiseLuminance(meanIllumination);
+                            const vec3  limit         = kLuminanceSigma * sqrt(meanVariance) *
+                                               meanIllumination / max(meanLuminance, 1.0e-10);
+                            change = clamp(change, -limit, limit);
+                        }
+                        image += albedo.rgb / count * change;
                     }
                     // A sub-pixel albedo change (a decal edge inside the pixel) makes mean(D) * mean(I) differ from
                     // mean(D * I): the change is then not exactly the pixel's R, and is kept from going below 0.

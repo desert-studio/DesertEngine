@@ -125,6 +125,9 @@ namespace Desert::Editor
 
         std::string Scene;  // --scene <path.desce>, overrides the project's default scene
         std::string Output; // --shot <out.png>; empty = no single final frame
+        // --shot-hdr <out.pfm>: beside --shot, the same final frame's HDR scene colour before the tonemap
+        // (ViewportCapture::WriteSceneColorPfm); empty = none.
+        std::string HdrOutput;
         int         Frames = 90;
 
         // HasCamera: the flags PLACE the camera (--camera, --camera-to, --look-to, --flight). Without it the
