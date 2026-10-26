@@ -205,6 +205,14 @@ namespace Desert::Graphic::API::Vulkan
                                           .pCommandBuffers      = &commandBuffer,
                                           .signalSemaphoreCount = 0,
                                           .pSignalSemaphores    = nullptr };
+        // ORDERING ACROSS QUEUES. An image's first upload is submitted to the graphics queue and not waited
+        // for (RT_SubmitGraphicThenRelease); a later submit to the SAME queue is ordered after it by
+        // submission order, but a one-off on the compute or transfer queue is not, and may read the image
+        // before its copy lands. UE orders such a reader behind the upload's sync point; the one-off path
+        // here waits on the host anyway, so it waits the uploads still in flight first. Same VkQueue (one
+        // family, as on MoltenVK): submission order already covers it.
+        if ( queue != m_GraphicsQueue )
+            WaitInFlightUploads();
         if ( const VkResult submitted = m_Device->SubmitToQueue( queue, 1, &submitInfo, fence );
              submitted != VK_SUCCESS )
             return refuse( std::format( "vkQueueSubmit failed: {}", VkResultToString( submitted ) ), fence );
@@ -355,6 +363,20 @@ namespace Desert::Graphic::API::Vulkan
                 done.AfterGpu();
         }
         return finished.size();
+    }
+
+    void CommandBufferAllocator::WaitInFlightUploads()
+    {
+        // Waited UNDER the lock: CollectFinished destroys a fence once it has taken it out of m_InFlight,
+        // so a copied handle could be destroyed mid-wait. The fences stay owned by m_InFlight.
+        const std::scoped_lock inFlight( m_InFlightMutex );
+        std::vector<VkFence>   fences;
+        fences.reserve( m_InFlight.size() );
+        for ( const InFlight& upload : m_InFlight )
+            fences.push_back( upload.Upload.Fence );
+        if ( !fences.empty() )
+            VK_CHECK_RESULT( vkWaitForFences( m_LogicalDevice, static_cast<uint32_t>( fences.size() ),
+                                              fences.data(), VK_TRUE, UINT64_MAX ) );
     }
 
     void CommandBufferAllocator::WaitAndReleaseInFlight()

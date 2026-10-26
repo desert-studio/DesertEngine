@@ -130,6 +130,8 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<InFlight> m_InFlight;
         /// Waits for every in-flight submission and releases it (teardown only).
         void WaitAndReleaseInFlight();
+        /// Host-waits every in-flight graphics upload: a one-off on another queue is not ordered behind them.
+        void WaitInFlightUploads();
 
         /// The pools, keyed by (thread, queue family). Pools are never destroyed before Destroy(), so a
         /// OneShotPool* in m_OneShotPools or in a Submitted stays valid for the allocator's whole life.

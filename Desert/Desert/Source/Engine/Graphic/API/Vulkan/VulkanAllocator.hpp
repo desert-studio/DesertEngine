@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_map>
+
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
@@ -229,5 +231,8 @@ namespace Desert::Graphic::API::Vulkan
 
         AllocationLedger m_Ledger;
         std::chrono::steady_clock::time_point m_LastCensus{};
+        // The previous census's bytes per tag: the census names the tags that GREW since it, because a
+        // steady growth spread over tags below the largest six is otherwise invisible.
+        std::unordered_map<std::string, std::size_t> m_LastCensusBytes;
     };
 } // namespace Desert::Graphic::API::Vulkan
