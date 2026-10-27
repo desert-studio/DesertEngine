@@ -16,6 +16,12 @@ namespace Desert::Geometry
         // as a share of the radius (UE scales by Radius * Power * BrushSpeedTuning * DeltaTime; with stamps
         // laid by spacing rather than by time, the time factor folds into this constant).
         constexpr double kStandardSpeed = 0.1;
+        // UE FFlattenBrushOp / FPinchBrushOp move a share of the gap per stamp (to the plane, to the stroke
+        // line) rather than a share of the radius: at full power and full falloff, this share.
+        constexpr double kGapRate = 0.25;
+        // Pinch's sink along the brush normal, as a share of the Standard step (UE's pinch digs the crease it
+        // draws together; without it the surface only bunches up sideways).
+        constexpr double kPinchDepth = 0.25;
 
         glm::dvec3 Transform( const glm::dmat4& m, const glm::dvec3& p )
         {
@@ -69,6 +75,12 @@ namespace Desert::Geometry
                 return "Smooth";
             case SculptBrushType::Move:
                 return "Move";
+            case SculptBrushType::Inflate:
+                return "Inflate";
+            case SculptBrushType::Flatten:
+                return "Flatten";
+            case SculptBrushType::Pinch:
+                return "Pinch";
         }
         return "?";
     }
@@ -130,22 +142,31 @@ namespace Desert::Geometry
         // Positions are computed from the mesh as the stamp found it and written afterwards, so a vertex's
         // move never feeds a neighbour's centroid within the same stamp (UE writes NewPositions the same way).
         std::vector<glm::dvec3> next( roi.size() );
+        const double            sign          = settings.Invert ? -1.0 : 1.0;
+        const glm::dmat3        normalToWorld = glm::transpose( toLocal );
+        // A vertex's world normal (the mesh's own, through the inverse-transpose), zero where it has none.
+        const auto worldNormal = [&]( int v )
+        {
+            const glm::dvec3 n   = normalToWorld * MeshNormals::ComputeVertexNormal( mesh, v );
+            const double     len = glm::length( n );
+            return len > 1e-12 ? n / len : glm::dvec3( 0.0 );
+        };
+        // The region's normal: the falloff-weighted mean of the ROI's vertex normals (UE's sculpt tool averages
+        // the ROI normals; a single facet would tilt every stamp on a low-poly surface).
+        const auto regionNormal = [&]
+        {
+            glm::dvec3 n( 0.0 );
+            for ( const Roi& r : roi )
+                n += r.Weight * worldNormal( r.Vertex );
+            const double len = glm::length( n );
+            return len > 1e-12 ? n / len : stamp.Normal;
+        };
         switch ( settings.Brush )
         {
             case SculptBrushType::Standard:
             {
-                const double sign  = settings.Invert ? -1.0 : 1.0;
-                const double speed = sign * radius * power * kStandardSpeed;
-                // The brush normal is the region's, not the one triangle's under the cursor (UE's sculpt tool
-                // averages the ROI normals): a single facet would tilt every stamp on a low-poly surface.
-                const glm::dmat3 normalToWorld = glm::transpose( toLocal );
-                glm::dvec3       brushNormal( 0.0 );
-                for ( const Roi& r : roi )
-                    brushNormal +=
-                         r.Weight * ( normalToWorld * MeshNormals::ComputeVertexNormal( mesh, r.Vertex ) );
-                const double len           = glm::length( brushNormal );
-                brushNormal                = len > 1e-12 ? brushNormal / len : stamp.Normal;
-                const glm::dvec3 moveLocal = toLocal * ( brushNormal * speed );
+                const double     speed     = sign * radius * power * kStandardSpeed;
+                const glm::dvec3 moveLocal = toLocal * ( regionNormal() * speed );
                 for ( size_t i = 0; i < roi.size(); ++i )
                     next[i] = mesh.GetVertex( roi[i].Vertex ) + roi[i].Weight * moveLocal;
                 break;
@@ -176,6 +197,60 @@ namespace Desert::Geometry
                     }
                     centroid /= static_cast<double>( count );
                     next[i] = glm::mix( orig, centroid, std::clamp( roi[i].Weight * power, 0.0, 1.0 ) );
+                }
+                break;
+            }
+            case SculptBrushType::Inflate:
+            {
+                // UE FInflateBrushOp: NewPos = OrigPos + Falloff * Speed * VertexNormal - each vertex along its
+                // own normal, so the region swells outward instead of rising as one slab.
+                const double speed = sign * radius * power * kStandardSpeed;
+                for ( size_t i = 0; i < roi.size(); ++i )
+                    next[i] = mesh.GetVertex( roi[i].Vertex ) +
+                              toLocal * ( ( roi[i].Weight * speed ) * worldNormal( roi[i].Vertex ) );
+                break;
+            }
+            case SculptBrushType::Flatten:
+            {
+                // UE FFlattenBrushOp: the stamp's region plane runs through the falloff-weighted ROI centroid,
+                // across the region normal; each vertex closes a share of its gap to it.
+                glm::dvec3 planePoint( 0.0 );
+                double     weightSum = 0.0;
+                for ( const Roi& r : roi )
+                {
+                    planePoint += r.Weight * r.World;
+                    weightSum += r.Weight;
+                }
+                planePoint /= weightSum;
+                const glm::dvec3 planeNormal = regionNormal();
+                for ( size_t i = 0; i < roi.size(); ++i )
+                {
+                    const double     t     = std::clamp( roi[i].Weight * power * kGapRate, 0.0, 1.0 );
+                    const glm::dvec3 toPln = -glm::dot( roi[i].World - planePoint, planeNormal ) * planeNormal;
+                    next[i]                = mesh.GetVertex( roi[i].Vertex ) + toLocal * ( t * toPln );
+                }
+                break;
+            }
+            case SculptBrushType::Pinch:
+            {
+                // UE FPinchBrushOp: each vertex pulled toward the brush across the surface (the pull's part along
+                // the brush normal removed) and, once the stroke has a direction, only across it - the surface
+                // gathers onto the stroke line - plus a sink along the brush normal that digs the crease.
+                const glm::dvec3 brushNormal = regionNormal();
+                glm::dvec3       strokeDir   = stamp.Center - stamp.PrevCenter;
+                strokeDir -= glm::dot( strokeDir, brushNormal ) * brushNormal;
+                const double strokeLen = glm::length( strokeDir );
+                strokeDir              = strokeLen > 1e-9 ? strokeDir / strokeLen : glm::dvec3( 0.0 );
+                const double depth     = -sign * radius * power * kStandardSpeed * kPinchDepth;
+                for ( size_t i = 0; i < roi.size(); ++i )
+                {
+                    glm::dvec3 pull = stamp.Center - roi[i].World;
+                    pull -= glm::dot( pull, brushNormal ) * brushNormal;
+                    pull -= glm::dot( pull, strokeDir ) * strokeDir;
+                    const double     w     = roi[i].Weight;
+                    const double     t     = std::clamp( w * power * kGapRate, 0.0, 1.0 );
+                    const glm::dvec3 world = sign * t * pull + ( w * depth ) * brushNormal;
+                    next[i]                = mesh.GetVertex( roi[i].Vertex ) + toLocal * world;
                 }
                 break;
             }

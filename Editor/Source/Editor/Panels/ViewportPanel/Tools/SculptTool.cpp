@@ -222,10 +222,13 @@ namespace Desert::Editor::Tools
                 // Dynamic Sculpt remeshes each stamp's region first (UE UDynamicMeshSculptTool).
                 const auto&                     ms       = Core::ModelingState::Get();
                 const Geometry::RemeshSettings* topology = ms.SculptDynamic ? &ms.DynamicSculptTopology : nullptr;
+                glm::dvec3                      prev     = m_LastStamp.value_or( centres.front() );
                 for ( const glm::dvec3& c : centres )
                 {
                     Geometry::SurfaceSculptStamp stamp = hit;
                     stamp.Center                = c;
+                    stamp.PrevCenter                   = prev; // Pinch lays its crease along the stroke
+                    prev                               = c;
                     Geometry::ApplySculptStamp( *next, target->World, stamp, brush, topology );
                 }
                 auto& component = target->Entity.GetComponent<ECS::StaticMeshComponent>();
