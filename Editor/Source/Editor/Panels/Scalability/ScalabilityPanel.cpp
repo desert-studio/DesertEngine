@@ -5,6 +5,7 @@
 #include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/DisplayOutput.hpp>
+#include <Editor/Panels/Scalability/DisplayOutputPaletteCommands.hpp>
 #include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
 
@@ -428,10 +429,7 @@ namespace Desert::Editor
             changed |= ImGui::DragFloat( "Peak Override (nits, 0 = OS)", &machine.Display.PeakNits, 10.0f, 0.0f,
                                          10000.0f, "%.0f" );
             if ( changed )
-            {
-                (void)Common::Settings::MachineSettings::Save();
-                EngineContext::GetInstance().GetWindow()->SetDisplay( machine.Display );
-            }
+                (void)ApplyMachineDisplay();
             const Graphic::DisplayOutputState& state = Graphic::CurrentDisplayOutput();
             ImGui::TextDisabled( "Presenting %s; paper white %.0f nits, peak %.0f nits, headroom %.2f",
                                  std::string( SC::DisplayOutputName( state.Output ) ).c_str(), state.PaperWhiteNits,

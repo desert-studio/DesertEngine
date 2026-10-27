@@ -1,8 +1,9 @@
-# HDR-OUTPUT p1: Mac EDR output (scRGB linear) as UE r.HDR.*; Display.Output in machine.json (Scalability panel -> Display).
-# The output is read from machine.json at boot (QualityBoot -> Window::SetDisplay); the panel's combo rebuilds the swapchain live.
-Дано: BistroFoliageProj, B16_Bistro_Street_v70.desce, camera -20,170,330 look -126,-93,-154, daytime, Lit; machine.json Display.Output = SDR_sRGB.
-Когда: shot-window after the scene settles.
+# HDR-OUTPUT: Mac EDR output (scRGB linear) as UE r.HDR.*; Display.Output in machine.json (Scalability panel -> Display, palette group "Display").
+# Logs to read in editor.log: "[Display] output ...", "[Display] OS: ... EDR headroom ...", "[Display] capture of the scRGB swapchain ...".
+Проект BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street_v70.desce --camera -20,170,330 --look -126,-93,-154
+Дано run Display "Display: Output SDR_sRGB"
 Тогда 1_sdr кадр как до задачи (SDR-захват не изменился); editor.log "[Display] output SDR (sRGB): format BGRA8_UNORM colour space SRGB_NONLINEAR"
-Дано: the same view; machine.json Display.Output = scRGB_Linear (or Scalability -> Display -> Display Output "scRGB linear (EDR)").
-Когда: shot-window after the scene settles.
-Тогда 2_edr editor.log "[Display] output scRGB linear (EDR): format RGBA16F colour space EXTENDED_SRGB_LINEAR", "[Display] OS: NSScreen ... EDR headroom > 1", paper white / peak in nits; "[Display] capture of the scRGB swapchain: peak > 1.000 x paper white" (the sun stone); the PNG (SDR rendition) matches 1_sdr outside the lifted highlights; UI at paper white
+Когда run Display "Display: Output scRGB_Linear"
+Тогда 2_edr editor.log output scRGB linear (EDR): RGBA16F + EXTENDED_SRGB_LINEAR, OS EDR headroom > 1, paper white / peak in nits; capture peak > 1.0 x paper white (sun stone); PNG (SDR rendition) matches 1_sdr; UI at paper white
+Когда run Display "Display: Output SDR_sRGB"
+Тогда 3_sdr_back SDR again, same as 1_sdr (machine.json left at SDR)

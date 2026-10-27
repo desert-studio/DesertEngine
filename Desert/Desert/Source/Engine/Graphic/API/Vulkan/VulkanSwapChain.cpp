@@ -345,13 +345,19 @@ namespace Desert::Graphic::API::Vulkan
                 const auto resolved = Common::Scalability::ResolveDisplayOutput( m_Display, catalog );
                 const auto os       = Graphic::QueryDisplayLuminance( const_cast<GLFWwindow*>( m_Window ) );
                 if ( !resolved.Error.empty() )
+                {
                     LOG_ERROR( "[Display] {} — presenting SDR", resolved.Error );
+                }
                 else if ( !os )
+                {
                     LOG_ERROR( "[Display] {} — presenting SDR", os.GetError() );
+                }
                 else if ( const auto hdr = Graphic::ResolveDisplayOutputState( resolved.Output, m_Display,
                                                                               os.GetValue() );
                           !hdr )
+                {
                     LOG_ERROR( "[Display] {} — presenting SDR", hdr.GetError() );
+                }
                 else
                 {
                     state = hdr.GetValue();
