@@ -103,6 +103,11 @@ namespace Desert::Graphic::System
             std::span<const glm::mat4>        Instances{};
             float                             BoundsPad = 0.0f;
             std::optional<Common::Math::AABB> WorldBounds{};
+            // A BINNED cell's draw (Common/GpuScene.glslh DESERT_GPU_SCENE_DRAWS): per submesh of Mesh, the base of
+            // its rows on the pass's unculled VisibleInstances list (GpuDriven::DrawCommandCache::UnculledFirstVisible
+            // at LodLevel), kInvalidIndex where it has no cached draw; Renderer::RenderMesh binds the id stream and
+            // draws each submesh from its base. Empty: a cell that reads no id stream.
+            std::vector<uint32_t> SubmeshFirstRows{};
         };
 
         // THE frame's draw list of one lit mesh node. The material (hence shader and route fill) of every draw is

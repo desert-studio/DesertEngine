@@ -82,8 +82,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                           const Mesh& mesh, const glm::mat4& transform,
                                           const MaterialExecutor& material, uint32_t instanceCount,
-                                          uint32_t firstInstance, uint64_t hiddenSubmeshMask,
-                                          uint32_t lodLevel ) override;
+                                          uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel,
+                                          std::span<const uint32_t> submeshFirstRows ) override;
         Common::BoolResultStr RenderMeshIndirect( const RDG::PassBindings& bindings,
                                                   const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                   const glm::mat4& transform, const MaterialExecutor& material,
@@ -141,9 +141,17 @@ namespace Desert::Graphic::API::Vulkan
                                                      const GraphicsPipeline&  pipeline,
                                                      const MaterialExecutor*  material );
         // Binds @p mesh's vertex buffer (binding 0), its optional streams or the shared default (binding 1, when
-        // @p pipeline's vertex input has it) and its index buffer on the current command buffer.
+        // @p pipeline's vertex input has it), the instance id stream @p visibleRows (binding 2, when the pipeline
+        // reads a_VisibleRow; refused when it does and none is given) and its index buffer on the current command
+        // buffer.
         Common::BoolResultStr BindMeshBuffers( std::string_view pass, const GraphicsPipeline& pipeline,
-                                               const Mesh& mesh );
+                                               const Mesh& mesh, VkBuffer visibleRows );
+        // The CPU-recorded binned draw's id stream: rows[i] = i, at least @p rows of them (GpuScene.glslh
+        // a_VisibleRow; the unculled VisibleInstances list is indexed by firstInstance + instance). Grown, never
+        // shrunk, released through the allocator's per-frame deletion queue like DefaultVertexStreams.
+        VkBuffer                      VisibleRowIdentity( uint32_t rows );
+        std::shared_ptr<VertexBuffer> m_VisibleRowIdentity;
+        uint32_t                      m_VisibleRowIdentityRows = 0;
         // Records one drawn submesh: its index among the drawn ones, its index in the mesh, the submesh, the
         // mesh's index buffer (null: a mesh without indices).
         using SubmeshDraw = std::function<Common::BoolResultStr(
@@ -154,7 +162,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr WalkMeshSubmeshes( const RDG::PassBindings& bindings,
                                                  const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                  const glm::mat4& transform, const MaterialExecutor& material,
-                                                 uint64_t hiddenSubmeshMask, const SubmeshDraw& draw );
+                                                 uint64_t hiddenSubmeshMask, VkBuffer visibleRows,
+                                                 const SubmeshDraw& draw );
         void DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
                                  int32_t vertexOffset, uint32_t firstInstance );
         void DrawCounted( uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,

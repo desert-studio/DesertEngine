@@ -422,7 +422,8 @@ namespace Desert::Graphic::System
                 }
                 if ( auto drawn = Renderer::RenderMesh(
                           *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
-                          draw.InstanceCount, draw.FirstInstance, draw.HiddenSubmeshMask, draw.LodLevel );
+                          draw.InstanceCount, draw.FirstInstance, draw.HiddenSubmeshMask, draw.LodLevel,
+                          draw.SubmeshFirstRows );
                      !drawn.IsSuccess() )
                     return drawn;
             }

@@ -2,6 +2,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanBindlessTextureTable.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Core/ShaderCompiler/SharedSamplerBinding.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
 
 #include <algorithm>
 #include <array>
@@ -715,6 +716,21 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         if ( streamRead )
             state.Bindings.push_back(
                  { .binding = 1, .stride = layout.GetStreamStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX } );
+
+        // Binding 2, the binned draw's instance id stream (decision 10-27, Common/GpuScene.glslh a_VisibleRow): one
+        // uint per instance, its row of the pass's VisibleInstances[], fed to every mesh layout whose stage reads
+        // it. Instance rate, so firstInstance offsets it the same way on every driver.
+        if ( consumed( GpuDriven::kVisibleRowVertexLocation ) )
+        {
+            fed.push_back( GpuDriven::kVisibleRowVertexLocation );
+            state.Bindings.push_back( { .binding   = GpuDriven::kVisibleRowVertexBinding,
+                                        .stride    = static_cast<uint32_t>( sizeof( uint32_t ) ),
+                                        .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE } );
+            state.Attributes.push_back( { .location = GpuDriven::kVisibleRowVertexLocation,
+                                          .binding  = GpuDriven::kVisibleRowVertexBinding,
+                                          .format   = VK_FORMAT_R32_UINT,
+                                          .offset   = 0 } );
+        }
 
         for ( const uint32_t location : consumedLocations )
         {
