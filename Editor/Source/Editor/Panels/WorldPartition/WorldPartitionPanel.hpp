@@ -69,11 +69,11 @@ namespace Desert::Editor
 
         /// UE's Build > Build HLODs (WP-FAR-6B, lead D1): every cell's HLOD of the world SAVED at the scene's
         /// file (scene + entity files, as WorldCook reads it), built by MakeHLODBuilders and written to
-        /// `<Scene>_HLOD/` (WorldCells::WriteBuiltHLODs); read back and checked stale-free. Refused, by name, for
-        /// a scene not opened from a file or a world the build refuses. Two phases: this call checks the world
-        /// and starts the landscape tiles' BaseColor bake (LandscapeHLODBake, over the next editor frames);
-        /// TickBuild finishes it — the HLODs are built with each landscape HLOD bound to its baked material,
-        /// written and read back. A world without landscape HLODs is built here at once.
+        /// `<Scene>_HLOD/` (WorldCells::BuiltHLODWriter, cell by cell); read back and checked stale-free. Refused,
+        /// by name, for a scene not opened from a file or a world the build refuses. Two phases: this call checks
+        /// the world and starts the landscape tiles' BaseColor bake (LandscapeHLODBake, over the next editor
+        /// frames); TickBuild finishes it — the HLODs are built with each landscape HLOD bound to its baked
+        /// material, written and read back. A world without landscape HLODs is built here at once.
         [[nodiscard]] Common::BoolResultStr BuildHLODs();
 
         /// Advances a running Build HLODs (its bake) by one editor frame; called every frame by EditorLayer,

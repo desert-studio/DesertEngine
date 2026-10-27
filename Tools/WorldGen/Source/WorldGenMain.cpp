@@ -449,10 +449,13 @@ namespace Desert::WorldGen
                 auto dirt     = LoadLayer( assets, kLayerDirt );
                 auto grass    = LoadLayer( assets, kLayerGrass );
                 auto dry      = LoadLayer( assets, kLayerDry );
-                for ( const auto* failed : { material ? nullptr : &material.GetError(),
-                                             dirt ? nullptr : &dirt.GetError(), grass ? nullptr : &grass.GetError(),
-                                             dry ? nullptr : &dry.GetError() } )
-                    if ( failed != nullptr )
+                // GetError() returns by value: each failure is copied out, not addressed as a temporary.
+                for ( const std::optional<std::string>& failed :
+                      { material ? std::nullopt : std::optional<std::string>( material.GetError() ),
+                        dirt ? std::nullopt : std::optional<std::string>( dirt.GetError() ),
+                        grass ? std::nullopt : std::optional<std::string>( grass.GetError() ),
+                        dry ? std::nullopt : std::optional<std::string>( dry.GetError() ) } )
+                    if ( failed.has_value() )
                     {
                         err << "WorldGen: " << *failed << "\n";
                         return 3;
@@ -483,6 +486,15 @@ namespace Desert::WorldGen
             ls.Name         = spec.Name;
             ls.TilesPerSide = spec.Cells;
             ls.Seed         = static_cast<uint32_t>( spec.Seed );
+            // A landscape cell is one tile: --cell-size states its edge, so the sample spacing is that edge over
+            // the tile's quads (the preset's 25500 cm = 255 quads at 1 m).
+            if ( spec.CellSizeCm % ls.QuadsPerTile != 0 )
+            {
+                err << "WorldGen: --cell-size " << spec.CellSizeCm << " is not a whole number of centimetres per "
+                    << "quad over the tile's " << ls.QuadsPerTile << " quads\n";
+                return 2;
+            }
+            ls.SpacingCm = spec.CellSizeCm / ls.QuadsPerTile;
 
             // The tiles' content keys: the scene's directory under the assets root (LandscapeTileBlobPath).
             const fs::path assetsAbs = fs::absolute( assets ).lexically_normal();

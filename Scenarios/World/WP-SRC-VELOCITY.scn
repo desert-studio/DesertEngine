@@ -1,0 +1,15 @@
+# WP-SRC-VELOCITY (167136e77): look-ahead by speed. Plane 9000002 (LookAheadTime 2 s, MaxLookAhead 500 m,
+# Scripts/World/WPFly.lua: 250 m/s along +X for 4 s, then stops); the Player's source is switched off.
+# DRAFT, NOT PLAYED YET (REMAINDER).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано set 9000001 StreamingSource.Enabled false
+Дано set 9000002 StreamingSource.Enabled true
+Дано run Panel "Open World Partition"
+Когда run Action "Play"
+Когда advance 2
+Тогда wp_vel_ahead на карте WP зона загрузки вытянута по +X (по движению); впереди ячейки загружены до подлёта, дыры перед камерой нет
+Когда advance 2
+Когда advance 2
+Когда advance 1
+Тогда wp_vel_stop самолёт стоит: зона снова круг, лишние впереди выгрузились
+Когда run Action "Stop"

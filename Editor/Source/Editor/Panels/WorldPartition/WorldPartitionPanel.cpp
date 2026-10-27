@@ -604,8 +604,10 @@ namespace Desert::Editor
                 areas.push_back( LandscapeHLODBakeTile{ area.GetValue(), *mesh.GetValue().EditMesh } );
                 return mesh;
             };
-        if ( auto probe =
-                  WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, builders.Mesh, collect );
+        if ( auto probe = WC::BuildWorldHLODs(
+                  scene.GetValue().Scene, planned, registries, builders.Mesh, collect,
+                  // The probe only gathers the landscape tiles to bake: its files are dropped.
+                  []( WC::CookedFile ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
              !probe )
             return Common::MakeError( "Build HLODs: " + probe.GetError() );
         if ( areas.empty() )
@@ -680,18 +682,25 @@ namespace Desert::Editor
                     }
                 return mesh;
             };
-        auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, builders.Mesh, landscape );
+        // Each cell's file is written the moment it is built and freed with it (UE builds and saves its HLOD
+        // actors cell by cell), so the world's HLODs are never in memory at once.
+        const std::filesystem::path dir    = WC::BuiltHLODDirectory( path );
+        const WC::BuiltHLODSink     writer = WC::BuiltHLODWriter( path );
+        std::size_t                 bytes  = 0;
+        std::size_t                 files  = 0;
+        auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, builders.Mesh, landscape,
+                                          [&]( WC::CookedFile file ) -> Common::BoolResultStr
+                                          {
+                                              bytes += file.Bytes.size();
+                                              ++files;
+                                              LOG_INFO( "[Build HLODs] {0}: {1} bytes",
+                                                        ( dir / file.Name ).string(), file.Bytes.size() );
+                                              return writer( std::move( file ) );
+                                          } );
         if ( !built )
             return Common::MakeError( "Build HLODs: " + built.GetError() );
-        if ( auto written = WC::WriteBuiltHLODs( path, built.GetValue() ); !written )
+        if ( auto written = WC::WriteBuiltHLODIndex( path, built.GetValue() ); !written )
             return Common::MakeError( written.GetError() );
-        const std::filesystem::path dir   = WC::BuiltHLODDirectory( path );
-        std::size_t                 bytes = 0;
-        for ( const WC::CookedFile& file : built.GetValue().Files )
-        {
-            bytes += file.Bytes.size();
-            LOG_INFO( "[Build HLODs] {0}: {1} bytes", ( dir / file.Name ).string(), file.Bytes.size() );
-        }
         // Read back what was written and check it against the world it was built from.
         auto stored = WC::ReadBuiltHLODs( path );
         if ( !stored )
@@ -712,8 +721,8 @@ namespace Desert::Editor
         LOG_INFO(
              "[Build HLODs] '{0}': {1} cell(s), {2} file(s), {3} bytes, {4} HLOD record(s) in {5}; read back: "
              "{6} stale cell(s)",
-             m_Scene->GetSceneName(), stored.GetValue().Index.Cells.size(), built.GetValue().Files.size(), bytes,
-             records, dir.string(), stale.GetValue().size() );
+             m_Scene->GetSceneName(), stored.GetValue().Index.Cells.size(), files, bytes, records, dir.string(),
+             stale.GetValue().size() );
         if ( !stale.GetValue().empty() )
             return Common::MakeError(
                  std::format( "Build HLODs: {} cell(s) read back stale", stale.GetValue().size() ) );

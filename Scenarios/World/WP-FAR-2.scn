@@ -1,0 +1,8 @@
+# WP-FAR-2 (5b1f134b6): LOD by projected screen size including FOV. DRAFT, NOT PLAYED YET (REMAINDER): WP-FAR-2
+# landed without a live LOD readout (its own REMAINDER), so there is no LOD view mode; the frames use Wireframe.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Wireframe"
+Когда --subject viewport set Camera.FOV 90
+Тогда-вид far2_fov90 меш с цепочкой LOD в 150 м на дальнем LOD (редкая сетка)
+Когда --subject viewport set Camera.FOV 20
+Тогда-вид far2_fov20 тот же меш с той же точки на LOD0/1 (плотная сетка) — зум повышает детализацию

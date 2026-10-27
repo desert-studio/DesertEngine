@@ -1138,13 +1138,14 @@ namespace Desert::Core::WorldCells
         return Common::Utils::Crc32c( text.data(), text.size() );
     }
 
-    Common::ResultStr<BuiltHLODs> BuildWorldHLODs( const SceneSerialized&                        scene,
-                                                   std::span<const Rules::EntityDescriptor>      descriptors,
-                                                   std::span<const Common::Utils::AssetRegistry> registries,
-                                                   const Rules::HLODMeshBuilder&                 meshBuilder,
-                                                   const Rules::LandscapeHLODBuilder&            landscape )
+    Common::ResultStr<BuiltHLODIndex> BuildWorldHLODs( const SceneSerialized&                        scene,
+                                                       std::span<const Rules::EntityDescriptor>      descriptors,
+                                                       std::span<const Common::Utils::AssetRegistry> registries,
+                                                       const Rules::HLODMeshBuilder&                 meshBuilder,
+                                                       const Rules::LandscapeHLODBuilder&            landscape,
+                                                       const BuiltHLODSink&                          sink )
     {
-        using Result = BuiltHLODs;
+        using Result = BuiltHLODIndex;
         auto planned = PlanHLODs( scene, descriptors, registries );
         if ( !planned )
             return Common::MakeError<Result>( planned.GetError() );
@@ -1161,8 +1162,8 @@ namespace Desert::Core::WorldCells
         const Rules::CustomShaderSource customShader  = CustomShaderFrom( registries );
         const Rules::FoliageHLODSource  foliageInHLOD = FoliageInHLODFrom( registries );
         std::set<std::uint64_t>         hlodIds;
-        BuiltHLODs                      out;
-        out.Index.SceneName = scene.SceneName;
+        BuiltHLODIndex                  out;
+        out.SceneName = scene.SceneName;
         for ( std::size_t unit = hp.Plan.AlwaysLoaded.size(); unit < hp.Members.size(); ++unit )
         {
             const Rules::PlannedCell& cell = hp.Plan.Cells.at( unit - hp.Plan.AlwaysLoaded.size() );
@@ -1174,7 +1175,7 @@ namespace Desert::Core::WorldCells
                  Rules::GridHLODLayer( *scene.WorldPartition, scene.WorldPartition->Grids.at( cell.Grid ) );
             if ( hlodLayer == nullptr )
             {
-                out.Index.Cells.push_back( std::move( row ) );
+                out.Cells.push_back( std::move( row ) );
                 continue;
             }
             auto builtCell =
@@ -1219,10 +1220,12 @@ namespace Desert::Core::WorldCells
                      Wrap( CC::ContentKind::WorldCell, scene.SceneName, name, Common::Json::Write( payload ) );
                 if ( !wrapped )
                     return Common::MakeError<Result>( wrapped.GetError() );
-                out.Files.push_back( { name, wrapped.ExtractValue() } );
+                if ( auto sunk = sink( CookedFile{ name, wrapped.ExtractValue() } ); !sunk )
+                    return Common::MakeError<Result>( "'" + scene.SceneName + "', " + row.Unit + ": " +
+                                                      sunk.GetError() );
                 row.File = name;
             }
-            out.Index.Cells.push_back( std::move( row ) );
+            out.Cells.push_back( std::move( row ) );
         }
         Common::Json::ReportIssues( issues, scene.SceneName );
         return Common::MakeSuccess( std::move( out ) );
@@ -1233,7 +1236,25 @@ namespace Desert::Core::WorldCells
         return scenePath.parent_path() / ( scenePath.stem().string() + "_HLOD" );
     }
 
-    Common::BoolResultStr WriteBuiltHLODs( const std::filesystem::path& scenePath, const BuiltHLODs& built )
+    BuiltHLODSink BuiltHLODWriter( const std::filesystem::path& scenePath )
+    {
+        return [dir = BuiltHLODDirectory( scenePath )]( CookedFile file ) -> Common::BoolResultStr
+        {
+            std::error_code ec;
+            std::filesystem::create_directories( dir, ec );
+            if ( ec )
+                return Common::MakeError( "Build HLODs: cannot create '" + dir.string() + "': " + ec.message() );
+            if ( auto written = Common::Utils::FileSystem::WriteBytesToFileAtomic(
+                      dir / file.Name, std::as_bytes( std::span( file.Bytes.data(), file.Bytes.size() ) ) );
+                 !written )
+                return Common::MakeError( "Build HLODs: '" + ( dir / file.Name ).string() +
+                                          "': " + written.GetError() );
+            return BOOLSUCCESS;
+        };
+    }
+
+    Common::BoolResultStr WriteBuiltHLODIndex( const std::filesystem::path& scenePath,
+                                               const BuiltHLODIndex&        index )
     {
         namespace fs        = std::filesystem;
         const fs::path  dir = BuiltHLODDirectory( scenePath );
@@ -1241,25 +1262,21 @@ namespace Desert::Core::WorldCells
         fs::create_directories( dir, ec );
         if ( ec )
             return Common::MakeError( "Build HLODs: cannot create '" + dir.string() + "': " + ec.message() );
-        auto wrappedIndex = Wrap( CC::ContentKind::WorldIndex, built.Index.SceneName, kBuiltHLODIndexName,
-                                  Common::Json::Write( built.Index ) );
+        auto wrappedIndex = Wrap( CC::ContentKind::WorldIndex, index.SceneName, kBuiltHLODIndexName,
+                                  Common::Json::Write( index ) );
         if ( !wrappedIndex )
             return Common::MakeError( wrappedIndex.GetError() );
-        std::set<std::string> kept{ std::string( kBuiltHLODIndexName ) };
-        const auto            write = [&]( const std::string& name, const std::vector<unsigned char>& bytes )
-        {
-            kept.insert( name );
-            return Common::Utils::FileSystem::WriteBytesToFileAtomic(
-                 dir / name, std::as_bytes( std::span( bytes.data(), bytes.size() ) ) );
-        };
-        for ( const CookedFile& file : built.Files )
-            if ( auto written = write( file.Name, file.Bytes ); !written )
-                return Common::MakeError( "Build HLODs: '" + ( dir / file.Name ).string() +
-                                          "': " + written.GetError() );
         // The index last: a build cut short leaves the previous index, whose checksums name what it built.
-        if ( auto written = write( std::string( kBuiltHLODIndexName ), wrappedIndex.GetValue() ); !written )
+        const std::vector<unsigned char>& bytes = wrappedIndex.GetValue();
+        if ( auto written = Common::Utils::FileSystem::WriteBytesToFileAtomic(
+                  dir / kBuiltHLODIndexName, std::as_bytes( std::span( bytes.data(), bytes.size() ) ) );
+             !written )
             return Common::MakeError( "Build HLODs: '" + ( dir / kBuiltHLODIndexName ).string() +
                                       "': " + written.GetError() );
+        std::set<std::string> kept{ std::string( kBuiltHLODIndexName ) };
+        for ( const BuiltHLODCell& cell : index.Cells )
+            if ( cell.File )
+                kept.insert( *cell.File );
         for ( const fs::directory_entry& entry : fs::directory_iterator( dir, ec ) )
             if ( entry.is_regular_file() && entry.path().extension() == kBuiltHLODExtension &&
                  !kept.contains( entry.path().filename().string() ) )
@@ -1291,22 +1308,6 @@ namespace Desert::Core::WorldCells
             return Common::MakeSuccess( read.ExtractValue() );
         };
         return Common::MakeSuccess( std::move( stored ) );
-    }
-
-    StoredHLODs StoredFrom( BuiltHLODs built )
-    {
-        auto        files = std::make_shared<std::vector<CookedFile>>( std::move( built.Files ) );
-        StoredHLODs stored;
-        stored.Index  = std::move( built.Index );
-        stored.Reader = [files]( std::string_view name ) -> Common::ResultStr<std::vector<unsigned char>>
-        {
-            for ( const CookedFile& file : *files )
-                if ( file.Name == name )
-                    return Common::MakeSuccess( file.Bytes );
-            return Common::MakeError<std::vector<unsigned char>>( "no built HLOD file '" + std::string( name ) +
-                                                                  "'" );
-        };
-        return stored;
     }
 
     Common::ResultStr<std::vector<Assets::EntityData>> StoredCellRecords( const StoredHLODs&   stored,
