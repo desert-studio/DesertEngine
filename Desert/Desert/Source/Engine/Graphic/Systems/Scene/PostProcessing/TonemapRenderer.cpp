@@ -60,7 +60,8 @@ namespace Desert::Graphic::System
     bool TonemapRenderer::PrepareHdrRendition()
     {
         const DisplayOutputState& display = CurrentDisplayOutput();
-        m_HdrRendition = m_Framebuffer && SdrCaptureRenditionRequested() && display.IsHDR() && display.Headroom > 1.0f;
+        m_HdrRendition =
+             m_Framebuffer && SdrCaptureRenditionRequested() && display.IsHDR() && display.Headroom > 1.0f;
         if ( !m_HdrRendition )
             return false;
         if ( !m_HdrFramebuffer )
@@ -70,7 +71,8 @@ namespace Desert::Graphic::System
             fbSpec.DebugName = "SceneToneMap.HdrRendition";
             fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kTonemap );
             m_HdrFramebuffer = Graphic::Framebuffer::Create( fbSpec );
-            m_HdrFramebuffer->Resize( m_Framebuffer->GetFramebufferWidth(), m_Framebuffer->GetFramebufferHeight() );
+            m_HdrFramebuffer->Resize( m_Framebuffer->GetFramebufferWidth(),
+                                      m_Framebuffer->GetFramebufferHeight() );
             m_MaterialTonemapHdr = std::make_unique<MaterialTonemap>();
         }
         return true;
@@ -161,7 +163,6 @@ namespace Desert::Graphic::System
             return Common::MakeError( "TonemapRenderer: the source framebuffer was destroyed or wasn't set up" );
 
         const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
-                                                       material->GetMaterialExecutor() );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline, material->GetMaterialExecutor() );
     }
 } // namespace Desert::Graphic::System

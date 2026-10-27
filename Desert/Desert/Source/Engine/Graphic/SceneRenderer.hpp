@@ -312,8 +312,8 @@ namespace Desert::Graphic
         // The view's HDR scene colour as its last frame left it (the resolved image at MSAA > 1): what a
         // reflection capture resamples into its cube. Null before the targets exist.
         [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const;
-        // HDR-OUTPUT p3: the tonemap's HDR rendition of its last capture frame (TonemapRenderer::GetHdrRenditionImage);
-        // null before the first window capture of an HDR output.
+        // HDR-OUTPUT p3: the tonemap's HDR rendition of its last capture frame
+        // (TonemapRenderer::GetHdrRenditionImage); null before the first window capture of an HDR output.
         [[nodiscard]] std::shared_ptr<Image2D> GetHdrRenditionImage() const;
 
         void Resize( const uint32_t width, const uint32_t height );

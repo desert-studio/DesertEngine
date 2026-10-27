@@ -829,11 +829,12 @@ namespace Desert::Graphic::API::Vulkan
             // the tonemap's HDR rendition's ("[Display] HDR rendition of the captured frame"). Above 1 here
             // means a capture whose requester never asked for the rendition: the PNG clips those highlights.
             const Graphic::ScRGBPeak peak = Graphic::FindScRGBPeak( raw.data(), raw.size(), pixels );
-            LOG_INFO( "[Display] capture of the scRGB swapchain (SDR rendition {}): peak {:.3f} x paper white ({:.0f} nits) at "
+            LOG_INFO( "[Display] capture of the scRGB swapchain (SDR rendition {}): peak {:.3f} x paper white "
+                      "({:.0f} nits) at "
                       "pixel ({}, {}) of {}x{}",
-                      Graphic::SdrCaptureRenditionRequested() ? "requested" : "NOT requested",
-                      peak.Value, peak.Value * Graphic::CurrentDisplayOutput().PaperWhiteNits, peak.Pixel % w,
-                      peak.Pixel / w, w, h );
+                      Graphic::SdrCaptureRenditionRequested() ? "requested" : "NOT requested", peak.Value,
+                      peak.Value * Graphic::CurrentDisplayOutput().PaperWhiteNits, peak.Pixel % w, peak.Pixel / w,
+                      w, h );
         }
         Bytes out = Graphic::PackToRGBA8( raw.data(), raw.size(), pixels, source );
         if ( out.size() != pixels * 4u )

@@ -588,7 +588,8 @@ namespace Desert::Graphic
             return;
         // THE HDR RENDITION of the same frame (a window capture of an HDR output is pending): the same pipeline,
         // inputs and values, with the HDR transform, into the second target the capture measures its peak on.
-        // Nothing in this graph reads it (NeverCull: a readback root); the capture reads it back after the present.
+        // Nothing in this graph reads it (NeverCull: a readback root); the capture reads it back after the
+        // present.
         const RDG::TextureRef hdr = textures.Import( tonemap->GetHdrRenditionImage(), "Tonemap.HdrRendition" );
         graph.AddPass(
              "PostFX: Tonemap (HDR rendition)", RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,

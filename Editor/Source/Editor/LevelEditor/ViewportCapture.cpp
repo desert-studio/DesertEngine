@@ -378,12 +378,14 @@ namespace Desert::Editor
         }
         const std::size_t pixels = static_cast<std::size_t>( image->GetWidth() ) * image->GetHeight();
         // The rendition holds SceneComposite's extended-sRGB encoding: the brightest code is the brightest light.
-        const Graphic::ScRGBPeak peak    = Graphic::FindScRGBPeak( bytes.GetValue().data(), bytes.GetValue().size(), pixels );
-        const float              linear  = Graphic::SrgbToLinearExtended( peak.Value );
-        const float              paper   = Graphic::CurrentDisplayOutput().PaperWhiteNits;
-        LOG_INFO( "[Display] HDR rendition of the captured frame: peak {:.3f} x paper white ({:.0f} nits) at viewport "
-                  "pixel ({}, {}) of {}x{}; headroom {:.3f}",
-                  linear, linear * paper, peak.Pixel % image->GetWidth(), peak.Pixel / image->GetWidth(),
-                  image->GetWidth(), image->GetHeight(), Graphic::CurrentDisplayOutput().Headroom );
+        const Graphic::ScRGBPeak peak =
+             Graphic::FindScRGBPeak( bytes.GetValue().data(), bytes.GetValue().size(), pixels );
+        const float linear = Graphic::SrgbToLinearExtended( peak.Value );
+        const float paper  = Graphic::CurrentDisplayOutput().PaperWhiteNits;
+        LOG_INFO(
+             "[Display] HDR rendition of the captured frame: peak {:.3f} x paper white ({:.0f} nits) at viewport "
+             "pixel ({}, {}) of {}x{}; headroom {:.3f}",
+             linear, linear * paper, peak.Pixel % image->GetWidth(), peak.Pixel / image->GetWidth(),
+             image->GetWidth(), image->GetHeight(), Graphic::CurrentDisplayOutput().Headroom );
     }
 } // namespace Desert::Editor
