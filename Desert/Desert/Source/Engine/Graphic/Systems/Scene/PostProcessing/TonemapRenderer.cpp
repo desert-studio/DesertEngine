@@ -1,5 +1,6 @@
 #include "TonemapRenderer.hpp"
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/DisplayOutput.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -109,6 +110,11 @@ namespace Desert::Graphic::System
         params.LocalExposureSlice = glm::vec4( le.LogMiddleGrey, le.SliceLogMin, 1.0f / kLocalExposureSliceEV, mode );
         // 1: the exposure comes from ExposureFusionTexture (Fusion), 0: from the grid and the blur (Bilateral).
         params.LocalExposureMethod = le.Produced && IsLocalExposureFusion( le.Params ) ? 1.0f : 0.0f;
+
+        // The display the frame reaches (the swapchain's last build): its output transform and headroom.
+        const DisplayOutputState& display = CurrentDisplayOutput();
+        params.DisplayOutput              = display.Output;
+        params.DisplayHeadroom            = display.Headroom;
 
         m_MaterialTonemap->BindValues( params );
     }

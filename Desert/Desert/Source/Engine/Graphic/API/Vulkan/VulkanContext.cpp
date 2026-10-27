@@ -219,6 +219,16 @@ namespace Desert::Graphic::API::Vulkan
                  .enable_extension( VK_EXT_DEBUG_REPORT_EXTENSION_NAME );
         }
 
+        // HDR-OUTPUT: the surface lists its HDR format + colour-space pairs (scRGB / HDR10 — CapabilityCatalog::
+        // DisplayOutputs) only when VK_EXT_swapchain_colorspace is on the instance; MoltenVK maps them to the
+        // CAMetalLayer's EDR colour spaces. Optional: without it the catalog offers SDR alone, which is the truth.
+        if ( const auto system = vkb::SystemInfo::get_system_info( vkGetInstanceProcAddr );
+             system && system.value().is_extension_available( VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME ) )
+            builder.enable_extension( VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME );
+        else
+            LOG_INFO( "[Vulkan] {} absent: the display outputs are SDR only",
+                      VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME );
+
         // What the platform's runtimes need on the instance (VulkanDeviceExtensions.hpp), each list already
         // checked present by its runtime.
         for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )

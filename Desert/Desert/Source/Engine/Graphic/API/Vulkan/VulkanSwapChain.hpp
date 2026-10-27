@@ -50,6 +50,14 @@ namespace Desert::Graphic::API::Vulkan
             return m_SwapChainImages.ImagesView;
         }
 
+        // The engine format the back buffer is drawn as (composite framebuffer, ImportBackBuffer): RGBA16F on the
+        // scRGB output (HDR-OUTPUT), BGRA8 otherwise.
+        [[nodiscard]] Core::Formats::ImageFormat BackBufferFormat() const
+        {
+            return m_ColorFormat == VK_FORMAT_R16G16B16A16_SFLOAT ? Core::Formats::ImageFormat::RGBA16F
+                                                                  : Core::Formats::ImageFormat::BGRA8F;
+        }
+
         VkFormat GetColorFormat() const
         {
             return m_ColorFormat;

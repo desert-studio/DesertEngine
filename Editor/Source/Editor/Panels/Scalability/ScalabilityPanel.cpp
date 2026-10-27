@@ -3,6 +3,8 @@
 #include <Editor/Core/ImGuiUtilities.hpp>
 
 #include <Common/Settings/MachineSettings.hpp>
+#include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/DisplayOutput.hpp>
 #include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
 
@@ -405,6 +407,35 @@ namespace Desert::Editor
                     SC::QualityState::SetOverride( SC::Parameter::Anisotropy, levels[*picked] );
                 ShowFallback( resolved, SC::Parameter::Anisotropy );
             }
+        }
+
+        // HDR-OUTPUT: the display output (machine.json Display, beside VSync). Only the catalog's DisplayOutputs
+        // are offered; the swapchain rebuilds with the pick (Window::SetDisplay) and logs what it built.
+        if ( Utils::ImGuiUtilities::SectionHeader( "Display" ) )
+        {
+            auto&       machine = Common::Settings::MachineSettings::Get();
+            const auto& outputs = EngineContext::GetInstance().GetCapabilities().Catalog.DisplayOutputs;
+            bool        changed = false;
+            if ( const auto picked = ValueCombo(
+                      "Display Output", IndexOf( outputs, machine.Display.Output ), outputs.size(),
+                      [&]( std::size_t i ) { return std::string( SC::DisplayOutputName( outputs[i] ) ); } ) )
+            {
+                machine.Display.Output = outputs[*picked];
+                changed                = true;
+            }
+            changed |= ImGui::DragFloat( "Paper White (nits)", &machine.Display.PaperWhiteNits, 1.0f, 1.0f, 1000.0f,
+                                         "%.0f" );
+            changed |= ImGui::DragFloat( "Peak Override (nits, 0 = OS)", &machine.Display.PeakNits, 10.0f, 0.0f,
+                                         10000.0f, "%.0f" );
+            if ( changed )
+            {
+                (void)Common::Settings::MachineSettings::Save();
+                EngineContext::GetInstance().GetWindow()->SetDisplay( machine.Display );
+            }
+            const Graphic::DisplayOutputState& state = Graphic::CurrentDisplayOutput();
+            ImGui::TextDisabled( "Presenting %s; paper white %.0f nits, peak %.0f nits, headroom %.2f",
+                                 std::string( SC::DisplayOutputName( state.Output ) ).c_str(), state.PaperWhiteNits,
+                                 state.PeakNits, state.Headroom );
         }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Clouds" ) )

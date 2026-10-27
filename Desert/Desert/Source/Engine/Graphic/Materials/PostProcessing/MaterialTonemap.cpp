@@ -23,6 +23,8 @@ namespace Desert::Graphic
         SetLocalExposureUV( params.LocalExposureUV );
         SetLocalExposureSlice( params.LocalExposureSlice );
         SetLocalExposureMethod( params.LocalExposureMethod );
+        SetDisplayOutput( static_cast<float>( static_cast<int>( params.DisplayOutput ) ) );
+        SetDisplayHeadroom( params.DisplayHeadroom );
         // Uploaded where the draw reads them (MaterialExecutor::Apply: dirty MPROPERTYs into their fields, then
         // every field-filled buffer whose active copy is behind -- each frame-in-flight copy catches up on its
         // own).

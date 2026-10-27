@@ -61,8 +61,11 @@ namespace Desert::Graphic::ViewTargetFormats
     // Seeds are PIXEL COORDINATES (JFA_Init.shader: o_Seed = vec4(pixelCoord, ...)): half floats stop being
     // exact integers above 2048 px, so 16F would misplace the outline on a wide window. Keep 32F.
     inline constexpr ImageFormat kJFASeed        = ImageFormat::RGBA32F;
-    inline constexpr ImageFormat kTonemap        = ImageFormat::RGBA8F;
-    inline constexpr ImageFormat kFXAA           = ImageFormat::RGBA8F;
+    // Half float (HDR-OUTPUT): on an HDR output the tonemap writes display values above 1.0 (extended sRGB
+    // encoding, up to the display's headroom), and FXAA runs after it on the same values. On SDR the values stay
+    // in [0,1] and are quantised to 8 bits where they always were: at the back buffer.
+    inline constexpr ImageFormat kTonemap        = ImageFormat::RGBA16F;
+    inline constexpr ImageFormat kFXAA           = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kSMAAEdges      = ImageFormat::RGBA8F;
     inline constexpr ImageFormat kSMAABlend      = ImageFormat::RGBA8F;
     inline constexpr ImageFormat kBloom          = ImageFormat::RGBA16F;
