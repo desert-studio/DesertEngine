@@ -10,13 +10,13 @@
 #include <tuple>
 
 // NVIDIA DLSS SUPER RESOLUTION and DLSS RAY RECONSTRUCTION as an ITemporalUpscaler (UE: the DLSS plugin's
-// FDLSSUpscaler, whose Ray Reconstruction mode is the same upscaler with the denoiser on). One class, one object per
-// Streamline::DlssFeature: the feature is the only difference in the passes (which plugin evaluates, which guides
-// are tagged), and everything else - the modes, the split, the jitter, the exposure, the per-view feature - is
-// shared. Windows only
-// (premake compiles Engine/Graphic/Upscalers/ on Windows alone and defines DESERT_UPSCALER_DLSS, which kDlssBuilt
-// in API/UpscalerBuild.hpp reads); selectable where Streamline::Runtime::DlssReady() - the catalog offers
-// AntiAliasingMethod::DLSS (and DLSSRayReconstruction) only then.
+// FDLSSUpscaler, whose Ray Reconstruction mode is the same upscaler with the denoiser on). One class, one object
+// per Streamline::DlssFeature: the feature is the only difference in the passes (which plugin evaluates, which
+// guides are tagged), and everything else - the modes, the split, the jitter, the exposure, the per-view feature -
+// is shared. Windows only (premake compiles Engine/Graphic/Upscalers/ on Windows alone and defines
+// DESERT_UPSCALER_DLSS, which kDlssBuilt in API/UpscalerBuild.hpp reads); selectable where
+// Streamline::Runtime::DlssReady() - the catalog offers AntiAliasingMethod::DLSS (and DLSSRayReconstruction) only
+// then.
 //
 // Two passes: UpscalerExposure (the 1x1 exposure multiplier FSR and the engine's TAA use: DLSS is handed the
 // engine's exposure, never its own auto exposure), then "DLSS", which reads the jittered scene colour, the

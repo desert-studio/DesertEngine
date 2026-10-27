@@ -92,7 +92,8 @@ namespace Common::Scalability
     {
         AntiAliasingMethod = 0, // SceneRenderer framebuffer setup + post AA pass. Values: AntiAliasingMethod
         AntiAliasingSamples,    // SceneRenderer framebuffer sample count; read only under MSAA. Values: 1/2/4/8
-        RenderScalePercent,     // view-target size (RDG) and the method's reconstruction pass. Values: RenderScaleRange
+        RenderScalePercent,     // view-target size (RDG) and the method's reconstruction pass. Values:
+                                // RenderScaleRange
         TextureFilter,          // sampler cache (RenderConfig push). Values: MachineSettings TextureFilter 0..3
         Anisotropy,             // sampler cache. Values: CapabilityCatalog::AnisotropyLevels
         MeshLOD,                // mesh LOD selection. Values: 0/1
@@ -214,9 +215,9 @@ namespace Common::Scalability
         DlssPresetBalanced,
         DlssPresetPerformance,
         DlssPresetUltraPerformance,
-        // The Ray Reconstruction preset of each DLSS mode (DLSSUpscaler under AntiAliasingMethod::DLSSRayReconstruction: the
-        // mode its split selects reads its row). Values: DlssRRPreset (CapabilityCatalog.hpp). Read only while
-        // Ray Reconstruction runs.
+        // The Ray Reconstruction preset of each DLSS mode (DLSSUpscaler under
+        // AntiAliasingMethod::DLSSRayReconstruction: the mode its split selects reads its row). Values:
+        // DlssRRPreset (CapabilityCatalog.hpp). Read only while Ray Reconstruction runs.
         DlssRRPresetNative, // the 100 % mode
         DlssRRPresetUltraQuality,
         DlssRRPresetQuality,

@@ -319,12 +319,12 @@ namespace Desert::Editor
                 tsrSlider( "TSR Resurrection", SC::Parameter::TsrResurrection,
                            "r.TSR.Resurrection: keep persistent frames and resurrect disoccluded history from them." );
             }
-            const SC::Upscaler reconstruction = SC::UpscalerForScale(
-                 resolvedMethod, resolved.As<int>( SC::Parameter::RenderScalePercent ) );
-            ImGui::TextDisabled(
-                 "%s", std::format( "Reconstruction: {}",
-                                    SC::kUpscalerNames[static_cast<std::size_t>( reconstruction )] )
-                            .c_str() );
+            const SC::Upscaler reconstruction =
+                 SC::UpscalerForScale( resolvedMethod, resolved.As<int>( SC::Parameter::RenderScalePercent ) );
+            ImGui::TextDisabled( "%s",
+                                 std::format( "Reconstruction: {}",
+                                              SC::kUpscalerNames[static_cast<std::size_t>( reconstruction )] )
+                                      .c_str() );
 
             int sharpness = Requested( SC::Parameter::UpscalerSharpness );
             if ( ImGui::SliderInt( "Sharpness", &sharpness, 0, 100, "%d", ImGuiSliderFlags_AlwaysClamp ) )

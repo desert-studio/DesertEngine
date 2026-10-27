@@ -59,8 +59,9 @@ namespace Desert::Graphic
     //
     // What resolves the frame's samples over time, derived from the two SCAL1 axes after
     // ResolveAntiAliasingForPath. A vendor method is one value here per ITemporalUpscaler implementation behind
-    // its Common::Scalability::AntiAliasingMethod, and SelectTemporalMethod refuses a value with no implementation (it is never
-    // offered by CapabilityCatalog until one exists, so reaching it means the catalog and the build disagree).
+    // its Common::Scalability::AntiAliasingMethod, and SelectTemporalMethod refuses a value with no implementation
+    // (it is never offered by CapabilityCatalog until one exists, so reaching it means the catalog and the build
+    // disagree).
     enum class TemporalMethod : uint8_t
     {
         None, // FXAA / SMAA / MSAA / None at any split (below 100 % the spatial upscale brings them to the
@@ -103,12 +104,12 @@ namespace Desert::Graphic
     };
 
     // PURE. From the path's effective method alone: TAA at Native/Supersample and TAAU at Upscale under
-    // AntiAliasingMethod::TAA; TSR / DLSS / DLSSRR / FSR under the method of that name at any split, in a build with
-    // its SDK — at Supersample too: the implementation's Supports refuses that split and ResolveViewResolution clamps
-    // to 100 %, saying why; None for a method without history at any split (below 100 % the spatial upscale,
-    // Scalability UpscalerForScale, is not temporal). A vendor method in a build without its SDK, or one with no
-    // implementation (XeSS / MetalFX), is an error naming the value — Resolve never keeps one the catalog does not
-    // offer, so it is a contract break, not a fallback.
+    // AntiAliasingMethod::TAA; TSR / DLSS / DLSSRR / FSR under the method of that name at any split, in a build
+    // with its SDK — at Supersample too: the implementation's Supports refuses that split and
+    // ResolveViewResolution clamps to 100 %, saying why; None for a method without history at any split (below 100
+    // % the spatial upscale, Scalability UpscalerForScale, is not temporal). A vendor method in a build without
+    // its SDK, or one with no implementation (XeSS / MetalFX), is an error naming the value — Resolve never keeps
+    // one the catalog does not offer, so it is a contract break, not a fallback.
     [[nodiscard]] Common::ResultStr<TemporalMethod>
     SelectTemporalMethod( const Common::Scalability::PathAntiAliasing& path, const ResolutionSplit& split );
 

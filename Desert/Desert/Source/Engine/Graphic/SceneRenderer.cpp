@@ -1430,8 +1430,8 @@ namespace Desert::Graphic
         inputs.SceneIdentity                     = m_SceneGeneration;
         inputs.Output                            = m_ViewExtent;
         // THE ONE PER-VIEW RESOLUTION (ResolveViewResolution): the resolved RenderScalePercent and AA method,
-        // the temporal method they select, clamped to a split the method's upscaler supports. Its refusal refuses the
-        // frame by name; a clamp is said. The view's temporal upscaler is made for the resolved method here.
+        // the temporal method they select, clamped to a split the method's upscaler supports. Its refusal refuses
+        // the frame by name; a clamp is said. The view's temporal upscaler is made for the resolved method here.
         using Common::Scalability::Parameter;
         // A path-traced view traces every output pixel (UE: the path tracer renders at 100 %, no upscaler): its
         // accumulation is the image, and an upscaler's history would only blur the converging estimate.
@@ -1471,13 +1471,13 @@ namespace Desert::Graphic
             m_VendorFallbackSaid = vendor.Why;
         }
         m_RenderedAntiAliasing                           = vendor.AntiAliasing;
-        const Common::ResultStr<ViewResolution> resolved = ResolveViewResolution(
-             m_ViewExtent, settingPercent, overridePercent, m_RenderedAntiAliasing,
-             [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
-             {
-                 EnsureTemporalUpscaler( method );
-                 return m_TemporalUpscaler.get();
-             } );
+        const Common::ResultStr<ViewResolution> resolved =
+             ResolveViewResolution( m_ViewExtent, settingPercent, overridePercent, m_RenderedAntiAliasing,
+                                    [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
+                                    {
+                                        EnsureTemporalUpscaler( method );
+                                        return m_TemporalUpscaler.get();
+                                    } );
         if ( !resolved )
         {
             LOG_ERROR( "[SceneRenderer] {}: the view's resolution is refused, frame not drawn: {}",

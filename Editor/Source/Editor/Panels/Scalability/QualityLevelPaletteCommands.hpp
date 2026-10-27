@@ -88,4 +88,46 @@ namespace Desert::Editor
         append( Parameter::ShadowsMethod, Common::Scalability::kShadowMethodNames );
         return commands;
     }
+
+    // The render scale as an explicit override ("Quality: Resolution.Percent 67"), UE's r.ScreenPercentage: the
+    // percent every temporal method reconstructs from (Scalability UpscalerForScale), set through the same apply
+    // point as the Scalability panel's slider (QualityState::SetOverride, saved to machine.json). The entries are
+    // the menu modes' percents (DLSS/FSR Ultra Performance 33, Performance 50, Balanced 58, Quality 67, Ultra
+    // Quality 77), native, and supersampled 150 / 200, within the device's RenderScale range; "... Level" clears
+    // the override, so the ResolutionScale level's percent applies again.
+    [[nodiscard]] inline std::vector<PaletteCommand>
+    QualityRenderScalePaletteCommands( const Common::Scalability::CapabilityCatalog& catalog )
+    {
+        using Common::Scalability::Parameter;
+        using Common::Scalability::QualityState;
+
+        const std::string_view      key = Common::Scalability::SpecOf( Parameter::RenderScalePercent ).Key;
+        std::vector<PaletteCommand> commands;
+        for ( const int percent : { 33, 50, 58, 67, 77, 100, 150, 200 } )
+        {
+            if ( percent < catalog.RenderScale.MinPercent || percent > catalog.RenderScale.MaxPercent )
+                continue;
+            commands.push_back(
+                 { "Quality", std::format( "Quality: {} {}", key, percent ), [percent]() -> Common::BoolResultStr
+                   {
+                       const auto report = QualityState::SetOverride( Parameter::RenderScalePercent, percent );
+                       if ( !report.Refused.empty() )
+                           return Common::MakeError( std::string( report.Refused ) );
+                       if ( !report.Saved )
+                           return Common::MakeError( "the render scale applies but machine.json was not saved" );
+                       return PaletteCommandDone();
+                   } } );
+        }
+        commands.push_back( { "Quality", std::format( "Quality: {} Level", key ), []() -> Common::BoolResultStr
+                              {
+                                  const auto report = QualityState::ClearOverride( Parameter::RenderScalePercent );
+                                  if ( !report.Refused.empty() )
+                                      return Common::MakeError( std::string( report.Refused ) );
+                                  if ( !report.Saved )
+                                      return Common::MakeError(
+                                           "the level applies but machine.json was not saved" );
+                                  return PaletteCommandDone();
+                              } } );
+        return commands;
+    }
 } // namespace Desert::Editor

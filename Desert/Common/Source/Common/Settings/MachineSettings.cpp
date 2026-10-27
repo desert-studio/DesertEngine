@@ -307,18 +307,18 @@ namespace Common::Settings
             return Json::Value( rebuilt.Build() );
         }
 
-        // THE ONE-TEMPORAL-METHOD MIGRATION (SCAL-TEMPORAL-ONE, owner 2026-10-27). An older build stored the temporal
-        // fact in two overrides: AntiAliasing.Method (TAA / FSRNative=5 / DLAA=6 at 100 %) and Resolution.Upscaler
-        // (below 100 %), plus AntiAliasing.TemporalUpscaler (TAAU / TSR) and the DLSS presets of the 100 % mode under
-        // "...DLAA" keys. A file is in that form iff it holds one of the retired keys; it is rewritten once (the
-        // host writes it back, `migrated`), and from then on a retired key is an override naming no parameter of this
-        // build (ScreenOverride), never mapped again:
-        //   Resolution.Upscaler FSR/DLSS/XeSS/MetalFX/TSR/DLSSRayReconstruction -> AntiAliasing.Method = that method;
-        //   Resolution.Upscaler None/TAAU/Spatial                               -> dropped (the method stands);
-        //   AntiAliasing.TemporalUpscaler TSR under AntiAliasing.Method TAA      -> AntiAliasing.Method TSR; dropped;
-        //   AntiAliasing.Method FSRNative(5)/DLAA(6) with no vendor Upscaler     -> FSR(5)/DLSS(6) at
-        //                                                                          Resolution.Percent 100 (unless set);
-        //   AntiAliasing.DLSSPreset.DLAA / DLSSRRPreset.DLAA                     -> ...DLSSPreset.Native / ...Native.
+        // THE ONE-TEMPORAL-METHOD MIGRATION (SCAL-TEMPORAL-ONE, owner 2026-10-27). An older build stored the
+        // temporal fact in two overrides: AntiAliasing.Method (TAA / FSRNative=5 / DLAA=6 at 100 %) and
+        // Resolution.Upscaler (below 100 %), plus AntiAliasing.TemporalUpscaler (TAAU / TSR) and the DLSS presets
+        // of the 100 % mode under "...DLAA" keys. A file is in that form iff it holds one of the retired keys; it
+        // is rewritten once (the host writes it back, `migrated`), and from then on a retired key is an override
+        // naming no parameter of this build (ScreenOverride), never mapped again:
+        //   Resolution.Upscaler FSR/DLSS/XeSS/MetalFX/TSR/RR -> AntiAliasing.Method = that method;
+        //   Resolution.Upscaler None/TAAU/Spatial            -> dropped (the method stands);
+        //   AntiAliasing.TemporalUpscaler TSR under TAA      -> AntiAliasing.Method TSR; dropped;
+        //   AntiAliasing.Method FSRNative(5)/DLAA(6), no vendor Upscaler
+        //                                                    -> FSR(5)/DLSS(6) at Resolution.Percent 100 (unless set);
+        //   AntiAliasing.DLSSPreset.DLAA / DLSSRRPreset.DLAA -> ...DLSSPreset.Native / ...DLSSRRPreset.Native.
         // The retired integers are this function's own table (the enums they indexed no longer exist).
         // Empty when the file is not in the retired form (the array is screened as written).
         std::optional<Json::Value> MigrateTemporalOverrides( const Json::Node&         overrides,
@@ -327,24 +327,29 @@ namespace Common::Settings
             if ( overrides.GetKind() != Json::Kind::Array )
                 return std::nullopt;
 
-            constexpr std::string_view kMethodKey        = "AntiAliasing.Method";
-            constexpr std::string_view kPercentKey       = "Resolution.Percent";
-            constexpr std::string_view kOldUpscalerKey   = "Resolution.Upscaler";
-            constexpr std::string_view kOldEngineKey     = "AntiAliasing.TemporalUpscaler";
-            constexpr std::string_view kOldDlssPreset    = "AntiAliasing.DLSSPreset.DLAA";
-            constexpr std::string_view kOldDlssRRPreset  = "AntiAliasing.DLSSRRPreset.DLAA";
+            constexpr std::string_view kMethodKey       = "AntiAliasing.Method";
+            constexpr std::string_view kPercentKey      = "Resolution.Percent";
+            constexpr std::string_view kOldUpscalerKey  = "Resolution.Upscaler";
+            constexpr std::string_view kOldEngineKey    = "AntiAliasing.TemporalUpscaler";
+            constexpr std::string_view kOldDlssPreset   = "AntiAliasing.DLSSPreset.DLAA";
+            constexpr std::string_view kOldDlssRRPreset = "AntiAliasing.DLSSRRPreset.DLAA";
             // The retired Upscaler integers (None, TAAU, FSR, DLSS, XeSS, MetalFX, Spatial, TSR, RR) as methods;
             // -1 = no method of its own (the method override stands).
             using M                                      = Scalability::AntiAliasingMethod;
-            constexpr std::array<int, 9> kUpscalerMethod = {
-                 -1, -1, static_cast<int>( M::FSR ), static_cast<int>( M::DLSS ), static_cast<int>( M::XeSS ),
-                 static_cast<int>( M::MetalFX ), -1, static_cast<int>( M::TSR ),
-                 static_cast<int>( M::DLSSRayReconstruction ) };
-            constexpr int kOldEngineTSR = 1; // the retired EngineTemporalUpscaler { TAAU, TSR }
+            constexpr std::array<int, 9> kUpscalerMethod = { -1,
+                                                             -1,
+                                                             static_cast<int>( M::FSR ),
+                                                             static_cast<int>( M::DLSS ),
+                                                             static_cast<int>( M::XeSS ),
+                                                             static_cast<int>( M::MetalFX ),
+                                                             -1,
+                                                             static_cast<int>( M::TSR ),
+                                                             static_cast<int>( M::DLSSRayReconstruction ) };
+            constexpr int                kOldEngineTSR   = 1; // the retired EngineTemporalUpscaler { TAAU, TSR }
 
-            Json::Value::Array                                           unread;
-            std::vector<Scalability::ParameterOverride>                  read;
-            bool                                                         retired = false;
+            Json::Value::Array                          unread;
+            std::vector<Scalability::ParameterOverride> read;
+            bool                                        retired = false;
             overrides.ForEachElement(
                  [&]( std::size_t, const Json::Node& entry )
                  {
@@ -355,8 +360,8 @@ namespace Common::Settings
                          return;
                      }
                      const std::string& key = value.GetValue().Key;
-                     retired = retired || key == kOldUpscalerKey || key == kOldEngineKey || key == kOldDlssPreset ||
-                               key == kOldDlssRRPreset;
+                     retired                = retired || key == kOldUpscalerKey || key == kOldEngineKey ||
+                               key == kOldDlssPreset || key == kOldDlssRRPreset;
                      read.push_back( value.ExtractValue() );
                  } );
             if ( !retired )
@@ -364,8 +369,9 @@ namespace Common::Settings
 
             const auto find = [&]( std::string_view key ) -> Scalability::ParameterOverride*
             {
-                const auto it = std::find_if( read.begin(), read.end(),
-                                              [&]( const Scalability::ParameterOverride& o ) { return o.Key == key; } );
+                const auto it =
+                     std::find_if( read.begin(), read.end(),
+                                   [&]( const Scalability::ParameterOverride& o ) { return o.Key == key; } );
                 return it == read.end() ? nullptr : &*it;
             };
             std::optional<int> upscalerMethod;
@@ -379,10 +385,9 @@ namespace Common::Settings
                 return engine != nullptr && engine->Value == kOldEngineTSR;
             }();
 
-            Scalability::ParameterOverride* method   = find( kMethodKey );
-            const bool                      oldNative = method != nullptr &&
-                                                       ( method->Value == static_cast<int>( M::FSR ) ||
-                                                         method->Value == static_cast<int>( M::DLSS ) );
+            Scalability::ParameterOverride* method = find( kMethodKey );
+            const bool oldNative = method != nullptr && ( method->Value == static_cast<int>( M::FSR ) ||
+                                                          method->Value == static_cast<int>( M::DLSS ) );
             if ( upscalerMethod )
             {
                 if ( method != nullptr )
@@ -395,8 +400,7 @@ namespace Common::Settings
             else if ( oldNative && find( kPercentKey ) == nullptr )
                 read.push_back( { std::string( kPercentKey ), 100 } );
 
-            std::erase_if( read,
-                           [&]( const Scalability::ParameterOverride& o )
+            std::erase_if( read, [&]( const Scalability::ParameterOverride& o )
                            { return o.Key == kOldUpscalerKey || o.Key == kOldEngineKey; } );
             for ( Scalability::ParameterOverride& o : read )
             {
@@ -408,11 +412,13 @@ namespace Common::Settings
 
             Json::Value::Array kept = std::move( unread );
             for ( const Scalability::ParameterOverride& o : read )
-                kept.push_back( Json::Value( Json::ObjectBuilder().Set( "Key", o.Key ).Set( "Value", o.Value ).Build() ) );
+                kept.push_back(
+                     Json::Value( Json::ObjectBuilder().Set( "Key", o.Key ).Set( "Value", o.Value ).Build() ) );
             migrated = true;
-            warnings.push_back( "Quality.Overrides migrated to the one-temporal-method form (AntiAliasing.Method "
-                                "carries the temporal method, Resolution.Upscaler / AntiAliasing.TemporalUpscaler "
-                                "retired, DLSS presets of the 100 % mode under ...Native); the file is rewritten" );
+            warnings.push_back(
+                 "Quality.Overrides migrated to the one-temporal-method form (AntiAliasing.Method "
+                 "carries the temporal method, Resolution.Upscaler / AntiAliasing.TemporalUpscaler "
+                 "retired, DLSS presets of the 100 % mode under ...Native); the file is rewritten" );
             return Json::Value( std::move( kept ) );
         }
 
@@ -434,7 +440,8 @@ namespace Common::Settings
                      {
                          const std::optional<Json::Value> migrated =
                               MigrateTemporalOverrides( member, levelsOut.Warnings, levelsOut.Migrated );
-                         rebuilt.Set( name, migrated ? ScreenOverrides( Json::Root( *migrated, member.Where() ), rejections )
+                         rebuilt.Set( name, migrated ? ScreenOverrides( Json::Root( *migrated, member.Where() ),
+                                                                        rejections )
                                                      : ScreenOverrides( member, rejections ) );
                      }
                      else

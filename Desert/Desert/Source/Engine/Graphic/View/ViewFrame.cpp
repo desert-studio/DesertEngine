@@ -23,8 +23,9 @@ namespace Desert::Graphic
         [[nodiscard]] std::string_view MethodName( const Scal::AntiAliasingMethod method )
         {
             const auto index = static_cast<std::size_t>( method );
-            return index < Scal::kAntiAliasingMethodNames.size() ? Scal::kAntiAliasingMethodNames[index]
-                                                                 : std::string_view( "<unknown AntiAliasingMethod>" );
+            return index < Scal::kAntiAliasingMethodNames.size()
+                        ? Scal::kAntiAliasingMethodNames[index]
+                        : std::string_view( "<unknown AntiAliasingMethod>" );
         }
 
         // round-to-nearest( side * percent / 100 ), integer arithmetic so 1080 x 67 % is 724 on every compiler.

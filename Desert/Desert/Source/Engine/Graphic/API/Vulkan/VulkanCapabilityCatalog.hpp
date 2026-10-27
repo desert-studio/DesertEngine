@@ -63,8 +63,8 @@ namespace Desert::Graphic::API::Vulkan
     // PURE. The rules (each list's comment in CapabilityCatalog.hpp says who reads it):
     //   MSAACounts        = counts in Color & Depth, ascending from 1.
     //   AntiAliasing      = None, FXAA, SMAA, TAA, TSR always; MSAA iff a count > 1; FSR, DLSS (NVIDIA only),
-    //                       DLSSRayReconstruction (with DLSS), XeSS, MetalFX (Portability only) each iff available;
-    //                       in enum order.
+    //                       DLSSRayReconstruction (with DLSS), XeSS, MetalFX (Portability only) each iff
+    //                       available; in enum order.
     //   RayTracingModes   = None; RayQuery iff RayQuery+AccelerationStructure present; RayTracingPipeline iff
     //                       present and not Portability.
     //   FragmentStores    = FragmentStoresAndAtomics present.

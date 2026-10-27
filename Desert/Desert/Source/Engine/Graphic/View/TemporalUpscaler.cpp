@@ -293,10 +293,11 @@ namespace Desert::Graphic
         return set == ViewTargetSet::Render ? split.Render : split.Output;
     }
 
-    Common::ResultStr<ViewResolution> ResolveViewResolution(
-         const ViewExtent output, const int settingPercent, const std::optional<int> viewportOverridePercent,
-         const Common::Scalability::PathAntiAliasing&                     antiAliasing,
-         const std::function<const ITemporalUpscaler*( TemporalMethod )>& upscalerFor )
+    Common::ResultStr<ViewResolution>
+    ResolveViewResolution( const ViewExtent output, const int settingPercent,
+                           const std::optional<int>                     viewportOverridePercent,
+                           const Common::Scalability::PathAntiAliasing& antiAliasing,
+                           const std::function<const ITemporalUpscaler*( TemporalMethod )>& upscalerFor )
     {
         const int requested = viewportOverridePercent.value_or( settingPercent );
         // The reconstruction pass of THIS view's percent, by Resolve's own rule (Scalability UpscalerForScale): a
@@ -309,7 +310,7 @@ namespace Desert::Graphic
             if ( !split )
                 return Common::MakeFormattedError<ViewResolution>( "{}", split.GetError() );
             const Common::Scalability::Upscaler upscalerOfView = upscalerAt( percent );
-            const auto method = SelectTemporalMethod( antiAliasing, split.GetValue() );
+            const auto                          method = SelectTemporalMethod( antiAliasing, split.GetValue() );
             if ( !method )
                 return Common::MakeFormattedError<ViewResolution>( "{}", method.GetError() );
             return Common::MakeSuccess( ViewResolution{

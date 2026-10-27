@@ -46,9 +46,10 @@ namespace Common::Scalability
     //
     // The percent is NOT part of the method (that is the rejected flat "AA mode" enum: DLSS-Quality,
     // FSR-Balanced, ... — it multiplies upscaler x scale and cannot say "DLSS at 77 %"). A MENU PRESET
-    // ("DLSS Quality", "Native + TAA") decomposes into one value of each axis (AntiAliasingPreset, Scalability.hpp).
-    // Until 2026-10-27 the temporal fact lived in two settings (AntiAliasingMethod TAA/FSRNative/DLAA at 100 % and a
-    // Resolution.Upscaler below it, reconciled by Resolve); MachineSettings migrates a file that still has them.
+    // ("DLSS Quality", "Native + TAA") decomposes into one value of each axis (AntiAliasingPreset,
+    // Scalability.hpp). Until 2026-10-27 the temporal fact lived in two settings (AntiAliasingMethod
+    // TAA/FSRNative/DLAA at 100 % and a Resolution.Upscaler below it, reconciled by Resolve); MachineSettings
+    // migrates a file that still has them.
     //
     // STORED BY NAME in Scalability.json (kAntiAliasingMethodNames) and by integer in a machine.json override, so
     // the values only ever grow at the end. 5 and 6 are the integers the retired FSRNative and DLAA had: an
@@ -172,9 +173,9 @@ namespace Common::Scalability
         bool operator==( const RenderScaleRange& ) const = default;
     };
 
-    // The written names of the enums a quality parameter stores, and of the derived Upscaler (log lines), indexed by the enum's value: the
-    // Scalability.json loader reads them, the catalog log line and the editor's labels print them. One list per
-    // enum so a name can never differ between the data file and the log.
+    // The written names of the enums a quality parameter stores, and of the derived Upscaler (log lines), indexed
+    // by the enum's value: the Scalability.json loader reads them, the catalog log line and the editor's labels
+    // print them. One list per enum so a name can never differ between the data file and the log.
     inline constexpr std::array<std::string_view, 11> kAntiAliasingMethodNames{
          "None", "FXAA", "SMAA", "MSAA", "TAA", "FSR", "DLSS", "TSR", "DLSSRayReconstruction", "XeSS", "MetalFX" };
     inline constexpr std::array<std::string_view, 9> kUpscalerNames{ "None",    "TAAU",    "FSR",
@@ -182,18 +183,21 @@ namespace Common::Scalability
                                                                      "Spatial", "TSR",     "DLSSRayReconstruction" };
     inline constexpr std::array<std::string_view, 3> kRayTracingModeNames{ "None", "RayQuery",
                                                                            "RayTracingPipeline" };
-    static_assert( static_cast<std::size_t>( AntiAliasingMethod::MetalFX ) + 1 == kAntiAliasingMethodNames.size() );
+    static_assert( static_cast<std::size_t>( AntiAliasingMethod::MetalFX ) + 1 ==
+                   kAntiAliasingMethodNames.size() );
     // The integers an older build's machine.json override wrote for its FSRNative / DLAA (see AntiAliasingMethod).
-    static_assert( static_cast<int>( AntiAliasingMethod::FSR ) == 5 && static_cast<int>( AntiAliasingMethod::DLSS ) == 6 );
+    static_assert( static_cast<int>( AntiAliasingMethod::FSR ) == 5 &&
+                   static_cast<int>( AntiAliasingMethod::DLSS ) == 6 );
     static_assert( static_cast<std::size_t>( Upscaler::DLSSRayReconstruction ) + 1 == kUpscalerNames.size() );
     static_assert( static_cast<std::size_t>( RayTracingMode::RayTracingPipeline ) + 1 ==
                    kRayTracingModeNames.size() );
 
     // WHICH DLSS NETWORK A DLSS MODE RUNS (UE: r.NGX.DLSS.DLAAPreset / QualityPreset / ... PerformancePreset /
-    // UltraPerformancePreset), one Parameter per mode (Parameter::DlssPresetNative ..; "Native" is the 100 % mode NVIDIA calls DLAA). Default is NVIDIA's choice
-    // for the mode, which a driver-side DLSS update may move. Only the presets the Streamline SDK still recommends
-    // are offered (sl_dlss.h: A-D were removed, E-F are deprecated, G-I and N-O revert to the default). Stored by
-    // name; the Streamline runtime maps a value to its sl::DLSSPreset (StreamlineRuntime.cpp).
+    // UltraPerformancePreset), one Parameter per mode (Parameter::DlssPresetNative ..; "Native" is the 100 % mode
+    // NVIDIA calls DLAA). Default is NVIDIA's choice for the mode, which a driver-side DLSS update may move. Only
+    // the presets the Streamline SDK still recommends are offered (sl_dlss.h: A-D were removed, E-F are
+    // deprecated, G-I and N-O revert to the default). Stored by name; the Streamline runtime maps a value to its
+    // sl::DLSSPreset (StreamlineRuntime.cpp).
     enum class DlssPreset : int
     {
         Default = 0,

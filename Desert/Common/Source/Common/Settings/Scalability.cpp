@@ -308,7 +308,8 @@ namespace Common::Scalability
                 return kShadowMethodNames;
             if ( parameter >= Parameter::DlssPresetNative && parameter <= Parameter::DlssPresetUltraPerformance )
                 return kDlssPresetNames;
-            if ( parameter >= Parameter::DlssRRPresetNative && parameter <= Parameter::DlssRRPresetUltraPerformance )
+            if ( parameter >= Parameter::DlssRRPresetNative &&
+                 parameter <= Parameter::DlssRRPresetUltraPerformance )
                 return kDlssRRPresetNames;
             switch ( SpecOf( parameter ).NarrowedBy )
             {
@@ -752,9 +753,9 @@ namespace Common::Scalability
                     if ( CapabilityCatalog::Offers( catalog.AntiAliasingMethods, method ) )
                         return;
                     // MSAA (no count > 1) falls back to FXAA. A vendor temporal method falls back to the engine's
-                    // best temporal method, TSR (always offered), except Ray Reconstruction, which is DLSS with the
-                    // denoiser: a device without the RR runtime keeps DLSS Super Resolution when it has that, as
-                    // UE's plugin falls back from RR to DLSS-SR.
+                    // best temporal method, TSR (always offered), except Ray Reconstruction, which is DLSS with
+                    // the denoiser: a device without the RR runtime keeps DLSS Super Resolution when it has that,
+                    // as UE's plugin falls back from RR to DLSS-SR.
                     AntiAliasingMethod to = AntiAliasingMethod::TSR;
                     if ( method == AntiAliasingMethod::MSAA )
                         to = AntiAliasingMethod::FXAA;
@@ -1177,11 +1178,10 @@ namespace Common::Scalability
 
     std::vector<ParameterOverride> Decompose( const AntiAliasingPreset& preset )
     {
-        return {
-             { std::string( SpecOf( Parameter::AntiAliasingMethod ).Key ),
-               static_cast<ParameterValue>( preset.Method ) },
-             { std::string( SpecOf( Parameter::AntiAliasingSamples ).Key ), preset.Samples },
-             { std::string( SpecOf( Parameter::RenderScalePercent ).Key ), preset.RenderScalePercent } };
+        return { { std::string( SpecOf( Parameter::AntiAliasingMethod ).Key ),
+                   static_cast<ParameterValue>( preset.Method ) },
+                 { std::string( SpecOf( Parameter::AntiAliasingSamples ).Key ), preset.Samples },
+                 { std::string( SpecOf( Parameter::RenderScalePercent ).Key ), preset.RenderScalePercent } };
     }
 
     std::vector<AntiAliasingPreset> OfferedPresets( const CapabilityCatalog& catalog )
