@@ -3497,6 +3497,15 @@ namespace Desert::Graphic
         return m_TargetFramebuffer ? m_TargetFramebuffer->GetColorAttachmentImage( 0 ) : nullptr;
     }
 
+    std::shared_ptr<Image2D> SceneRenderer::GetHdrRenditionImage() const
+    {
+        const auto it = m_RenderSystems.find( "TonemapSystem" );
+        if ( it == m_RenderSystems.end() || !it->second )
+            return nullptr;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        return static_cast<const System::TonemapRenderer*>( it->second.get() )->GetHdrRenditionImage();
+    }
+
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
     {
         // FXAA/SMAA write their own framebuffer downstream of tonemap; otherwise tonemap output IS final.

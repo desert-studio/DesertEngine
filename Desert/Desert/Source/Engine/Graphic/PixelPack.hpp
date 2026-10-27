@@ -67,6 +67,14 @@ namespace Desert::Graphic
         return c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow( c, 1.0f / 2.4f ) - 0.055f;
     }
 
+    /// The sRGB EOTF continued past 1 (Apple's extended sRGB): SceneComposite's LinearToSrgbExtended, inverted —
+    /// what an HDR rendition's code means in paper-white units (HDR-OUTPUT p3).
+    [[nodiscard]] inline float SrgbToLinearExtended( float encoded ) noexcept
+    {
+        const float e = std::max( encoded, 0.0f );
+        return e < 0.04045f ? e / 12.92f : std::pow( ( e + 0.055f ) / 1.055f, 2.4f );
+    }
+
     /// The brightest colour channel of an RGBA16F_ScRGB readback, and where it is: the evidence that an HDR
     /// swapchain carries values above paper white (1.0). Zero pixels -> { 0, 0 }.
     struct ScRGBPeak

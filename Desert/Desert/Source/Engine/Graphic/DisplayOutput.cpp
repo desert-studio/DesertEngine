@@ -19,6 +19,21 @@ namespace Desert::Graphic
         s_Current = state;
     }
 
+    namespace
+    {
+        bool s_SdrCaptureRendition = false;
+    } // namespace
+
+    void SetSdrCaptureRendition( const bool requested )
+    {
+        s_SdrCaptureRendition = requested;
+    }
+
+    bool SdrCaptureRenditionRequested()
+    {
+        return s_SdrCaptureRendition;
+    }
+
     Common::ResultStr<DisplayOutputState>
     ResolveDisplayOutputState( const Common::Scalability::DisplayOutput     output,
                                const Common::Scalability::DisplaySettings& settings, const DisplayLuminance& os )

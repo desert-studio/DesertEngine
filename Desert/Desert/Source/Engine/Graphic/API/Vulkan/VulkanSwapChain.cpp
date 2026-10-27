@@ -824,11 +824,14 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( source == Graphic::PackedPixelSource::RGBA16F_ScRGB )
         {
-            // The evidence an HDR capture carries that its PNG (the SDR rendition) cannot: the brightest value
-            // the swapchain held, in paper-white units (> 1 = above SDR white).
+            // The brightest value the swapchain held, in paper-white units. On a capture frame the editor draws
+            // the SDR rendition (Graphic::SdrCaptureRenditionRequested; <= 1); the HDR peak of the same frame is
+            // the tonemap's HDR rendition's ("[Display] HDR rendition of the captured frame"). Above 1 here
+            // means a capture whose requester never asked for the rendition: the PNG clips those highlights.
             const Graphic::ScRGBPeak peak = Graphic::FindScRGBPeak( raw.data(), raw.size(), pixels );
-            LOG_INFO( "[Display] capture of the scRGB swapchain: peak {:.3f} x paper white ({:.0f} nits) at "
+            LOG_INFO( "[Display] capture of the scRGB swapchain (SDR rendition {}): peak {:.3f} x paper white ({:.0f} nits) at "
                       "pixel ({}, {}) of {}x{}",
+                      Graphic::SdrCaptureRenditionRequested() ? "requested" : "NOT requested",
                       peak.Value, peak.Value * Graphic::CurrentDisplayOutput().PaperWhiteNits, peak.Pixel % w,
                       peak.Pixel / w, w, h );
         }

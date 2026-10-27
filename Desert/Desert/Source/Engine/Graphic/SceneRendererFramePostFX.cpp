@@ -570,7 +570,9 @@ namespace Desert::Graphic
                        "System.White is not in this graph); the tonemap pass is not recorded this frame" );
             return;
         }
-        const RDG::TextureRef output = textures.Import( tonemap->GetOutputImage(), "Tonemap" );
+        // HDR-OUTPUT p3: decided before FillMaterial, which gives the output the SDR transform when it is on.
+        const bool            hdrRendition = tonemap->PrepareHdrRendition();
+        const RDG::TextureRef output       = textures.Import( tonemap->GetOutputImage(), "Tonemap" );
         graph.AddPass(
              "PostFX: Tonemap", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -582,6 +584,21 @@ namespace Desert::Graphic
              },
              [tonemap]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return tonemap->Record( context ); } );
+        if ( !hdrRendition )
+            return;
+        // THE HDR RENDITION of the same frame (a window capture of an HDR output is pending): the same pipeline,
+        // inputs and values, with the HDR transform, into the second target the capture measures its peak on.
+        // Nothing in this graph reads it (NeverCull: a readback root); the capture reads it back after the present.
+        const RDG::TextureRef hdr = textures.Import( tonemap->GetHdrRenditionImage(), "Tonemap.HdrRendition" );
+        graph.AddPass(
+             "PostFX: Tonemap (HDR rendition)", RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 tonemap->DeclareBindings( pass, graphInputs, true );
+                 pass.ColorTarget( 0, hdr, RDG::LoadOp::DontCare() );
+             },
+             [tonemap]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return tonemap->Record( context, true ); } );
     }
 
     void SceneRenderer::AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures )

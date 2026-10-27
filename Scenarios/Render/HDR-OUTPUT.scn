@@ -6,6 +6,6 @@
 Дано run Display "Display: Output SDR_sRGB"
 Тогда 1_sdr кадр как до задачи (SDR-захват не изменился); editor.log "[Display] output SDR (sRGB): format BGRA8_UNORM colour space SRGB_NONLINEAR"
 Когда run Display "Display: Output scRGB_Linear"
-Тогда 2_edr editor.log output scRGB linear (EDR): RGBA16F + EXTENDED_SRGB_LINEAR, OS EDR headroom > 1, paper white / peak in nits; capture peak > 1.0 x paper white (sun stone); PNG (SDR rendition) matches 1_sdr; UI at paper white
+Тогда 2_edr editor.log output scRGB linear (EDR): RGBA16F + EXTENDED_SRGB_LINEAR, OS EDR headroom > 1, paper white / peak in nits; "HDR rendition of the captured frame: peak" > 1.0 x paper white (sun); swapchain capture = SDR rendition (peak <= 1); PNG matches 1_sdr; UI at paper white
 Когда run Display "Display: Output SDR_sRGB"
 Тогда 3_sdr_back SDR again, same as 1_sdr (machine.json left at SDR)

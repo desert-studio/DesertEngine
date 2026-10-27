@@ -58,6 +58,14 @@ namespace Desert::Graphic
     [[nodiscard]] const DisplayOutputState& CurrentDisplayOutput();
     void                                    PublishDisplayOutput( const DisplayOutputState& state );
 
+    // THE SDR RENDITION OF AN HDR FRAME (HDR-OUTPUT p3; UE: a screenshot of an HDR viewport is its SDR output).
+    // While a window capture is pending the HDR output's frame is drawn through the SDR output transform (the
+    // PNG of the capture then IS the SDR frame), and the tonemap writes the HDR transform of the SAME frame into
+    // its second target (TonemapRenderer::GetHdrRenditionImage), where the capture's peak is measured. One writer:
+    // whoever drives the capture (the editor's control channel); one reader: the tonemap. No effect on SDR.
+    void               SetSdrCaptureRendition( bool requested );
+    [[nodiscard]] bool SdrCaptureRenditionRequested();
+
     // PURE. The state an HDR output presents with: peak from the setting when > 0, else from the OS
     // (OS nits when it has them, else EdrHeadroom x paper white); paper white from the setting when > 0, else
     // the OS's. Error when neither gives a paper white or the headroom is not above 1.

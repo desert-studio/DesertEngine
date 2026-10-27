@@ -1235,6 +1235,11 @@ namespace Desert::Editor
         return snapshot;
     }
 
+    bool ControlService::WindowShotPending() const
+    {
+        return m_ControlInFlight && m_ControlInFlight->Operation == Control::Op::ShotWindow;
+    }
+
     void ControlService::RecordWindowCaptureIfDue()
     {
         // THE CAPTURE IS RECORDED WHILE THE FRAME IS STILL BEING BUILT, and that is not an optimisation.
