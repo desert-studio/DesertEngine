@@ -93,6 +93,7 @@ namespace Desert::Graphic
         const uint32_t          lodFlag   = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
 
         std::vector<GpuDriven::CullViewInput> views;
+        std::vector<std::string>              viewNames; // the validation log's name of each view
 
         // Main view: phase 1 against last frame's furthest HZB, only when it is this view's size and the view has
         // a previous frame (PrevViewProjection projects into it).
@@ -111,6 +112,7 @@ namespace Desert::Graphic
                      width, height, static_cast<uint32_t>( std::bit_width( std::max( width, height ) ) ), 0u );
             }
             views.push_back( mainInput );
+            viewNames.emplace_back( "GBuffer" );
         }
         const size_t mainView = 0;
 
@@ -127,6 +129,7 @@ namespace Desert::Graphic
                                                Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
                                                GpuDriven::CullViewFlags::kShadowCaster |
                                                     GpuDriven::CullViewFlags::kOrthographic | lodFlag ) );
+                viewNames.push_back( std::format( "cascade {}", c ) );
             }
         }
 
@@ -146,6 +149,7 @@ namespace Desert::Graphic
                 input.View.VsmLevel = level;
                 input.VsmDirtyMask  = m_FrameVsmPages->DirtyMask;
                 views.push_back( input );
+                viewNames.push_back( std::format( "VSM level {}", level ) );
             }
         }
 
@@ -183,6 +187,11 @@ namespace Desert::Graphic
             }
         }
         graph.Extract( furthest, m_CullHzbHistory, RDG::Access::SampledCompute );
+        RDG::BufferRef vsmDirtyMask{};
+        if ( m_FrameVsmPages )
+            vsmDirtyMask = m_FrameVsmPages->DirtyMask;
+        m_GpuCullValidation.AddFrame( graph, frame.FrameIndex, *gpuScene, views, viewNames, mainPhase.GetValue().Carry,
+                                      vsmDirtyMask );
         m_GpuCullLastError.clear();
     }
 } // namespace Desert::Graphic

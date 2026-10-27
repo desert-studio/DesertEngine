@@ -31,6 +31,7 @@
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
+#include <Engine/Graphic/GpuDriven/InstanceCullValidation.hpp>
 #include <Engine/Graphic/View/DepthOfField.hpp>
 #include <Engine/Graphic/View/MotionBlur.hpp>
 #include <Engine/Graphic/View/SpatialUpscale.hpp>
@@ -1634,6 +1635,8 @@ namespace Desert::Graphic
         // occlusion input (registered only when its size is this frame's depth size).
         RDG::ExternalTexture m_CullHzbHistory;
         GpuDriven::InstanceCulling m_GpuCull;
+        // The CPU recount of the cull's Visibility words, logged per view (one frame-in-flight late).
+        GpuDriven::InstanceCullValidation m_GpuCullValidation;
         // This frame's VSM page passes (AddFrameVirtualSunShadow), for the cull's VSM level views; reset before
         // the sun shadow is declared each frame, so a frame without VSM culls no level.
         std::optional<System::VirtualShadowMapFrame> m_FrameVsmPages;
