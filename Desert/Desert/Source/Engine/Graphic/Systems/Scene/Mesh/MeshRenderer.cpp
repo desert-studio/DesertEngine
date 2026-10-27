@@ -552,6 +552,57 @@ namespace Desert::Graphic::System
         return frame;
     }
 
+    uint32_t MeshRenderer::RegisterMaterialRow( GpuDriven::GpuSceneRegistry& registry,
+                                                const DataDrivenMaterial*    material,
+                                                MaterialInstance*            instance,
+                                                const bool                   receiveSunShadows )
+    {
+        const GpuDriven::MaterialRowKey key{ .Material = material,
+                                             .Instance = instance,
+                                             .Variant = receiveSunShadows ? 0u : GpuDriven::kMaterialRowNoSunShadows };
+        if ( const auto found = m_FrameMaterialRows.find( key ); found != m_FrameMaterialRows.end() )
+            return found->second;
+        Core::Formats::MaterialParamRow row = MeshRendererDetail::EffectiveRow( material, instance );
+        if ( !receiveSunShadows )
+            Core::Formats::SetMaterialParam( material->GetSchema(), row, "ReceiveSunShadows", glm::vec4( 0.0f ) );
+        const uint32_t index = registry.SyncMaterialRow( key, row );
+        m_FrameMaterialRows.emplace( key, index );
+        return index;
+    }
+
+    std::optional<uint32_t> MeshRenderer::FindMaterialRow( const DataDrivenMaterial* material,
+                                                           const MaterialInstance*   instance,
+                                                           const bool                receiveSunShadows )
+    {
+        const GpuDriven::MaterialRowKey key{ .Material = material,
+                                             .Instance = instance,
+                                             .Variant = receiveSunShadows ? 0u : GpuDriven::kMaterialRowNoSunShadows };
+        if ( const auto found = m_FrameMaterialRows.find( key ); found != m_FrameMaterialRows.end() )
+            return found->second;
+        if ( m_MissingMaterialRowReported.insert( material ).second )
+            LOG_ERROR( "[MeshRenderer] '{}' has no row in the scene material table this frame (SyncGpuScene registers "
+                       "every queued draw's row before the upload); its draws are not recorded.",
+                       material != nullptr ? material->GetShaderName() : std::string( "<null>" ) );
+        return std::nullopt;
+    }
+
+    bool MeshRenderer::LendMaterialTable( DataDrivenMaterial& material ) const
+    {
+        // Find: a surface template with no parameters declares no Materials row block.
+        auto* const block = material.Find<StorageBufferProperty>( kMaterialRowBlock );
+        if ( block == nullptr )
+            return true;
+        if ( m_GpuScene == nullptr || m_GpuScene->GetMaterialsBuffer() == nullptr )
+        {
+            LOG_ERROR( "[MeshRenderer] the scene material table is not on the device (SyncGpuScene did not upload "
+                       "it); '{}' is not drawn.",
+                       material.GetShaderName() );
+            return false;
+        }
+        block->LendViewBuffer( m_GpuScene->GetMaterialsBuffer() );
+        return true;
+    }
+
     Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
                                                       std::span<const MotionRecord>          otherRigid,
                                                       RayTracing::RayTracingSkinCache* const skinCache,
@@ -640,35 +691,47 @@ namespace Desert::Graphic::System
             for ( size_t instance = 0; instance < data.Transforms->size(); ++instance )
                 m_InstancedGpuInstances.push_back( rows.FieldInstances[f] + static_cast<uint32_t>( instance ) );
         }
-        // The scene material table: every queued static draw's row, keyed by the template and instance its section
-        // shades with, registered here so the upload below puts it on the device before any pass names it. The
-        // component's Receive Shadows off zeroes the row's ReceiveSunShadows (either one opts out), so it is part
-        // of the key. The (Static x Forward) stand-in's rows too: a draw whose own cell is not ready yet records
-        // with the stand-in (BuildStaticDraws) in this same frame.
-        const auto materialRowOf = [&registry]( const DataDrivenMaterial* material, MaterialInstance* instance,
-                                                const bool receiveShadows ) -> uint32_t
-        {
-            Core::Formats::MaterialParamRow row = MeshRendererDetail::EffectiveRow( material, instance );
-            if ( !receiveShadows )
-                Core::Formats::SetMaterialParam( material->GetSchema(), row, "ReceiveSunShadows",
-                                                 glm::vec4( 0.0f ) );
-            const GpuDriven::MaterialRowKey key{ .Material = material,
-                                                 .Instance = instance,
-                                                 .Variant = receiveShadows ? 0u : GpuDriven::kMaterialRowNoSunShadows };
-            return registry.SyncMaterialRow( key, row );
-        };
+        // The scene material table: the row of every (template, instance) a queued draw shades with, registered
+        // here so the upload below puts it on the device before any pass names it (the draw paths only look rows
+        // up). Rows are keyed by the template whose layout they have — the section's surface; the cell a pass
+        // records with (G-buffer twin, instanced variant, masked caster) is a cell of the same template and reads
+        // the same layout. The component's Receive Shadows off zeroes the row's ReceiveSunShadows (either one opts
+        // out), so a static draw that opts out has a second row; its shadow caster and glass draw name the first.
+        m_FrameMaterialRows.clear();
         for ( auto& data : m_StaticQueue )
         {
             if ( !data.MaterialSlots )
                 continue;
             if ( const auto slot = MeshRendererDetail::SectionSurface( data.MaterialSlots.get(), data.SectionSlot ) )
-                data.MaterialRow = materialRowOf( slot.Surface, slot.Instance, data.ReceiveShadows );
+            {
+                const uint32_t receiving = RegisterMaterialRow( registry, slot.Surface, slot.Instance, true );
+                data.MaterialRow         = data.ReceiveShadows
+                                                ? receiving
+                                                : RegisterMaterialRow( registry, slot.Surface, slot.Instance, false );
+            }
         }
-        if ( !m_StaticQueue.empty() )
+        for ( const auto& data : m_InstancedQueue )
+            if ( data.Material )
+                if ( const auto* mat = dynamic_cast<const DataDrivenMaterial*>( data.Material->GetParentMaterial() ) )
+                    (void)RegisterMaterialRow( registry, mat, data.Material.get(), true );
+        for ( const auto& data : m_SkinnedQueue )
+            for ( const auto& section : data.Sections )
+                if ( section.Material != nullptr && section.Instance != nullptr )
+                    (void)RegisterMaterialRow( registry, section.Material, section.Instance, true );
+        for ( const auto& gpu : m_GpuInstancedQueue )
+            if ( gpu.Material )
+                if ( const auto* mat = dynamic_cast<const DataDrivenMaterial*>( gpu.Material->GetParentMaterial() ) )
+                    (void)RegisterMaterialRow( registry, mat, gpu.Material.get(), true );
+        // The default surface's rows: what every stand-in draw of this frame names.
+        const bool anyMeshDraw = !m_StaticQueue.empty() || !m_InstancedQueue.empty() || !m_SkinnedQueue.empty() ||
+                                 !m_GpuInstancedQueue.empty();
+        if ( anyMeshDraw )
             if ( StandInCell* const standIn = StandIn( MeshVertexPath::Static, MeshPass::Forward ) )
             {
-                m_StandInMaterialRows[0] = materialRowOf( standIn->Material.get(), standIn->Instance.get(), true );
-                m_StandInMaterialRows[1] = materialRowOf( standIn->Material.get(), standIn->Instance.get(), false );
+                m_StandInMaterialRows[0] =
+                     RegisterMaterialRow( registry, standIn->Material.get(), standIn->Instance.get(), true );
+                m_StandInMaterialRows[1] =
+                     RegisterMaterialRow( registry, standIn->Material.get(), standIn->Instance.get(), false );
             }
         m_GpuScene = &scene;
 

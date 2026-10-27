@@ -1709,9 +1709,30 @@ namespace Desert::Graphic::System
         };
         StandInCell*                              StandIn( MeshVertexPath path, MeshPass pass );
         std::unordered_map<uint32_t, StandInCell> m_StandIns; // key: path * 16 + pass; Material null = refused
-        // The (Static x Forward) stand-in's scene material table rows, [0] receiving sun shadows and [1] not
-        // (SyncGpuScene): the row a static draw names while it stands in for a material whose cell is not ready.
+        // The default surface's scene material table rows (the (Static x Forward) stand-in's), [0] receiving sun
+        // shadows and [1] not (SyncGpuScene): the row any draw names while it stands in for a material whose cell
+        // is not ready (static, instanced, skinned and glass stand-ins and the instanced spare all show the default
+        // surface's defaults; every cell of one template declares one Materials layout).
         std::array<uint32_t, 2> m_StandInMaterialRows{};
+
+        // THE SCENE MATERIAL TABLE, the one source of every mesh draw's Materials[] row (GpuScene::AddMaterialRow).
+        // SyncGpuScene registers the row of every (template, instance) a queued draw shades with BEFORE the scene's
+        // upload, so the table is at its final size and content before any pass is declared; the draw paths only
+        // look rows up and lend the table to the recording cell. Cleared at each SyncGpuScene.
+        std::unordered_map<GpuDriven::MaterialRowKey, uint32_t, GpuDriven::MaterialRowKeyHash> m_FrameMaterialRows;
+        std::unordered_set<const void*> m_MissingMaterialRowReported; // a template whose miss was said once
+        // The row of (@p material, @p instance) with ReceiveSunShadows zeroed unless @p receiveSunShadows: added
+        // or refreshed in @p registry the first time this frame asks, then the frame's index.
+        uint32_t RegisterMaterialRow( GpuDriven::GpuSceneRegistry& registry, const DataDrivenMaterial* material,
+                                      MaterialInstance* instance, bool receiveSunShadows );
+        // The row SyncGpuScene registered for the key; nullopt (said once per template) when it did not, and the
+        // caller does not record the draw: a row looked up after the upload would not be on the device.
+        [[nodiscard]] std::optional<uint32_t> FindMaterialRow( const DataDrivenMaterial* material,
+                                                               const MaterialInstance*   instance,
+                                                               bool                      receiveSunShadows = true );
+        // Lends the scene material table to @p material's Materials block (a template with no parameters declares
+        // none: true, nothing to lend). False, said by name, when the table is not on the device.
+        [[nodiscard]] bool LendMaterialTable( DataDrivenMaterial& material ) const;
         // The glass pass's stand-in: the default surface's (Static x Forward) cell with the translucent draw
         // state.
         TranslucentDraw* TranslucentStandIn();
@@ -1750,7 +1771,6 @@ namespace Desert::Graphic::System
         {
             const StaticMeshRenderData* Obj  = nullptr;
             MaterialInstance*           Inst = nullptr;
-            Core::Formats::MaterialParamRow Row; // this object's effective Materials[] row
             bool                        HasOverrides = false;
         };
         struct InstancedDraw
@@ -1788,7 +1808,6 @@ namespace Desert::Graphic::System
             Graphic::DataDrivenMaterial* Mat  = nullptr;
             MaterialInstance*           Inst = nullptr;
             std::vector<glm::mat4>      Transforms;
-            std::vector<glm::vec4>       Materials; // Materials[] rows, end to end
             std::vector<InstancedDraw>  Draws;
         };
 
@@ -1846,7 +1865,6 @@ namespace Desert::Graphic::System
         // stable by construction.
         std::vector<std::unique_ptr<InstancedBatchSet>> m_ScratchInstSets;
         std::size_t                                     m_ScratchInstSetCount = 0;
-        std::vector<glm::vec4>                   m_ScratchGpuMaterials; // per-object Materials[] rows, end to end
         std::vector<ObjDraw>        m_ScratchSingles;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;
         std::vector<const StaticMeshRenderData*> m_ScratchShadowSingles;
@@ -1855,7 +1873,6 @@ namespace Desert::Graphic::System
         struct MaskedCasterSet
         {
             DataDrivenMaterial*    Caster = nullptr;
-            std::vector<glm::vec4> Rows;
             std::vector<glm::mat4> Transforms; // Instanced path: InstanceTransforms; Skinned path: Bones
         };
         struct MaskedCasterDraw

@@ -868,7 +868,6 @@ namespace Desert::Graphic::System
             }
             auto& set  = *m_ScratchMaskedSets[maskedSetCount++];
             set.Caster = caster;
-            set.Rows.clear();
             set.Transforms.clear();
             return set;
         };
@@ -898,6 +897,13 @@ namespace Desert::Graphic::System
             {
                 continue; // refused by name, once
             }
+            // The caster's row is the lit draw's, from the scene material table (SyncGpuScene: the receiving
+            // row; a caster never reads ReceiveSunShadows).
+            const std::optional<uint32_t> row = FindMaterialRow( mat, inst );
+            if ( !row )
+            {
+                continue;
+            }
             auto&            set = maskedSetFor( caster );
             MaskedCasterDraw draw;
             draw.Set       = &set;
@@ -905,7 +911,7 @@ namespace Desert::Graphic::System
             draw.Mesh      = rd.Mesh;
             draw.Transform = rd.Transform;
             draw.Instance  = inst;
-            draw.Row       = AppendRow( set.Rows, EffectiveRow( mat, inst ) );
+            draw.Row       = *row;
             draw.LodLevel  = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
             draw.HiddenSubmeshMask = rd.HiddenSubmeshes;
             m_ScratchMaskedDraws.push_back( draw );
@@ -1006,8 +1012,12 @@ namespace Desert::Graphic::System
                     {
                         continue; // refused by name, once
                     }
-                    auto&          set = maskedSetFor( caster );
-                    const uint32_t row = AppendRow( set.Rows, EffectiveRow( ismMat, ismInst ) );
+                    const std::optional<uint32_t> row = FindMaterialRow( ismMat, ismInst );
+                    if ( !row )
+                    {
+                        continue;
+                    }
+                    auto& set = maskedSetFor( caster );
                     for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                     {
                         const auto first = static_cast<uint32_t>( set.Transforms.size() );
@@ -1024,7 +1034,7 @@ namespace Desert::Graphic::System
                         draw.Mesh     = ism.Mesh;
                         draw.HiddenSubmeshMask = ism.HiddenSubmeshes;
                         draw.Instance = ismInst;
-                        draw.Row      = row;
+                        draw.Row      = *row;
                         draw.Count    = static_cast<uint32_t>( set.Transforms.size() ) - first;
                         draw.First    = first;
                         draw.LodLevel = level;
@@ -1138,6 +1148,11 @@ namespace Desert::Graphic::System
                     {
                         continue; // refused by name, once
                     }
+                    const std::optional<uint32_t> row = FindMaterialRow( section.Material, section.Instance );
+                    if ( !row )
+                    {
+                        continue;
+                    }
                     auto&            set = maskedSetFor( caster );
                     MaskedCasterDraw draw;
                     draw.Set       = &set;
@@ -1145,7 +1160,7 @@ namespace Desert::Graphic::System
                     draw.Mesh      = sd.Mesh;
                     draw.Transform = sd.Transform;
                     draw.Instance  = section.Instance;
-                    draw.Row       = AppendRow( set.Rows, EffectiveRow( section.Material, section.Instance ) );
+                    draw.Row       = *row;
                     draw.First     = static_cast<uint32_t>( set.Transforms.size() );
                     draw.GpuPrimitive = sd.GpuPrimitive;
                     draw.HiddenSubmeshMask = section.HiddenSubmeshes;
@@ -1227,11 +1242,10 @@ namespace Desert::Graphic::System
             auto& set = *m_ScratchMaskedSets[i];
             WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                               m_CascadeCasterBias[c], m_ParallaxQuality );
-            // Find: a masked caster whose surface has no parameters (or whose mask reads none) declares no row
-            // block.
-            if ( auto* sb = set.Caster->Find<StorageBufferProperty>( kMaterialRowBlock ) )
+            // The draws' rows are the scene material table's (SyncGpuScene); a refusal was said by name.
+            if ( !LendMaterialTable( *set.Caster ) )
             {
-                sb->SetRawData( set.Rows.data(), static_cast<uint32_t>( set.Rows.size() * sizeof( glm::vec4 ) ) );
+                continue;
             }
             if ( set.Transforms.empty() )
             {
