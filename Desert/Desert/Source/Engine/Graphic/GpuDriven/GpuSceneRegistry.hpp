@@ -60,6 +60,9 @@ namespace Desert::Graphic
         // GpuDriven::PrimitiveFlags.
         const Mesh* Mesh  = nullptr;
         uint32_t    Flags = 0;
+        // StaticMeshRenderData::ForcedLOD / LODBias (MeshRenderer::ComputeLOD's inputs); -1 / 0 for the rest.
+        int32_t ForcedLod = -1;
+        int32_t LodBias   = 0;
     };
 
     // One queued instanced field (ISM / foliage): its instances' WORLD transforms. Records of one entity that
@@ -72,6 +75,8 @@ namespace Desert::Graphic
         float                      CullDistanceStart = 0.0f;
         float                      CullDistanceEnd   = 0.0f;
         uint32_t                   Flags             = 0;
+        // WindBoundsPad( InstancedMeshRenderData::Wind ): how far the wind moves a vertex horizontally (cm).
+        float BoundsPad = 0.0f;
     };
 } // namespace Desert::Graphic
 
@@ -141,6 +146,12 @@ namespace Desert::Graphic::GpuDriven
             uint64_t               PrevFrame  = kNoFrame; // the one before (DiscardFrame restores it)
             const Mesh*            Mesh       = nullptr;
             uint32_t               Flags      = 0;
+            // The row's LOD and cull inputs as last written: a change rewrites the row like a mesh change.
+            int32_t                ForcedLod = -1;
+            int32_t                LodBias   = 0;
+            float                  BoundsPad = 0.0f;
+            float                  CullStart = 0.0f;
+            float                  CullEnd   = 0.0f;
             uint64_t               BonesFrame = kNoFrame; // the frame Bones / BoneOffset were written for
             uint64_t               PrevBonesFrame = kNoFrame; // the frame PrevBones were written for
             uint32_t               BoneOffset = 0;

@@ -575,8 +575,10 @@ namespace Desert::Graphic::System
             rigid.push_back( { .Entity = data.Entity,
                                .Part   = data.MotionPart,
                                .World  = data.Transform,
-                               .Mesh   = data.Mesh,
-                               .Flags  = rigidFlags( data.CastShadows, data.CastContactShadow ) } );
+                               .Mesh      = data.Mesh,
+                               .Flags     = rigidFlags( data.CastShadows, data.CastContactShadow ),
+                               .ForcedLod = data.ForcedLOD,
+                               .LodBias   = data.LODBias } );
         for ( const auto& data : m_GenericQueue )
             rigid.push_back( { .Entity = data.Entity,
                                .Part   = data.MotionPart,
@@ -606,7 +608,8 @@ namespace Desert::Graphic::System
                                 .Transforms        = *data.Transforms,
                                 .CullDistanceStart = data.CullDistance.Min,
                                 .CullDistanceEnd   = data.CullDistance.Max,
-                                .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ) } );
+                                .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ),
+                                .BoundsPad         = WindBoundsPad( data.Wind ) } );
 
         auto& rows = m_ScratchGpuSceneRows;
         registry.Sync( rigid, skinned, fields, rows );

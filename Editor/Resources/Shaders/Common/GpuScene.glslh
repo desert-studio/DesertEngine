@@ -74,6 +74,21 @@ struct GpuSceneInstance
     uint  WorldBoundsRow;      // offset 76 — DESERT_GPU_INVALID_INDEX unless the primitive has WORLD_BOUNDS
 };
 
+// THE ONLY WAY A SHADER READS A GPUSCENE TRANSFORM. The row layout of the transforms is the GpuScene's business
+// (DRAWBINS packs them as 3x4 rows); every reader goes through these three, so a layout change is one edit here.
+mat4 GpuScene_LocalToWorld( GpuScenePrimitive p )
+{
+    return p.LocalToWorld;
+}
+mat4 GpuScene_PrevLocalToWorld( GpuScenePrimitive p )
+{
+    return p.PrevLocalToWorld;
+}
+mat4 GpuScene_InstanceToPrimitive( GpuSceneInstance i )
+{
+    return i.InstanceToPrimitive;
+}
+
 // A per-frame world box replacing the local bounds of one instance (skinned pose). 32 bytes.
 struct GpuSceneWorldBounds
 {

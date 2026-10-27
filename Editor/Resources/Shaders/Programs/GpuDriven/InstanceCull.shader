@@ -96,6 +96,14 @@ Shader "InstanceCull"
             uint DirtyPageMask[];
         };
 
+        // The binned draws' per-instance vertex stream (4 B per visible instance): the GpuScene instance of
+        // Visible[i], at the same index, so a draw's gl_InstanceIndex reaches its instance row without a second
+        // indirection.
+        Buffer(16) GpuCullVisibleInstanceIds
+        {
+            uint VisibleInstanceIds[];
+        };
+
         Uniform sampler PointClampSampler;
         Uniform(15) texture2D GpuCullHzbTexture; // the furthest HZB of the dispatch's HZB view (last frame's in step 1)
         #define GpuCullHzb sampler2D(GpuCullHzbTexture, PointClampSampler)
@@ -318,7 +326,9 @@ Shader "InstanceCull"
                 const uint slot = pd.FirstDrawSlot + level * pd.SubmeshCount + s;
                 const uint bin  = DrawSlots[slot].Bin;
                 const uint k    = atomicAdd( Draws[localView * Params2.x + bin].InstanceCount, 1u );
-                Visible[localView * Params2.y + Bins[bin].FirstVisible + k] = GpuVisibleInstance( instanceRow, slot );
+                const uint entry = localView * Params2.y + Bins[bin].FirstVisible + k;
+                Visible[entry]            = GpuVisibleInstance( instanceRow, slot );
+                VisibleInstanceIds[entry] = instanceRow;
             }
         }
 
@@ -359,7 +369,7 @@ Shader "InstanceCull"
                 Visibility[cell] = 0u;
                 return;
             }
-            const mat4 world = primitive.LocalToWorld * instance.InstanceToPrimitive;
+            const mat4 world = GpuScene_LocalToWorld( primitive ) * GpuScene_InstanceToPrimitive( instance );
             if ( !KeepsInstanceAtDistance( view, instance, instanceRow - primitive.FirstInstance, world[3].xyz ) )
             {
                 Visibility[cell] = 0u;
@@ -411,7 +421,7 @@ Shader "InstanceCull"
             const GpuCullView       view      = Views[Params.w + localView];
             const GpuSceneInstance  instance  = Instances[entry.Instance];
             const GpuScenePrimitive primitive = Primitives[instance.Primitive];
-            const mat4              world     = primitive.LocalToWorld * instance.InstanceToPrimitive;
+            const mat4              world     = GpuScene_LocalToWorld( primitive ) * GpuScene_InstanceToPrimitive( instance );
             vec3                    boxMin;
             vec3                    boxMax;
             WorldBox( primitive, instance, world, boxMin, boxMax );

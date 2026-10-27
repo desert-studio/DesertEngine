@@ -623,6 +623,35 @@ namespace Desert::Graphic::GpuDriven
         return std::span<const GpuSceneInstance>( m_Instances ).subspan( row.FirstInstance, row.InstanceCount );
     }
 
+    Common::ResultStr<GpuSceneBuffers> GpuScene::ImportTables( RDG::Builder& graph )
+    {
+        if ( HasPendingUpload() )
+            return Common::MakeError<GpuSceneBuffers>(
+                 "GPUScene: rows wait for an upload; the tables are imported only after AddUploadPass ran" );
+        GpuSceneBuffers out;
+        out.PrimitiveCount = static_cast<uint32_t>( m_Primitives.size() );
+        out.InstanceCount  = static_cast<uint32_t>( m_Instances.size() );
+        const auto import  = [&graph]( Table& table, RDG::BufferRef& into ) -> Common::BoolResultStr
+        {
+            if ( !table.Buffer )
+                return Common::MakeError( std::format( "GPUScene {}: no device table yet (no upload ran)", table.Name ) );
+            if ( const auto imported = Renderer::ImportBuffer( table.Buffer, table.Import ); !imported )
+                return Common::MakeError( std::format( "GPUScene {}: the table could not be imported: {}",
+                                                       table.Name, imported.GetError() ) );
+            into = graph.RegisterExternal( table.Import, std::string( "GPUScene." ) + table.Name );
+            return BOOLSUCCESS;
+        };
+        for ( const auto& [table, into] :
+              { std::pair<Table*, RDG::BufferRef*>{ m_PrimitiveTable.get(), &out.Primitives },
+                std::pair<Table*, RDG::BufferRef*>{ m_InstanceTable.get(), &out.Instances },
+                std::pair<Table*, RDG::BufferRef*>{ m_LodTable.get(), &out.LodScreenSizes },
+                std::pair<Table*, RDG::BufferRef*>{ m_WorldBoundsTable.get(), &out.WorldBounds },
+                std::pair<Table*, RDG::BufferRef*>{ m_BonesTable.get(), &out.ObjectBones } } )
+            if ( const Common::BoolResultStr done = import( *table, *into ); !done )
+                return Common::MakeError<GpuSceneBuffers>( done.GetError() );
+        return Common::MakeSuccess( std::move( out ) );
+    }
+
     const std::shared_ptr<ShaderResources::StorageBuffer>& GpuScene::GetPrimitivesBuffer() const
     {
         return m_PrimitiveTable->Buffer;

@@ -37,6 +37,7 @@ namespace Desert::Graphic::GpuDriven
             DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullDispatchArgs );
             DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVisibility );
             DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVsmDirtyMask );
+            DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVisibleInstanceIds );
             DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
             DESERT_SHADER_PARAMETER( Texture, GpuCullHzbTexture );
         };
@@ -128,8 +129,11 @@ namespace Desert::Graphic::GpuDriven
         struct DispatchBinds
         {
             RDG::BufferRef  Views, PrimitiveDraws, DrawSlots, Bins;
-            RDG::BufferRef  Draws, Visible;
+            RDG::BufferRef  Draws, Visible, VisibleIds;
             RDG::BufferRef  Occluded, OccludedCount, DispatchArgs, Visibility, DirtyMask;
+            // The step-2 dispatch reads DispatchArgs as its indirect arguments, so the program's DispatchArgs slot
+            // (written by step 3 only) is filled with this unread buffer there: every slot of the layout is bound.
+            RDG::BufferRef  ArgsSlot;
             RDG::TextureRef Hzb;
         };
 
@@ -151,6 +155,7 @@ namespace Desert::Graphic::GpuDriven
                  .Storage( P::GpuCullPassBins, b.Bins, R )
                  .Storage( P::GpuCullIndirectDraws, b.Draws, W )
                  .Storage( P::GpuCullVisibleInstances, b.Visible, W )
+                 .Storage( P::GpuCullVisibleInstanceIds, b.VisibleIds, W )
                  .Storage( P::GpuCullOccluded, b.Occluded, W )
                  .Storage( P::GpuCullOccludedCount, b.OccludedCount, W )
                  .Storage( P::GpuCullVisibility, b.Visibility, W )
@@ -159,7 +164,10 @@ namespace Desert::Graphic::GpuDriven
                  .Texture( P::GpuCullHzbTexture, b.Hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( CullPush ) ) );
             if ( argsAsIndirect )
+            {
                 pass.Read( b.DispatchArgs, RDG::Access::IndirectArgs );
+                blk.Storage( P::GpuCullDispatchArgs, b.ArgsSlot, W );
+            }
             else
                 blk.Storage( P::GpuCullDispatchArgs, b.DispatchArgs, W );
         }
@@ -288,6 +296,9 @@ namespace Desert::Graphic::GpuDriven
                  RDG::BufferDesc{ .Bytes = std::max<uint64_t>( 1u, uint64_t{ local } * capacity ) *
                                            sizeof( GpuVisibleInstance ) },
                  std::format( "GPUDriven.VisibleInstances.P{}", p ) );
+            binds.VisibleIds = graph.CreateBuffer(
+                 RDG::BufferDesc{ .Bytes = std::max<uint64_t>( 1u, uint64_t{ local } * capacity ) * sizeof( uint32_t ) },
+                 std::format( "GPUDriven.VisibleInstanceIds.P{}", p ) );
 
             CullPush push;
             push.Params  = { kStepInitDraws, instances, local, firstRow[p] };
@@ -302,6 +313,7 @@ namespace Desert::Graphic::GpuDriven
             for ( uint32_t k = 0; k < local; ++k )
                 result.Draws[groups[p][k]] = CulledDraws{ .IndirectDraws     = binds.Draws,
                                                           .VisibleInstances  = binds.Visible,
+                                                          .VisibleInstanceIds = binds.VisibleIds,
                                                           .FirstIndirectDraw = k * bins };
         }
         return Common::MakeSuccess( std::move( result ) );
@@ -373,6 +385,11 @@ namespace Desert::Graphic::GpuDriven
                  RDG::BufferDesc{ .Bytes = std::max<uint64_t>( 1u, uint64_t{ local } * table.VisibleCapacity ) *
                                            sizeof( GpuVisibleInstance ) },
                  std::format( "GPUDriven.VisibleInstances2.P{}", p ) );
+            binds.VisibleIds = graph.CreateBuffer(
+                 RDG::BufferDesc{ .Bytes = std::max<uint64_t>( 1u, uint64_t{ local } * table.VisibleCapacity ) *
+                                           sizeof( uint32_t ) },
+                 std::format( "GPUDriven.VisibleInstanceIds2.P{}", p ) );
+            binds.ArgsSlot = ZeroBuffer( graph, std::format( "GPUDriven.PostArgsSlot.P{}", p ) );
 
             CullPush push;
             push.Params  = { kStepInitDraws, carry.InstanceCount, local, firstRow[p] };
@@ -392,6 +409,7 @@ namespace Desert::Graphic::GpuDriven
             for ( uint32_t k = 0; k < local; ++k )
                 result[groups[p][k]] = CulledDraws{ .IndirectDraws     = binds.Draws,
                                                     .VisibleInstances  = binds.Visible,
+                                                          .VisibleInstanceIds = binds.VisibleIds,
                                                     .FirstIndirectDraw = k * bins };
         }
         return Common::MakeSuccess( std::move( result ) );

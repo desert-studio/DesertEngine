@@ -67,6 +67,9 @@ namespace Desert::Graphic::GpuDriven
         RDG::BufferRef IndirectDraws;    // GpuIndirectDraw[views x Bins] — Access::IndirectArgs
         RDG::BufferRef GroupDrawCounts;  // uint[Groups] — Access::IndirectArgs; invalid on the fixed path
         RDG::BufferRef VisibleInstances; // GpuVisibleInstance[views x VisibleCapacity]
+        // uint[views x VisibleCapacity]: VisibleInstances[i].Instance at the same index - the binned draws'
+        // per-instance vertex stream (4 B per visible instance, read at gl_InstanceIndex).
+        RDG::BufferRef VisibleInstanceIds;
         uint32_t       FirstIndirectDraw = 0;
     };
 
