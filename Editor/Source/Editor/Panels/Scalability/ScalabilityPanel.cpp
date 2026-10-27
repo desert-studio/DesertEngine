@@ -111,14 +111,92 @@ namespace Desert::Editor
             return SC::QualityState::Table().ValueAt( parameter,
                                                       selection.Levels[static_cast<std::size_t>( spec.Owner )] );
         }
+
+        // The listed groups (IsGroupListed): the ones a level slider moves.
+        std::vector<SC::Group> ListedGroups()
+        {
+            std::vector<SC::Group> groups;
+            for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
+                if ( SC::IsGroupListed( static_cast<SC::Group>( g ) ) )
+                    groups.push_back( static_cast<SC::Group>( g ) );
+            return groups;
+        }
+
+        // What a person reads for a group (GroupKey is the file's and machine.json's name).
+        const char* GroupLabel( SC::Group group )
+        {
+            switch ( group )
+            {
+                case SC::Group::Textures:
+                    return "Textures";
+                case SC::Group::Filtering:
+                    return "Texture Filtering";
+                case SC::Group::Shadows:
+                    return "Shadows";
+                case SC::Group::GlobalIllumination:
+                    return "Global Illumination";
+                case SC::Group::Reflections:
+                    return "Reflections";
+                case SC::Group::PostProcess:
+                    return "Post Processing";
+                case SC::Group::Effects:
+                    return "Effects";
+                case SC::Group::ViewDistance:
+                    return "View Distance";
+                case SC::Group::AntiAliasing:
+                    return "Anti-Aliasing";
+                case SC::Group::ResolutionScale:
+                    return "Resolution Scale";
+                case SC::Group::Shading:
+                    return "Shading";
+                case SC::Group::PathTracing:
+                    return "Path Tracing";
+                case SC::Group::Count:
+                    break;
+            }
+            return "?";
+        }
+
+        // A level slider (UE's Scalability panel): Low .. Cinematic, the level's name as its text; "Custom" when
+        // @p current is empty (the Overall slider over groups at different levels). Returns the new level when
+        // moved.
+        std::optional<SC::Level> LevelSlider( const char* label, std::optional<SC::Level> current )
+        {
+            int               value = static_cast<int>( current.value_or( SC::Level::Epic ) );
+            const std::string text  = current ? std::string( SC::LevelKey( *current ) ) : std::string( "Custom" );
+            if ( !ImGui::SliderInt( label, &value, 0, static_cast<int>( SC::kLevelCount ) - 1, text.c_str(),
+                                    ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput ) )
+                return std::nullopt;
+            const auto level = static_cast<SC::Level>( value );
+            if ( current == level )
+                return std::nullopt;
+            return level;
+        }
+
+        // The level every listed group is at, or empty when they differ.
+        std::optional<SC::Level> UniformLevel( const SC::GroupLevels& levels )
+        {
+            std::optional<SC::Level> uniform;
+            for ( const SC::Group group : ListedGroups() )
+            {
+                const SC::Level level = levels[static_cast<std::size_t>( group )];
+                if ( uniform && *uniform != level )
+                    return std::nullopt;
+                uniform = level;
+            }
+            return uniform;
+        }
     } // namespace
 
     // UE's Scalability / GameUserSettings: what THIS MACHINE can afford. Every control here goes through
-    // QualityState (the one apply point, which saves machine.json); nothing reaches a scene file. Group levels
-    // first (UE's sg.*), then the per-parameter overrides a person tunes alone. Every list a combo offers is the
-    // device's CapabilityCatalog list, and every value that does not run as asked shows the resolver's own
-    // "requested -> effective (reason)" line. Placeholder parameters and groups with only placeholders are not
-    // shown (IsGroupListed): a control that moves nothing is a dead setting.
+    // QualityState (the one apply point, which saves machine.json); nothing reaches a scene file.
+    // SCAL-UX (owner 10-27, "too many switches"): what a person sees is UE's shape - an Overall slider and one
+    // level slider per listed group. The per-parameter overrides are folded away under "Advanced" (closed): first
+    // the Basic parameters with their curated controls, then every Advanced one, drawn from its spec, under a
+    // closed "Internal parameters" tree. Every list a combo offers is the device's CapabilityCatalog list, and
+    // every value that does not run as asked shows the resolver's own "requested -> effective (reason)" line.
+    // Placeholder parameters and groups with only placeholders are not shown (IsGroupListed): a control that
+    // moves nothing is a dead setting.
     // Starts CLOSED, like the other tools in Window -> Tools (Localization).
     ScalabilityPanel::ScalabilityPanel( const std::shared_ptr<Desert::Core::Scene>& scene )
          : IPanel( "Scalability", /*showPanel=*/false ), m_Scene( scene )
@@ -127,29 +205,23 @@ namespace Desert::Editor
 
     void ScalabilityPanel::OnUIRender()
     {
-        const SC::QualitySelection&  selection = SC::QualityState::Selection();
-        const SC::ResolvedQuality&   resolved  = SC::QualityState::Resolved();
-        const SC::CapabilityCatalog& catalog   = SC::QualityState::Catalog();
+        const SC::QualitySelection& selection = SC::QualityState::Selection();
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Quality Levels" ) )
         {
-            if ( const auto all = ValueCombo( "Overall", SC::kLevelCount, SC::kLevelCount, LevelLabel ) )
-                SC::QualityState::SetAllGroups( static_cast<SC::Level>( *all ) );
+            ImGui::PushID( "Levels" );
+            if ( const auto all = LevelSlider( "Overall", UniformLevel( selection.Levels ) ) )
+                SC::QualityState::SetAllGroups( *all );
             Utils::ImGuiUtilities::Tooltip( "Sets every group to one level and drops every override." );
 
-            for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
-            {
-                const auto group = static_cast<SC::Group>( g );
-                if ( !SC::IsGroupListed( group ) )
-                    continue;
-                const std::string label( SC::GroupKey( group ) );
-                if ( const auto level = ValueCombo( label.c_str(), static_cast<std::size_t>( selection.Levels[g] ),
-                                                    SC::kLevelCount, LevelLabel ) )
-                    SC::QualityState::SetGroupLevel( group, static_cast<SC::Level>( *level ) );
-            }
+            for ( const SC::Group group : ListedGroups() )
+                if ( const auto level =
+                          LevelSlider( GroupLabel( group ), selection.Levels[static_cast<std::size_t>( group )] ) )
+                    SC::QualityState::SetGroupLevel( group, *level );
+            ImGui::PopID();
 
             // THE BENCHMARK'S ANSWER for this device, shown only while it is still valid here (same device,
-            // driver and table version — CacheValid). A machine with no saved selection already started on it
+            // driver and table version - CacheValid). A machine with no saved selection already started on it
             // (QualityBoot, MachineSettings::StartFrom); one with a saved selection is offered it.
             const auto&                 recommended = Common::Settings::MachineSettings::Get().Recommended;
             const SC::BenchmarkCacheKey device      = Engine::MakeBenchmarkCacheKey(
@@ -164,7 +236,27 @@ namespace Desert::Editor
                 Utils::ImGuiUtilities::Tooltip( "Sets every group to the level the GPU benchmark recommended for "
                                                 "this device and drops every override." );
             }
+            if ( !selection.Overrides.empty() )
+                ImGui::TextDisabled( "%s", std::format( "{} parameter override(s) on top of the levels (Advanced).",
+                                                        selection.Overrides.size() )
+                                                .c_str() );
         }
+
+        if ( Utils::ImGuiUtilities::SectionHeader( "Advanced", /*defaultOpen=*/false ) )
+        {
+            ImGui::PushID( "Advanced" );
+            ImGui::Indent();
+            DrawBasicParameters();
+            DrawInternalParameters();
+            ImGui::Unindent();
+            ImGui::PopID();
+        }
+    }
+
+    void ScalabilityPanel::DrawBasicParameters()
+    {
+        const SC::ResolvedQuality&   resolved = SC::QualityState::Resolved();
+        const SC::CapabilityCatalog& catalog  = SC::QualityState::Catalog();
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Anti-Aliasing" ) )
         {
@@ -232,37 +324,6 @@ namespace Desert::Editor
                     SC::QualityState::SetOverride( SC::Parameter::AntiAliasingSamples, counts[*picked] );
                 ShowFallback( resolved, SC::Parameter::AntiAliasingSamples );
             }
-
-            // UE's r.NGX.DLSS.<Mode>Preset: which DLSS network each DLSS mode runs. Shown where this device offers
-            // DLSS (its 100 % mode is NVIDIA's DLAA) - elsewhere the rows have no reader.
-            if ( SC::CapabilityCatalog::Offers( catalog.AntiAliasingMethods, SC::AntiAliasingMethod::DLSS ) )
-            {
-                static constexpr std::array<std::pair<SC::Parameter, const char*>, 6> kPresetRows{ {
-                     { SC::Parameter::DlssPresetNative, "DLSS Preset: 100 % (DLAA)" },
-                     { SC::Parameter::DlssPresetUltraQuality, "DLSS Preset: Ultra Quality" },
-                     { SC::Parameter::DlssPresetQuality, "DLSS Preset: Quality" },
-                     { SC::Parameter::DlssPresetBalanced, "DLSS Preset: Balanced" },
-                     { SC::Parameter::DlssPresetPerformance, "DLSS Preset: Performance" },
-                     { SC::Parameter::DlssPresetUltraPerformance, "DLSS Preset: Ultra Performance" },
-                } };
-                for ( const auto& [parameter, label] : kPresetRows )
-                {
-                    const int requested = Requested( parameter );
-                    if ( const auto picked = ValueCombo(
-                              label,
-                              requested >= 0 && requested < static_cast<int>( SC::kDlssPresetNames.size() )
-                                   ? static_cast<std::size_t>( requested )
-                                   : SC::kDlssPresetNames.size(),
-                              SC::kDlssPresetNames.size(),
-                              []( std::size_t i ) { return std::string( SC::kDlssPresetNames[i] ); } ) )
-                        SC::QualityState::SetOverride( parameter, static_cast<SC::ParameterValue>( *picked ) );
-                    ShowFallback( resolved, parameter );
-                }
-                Utils::ImGuiUtilities::Tooltip( "Default is NVIDIA's network for the mode. K: transformer, best "
-                                                "quality (default for DLAA, Quality, Balanced); M: default for "
-                                                "Performance; L: default for Ultra Performance; J: like K with "
-                                                "less ghosting and more flicker. Applies on the next frame." );
-            }
         }
 
         if ( Utils::ImGuiUtilities::SectionHeader( "Resolution" ) )
@@ -290,35 +351,6 @@ namespace Desert::Editor
             ShowFallback( resolved, SC::Parameter::RenderScalePercent );
 
             const auto resolvedMethod = resolved.As<SC::AntiAliasingMethod>( SC::Parameter::AntiAliasingMethod );
-            if ( resolvedMethod == SC::AntiAliasingMethod::TSR )
-            {
-                // UE's sg.AntiAliasingQuality rows of r.TSR.*; the level sets them, an override replaces one.
-                const auto tsrSlider = [&]( const char* label, SC::Parameter parameter, const char* tooltip )
-                {
-                    const SC::ParameterSpec& spec  = SC::SpecOf( parameter );
-                    int                      value = Requested( parameter );
-                    if ( ImGui::SliderInt( label, &value, spec.Min, spec.Max, "%d",
-                                           ImGuiSliderFlags_AlwaysClamp ) )
-                        SC::QualityState::SetOverride( parameter, static_cast<SC::ParameterValue>( value ) );
-                    Utils::ImGuiUtilities::Tooltip( tooltip );
-                    ShowFallback( resolved, parameter );
-                };
-                tsrSlider( "TSR History %", SC::Parameter::TsrHistoryScreenPercentage,
-                           "r.TSR.History.ScreenPercentage: the history's size in percent of the output." );
-                tsrSlider( "TSR Update Quality", SC::Parameter::TsrHistoryUpdateQuality,
-                           "r.TSR.History.UpdateQuality: how the history is resampled and clamped (0..3)." );
-                tsrSlider( "TSR Flickering", SC::Parameter::TsrShadingRejectionFlickering,
-                           "r.TSR.ShadingRejection.Flickering: keep the history of flickering detail (1) or "
-                           "reject it like any other change (0)." );
-                tsrSlider(
-                     "TSR Rejection AA", SC::Parameter::TsrRejectionAntiAliasing,
-                     "r.TSR.RejectionAntiAliasingQuality: spatial anti-aliasing of rejected pixels (0 off)." );
-                tsrSlider( "TSR Reprojection Field", SC::Parameter::TsrReprojectionField,
-                           "r.TSR.ReprojectionField: reproject with the depth-anti-aliased reprojection field and its "
-                           "jacobian (1) or the dilated velocity alone (0)." );
-                tsrSlider( "TSR Resurrection", SC::Parameter::TsrResurrection,
-                           "r.TSR.Resurrection: keep persistent frames and resurrect disoccluded history from them." );
-            }
             const SC::Upscaler reconstruction =
                  SC::UpscalerForScale( resolvedMethod, resolved.As<int>( SC::Parameter::RenderScalePercent ) );
             ImGui::TextDisabled( "%s",
@@ -390,5 +422,84 @@ namespace Desert::Editor
                                  "reach on the ground (~15 km); Low also caps the sun-ray at 16 samples,\n"
                                  "which runs the sunward highlights bright." );
         }
+
+        if ( Utils::ImGuiUtilities::SectionHeader( "Path Tracing" ) )
+        {
+            // The path tracer's budget (Group::PathTracing): read only while a view runs GI / reflections
+            // PathTraced.
+            for ( const SC::Parameter parameter : SC::ListedParameters( SC::ParameterVisibility::Basic ) )
+                if ( SC::SpecOf( parameter ).Owner == SC::Group::PathTracing )
+                    DrawParameterRow( parameter );
+        }
+    }
+
+    void ScalabilityPanel::DrawInternalParameters()
+    {
+        // UE's r.* under sg.*: the level sets every one of them; a row here overrides one alone.
+        if ( !ImGui::TreeNodeEx( "Internal parameters", ImGuiTreeNodeFlags_SpanAvailWidth ) )
+            return;
+        const std::vector<SC::Parameter> advanced = SC::ListedParameters( SC::ParameterVisibility::Advanced );
+        for ( const SC::Group group : ListedGroups() )
+        {
+            const bool any = std::any_of( advanced.begin(), advanced.end(), [group]( SC::Parameter parameter )
+                                          { return SC::SpecOf( parameter ).Owner == group; } );
+            if ( !any || !ImGui::TreeNodeEx( GroupLabel( group ), ImGuiTreeNodeFlags_SpanAvailWidth ) )
+                continue;
+            for ( const SC::Parameter parameter : advanced )
+                if ( SC::SpecOf( parameter ).Owner == group )
+                    DrawParameterRow( parameter );
+            ImGui::TreePop();
+        }
+        ImGui::TreePop();
+    }
+
+    void ScalabilityPanel::DrawParameterRow( const SC::Parameter parameter )
+    {
+        const SC::ParameterSpec&   spec     = SC::SpecOf( parameter );
+        const SC::ResolvedQuality& resolved = SC::QualityState::Resolved();
+        const std::string          label( spec.Key );
+        ImGui::PushID( label.c_str() );
+
+        const std::span<const std::string_view> names     = SC::ParameterValueNames( parameter );
+        const SC::ParameterValue                requested = Requested( parameter );
+        if ( !names.empty() )
+        {
+            const std::size_t selected = requested >= 0 && static_cast<std::size_t>( requested ) < names.size()
+                                              ? static_cast<std::size_t>( requested )
+                                              : names.size();
+            if ( const auto picked = ValueCombo( label.c_str(), selected, names.size(),
+                                                 [names]( std::size_t i ) { return std::string( names[i] ); } ) )
+                SC::QualityState::SetOverride( parameter, static_cast<SC::ParameterValue>( *picked ) );
+        }
+        else
+        {
+            int value = m_DraggedParameter && m_DraggedParameter->first == parameter ? m_DraggedParameter->second
+                                                                                      : requested;
+            // A wide range (pool sizes, sample budgets) is dragged on a log scale.
+            const ImGuiSliderFlags flags =
+                 ImGuiSliderFlags_AlwaysClamp |
+                 ( spec.Max - spec.Min > 256 && spec.Min >= 0 ? ImGuiSliderFlags_Logarithmic : ImGuiSliderFlags_None );
+            if ( ImGui::SliderInt( label.c_str(), &value, spec.Min, spec.Max, "%d", flags ) )
+                m_DraggedParameter = std::make_pair( parameter, value );
+            if ( ImGui::IsItemDeactivatedAfterEdit() && m_DraggedParameter &&
+                 m_DraggedParameter->first == parameter )
+            {
+                SC::QualityState::SetOverride( parameter, m_DraggedParameter->second );
+                m_DraggedParameter.reset();
+            }
+        }
+        if ( spec.Reader )
+            Utils::ImGuiUtilities::Tooltip(
+                 std::format( "Read by {}. The level's value unless overridden; a slider applies on release.",
+                              *spec.Reader )
+                      .c_str() );
+        if ( resolved.Overridden[static_cast<std::size_t>( parameter )] )
+        {
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( "Reset" ) )
+                SC::QualityState::ClearOverride( parameter );
+        }
+        ShowFallback( resolved, parameter );
+        ImGui::PopID();
     }
 } // namespace Desert::Editor
