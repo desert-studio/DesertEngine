@@ -460,7 +460,7 @@ namespace Desert::WorldGen
                         err << "WorldGen: " << *failed << "\n";
                         return 3;
                     }
-                content.Material = material.GetValue().Path;
+                content.Material = material.GetValue();
                 content.Dirt     = dirt.ExtractValue();
                 content.Grass    = grass.ExtractValue();
                 content.Dry      = dry.ExtractValue();

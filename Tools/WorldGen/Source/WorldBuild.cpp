@@ -573,7 +573,7 @@ namespace Desert::WorldGen
                  Handle( content.Dry.Guid, content.Dry.Path ) } );
             root.Components["Landscape"] = Common::Json::Value( std::move( ls ) );
             Common::Json::Object material;
-            material["Material"]                 = Common::Json::Value( content.Material );
+            material["Material"]                 = Handle( content.Material.Guid, content.Material.Path );
             root.Components["LandscapeMaterial"] = Common::Json::Value( std::move( material ) );
             scene.Entities.push_back( std::move( root ) );
         }
