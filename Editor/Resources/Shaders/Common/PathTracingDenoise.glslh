@@ -66,10 +66,17 @@ bool PathTracingDenoiseSpreads(int spacing, float historyLength, float radius)
 }
 
 // ReLAX's normal weight of a young history: the lobe half-angle (NRD GetSpecularLobeHalfAngle: atan(0.75 / 0.25 x
-// roughness^2), the diffuse lobe at roughness 1) scaled by 1 / L, so a one-path pixel accepts every neighbour within
-// its lobe - the shading normals of a normal-mapped surface sampled at random sub-pixel points - and the angle shrinks
-// to SVGF's max(0, n_p . n_q)^128 (which stays the floor of the weight) as the history fills.
+// roughness^2), the diffuse lobe at roughness 1) widened kPathTracingDenoiseYoungLobeScale times at one path (ReLAX
+// GetNormalWeightParams_ATrous widens it up to 10 x while the history is short, capped at 90 degrees) and narrowed as
+// 1 / sqrt(L), the rate the noise of L paths falls (as the spread reach above), so a young pixel accepts every
+// neighbour within its widened lobe - the shading normals of a normal-mapped surface sampled at random sub-pixel
+// points - and the angle shrinks towards SVGF's max(0, n_p . n_q)^128 (which stays the floor of the weight) as the
+// history fills. The former lobe / L left a 15-degree cone at roughness 0.3 for one path, narrower than the cobbles'
+// normal-map spread (normal weight 0.64..0.78 there); measured on the r11 exe (PT-DENOISE-13): 3 x / sqrt(L) over
+// 1 x / L, with the specular pre-pass radius: Day pan8 cut8 4.73 -> 5.45x, Night pan8 3.75 -> 4.29x, dn1 Day 3.53
+// -> 3.80x, Night 2.80 -> 3.00x, cutEdge up everywhere (10 x / L: the same dn1, pan8 0.06x lower).
 const float kPathTracingDenoiseLobeVolume = 0.75;
+const float kPathTracingDenoiseYoungLobeScale = 3.0;
 
 float PathTracingDenoiseLobeHalfAngle(float roughness)
 {
@@ -77,10 +84,11 @@ float PathTracingDenoiseLobeHalfAngle(float roughness)
 }
 
 // The young-history normal weight of a pair whose normals meet at cosine @p cosine (NRD ComputeNonExponentialWeight
-// over the angle): 1 at equal normals, 0 from the lobe half-angle of @p roughness / @p historyLength on.
+// over the angle): 1 at equal normals, 0 from the young lobe of @p roughness at @p historyLength paths on.
 float PathTracingDenoiseYoungNormalWeight(float cosine, float roughness, float historyLength)
 {
-    const float angle = PathTracingDenoiseLobeHalfAngle(roughness) / max(historyLength, 1.0);
+    const float angle = min(0.5 * 3.14159265, PathTracingDenoiseLobeHalfAngle(roughness) *
+                                                  kPathTracingDenoiseYoungLobeScale / sqrt(max(historyLength, 1.0)));
     return 1.0 - smoothstep(0.0, 1.0, acos(clamp(cosine, -1.0, 1.0)) / max(angle, 1.0e-4));
 }
 

@@ -542,12 +542,22 @@ Shader "PathTracerDenoise"
             // ReLAX: the colour width of a history of no paths is (1 + kYoungWidth) x that of a full one.
             const float kYoungWidth = 2.0;
             // The specular lobe: its normal power is kNormalPower / max(roughness^2, kSpecularLobeFloor) (a
-            // mirror's lobe passes only its own plane), its tap radius 1 + kSpecularRadius x roughness pixels, and
-            // a roughness difference of kSpecularRoughnessWidth divides its weight by e.
+            // mirror's lobe passes only its own plane), its tap radius 1 + kSpecularRadius x roughness pixels -
+            // while the history is young the wider of that and ReLAX's specular pre-pass radius,
+            // kSpecularPrepassRadius x SpecularRadiusCurve(roughness) / sqrt(L) (the 1 / sqrt(L) of the spread
+            // reach) - and a roughness difference of kSpecularRoughnessWidth divides its weight by e.
             const float kSpecularLobeFloor = 0.0625;
             const float kSpecularRadius = 31.0;
+            const float kSpecularPrepassRadius = 50.0;
             const float kSpecularRoughnessWidth = 0.1;
             const float kKernel[3] = float[3](3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0);
+
+            // NRD GetSpecMagicCurve: the share of the pre-pass radius a lobe of @p roughness takes - ~0 for a mirror
+            // (its reflection is an image, not noise to blur), ~roughness^0.25 from roughness 0.2 on.
+            float SpecularRadiusCurve(float roughness)
+            {
+                return (1.0 - exp2(-200.0 * roughness * roughness)) * pow(roughness, 0.25);
+            }
 
             struct DenoiseSurface
             {
@@ -660,7 +670,9 @@ Shader "PathTracerDenoise"
                             diffuseShare += wd;
 
                             const float roughness  = 0.5 * (surface.Roughness + other.Roughness);
-                            const float radius     = 1.0 + kSpecularRadius * roughness;
+                            const float radius     = 1.0 + max(kSpecularRadius * roughness,
+                                                               kSpecularPrepassRadius * SpecularRadiusCurve(roughness) /
+                                                                   sqrt(max(pair.y, 1.0)));
                             const float reach      = length(vec2(x, y)) * float(spacing) / radius;
                             const vec4  specularTap = imageLoad(IlluminationSpecularTexture, q);
                             const float wns = max(pow(cosine, kNormalPower / max(roughness * roughness, kSpecularLobeFloor)),
