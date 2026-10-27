@@ -211,6 +211,18 @@ namespace Desert::Graphic
         const uint32_t width  = sceneDesc.GetValue().Size.Width;
         const uint32_t height = sceneDesc.GetValue().Size.Height;
 
+        if ( IsLocalExposureFusion( le->GetParams() ) )
+        {
+            if ( !le->IsFusionReady() )
+                return;
+            AddFrameLocalExposureFusion( graph, textures, *le, *tonemap, scene, width, height );
+            frame.Produced      = true;
+            frame.Params        = le->GetParams();
+            frame.LogMiddleGrey = le->GetLogMiddleGrey();
+            tonemap->SetLocalExposure( frame );
+            return;
+        }
+
         const RDG::TextureRef grid =
              graph.CreateTexture( System::LocalExposureRenderer::GetGridDesc( width, height ), "LocalExposure.Grid" );
         const RDG::TextureDesc logLumDesc = System::LocalExposureRenderer::GetLogLumDesc( width, height );
@@ -254,6 +266,77 @@ namespace Desert::Graphic
         tonemap->SetLocalExposure( frame );
     }
 
+    void SceneRenderer::AddFrameLocalExposureFusion( RDG::Builder& graph, FrameTextures& textures,
+                                                     System::LocalExposureRenderer& le,
+                                                     const System::TonemapRenderer& tonemap, RDG::TextureRef scene,
+                                                     uint32_t width, uint32_t height )
+    {
+        // UE 5.4 AddLocalExposureFusionPass: setup at full resolution, the exposures and weights downsampled to a
+        // texel (two Gaussian pyramids), then the blend coarsest-first through the Laplacian bands. The setup
+        // exposes with the composite's own inputs (the same 1x1 adapted luminance the tonemap imports).
+        const RDG::TextureRef adaptedImport =
+             textures.Import( tonemap.GetInputs().AutoExposure, "AutoExposure.Adapted" );
+        const RDG::TextureRef adapted = adaptedImport.IsValid() ? adaptedImport : textures.System.White;
+        const System::LocalExposureRenderer::FusionExposure exposure{
+             .ManualExposure = tonemap.GetExposure(),
+             .ExposureKey    = tonemap.GetExposureKey(),
+             .AutoExposure   = tonemap.IsAutoExposureEnabled() && adaptedImport.IsValid(),
+             .Reinhard       = tonemap.GetTonemapOperator() == Core::TonemapOperator::Reinhard };
+        auto* lePtr = &le;
+
+        const uint32_t               levels = LocalExposureFusionLevels( width, height );
+        std::vector<RDG::TextureRef> exposures( levels );
+        std::vector<RDG::TextureRef> weights( levels );
+        std::vector<glm::uvec2>      sizes( levels );
+        for ( uint32_t level = 0; level < levels; ++level )
+        {
+            const RDG::TextureDesc desc =
+                 System::LocalExposureRenderer::GetFusionLevelDesc( width, height, level );
+            sizes[level] = LocalExposureFusionLevelExtent( width, height, level );
+            exposures[level] =
+                 graph.CreateTexture( desc, std::format( "LocalExposure.FusionExposures{}", level ) );
+            weights[level] = graph.CreateTexture( desc, std::format( "LocalExposure.FusionWeights{}", level ) );
+        }
+        graph.AddPass(
+             "PostFX: LocalExposureFusionSetup", RDG::PassFlags::Compute, [&]( RDG::PassBuilder& pass )
+             { le.DeclareFusionSetupBindings( pass, scene, adapted, exposures[0], weights[0] ); },
+             [lePtr, exposure, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return lePtr->RecordFusionSetup( context, exposure, width, height ); } );
+        for ( uint32_t level = 1; level < levels; ++level )
+            graph.AddPass(
+                 std::format( "PostFX: LocalExposureFusionDownsample{}", level ), RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     le.DeclareFusionDownsampleBindings( pass, exposures[level - 1], weights[level - 1],
+                                                         exposures[level], weights[level] );
+                 },
+                 [lePtr, in = sizes[level - 1],
+                  out = sizes[level]]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return lePtr->RecordFusionDownsample( context, in, out ); } );
+
+        RDG::TextureRef result;
+        for ( uint32_t i = levels; i-- > 0; )
+        {
+            const bool            laplacian = i + 1 < levels;
+            const RDG::TextureRef out =
+                 graph.CreateTexture( System::LocalExposureRenderer::GetFusionResultDesc( width, height, i ),
+                                      std::format( "LocalExposure.FusionResult{}", i ) );
+            // The coarsest level has no coarser band: its own exposures and the graph's black stand in, unread.
+            const RDG::TextureRef coarser     = laplacian ? exposures[i + 1] : exposures[i];
+            const RDG::TextureRef prev        = laplacian ? result : textures.System.Black;
+            const glm::uvec2      coarserSize = laplacian ? sizes[i + 1] : sizes[i];
+            graph.AddPass(
+                 std::format( "PostFX: LocalExposureFusionBlend{}", i ), RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 { le.DeclareFusionBlendBindings( pass, exposures[i], weights[i], coarser, prev, out ); },
+                 [lePtr, size = sizes[i], coarserSize,
+                  laplacian]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return lePtr->RecordFusionBlend( context, size, coarserSize, laplacian ); } );
+            result = out;
+        }
+        textures.Transients.ExposureFusion = result;
+    }
+
     void SceneRenderer::AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                                        const std::vector<RDG::TextureRef>& sceneColor )
     {
@@ -281,8 +364,14 @@ namespace Desert::Graphic
         // this frame's numbers; the bloom's mip 0 applies the same ones, so the bloom is exposed like its source.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+        // Fusion is not applied to the bloom (UE PostProcessing.cpp:1522-1525: Bilateral only).
         if ( tonemap != nullptr )
-            bloom->SetLocalExposure( tonemap->GetLocalExposure(), tonemap->GetExposure() );
+        {
+            System::TonemapRenderer::LocalExposureFrame bloomLE = tonemap->GetLocalExposure();
+            if ( IsLocalExposureFusion( bloomLE.Params ) )
+                bloomLE.Produced = false;
+            bloom->SetLocalExposure( bloomLE, tonemap->GetExposure() );
+        }
         const RDG::TextureRef leGrid    = textures.Transients.LocalExposureGrid.IsValid()
                                                ? textures.Transients.LocalExposureGrid
                                                : textures.System.Black3D;
@@ -464,15 +553,18 @@ namespace Desert::Graphic
              .LightShaftsProduced = shaftsProduced,
              .LensFlare           = flareProduced ? textures.Transients.LensFlare : textures.System.Black,
              .LensFlareProduced   = flareProduced,
-             .LocalExposureGrid   = textures.Transients.LocalExposureGrid.IsValid() ? textures.Transients.LocalExposureGrid
-                                                                                    : textures.System.Black3D,
+             .LocalExposureGrid   = textures.Transients.LocalExposureGrid.IsValid()
+                                         ? textures.Transients.LocalExposureGrid
+                                         : textures.System.Black3D,
              .BlurredLogLuminance = textures.Transients.BlurredLogLuminance.IsValid()
                                          ? textures.Transients.BlurredLogLuminance
-                                         : textures.System.Black };
+                                         : textures.System.Black,
+             .ExposureFusion = textures.Transients.ExposureFusion.IsValid() ? textures.Transients.ExposureFusion
+                                                                            : textures.System.Black };
         if ( !graphInputs.Source.IsValid() || !graphInputs.AvgLuminance.IsValid() ||
              !graphInputs.Bloom.IsValid() || !graphInputs.LightShafts.IsValid() ||
              !graphInputs.LensFlare.IsValid() || !graphInputs.LocalExposureGrid.IsValid() ||
-             !graphInputs.BlurredLogLuminance.IsValid() )
+             !graphInputs.BlurredLogLuminance.IsValid() || !graphInputs.ExposureFusion.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] the tonemap is missing a graph input (no scene colour, or System.Black / "
                        "System.White is not in this graph); the tonemap pass is not recorded this frame" );

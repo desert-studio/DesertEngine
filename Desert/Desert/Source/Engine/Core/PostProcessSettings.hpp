@@ -26,20 +26,14 @@ namespace Desert::Core
     };
 
     // UE ELocalExposureMethod (Scene.h:45). Bilateral — a bilateral grid of log luminance plus a blurred log
-    // luminance give each pixel its base layer (Graphic/PostProcessing/LocalExposureRules.hpp). Fusion — UE's
-    // exposure-fusion pyramid — is card LOCAL-EXPOSURE-FUSION; until it lands it is refused where it is set.
+    // luminance give each pixel its base layer (Graphic/PostProcessing/LocalExposureRules.hpp). Fusion — UE 5.4's
+    // exposure fusion: three synthetic exposures blended by well-exposedness through a Laplacian pyramid
+    // (LocalExposureRenderer, Shaders/Common/LocalExposure.glslh); no halos at shade/sun edges.
     enum class LocalExposureMethod : int
     {
         Bilateral = 0,
         Fusion    = 1,
     };
-
-    [[nodiscard]] inline std::string_view RefuseLocalExposureMethod( std::int64_t value )
-    {
-        return value == static_cast<std::int64_t>( LocalExposureMethod::Fusion )
-                    ? std::string_view{ "Local exposure Fusion has not landed (card LOCAL-EXPOSURE-FUSION)." }
-                    : std::string_view{};
-    }
 
     // THE GRADE OF A VIEW — UE's FPostProcessSettings. Until SET1 these fields were Core::SceneSettings, one
     // value per level, which made "a darker cave inside a bright level" inexpressible and put the level's
@@ -139,8 +133,7 @@ namespace Desert::Core
         // The defaults are the IDENTITY: contrast 1 / 1 and detail 1 give every pixel exactly 1 whatever the rest,
         // and no pass runs (Graphic::IsLocalExposureIdentity). Below 1 the contrast scales compress the base layer
         // toward the exposed middle grey: shade is lifted, highlights pulled down, local detail kept.
-        PROPERTY( DisplayName( "Method" ), Category( "Local Exposure" ),
-                  Refuse( "Desert::Core::RefuseLocalExposureMethod" ) )
+        PROPERTY( DisplayName( "Method" ), Category( "Local Exposure" ) )
         Core::LocalExposureMethod LocalExposureMethod = Core::LocalExposureMethod::Bilateral;
         PROPERTY( DisplayName( "Highlight Contrast Scale" ), Category( "Local Exposure" ), Range( 0.0f, 1.0f ),
                   Tooltip( "Contrast of the base layer above middle grey: < 1 pulls bright regions down." ) )
