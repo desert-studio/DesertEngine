@@ -9,6 +9,9 @@
 Дано --subject viewport set Camera.Direction -0.6,-0.4,-0.7
 Тогда-вид 1_bilateral метод Bilateral (как в dev): тень под столами тёмная, булыжник и стулья под столами почти чёрные
 Когда set 6039035132485441499 PostProcessVolumeData.Settings.LocalExposureMethod 1
+# Fusion reads Shadow Contrast as the shade exposure's distance: lerp(6, 0, c) EV. 0.8 = +1.2 EV is too mild for the
+# ACES toe at EV14 (measured p1: shade darker than Bilateral 0.8); 0.5 = +3 EV, as the content now authors it.
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.LocalExposureShadowContrastScale 0.5
 Тогда-вид 2_fusion_tables Fusion: булыжник, стулья, доска меню под столами читаются с фактурой; белые фасады на солнце не выбиты; без ореолов на краях тень/солнце
 Когда --subject viewport set Camera.Direction -0.6,0.05,-0.8
 Тогда-вид 3_fusion_street вид кадра 9 BISTRO-LOOK на Fusion: фонари днём не ярче солнечного камня, небо не серое
