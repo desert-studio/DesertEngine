@@ -438,17 +438,8 @@ namespace Desert::Graphic
                 return Common::MakeError<ViewFrame>( named.GetError() );
         }
 
-        // A BeginFrame whose frame never reached EndFrame (FrameFault, no graph): it never happened. Only ITS
-        // motion records go; the previous frame's stay, since they belong to the committed frame that this
-        // frame's Prev* matrices and history textures also belong to.
-        if ( m_FrameOpen )
-            m_Motion.DiscardCurrent();
-
         if ( inputs.SceneIdentity != m_SceneIdentity )
-        {
-            m_Motion.Clear();
             m_SceneIdentity = inputs.SceneIdentity;
-        }
 
         const bool historyRecreated = m_History.Prepare( descs );
 
@@ -470,8 +461,6 @@ namespace Desert::Graphic
         else if ( methodChanged )
             reset = HistoryResetReason::TemporalMethodChange;
         const bool isReset = reset != HistoryResetReason::None;
-        if ( isReset )
-            m_Motion.Clear(); // "or the history was reset": no previous transform survives a reset
 
         ViewFrame f;
         f.FrameIndex = m_HasCommitted ? m_Committed.FrameIndex + 1 : 0;
@@ -563,11 +552,6 @@ namespace Desert::Graphic
         return m_History;
     }
 
-    MotionHistory& SceneViewState::Motion()
-    {
-        return m_Motion;
-    }
-
     void SceneViewState::EndFrame( const RDG::ExecuteReport& report )
     {
         m_Committed               = m_Pending;
@@ -581,7 +565,6 @@ namespace Desert::Graphic
         m_Clouds.EndFrame( report );
         m_ScreenProbeGather.EndFrame( report );
         m_History.Swap();
-        m_Motion.EndFrame();
     }
 
     void SceneViewState::Reset()
@@ -590,7 +573,6 @@ namespace Desert::Graphic
         m_ScreenProbeGather.Reset();
         m_History.Release();
         m_UpscalerHistory.reset();
-        m_Motion.Clear();
         m_HasCommitted            = false;
         m_Pending                 = ViewFrame{};
         m_Committed               = ViewFrame{};

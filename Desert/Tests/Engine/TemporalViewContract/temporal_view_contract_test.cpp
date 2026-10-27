@@ -11,6 +11,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGFault.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 

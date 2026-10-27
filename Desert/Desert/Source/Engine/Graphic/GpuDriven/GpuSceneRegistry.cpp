@@ -33,10 +33,49 @@ namespace Desert::Graphic::GpuDriven
         }
     } // namespace
 
+    void GpuSceneRegistry::CommitFrame( const uint64_t frame )
+    {
+        if ( m_Started && frame == m_Frame )
+            m_Committed = true;
+    }
+
+    void GpuSceneRegistry::Queued( Entry& entry ) const
+    {
+        entry.PrevFrame = entry.Frame;
+        entry.Frame     = m_Frame;
+    }
+
+    void GpuSceneRegistry::DiscardFrame()
+    {
+        m_Scene.DiscardFrame();
+        for ( auto it = m_Entries.begin(); it != m_Entries.end(); )
+        {
+            Entry& entry = it->second;
+            if ( entry.BonesFrame == m_Frame )
+            {
+                entry.Bones.swap( entry.PrevBones );
+                entry.BonesFrame = entry.PrevBonesFrame;
+            }
+            if ( entry.Frame == m_Frame )
+                entry.Frame = entry.PrevFrame;
+            if ( entry.Frame == kNoFrame ) // added by the discarded frame
+            {
+                m_Scene.RemovePrimitive( entry.Primitive );
+                it = m_Entries.erase( it );
+                continue;
+            }
+            ++it;
+        }
+        m_Frame         = m_PreviousFrame;
+        m_PreviousFrame = m_FrameBeforePrevious;
+    }
+
     void GpuSceneRegistry::BeginFrame( const uint64_t frame )
     {
         if ( m_Started && frame == m_Frame )
             return;
+        if ( m_Started && !m_Committed )
+            DiscardFrame();
         if ( m_Started )
             for ( auto it = m_Entries.begin(); it != m_Entries.end(); )
             {
@@ -48,9 +87,11 @@ namespace Desert::Graphic::GpuDriven
                 m_Scene.RemovePrimitive( it->second.Primitive );
                 it = m_Entries.erase( it );
             }
-        m_PreviousFrame = m_Frame;
-        m_Frame         = frame;
-        m_Started       = true;
+        m_FrameBeforePrevious = m_PreviousFrame;
+        m_PreviousFrame       = m_Frame;
+        m_Frame               = frame;
+        m_Started             = true;
+        m_Committed           = false;
         m_Scene.BeginFrame();
         m_FramePalettes.clear();
     }
@@ -80,7 +121,7 @@ namespace Desert::Graphic::GpuDriven
         }
         else
             m_Scene.SetTransform( entry.Primitive, record.World );
-        entry.Frame = m_Frame;
+        Queued( entry );
         return entry;
     }
 
@@ -151,7 +192,7 @@ namespace Desert::Graphic::GpuDriven
                 // Both palettes go into the ONE buffer every pass that draws the primitive skins it from. The
                 // previous one: what this primitive was drawn with in the last synced frame, unless it was not
                 // drawn then or its bone count changed (a mesh swap: the old palette indexes other bones).
-                const bool history = entry.BonesFrame == m_PreviousFrame && entry.BonesFrame != 0 &&
+                const bool history = entry.BonesFrame == m_PreviousFrame && entry.BonesFrame != kNoFrame &&
                                      entry.Bones.size() == record.Bones.size();
                 entry.BoneOffset = static_cast<uint32_t>( m_FramePalettes.size() );
                 m_FramePalettes.insert( m_FramePalettes.end(), record.Bones.begin(), record.Bones.end() );
@@ -160,8 +201,10 @@ namespace Desert::Graphic::GpuDriven
                     m_FramePalettes.insert( m_FramePalettes.end(), entry.Bones.begin(), entry.Bones.end() );
                 else
                     m_FramePalettes.insert( m_FramePalettes.end(), record.Bones.begin(), record.Bones.end() );
+                entry.PrevBones.swap( entry.Bones );
                 entry.Bones.assign( record.Bones.begin(), record.Bones.end() );
-                entry.BonesFrame = m_Frame;
+                entry.PrevBonesFrame = entry.BonesFrame;
+                entry.BonesFrame     = m_Frame;
                 palettesChanged  = true;
                 // The skin cache's address is written after Sync (RayTracingSkinCache::PrepareRows).
                 m_Scene.SetSkinning( entry.Primitive, PrimitiveSkinning{ .BoneOffset     = entry.BoneOffset,
@@ -206,7 +249,7 @@ namespace Desert::Graphic::GpuDriven
                     entry.Mesh  = field.Mesh;
                     entry.Flags = field.Flags;
                 }
-                entry.Frame = m_Frame;
+                Queued( entry );
             }
             out.FieldInstances.push_back( m_Scene.Primitive( entry.Primitive ).FirstInstance );
         }

@@ -110,9 +110,14 @@ namespace Desert::Graphic::GpuDriven
             return m_Scene;
         }
 
-        // Once per absolute frame (every view calls it; the later calls of one frame do nothing): drops the
-        // primitives the last synced frame did not queue, then GpuScene::BeginFrame.
+        // Once per absolute frame (every view calls it; the later calls of one frame do nothing): when no view
+        // committed the last synced frame (CommitFrame: its graph never executed - FrameFault, a failed sync),
+        // that frame is discarded first, as if it never happened (GpuScene::DiscardFrame, the palettes and the
+        // primitives it added); then drops the primitives the last kept frame did not queue, then
+        // GpuScene::BeginFrame.
         void BeginFrame( uint64_t frame );
+        // A view's graph of @p frame executed (SceneRenderer, beside SceneViewState::EndFrame): the frame is kept.
+        void CommitFrame( uint64_t frame );
 
         // One view's queues of this frame. Numbering (unchanged from the per-view rows it replaces):
         //  - Per entity, the rigid primitives in submission order; the position IS MotionKey::Slot. Rigid records
@@ -128,25 +133,34 @@ namespace Desert::Graphic::GpuDriven
                    std::span<const MotionFieldRecord> fields, GpuSceneRecordRows& out );
 
     private:
+        static constexpr uint64_t kNoFrame = ~0ull;
+
         struct Entry
         {
             PrimitiveIndex         Primitive  = kInvalidIndex;
-            uint64_t               Frame      = 0; // the last frame that queued it
+            uint64_t               Frame      = kNoFrame; // the last frame that queued it
+            uint64_t               PrevFrame  = kNoFrame; // the one before (DiscardFrame restores it)
             const Mesh*            Mesh       = nullptr;
             uint32_t               Flags      = 0;
-            uint64_t               BonesFrame = 0; // the frame Bones / BoneOffset were written for
+            uint64_t               BonesFrame = kNoFrame; // the frame Bones / BoneOffset were written for
+            uint64_t               PrevBonesFrame = kNoFrame; // the frame PrevBones were written for
             uint32_t               BoneOffset = 0;
             uint32_t               PrevOffset = 0;
             std::vector<glm::mat4> Bones;
+            std::vector<glm::mat4> PrevBones; // the palette before Bones (DiscardFrame swaps it back)
         };
 
         Entry& Touch( MotionKey key, const MotionRecord& record, bool& fresh );
+        void   Queued( Entry& entry ) const;
+        void   DiscardFrame();
 
         GpuScene                                            m_Scene;
         std::unordered_map<MotionKey, Entry, MotionKeyHash> m_Entries;
         std::vector<glm::mat4>                              m_FramePalettes;
-        uint64_t                                            m_Frame         = 0;
-        uint64_t                                            m_PreviousFrame = 0;
+        uint64_t                                            m_Frame         = kNoFrame;
+        uint64_t                                            m_PreviousFrame = kNoFrame;
+        uint64_t                                            m_FrameBeforePrevious = kNoFrame;
         bool                                                m_Started       = false;
+        bool                                                m_Committed     = false; // CommitFrame( m_Frame )
     };
 } // namespace Desert::Graphic::GpuDriven

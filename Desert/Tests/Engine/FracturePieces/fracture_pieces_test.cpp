@@ -13,7 +13,8 @@
 #include <optional>
 #include <sstream>
 #include <string>
-#include <vector>
+#include <vector>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace
 {

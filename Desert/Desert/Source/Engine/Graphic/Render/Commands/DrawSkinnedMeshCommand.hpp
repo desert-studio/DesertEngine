@@ -5,7 +5,8 @@
 // forward-declares the type (see the note there on the include cycle that cost).
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Geometry/Mesh.hpp>
-#include <Engine/Animation/Pose.hpp>
+#include <Engine/Animation/Pose.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert::Graphic::Render
 {

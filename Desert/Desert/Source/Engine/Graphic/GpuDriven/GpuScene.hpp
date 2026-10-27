@@ -125,6 +125,11 @@ namespace Desert::Graphic::GpuDriven
 
         // Frame boundary: the primitives that moved last frame and not since get Prev := LocalToWorld (dirty).
         void BeginFrame();
+        // The frame since the last BeginFrame never executed (FrameFault, GpuSceneRegistry): every transform it
+        // and its BeginFrame changed goes back, and so does the list of primitives that moved in the frame before
+        // it - as if it never happened (the old per-view MotionHistory::DiscardCurrent). A primitive it added
+        // stays, with Prev == World; the caller removes it.
+        void DiscardFrame();
 
         // Rows or palettes changed since the last upload: AddUploadPass has passes to add.
         [[nodiscard]] bool HasPendingUpload() const;
@@ -155,6 +160,8 @@ namespace Desert::Graphic::GpuDriven
 
     private:
         void MarkPrimitive( PrimitiveIndex primitive );
+        // Records the primitive's transforms the first time this frame changes them (DiscardFrame's undo).
+        void JournalTransform( PrimitiveIndex primitive );
         void WriteInstances( PrimitiveIndex primitive, const PrimitiveDesc& desc );
         void WriteLodScreenSizes( PrimitiveIndex primitive, std::span<const float> sizes );
 
@@ -168,6 +175,17 @@ namespace Desert::Graphic::GpuDriven
         // Prev := LocalToWorld (m_MovedMark: already listed).
         std::vector<PrimitiveIndex>      m_MovedLastFrame;
         std::vector<uint8_t>             m_MovedMark;
+        // DiscardFrame's undo of the frame since the last BeginFrame: each changed primitive's transforms before
+        // the frame (m_UndoMark: already recorded) and the moved list BeginFrame consumed.
+        struct TransformUndo
+        {
+            PrimitiveIndex Primitive = kInvalidIndex;
+            glm::mat4      LocalToWorld{ 1.0f };
+            glm::mat4      PrevLocalToWorld{ 1.0f };
+        };
+        std::vector<TransformUndo>  m_FrameUndo;
+        std::vector<uint8_t>        m_UndoMark;
+        std::vector<PrimitiveIndex> m_UndoMovedLastFrame;
         std::vector<GpuSceneWorldBounds> m_WorldBounds;
         std::vector<glm::mat4>           m_BonePalettes;
         // Per primitive: live, its pose-box row in m_WorldBounds (kInvalidIndex = none).

@@ -108,100 +108,9 @@ namespace Desert::Graphic
 
     // ---- Previous per-object data -------------------------------------------------------------------------
     //
-    // WHERE IT LIVES: here, per view, on the CPU; uploaded each frame into the per-(frame x view) object buffer
-    // the geometry passes read (GpuObjectMotion below). NEVER on a component: a component is shared by every view
-    // and serialised, and "previous" is a property of a view's last frame, not of the object.
-    //
-    // An object is identified by the entity that owns the draw and a slot inside it (a model with several skinned
-    // meshes has one bone palette per slot). Static instanced batches (HLOD, scattered props) are NOT tracked per
-    // instance: their instances are world-static by construction (moving one rebuilds the batch), so their
-    // previous transform IS their transform and velocity comes from the camera alone. Wind on those instances is
-    // time animation, handled by evaluating the wind at ViewFrame::PrevTimeSeconds, not by a stored transform.
-    struct MotionKey
-    {
-        uint32_t Entity = 0; // entt id incl. version
-        uint32_t Slot   = 0;
-
-        bool operator==( const MotionKey& ) const = default;
-    };
-
-    // A Slot with this bit set is not a submission index but a STABLE PART of the entity the draw named itself
-    // (MotionRecord::Part; a fracture piece is its node + 1): parts move independently and appear or vanish
-    // from one frame to the next, so numbering them by submission order would hand one piece another's
-    // previous transform. The two ranges cannot meet: no entity submits 2^31 primitives.
-    inline constexpr uint32_t kMotionPartSlotBit = 1u << 31;
-
-    struct MotionKeyHash
-    {
-        [[nodiscard]] std::size_t operator()( const MotionKey& key ) const noexcept
-        {
-            return std::hash<uint64_t>{}( ( static_cast<uint64_t>( key.Entity ) << 32u ) | key.Slot );
-        }
-    };
-
-    class MotionHistory
-    {
-    public:
-        // Records @p current as this frame's world transform of @p key and returns the one the view drew it with
-        // in its previous frame — or @p current when it was not drawn then (it just appeared, became visible, or
-        // the history was reset): an object with no previous frame has no object motion, only camera motion.
-        // Calling it twice for one key in a frame keeps the first record and returns the same previous transform.
-        [[nodiscard]] glm::mat4 PreviousTransform( MotionKey key, const glm::mat4& current );
-
-        // The same for a skinned slot's bone palette. Returns the previous palette, or @p current when the slot
-        // was not drawn last frame or its bone count changed (a mesh swap: the old palette indexes other bones).
-        // The span stays valid until EndFrame.
-        [[nodiscard]] std::span<const glm::mat4> PreviousBones( MotionKey                  key,
-                                                                std::span<const glm::mat4> current );
-
-        // This frame's records become "previous"; a key not recorded this frame is dropped (an object that was not
-        // drawn must not reappear later with a stale transform: it reappears with no object motion).
-        void EndFrame();
-        // The frame that recorded since the last EndFrame never ended (SceneViewState: "as if it never happened"):
-        // drops only its records. The previous frame's records stay, because they still belong to the last
-        // committed frame, which the next frame's Prev* matrices and history textures also belong to.
-        void DiscardCurrent();
-        // Scene changed (ViewInputs::SceneIdentity) or the view was re-created.
-        void Clear();
-
-        [[nodiscard]] std::size_t TrackedTransforms() const; // previous-frame records, for the view's memory line
-        [[nodiscard]] std::size_t TrackedPalettes() const;
-
-    private:
-        std::unordered_map<MotionKey, glm::mat4, MotionKeyHash>              m_PrevTransforms;
-        std::unordered_map<MotionKey, glm::mat4, MotionKeyHash>              m_CurTransforms;
-        std::unordered_map<MotionKey, std::vector<glm::mat4>, MotionKeyHash> m_PrevBones;
-        std::unordered_map<MotionKey, std::vector<glm::mat4>, MotionKeyHash> m_CurBones;
-    };
-
-    // What every geometry pass reads per draw instead of today's single `mat4 Transform` push constant: two mat4
-    // are 128 bytes, the whole of Vulkan's guaranteed push-constant space (maxPushConstantsSize >= 128), with no
-    // room left for the material index the push block also carries. So the pair moves into a per-(frame x view)
-    // storage buffer (contract §2: per-frame renderer state), indexed by a draw index in the push block. std430
-    // layout; the GLSL twin lives in Common/Velocity.glslh and a test asserts the two sizes agree.
-    struct GpuObjectMotion
-    {
-        glm::mat4 World{ 1.0f };
-        glm::mat4 PrevWorld{ 1.0f };
-        // Skinned: where this frame's palette and the PREVIOUS one (MotionHistory::PreviousBones) start in the
-        // view's ObjectBones buffer — ONE per-(frame x view) buffer holding both frames' palettes of every skinned
-        // primitive, so every pass that draws the primitive skins it from the same bytes. 0 for a rigid primitive.
-        uint32_t BoneOffset     = 0;
-        uint32_t PrevBoneOffset = 0;
-        // Skinned, the GPU skin cache on (RayTracing::RayTracingSkinCache::PrepareRows): the device address of the
-        // primitive's cached streams (current / previous positions, tangent frame) and its vertex count. The view
-        // passes then fetch the posed vertex instead of skinning it; 0 = skin in the vertex stage.
-        uint32_t SkinCacheAddressLo   = 0;
-        uint32_t SkinCacheAddressHi   = 0;
-        uint32_t SkinCacheVertexCount = 0;
-        uint32_t Pad0                 = 0;
-        uint32_t Pad1                 = 0;
-        uint32_t Pad2                 = 0;
-    };
-    static_assert( sizeof( GpuObjectMotion ) == 160, "std430 twin in Common/Velocity.glslh" );
-    static_assert( offsetof( GpuObjectMotion, BoneOffset ) == 128, "std430 twin in Common/Velocity.glslh" );
-    static_assert( offsetof( GpuObjectMotion, PrevBoneOffset ) == 132,
-                   "std430 twin in Common/Velocity.glslh" );
+    // Not here: a primitive's previous world and previous bone palette are the scene's (GpuDriven/GpuScene.hpp,
+    // PrevLocalToWorld and PrevBoneOffset, kept by GpuSceneRegistry per MotionKey), one for every view of the
+    // scene, as in UE FGPUScene. A frame that never executed is discarded there (GpuSceneRegistry::BeginFrame).
 
     // ---- Velocity --------------------------------------------------------------------------------------------
     //
@@ -448,7 +357,6 @@ namespace Desert::Graphic
         [[nodiscard]] ScreenProbeGatherHistory&       ScreenProbeGather();
         [[nodiscard]] const ScreenProbeGatherHistory& ScreenProbeGather() const; // HeldBytes: SceneRenderer
         [[nodiscard]] TemporalHistory& History();
-        [[nodiscard]] MotionHistory&   Motion();
 
         // The vendor upscaler state the last frame returned (TemporalUpscalerOutputs::NewHistory), handed back as
         // TemporalUpscalerInputs::PrevHistory. Dropped by Reset and by a BeginFrame whose method is None.
@@ -485,7 +393,6 @@ namespace Desert::Graphic
         bool            m_PendingFaultReset       = false;
         uint32_t        m_JitterIndex             = 0;
         TemporalHistory m_History;
-        MotionHistory   m_Motion;
         std::shared_ptr<ITemporalUpscalerHistory> m_UpscalerHistory;
     };
 } // namespace Desert::Graphic

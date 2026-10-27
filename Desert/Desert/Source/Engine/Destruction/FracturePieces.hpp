@@ -27,7 +27,8 @@
 #include <optional>
 #include <span>
 #include <string>
-#include <vector>
+#include <vector>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert::Destruction
 {

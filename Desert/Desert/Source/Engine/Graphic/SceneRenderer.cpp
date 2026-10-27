@@ -884,6 +884,8 @@ namespace Desert::Graphic
         m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
         // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
         m_FrameRayTracingCache = &scene.GetRayTracingCache();
+        // The scene's GPU scene (primitives, instances, palettes), synced and read by this frame's views.
+        m_FrameGpuScene = &scene.GetGpuScene();
         m_SceneLedgerInstance  = scene.GetLedgerInstance();
         // The scene's local-light shadow cache, which this view's lights draw into and read (UpdateLocalShadows).
         m_FrameLocalShadows = &scene.GetLocalShadows();
@@ -1624,9 +1626,8 @@ namespace Desert::Graphic
         }
         const auto values = std::make_shared<FrameValues>();
 
-        // The view's per-primitive motion rows (current + previous world, both bone palettes) from the view's
-        // MotionHistory, built once before any pass is declared: every view pass of this frame reads the same
-        // rows.
+        // The scene's GPU scene (current + previous world, both bone palettes of every primitive this view
+        // queues), synced once before any pass is declared: every view pass of this frame reads the same rows.
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
@@ -1662,16 +1663,23 @@ namespace Desert::Graphic
                          Geometry::LODView{ viewCamera->GetPosition(), viewCamera->GetProjectionMatrix() },
                          static_cast<float>( m_ViewExtent.Height ), frameNumber, !m_ViewProfile.SceneCapture );
             }
-            if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions(
-                      m_ViewState.Motion(), m_ScratchTileMotions, skinCache, frameNumber );
+            if ( m_FrameGpuScene == nullptr )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: no scene's GPU scene (BeginScene was not handed a scene); nothing "
+                           "is drawn this frame",
+                           m_ViewResources.GetName() );
+                return;
+            }
+            if ( const Common::BoolResultStr rows =
+                      meshes->SyncGpuScene( *m_FrameGpuScene, m_ScratchTileMotions, skinCache, frameNumber );
                  !rows )
             {
-                LOG_ERROR( "[SceneRenderer] {}: the view's motion rows could not be built; nothing is drawn this "
+                LOG_ERROR( "[SceneRenderer] {}: the scene's GPU scene could not be synced; nothing is drawn this "
                            "frame: {}",
                            m_ViewResources.GetName(), rows.GetError() );
                 return;
             }
-            // The skin step already ran in BuildObjectMotions (its own graph, submitted before this view graph):
+            // The skin step already ran in SyncGpuScene (its own graph, submitted before this view graph):
             // this graph only reads the streams, barriered by their carried state.
             meshes->SkinCacheReads().clear();
             if ( skinCache != nullptr )
@@ -1730,8 +1738,8 @@ namespace Desert::Graphic
             const std::span<const System::TerrainInstance> instances = terrain->GetFrameInstances();
             const std::span<const System::TerrainFrameMaterial> materials = terrain->GetFrameMaterials();
             const std::span<const uint32_t>                rows      = meshes->GetOtherGpuInstances();
-            // Parallel by construction (PrepareFrame packs one row per queued tile, BuildObjectMotions one motion
-            // row per tile record); a mismatch is a broken invariant, said and not traced, never truncated.
+            // Parallel by construction (PrepareFrame packs one row per queued tile, SyncGpuScene one GpuScene
+            // instance per tile record); a mismatch is a broken invariant, said and not traced, never truncated.
             std::vector<RayTracing::LandscapeRayTracingTile> tiles;
             if ( instances.size() != queue.size() || materials.size() != queue.size() ||
                  rows.size() != queue.size() )
@@ -2280,7 +2288,13 @@ namespace Desert::Graphic
         // previous. A frame that executed commits as previous with what its report says it lost.
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: ExecuteGraph" );
         if ( Renderer::ExecuteGraph( graph ).IsSuccess() )
+        {
             m_ViewState.EndFrame( graph.GetExecuteReport() );
+            // The scene's GPU scene keeps this frame's transforms: a frame no view executed is discarded by the
+            // next sync (GpuSceneRegistry::BeginFrame), as the view's own history ignores it.
+            if ( m_FrameGpuScene != nullptr )
+                m_FrameGpuScene->CommitFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+        }
         textures.ResetInvalidatedHistories();
     }
 
@@ -2308,6 +2322,7 @@ namespace Desert::Graphic
 #endif
         m_FrameReflectionCaptures = nullptr;
         m_FrameRayTracingCache    = nullptr;
+        m_FrameGpuScene           = nullptr;
         m_FrameLocalShadows       = nullptr;
         m_FrameDistanceFields     = nullptr;
 

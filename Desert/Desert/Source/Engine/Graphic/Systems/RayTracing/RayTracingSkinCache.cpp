@@ -7,7 +7,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/DisplacementCache.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
-#include <Engine/Graphic/View/SceneViewState.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
@@ -116,18 +116,18 @@ namespace Desert::Graphic::RayTracing
         return *entry.StorageRef;
     }
 
-    void RayTracingSkinCache::PrepareRows( const System::MeshRenderer&      meshes,
-                                           const std::span<GpuObjectMotion> rows, const uint64_t frame )
+    void RayTracingSkinCache::PrepareRows( const System::MeshRenderer& meshes, GpuDriven::GpuScene& scene,
+                                           const uint64_t frame )
     {
         const std::span<const System::MeshRenderer::SkinnedMeshRenderData> records = meshes.GetSkinnedQueue();
         if ( !m_Enabled || records.empty() || !EnsurePipeline( records.size() ) )
-            return; // rows keep no address: the raster skins in the vertex stage
+            return; // the primitives keep no address: the raster skins in the vertex stage
 
         KeyRecords( meshes );
         for ( std::size_t i = 0; i < records.size(); ++i )
         {
             const System::MeshRenderer::SkinnedMeshRenderData& record = records[i];
-            if ( record.Mesh == nullptr || record.GpuPrimitive >= rows.size() )
+            if ( record.Mesh == nullptr || !scene.IsValid( record.GpuPrimitive ) )
                 continue;
             Entry& entry = m_Entries[m_RecordKeys[i]];
             if ( entry.LastFrame != frame || !entry.Streams )
@@ -192,16 +192,12 @@ namespace Desert::Graphic::RayTracing
             }
             if ( !entry.StreamsReady )
                 continue;
-            const uint64_t   address = DrawnStreams( entry ).GetDeviceAddress();
-            GpuObjectMotion& row     = rows[record.GpuPrimitive];
-            row.SkinCacheAddressLo   = static_cast<uint32_t>( address & 0xffffffffu );
-            row.SkinCacheAddressHi   = static_cast<uint32_t>( address >> 32u );
-            row.SkinCacheVertexCount = record.Mesh->GetVertexCount();
+            scene.SetSkinCache( record.GpuPrimitive, DrawnStreams( entry ).GetDeviceAddress(),
+                                record.Mesh->GetVertexCount() );
         }
     }
 
-    Common::BoolResultStr RayTracingSkinCache::SkinFrame( System::MeshRenderer&            meshes,
-                                                          const std::span<GpuObjectMotion> rows,
+    Common::BoolResultStr RayTracingSkinCache::SkinFrame( System::MeshRenderer& meshes, GpuDriven::GpuScene& scene,
                                                           RDG::ExternalBuffer& viewBones, const uint64_t frame )
     {
         const std::span<const System::MeshRenderer::SkinnedMeshRenderData> records = meshes.GetSkinnedQueue();
@@ -226,16 +222,16 @@ namespace Desert::Graphic::RayTracing
             if ( found == m_Entries.end() )
                 continue;
             Entry& entry = found->second;
-            if ( entry.LastFrame != frame || !entry.StreamsReady || record.GpuPrimitive >= rows.size() )
+            if ( entry.LastFrame != frame || !entry.StreamsReady || !scene.IsValid( record.GpuPrimitive ) )
                 continue;
             if ( entry.HasSkinned && entry.SkinnedFrame == frame )
                 continue; // an earlier view of this frame skinned it: one skinning per frame
 
             if ( !bones )
             {
-                if ( const auto imported = Renderer::ImportBuffer( meshes.GetObjectBones(), viewBones );
+                if ( const auto imported = Renderer::ImportBuffer( scene.GetBonesBuffer(), viewBones );
                      !imported )
-                    return Common::MakeError( std::format( "{}: the view's ObjectBones could not be imported: {}",
+                    return Common::MakeError( std::format( "{}: the scene's ObjectBones could not be imported: {}",
                                                            kSkinCachePassName, imported.GetError() ) );
                 bones = graph.RegisterExternal( viewBones, "SkinCache.Bones" );
             }
@@ -253,7 +249,7 @@ namespace Desert::Graphic::RayTracing
             // when the streams' current positions are last frame's pose (rotate them into the previous positions).
             const bool                    history     = entry.HasSkinned && entry.SkinnedFrame + 1u == frame;
             const uint32_t                vertexCount = entry.Source->GetVertexCount();
-            const std::array<uint32_t, 4> dispatch    = { vertexCount, rows[record.GpuPrimitive].BoneOffset,
+            const std::array<uint32_t, 4> dispatch    = { vertexCount, scene.Primitive( record.GpuPrimitive ).BoneOffset,
                                                        history ? 1u : 0u, 0u };
             const RDG::BufferRef          dispatchRef =
                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( dispatch ) }, "SkinCache.Dispatch" );
@@ -307,10 +303,7 @@ namespace Desert::Graphic::RayTracing
                                    record.Entity, added.GetError() );
                     entry.RefusalLogged      = true;
                     entry.StreamsReady       = false;
-                    GpuObjectMotion& row     = rows[record.GpuPrimitive];
-                    row.SkinCacheAddressLo   = 0;
-                    row.SkinCacheAddressHi   = 0;
-                    row.SkinCacheVertexCount = 0;
+                    scene.SetSkinCache( record.GpuPrimitive, 0u, 0u );
                     continue;
                 }
             }
@@ -331,12 +324,7 @@ namespace Desert::Graphic::RayTracing
                 entry->HasSkinned   = false;
             }
             for ( const std::size_t i : skinnedRecords )
-            {
-                GpuObjectMotion& row     = rows[records[i].GpuPrimitive];
-                row.SkinCacheAddressLo   = 0;
-                row.SkinCacheAddressHi   = 0;
-                row.SkinCacheVertexCount = 0;
-            }
+                scene.SetSkinCache( records[i].GpuPrimitive, 0u, 0u );
             return Common::MakeError( std::format( "{}: the skin graph of {} primitive(s) did not execute; they "
                                                    "skin in the vertex stage this frame: {}",
                                                    kSkinCachePassName, skinned.size(), executed.GetError() ) );

@@ -170,7 +170,7 @@ namespace Desert::Graphic::RayTracing
             rows.push_back( { mesh, world, row, castShadows, kind, { section } } );
         };
         for ( const MeshRenderer::StaticMeshRenderData& data : inputs.Static )
-            add( data.Mesh, data.Transform, data.GpuPrimitive,
+            add( data.Mesh, data.Transform, data.GpuInstance,
                  SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ), data.CastShadows,
                  RayTracingPrimitiveKind::Static );
         // A generic record's material is its own program (a per-slot data-driven material, or a shader override
@@ -181,7 +181,7 @@ namespace Desert::Graphic::RayTracing
             if ( data.VisibleInRayTracing )
             {
                 const bool program = !data.RayHit.Template.empty();
-                add( data.Mesh, data.Transform, data.GpuPrimitive,
+                add( data.Mesh, data.Transform, data.GpuInstance,
                      { .Visible    = data.VisibleSubmeshMask,
                        .Surface    = data.SlotMaterial,
                        .Masked     = program && data.RayHit.Opacity.has_value(),
@@ -378,7 +378,7 @@ namespace Desert::Graphic::RayTracing
         {
             RayTracingPrimitive& primitive = out.Primitives.emplace_back();
             primitive.World                = data.Transform;
-            primitive.GpuSceneRow          = data.GpuPrimitive;
+            primitive.GpuSceneRow          = data.GpuInstance;
             primitive.Kind                 = RayTracingPrimitiveKind::Skinned;
             primitive.DeformedMesh         = data.Mesh;
             if ( data.Mesh == nullptr )

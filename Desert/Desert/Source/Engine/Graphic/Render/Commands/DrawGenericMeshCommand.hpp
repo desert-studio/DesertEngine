@@ -11,7 +11,8 @@
 #include <glm/mat4x4.hpp>
 
 #include <string>
-#include <utility>
+#include <utility>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert::Graphic::Render
 {

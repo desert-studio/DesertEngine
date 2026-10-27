@@ -29,6 +29,7 @@
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/View/DepthOfField.hpp>
 #include <Engine/Graphic/View/MotionBlur.hpp>
 #include <Engine/Graphic/View/SpatialUpscale.hpp>
@@ -1391,6 +1392,10 @@ namespace Desert::Graphic
         // The ray-tracing geometry of the scene BeginScene was handed (Core::Scene owns it, shared by its views):
         // read by this view's TLAS gather in OnUpdate, cleared by EndScene.
         RayTracing::RayTracingSceneCache* m_FrameRayTracingCache = nullptr;
+        // The GPU scene of the scene BeginScene was handed (Core::Scene owns it, shared by its views): synced by
+        // this view's MeshRenderer::SyncGpuScene in OnUpdate, committed after the view's graph executed, cleared
+        // by EndScene.
+        GpuDriven::GpuSceneRegistry* m_FrameGpuScene = nullptr;
         // The scene's local-light shadow cache, the same bracket (GetFrameLocalShadows).
         LocalShadowCache* m_FrameLocalShadows = nullptr;
         // The scene's mesh distance fields (brick atlas, records, streaming), the same bracket: what this view's
@@ -1488,7 +1493,7 @@ namespace Desert::Graphic
         // steps).
         uint64_t m_LoggedRayTracingTlasBytes = 0;
 #endif
-        // BuildObjectMotions' landscape tile records, kept across frames (no per-frame allocation).
+        // SyncGpuScene's landscape tile records, kept across frames (no per-frame allocation).
         std::vector<MotionRecord> m_ScratchTileMotions;
         // What the effective GI method runs of the traced machinery and which tracer walks its rays
         // (GlobalIllumination::PipelineFor of the effective method, the quality and the device), with

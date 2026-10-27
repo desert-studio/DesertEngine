@@ -452,14 +452,15 @@ namespace Desert::Graphic::System
                 {
                     m_SilhouetteSkinnedMaterial->UpdateCamera( *view );
                     m_SilhouetteSkinnedMaterial->UploadBones( outlineBones );
-                    auto* const                            skinnedMask = m_SilhouetteSkinnedMaterial.get();
-                    const std::span<const GpuObjectMotion> rows        = m_ScratchMotionRows.Rows;
+                    auto* const skinnedMask = m_SilhouetteSkinnedMaterial.get();
                     for ( const auto& [sd, boneOffset] : outlined )
                     {
                         // The pose slice (or the skin cache's streams) is the draw's own state, set right before
                         // it.
-                        const GpuObjectMotion row =
-                             sd->GpuPrimitive < rows.size() ? rows[sd->GpuPrimitive] : GpuObjectMotion{};
+                        const GpuDriven::GpuScenePrimitive row =
+                             m_GpuScene != nullptr && m_GpuScene->IsValid( sd->GpuPrimitive )
+                                  ? m_GpuScene->Primitive( sd->GpuPrimitive )
+                                  : GpuDriven::GpuScenePrimitive{};
                         const uint64_t address =
                              ( static_cast<uint64_t>( row.SkinCacheAddressHi ) << 32u ) | row.SkinCacheAddressLo;
                         m_SilhouetteDraws.Add( { .Pipeline  = m_SilhouetteSkinnedPipeline.get(),

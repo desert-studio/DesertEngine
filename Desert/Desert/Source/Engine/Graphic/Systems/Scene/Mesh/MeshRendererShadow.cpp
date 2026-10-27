@@ -1162,12 +1162,13 @@ namespace Desert::Graphic::System
             if ( !opaqueCasters.empty() )
             {
                 skinMat->UploadBones( skinBones );
-                const std::span<const GpuObjectMotion> rows = m_ScratchMotionRows.Rows;
                 for ( const OpaqueCaster& caster : opaqueCasters )
                 {
                     // The cached pose when the skin cache holds this primitive (one skinning per frame).
-                    const GpuObjectMotion row =
-                         caster.Data->GpuPrimitive < rows.size() ? rows[caster.Data->GpuPrimitive] : GpuObjectMotion{};
+                    const GpuDriven::GpuScenePrimitive row =
+                         m_GpuScene != nullptr && m_GpuScene->IsValid( caster.Data->GpuPrimitive )
+                              ? m_GpuScene->Primitive( caster.Data->GpuPrimitive )
+                              : GpuDriven::GpuScenePrimitive{};
                     const uint64_t address =
                          ( static_cast<uint64_t>( row.SkinCacheAddressHi ) << 32u ) | row.SkinCacheAddressLo;
                     // A virtual shadow map level culls the caster by its posed box (CollectVirtualShadowCull).
@@ -1238,13 +1239,14 @@ namespace Desert::Graphic::System
             }
             // The one binding the path adds (MeshPathOwnBinding): instance matrices or bone poses.
             const auto path = MeshCellPath( set.Caster->GetShaderName() );
-            // A skinned caster also reads its row's skin-cache fields from the view's rows (Vertex_Skinned.glslh).
+            // A skinned caster also reads its primitive's skin-cache fields from the scene's GpuScene
+            // (Vertex_Skinned.glslh).
             if ( path == MeshVertexPath::Skinned )
             {
                 auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kGpuScenePrimitives );
-                const bool bound = rows != nullptr && m_ObjectMotions != nullptr;
-                DESERT_VERIFY( bound, "a skinned masked caster reads ObjectMotions but the view carries none" );
-                rows->LendViewBuffer( m_ObjectMotions );
+                const bool bound = rows != nullptr && m_GpuScene != nullptr && m_GpuScene->GetPrimitivesBuffer();
+                DESERT_VERIFY( bound, "a skinned masked caster reads GpuScenePrimitives but the view carries none" );
+                rows->LendViewBuffer( m_GpuScene->GetPrimitivesBuffer() );
             }
             const std::optional<RDG::StorageBufferParameter> own =
                  path ? MeshPathOwnBuffer( *path ) : std::nullopt;

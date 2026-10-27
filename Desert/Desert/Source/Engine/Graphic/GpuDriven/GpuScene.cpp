@@ -336,6 +336,7 @@ namespace Desert::Graphic::GpuDriven
             m_Live.push_back( 0u );
             m_WorldBoundsRow.push_back( kInvalidIndex );
             m_MovedMark.push_back( 0u );
+            m_UndoMark.push_back( 0u );
         }
         m_Live[primitive]      = 1u;
         GpuScenePrimitive& row = m_Primitives[primitive];
@@ -402,6 +403,7 @@ namespace Desert::Graphic::GpuDriven
         GpuScenePrimitive& row = m_Primitives[primitive];
         if ( row.LocalToWorld == world )
             return;
+        JournalTransform( primitive );
         row.PrevLocalToWorld = row.LocalToWorld;
         row.LocalToWorld     = world;
         MarkPrimitive( primitive );
@@ -495,8 +497,45 @@ namespace Desert::Graphic::GpuDriven
         m_BonesDirty = true;
     }
 
+    void GpuScene::JournalTransform( const PrimitiveIndex primitive )
+    {
+        if ( m_UndoMark[primitive] != 0u )
+            return;
+        m_UndoMark[primitive]        = 1u;
+        const GpuScenePrimitive& row = m_Primitives[primitive];
+        m_FrameUndo.push_back( TransformUndo{ .Primitive        = primitive,
+                                              .LocalToWorld     = row.LocalToWorld,
+                                              .PrevLocalToWorld = row.PrevLocalToWorld } );
+    }
+
+    void GpuScene::DiscardFrame()
+    {
+        for ( const TransformUndo& undo : m_FrameUndo )
+        {
+            m_UndoMark[undo.Primitive] = 0u;
+            if ( !IsValid( undo.Primitive ) )
+                continue;
+            GpuScenePrimitive& row = m_Primitives[undo.Primitive];
+            row.LocalToWorld       = undo.LocalToWorld;
+            row.PrevLocalToWorld   = undo.PrevLocalToWorld;
+            MarkPrimitive( undo.Primitive );
+        }
+        m_FrameUndo.clear();
+        for ( const PrimitiveIndex primitive : m_MovedLastFrame )
+            m_MovedMark[primitive] = 0u;
+        m_MovedLastFrame = std::move( m_UndoMovedLastFrame );
+        m_UndoMovedLastFrame.clear();
+        for ( const PrimitiveIndex primitive : m_MovedLastFrame )
+            m_MovedMark[primitive] = 1u;
+    }
+
     void GpuScene::BeginFrame()
     {
+        // A new undo: the last frame was kept (or discarded already).
+        for ( const TransformUndo& undo : m_FrameUndo )
+            m_UndoMark[undo.Primitive] = 0u;
+        m_FrameUndo.clear();
+        m_UndoMovedLastFrame = m_MovedLastFrame;
         // Moved in the frame that just ended: this frame starts from where they stopped (UE: the velocity
         // list's "moved last frame" pass). A primitive that moves again this frame overwrites Prev with the same
         // value in SetTransform.
@@ -508,6 +547,7 @@ namespace Desert::Graphic::GpuDriven
             GpuScenePrimitive& row = m_Primitives[primitive];
             if ( row.PrevLocalToWorld == row.LocalToWorld )
                 continue;
+            JournalTransform( primitive );
             row.PrevLocalToWorld = row.LocalToWorld;
             MarkPrimitive( primitive );
         }

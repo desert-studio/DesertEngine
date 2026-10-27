@@ -4,11 +4,14 @@
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
-#include <Engine/Graphic/View/ObjectMotionRows.hpp>
+#include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <algorithm>
 #include <optional>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -533,11 +536,14 @@ namespace Desert::Graphic::System
         // The sun's PCSS taps: the SAME value the deferred composite and the surface-cache cards pack.
         frame.ShadowFilter = m_SceneRenderer->GetShadowFilterSettings();
 
-        // The view's motion rows and both frames' bone palettes (BuildObjectMotions, this frame). Carried by
-        // every capture: only the view-pass cells declare them (a light view — shadow depth, RSM — reads none),
-        // and ApplyTo binds them by name only into a template that does.
-        frame.GpuScenePrimitives = m_ObjectMotions;
-        frame.ObjectBones   = m_ObjectBones;
+        // The scene's GPU-scene primitives and both frames' bone palettes (SyncGpuScene, this frame). Carried
+        // by every capture: only the view-pass cells declare them (a light view — shadow depth, RSM — reads
+        // none), and ApplyTo binds them by name only into a template that does.
+        if ( m_GpuScene != nullptr )
+        {
+            frame.GpuScenePrimitives = m_GpuScene->GetPrimitivesBuffer();
+            frame.ObjectBones        = m_GpuScene->GetBonesBuffer();
+        }
         // The world's parameters, the view's one snapshot of this frame (SceneRenderer::BeginScene).
         frame.WorldParameters = m_SceneRenderer->GetWorldParametersBuffer();
         frame.RainOcclusion   = GetRainOcclusionUniforms();
@@ -545,103 +551,131 @@ namespace Desert::Graphic::System
         return frame;
     }
 
-    Common::BoolResultStr MeshRenderer::BuildObjectMotions( MotionHistory&                         motion,
-                                                            std::span<const MotionRecord>          otherRigid,
-                                                            RayTracing::RayTracingSkinCache* const skinCache,
-                                                            const uint64_t                         frame )
+    Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
+                                                      std::span<const MotionRecord>          otherRigid,
+                                                      RayTracing::RayTracingSkinCache* const skinCache,
+                                                      const uint64_t                         frame )
     {
-        // The rows are numbered on the CPU (Graphic/View/ObjectMotionRows.hpp: one row per primitive, submesh
-        // records of one object share it, slots stable per submission); this function only gathers the queued
-        // records, writes each one's row back and uploads.
-        auto& records = m_ScratchMotionRecords;
-        records.clear();
-        size_t instanceCount = 0;
-        for ( const auto& data : m_InstancedQueue )
-            instanceCount += data.Transforms->size();
-        records.reserve( m_StaticQueue.size() + m_GenericQueue.size() + instanceCount + otherRigid.size() +
-                         m_SkinnedQueue.size() );
-        for ( const auto& data : m_StaticQueue )
-            records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
-        for ( const auto& data : m_GenericQueue )
-            records.push_back( { .Entity = data.Entity, .Part = data.MotionPart, .World = data.Transform } );
-        // Every ISM instance is a primitive row of its own (UE instance scene data; the GI card table and the TLAS
-        // custom index are keyed per instance). Part = instance + 1 keeps each instance's previous world its own.
-        for ( const auto& data : m_InstancedQueue )
+        namespace Flags       = GpuDriven::PrimitiveFlags;
+        const auto rigidFlags = []( const bool castShadows, const bool castContactShadow ) -> uint32_t
         {
-            const std::vector<glm::mat4>& transforms = *data.Transforms;
-            for ( size_t instance = 0; instance < transforms.size(); ++instance )
-                records.push_back( { .Entity = data.Entity,
-                                     .Part   = ( data.InstanceIds ? ( *data.InstanceIds )[instance]
-                                                                : static_cast<uint32_t>( instance ) ) +
-                                             1u,
-                                     .World  = transforms[instance] } );
-        }
-        records.insert( records.end(), otherRigid.begin(), otherRigid.end() );
-        const size_t rigidCount = records.size();
-        for ( const auto& data : m_SkinnedQueue )
-            records.push_back( { .Entity = data.Entity, .World = data.Transform, .Bones = data.BoneMatrices } );
+            return ( castShadows ? Flags::kCastsShadow : 0u ) | ( castContactShadow ? 0u : Flags::kNoContactShadow );
+        };
 
-        auto& built = m_ScratchMotionRows;
-        BuildObjectMotionRows( motion, std::span<const MotionRecord>( records ).first( rigidCount ),
-                               std::span<const MotionRecord>( records ).subspan( rigidCount ), built );
+        registry.BeginFrame( frame );
+        GpuDriven::GpuScene& scene = registry.Scene();
+
+        // The queued records as the registry keys them (GpuSceneRegistry::Sync: one primitive per entity slot,
+        // submesh records of one object share it, slots stable per submission); this function only gathers them,
+        // writes each one's rows back and uploads the scene's deltas.
+        auto& rigid = m_ScratchRigidRecords;
+        rigid.clear();
+        rigid.reserve( m_StaticQueue.size() + m_GenericQueue.size() + otherRigid.size() );
+        for ( const auto& data : m_StaticQueue )
+            rigid.push_back( { .Entity = data.Entity,
+                               .Part   = data.MotionPart,
+                               .World  = data.Transform,
+                               .Mesh   = data.Mesh,
+                               .Flags  = rigidFlags( data.CastShadows, data.CastContactShadow ) } );
+        for ( const auto& data : m_GenericQueue )
+            rigid.push_back( { .Entity = data.Entity,
+                               .Part   = data.MotionPart,
+                               .World  = data.Transform,
+                               .Mesh   = data.Mesh,
+                               .Flags  = rigidFlags( data.CastShadows, true ) } );
+        rigid.insert( rigid.end(), otherRigid.begin(), otherRigid.end() );
+
+        auto& skinned = m_ScratchSkinnedRecords;
+        skinned.clear();
+        skinned.reserve( m_SkinnedQueue.size() );
+        for ( const auto& data : m_SkinnedQueue )
+            skinned.push_back( { .Entity = data.Entity,
+                                 .World  = data.Transform,
+                                 .Bones  = data.BoneMatrices,
+                                 .Mesh   = data.Mesh,
+                                 .Flags  = Flags::kSkinned | rigidFlags( data.CastShadows, true ) } );
+
+        // Every ISM / foliage field is ONE primitive whose GpuScene instances are its instances (UE instance
+        // scene data; the GI card table and the TLAS custom index are keyed per instance).
+        auto& fields = m_ScratchFieldRecords;
+        fields.clear();
+        fields.reserve( m_InstancedQueue.size() );
+        for ( const auto& data : m_InstancedQueue )
+            fields.push_back( { .Entity            = data.Entity,
+                                .Mesh              = data.Mesh,
+                                .Transforms        = *data.Transforms,
+                                .CullDistanceStart = data.CullDistance.Min,
+                                .CullDistanceEnd   = data.CullDistance.Max,
+                                .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ) } );
+
+        auto& rows = m_ScratchGpuSceneRows;
+        registry.Sync( rigid, skinned, fields, rows );
+
         size_t record = 0;
         for ( auto& data : m_StaticQueue )
-            data.GpuPrimitive = built.RecordRows[record++];
-        for ( auto& data : m_GenericQueue )
-            data.GpuPrimitive = built.RecordRows[record++];
-        m_InstancedGpuInstances.clear();
-        m_InstancedGpuInstances.reserve( instanceCount );
-        for ( auto& data : m_InstancedQueue )
         {
-            data.FirstGpuInstance = static_cast<uint32_t>( m_InstancedGpuInstances.size() );
-            for ( size_t instance = 0; instance < data.Transforms->size(); ++instance )
-                m_InstancedGpuInstances.push_back( built.RecordRows[record++] );
+            data.GpuPrimitive = rows.RigidPrimitives[record];
+            data.GpuInstance  = rows.RigidInstances[record++];
+        }
+        for ( auto& data : m_GenericQueue )
+        {
+            data.GpuPrimitive = rows.RigidPrimitives[record];
+            data.GpuInstance  = rows.RigidInstances[record++];
         }
         m_OtherGpuInstances.clear();
         m_OtherGpuInstances.reserve( otherRigid.size() );
         for ( size_t other = 0; other < otherRigid.size(); ++other )
-            m_OtherGpuInstances.push_back( built.RecordRows[record++] );
-        for ( auto& data : m_SkinnedQueue )
-            data.GpuPrimitive = built.RecordRows[record++];
-        // The GPU skin cache: each skinned row learns where its posed vertices are, before the rows are uploaded.
-        if ( skinCache != nullptr )
-            skinCache->PrepareRows( *this, built.Rows, frame );
-        const auto& rows     = built.Rows;
-        const auto& palettes = built.Palettes;
-
-        // Both buffers at FINAL size before any pass is declared: the descriptor a draw records points at the
-        // buffer it reads (a later grow would reallocate it under recorded draws).
-        const auto upload = []( std::shared_ptr<ShaderResources::StorageBuffer>& buffer, const char* name,
-                                const uint32_t binding, const void* data,
-                                const size_t bytes ) -> Common::BoolResultStr
+            m_OtherGpuInstances.push_back( rows.RigidInstances[record++] );
+        for ( size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
-            if ( !buffer )
-                buffer = ShaderResources::StorageBuffer::Create(
-                     name, static_cast<uint32_t>( std::max<size_t>( bytes, sizeof( glm::mat4 ) ) ), binding );
-            if ( !buffer )
-                return Common::MakeFormattedError( "the view's {} buffer could not be created", name );
-            if ( bytes == 0 )
+            m_SkinnedQueue[i].GpuPrimitive = rows.SkinnedPrimitives[i];
+            m_SkinnedQueue[i].GpuInstance  = rows.SkinnedInstances[i];
+        }
+        m_InstancedGpuInstances.clear();
+        for ( size_t f = 0; f < m_InstancedQueue.size(); ++f )
+        {
+            auto& data            = m_InstancedQueue[f];
+            data.FirstGpuInstance = static_cast<uint32_t>( m_InstancedGpuInstances.size() );
+            for ( size_t instance = 0; instance < data.Transforms->size(); ++instance )
+                m_InstancedGpuInstances.push_back( rows.FieldInstances[f] + static_cast<uint32_t>( instance ) );
+        }
+        m_GpuScene = &scene;
+
+        // The scene's deltas reach the device in a graph of their own, submitted ahead of this view's graph: its
+        // passes bind the tables by descriptor (CaptureFrameState), so the tables are at their final size and
+        // content before any pass is declared.
+        const auto upload = [&scene]() -> Common::BoolResultStr
+        {
+            if ( !scene.HasPendingUpload() )
                 return BOOLSUCCESS;
-            if ( const auto wrote = buffer->SetData( data, static_cast<uint32_t>( bytes ) ); !wrote )
-                return Common::MakeFormattedError( "the view's {} ({} bytes) could not be uploaded: {}", name,
-                                                   bytes, wrote.GetError() );
+            RDG::Builder graph( "GPUScene" );
+            if ( const auto added = scene.AddUploadPass( graph ); !added )
+                return Common::MakeFormattedError( "the GPU scene's upload could not be declared: {}",
+                                                   added.GetError() );
+            if ( const Common::BoolResultStr executed = Renderer::ExecuteGraph( graph ); !executed )
+                return Common::MakeFormattedError( "the GPU scene's upload did not execute: {}",
+                                                   executed.GetError() );
             return BOOLSUCCESS;
         };
-        if ( const auto uploaded =
-                  upload( m_ObjectBones, SceneResources::kObjectBonesName, Core::kObjectBonesBinding,
-                          palettes.data(), palettes.size() * sizeof( glm::mat4 ) );
-             !uploaded )
-            return uploaded;
-        // The scene's skin step, after the palette it skins from is uploaded and before the rows are: its own
-        // graph is submitted here, ahead of every view graph (each only reads the streams), and a failure strips
-        // the address from the rows it was to fill before they reach the GPU.
+
+        // The GPU skin cache: each skinned primitive learns where its posed vertices are, before the upload.
         if ( skinCache != nullptr )
-            if ( const Common::BoolResultStr skinned =
-                      skinCache->SkinFrame( *this, built.Rows, m_SkinCacheBonesImport, frame );
-                 !skinned )
-                LOG_ERROR( "[MeshRenderer] the skin cache's step failed: {}", skinned.GetError() );
-        return upload( m_ObjectMotions, SceneResources::kGpuScenePrimitivesName, Core::kGpuScenePrimitivesBinding,
-                       rows.data(), rows.size() * sizeof( GpuObjectMotion ) );
+            skinCache->PrepareRows( *this, scene, frame );
+        if ( const Common::BoolResultStr uploaded = upload(); !uploaded )
+            return uploaded;
+        // The scene's skin step, after the palettes it skins from are on the device: its own graph is submitted
+        // here, ahead of every view graph (each only reads the streams); a failure strips the address from the
+        // primitives it was to fill, which then go up again before any view pass reads them.
+        if ( skinCache != nullptr )
+        {
+            if ( const Common::BoolResultStr skinnedFrame =
+                      skinCache->SkinFrame( *this, scene, m_SkinCacheBonesImport, frame );
+                 !skinnedFrame )
+                LOG_ERROR( "[MeshRenderer] the skin cache's step failed: {}", skinnedFrame.GetError() );
+            if ( const Common::BoolResultStr uploaded = upload(); !uploaded )
+                return uploaded;
+        }
+        return BOOLSUCCESS;
     }
 
     void MeshRenderer::SubmitMesh( const MeshRenderData& data )

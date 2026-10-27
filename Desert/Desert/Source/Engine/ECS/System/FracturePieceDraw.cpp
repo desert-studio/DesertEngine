@@ -17,7 +17,8 @@
 
 #include <algorithm>
 #include <format>
-#include <span>
+#include <span>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert::ECS
 {

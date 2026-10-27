@@ -1016,11 +1016,13 @@ namespace Desert::Graphic
                      .Row            = row,
                      .MostlyTwoSided = mostlyTwoSided } );
         };
-        const auto& motionRows = meshRenderer->GetObjectMotionRows().Rows;
+        // The previous world of each primitive is its GpuScene row's (MeshRenderer::SyncGpuScene ran this frame
+        // before any pass was declared: OnUpdate draws nothing without it).
+        const GpuDriven::GpuScene& gpuScene = *meshRenderer->GetGpuScene();
         for ( const auto& draw : meshRenderer->GetStaticQueue() )
             if ( draw.Mesh != nullptr )
                 if ( const auto field = draw.Mesh->GetDistanceField() )
-                    place( draw.Mesh, field, draw.Transform, motionRows[draw.GpuPrimitive].PrevWorld,
+                    place( draw.Mesh, field, draw.Transform, gpuScene.Primitive( draw.GpuPrimitive ).PrevLocalToWorld,
                            draw.Mesh->IsDistanceFieldMostlyTwoSided() );
         for ( const auto& ism : meshRenderer->GetInstancedQueue() )
             if ( ism.Mesh != nullptr && ism.Transforms )

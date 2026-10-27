@@ -6,7 +6,7 @@
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
-#include <Engine/Graphic/View/ObjectMotionRows.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/View/Velocity.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>

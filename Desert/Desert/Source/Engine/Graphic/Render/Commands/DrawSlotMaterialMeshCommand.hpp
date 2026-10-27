@@ -6,7 +6,8 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 
-#include <glm/mat4x4.hpp>
+#include <glm/mat4x4.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert::Graphic
 {
