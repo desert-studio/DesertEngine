@@ -14,9 +14,8 @@ Shader "UI2D"
 
     Vertex
     {
-        In(0) vec2 a_Position;   // pixel coordinates (top-left origin)
-        In(1) vec2 a_TexCoord;
-        In(2) vec4 a_Color;
+        // Generated from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp).
+        #include <Common/UIVertexInputs.glslh>
 
         Out(0) vec2 v_TexCoord;
         Out(1) vec4 v_Color;

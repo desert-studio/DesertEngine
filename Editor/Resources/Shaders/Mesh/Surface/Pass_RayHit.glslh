@@ -17,7 +17,7 @@
 // the ray's origin, the hit widens it by the distance and divides by the triangle's world-per-UV footprint.
 
 #include <Common/RayTracingHitTriangle.glslh>
-#include <Common/MeshTextureCoord.glslh>
+#include <Mesh/MeshVertexAccess.glslh>
 
 // The surface input at the hit: world position along the ray, the world normal (inverse-transpose of the instance
 // transform), the tangent frame from the triangle's UV gradient (the record carries no tangent stream; a segment
@@ -25,7 +25,7 @@
 SurfaceInput DesertRayHitSurfaceInput( DesertRayHitTriangle t )
 {
     // The texture's coordinates, as the raster vertex paths hand them to the same surface function (one convention,
-    // Common/MeshTextureCoord.glslh); the tangent frame below is built from these, as the raster's matches them.
+    // Mesh/MeshVertexAccess.glslh, generated from Graphic/ShaderProtocols/VertexInputs.hpp); the tangent frame below is built from these, as the raster's matches them.
     t.UV0 = DesertMeshTextureUV( t.UV0 );
     t.UV1 = DesertMeshTextureUV( t.UV1 );
     t.UV2 = DesertMeshTextureUV( t.UV2 );

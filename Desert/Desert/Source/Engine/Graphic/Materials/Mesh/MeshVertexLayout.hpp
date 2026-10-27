@@ -5,14 +5,15 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <span>
 
 namespace Desert::Graphic
 {
     // THE ONE HOME OF A MESH DRAW'S VERTEX INPUT — UE's FVertexFactory declaration: which attributes a vertex
     // path fetches, at which locations. Every mesh pipeline MeshRenderer builds (forward, G-buffer, glass,
     // shadow, silhouette, overdraw, the generic material cells) takes its layout from here, so the C++ side
-    // and Mesh/Surface/Vertex_*.glslh are one relation, asserted by Desert/Tests/Engine/MeshVertexPath and
-    // ShippedShaderPasses.
+    // and every mesh vertex stage's inputs are ONE list: ShaderProtocols/VertexInputs.hpp generates both this
+    // layout and the `in` declarations the stages include (Mesh/MeshVertexInputs*.glslh).
     //
     //   binding 0 — the mesh's own vertices: position, normal, tangent, bitangent, UV0 at 0..4, and for the
     //               skinned path bone indices / weights at 5..6.
@@ -21,26 +22,20 @@ namespace Desert::Graphic
     //               binds the shared default buffer (white, UV1 0,0 in every vertex; DefaultVertexStreamsFor)
     //               — defined format semantics, as UE's GNullColorVertexBuffer, not a fallback. No stride-0
     //               variant: portability devices refuse it (vertexAttributeAccessBeyondStride = false).
-    inline constexpr uint32_t kMeshVertexStreamFirstLocation = 7;
+    using ShaderProtocols::kMeshVertexStreamFirstLocation;
+
+    /// The fields of a mesh path's vertex format — the same fields the shader's inputs are generated from
+    /// (ShaderProtocols/VertexInputs.hpp; Mesh/MeshVertexInputs.glslh, Mesh/MeshVertexInputsSkinned.glslh).
+    [[nodiscard]] inline std::span<const ShaderProtocols::VertexInputField> MeshVertexInputs( const MeshVertexPath path )
+    {
+        if ( path == MeshVertexPath::Skinned )
+            return ShaderProtocols::kMeshSkinnedVertexInputs;
+        return ShaderProtocols::kMeshVertexInputs;
+    }
 
     inline VertexBufferLayout MeshVertexLayout( const MeshVertexPath path )
     {
-        VertexBufferLayout layout = path == MeshVertexPath::Skinned
-                                         ? VertexBufferLayout{ { ShaderDataType::Float3, "a_Position" },
-                                                               { ShaderDataType::Float3, "a_Normal" },
-                                                               { ShaderDataType::Float3, "a_Tangent" },
-                                                               { ShaderDataType::Float3, "a_Bitangent" },
-                                                               { ShaderDataType::Float2, "a_TextureCoord" },
-                                                               { ShaderDataType::Int4, "a_BoneIndices" },
-                                                               { ShaderDataType::Float4, "a_BoneWeights" } }
-                                         : VertexBufferLayout{ { ShaderDataType::Float3, "a_Position" },
-                                                               { ShaderDataType::Float3, "a_Normal" },
-                                                               { ShaderDataType::Float3, "a_Tangent" },
-                                                               { ShaderDataType::Float3, "a_Bitangent" },
-                                                               { ShaderDataType::Float2, "a_TextureCoord" } };
-        layout.WithStreams( kMeshVertexStreamFirstLocation, { { ShaderDataType::UNorm8x4, "a_Color", true },
-                                                              { ShaderDataType::Float2, "a_TexCoord1" } } );
-        return layout;
+        return VertexBufferLayout::FromVertexInputs( MeshVertexInputs( path ) );
     }
 
     // THE SHARED DEFAULT STREAMS BUFFER a mesh without its own streams binds at binding 1. It is read per vertex

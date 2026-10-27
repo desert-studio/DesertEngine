@@ -210,7 +210,7 @@ namespace VelocityTargetTest
     {
         return std::format( "Shader \"SceneReadRangeProbe\"\n{{\n    Domain Surface\n\n    {}"
                             "\n    State {{ Cull Back ZTest LEqual ZWrite On }}\n"
-                            "    Vertex\n    {{\n        In(0) vec3 a_Position;\n"
+                            "    Vertex\n    {{\n        #include <Mesh/MeshVertexInputs.glslh>\n"
                             "        void main() {{ gl_Position = vec4( a_Position, 1.0 ); }}\n    }}\n"
                             "    Fragment\n    {{\n        Out(0) vec4 o_Color;\n"
                             "        void main() {{ o_Color = vec4( 1.0 ); }}\n    }}\n}}\n",

@@ -299,6 +299,11 @@ namespace Desert::Core::Preprocess
         // `.glslh` headers can use the same sugar. A no-op on source that has none.
         static std::string TranslateSugar( const std::string& source );
 
+        // The names of the stage inputs a source declares in code (`In(N)`, `In`, `layout(location) in`; comments
+        // skipped). The parser refuses any in a Vertex block, the shader includer any in a header that spells a
+        // generated vertex attribute (Graphic/ShaderProtocols/VertexInputs.hpp) by hand.
+        static std::vector<std::string> DeclaredInputNames( const std::string& source );
+
         // False only when Parse could not produce a Medium block: the block keyword is matched without
         // regard to case, so a source that does not contain "medium" in any case has none. A true is
         // "parse to find out". ShaderService asks this of every shader it registers, and the answer is

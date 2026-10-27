@@ -1400,6 +1400,24 @@ namespace Desert::Core::Preprocess
             return present;
         }
 
+        // The names of the stage inputs @p src declares in code (comments skipped): `In(N) <type> <name>;`,
+        // `In <type> <name>;` and `layout( ... location ... ) in [flat] <type> <name>;`.
+        std::vector<std::string> InputDeclarationNames( const std::string& src )
+        {
+            static const std::regex kInput(
+                 R"((?:\bIn\s*\(\s*\d+\s*\)|\bIn\b|\blayout\s*\([^)]*\blocation\b[^)]*\)\s*in\b)\s+(?:(?:flat|smooth|noperspective)\s+)?\w+\s+(\w+)\s*;)" );
+            std::vector<std::string> names;
+            for ( const SourceRun& run : SplitCodeAndComments( src ) )
+            {
+                if ( !run.IsCode )
+                    continue;
+                for ( auto it = std::sregex_iterator( run.Text.begin(), run.Text.end(), kInput );
+                      it != std::sregex_iterator(); ++it )
+                    names.push_back( ( *it )[1].str() );
+            }
+            return names;
+        }
+
         std::string TranslateLayoutSugar( const std::string& src )
         {
             std::vector<SourceRun> runs = SplitCodeAndComments( src );
@@ -2022,6 +2040,11 @@ namespace Desert::Core::Preprocess
         return TranslateLayoutSugar( source );
     }
 
+    std::vector<std::string> DShaderParser::DeclaredInputNames( const std::string& source )
+    {
+        return InputDeclarationNames( source );
+    }
+
     Common::ResultStr<DShaderParseResult> DShaderParser::Parse( const std::string& source )
     {
         DShaderParseResult result;
@@ -2092,6 +2115,21 @@ namespace Desert::Core::Preprocess
                         "stage blocks must not declare #version — the compiler emits the header" };
                 return false;
             }
+            // A VERTEX STAGE DECLARES NO INPUT OF ITS OWN: its inputs are generated from the C++ vertex format
+            // (Graphic/ShaderProtocols/VertexInputs.hpp) and included (Mesh/MeshVertexInputs.glslh,
+            // Common/UIVertexInputs.glslh). A hand-written `In(N)` here would be the second spelling of the
+            // layout that used to drift from it unchecked.
+            if ( stage == ShaderStage::Vertex )
+                if ( const std::vector<std::string> inputs = InputDeclarationNames( block.Content ); !inputs.empty() )
+                {
+                    err = { block.StartLine,
+                            std::format( "the Vertex stage declares the input '{}' by hand; vertex inputs are "
+                                         "generated from the C++ vertex format — #include "
+                                         "<Mesh/MeshVertexInputs.glslh>, <Mesh/MeshVertexInputsSkinned.glslh> "
+                                         "or <Common/UIVertexInputs.glslh> instead",
+                                         inputs.front() ) };
+                    return false;
+                }
             pass.Blocks.emplace( stage, std::move( block ) );
             return true;
         };
