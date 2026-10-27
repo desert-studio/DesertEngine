@@ -1118,6 +1118,42 @@ namespace Desert::Core::WorldCells
         }
     } // namespace
 
+    namespace
+    {
+        // A JSON value with the keys of every object in it sorted: the content without its write order.
+        Common::Json::Value SortedKeys( const Common::Json::Value& value )
+        {
+            if ( const auto* object = std::get_if<Common::Json::Object>( &value.variant() ) )
+            {
+                std::vector<std::pair<std::string, Common::Json::Value>> members( object->begin(), object->end() );
+                std::ranges::stable_sort( members, {}, &std::pair<std::string, Common::Json::Value>::first );
+                Common::Json::Object sorted;
+                for ( const auto& [key, member] : members )
+                    sorted.insert( key, SortedKeys( member ) );
+                return Common::Json::Value( sorted );
+            }
+            if ( const auto* array = std::get_if<Common::Json::Value::Array>( &value.variant() ) )
+            {
+                Common::Json::Value::Array sorted;
+                sorted.reserve( array->size() );
+                for ( const Common::Json::Value& element : *array )
+                    sorted.push_back( SortedKeys( element ) );
+                return Common::Json::Value( sorted );
+            }
+            return value;
+        }
+
+        Common::Json::KeyedValues SortedKeys( const Common::Json::KeyedValues& blocks )
+        {
+            std::vector<std::pair<std::string, Common::Json::Value>> members( blocks.begin(), blocks.end() );
+            std::ranges::stable_sort( members, {}, &std::pair<std::string, Common::Json::Value>::first );
+            Common::Json::KeyedValues sorted;
+            for ( const auto& [key, member] : members )
+                sorted.insert( key, SortedKeys( member ) );
+            return sorted;
+        }
+    } // namespace
+
     std::uint32_t HLODBuildChecksum( std::span<const Assets::EntityData> records,
                                      std::span<const std::size_t>        members,
                                      const WorldPartitionSerialized&     partition )
@@ -1131,6 +1167,11 @@ namespace Desert::Core::WorldCells
         {
             Assets::EntityData canonical = records[member];
             canonical.siblingIndex.reset();
+            // ...and with every object's keys in one order: the saved file keeps the order it was written in
+            // (StaticMesh before RuntimeGrid, MaterialSlots before MeshHandle) while Play's snapshot writes the
+            // component registry's order, so the same content hashed differently and every Main/Foliage cell
+            // with two components read as stale in Play (WP22-REST: 194 errors right after Build HLODs).
+            canonical.Components = SortedKeys( canonical.Components );
             text += Common::Json::Write( canonical );
             text += '\n';
         }

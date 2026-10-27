@@ -1,7 +1,8 @@
 # WP22-REST (83688f54f): several runtime grids (Main 25 m, Foliage 12.8 m, LandscapeTiles 50 m), each with its HLOD
 # layer; the Player source (9000001, TargetGrids Main+Foliage, Scripts/World/WPWalk.lua walks 200 m along +X).
-# DRAFT, NOT PLAYED YET (REMAINDER): the per-grid cell display and the paint steps are to be checked live.
+# WP_Protocol_HLOD/ is a build product (not in git): the first step builds it (the reply waits for the bake).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Scene "Build HLODs"
 Дано run Panel "Open World Partition"
 Когда run Action "Play"
 Когда advance 2
@@ -13,7 +14,7 @@
 Тогда wp22_grids три грида разными цветами; загружены только ячейки Main и Foliage вокруг игрока (200 м по +X); LandscapeTiles вдали — HLOD своего слоя, без дыры на стыке
 Когда run Action "Stop"
 Когда run Foliage "Foliage mode"
-Когда run Foliage "Add mesh to the palette: shrub_02"
+Когда run Foliage "Add mesh to the palette: boulder_01"
 Когда run Foliage "Tool: Paint"
 Когда run Foliage "Stroke at viewport centre"
 Когда run Action "Save Scene"
