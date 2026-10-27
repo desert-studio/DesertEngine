@@ -300,6 +300,19 @@ def main():
     if "--session-start" in sys.argv:
         session_start(load())
         sys.exit(0)
+    if "--owner-named-mirror" in sys.argv:
+        # Notion's SQL allowance runs out (10-27): the unblock check is answered from the board mirror while it is fresh.
+        s = load()
+        if time.time() - s["board_t"] > SNAPSHOT_MAX_AGE:
+            print("зеркало доски старше 12 ч — нужен настоящий запрос (TAILS_SQL)")
+            sys.exit(1)
+        rows = sorted((c, r.get("status")) for c, r in s["board"].items() if r.get("prio") == "Владелец назвал"
+                      and r.get("status") in ("Бэклог", "Готово к старту", "Заблокировано"))
+        print(f"после {' '.join(sorted(s['unblock']))} ждут «Владелец назвал» ({len(rows)}): " +
+              " ".join(f"{c}[{st}]" for c, st in rows))
+        s["unblock"].clear()
+        save(s)
+        sys.exit(0)
     try:
         data = json.load(sys.stdin)
     except ValueError:
