@@ -43,11 +43,27 @@ const float kPathTracingDenoiseMissHitDistance = 1.0e6;
 
 // While a pixel's history is young its lobe's illumination is a few heavy-tailed samples: its luminance tells a
 // firefly from a dark path, not a lighting edge from a flat one. The filter's iterations whose tap spacing is at most
-// kPathTracingDenoiseSpreadRadius / L (L the pair's shorter history, paths) then spread by geometry only
+// kPathTracingDenoiseSpreadRadius / sqrt(L) (L the pair's shorter history, paths) then spread by geometry only
 // (energy-conserving, so each firefly's energy is shared over its surface instead of cut): at one path the spacings
-// 1, 2, 4, 8 - a reach of 2 x 15 = 30 pixels, NVIDIA NRD ReLAX's pre-pass blur radius - halving as the history
-// doubles, none from 9 paths on (ReLAX's pre-pass + history fix of disoccluded pixels).
+// 1, 2, 4, 8 - a reach of 2 x 15 = 30 pixels, NVIDIA NRD ReLAX's pre-pass blur radius. The reach falls as
+// 1 / sqrt(L) because the noise of L paths falls as 1 / sqrt(L): a spread of radius r averages ~r^2 pixels, so the
+// residual noise ~ 1 / (sqrt(L) r) is the same at every history length - 1, 2, 4 at 4 paths, 1, 2 at 16, 1 up to 64,
+// none beyond. (The former 8 / L reach shrank faster than the noise: at 4 paths it spread over 6 pixels where one
+// path spread over 30, and dn4 came out noisier than dn1.)
 const float kPathTracingDenoiseSpreadRadius = 8.0;
+// The chroma of a young history (its hue, at fixed luminance) is spread by geometry alone over twice that reach - 62
+// pixels at one path, 30 at four: a one-path sample's colour is the colour of the one light path it found (a bounce
+// off the red awning, a lamp), heavy-tailed in hue as in luminance, and the luminance-weighted iterations that follow
+// the spread kept those hues as low-frequency blotches (the chroma mottling on the cobbles at dn1). Luminance edges
+// stay with the colour weight; only the hue at equal luminance travels farther.
+const float kPathTracingDenoiseChromaSpreadRadius = 16.0;
+
+// Whether the a-trous iteration of tap @p spacing spreads a pair of @p historyLength paths by geometry alone, within
+// @p radius (kPathTracingDenoiseSpreadRadius or kPathTracingDenoiseChromaSpreadRadius).
+bool PathTracingDenoiseSpreads(int spacing, float historyLength, float radius)
+{
+    return float(spacing) * sqrt(max(historyLength, 1.0)) <= radius;
+}
 
 // ReLAX's normal weight of a young history: the lobe half-angle (NRD GetSpecularLobeHalfAngle: atan(0.75 / 0.25 x
 // roughness^2), the diffuse lobe at roughness 1) scaled by 1 / L, so a one-path pixel accepts every neighbour within
