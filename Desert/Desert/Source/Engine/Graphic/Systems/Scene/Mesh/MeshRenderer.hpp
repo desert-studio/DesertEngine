@@ -500,6 +500,13 @@ namespace Desert::Graphic::System
         // The scene's GPU scene of this frame (SyncGpuScene; null before the first sync): the skin cache skins
         // from the same palette at the same BoneOffset the raster does - one source of the pose - and the global
         // distance field's objects read a primitive's previous world from it.
+        // The matrix the casters of shadow view @p view draw with (m_CascadeCasterVP; view = slot * kMaxCascades + c
+        // for a cascade, kVsmViewBase + level for a VSM level): the GPU cull's caster views test the same box.
+        [[nodiscard]] const glm::mat4& GetCasterViewProjection( const uint32_t view ) const
+        {
+            return m_CascadeCasterVP[view];
+        }
+
         [[nodiscard]] const GpuDriven::GpuScene* GetGpuScene() const
         {
             return m_GpuScene;

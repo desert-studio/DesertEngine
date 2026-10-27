@@ -623,7 +623,7 @@ namespace Desert::Graphic::GpuDriven
         return std::span<const GpuSceneInstance>( m_Instances ).subspan( row.FirstInstance, row.InstanceCount );
     }
 
-    Common::ResultStr<GpuSceneBuffers> GpuScene::ImportTables( RDG::Builder& graph )
+    Common::ResultStr<GpuSceneBuffers> GpuScene::ImportTables( RDG::Builder& graph ) const
     {
         if ( HasPendingUpload() )
             return Common::MakeError<GpuSceneBuffers>(

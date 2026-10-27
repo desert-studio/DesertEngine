@@ -1622,6 +1622,9 @@ namespace Desert::Graphic
         // which nothing drew them.
         bool m_FrameCascades          = true;
         bool m_CascadesDrawnLastFrame = false;
+        // GPU-DRIVEN CULL (DebugViewState::ValidateGpuCulling): last frame's FURTHEST HZB of the main view, phase 1's
+        // occlusion input (registered only when its size is this frame's depth size).
+        RDG::ExternalTexture m_CullHzbHistory;
         // The sun path the cascade budget was taken for (ShadowQualityOf): a ray-traced sun's cascades are the
         // low-detail ones. Re-budgeted when it or the quality generation moves.
         bool m_ShadowBudgetSunRayTraced = false;

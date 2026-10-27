@@ -144,7 +144,7 @@ namespace Desert::Graphic::GpuDriven
         // The tables as they stand after the last upload, registered in @p graph (a view graph: the upload runs in
         // its own graph ahead of it, MeshRenderer::SyncGpuScene), every one left in StorageRead. Refused before the
         // first upload (no device table yet) or while rows wait for one.
-        [[nodiscard]] Common::ResultStr<GpuSceneBuffers> ImportTables( RDG::Builder& graph );
+        [[nodiscard]] Common::ResultStr<GpuSceneBuffers> ImportTables( RDG::Builder& graph ) const;
 
         // The CPU images the device tables were uploaded from (the debug readback's reference, InstanceCulling
         // validation): equal to the device content whenever HasPendingUpload() is false.
