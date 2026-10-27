@@ -105,7 +105,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/Systems/Scene/PathTracing` — 1 files, 1,143 lines: AccumulationRefs, AccumulationTarget, DenoiseProgram, DenoisePush, FrameInputs, HistoryRefs, HistoryTarget, PathTracer, PathTracingDenoiseCombineShaderParameters, PathTracingDenoiseFilterShaderParameters, PathTracingDenoiseRemodulateShaderParameters, PathTracingDenoiseSnapshotShaderParameters, … (+12)
 - `Graphic/Systems/Scene/PostProcessing` — 21 files, 18,159 lines: AutoExposureAverageShaderParameters, AutoExposureClearShaderParameters, AutoExposureHistogramShaderParameters, AutoExposureRenderer, BackdropBlurDownsampleShaderParameters, BackdropBlurRenderer, BloomDownsampleShaderParameters, BloomRenderer, BloomUpsampleShaderParameters, DownsamplePush, FXAARenderer, FXAAShaderParameters, … (+23)
 - `Graphic/Systems/Scene/Shadows` — 6 files, 2,071 lines: HistorySlot, KernelProgram, MegaLightsInputs, MegaLightsLighting, MegaLightsQuality, MegaLightsRenderer, MegaLightsShaderParameters, MegaLightsViewUniforms, MegaLightsVolumeInputs, MegaLightsVolumeQuality, MegaLightsVolumeReadParams, MegaLightsVolumeRenderer, … (+29)
-- `Graphic/Systems/Scene/Skybox` — 6 files, 2,711 lines: AtmosphereLutFingerprint, Program, SceneSkyLight, SkyCapture, SkyCaptureFaceSlice, SkyCaptureFrameReads, SkyCaptureSource, SkyDraw, SkyLightStamps, SkyboxProceduralShaderParameters, SkyboxRenderer
+- `Graphic/Systems/Scene/Skybox` — 6 files, 2,834 lines: AtmosphereLutFingerprint, Program, SceneSkyLight, SkyCapture, SkyCaptureFaceSlice, SkyCaptureFrameReads, SkyCaptureSource, SkyDraw, SkyLightStamps, SkyboxProceduralShaderParameters, SkyboxRenderer
 - `Graphic/Systems/Scene/Terrain` — 7 files, 2,390 lines: BuildKey, FrameDraw, FrameGroup, LandscapeLodSettings, LandscapeMaterialValues, LandscapeRayTracing, LandscapeRayTracingFrame, LandscapeRayTracingGrid, LandscapeRayTracingMaterial, LandscapeRayTracingTile, LandscapeTileDraw, LandscapeTileLod, … (+10)
 - `Graphic/Systems/Scene/Water` — 2 files, 251 lines: FrameDraw, WaterRenderer, WaterZoneDraw
 - `Graphic/Upscalers/DLSS` — 2 files, 700 lines: DLSSUpscaler, Guides
@@ -256,7 +256,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/Bloom` — 2 files, 216 lines
 - `Programs/Clouds` — 5 files, 1,953 lines
 - `Programs/Composite` — 2 files, 222 lines
-- `Programs/Compute` — 11 files, 1,683 lines
+- `Programs/Compute` — 12 files, 1,715 lines
 - `Programs/Debug` — 7 files, 403 lines
 - `Programs/Deferred` — 10 files, 1,494 lines
 - `Programs/Denoise` — 6 files, 779 lines
