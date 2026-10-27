@@ -67,18 +67,20 @@ namespace Desert::Graphic::System
              .Texture( TonemapShaderParameters::GeometryTexture, inputs.Source, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::All() )
              .Sampler( TonemapShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
-             .Texture( TonemapShaderParameters::AverageLuminanceTexture, inputs.AvgLuminance, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::All() )
+             .Texture( TonemapShaderParameters::AverageLuminanceTexture, inputs.AvgLuminance,
+                       RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Texture( TonemapShaderParameters::BloomTexture, inputs.Bloom, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::Mip( 0 ) )
              .Sampler( TonemapShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
-             .Texture( TonemapShaderParameters::LightShaftTexture, inputs.LightShafts, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::Mip( 0 ) )
+             .Texture( TonemapShaderParameters::LightShaftTexture, inputs.LightShafts,
+                       RDG::Access::SampledGraphics, RDG::SubresourceRange::Mip( 0 ) )
              .Texture( TonemapShaderParameters::LensFlareTexture, inputs.LensFlare, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::Mip( 0 ) )
-             .Texture( TonemapShaderParameters::LumBilateralGrid, inputs.LocalExposureGrid, RDG::Access::SampledGraphics,
-                       RDG::SubresourceRange::All() )
+             .Texture( TonemapShaderParameters::LumBilateralGrid, inputs.LocalExposureGrid,
+                       RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Texture( TonemapShaderParameters::BlurredLogLuminance, inputs.BlurredLogLuminance,
+                       RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Texture( TonemapShaderParameters::ExposureFusionTexture, inputs.ExposureFusion,
                        RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
     }
 
@@ -105,6 +107,8 @@ namespace Desert::Graphic::System
         // w: 0 off, 1 applied, 2 applied + visualised, 3 visualised without the passes (identity: exposure 1).
         const float mode = le.Produced ? ( le.Visualize ? 2.0f : 1.0f ) : ( le.Visualize ? 3.0f : 0.0f );
         params.LocalExposureSlice = glm::vec4( le.LogMiddleGrey, le.SliceLogMin, 1.0f / kLocalExposureSliceEV, mode );
+        // 1: the exposure comes from ExposureFusionTexture (Fusion), 0: from the grid and the blur (Bilateral).
+        params.LocalExposureMethod = le.Produced && IsLocalExposureFusion( le.Params ) ? 1.0f : 0.0f;
 
         m_MaterialTonemap->BindValues( params );
     }

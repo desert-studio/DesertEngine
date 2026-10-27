@@ -24,6 +24,10 @@ Shader "SceneComposite"
         #define LumBilateralGrid sampler3D(LumBilateralGrid, LinearClampSampler)
         Uniform(9) texture2D BlurredLogLuminance;
         #define BlurredLogLuminance sampler2D(BlurredLogLuminance, LinearClampSampler)
+        // Local exposure, Fusion: the blended pyramid's level 0 (fused display value), full resolution; System.Black
+        // when the fusion did not run (then LocalExposureMethod is 0 and it is not read).
+        Uniform(10) texture2D ExposureFusionTexture;
+        #define ExposureFusionTexture sampler2D(ExposureFusionTexture, LinearClampSampler)
         Out(0) vec4 oColor;
 
         Uniform(0) TonemapUB
@@ -42,6 +46,7 @@ Shader "SceneComposite"
             vec4  LocalExposureThreshold;  // highlight / shadow threshold (EV), highlight / shadow strength
             vec4  LocalExposureUV;         // grid UV scale xy, blurred UV scale xy
             vec4  LocalExposureSlice;      // log2 middle grey (exposed), slice log min, 1 / EV per slice, mode
+            float LocalExposureMethod;     // 1: Fusion (ExposureFusionTexture), 0: Bilateral (grid + blur)
         };
 
         #include <Common/TonemapACES.glslh>
@@ -127,7 +132,15 @@ Shader "SceneComposite"
             // 3 visualised at identity (no passes ran: exposure 1 everywhere).
             float localExposure = 1.0;
             const float leMode  = LocalExposureSlice.w;
-            if (leMode > 0.5 && leMode < 2.5)
+            if (leMode > 0.5 && leMode < 2.5 && LocalExposureMethod > 0.5)
+            {
+                // FUSION (UE 5.4 PostProcessTonemap.usf:424-435): the fused display value back through the inverse
+                // fusion curve, over this pixel's own exposed luminance.
+                float fused = textureLod(ExposureFusionTexture, v_TexCoord, 0.0).r;
+                float lum   = LocalExposureLuminance(scene) * InversePreExposure * exposure;
+                localExposure = LocalExposureFusionExposure(lum, fused, TonemapOperator >= 0.5);
+            }
+            else if (leMode > 0.5 && leMode < 2.5)
             {
                 float logLum      = log2(max(LocalExposureLuminance(scene) * InversePreExposure, 1.0e-10));
                 float logExposure = log2(max(exposure, 1.0e-10));

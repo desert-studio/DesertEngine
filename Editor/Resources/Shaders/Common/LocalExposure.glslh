@@ -1,4 +1,4 @@
-// LOCAL EXPOSURE (UE Local Exposure, Bilateral) — the one shader source of the exposure law and of the grid's
+// LOCAL EXPOSURE (UE Local Exposure, Bilateral and Fusion) — the one shader source of the exposure law and of the grid's
 // slice mapping; Engine/Graphic/PostProcessing/LocalExposureRules.hpp mirrors it on the CPU.
 // Port of UE PostProcessHistogramCommon.ush:251-310 with two deliberate differences (CONTRACT.md §6):
 //  - slices are 1 EV each, centred on the exposed middle grey of the last exposure (LocalExposureSliceCoord);
@@ -74,6 +74,58 @@ float LocalExposureLogExposure( float logLum, float baseLogLum, float logMiddleG
     baseCentered -= thresholdOffset;
     float logLocalLum = logMiddleGrey + thresholdOffset + baseCentered * contrastScale + detail * contrast.z;
     return logLocalLum - logLum;
+}
+
+// ── FUSION (UE 5.4 Local Exposure Method = Fusion; PostProcessLocalExposure.usf FusionSetupCS / FusionBlendCS,
+// PostProcessHistogramCommon.ush ExposureFusionTonemap / CalculateFusionLocalExposure). Mertens et al. 2007
+// exposure fusion on luminance: three synthetic exposures of each pixel (as is, highlights x 2^-EV, shadows
+// x 2^+EV) are put through the display curve, weighted by well-exposedness and blended through a Laplacian
+// pyramid; the composite turns the fused display value back into a per-pixel exposure.
+// One difference from UE (on purpose): UE's ExposureFusionTonemap is its Filmic curve (FilmToneMap); ours is the
+// scene's own operator — the ACES fit of Common/TonemapACES.glslh as a scalar curve (its two matrices map grey
+// to grey, rows sum to 1), or L / (1 + L) under Reinhard (UE's non-film branch) — so the weights judge the
+// exposures by the curve the picture is actually shown through.
+
+#define LOCAL_EXPOSURE_FUSION_SIGMA 0.2
+
+// The ACES fit on grey (TonemapACES with v = grey), unclamped.
+float LocalExposureFusionACES( float x )
+{
+    return ( x * ( x + 0.0245786 ) - 0.000090537 ) / ( x * ( 0.983729 * x + 0.4329510 ) + 0.238081 );
+}
+
+// UE ExposureFusionTonemap: display curve, then sqrt (perceptual spacing for the weights and the pyramid).
+// @p reinhard: the scene operator is Reinhard (TonemapOperator >= 0.5).
+float LocalExposureFusionTonemap( float lum, bool reinhard )
+{
+    float t = reinhard ? lum / ( 1.0 + lum ) : LocalExposureFusionACES( lum );
+    return sqrt( clamp( t, 0.0, 1.0 ) );
+}
+
+// UE ExposureFusionInverseTonemap. ACES: the positive root of (1 - 0.983729 y) x^2 + (0.0245786 - 0.432951 y) x
+// - (0.000090537 + 0.238081 y) = 0; for y <= 1 the leading coefficient stays > 0.016, so the root is finite.
+float LocalExposureFusionInverseTonemap( float t, bool reinhard )
+{
+    float y = t * t;
+    if ( reinhard )
+        return y / max( 1.0 - y, 1.0e-4 );
+    float a = 1.0 - 0.983729 * y;
+    float b = 0.0245786 - 0.4329510 * y;
+    float c = -( 0.000090537 + 0.238081 * y );
+    return ( -b + sqrt( max( b * b - 4.0 * a * c, 0.0 ) ) ) / ( 2.0 * a );
+}
+
+// UE ExposureWeight (well-exposedness; sigma 0.2, exp2 as in UE).
+float LocalExposureFusionWeight( float v, float target )
+{
+    float d = v - target;
+    return exp2( -d * d / ( 2.0 * LOCAL_EXPOSURE_FUSION_SIGMA * LOCAL_EXPOSURE_FUSION_SIGMA ) );
+}
+
+// UE CalculateFusionLocalExposure: @p lum EXPOSED linear luminance, @p fused the pyramid's display value.
+float LocalExposureFusionExposure( float lum, float fused, bool reinhard )
+{
+    return LocalExposureFusionInverseTonemap( min( fused, 1.0 ), reinhard ) / max( lum, 1.0e-10 );
 }
 
 #endif

@@ -1,0 +1,14 @@
+# LOCAL-EXPOSURE-FUSION: UE 5.4 Local Exposure Method = Fusion beside Bilateral, chosen on the PPV.
+# Bistro day (BistroFoliageProj, local branch fusion over main a622693): 100 000 lux sun, metered EV100 14-15 by the
+# content's own PPV (6039035132485441499), contrast 0.8/0.8 as authored. Fusion blends three synthetic exposures of
+# the frame (as is, highlights -EV, shade +EV) by well-exposedness through a Laplacian pyramid; ACES and the sky stay.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.LocalExposureMethod 0
+Дано --subject viewport set Camera.Position -440,300,-230
+Дано --subject viewport set Camera.Direction -0.6,-0.4,-0.7
+Тогда-вид 1_bilateral метод Bilateral (как в dev): тень под столами тёмная, булыжник и стулья под столами почти чёрные
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.LocalExposureMethod 1
+Тогда-вид 2_fusion_tables Fusion: булыжник, стулья, доска меню под столами читаются с фактурой; белые фасады на солнце не выбиты; без ореолов на краях тень/солнце
+Когда --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Тогда-вид 3_fusion_street вид кадра 9 BISTRO-LOOK на Fusion: фонари днём не ярче солнечного камня, небо не серое

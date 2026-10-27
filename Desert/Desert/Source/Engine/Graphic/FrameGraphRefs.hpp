@@ -70,6 +70,8 @@ namespace Desert::Graphic
         // LocalExposureRenderer: the bilateral grid (3D) and the blurred 1/32 log luminance -> Bloom mip 0, Tonemap
         RDG::TextureRef LocalExposureGrid;
         RDG::TextureRef BlurredLogLuminance;
+        // LocalExposureRenderer, Fusion: level 0 of the blended pyramid (fused display value, R32F) -> Tonemap
+        RDG::TextureRef ExposureFusion;
         RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
         // SSR's full-resolution trace ray (xyz the point each pixel's reflection came from, w log2 pdf, -126 no
         // ray), set only when the temporal upscaler takes the reflection raw  -> TemporalUpscalerInputs
