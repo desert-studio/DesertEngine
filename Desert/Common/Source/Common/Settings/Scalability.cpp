@@ -252,6 +252,10 @@ namespace Common::Scalability
                CL::None,
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the clamp of one path's exposed "
                "contribution)" },
+             { P::PathTracingDenoiser, G::GlobalIllumination, "PathTracing.Denoiser", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the image denoised every frame: by "
+               "DLSS "
+               "Ray Reconstruction or the spatial denoiser)" },
              { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,
                CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (pixels a uniform probe side: "

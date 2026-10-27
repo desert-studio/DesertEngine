@@ -79,6 +79,9 @@ namespace Desert::Graphic::ViewTargetFormats
     // (Common/PathTracingSky.glslh).
     inline constexpr ImageFormat kPathTracingAccumulation = ImageFormat::RGBA32F;
     inline constexpr ImageFormat kPathTracingSkyRadiance  = ImageFormat::RGBA32F;
+    // The path tracer's spatial denoiser (PathTracerDenoise.shader): demodulated radiance (rgb, radiance / an
+    // albedo floored at 0.01, so past a half float's 65504 on a bright emitter) and its variance (a).
+    inline constexpr ImageFormat kPathTracingDenoise = ImageFormat::RGBA32F;
 
     // Screen-space reflections.
     inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA16F;

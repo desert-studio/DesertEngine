@@ -49,10 +49,18 @@ Shader "PathTracer"
             #include <Mesh/DirectLighting.glslh>
             #include <Common/RayTracingPayload.glslh>
             #include <Common/EmissiveLights.glslh>
+            #include <Common/PathTracingDenoise.glslh>
 
             layout(binding = 1) uniform accelerationStructureEXT SceneTlas;
             // The view's running sum (rgb) of every path since the last reset; a = the paths summed.
             layout(binding = 2, rgba32f) uniform image2D AccumulationTexture;
+            // The denoiser's guide sums beside it, summed over the same paths (Common/PathTracingDenoise.glslh).
+            layout(binding = 24, rgba32f) uniform image2D GuideAlbedoTexture;
+            layout(binding = 25, rgba32f) uniform image2D GuideNormalTexture;
+            layout(binding = 26, rgba32f) uniform image2D DemodulatedDiffuseTexture;
+            layout(binding = 27, rgba32f) uniform image2D GuideSpecularTexture;
+            layout(binding = 28, rgba32f) uniform image2D GuideHitTexture;
+            layout(binding = 29, rgba32f) uniform image2D DemodulatedSpecularTexture;
             layout(std430, binding = 3) readonly buffer GIFrameUB
             {
                 GIFrame giFrame;
@@ -133,6 +141,7 @@ Shader "PathTracer"
                                     // clamp in radiance (MaxPathIntensity / PreExposure; 0: no clamp)
                 uvec4 EmissiveCounts;        // the static part: x = triangles, y = power tree leaves, z = its levels, w = TLAS instances of the lookup
                 uvec4 EmissiveDynamicCounts; // the dynamic part: x = triangles, y = power tree leaves, z = its levels
+                uvec4 CameraParams;          // x = 1: camera rays through the (jittered) pixel centre, the signal a denoising upscaler takes raw
             };
 
             // ---- Random numbers: a PCG hash chain per pixel and path (UE: FRandomSequence). ----
@@ -198,9 +207,16 @@ Shader "PathTracer"
                 return m;
             }
 
+            // The specular lobe's share of the last PathTracingBsdfCos, per channel (Common/PathTracingDenoise.glslh
+            // PathTracingSplitShare): the denoiser's lobe split of the first surface's light samples and bounce.
+            vec3 gPathTracingSpecularShare = vec3(0.0);
+
             vec3 PathTracingBsdfCos(PathTracingMaterial m, vec3 N, vec3 V, vec3 L)
             {
-                return EvaluateDirectLight(L, vec3(1.0), V, N, m.F0, m.Metallic, m.Roughness, m.BaseColor);
+                const vec3 total = EvaluateDirectLight(L, vec3(1.0), V, N, m.F0, m.Metallic, m.Roughness, m.BaseColor);
+                gPathTracingSpecularShare =
+                     PathTracingSplitShare(EvaluateDirectLightSpecular(L, vec3(1.0), V, N, m.F0, m.Roughness), total);
+                return total;
             }
 
             float PathTracingSmithG1(float NoV, float alpha)
@@ -645,14 +661,49 @@ Shader "PathTracer"
             // One path of the pixel: the camera ray, then up to Counts.w bounces. @p sampleIndex is the path's index
             // in the pixel's accumulation (paths summed before it + its place in this frame), so every path of the
             // pixel since the restart draws its own random sequence.
-            vec3 PathTracingTracePath(ivec2 pixel, ivec2 size, uint sampleIndex)
+            // The denoiser's share of the path (Common/PathTracingDenoise.glslh), at its first opaque surface (glass
+            // is looked through to the surface behind it): the guides (D_d, 1), (world normal, camera distance),
+            // (D_s, roughness), (w * t, w) of the first bounce, and the two lobes of the radiance that surface
+            // reflects (everything the path adds from its lighting on, clamped as the radiance is), each divided by
+            // its reflectance. A path that meets no surface returns them all zero: its whole radiance is E.
+            struct PathTracingDenoiseSample
+            {
+                vec4 Albedo;
+                vec4 Normal;
+                vec4 Specular;
+                vec4 Hit;
+                vec3 Diffuse;      // I_d
+                vec3 SpecularLobe; // I_s
+            };
+
+            vec3 PathTracingTracePath(ivec2 pixel, ivec2 size, uint sampleIndex, out PathTracingDenoiseSample guide)
             {
                 uint rng = PathTracingHash(uint(pixel.x) + PathTracingHash(uint(pixel.y) + PathTracingHash(sampleIndex + PathTracingHash(SkyParams.z))));
 
-                // The camera ray through a uniformly chosen point of the pixel (a box filter).
-                const vec2 uv     = (vec2(pixel) + PathTracingRandom2(rng)) / vec2(size);
+                // The camera ray through a uniformly chosen point of the pixel (a box filter) - or through its centre
+                // when the upscaler denoises (CameraParams.x): the upscaler's jitter is then the sub-pixel position, as
+                // for every raster signal it reconstructs.
+                const vec2 subPixel = CameraParams.x != 0u ? vec2(0.5) : PathTracingRandom2(rng);
+                const vec2 uv       = (vec2(pixel) + subPixel) / vec2(size);
                 vec3       origin = cameraUB.CameraPos;
                 vec3       dir    = normalize(ReconstructWorldPosition(uv, 0.5, cameraUB.InvJitteredViewProjection) - origin);
+                guide.Albedo       = vec4(0.0);
+                guide.Normal       = vec4(0.0);
+                guide.Specular     = vec4(0.0);
+                guide.Hit          = vec4(0.0);
+                guide.Diffuse      = vec3(0.0);
+                guide.SpecularLobe = vec3(0.0);
+                bool guided        = false;
+                vec3 unmodulated   = vec3(0.0); // E: the radiance gathered before the first opaque surface's lighting
+                // The lobe split of R at the first surface: its light samples' specular part; the radiance summed
+                // when its bounce left (everything after is the bounce's) and that bounce's specular share;
+                // whether the first surface bounced at all, and whether the next segment is that bounce (its
+                // length is the virtual image's distance).
+                vec3 specularDirect = vec3(0.0);
+                vec3 bounceStart    = vec3(0.0);
+                vec3 bounceShare    = vec3(0.0);
+                bool bounced        = false;
+                bool firstBounce    = false;
 
                 vec3  radiance     = vec3(0.0);
                 vec3  throughput   = vec3(1.0);
@@ -671,6 +722,13 @@ Shader "PathTracer"
                 for (uint bounce = 0u;; ++bounce)
                 {
                     PathTracingTraceMaterial(origin, dir, coneWidth);
+                    if (firstBounce)
+                    {
+                        const float w = PathTracingDenoiseLuminance(bounceShare);
+                        guide.Hit     = vec4(w * (payload.HitT < 0.0 ? kPathTracingDenoiseMissHitDistance : payload.HitT),
+                                         w, 0.0, 0.0);
+                        firstBounce   = false;
+                    }
                     if (payload.HitT < 0.0)
                     {
                         PathTracingAccumulate(radiance,
@@ -728,13 +786,34 @@ Shader "PathTracer"
                     }
 
                     const PathTracingMaterial m = PathTracingMaterialOf(N, V);
+                    const bool firstSurface = !guided;
+                    if (firstSurface)
+                    {
+                        guide.Albedo   = vec4(MegaLightsDiffuseReflectance(m.BaseColor, m.Metallic), 1.0);
+                        guide.Normal   = vec4(N, length(P - cameraUB.CameraPos));
+                        guide.Specular = vec4(MegaLightsSpecularReflectance(m.BaseColor, m.Metallic, m.Roughness, N, V),
+                                              m.Roughness);
+                        guided         = true;
+                        // Its own emission (added above) and all before it is E; the rest the path adds is R.
+                        unmodulated = radiance;
+                    }
                     const vec3  next  = P + N * offset;
                     const float total = PathTracingEstimateTotal(P);
+                    // Each light sample is shared between the lobes by its own direction's f * cos (a sampler that
+                    // returns before evaluating the BSDF returns nothing, so the reset share is never used).
+                    vec3 before               = radiance;
+                    gPathTracingSpecularShare = vec3(0.0);
                     PathTracingAccumulate(radiance, throughput * PathTracingSampleLights(m, P, N, V, next, total, rng),
                                           false);
+                    if (firstSurface)
+                        specularDirect += (radiance - before) * gPathTracingSpecularShare;
+                    before                    = radiance;
+                    gPathTracingSpecularShare = vec3(0.0);
                     PathTracingAccumulate(radiance,
                                           throughput * PathTracingSampleEmissive(m, N, V, next, coneWidth, rng),
                                           false);
+                    if (firstSurface)
+                        specularDirect += (radiance - before) * gPathTracingSpecularShare;
                     if (bounce >= Counts.w)
                         break;
                     cameraRay = false;
@@ -748,6 +827,14 @@ Shader "PathTracer"
                     if (bsdfPdf <= 0.0)
                         break;
                     throughput *= PathTracingBsdfCos(m, N, V, L) / bsdfPdf;
+                    if (firstSurface)
+                    {
+                        // Everything the path adds from here on is this bounce's, shared by its direction's f * cos.
+                        bounceStart = radiance;
+                        bounceShare = gPathTracingSpecularShare;
+                        bounced     = true;
+                        firstBounce = true;
+                    }
                     // Russian roulette after the third bounce, on the throughput's largest channel (UE
                     // PathTracingCore.ush: continue with probability min(1, max(throughput))).
                     if (bounce >= 3u)
@@ -763,7 +850,22 @@ Shader "PathTracer"
                 // A NaN or infinite path would poison every later sample of the pixel: it is dropped (counted as
                 // black), as UE's accumulation does.
                 if (any(isnan(radiance)) || any(isinf(radiance)))
-                    radiance = vec3(0.0);
+                {
+                    radiance       = vec3(0.0);
+                    unmodulated    = vec3(0.0);
+                    specularDirect = vec3(0.0);
+                    bounced        = false;
+                }
+                if (guided)
+                {
+                    // R_s = the light samples' specular part + the bounce's specular share of all after it; R_d the
+                    // rest (R_d + R_s = R exactly, so remodulation returns the path's radiance).
+                    const vec3 reflected  = max(radiance - unmodulated, vec3(0.0));
+                    const vec3 afterward  = bounced ? max(radiance - bounceStart, vec3(0.0)) : vec3(0.0);
+                    const vec3 specular   = min(specularDirect + afterward * bounceShare, reflected);
+                    guide.Diffuse         = (reflected - specular) / guide.Albedo.rgb;
+                    guide.SpecularLobe    = specular / guide.Specular.rgb;
+                }
                 return radiance;
             }
 
@@ -775,11 +877,36 @@ Shader "PathTracer"
                 const ivec2 size  = imageSize(AccumulationTexture);
                 if (pixel.x >= size.x || pixel.y >= size.y)
                     return;
-                vec3 sum = vec3(0.0);
+                vec3 sum         = vec3(0.0);
+                vec4 albedoSum   = vec4(0.0); // rgb D_d, a surface paths
+                vec4 normalSum   = vec4(0.0); // xyz normal, w camera distance
+                vec4 specularSum = vec4(0.0); // rgb D_s, a roughness
+                vec4 hitSum      = vec4(0.0); // x w * t, y w
+                vec4 diffuseSum  = vec4(0.0); // rgb I_d, a lum(I_d)^2
+                vec4 lobeSum     = vec4(0.0); // rgb I_s, a lum(I_s)^2
                 for (uint s = 0u; s < SkyParams.w; ++s)
-                    sum += PathTracingTracePath(pixel, size, Counts.z + s);
-                const vec4 previous = Counts.z == 0u ? vec4(0.0) : imageLoad(AccumulationTexture, pixel);
+                {
+                    PathTracingDenoiseSample guide;
+                    const vec3  radiance = PathTracingTracePath(pixel, size, Counts.z + s, guide);
+                    const float d        = PathTracingDenoiseLuminance(guide.Diffuse);
+                    const float l        = PathTracingDenoiseLuminance(guide.SpecularLobe);
+                    sum += radiance;
+                    albedoSum += guide.Albedo;
+                    normalSum += guide.Normal;
+                    specularSum += guide.Specular;
+                    hitSum += guide.Hit;
+                    diffuseSum += vec4(guide.Diffuse, d * d);
+                    lobeSum += vec4(guide.SpecularLobe, l * l);
+                }
+                const bool overwrite = Counts.z == 0u;
+                const vec4 previous  = overwrite ? vec4(0.0) : imageLoad(AccumulationTexture, pixel);
                 imageStore(AccumulationTexture, pixel, vec4(previous.rgb + sum, previous.a + float(SkyParams.w)));
+                imageStore(GuideAlbedoTexture, pixel, albedoSum + (overwrite ? vec4(0.0) : imageLoad(GuideAlbedoTexture, pixel)));
+                imageStore(GuideNormalTexture, pixel, normalSum + (overwrite ? vec4(0.0) : imageLoad(GuideNormalTexture, pixel)));
+                imageStore(GuideSpecularTexture, pixel, specularSum + (overwrite ? vec4(0.0) : imageLoad(GuideSpecularTexture, pixel)));
+                imageStore(GuideHitTexture, pixel, hitSum + (overwrite ? vec4(0.0) : imageLoad(GuideHitTexture, pixel)));
+                imageStore(DemodulatedDiffuseTexture, pixel, diffuseSum + (overwrite ? vec4(0.0) : imageLoad(DemodulatedDiffuseTexture, pixel)));
+                imageStore(DemodulatedSpecularTexture, pixel, lobeSum + (overwrite ? vec4(0.0) : imageLoad(DemodulatedSpecularTexture, pixel)));
             }
         }
 

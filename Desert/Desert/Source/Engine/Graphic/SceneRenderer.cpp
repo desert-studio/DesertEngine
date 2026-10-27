@@ -972,8 +972,10 @@ namespace Desert::Graphic
         // A PATH-TRACED VIEW renders its own anti-aliasing: each path starts at a random point of its pixel and
         // the accumulation averages them (UE RenderPathTracing bypasses TAA/TSR the same way). No temporal method,
         // no FXAA/SMAA after it, no jitter; the view resolution is native (OnUpdate). The sample count stays the
-        // scene path's one: PathTraced needs the G-buffer, and the deferred path is never multisampled.
-        if ( PathTraced( m_RenderMethods ) )
+        // scene path's one: PathTraced needs the G-buffer, and the deferred path is never multisampled. Except
+        // under the upscaler that denoises (System::PathTracer::KeepsDenoisingUpscaler: DLSS Ray Reconstruction):
+        // the paths go to it raw through the jittered pixel centres, and it is the anti-aliasing.
+        if ( PathTraced( m_RenderMethods ) && !System::PathTracer::KeepsDenoisingUpscaler( quality ) )
         {
             m_RenderedAntiAliasing.Method      = Common::Scalability::AntiAliasingMethod::None;
             m_RenderedAntiAliasing.PostProcess = Common::Scalability::AntiAliasingMethod::None;
@@ -1056,7 +1058,8 @@ namespace Desert::Graphic
                              .PathsPerFrame   = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
                              .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
                              .MaxPathIntensity =
-                                  quality.As<float>( Parameter::PathTracingMaxPathIntensity ) };
+                                  quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
+                             .Denoise = quality.As<uint32_t>( Parameter::PathTracingDenoiser ) != 0u };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
@@ -1435,8 +1438,11 @@ namespace Desert::Graphic
         int                settingPercent  = m_Quality.As<int>( Parameter::RenderScalePercent );
         std::optional<int> overridePercent = m_DebugView.ScreenPercentage;
         auto               upscaler        = m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler );
-        // The wireframe view renders without anti-aliasing (BeginScene): no upscaler to reconstruct with.
-        if ( PathTraced( m_RenderMethods ) || m_DebugView.WireframeMode )
+        // The wireframe view renders without anti-aliasing (BeginScene): no upscaler to reconstruct with. A
+        // path-traced view under the upscaler that denoises keeps it and its render scale
+        // (System::PathTracer::KeepsDenoisingUpscaler).
+        if ( ( PathTraced( m_RenderMethods ) && !System::PathTracer::KeepsDenoisingUpscaler( m_Quality ) ) ||
+             m_DebugView.WireframeMode )
         {
             settingPercent  = 100;
             overridePercent = std::nullopt;

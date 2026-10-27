@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Profiler.hpp>
+#include <Common/Settings/Scalability.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
@@ -56,6 +57,12 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( UniformBuffer, CameraUB );
         DESERT_SHADER_PARAMETER( AccelerationStructure, SceneTlas );
         DESERT_SHADER_PARAMETER( StorageTexture, AccumulationTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideAlbedoTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideNormalTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideHitTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedSpecularTexture );
         DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, PointLightsUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, SpotLightsUB );
@@ -73,6 +80,82 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, CloudShadowMapTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
         DESERT_SHADER_PARAMETER( UniformBuffer, CloudShadowUB );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PathTracingDenoiseSnapshotShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideAlbedoTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideNormalTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideHitTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistoryDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistorySpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistoryMomentsTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SnapshotDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SnapshotSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SnapshotMomentsTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SnapshotGuideTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PathTracingDenoiseTemporalShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( UniformBuffer, CameraUB );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideAlbedoTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideNormalTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideHitTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SnapshotDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SnapshotSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SnapshotMomentsTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SnapshotGuideTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistoryDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistorySpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistoryMomentsTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PathTracingDenoiseCombineShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideAlbedoTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideNormalTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistoryDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistorySpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistoryMomentsTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, IlluminationDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, IlluminationSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistoryLengthTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PathTracingDenoiseFilterShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideAlbedoTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideNormalTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistoryLengthTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, IlluminationDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, IlluminationSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, FilteredDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, FilteredSpecularTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PathTracingDenoiseRemodulateShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, AccumulationTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideAlbedoTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, FilteredDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, FilteredSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DenoisedTexture );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -102,14 +185,14 @@ namespace Desert::Graphic::System
     // THE PATH INTENSITY CLAMP (UE PathTracingCore.ush AccumulateRadiance, r.PathTracing.MaxPathIntensity): every
     // contribution a path adds - each light sample, emission or sky its material rays meet - is scaled down, hue
     // kept, to at most MaxPathIntensity in exposed units; what the camera ray itself sees (through delta glass
-    // interfaces too) is never clamped. That bounds a pixel's variance (the fireflies a small bright emitter met by a
-    // diffuse bounce makes) at the price of a bias toward darker highlights. The clamp is stated in exposed units,
-    // so the trace receives MaxPathIntensity / PreExposure - the PreExposure of the frame the sum (re)started at
-    // (m_ClampPreExposure). A sum keeps one clamp: clamping is not linear, so paths clamped at another value cannot
-    // be summed with it. In UE the clamp follows the current exposure and a change of it is a change of the
-    // config; here eye adaptation moves PreExposure a little every frame (the path-traced image feeds the
-    // histogram), and restarting on each move would never converge, so the sum restarts only when the exposure
-    // left the one it was clamped at by more than kClampExposureStops.
+    // interfaces too) is never clamped. That bounds a pixel's variance (the fireflies a small bright emitter met
+    // by a diffuse bounce makes) at the price of a bias toward darker highlights. The clamp is stated in exposed
+    // units, so the trace receives MaxPathIntensity / PreExposure - the PreExposure of the frame the sum
+    // (re)started at (m_ClampPreExposure). A sum keeps one clamp: clamping is not linear, so paths clamped at
+    // another value cannot be summed with it. In UE the clamp follows the current exposure and a change of it is a
+    // change of the config; here eye adaptation moves PreExposure a little every frame (the path-traced image
+    // feeds the histogram), and restarting on each move would never converge, so the sum restarts only when the
+    // exposure left the one it was clamped at by more than kClampExposureStops.
     //
     // THE SKY LIGHT (UE PathTracingSkylightPrepare.usf): each traced frame the environment cube is resampled into
     // an equal-area square of side S (the cube face rounded up to a power of two, UE: the capture size) and the
@@ -127,9 +210,36 @@ namespace Desert::Graphic::System
     // RayTracing::kMaskTranslucent, plus kMaskTranslucentShadowCaster with CastShadows, so only these rays meet
     // them). Light rays trace the shadow-caster bits only: CastShadows off never occludes a path-traced light.
     //
-    // Not here (each is UE's and a task of its own): a denoiser (UE's is a plugin over albedo/normal guides),
-    // rough glass (the raster's glass pass reads no roughness), participating media, a Sobol sequence, pixel
-    // filters other than a box.
+    // THE DENOISER (PathTracing.Denoiser; UE r.PathTracing.Denoiser): the image is clean from the first frame, not
+    // after the sum converges, and while the camera moves. Each path that meets a surface also adds its first
+    // surface's guides - diffuse and specular reflectance, world normal, camera distance, roughness, the first
+    // bounce's length - and the light that surface reflects split by lobe, each lobe divided by its reflectance
+    // per path, with their squared luminances (Common/PathTracingDenoise.glslh; UE's denoiser reads the radiance,
+    // albedo and normal per pixel; the lobe split is NRD ReLAX's). Two consumers:
+    //  - an upscaler that denoises (ITemporalUpscaler::TakesRawLightingSignals: DLSS Ray Reconstruction, the
+    //    real-time path tracers' way): the view traces PathsPerFrame paths through each jittered pixel centre
+    //    every frame and hands that raw estimate to it - no accumulation, the upscaler's history is the
+    //    integration and its guides are the G-buffer's, which the camera rays' first hits match;
+    //  - otherwise the ReLAX-style denoiser (PathTracerDenoise.shader) runs on every frame before the resolve:
+    //    per lobe, a temporal history reprojected by the camera's motion on the frames the camera moved (THE
+    //    DENOISER'S HISTORY below), the variance of the integrated signal, an energy-conserving variance-guided
+    //    a-trous, and the remodulation. Its edge-stopping width is the estimate's standard deviation, so it fades
+    //    as the paths add up and the converged image is the tracer's own.
+    //
+    // THE DENOISER'S HISTORY: the accumulation is the temporal integration of a still camera; a moving camera
+    // restarts it every frame, and the history carries the integration across that restart instead - only that
+    // restart: any other (a cut, a resize, the scene, the bounces, the clamp, the denoising upscaler) empties the
+    // history, as it empties the sum. On a moving frame "Denoise Snapshot" folds the previous frame's sum into the
+    // history before the trace overwrites it and "Denoise Temporal" reprojects it after the trace; on a still frame
+    // the history stays as the camera left it and the sum grows beside it (PathTracerDenoise.shader).
+    // It is not IScreenSpaceDenoiser's work: that one reconstructs one lighting signal of the raster (diffuse,
+    // reflections, shadow visibility) with the raster's G-buffer; here the signal is the whole path-traced
+    // radiance with guides from the paths themselves (glass looked through, sub-pixel averaged), as UE keeps its
+    // path tracer's denoiser apart from the screen-space one.
+    //
+    // Not here (each is UE's and a task of its own): UE's offline denoiser plugin (OIDN), rough glass (the
+    // raster's glass pass reads no roughness), participating media, a Sobol sequence, pixel filters other than a
+    // box.
     class PathTracer final : public RenderSystem
     {
     public:
@@ -150,7 +260,22 @@ namespace Desert::Graphic::System
             // the image's white); a brighter one is scaled down to it with its hue kept (PathTracer.shader
             // PathTracingAccumulate). 0 = no clamp.
             float MaxPathIntensity = 24.0f;
+            bool  Denoise          = true; // PathTracing.Denoiser (THE DENOISER above)
         };
+
+        // Whether a path-traced view keeps its temporal upscaler to hand the paths to it raw: the requested
+        // upscaler is the one that denoises (DLSS Ray Reconstruction) and PathTracing.Denoiser is on. Otherwise
+        // the view renders at 100 % with no temporal method (SceneRenderer::BeginScene / OnUpdate: the
+        // accumulation is its own anti-aliasing). The frame itself asks the upscaler that was made
+        // (FrameInputs::RawToUpscaler): a runtime that refused Ray Reconstruction leaves the view on the
+        // accumulation and the spatial denoiser.
+        [[nodiscard]] static bool KeepsDenoisingUpscaler( const Common::Scalability::ResolvedQuality& quality )
+        {
+            using Common::Scalability::Parameter;
+            return quality.As<uint32_t>( Parameter::PathTracingDenoiser ) != 0u &&
+                   quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ) ==
+                        Common::Scalability::Upscaler::DLSSRayReconstruction;
+        }
 
         // What one frame's paths read, all of this frame's graph (SceneRenderer::AddFramePathTracing).
         struct FrameInputs
@@ -173,6 +298,9 @@ namespace Desert::Graphic::System
             float    PixelSpread     = 0.0f; // the angle one pixel covers (the ray cone)
             uint64_t SceneHash       = 0;
             bool     DynamicGeometry = false;
+            // The view's temporal upscaler denoises (ITemporalUpscaler::TakesRawLightingSignals) and
+            // Settings::Denoise is on: this frame's paths go to it raw (THE DENOISER above).
+            bool RawToUpscaler = false;
         };
 
         // FNV-1a over what the accumulation integrated (FrameInputs::SceneHash). By bytes, so only for types with
@@ -229,6 +357,22 @@ namespace Desert::Graphic::System
                 return Common::MakeError( reduce.GetError() );
             m_SkyPreparePipeline = prepare.GetValue();
             m_SkyReducePipeline  = reduce.GetValue();
+
+            for ( DenoiseProgram* program : { &m_DenoiseSnapshot, &m_DenoiseTemporal, &m_DenoiseCombine,
+                                              &m_DenoiseFilter, &m_DenoiseRemodulate } )
+            {
+                const std::string name = std::format( "PathTracerDenoise/{}", program->Name );
+                program->PassShader    = shaders->GetByName( name );
+                if ( !program->PassShader )
+                    return Common::MakeFormattedError( "PathTracer: the denoiser program '{}' is not registered",
+                                                       name );
+                const auto pipeline = ComputePipeline::Create(
+                     { .Shader    = program->PassShader,
+                       .DebugName = std::format( "PathTracerDenoise{}", program->Name ) } );
+                if ( !pipeline )
+                    return Common::MakeError( pipeline.GetError() );
+                program->PassPipeline = pipeline.GetValue();
+            }
 
             m_ResolveShader = shaders->GetByName( "PathTracerResolve" );
             if ( !m_ResolveShader )
@@ -289,9 +433,10 @@ namespace Desert::Graphic::System
             Restart();
         }
 
-        // GRAPH BUILD: this frame's path tracing into @p sceneColor (the scene target's colour 0, single-sampled
-        // at native scale): the restart decision, the sky and the trace when paths are still owed, and the
-        // resolve, which runs every frame. An error names what was refused; nothing is declared then.
+        // GRAPH BUILD: this frame's path tracing into @p sceneColor (the scene target's colour 0, single-sampled;
+        // native scale, or the render extent under a denoising upscaler): the restart decision, the sky and the
+        // trace when paths are still owed, the denoiser and the resolve, which run every frame. An error names
+        // what was refused; nothing is declared then.
         [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, const RDG::TextureRef sceneColor,
                                                        const ViewFrame& frame, const FrameInputs& inputs,
                                                        const Settings& settings )
@@ -323,10 +468,21 @@ namespace Desert::Graphic::System
             const bool exposureLeft =
                  settings.MaxPathIntensity > 0.0f &&
                  !( std::abs( std::log2( frame.PreExposure / m_ClampPreExposure ) ) <= kClampExposureStops );
-            const bool restart =
-                 resized || !m_Stamp.ReadableIn( frame ) || frame.ViewProjection != frame.PrevViewProjection ||
-                 settings.MaxBounces != m_MaxBounces || inputs.SceneHash != m_SceneHash || inputs.DynamicGeometry ||
-                 settings.MaxPathIntensity != m_MaxPathIntensity || exposureLeft;
+            // Every restart but the camera's motion: the previous sum is not this frame's scene (THE DENOISER'S
+            // HISTORY empties with it).
+            const bool sumKept = !resized && m_Stamp.ReadableIn( frame ) && settings.MaxBounces == m_MaxBounces &&
+                                 inputs.SceneHash == m_SceneHash && !inputs.DynamicGeometry &&
+                                 settings.MaxPathIntensity == m_MaxPathIntensity && !exposureLeft &&
+                                 !inputs.RawToUpscaler && !m_RawToUpscaler;
+            const bool cameraMoved = frame.ViewProjection != frame.PrevViewProjection;
+            const bool restart     = !sumKept || cameraMoved;
+            const bool denoise     = settings.Denoise && !inputs.RawToUpscaler;
+            // The previous frame's sum is folded into the history and reprojected (THE DENOISER'S HISTORY).
+            // A history made in this graph (the denoiser just turned on) is written by the combine before any read.
+            const bool reproject = denoise && sumKept && cameraMoved && m_Summed > 0u && m_History.Built &&
+                                   m_History.Width == width && m_History.Height == height;
+            if ( !denoise || !sumKept )
+                m_HistoryValid = false;
             if ( restart )
             {
                 m_Summed = 0;
@@ -336,7 +492,11 @@ namespace Desert::Graphic::System
             m_MaxBounces                       = settings.MaxBounces;
             m_MaxPathIntensity                 = settings.MaxPathIntensity;
             m_SceneHash                        = inputs.SceneHash;
-            const RDG::TextureRef accumulation = AcquireAccumulation( graph, width, height );
+            m_RawToUpscaler                     = inputs.RawToUpscaler;
+            const AccumulationRefs accumulation = AcquireAccumulation( graph, width, height );
+            const HistoryRefs      history = denoise ? AcquireHistory( graph, width, height ) : HistoryRefs{};
+            const SnapshotRefs     snapshot =
+                 reproject ? AddDenoiseSnapshotPass( graph, accumulation, history, width, height ) : SnapshotRefs{};
 
             const uint32_t owed   = settings.SamplesPerPixel > m_Summed ? settings.SamplesPerPixel - m_Summed : 0u;
             const uint32_t traced = std::min( settings.PathsPerFrame, owed );
@@ -346,7 +506,14 @@ namespace Desert::Graphic::System
                 AddTracePass( graph, accumulation, sky, inputs, width, height, traced );
                 m_Summed += traced;
             }
-            AddResolvePass( graph, accumulation, sceneColor, frame.FrameIndex, frame.PreExposure );
+            if ( reproject )
+            {
+                AddDenoiseTemporalPass( graph, inputs.Camera, accumulation, snapshot, history, width, height );
+                m_HistoryValid = true;
+            }
+            const RDG::TextureRef image =
+                 denoise ? AddDenoisePasses( graph, accumulation, history, width, height ) : accumulation.Radiance;
+            AddResolvePass( graph, image, sceneColor, frame.FrameIndex, frame.PreExposure );
             return BOOLSUCCESS;
         }
 
@@ -371,6 +538,7 @@ namespace Desert::Graphic::System
                                // the path intensity clamp in radiance (MaxPathIntensity / m_ClampPreExposure; 0: none)
             glm::uvec4 Emissive;        // EmissiveLightsFrame::StaticParams
             glm::uvec4 EmissiveDynamic; // EmissiveLightsFrame::DynamicParams
+            glm::uvec4 Camera; // 1: camera rays through the pixel centre (FrameInputs::RawToUpscaler), unused x3
         };
         struct SkyPush
         {
@@ -383,18 +551,80 @@ namespace Desert::Graphic::System
             uint32_t        Side   = 0;
             uint32_t        Levels = 0;
         };
+        // PathTracerDenoise.shader "Snapshot" / "Combine" (x = 1: the history holds one) and "Filter" (x = the tap
+        // spacing in pixels).
+        struct DenoisePush
+        {
+            glm::uvec4 Value;
+        };
+        // One pass of PathTracerDenoise.shader: its program, pipeline and block layout.
+        struct DenoiseProgram
+        {
+            const char*                      Name = "";
+            std::shared_ptr<Shader>          PassShader;
+            std::shared_ptr<ComputePipeline> PassPipeline;
+            mutable ShaderBindingLayoutCache PassLayout;
+        };
+        // The view's sums in this graph: the radiance (rgb, a = paths summed) and the denoiser's guide and lobe
+        // sums (Common/PathTracingDenoise.glslh).
+        struct AccumulationRefs
+        {
+            RDG::TextureRef Radiance;
+            RDG::TextureRef GuideAlbedo;
+            RDG::TextureRef GuideNormal;
+            RDG::TextureRef GuideSpecular;
+            RDG::TextureRef GuideHit;
+            RDG::TextureRef DemodulatedDiffuse;
+            RDG::TextureRef DemodulatedSpecular;
+        };
         struct AccumulationTarget
         {
             RDG::ExternalTexture Texture;
+            RDG::ExternalTexture GuideAlbedo;
+            RDG::ExternalTexture GuideNormal;
+            RDG::ExternalTexture GuideSpecular;
+            RDG::ExternalTexture GuideHit;
+            RDG::ExternalTexture DemodulatedDiffuse;
+            RDG::ExternalTexture DemodulatedSpecular;
             bool                 Built  = false;
             uint32_t             Width  = 0;
             uint32_t             Height = 0;
         };
+        // THE DENOISER'S HISTORY (PathTracerDenoise.shader): per lobe the base illumination (rgb, a = its length in
+        // paths) and the moments (diffuse m2, specular m2, diffuse fast, specular fast) the history adds to the
+        // accumulation at the current pose.
+        struct HistoryRefs
+        {
+            RDG::TextureRef Diffuse;
+            RDG::TextureRef Specular;
+            RDG::TextureRef Moments;
+        };
+        struct HistoryTarget
+        {
+            RDG::ExternalTexture Diffuse;
+            RDG::ExternalTexture Specular;
+            RDG::ExternalTexture Moments;
+            bool                 Built  = false;
+            uint32_t             Width  = 0;
+            uint32_t             Height = 0;
+        };
+        // "Denoise Snapshot"'s output: the previous frame's integrated signal at the previous pose and its guide.
+        struct SnapshotRefs
+        {
+            RDG::TextureRef Diffuse;
+            RDG::TextureRef Specular;
+            RDG::TextureRef Moments;
+            RDG::TextureRef Guide;
+        };
 
         static uint32_t Groups( const uint32_t texels )
         {
-            return ( texels + 7u ) / 8u; // LocalSize(8, 8, 1) in both sky passes
+            return ( texels + 7u ) / 8u; // LocalSize(8, 8, 1) in the sky and the denoiser passes
         }
+
+        // SVGF's a-trous iterations (Schied et al. 2017, 4.3): taps 1, 2, 4, 8, 16 pixels apart, a 5 x 5 kernel
+        // each, so the last one reaches 32 pixels - the footprint the paper filters one path per pixel with.
+        static constexpr uint32_t kDenoiseIterations = 5;
 
         void Restart()
         {
@@ -405,27 +635,97 @@ namespace Desert::Graphic::System
         // The view's accumulation in this graph: registered when it exists at this size, created and extracted
         // (kept for the next frames' traces and resolves) when it does not. A new one is always written whole
         // before it is read: its frame restarts, so the trace overwrites (Counts.z = 0) every pixel.
-        RDG::TextureRef AcquireAccumulation( RDG::Builder& graph, const uint32_t width, const uint32_t height )
+        AccumulationRefs AcquireAccumulation( RDG::Builder& graph, const uint32_t width, const uint32_t height )
         {
             const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
             m_RetiringAccumulation.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
             if ( m_Accumulation.Built && m_Accumulation.Width == width && m_Accumulation.Height == height )
-                return graph.RegisterExternal( m_Accumulation.Texture, "PathTracing.Accumulation" );
-            // The previous size's sum is parked, not dropped: the frames recorded before this one may still be
-            // tracing into it or resolving it on the GPU.
-            if ( m_Accumulation.Texture.Physical )
-                m_RetiringAccumulation.Park( std::move( m_Accumulation.Texture ), frames.GetAbsoluteFrameCount() );
-            m_Accumulation.Texture = {};
+                return { .Radiance = graph.RegisterExternal( m_Accumulation.Texture, "PathTracing.Accumulation" ),
+                         .GuideAlbedo =
+                              graph.RegisterExternal( m_Accumulation.GuideAlbedo, "PathTracing.GuideAlbedo" ),
+                         .GuideNormal =
+                              graph.RegisterExternal( m_Accumulation.GuideNormal, "PathTracing.GuideNormal" ),
+                         .GuideSpecular =
+                              graph.RegisterExternal( m_Accumulation.GuideSpecular, "PathTracing.GuideSpecular" ),
+                         .GuideHit = graph.RegisterExternal( m_Accumulation.GuideHit, "PathTracing.GuideHit" ),
+                         .DemodulatedDiffuse = graph.RegisterExternal( m_Accumulation.DemodulatedDiffuse,
+                                                                       "PathTracing.DemodulatedDiffuse" ),
+                         .DemodulatedSpecular = graph.RegisterExternal( m_Accumulation.DemodulatedSpecular,
+                                                                        "PathTracing.DemodulatedSpecular" ) };
+            // The previous size's sums are parked, not dropped: the frames recorded before this one may still be
+            // tracing into them or resolving them on the GPU.
+            for ( RDG::ExternalTexture* texture :
+                  { &m_Accumulation.Texture, &m_Accumulation.GuideAlbedo, &m_Accumulation.GuideNormal,
+                    &m_Accumulation.GuideSpecular, &m_Accumulation.GuideHit, &m_Accumulation.DemodulatedDiffuse,
+                    &m_Accumulation.DemodulatedSpecular } )
+            {
+                if ( texture->Physical )
+                    m_RetiringAccumulation.Park( std::move( *texture ), frames.GetAbsoluteFrameCount() );
+                *texture = {};
+            }
             m_Stamp.Invalidate();
-            const RDG::TextureRef created =
-                 graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = width, .Height = height },
-                                                        .Format = ViewTargetFormats::kPathTracingAccumulation },
-                                      "PathTracing.Accumulation" );
-            graph.Extract( created, m_Accumulation.Texture, RDG::Access::SampledGraphics,
-                           { RDG::Access::StorageWrite, RDG::Access::SampledGraphics } );
+            const RDG::TextureDesc desc{ .Size   = { .Width = width, .Height = height },
+                                         .Format = ViewTargetFormats::kPathTracingAccumulation };
+            const AccumulationRefs created{ .Radiance    = graph.CreateTexture( desc, "PathTracing.Accumulation" ),
+                                            .GuideAlbedo = graph.CreateTexture( desc, "PathTracing.GuideAlbedo" ),
+                                            .GuideNormal = graph.CreateTexture( desc, "PathTracing.GuideNormal" ),
+                                            .GuideSpecular =
+                                                 graph.CreateTexture( desc, "PathTracing.GuideSpecular" ),
+                                            .GuideHit = graph.CreateTexture( desc, "PathTracing.GuideHit" ),
+                                            .DemodulatedDiffuse =
+                                                 graph.CreateTexture( desc, "PathTracing.DemodulatedDiffuse" ),
+                                            .DemodulatedSpecular =
+                                                 graph.CreateTexture( desc, "PathTracing.DemodulatedSpecular" ) };
+            // Later graphs trace into all seven, the denoiser reads them, the resolve samples the radiance.
+            graph.Extract( created.Radiance, m_Accumulation.Texture, RDG::Access::SampledGraphics,
+                           { RDG::Access::StorageWrite, RDG::Access::StorageRead, RDG::Access::SampledGraphics } );
+            graph.Extract( created.GuideAlbedo, m_Accumulation.GuideAlbedo, RDG::Access::StorageRead,
+                           { RDG::Access::StorageWrite, RDG::Access::StorageRead } );
+            for ( const auto& [ref, target] : { std::pair{ created.GuideNormal, &m_Accumulation.GuideNormal },
+                                                std::pair{ created.GuideSpecular, &m_Accumulation.GuideSpecular },
+                                                std::pair{ created.GuideHit, &m_Accumulation.GuideHit },
+                                                std::pair{ created.DemodulatedDiffuse,
+                                                           &m_Accumulation.DemodulatedDiffuse },
+                                                std::pair{ created.DemodulatedSpecular,
+                                                           &m_Accumulation.DemodulatedSpecular } } )
+                graph.Extract( ref, *target, RDG::Access::StorageRead,
+                               { RDG::Access::StorageWrite, RDG::Access::StorageRead } );
             m_Accumulation.Built  = true;
             m_Accumulation.Width  = width;
             m_Accumulation.Height = height;
+            return created;
+        }
+
+        // THE DENOISER'S HISTORY in this graph, as AcquireAccumulation: a new one holds no history (m_HistoryValid
+        // false), and "Denoise Combine" clears it before anything reads it.
+        HistoryRefs AcquireHistory( RDG::Builder& graph, const uint32_t width, const uint32_t height )
+        {
+            if ( m_History.Built && m_History.Width == width && m_History.Height == height )
+                return { .Diffuse  = graph.RegisterExternal( m_History.Diffuse, "PathTracing.HistoryDiffuse" ),
+                         .Specular = graph.RegisterExternal( m_History.Specular, "PathTracing.HistorySpecular" ),
+                         .Moments  = graph.RegisterExternal( m_History.Moments, "PathTracing.HistoryMoments" ) };
+            const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
+            for ( RDG::ExternalTexture* texture : { &m_History.Diffuse, &m_History.Specular, &m_History.Moments } )
+            {
+                if ( texture->Physical )
+                    m_RetiringAccumulation.Park( std::move( *texture ), frames.GetAbsoluteFrameCount() );
+                *texture = {};
+            }
+            m_HistoryValid = false;
+            const RDG::TextureDesc desc{ .Size   = { .Width = width, .Height = height },
+                                         .Format = ViewTargetFormats::kPathTracingDenoise };
+            const HistoryRefs created{ .Diffuse  = graph.CreateTexture( desc, "PathTracing.HistoryDiffuse" ),
+                                       .Specular = graph.CreateTexture( desc, "PathTracing.HistorySpecular" ),
+                                       .Moments  = graph.CreateTexture( desc, "PathTracing.HistoryMoments" ) };
+            // Later graphs fold, reproject and combine them (read and written in place).
+            for ( const auto& [ref, target] : { std::pair{ created.Diffuse, &m_History.Diffuse },
+                                                std::pair{ created.Specular, &m_History.Specular },
+                                                std::pair{ created.Moments, &m_History.Moments } } )
+                graph.Extract( ref, *target, RDG::Access::StorageWrite,
+                               { RDG::Access::StorageWrite, RDG::Access::StorageRead } );
+            m_History.Built  = true;
+            m_History.Width  = width;
+            m_History.Height = height;
             return created;
         }
 
@@ -499,7 +799,7 @@ namespace Desert::Graphic::System
         }
 
         // "PathTracing: Trace": @p traced paths per pixel added to the accumulation (one launch per pixel).
-        void AddTracePass( RDG::Builder& graph, const RDG::TextureRef accumulation, const SkyTargets& sky,
+        void AddTracePass( RDG::Builder& graph, const AccumulationRefs& accumulation, const SkyTargets& sky,
                            const FrameInputs& inputs, const uint32_t width, const uint32_t height,
                            const uint32_t traced )
         {
@@ -508,7 +808,9 @@ namespace Desert::Graphic::System
                  glm::uvec4( sky.Side, sky.Levels, m_Restarts, traced ),
                  glm::vec4( inputs.SunSinHalfAngle, inputs.PixelSpread, inputs.Light1SinHalfAngle,
                             m_MaxPathIntensity > 0.0f ? m_MaxPathIntensity / m_ClampPreExposure : 0.0f ),
-                 inputs.Emissive.StaticParams(), inputs.Emissive.DynamicParams() };
+                 inputs.Emissive.StaticParams(),
+                 inputs.Emissive.DynamicParams(),
+                 glm::uvec4( inputs.RawToUpscaler ? 1u : 0u, 0u, 0u, 0u ) };
             graph.AddPass(
                  "PathTracing: Trace", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -517,8 +819,20 @@ namespace Desert::Graphic::System
                      pass.Bindings( m_TraceLayout.Get( m_TraceShader ), RDG::OtherRouteFill{} )
                           .Uniform( PathTracingTraceShaderParameters::CameraUB, inputs.Camera )
                           .AccelerationStructure( PathTracingTraceShaderParameters::SceneTlas, inputs.Tlas )
-                          .Storage( PathTracingTraceShaderParameters::AccumulationTexture, accumulation,
+                          .Storage( PathTracingTraceShaderParameters::AccumulationTexture, accumulation.Radiance,
                                     RDG::Access::StorageWrite )
+                          .Storage( PathTracingTraceShaderParameters::GuideAlbedoTexture, accumulation.GuideAlbedo,
+                                    RDG::Access::StorageWrite )
+                          .Storage( PathTracingTraceShaderParameters::GuideNormalTexture, accumulation.GuideNormal,
+                                    RDG::Access::StorageWrite )
+                          .Storage( PathTracingTraceShaderParameters::GuideSpecularTexture,
+                                    accumulation.GuideSpecular, RDG::Access::StorageWrite )
+                          .Storage( PathTracingTraceShaderParameters::GuideHitTexture, accumulation.GuideHit,
+                                    RDG::Access::StorageWrite )
+                          .Storage( PathTracingTraceShaderParameters::DemodulatedDiffuseTexture,
+                                    accumulation.DemodulatedDiffuse, RDG::Access::StorageWrite )
+                          .Storage( PathTracingTraceShaderParameters::DemodulatedSpecularTexture,
+                                    accumulation.DemodulatedSpecular, RDG::Access::StorageWrite )
                           .Storage( PathTracingTraceShaderParameters::GIFrameUB, inputs.GIFrame, kR )
                           .Storage( PathTracingTraceShaderParameters::PointLightsUB, inputs.PointLights, kR )
                           .Storage( PathTracingTraceShaderParameters::SpotLightsUB, inputs.SpotLights, kR )
@@ -542,9 +856,8 @@ namespace Desert::Graphic::System
                                     inputs.EnvSpecular, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                           .Sampler( PathTracingTraceShaderParameters::LinearClampSampler,
                                     RDG::SamplerDesc::LinearClamp() )
-                          .Texture( PathTracingTraceShaderParameters::CloudShadowMapTexture,
-                                    inputs.CloudShadowMap, RDG::Access::SampledCompute,
-                                    RDG::SubresourceRange::All() )
+                          .Texture( PathTracingTraceShaderParameters::CloudShadowMapTexture, inputs.CloudShadowMap,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                           .Sampler( PathTracingTraceShaderParameters::LinearRepeatSampler,
                                     RDG::SamplerDesc::LinearRepeat() )
                           .Uniform( PathTracingTraceShaderParameters::CloudShadowUB, inputs.CloudShadow )
@@ -566,11 +879,204 @@ namespace Desert::Graphic::System
                  } );
         }
 
+        // The exec of one PathTracerDenoise.shader pass: its push (when the pass has one) and one dispatch over the
+        // view.
+        Common::BoolResultStr DispatchDenoise( RDG::PassContext& context, const DenoiseProgram& program,
+                                               const DenoisePush* push, const uint32_t width,
+                                               const uint32_t height ) const
+        {
+            RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            if ( push != nullptr )
+                bindings.PushConstants( push, static_cast<uint32_t>( sizeof( DenoisePush ) ) );
+            return Renderer::GetInstance().DispatchCompute( bindings, *program.PassPipeline, Groups( width ),
+                                                            Groups( height ), 1 );
+        }
+
+        // "PathTracing: Denoise Snapshot", BEFORE the trace of a moving frame (THE DENOISER'S HISTORY): the
+        // previous frame's sum folded into the history at the previous pose, with its guides.
+        SnapshotRefs AddDenoiseSnapshotPass( RDG::Builder& graph, const AccumulationRefs& accumulation,
+                                             const HistoryRefs& history, const uint32_t width,
+                                             const uint32_t height )
+        {
+            constexpr RDG::Access  kR = RDG::Access::StorageRead;
+            constexpr RDG::Access  kW = RDG::Access::StorageWrite;
+            const RDG::TextureDesc desc{ .Size   = { .Width = width, .Height = height },
+                                         .Format = ViewTargetFormats::kPathTracingDenoise };
+            const SnapshotRefs     snapshot{
+                     .Diffuse  = graph.CreateTexture( desc, "PathTracing.SnapshotDiffuse" ),
+                     .Specular = graph.CreateTexture( desc, "PathTracing.SnapshotSpecular" ),
+                     .Moments  = graph.CreateTexture( desc, "PathTracing.SnapshotMoments" ),
+                     .Guide    = graph.CreateTexture( desc, "PathTracing.SnapshotGuide" ) };
+            const DenoisePush push{ glm::uvec4( m_HistoryValid ? 1u : 0u, 0u, 0u, 0u ) };
+            graph.AddPass(
+                 "PathTracing: Denoise Snapshot", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     using P = PathTracingDenoiseSnapshotShaderParameters;
+                     pass.Bindings( m_DenoiseSnapshot.PassLayout.Get( m_DenoiseSnapshot.PassShader ),
+                                    Renderer::GetPipelineRouteFill( *m_DenoiseSnapshot.PassPipeline ) )
+                          .Storage( P::GuideAlbedoTexture, accumulation.GuideAlbedo, kR )
+                          .Storage( P::GuideNormalTexture, accumulation.GuideNormal, kR )
+                          .Storage( P::GuideSpecularTexture, accumulation.GuideSpecular, kR )
+                          .Storage( P::GuideHitTexture, accumulation.GuideHit, kR )
+                          .Storage( P::DemodulatedDiffuseTexture, accumulation.DemodulatedDiffuse, kR )
+                          .Storage( P::DemodulatedSpecularTexture, accumulation.DemodulatedSpecular, kR )
+                          .Storage( P::HistoryDiffuseTexture, history.Diffuse, kR )
+                          .Storage( P::HistorySpecularTexture, history.Specular, kR )
+                          .Storage( P::HistoryMomentsTexture, history.Moments, kR )
+                          .Storage( P::SnapshotDiffuseTexture, snapshot.Diffuse, kW )
+                          .Storage( P::SnapshotSpecularTexture, snapshot.Specular, kW )
+                          .Storage( P::SnapshotMomentsTexture, snapshot.Moments, kW )
+                          .Storage( P::SnapshotGuideTexture, snapshot.Guide, kW )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( DenoisePush ) ) );
+                 },
+                 [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS( "PathTracing: Denoise Snapshot" );
+                     return DispatchDenoise( context, m_DenoiseSnapshot, &push, width, height );
+                 } );
+            return snapshot;
+        }
+
+        // "PathTracing: Denoise Temporal", AFTER the trace of a moving frame: the snapshot reprojected onto this
+        // frame's surfaces by the camera's motion (@p camera: the frame's CameraUB, its Prev* fields) - the new
+        // history.
+        void AddDenoiseTemporalPass( RDG::Builder& graph, const RDG::BufferRef camera,
+                                     const AccumulationRefs& accumulation, const SnapshotRefs& snapshot,
+                                     const HistoryRefs& history, const uint32_t width, const uint32_t height )
+        {
+            constexpr RDG::Access kR = RDG::Access::StorageRead;
+            constexpr RDG::Access kW = RDG::Access::StorageWrite;
+            graph.AddPass(
+                 "PathTracing: Denoise Temporal", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     using P = PathTracingDenoiseTemporalShaderParameters;
+                     pass.Bindings( m_DenoiseTemporal.PassLayout.Get( m_DenoiseTemporal.PassShader ),
+                                    Renderer::GetPipelineRouteFill( *m_DenoiseTemporal.PassPipeline ) )
+                          .Uniform( P::CameraUB, camera )
+                          .Storage( P::GuideAlbedoTexture, accumulation.GuideAlbedo, kR )
+                          .Storage( P::GuideNormalTexture, accumulation.GuideNormal, kR )
+                          .Storage( P::GuideSpecularTexture, accumulation.GuideSpecular, kR )
+                          .Storage( P::GuideHitTexture, accumulation.GuideHit, kR )
+                          .Storage( P::SnapshotDiffuseTexture, snapshot.Diffuse, kR )
+                          .Storage( P::SnapshotSpecularTexture, snapshot.Specular, kR )
+                          .Storage( P::SnapshotMomentsTexture, snapshot.Moments, kR )
+                          .Storage( P::SnapshotGuideTexture, snapshot.Guide, kR )
+                          .Storage( P::HistoryDiffuseTexture, history.Diffuse, kW )
+                          .Storage( P::HistorySpecularTexture, history.Specular, kW )
+                          .Storage( P::HistoryMomentsTexture, history.Moments, kW );
+                 },
+                 [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS( "PathTracing: Denoise Temporal" );
+                     return DispatchDenoise( context, m_DenoiseTemporal, nullptr, width, height );
+                 } );
+        }
+
+        // "PathTracing: Denoise Combine" + kDenoiseIterations "PathTracing: Denoise Filter" + "PathTracing: Denoise
+        // Remodulate" (PathTracerDenoise.shader), every frame: the denoised mean radiance (a = 1) the resolve reads
+        // in place of the accumulation.
+        RDG::TextureRef AddDenoisePasses( RDG::Builder& graph, const AccumulationRefs& accumulation,
+                                          const HistoryRefs& history, const uint32_t width, const uint32_t height )
+        {
+            constexpr RDG::Access  kR = RDG::Access::StorageRead;
+            constexpr RDG::Access  kW = RDG::Access::StorageWrite;
+            const RDG::TextureDesc desc{ .Size   = { .Width = width, .Height = height },
+                                         .Format = ViewTargetFormats::kPathTracingDenoise };
+            RDG::TextureRef diffuse  = graph.CreateTexture( desc, "PathTracing.DenoiseDiffuse" );
+            RDG::TextureRef specular = graph.CreateTexture( desc, "PathTracing.DenoiseSpecular" );
+            const RDG::TextureRef lengths = graph.CreateTexture( desc, "PathTracing.DenoiseHistoryLength" );
+            const DenoisePush     combinePush{ glm::uvec4( m_HistoryValid ? 1u : 0u, 0u, 0u, 0u ) };
+            graph.AddPass(
+                 "PathTracing: Denoise Combine", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     using P = PathTracingDenoiseCombineShaderParameters;
+                     pass.Bindings( m_DenoiseCombine.PassLayout.Get( m_DenoiseCombine.PassShader ),
+                                    Renderer::GetPipelineRouteFill( *m_DenoiseCombine.PassPipeline ) )
+                          .Storage( P::GuideAlbedoTexture, accumulation.GuideAlbedo, kR )
+                          .Storage( P::GuideNormalTexture, accumulation.GuideNormal, kR )
+                          .Storage( P::DemodulatedDiffuseTexture, accumulation.DemodulatedDiffuse, kR )
+                          .Storage( P::DemodulatedSpecularTexture, accumulation.DemodulatedSpecular, kR )
+                          .Storage( P::HistoryDiffuseTexture, history.Diffuse, kW )
+                          .Storage( P::HistorySpecularTexture, history.Specular, kW )
+                          .Storage( P::HistoryMomentsTexture, history.Moments, kW )
+                          .Storage( P::IlluminationDiffuseTexture, diffuse, kW )
+                          .Storage( P::IlluminationSpecularTexture, specular, kW )
+                          .Storage( P::HistoryLengthTexture, lengths, kW )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( DenoisePush ) ) );
+                 },
+                 [this, combinePush, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS( "PathTracing: Denoise Combine" );
+                     return DispatchDenoise( context, m_DenoiseCombine, &combinePush, width, height );
+                 } );
+            // An empty history is cleared by the combine: from here on it is a defined one (of no paths).
+            m_HistoryValid = true;
+
+            for ( uint32_t iteration = 0; iteration < kDenoiseIterations; ++iteration )
+            {
+                const DenoisePush     push{ glm::uvec4( 1u << iteration, 0u, 0u, 0u ) };
+                const RDG::TextureRef diffuseTarget  = graph.CreateTexture( desc, "PathTracing.DenoiseDiffuse" );
+                const RDG::TextureRef specularTarget = graph.CreateTexture( desc, "PathTracing.DenoiseSpecular" );
+                graph.AddPass(
+                     "PathTracing: Denoise Filter", RDG::PassFlags::Compute,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         using P = PathTracingDenoiseFilterShaderParameters;
+                         pass.Bindings( m_DenoiseFilter.PassLayout.Get( m_DenoiseFilter.PassShader ),
+                                        Renderer::GetPipelineRouteFill( *m_DenoiseFilter.PassPipeline ) )
+                              .Storage( P::GuideAlbedoTexture, accumulation.GuideAlbedo, kR )
+                              .Storage( P::GuideNormalTexture, accumulation.GuideNormal, kR )
+                              .Storage( P::GuideSpecularTexture, accumulation.GuideSpecular, kR )
+                              .Storage( P::HistoryLengthTexture, lengths, kR )
+                              .Storage( P::IlluminationDiffuseTexture, diffuse, kR )
+                              .Storage( P::IlluminationSpecularTexture, specular, kR )
+                              .Storage( P::FilteredDiffuseTexture, diffuseTarget, kW )
+                              .Storage( P::FilteredSpecularTexture, specularTarget, kW )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( DenoisePush ) ) );
+                     },
+                     [this, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     {
+                         DESERT_PROFILE_PASS( "PathTracing: Denoise Filter" );
+                         return DispatchDenoise( context, m_DenoiseFilter, &push, width, height );
+                     } );
+                diffuse  = diffuseTarget;
+                specular = specularTarget;
+            }
+
+            const RDG::TextureRef denoised = graph.CreateTexture( desc, "PathTracing.Denoised" );
+            graph.AddPass(
+                 "PathTracing: Denoise Remodulate", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     using P = PathTracingDenoiseRemodulateShaderParameters;
+                     pass.Bindings( m_DenoiseRemodulate.PassLayout.Get( m_DenoiseRemodulate.PassShader ),
+                                    Renderer::GetPipelineRouteFill( *m_DenoiseRemodulate.PassPipeline ) )
+                          .Storage( P::AccumulationTexture, accumulation.Radiance, kR )
+                          .Storage( P::GuideAlbedoTexture, accumulation.GuideAlbedo, kR )
+                          .Storage( P::GuideSpecularTexture, accumulation.GuideSpecular, kR )
+                          .Storage( P::DemodulatedDiffuseTexture, accumulation.DemodulatedDiffuse, kR )
+                          .Storage( P::DemodulatedSpecularTexture, accumulation.DemodulatedSpecular, kR )
+                          .Storage( P::FilteredDiffuseTexture, diffuse, kR )
+                          .Storage( P::FilteredSpecularTexture, specular, kR )
+                          .Storage( P::DenoisedTexture, denoised, kW );
+                 },
+                 [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS( "PathTracing: Denoise Remodulate" );
+                     return DispatchDenoise( context, m_DenoiseRemodulate, nullptr, width, height );
+                 } );
+            return denoised;
+        }
+
         // "PathTracing: Resolve": sum / count over the scene colour, every frame (also once converged), stored
         // pre-exposed like every other writer of the scene colour (ViewFrame::PreExposure; UE
         // PathTracingCompositingPixelShader.usf multiplies by View.PreExposure) - the tonemap divides it back out.
-        void AddResolvePass( RDG::Builder& graph, const RDG::TextureRef accumulation,
-                             const RDG::TextureRef sceneColor, const uint64_t frameIndex, const float preExposure )
+        // @p image: the accumulation (sum, count) or the denoiser's output (mean, 1).
+        void AddResolvePass( RDG::Builder& graph, const RDG::TextureRef image, const RDG::TextureRef sceneColor,
+                             const uint64_t frameIndex, const float preExposure )
         {
             const ResolvePush push { preExposure };
             graph.AddPass(
@@ -578,7 +1084,7 @@ namespace Desert::Graphic::System
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_ResolveLayout.Get( m_ResolveShader ), RDG::OtherRouteFill{} )
-                          .Texture( PathTracingResolveShaderParameters::AccumulationTexture, accumulation,
+                          .Texture( PathTracingResolveShaderParameters::AccumulationTexture, image,
                                     RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                           .Sampler( PathTracingResolveShaderParameters::PointClampSampler,
                                     RDG::SamplerDesc::PointClamp() )
@@ -603,6 +1109,11 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>             m_SkyPrepareShader;
         std::shared_ptr<Shader>             m_SkyReduceShader;
         std::shared_ptr<Shader>             m_ResolveShader;
+        DenoiseProgram                      m_DenoiseSnapshot{ .Name = "Snapshot" };
+        DenoiseProgram                      m_DenoiseTemporal{ .Name = "Temporal" };
+        DenoiseProgram                      m_DenoiseCombine{ .Name = "Combine" };
+        DenoiseProgram                      m_DenoiseFilter{ .Name = "Filter" };
+        DenoiseProgram                      m_DenoiseRemodulate{ .Name = "Remodulate" };
         std::shared_ptr<RayTracingPipeline> m_TracePipeline;
         std::vector<std::string>            m_PipelineTemplates;
         std::shared_ptr<ComputePipeline>    m_SkyPreparePipeline;
@@ -615,6 +1126,8 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache m_ResolveLayout;
 
         AccumulationTarget m_Accumulation;
+        HistoryTarget      m_History;
+        bool m_HistoryValid = false; // m_History holds THE DENOISER'S HISTORY of the current sum's pose
         // Accumulations a resize replaced, kept until no frame in flight can still read them.
         Assets::FrameRetireQueue<RDG::ExternalTexture> m_RetiringAccumulation;
         PassHistoryStamp   m_Stamp;               // the view frame whose resolve last stood behind the sum
@@ -625,5 +1138,6 @@ namespace Desert::Graphic::System
         uint64_t           m_SceneHash   = 0;     // FrameInputs::SceneHash the sum was traced over
         uint32_t           m_Restarts    = 0;     // the random sequence's seed: each restart draws new paths
         bool               m_TraceFailed = false; // this frame's trace was refused (set at execution)
+        bool m_RawToUpscaler = false; // the sum holds one frame's pixel-centre paths for the upscaler
     };
 } // namespace Desert::Graphic::System
