@@ -25,11 +25,16 @@ namespace Desert::Geometry
     {
         Standard, // FSurfaceSculptBrushOp: push the surface along the brush normal (Ctrl / Invert pulls it in)
         Smooth,   // FSmoothBrushOp: pull each vertex toward its one-ring centroid
-        Move, // FMoveBrushOp: the vertices under the brush follow it, weighted by the falloff (Strength unused)
+        Move,    // FMoveBrushOp: the vertices under the brush follow it, weighted by the falloff (Strength unused)
+        Inflate, // FInflateBrushOp: each vertex pushed along its OWN vertex normal (Invert deflates)
+        Flatten, // FFlattenBrushOp: each vertex pulled toward the plane fitted to the region under the brush
+        Pinch,   // FPinchBrushOp: drawn toward the stroke line across the surface and sunk along the brush
+                 // normal into a crease (Invert spreads and raises)
     };
     // Every brush, in the order the panel's combo and the command palette list them (one list for both).
     inline constexpr SculptBrushType kSculptBrushTypes[] = { SculptBrushType::Standard, SculptBrushType::Smooth,
-                                                             SculptBrushType::Move };
+                                                             SculptBrushType::Move,     SculptBrushType::Inflate,
+                                                             SculptBrushType::Flatten,  SculptBrushType::Pinch };
 
     [[nodiscard]] const char* ToString( SculptBrushType type );
 
@@ -43,15 +48,16 @@ namespace Desert::Geometry
         float           Falloff  = 0.5f; // 0..1, UE's BrushFalloffAmount: 0 = hard edge, 1 = fades from the centre
         // UE's FlowRate/Spacing pair reduced to the spacing: a stamp every Spacing * Radius along the stroke.
         float Spacing = 0.25f;
-        bool  Invert  = false; // Standard only: pull instead of push (UE: Ctrl held)
+        bool  Invert  = false; // Standard / Inflate / Pinch: the opposite move (UE: Ctrl held)
     };
 
     // UE BaseBrushTool falloff: 1 inside (1 - Falloff) of the radius, then (1 - t^2)^3 to zero at the rim.
     [[nodiscard]] double SurfaceSculptFalloff( double distance, double radius, double falloff );
 
-    // One stamp in world space: the hit point and the surface normal there. Move also reads PrevCenter, where
-    // the brush was at the previous stamp of the stroke (UE FSculptBrushStamp's PrevStamp): it weighs the
-    // vertices by their distance to it and carries them by Center - PrevCenter.
+    // One stamp in world space: the hit point and the surface normal there, and PrevCenter, where the brush was
+    // at the previous stamp of the stroke (UE FSculptBrushStamp's PrevStamp; equal to Center on the first one).
+    // Move weighs the vertices by their distance to it and carries them by Center - PrevCenter; Pinch reads
+    // the stroke direction from it, so the crease lies along the stroke.
     struct SurfaceSculptStamp
     {
         glm::dvec3 Center{ 0.0 };

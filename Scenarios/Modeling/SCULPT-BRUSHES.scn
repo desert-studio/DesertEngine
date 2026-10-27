@@ -1,0 +1,21 @@
+# SCULPT-BRUSHES: Inflate / Flatten / Pinch back in the one Sculpt tool (regressed by SCULPT-ONE); one stroke
+# each in a different place, then three undos return the sphere
+Дано run Panel "Open Modeling"
+Дано --subject viewport set Camera.Direction 0.6,-0.53,0.6
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Sculpt "Sculpt tool"
+Тогда-вид 0_before a smooth new sphere at the viewport centre
+Когда run Sculpt "Brush: Inflate"
+Когда --subject viewport drag 660,280 700,280 20
+Тогда-вид 1_inflate under the Inflate stroke (upper left) the surface swells outward along its normals
+Когда run Sculpt "Brush: Flatten"
+Когда --subject viewport drag 740,320 780,320 20
+Тогда-вид 2_flatten under the Flatten stroke (right) a flat facet is cut into the curve
+Когда run Sculpt "Brush: Pinch"
+Когда --subject viewport drag 650,370 780,370 20
+Тогда-вид 3_pinch under the Pinch stroke (lower, horizontal) a narrow crease drawn together onto the stroke line
+Когда run Action "Undo"
+Когда run Action "Undo"
+Когда run Action "Undo"
+Тогда-вид 4_undo the sphere is smooth again, as in 0_before
