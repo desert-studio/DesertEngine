@@ -95,6 +95,9 @@ namespace Desert::Editor
                                      out.push_back( std::move( command ) );
                                  for ( PaletteCommand& command : QualityMethodOverridePaletteCommands() )
                                      out.push_back( std::move( command ) );
+                                 for ( PaletteCommand& command : QualityRenderScalePaletteCommands(
+                                            Common::Scalability::QualityState::Catalog() ) )
+                                     out.push_back( std::move( command ) );
                              } );
         m_Commands.Register( "Clouds",
                              [&workspace]( Out& out ) { AppendCloudCommands( out, workspace.ActiveScene() ); } );

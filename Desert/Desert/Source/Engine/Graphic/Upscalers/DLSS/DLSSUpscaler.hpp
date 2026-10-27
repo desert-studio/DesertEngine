@@ -10,13 +10,13 @@
 #include <tuple>
 
 // NVIDIA DLSS SUPER RESOLUTION and DLSS RAY RECONSTRUCTION as an ITemporalUpscaler (UE: the DLSS plugin's
-// FDLSSUpscaler, whose Ray Reconstruction mode is the same upscaler with the denoiser on). One class, one object per
-// Streamline::DlssFeature: the feature is the only difference in the passes (which plugin evaluates, which guides
-// are tagged), and everything else - the modes, the split, the jitter, the exposure, the per-view feature - is
-// shared. Windows only
-// (premake compiles Engine/Graphic/Upscalers/ on Windows alone and defines DESERT_UPSCALER_DLSS, which kDlssBuilt
-// in API/UpscalerBuild.hpp reads); selectable where Streamline::Runtime::DlssReady() - the catalog offers
-// Upscaler::DLSS and AntiAliasingMethod::DLAA only then.
+// FDLSSUpscaler, whose Ray Reconstruction mode is the same upscaler with the denoiser on). One class, one object
+// per Streamline::DlssFeature: the feature is the only difference in the passes (which plugin evaluates, which
+// guides are tagged), and everything else - the modes, the split, the jitter, the exposure, the per-view feature -
+// is shared. Windows only (premake compiles Engine/Graphic/Upscalers/ on Windows alone and defines
+// DESERT_UPSCALER_DLSS, which kDlssBuilt in API/UpscalerBuild.hpp reads); selectable where
+// Streamline::Runtime::DlssReady() - the catalog offers AntiAliasingMethod::DLSS (and DLSSRayReconstruction) only
+// then.
 //
 // Two passes: UpscalerExposure (the 1x1 exposure multiplier FSR and the engine's TAA use: DLSS is handed the
 // engine's exposure, never its own auto exposure), then "DLSS", which reads the jittered scene colour, the
@@ -31,7 +31,7 @@
 // DLAA; below, the quality mode whose accepted render range (slDLSSGetOptimalSettings) holds the render extent,
 // the one whose optimal extent is nearest when several do. A split no mode accepts is not Supported, and
 // ResolveViewResolution clamps or refuses it by name. THE PRESET is the mode's Scalability row
-// (Parameter::DlssPresetDLAA ..; UE: r.NGX.DLSS.DLAAPreset / QualityPreset / ...), read from
+// (Parameter::DlssPresetNative ..; UE: r.NGX.DLSS.DLAAPreset / QualityPreset / ...), read from
 // TemporalUpscalerInputs::Quality every frame; a change re-options the feature.
 //
 // MATERIAL MIP BIAS is NVIDIA's rule (DLSS programming guide, "Mip-Map Bias"): log2(render / output) - 1, at
@@ -42,7 +42,7 @@
 // undenoised, composited into the colour as usual, and a third pass, "DLSS-RR: Guides" (DLSSRRGuides.shader),
 // writes the guides it demodulates them with - diffuse and specular albedo from the G-buffer and the split-sum
 // table, the reflection's hit distance from SSR's ray - beside the G-buffer's normal + roughness, tagged as is.
-// Its presets are its own Scalability rows (Parameter::DlssRRPresetDLAA ..), its modes DLSS's.
+// Its presets are its own Scalability rows (Parameter::DlssRRPresetNative ..), its modes DLSS's.
 namespace Desert::Graphic
 {
     class DLSSUpscaler final : public ITemporalUpscaler

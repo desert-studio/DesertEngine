@@ -113,9 +113,9 @@ namespace Desert::Graphic
                 case Streamline::DlssMode::UltraQuality:
                     return Parameter::DlssRRPresetUltraQuality;
                 case Streamline::DlssMode::DLAA:
-                    return Parameter::DlssRRPresetDLAA;
+                    return Parameter::DlssRRPresetNative;
             }
-            return Parameter::DlssRRPresetDLAA;
+            return Parameter::DlssRRPresetNative;
         }
 
         // The Scalability row that holds @p mode's preset.
@@ -135,9 +135,9 @@ namespace Desert::Graphic
                 case Streamline::DlssMode::UltraQuality:
                     return Parameter::DlssPresetUltraQuality;
                 case Streamline::DlssMode::DLAA:
-                    return Parameter::DlssPresetDLAA;
+                    return Parameter::DlssPresetNative;
             }
-            return Parameter::DlssPresetDLAA;
+            return Parameter::DlssPresetNative;
         }
 
         // One view's DLSS feature: its Streamline viewport and the options it was last given. Released with the

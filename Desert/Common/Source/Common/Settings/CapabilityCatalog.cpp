@@ -14,11 +14,6 @@ namespace Common::Scalability
             return kAntiAliasingMethodNames[static_cast<std::size_t>( value )];
         }
 
-        std::string_view Name( Upscaler value )
-        {
-            return kUpscalerNames[static_cast<std::size_t>( value )];
-        }
-
         std::string_view Name( RayTracingMode value )
         {
             return kRayTracingModeNames[static_cast<std::size_t>( value )];
@@ -116,7 +111,6 @@ namespace Common::Scalability
         std::string out = "[Catalog]";
         AppendList( out, "aa", catalog.AntiAliasingMethods );
         AppendList( out, "msaa", catalog.MSAACounts );
-        AppendList( out, "upscale", catalog.Upscalers );
         std::format_to( std::back_inserter( out ), " scale={}..{}%", catalog.RenderScale.MinPercent,
                         catalog.RenderScale.MaxPercent );
         AppendList( out, "rt", catalog.RayTracingModes );
