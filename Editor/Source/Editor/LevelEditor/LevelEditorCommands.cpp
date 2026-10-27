@@ -28,6 +28,7 @@
 #include "Editor/Panels/Modeling/ModelingCommands.hpp"
 #include "Editor/Panels/Scalability/AntiAliasingPaletteCommands.hpp"
 #include "Editor/Panels/Scalability/QualityLevelPaletteCommands.hpp"
+#include "Editor/Panels/Scalability/DisplayOutputPaletteCommands.hpp"
 #include "Editor/Panels/SceneHierarchy/SceneHierarchyPanel.hpp"
 #include "Editor/Panels/UI/UICommands.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
@@ -94,6 +95,13 @@ namespace Desert::Editor
                                  for ( PaletteCommand& command : QualityLevelPaletteCommands() )
                                      out.push_back( std::move( command ) );
                                  for ( PaletteCommand& command : QualityMethodOverridePaletteCommands() )
+                                     out.push_back( std::move( command ) );
+                             } );
+        // Display output (HDR-OUTPUT): the Scalability panel's Display Output combo, reachable from the control channel.
+        m_Commands.Register( "Display",
+                             []( Out& out )
+                             {
+                                 for ( PaletteCommand& command : DisplayOutputPaletteCommands() )
                                      out.push_back( std::move( command ) );
                              } );
         m_Commands.Register( "Clouds",

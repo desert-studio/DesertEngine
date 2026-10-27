@@ -94,6 +94,11 @@ local function EngineModuleLibrary(module)
         flags { "NoPCH" }
         optimize "Speed"
         runtimechecks "Off"
+    -- Objective-C++ sources (.mm, Platform/MacOS) are off the PCH: the .gch is built as C++ and clang refuses it
+    -- for an Objective-C translation unit ("Objective-C was disabled in PCH file but is currently enabled").
+    -- The forced include of pch.hpp stays, so the source sees the same headers, parsed as Objective-C++.
+    filter { "files:**.mm" }
+        flags { "NoPCH" }
     filter {}
 
     if DesertModules.LegacyLibName(module.Name) == DesertModuleLibs.CodegenLib() then

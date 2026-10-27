@@ -45,6 +45,9 @@ namespace Desert::Editor
         // recording is carried to the collect half so it names the real reason.
         void               RecordWindowCapture();
         [[nodiscard]] bool WriteWindowPng( const std::string& path, std::string& outError );
+        // HDR-OUTPUT p3: after a window shot of an HDR output, the peak of the tonemap's HDR rendition of the same
+        // frame, in paper-white units and nits, into editor.log (the PNG is the SDR rendition).
+        void LogHdrRenditionPeak();
 
     private:
         // The one readback: a capture cannot differ from a dump in flip, format or the device-idle wait.

@@ -76,6 +76,9 @@ namespace Desert::Editor
         // gone out. Doing it all after the present produced a correct picture and a Vulkan spec violation
         // that only the validation layer mentioned — see the definition.
         void RecordWindowCaptureIfDue();
+        // A window shot (`shot.window`) is in flight: every frame until it is taken renders the SDR rendition of
+        // an HDR output (Graphic::SetSdrCaptureRendition, HDR-OUTPUT p3), so the captured frame is one of them.
+        [[nodiscard]] bool WindowShotPending() const;
         // The frame is out: judge it, take a `shot.*`, release the reply. Returns the exit status of a `quit`
         // whose reply has gone out — the layer closes the application with it.
         // @p displacementUnsettled: the presented frame drew a displaced primitive's base while its twin was on

@@ -1,5 +1,6 @@
 #include "TonemapRenderer.hpp"
 #include <Engine/Graphic/ViewTargetFormats.hpp>
+#include <Engine/Graphic/DisplayOutput.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -52,18 +53,43 @@ namespace Desert::Graphic::System
     {
         if ( m_Framebuffer )
             m_Framebuffer->Resize( width, height );
+        if ( m_HdrFramebuffer )
+            m_HdrFramebuffer->Resize( width, height );
     }
 
-    void TonemapRenderer::DeclareBindings( RDG::PassBuilder& pass, const GraphInputs& inputs ) const
+    bool TonemapRenderer::PrepareHdrRendition()
     {
-        if ( !m_Pipeline || !m_MaterialTonemap )
+        const DisplayOutputState& display = CurrentDisplayOutput();
+        m_HdrRendition =
+             m_Framebuffer && SdrCaptureRenditionRequested() && display.IsHDR() && display.Headroom > 1.0f;
+        if ( !m_HdrRendition )
+            return false;
+        if ( !m_HdrFramebuffer )
+        {
+            // The output's twin: same format (the one pipeline draws both), same size.
+            FramebufferSpecification fbSpec;
+            fbSpec.DebugName = "SceneToneMap.HdrRendition";
+            fbSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kTonemap );
+            m_HdrFramebuffer = Graphic::Framebuffer::Create( fbSpec );
+            m_HdrFramebuffer->Resize( m_Framebuffer->GetFramebufferWidth(),
+                                      m_Framebuffer->GetFramebufferHeight() );
+            m_MaterialTonemapHdr = std::make_unique<MaterialTonemap>();
+        }
+        return true;
+    }
+
+    void TonemapRenderer::DeclareBindings( RDG::PassBuilder& pass, const GraphInputs& inputs,
+                                           const bool hdrRendition ) const
+    {
+        const MaterialTonemap* material = hdrRendition ? m_MaterialTonemapHdr.get() : m_MaterialTonemap.get();
+        if ( !m_Pipeline || material == nullptr )
             return;
         // The samplers the material route sampled these with before: the scene colour and the luminance with the
         // image's own (linear, REPEAT), the three effect images with LinearClamp at mip 0. Any of the three may
         // be the same System.Black ref: three read entries of one ref in one state are one read of the pass
         // (RenderGraphCompile TwoBlockEntriesReadingOneImageInOneState...).
         pass.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
-                       m_MaterialTonemap->GetMaterialExecutor()->GetRouteFill() )
+                       material->GetMaterialExecutor()->GetRouteFill() )
              .Texture( TonemapShaderParameters::GeometryTexture, inputs.Source, RDG::Access::SampledGraphics,
                        RDG::SubresourceRange::All() )
              .Sampler( TonemapShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
@@ -110,12 +136,26 @@ namespace Desert::Graphic::System
         // 1: the exposure comes from ExposureFusionTexture (Fusion), 0: from the grid and the blur (Bilateral).
         params.LocalExposureMethod = le.Produced && IsLocalExposureFusion( le.Params ) ? 1.0f : 0.0f;
 
+        // The display the frame reaches (the swapchain's last build): its output transform and headroom.
+        const DisplayOutputState& display = CurrentDisplayOutput();
+        params.DisplayOutput              = display.Output;
+        params.DisplayHeadroom            = display.Headroom;
+
+        // HDR-OUTPUT p3: with the HDR rendition this frame (PrepareHdrRendition) the output carries the SDR
+        // transform — headroom 1, SceneComposite's SDR arm, the very values the SDR output writes — and the
+        // rendition the HDR one; the SAME params otherwise, so the two are one frame in two transforms.
+        if ( m_HdrRendition && m_MaterialTonemapHdr )
+        {
+            m_MaterialTonemapHdr->BindValues( params );
+            params.DisplayHeadroom = 1.0f;
+        }
         m_MaterialTonemap->BindValues( params );
     }
 
-    Common::BoolResultStr TonemapRenderer::Record( const RDG::PassContext& context )
+    Common::BoolResultStr TonemapRenderer::Record( const RDG::PassContext& context, const bool hdrRendition )
     {
-        if ( !m_Pipeline || !m_MaterialTonemap )
+        MaterialTonemap* material = hdrRendition ? m_MaterialTonemapHdr.get() : m_MaterialTonemap.get();
+        if ( !m_Pipeline || material == nullptr )
             return Common::MakeError( "PostFX: Tonemap: the tonemap pipeline is not initialised" );
         const auto& framebuffer =
              m_TargetFramebuffer.lock(); // We call lock internally to avoid cyclic dependencies.
@@ -123,7 +163,6 @@ namespace Desert::Graphic::System
             return Common::MakeError( "TonemapRenderer: the source framebuffer was destroyed or wasn't set up" );
 
         const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-        return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline,
-                                                       m_MaterialTonemap->GetMaterialExecutor() );
+        return Renderer::GetInstance().DrawFullscreen( bindings, *m_Pipeline, material->GetMaterialExecutor() );
     }
 } // namespace Desert::Graphic::System
