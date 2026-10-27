@@ -63,6 +63,9 @@ def main():
     if len(args) < 2:
         sys.exit(__doc__)
     tree, scn = os.path.abspath(args[0]), os.path.abspath(args[1])
+    if os.path.commonpath([tree, scn]) != tree:
+        # 10-28: a .scn from the agent's tree played against the main tree loaded nothing and still printed PASS.
+        sys.exit(f"SCENARIO refused: {scn} is not inside the tree {tree} — pass the tree the scenario belongs to")
     hold = "--hold" in args[2:]
     code = os.path.splitext(os.path.basename(scn))[0]
     exe = ".exe" if WIN else ""
