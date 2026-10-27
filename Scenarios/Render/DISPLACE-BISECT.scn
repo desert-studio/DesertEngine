@@ -1,0 +1,10 @@
+# DISPLACE bisect 2: does the Quality ViewDistance switch hide the probe's meshes?
+Дано run Scene "Open Scene DISPLACE_Probe.desce"
+Тогда d0_default probe as opened: slab, ground, CesiumMan visible
+Когда run Quality "Quality: ViewDistance Cinematic"
+Тогда d1_cinematic same view after ViewDistance Cinematic
+Когда run Quality "Quality: ViewDistance Low"
+Тогда d2_low same view after ViewDistance Low
+Когда --subject viewport set Camera.Position 0,60,520
+Когда --subject viewport set Camera.Direction 0,-0.22,-1
+Тогда d3_cam view after the camera set

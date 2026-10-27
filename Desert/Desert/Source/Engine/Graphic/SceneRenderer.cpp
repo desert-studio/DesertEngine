@@ -1361,6 +1361,8 @@ namespace Desert::Graphic
         // the render graph is built: its passes are recorded by AddFrameSkyLight at the head of the graph.
         {
             DESERT_PROFILE_PASS( "Sky: EnsureProceduralEnv" );
+            // The sky block first, inside this view's scope: the capture and the graph below read it.
+            skyboxSystem->UploadFrameSkyParams();
             skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
         }
 

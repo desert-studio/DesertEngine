@@ -84,6 +84,9 @@ project "Embree"
         -- msvc.cmake: /GS- (no stack protector by default); Debug's /RTC1 cannot go with /O2 (D8016).
         buildoptions { "/GS-" }
         runtimechecks "Off"
+        -- No UNICODE, as CMake builds it: common/sys/library.cpp passes a char path to LoadLibrary (C2664
+        -- under premake's default Unicode character set).
+        characterset "ASCII"
 
     filter "system:not windows"
         pic "On"
