@@ -36,6 +36,22 @@ namespace Desert::Graphic
     // gl_VertexIndex with no vertex buffer, so every fullscreen draw is Draw(3, 1, 0, 0).
     inline constexpr uint32_t kFullscreenTriangleVertexCount = 3;
 
+    // One IndirectGroup of a binned mesh pass (GpuDriven/IndirectDrawSubmission.hpp): MaxDraws records of
+    // VkDrawIndexedIndirectCommand at Stride from ArgsOffset of Args, every one an indexed draw of the group's
+    // mesh. Counts valid = the drawIndirectCount read (the GPU's count of the group at CountOffset, at most
+    // MaxDraws); invalid = MaxDraws records read as they are, MaxDrawsPerCall per vkCmdDrawIndexedIndirect (1 =
+    // one call per record: a device without multiDrawIndirect). Both buffers are declared Access::IndirectArgs.
+    struct MeshIndirectGroupDraw
+    {
+        RDG::BufferRef Args{};
+        uint64_t       ArgsOffset      = 0;
+        uint32_t       MaxDraws        = 0;
+        uint32_t       Stride          = 0;
+        RDG::BufferRef Counts{};
+        uint64_t       CountOffset     = 0;
+        uint32_t       MaxDrawsPerCall = 1;
+    };
+
     enum class RendererAPIType : uint8_t
     {
         None   = 0,
@@ -167,6 +183,12 @@ namespace Desert::Graphic
         RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                             const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
                             uint64_t offset, uint64_t hiddenSubmeshMask, MeshDrawArgumentsOrder order ) = 0;
+        // One IndirectGroup of a binned pass: @p pipeline's pass state (no material: binned materials are bindless
+        // rows), @p mesh's vertex / stream / index buffers, then the indirect draws @p draw names. No push block
+        // is written: a binned draw reads its per-draw state from GpuScene through gl_InstanceIndex.
+        [[nodiscard]] virtual Common::BoolResultStr
+        RenderMeshIndirectGroup( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                 const Mesh& mesh, const MeshIndirectGroupDraw& draw ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.

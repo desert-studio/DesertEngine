@@ -125,12 +125,17 @@ namespace Desert::Graphic::GpuDriven
     // PrimitiveFlags; Common/MaterialTransport.glslh) or the BindState closure (MeshRenderer.hpp:89-92).
     struct GpuDrawSlot
     {
-        uint32_t Bin         = 0; // 0  — its row in the pass's DrawBins[] / IndirectDraws[]
+        // Its row in the pass's DrawBins[] / IndirectDraws[]; kInvalidIndex = the submesh does not draw in this pass
+        // (hidden, or no pipeline for its material there): the cull skips the slot.
+        uint32_t Bin         = 0; // 0
         uint32_t MaterialRow = 0; // 4  — its row in Materials[] (Material.hpp kMaterialRowBlock)
-        uint32_t Pad0        = 0; // 8
-        uint32_t Pad1        = 0; // 12
+        // Its row in DrawCommandCache::SubmeshTransforms[]: the submesh's node transform relative to the
+        // primitive (Submesh::Transform). World = LocalToWorld x InstanceToPrimitive x this.
+        uint32_t SubmeshTransform = 0; // 8
+        uint32_t Pad1             = 0; // 12
     };
     static_assert( sizeof( GpuDrawSlot ) == 16, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuDrawSlot, SubmeshTransform ) == 8, "Common/GpuScene.glslh" );
 
     // ONE ROW PER BIN of a pass (pass x pipeline x mesh x submesh x LOD): the index range it draws and where its
     // compacted instance list lives. The cull writes the bin's VkDrawIndexedIndirectCommand from it.

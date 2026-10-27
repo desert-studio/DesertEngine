@@ -85,10 +85,10 @@ struct GpuPrimitivePassDraws
 // Per cached draw of a pass. 16 bytes.
 struct GpuDrawSlot
 {
-    uint Bin;         // offset 0
-    uint MaterialRow; // offset 4 — row in Materials[]
-    uint Pad0;        // offset 8
-    uint Pad1;        // offset 12
+    uint Bin;              // offset 0 — DESERT_GPU_INVALID_INDEX = the submesh does not draw in this pass
+    uint MaterialRow;      // offset 4 — row in Materials[]
+    uint SubmeshTransform; // offset 8 — row in SubmeshTransforms[] (Submesh::Transform, relative to the primitive)
+    uint Pad1;             // offset 12
 };
 
 // Per bin of a pass (pass x pipeline x mesh x submesh x LOD). 32 bytes.

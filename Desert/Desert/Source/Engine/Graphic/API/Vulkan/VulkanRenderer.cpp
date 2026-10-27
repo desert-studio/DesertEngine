@@ -792,29 +792,13 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::WalkMeshSubmeshes( const RDG::PassBindings& bindings,
-                                                                const GraphicsPipeline& pipeline, const Mesh& mesh,
-                                                                const glm::mat4&        transform,
-                                                                const MaterialExecutor& material,
-                                                                const uint64_t          hiddenSubmeshMask,
-                                                                const SubmeshDraw&      draw )
+    Common::BoolResultStr VulkanRendererAPI::BindMeshBuffers( const std::string_view pass,
+                                                              const GraphicsPipeline& pipeline, const Mesh& mesh )
     {
-        const std::string_view pass = bindings.GetContext().GetPassName();
-        // The push block is the per-submesh transform the material carries (written below for each submesh).
-        if ( !bindings.GetPushConstants().empty() )
-            return Common::MakeFormattedError(
-                 "{}: a mesh draw's push constants are its per-submesh transform; the bindings carry their own",
-                 pass );
         if ( !mesh.GetVertexBuffer() )
             return Common::MakeFormattedError( "{}: mesh has no vertex buffer", pass );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material ); !bound || !bound.GetValue() )
-            return bound;
-
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
         const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
-        auto* shader = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
-
         const VkDeviceSize offsets[] = { 0 };
         VkBuffer vbuffer = sp_cast<API::Vulkan::VulkanVertexBuffer>( mesh.GetVertexBuffer() )->GetVulkanBuffer();
         vkCmdBindVertexBuffers( m_CurrentCommandBuffer, 0, 1, &vbuffer, offsets );
@@ -843,6 +827,35 @@ namespace Desert::Graphic::API::Vulkan
             VkBuffer ibuffer = sp_cast<API::Vulkan::VulkanIndexBuffer>( indexBuffer )->GetVulkanBuffer();
             vkCmdBindIndexBuffer( m_CurrentCommandBuffer, ibuffer, 0, VK_INDEX_TYPE_UINT32 );
         }
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::WalkMeshSubmeshes( const RDG::PassBindings& bindings,
+                                                                const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                                const glm::mat4&        transform,
+                                                                const MaterialExecutor& material,
+                                                                const uint64_t          hiddenSubmeshMask,
+                                                                const SubmeshDraw&      draw )
+    {
+        const std::string_view pass = bindings.GetContext().GetPassName();
+        // The push block is the per-submesh transform the material carries (written below for each submesh).
+        if ( !bindings.GetPushConstants().empty() )
+            return Common::MakeFormattedError(
+                 "{}: a mesh draw's push constants are its per-submesh transform; the bindings carry their own",
+                 pass );
+        if ( !mesh.GetVertexBuffer() )
+            return Common::MakeFormattedError( "{}: mesh has no vertex buffer", pass );
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material ); !bound || !bound.GetValue() )
+            return bound;
+
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
+        const auto* graphics = static_cast<const VulkanPipeline*>( &pipeline );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes shaders
+        auto* shader = static_cast<VulkanShader*>( pipeline.GetSpecification().Shader.get() );
+
+        if ( const Common::BoolResultStr buffers = BindMeshBuffers( pass, pipeline, mesh ); !buffers )
+            return buffers;
+        const auto& indexBuffer = mesh.GetIndexBuffer();
 
         // The push block of every submesh: the material's (the pipeline layout's full range, so the per-object
         // values the caller wrote past the transform go too; zero past what the material holds) with the submesh's
@@ -958,6 +971,77 @@ namespace Desert::Graphic::API::Vulkan
                                                static_cast<uint32_t>( sizeof( VkDrawIndexedIndirectCommand ) ) );
                  return Common::MakeSuccess( true );
              } );
+    }
+
+    Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirectGroup( const RDG::PassBindings&     bindings,
+                                                                      const GraphicsPipeline&      pipeline,
+                                                                      const Mesh&                  mesh,
+                                                                      const MeshIndirectGroupDraw& draw )
+    {
+        DESERT_PROFILE_FUNC();
+        const RDG::PassContext& context = bindings.GetContext();
+        const std::string_view  pass    = context.GetPassName();
+        if ( draw.MaxDraws == 0u )
+            return Common::MakeSuccess( true );
+        if ( draw.Stride < sizeof( VkDrawIndexedIndirectCommand ) || draw.Stride % 4u != 0u ||
+             draw.ArgsOffset % 4u != 0u || draw.CountOffset % 4u != 0u )
+            return Common::MakeFormattedError(
+                 "{}: indirect group of stride {} at byte {} (count at {}): the stride holds a "
+                 "VkDrawIndexedIndirectCommand and all three are multiples of four",
+                 pass, draw.Stride, draw.ArgsOffset, draw.CountOffset );
+        if ( !mesh.GetIndexBuffer() )
+            return Common::MakeFormattedError( "{}: an indirect group's mesh has no index buffer", pass );
+        const auto declared = context.GetBuffer( draw.Args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", pass, declared.GetError() );
+        const auto args = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !args )
+            return Common::MakeFormattedError( "{}: indirect arguments: {}", pass, args.GetError() );
+        const uint64_t end = draw.ArgsOffset + ( uint64_t{ draw.MaxDraws - 1u } * draw.Stride ) +
+                             sizeof( VkDrawIndexedIndirectCommand );
+        if ( end > declared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError(
+                 "{}: {} indirect records at byte {} (stride {}) pass the end of '{}' ({} bytes)", pass,
+                 draw.MaxDraws, draw.ArgsOffset, draw.Stride, declared.GetValue().Name,
+                 declared.GetValue().Desc->Bytes );
+        VkBuffer vkCounts = VK_NULL_HANDLE;
+        if ( draw.Counts.IsValid() )
+        {
+            const auto counts = context.GetBuffer( draw.Counts, RDG::Access::IndirectArgs );
+            if ( !counts )
+                return Common::MakeFormattedError( "{}: indirect draw counts: {}", pass, counts.GetError() );
+            if ( draw.CountOffset + sizeof( uint32_t ) > counts.GetValue().Desc->Bytes )
+                return Common::MakeFormattedError( "{}: the draw count at byte {} passes the end of '{}'", pass,
+                                                   draw.CountOffset, counts.GetValue().Name );
+            const auto countBuffer = VulkanRdgBackend::BufferOf( counts.GetValue() );
+            if ( !countBuffer )
+                return Common::MakeFormattedError( "{}: indirect draw counts: {}", pass, countBuffer.GetError() );
+            vkCounts = countBuffer.GetValue()->GetBuffer();
+        }
+        else if ( draw.MaxDrawsPerCall == 0u )
+            return Common::MakeFormattedError( "{}: an indirect group of zero draws per call", pass );
+
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, nullptr );
+             !bound || !bound.GetValue() )
+            return bound;
+        if ( const Common::BoolResultStr buffers = BindMeshBuffers( pass, pipeline, mesh ); !buffers )
+            return buffers;
+
+        // Not counted by DrawCounter: the instance counts are the GPU's (RenderMeshIndirect likewise).
+        const VkBuffer vkArgs = args.GetValue()->GetBuffer();
+        if ( vkCounts != VK_NULL_HANDLE )
+        {
+            vkCmdDrawIndexedIndirectCount( m_CurrentCommandBuffer, vkArgs, draw.ArgsOffset, vkCounts,
+                                           draw.CountOffset, draw.MaxDraws, draw.Stride );
+            return Common::MakeSuccess( true );
+        }
+        for ( uint32_t first = 0; first < draw.MaxDraws; first += draw.MaxDrawsPerCall )
+        {
+            const uint32_t count = std::min( draw.MaxDraws - first, draw.MaxDrawsPerCall );
+            vkCmdDrawIndexedIndirect( m_CurrentCommandBuffer, vkArgs,
+                                      draw.ArgsOffset + ( uint64_t{ first } * draw.Stride ), count, draw.Stride );
+        }
+        return Common::MakeSuccess( true );
     }
 
     Common::BoolResultStr VulkanRendererAPI::BindGraphicsPassState( const RDG::PassBindings& bindings,

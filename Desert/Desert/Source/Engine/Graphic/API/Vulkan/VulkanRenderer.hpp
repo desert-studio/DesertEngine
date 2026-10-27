@@ -89,6 +89,9 @@ namespace Desert::Graphic::API::Vulkan
                                                   const glm::mat4& transform, const MaterialExecutor& material,
                                                   RDG::BufferRef args, uint64_t offset, uint64_t hiddenSubmeshMask,
                                                   MeshDrawArgumentsOrder order ) override;
+        Common::BoolResultStr RenderMeshIndirectGroup( const RDG::PassBindings& bindings,
+                                                       const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                       const MeshIndirectGroupDraw& draw ) override;
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;
@@ -137,6 +140,10 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr BindGraphicsPassState( const RDG::PassBindings& bindings,
                                                      const GraphicsPipeline&  pipeline,
                                                      const MaterialExecutor*  material );
+        // Binds @p mesh's vertex buffer (binding 0), its optional streams or the shared default (binding 1, when
+        // @p pipeline's vertex input has it) and its index buffer on the current command buffer.
+        Common::BoolResultStr BindMeshBuffers( std::string_view pass, const GraphicsPipeline& pipeline,
+                                               const Mesh& mesh );
         // Records one drawn submesh: its index among the drawn ones, its index in the mesh, the submesh, the
         // mesh's index buffer (null: a mesh without indices).
         using SubmeshDraw = std::function<Common::BoolResultStr(
