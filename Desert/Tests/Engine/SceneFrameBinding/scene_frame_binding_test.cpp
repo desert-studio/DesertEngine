@@ -239,7 +239,7 @@ namespace
     {
         std::vector<std::string> names;
         if ( shader.ReadsObjectMotions )
-            names.emplace_back( SceneResources::kObjectMotionsName );
+            names.emplace_back( SceneResources::kGpuScenePrimitivesName );
         if ( shader.ReadsObjectBones )
             names.emplace_back( SceneResources::kObjectBonesName );
         return names;

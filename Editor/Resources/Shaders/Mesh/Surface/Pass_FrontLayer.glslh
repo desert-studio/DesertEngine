@@ -16,7 +16,7 @@ DESERT_SURFACE_VARYINGS( in )
 layout( location = 0 ) out vec4 oFrontLayerNormal;
 // The surface's motion (Graphic::kVelocityFormat): the reflection denoiser reprojects its history with it, as the
 // opaque reflections' with the G-buffer's velocity.
-#include <Common/ObjectMotion.glslh>
+#include <Common/Velocity.glslh>
 layout( location = 1 ) out vec4 oFrontLayerVelocity;
 
 void main()

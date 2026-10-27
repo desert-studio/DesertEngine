@@ -536,7 +536,7 @@ namespace Desert::Graphic::System
         // The view's motion rows and both frames' bone palettes (BuildObjectMotions, this frame). Carried by
         // every capture: only the view-pass cells declare them (a light view — shadow depth, RSM — reads none),
         // and ApplyTo binds them by name only into a template that does.
-        frame.ObjectMotions = m_ObjectMotions;
+        frame.GpuScenePrimitives = m_ObjectMotions;
         frame.ObjectBones   = m_ObjectBones;
         // The world's parameters, the view's one snapshot of this frame (SceneRenderer::BeginScene).
         frame.WorldParameters = m_SceneRenderer->GetWorldParametersBuffer();
@@ -586,23 +586,23 @@ namespace Desert::Graphic::System
                                std::span<const MotionRecord>( records ).subspan( rigidCount ), built );
         size_t record = 0;
         for ( auto& data : m_StaticQueue )
-            data.MotionRow = built.RecordRows[record++];
+            data.GpuPrimitive = built.RecordRows[record++];
         for ( auto& data : m_GenericQueue )
-            data.MotionRow = built.RecordRows[record++];
-        m_InstancedMotionRows.clear();
-        m_InstancedMotionRows.reserve( instanceCount );
+            data.GpuPrimitive = built.RecordRows[record++];
+        m_InstancedGpuInstances.clear();
+        m_InstancedGpuInstances.reserve( instanceCount );
         for ( auto& data : m_InstancedQueue )
         {
-            data.FirstMotionRow = static_cast<uint32_t>( m_InstancedMotionRows.size() );
+            data.FirstGpuInstance = static_cast<uint32_t>( m_InstancedGpuInstances.size() );
             for ( size_t instance = 0; instance < data.Transforms->size(); ++instance )
-                m_InstancedMotionRows.push_back( built.RecordRows[record++] );
+                m_InstancedGpuInstances.push_back( built.RecordRows[record++] );
         }
-        m_OtherMotionRows.clear();
-        m_OtherMotionRows.reserve( otherRigid.size() );
+        m_OtherGpuInstances.clear();
+        m_OtherGpuInstances.reserve( otherRigid.size() );
         for ( size_t other = 0; other < otherRigid.size(); ++other )
-            m_OtherMotionRows.push_back( built.RecordRows[record++] );
+            m_OtherGpuInstances.push_back( built.RecordRows[record++] );
         for ( auto& data : m_SkinnedQueue )
-            data.MotionRow = built.RecordRows[record++];
+            data.GpuPrimitive = built.RecordRows[record++];
         // The GPU skin cache: each skinned row learns where its posed vertices are, before the rows are uploaded.
         if ( skinCache != nullptr )
             skinCache->PrepareRows( *this, built.Rows, frame );
@@ -640,7 +640,7 @@ namespace Desert::Graphic::System
                       skinCache->SkinFrame( *this, built.Rows, m_SkinCacheBonesImport, frame );
                  !skinned )
                 LOG_ERROR( "[MeshRenderer] the skin cache's step failed: {}", skinned.GetError() );
-        return upload( m_ObjectMotions, SceneResources::kObjectMotionsName, Core::kObjectMotionsBinding,
+        return upload( m_ObjectMotions, SceneResources::kGpuScenePrimitivesName, Core::kGpuScenePrimitivesBinding,
                        rows.data(), rows.size() * sizeof( GpuObjectMotion ) );
     }
 

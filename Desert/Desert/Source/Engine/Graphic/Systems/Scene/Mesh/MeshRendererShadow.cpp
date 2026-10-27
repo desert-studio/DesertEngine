@@ -1147,7 +1147,7 @@ namespace Desert::Graphic::System
                     draw.Instance  = section.Instance;
                     draw.Row       = AppendRow( set.Rows, EffectiveRow( section.Material, section.Instance ) );
                     draw.First     = static_cast<uint32_t>( set.Transforms.size() );
-                    draw.MotionRow = sd.MotionRow;
+                    draw.GpuPrimitive = sd.GpuPrimitive;
                     draw.HiddenSubmeshMask = section.HiddenSubmeshes;
                     if ( IsVirtualShadowView( c ) )
                         draw.WorldBounds = SkinnedPoseBounds( *sd.Mesh, sd.Transform, sd.BoneMatrices );
@@ -1167,7 +1167,7 @@ namespace Desert::Graphic::System
                 {
                     // The cached pose when the skin cache holds this primitive (one skinning per frame).
                     const GpuObjectMotion row =
-                         caster.Data->MotionRow < rows.size() ? rows[caster.Data->MotionRow] : GpuObjectMotion{};
+                         caster.Data->GpuPrimitive < rows.size() ? rows[caster.Data->GpuPrimitive] : GpuObjectMotion{};
                     const uint64_t address =
                          ( static_cast<uint64_t>( row.SkinCacheAddressHi ) << 32u ) | row.SkinCacheAddressLo;
                     // A virtual shadow map level culls the caster by its posed box (CollectVirtualShadowCull).
@@ -1241,7 +1241,7 @@ namespace Desert::Graphic::System
             // A skinned caster also reads its row's skin-cache fields from the view's rows (Vertex_Skinned.glslh).
             if ( path == MeshVertexPath::Skinned )
             {
-                auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kObjectMotions );
+                auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kGpuScenePrimitives );
                 const bool bound = rows != nullptr && m_ObjectMotions != nullptr;
                 DESERT_VERIFY( bound, "a skinned masked caster reads ObjectMotions but the view carries none" );
                 rows->LendViewBuffer( m_ObjectMotions );
@@ -1298,7 +1298,7 @@ namespace Desert::Graphic::System
                        if ( draw.Path == MeshVertexPath::Skinned )
                        {
                            material->SetSkinnedBoneOffset( draw.First );
-                           material->SetPrimitiveIndex( draw.MotionRow );
+                           material->SetPrimitiveIndex( draw.GpuPrimitive );
                        }
                        material->Bind( draw.Instance );
                    },

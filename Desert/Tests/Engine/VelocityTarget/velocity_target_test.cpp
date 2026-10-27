@@ -1,6 +1,6 @@
 // TAA1 step 4 — the velocity target: its format has one spelling, the per-draw motion record has a GLSL twin of
 // the same std430 layout, and the velocity the geometry passes write is current minus previous unjittered NDC
-// (CPU twin Graphic::VelocityNdc, GLSL DesertVelocity in Common/ObjectMotion.glslh).
+// (CPU twin Graphic::VelocityNdc, GLSL DesertVelocity in Common/Velocity.glslh).
 
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
@@ -114,11 +114,11 @@ TEST( VelocityTarget, OneSpellingOfTheFormat )
     EXPECT_EQ( ViewTargetFormats::kVelocity, Desert::Core::Formats::ImageFormat::RGBA16F );
 }
 
-// Mutation: reorder World/PrevWorld (or add a member) in Common/ObjectMotion.glslh -> red.
+// Mutation: reorder World/PrevWorld (or add a member) in Common/Velocity.glslh -> red.
 TEST( VelocityTarget, GpuObjectMotionHasAStd430TwinInGlsl )
 {
     const std::string source =
-         ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/ObjectMotion.glslh" );
+         ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/Velocity.glslh" );
     ASSERT_FALSE( source.empty() );
     const auto members = GlslStructMembers( source, "GpuObjectMotion" );
     ASSERT_EQ( members.size(), 10u ); // World, PrevWorld, BoneOffset, PrevBoneOffset, SkinCache x3, Pad0-2
@@ -336,7 +336,7 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
     EXPECT_EQ( sceneRead["MegaLightsVolumeBTexture"], Desert::Core::kMegaLightsVolumeFirstBinding + 2u );
     EXPECT_EQ( sceneRead["LightGridParamsUB"], Desert::Core::kLightGridParamsBinding );
     EXPECT_EQ( sceneRead["LightGridCellsUB"], Desert::Core::kLightGridCellsBinding );
-    EXPECT_EQ( sceneRead["ObjectMotions"], Desert::Core::kObjectMotionsBinding );
+    EXPECT_EQ( sceneRead["ObjectMotions"], Desert::Core::kGpuScenePrimitivesBinding );
     EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
     EXPECT_EQ( sceneRead["SceneDepthTexture"], Desert::Core::kSceneDepthBinding );
     EXPECT_EQ( sceneRead["SceneShadingWordTexture"], Desert::Core::kSceneShadingWordBinding );
@@ -345,7 +345,7 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
 TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )
 {
     const std::string source =
-         ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/ObjectMotion.glslh" );
+         ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/Velocity.glslh" );
     EXPECT_NE( source.find( "return vec4( clip.xyz / clip.w - prevClip.xyz / prevClip.w, 0.0 );" ),
                std::string::npos );
 }
@@ -487,7 +487,7 @@ TEST( VelocityTarget, InstancedViewPushCarriesTheWindAtThePreviousFrame )
 
 // Step A: the rows are built once per frame per view BEFORE any pass is declared, and every captured frame state
 // carries them. Mutation: drop the BuildObjectMotions call, move it after the first AddFrame*, or drop the
-// frame.ObjectMotions / ObjectBones assignment in CaptureFrameState -> red.
+// frame.GpuScenePrimitives / ObjectBones assignment in CaptureFrameState -> red.
 TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
 {
     using VelocityTargetTest::ReadFile;
@@ -508,7 +508,7 @@ TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
     const auto end = meshes.find( "return frame;", capture );
     ASSERT_NE( end, std::string::npos );
     const std::string captureBody = meshes.substr( capture, end - capture );
-    EXPECT_NE( captureBody.find( "frame.ObjectMotions = m_ObjectMotions;" ), std::string::npos );
+    EXPECT_NE( captureBody.find( "frame.GpuScenePrimitives = m_ObjectMotions;" ), std::string::npos );
     EXPECT_NE( captureBody.find( "frame.ObjectBones   = m_ObjectBones;" ), std::string::npos );
 }
 

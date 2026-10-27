@@ -158,7 +158,7 @@ namespace Desert::Graphic::SceneResources
     inline constexpr const char* kTimeBlockName                = "TimeUB";
     inline constexpr const char* kCloudShadowBlockName         = "CloudShadowUB";
     inline constexpr const char* kCloudShadowMapName           = "CloudShadowMapTexture";
-    inline constexpr const char* kObjectMotionsName            = "ObjectMotions";
+    inline constexpr const char* kGpuScenePrimitivesName       = "GpuScenePrimitives";
     inline constexpr const char* kObjectBonesName              = "ObjectBones";
     inline constexpr const char* kWorldParametersName          = "WorldParameters";
     inline constexpr const char* kRainOcclusionBlockName       = "RainOcclusionUB";
@@ -167,7 +167,7 @@ namespace Desert::Graphic::SceneResources
     inline constexpr RDG::UniformBufferParameter kShadowBlock{ kShadowBlockName };
     inline constexpr RDG::UniformBufferParameter kTimeBlock{ kTimeBlockName };
     inline constexpr RDG::UniformBufferParameter kCloudShadowBlock{ kCloudShadowBlockName };
-    inline constexpr RDG::StorageBufferParameter kObjectMotions{ kObjectMotionsName };
+    inline constexpr RDG::StorageBufferParameter kGpuScenePrimitives{ kGpuScenePrimitivesName };
     inline constexpr RDG::StorageBufferParameter kObjectBones{ kObjectBonesName };
     inline constexpr RDG::StorageBufferParameter kWorldParameters{ kWorldParametersName };
     inline constexpr RDG::UniformBufferParameter kRainOcclusionBlock{ kRainOcclusionBlockName };
@@ -200,7 +200,7 @@ namespace Desert::Graphic::SceneResources
                  { kSkyLookBlockName, SceneRead::Environment },
                  { kCloudShadowBlockName, SceneRead::CloudShadow },
                  { kCloudShadowMapName, SceneRead::CloudShadow },
-                 { kObjectMotionsName, SceneRead::ObjectMotion },
+                 { kGpuScenePrimitivesName, SceneRead::GpuScenePrimitives },
                  { kObjectBonesName, SceneRead::ObjectBones },
                  { kWorldParametersName, SceneRead::WorldParameters },
                  { kRainOcclusionBlockName, SceneRead::RainOcclusion },

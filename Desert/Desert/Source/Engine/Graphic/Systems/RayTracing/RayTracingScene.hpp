@@ -132,7 +132,7 @@ namespace Desert::Graphic::RayTracing
     {
         const void* Geometry    = nullptr;
         glm::mat4   World       = glm::mat4( 1.0f ); // centimetres, like every world transform
-        uint32_t    GpuSceneRow = 0;                 // the primitive's ObjectMotions row (MotionRow)
+        uint32_t    GpuSceneRow = 0;                 // the primitive's ObjectMotions row (GpuPrimitive)
         bool        CastShadows = true;
         // Every section the primitive draws is BlendMode Translucent / Additive: kMaskTranslucent alone.
         bool Translucent = false;

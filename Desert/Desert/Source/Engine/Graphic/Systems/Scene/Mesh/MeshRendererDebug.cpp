@@ -459,7 +459,7 @@ namespace Desert::Graphic::System
                         // The pose slice (or the skin cache's streams) is the draw's own state, set right before
                         // it.
                         const GpuObjectMotion row =
-                             sd->MotionRow < rows.size() ? rows[sd->MotionRow] : GpuObjectMotion{};
+                             sd->GpuPrimitive < rows.size() ? rows[sd->GpuPrimitive] : GpuObjectMotion{};
                         const uint64_t address =
                              ( static_cast<uint64_t>( row.SkinCacheAddressHi ) << 32u ) | row.SkinCacheAddressLo;
                         m_SilhouetteDraws.Add( { .Pipeline  = m_SilhouetteSkinnedPipeline.get(),

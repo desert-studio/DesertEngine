@@ -33,7 +33,8 @@ namespace Desert::Graphic::RDG
 //    table uncompacted, an empty bin keeps InstanceCount = 0;
 //    vkCmdDrawIndexedIndirect( args, group.FirstBin * stride, group.BinCount, stride ).
 // Both need drawIndirectFirstInstance (firstInstance = the bin's FirstVisible) and shaderDrawParameters, present
-// on every target device; a device without multiDrawIndirect is refused at device selection, not worked around.
+// on every target device. No device is refused for missing drawIndirectCount / multiDrawIndirect (decision 10-27):
+// SelectIndirectSubmission picks the mode from DeviceCapabilities (phase CULL adds the two capability bits).
 //
 // Replaces the per-submesh CPU funnel RenderMesh -> WalkMeshSubmeshes -> DrawIndexedCounted
 // (API/Vulkan/VulkanRenderer.cpp:794, 887-917, 1812-1825) and RenderMeshIndirect (:919-960) for the binned passes.

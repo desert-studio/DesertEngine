@@ -87,7 +87,7 @@ Shader "WaterSurface"
         Out(3) float oThinGeometryCoverage;
 
         #include <Programs/Water/WaterSurfaceData.glslh>
-        #include <Common/ObjectMotion.glslh>
+        #include <Common/Velocity.glslh>
         #include <Common/ThinGeometryCoverage.glslh>
 
         void main()

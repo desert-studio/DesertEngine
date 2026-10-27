@@ -236,7 +236,7 @@ namespace Desert::Graphic::System
             uint32_t MotionPart = 0; // a stable part of the entity (MotionRecord::Part), 0 = by submission
             // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
             // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
-            uint32_t                  MotionRow = 0;
+            uint32_t                  GpuPrimitive = 0;
             class Desert::StaticMesh* Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             // Co-owned, and it must be: this queue is read by five passes, all of them AFTER the frame's
@@ -273,7 +273,7 @@ namespace Desert::Graphic::System
             uint32_t Entity = 0;
             // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
             // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
-            uint32_t                   MotionRow = 0;
+            uint32_t                   GpuPrimitive = 0;
             class Desert::SkinnedMesh* Mesh      = nullptr;
             // The mesh the skin cache skins when Mesh is a displaced twin (ApplyDisplacement, CONTRACT-DISPLACE
             // §9.8): the base (or its morph twin); the twin's streams are then written from that pose. Null = Mesh.
@@ -318,10 +318,10 @@ namespace Desert::Graphic::System
             InstanceCullDistance CullDistance;
             // The field's foliage type's wind (FO-7) at this frame's gameplay time; still for any other ISM.
             InstanceWind Wind;
-            // Where this field's per-instance rows start in GetInstancedMotionRows() (BuildObjectMotions):
-            // instance i is GPU-scene row GetInstancedMotionRows()[FirstMotionRow + i] - its TLAS custom index and
+            // Where this field's per-instance rows start in GetInstancedGpuInstances() (BuildObjectMotions):
+            // instance i is GPU-scene row GetInstancedGpuInstances()[FirstGpuInstance + i] - its TLAS custom index and
             // its GI card-table row (one row per instance, 1:1 with the TLAS instance).
-            uint32_t FirstMotionRow = 0;
+            uint32_t FirstGpuInstance = 0;
         };
 
         // An instanced section whose transforms and count the GPU wrote this frame (GpuInstances.hpp): the
@@ -378,7 +378,7 @@ namespace Desert::Graphic::System
             uint32_t MotionPart = 0;
             // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
             // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
-            uint32_t                   MotionRow = 0;
+            uint32_t                   GpuPrimitive = 0;
             class Mesh*               Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             std::string               ShaderName;
@@ -471,14 +471,14 @@ namespace Desert::Graphic::System
         // slot 0, the skinned records of an entity are slots 0..n-1 in submission order), its World, the world
         // @p motion says the view drew it with last frame, and for a skinned primitive where this frame's palette
         // and the previous one start in the view's ObjectBones buffer (both frames' palettes, end to end). Writes
-        // the row index into each queued record (MotionRow) and uploads both per-(frame x view) buffers at their
+        // the row index into each queued record (GpuPrimitive) and uploads both per-(frame x view) buffers at their
         // final size, so CaptureFrameState hands every view pass the buffers its draws will read. Called by
         // SceneRenderer once per frame per view after the queues are complete and before any pass is declared.
         // Errors: a buffer that could not be created or written (the view draws nothing this frame: its passes
         // would read rows that are not this frame's).
         // @p otherRigid: rigid primitives drawn by another renderer of the view (the terrain renderer's landscape
         // tiles) that still need a GPU-scene row - their TLAS custom index; their rows, in order, are
-        // GetOtherMotionRows().
+        // GetOtherGpuInstances().
         // @p skinCache (the scene's GPU skin cache, null = none: every skinned primitive skins in the vertex
         // stage) writes each skinned row's cached-streams address (RayTracingSkinCache::PrepareRows), then - after
         // the ObjectBones upload, before the rows' - runs the scene's skin step for what no earlier view of the
@@ -490,9 +490,9 @@ namespace Desert::Graphic::System
                                                                 uint64_t                         frame );
 
         // The rows of BuildObjectMotions' @p otherRigid records, in their order. Valid until the next build.
-        [[nodiscard]] std::span<const uint32_t> GetOtherMotionRows() const
+        [[nodiscard]] std::span<const uint32_t> GetOtherGpuInstances() const
         {
-            return m_OtherMotionRows;
+            return m_OtherGpuInstances;
         }
 
         // Scalability Effects.SkinCache (SceneRenderer::BeginScene); the scene's skin cache follows it each frame.
@@ -538,7 +538,7 @@ namespace Desert::Graphic::System
         {
             return m_GenericQueue;
         }
-        // This frame's ISM / foliage fields; with GetInstancedMotionRows, one TLAS instance per field instance.
+        // This frame's ISM / foliage fields; with GetInstancedGpuInstances, one TLAS instance per field instance.
         [[nodiscard]] std::span<const InstancedMeshRenderData> GetInstancedQueue() const
         {
             return m_InstancedQueue;
@@ -548,12 +548,12 @@ namespace Desert::Graphic::System
         {
             return m_GpuInstancedQueue;
         }
-        // Every queued field's per-instance GPU-scene rows, end to end (InstancedMeshRenderData::FirstMotionRow).
-        [[nodiscard]] std::span<const uint32_t> GetInstancedMotionRows() const
+        // Every queued field's per-instance GPU-scene rows, end to end (InstancedMeshRenderData::FirstGpuInstance).
+        [[nodiscard]] std::span<const uint32_t> GetInstancedGpuInstances() const
         {
-            return m_InstancedMotionRows;
+            return m_InstancedGpuInstances;
         }
-        // This frame's rows (indexed by a queued record's MotionRow) and the view's ObjectBones
+        // This frame's rows (indexed by a queued record's GpuPrimitive) and the view's ObjectBones
         // (BuildObjectMotions): the skin cache skins from the same palette at the same BoneOffset the raster does
         // - one source of the pose - and the global distance field's objects read a primitive's previous world
         // from them.
@@ -1206,7 +1206,7 @@ namespace Desert::Graphic::System
             uint64_t            Hidden  = 0; // every submesh of the instance's other sections
             // Static, generic and skinned: the view's ObjectMotions row (the view-pass cell's world, and the
             // skinned cell's bone palette).
-            uint32_t MotionRow = 0;
+            uint32_t GpuPrimitive = 0;
             // A Shader Override draw (MaterialComponent: no `.demat`): its record of this frame's generic queue,
             // and the (Static x GBuffer) cell of its template that captures it.
             const GenericMeshRenderData* Generic = nullptr;
@@ -1704,8 +1704,8 @@ namespace Desert::Graphic::System
         // UE-style Instanced Static Meshes (one entity = N instances). Folded into the shared instanced
         // pipeline/SSBO alongside the auto-batched static meshes (geometry + shadow passes).
         std::vector<InstancedMeshRenderData> m_InstancedQueue;
-        std::vector<uint32_t>                m_InstancedMotionRows; // see GetInstancedMotionRows
-        std::vector<uint32_t>                m_OtherMotionRows;     // see GetOtherMotionRows
+        std::vector<uint32_t>                m_InstancedGpuInstances; // see GetInstancedGpuInstances
+        std::vector<uint32_t>                m_OtherGpuInstances;     // see GetOtherGpuInstances
         std::vector<GpuInstancedRenderData>  m_GpuInstancedQueue;
         // The (material copy, its instance) of each GPU-instanced section and pass/cascade, keyed by the view key.
         std::unordered_map<uint32_t, MaterialInstancePtr> m_GpuInstancedInstances;
@@ -1855,7 +1855,7 @@ namespace Desert::Graphic::System
             uint32_t          First     = 0; // first instance transform / first bone
             // Skinned path: the primitive's row in the view's ObjectMotions (PrimitiveIndex), whose skin-cache
             // fields the cell fetches the cached pose by; a row without an address skins from the copy's bones.
-            uint32_t          MotionRow         = 0;
+            uint32_t          GpuPrimitive         = 0;
             uint32_t          LodLevel  = 0;
             uint64_t          HiddenSubmeshMask = 0; // the caster's section group, as its lit draw
             InstanceWindPush  Wind;

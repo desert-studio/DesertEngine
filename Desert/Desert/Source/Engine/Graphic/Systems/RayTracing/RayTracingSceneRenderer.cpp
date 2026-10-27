@@ -245,7 +245,7 @@ namespace Desert::Graphic::RayTracing
             GatherRayTracingPrimitives( { .Static              = meshes.GetStaticQueue(),
                                           .Generic             = meshes.GetGenericQueue(),
                                           .Instanced           = meshes.GetInstancedQueue(),
-                                          .InstancedMotionRows = meshes.GetInstancedMotionRows(),
+                                          .InstancedGpuInstances = meshes.GetInstancedGpuInstances(),
                                           .Skinned             = meshes.GetSkinnedQueue(),
                                           .GpuInstanced        = meshes.GetGpuInstancedQueue(),
                                           .ViewOrigin          = viewOrigin,

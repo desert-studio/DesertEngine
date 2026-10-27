@@ -1152,9 +1152,9 @@ TEST_F( ShaderCacheKeyShaderRoot, TheGBufferShaderDeclaresOnlyWhatAGBufferWriteA
     ASSERT_FALSE( gbuffer.empty() );
 
     // TAA1-VEL: the G-buffer pass writes the view's velocity (slot 4), so the static cell reads its world and
-    // previous world from the view's motion row (ObjectMotions, Core::kObjectMotionsBinding) — the eighth slot.
+    // previous world from the view's motion row (ObjectMotions, Core::kGpuScenePrimitivesBinding) — the eighth slot.
     EXPECT_TRUE( std::any_of( gbuffer.begin(), gbuffer.end(), []( const VkDescriptorSetLayoutBinding& b )
-                              { return b.binding == Desert::Core::kObjectMotionsBinding; } ) )
+                              { return b.binding == Desert::Core::kGpuScenePrimitivesBinding; } ) )
          << "StandardSurface/Static.GBuffer writes velocity and declares no motion row";
     EXPECT_EQ( ShaderReflection::CountDescriptors( gbuffer ), 8u )
          << "StandardSurface/Static.GBuffer's set 0 is " << DescribeBindings( gbuffer )

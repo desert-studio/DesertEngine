@@ -127,7 +127,7 @@ namespace Desert::Graphic::RayTracing
         for ( std::size_t i = 0; i < records.size(); ++i )
         {
             const System::MeshRenderer::SkinnedMeshRenderData& record = records[i];
-            if ( record.Mesh == nullptr || record.MotionRow >= rows.size() )
+            if ( record.Mesh == nullptr || record.GpuPrimitive >= rows.size() )
                 continue;
             Entry& entry = m_Entries[m_RecordKeys[i]];
             if ( entry.LastFrame != frame || !entry.Streams )
@@ -193,7 +193,7 @@ namespace Desert::Graphic::RayTracing
             if ( !entry.StreamsReady )
                 continue;
             const uint64_t   address = DrawnStreams( entry ).GetDeviceAddress();
-            GpuObjectMotion& row     = rows[record.MotionRow];
+            GpuObjectMotion& row     = rows[record.GpuPrimitive];
             row.SkinCacheAddressLo   = static_cast<uint32_t>( address & 0xffffffffu );
             row.SkinCacheAddressHi   = static_cast<uint32_t>( address >> 32u );
             row.SkinCacheVertexCount = record.Mesh->GetVertexCount();
@@ -226,7 +226,7 @@ namespace Desert::Graphic::RayTracing
             if ( found == m_Entries.end() )
                 continue;
             Entry& entry = found->second;
-            if ( entry.LastFrame != frame || !entry.StreamsReady || record.MotionRow >= rows.size() )
+            if ( entry.LastFrame != frame || !entry.StreamsReady || record.GpuPrimitive >= rows.size() )
                 continue;
             if ( entry.HasSkinned && entry.SkinnedFrame == frame )
                 continue; // an earlier view of this frame skinned it: one skinning per frame
@@ -253,7 +253,7 @@ namespace Desert::Graphic::RayTracing
             // when the streams' current positions are last frame's pose (rotate them into the previous positions).
             const bool                    history     = entry.HasSkinned && entry.SkinnedFrame + 1u == frame;
             const uint32_t                vertexCount = entry.Source->GetVertexCount();
-            const std::array<uint32_t, 4> dispatch    = { vertexCount, rows[record.MotionRow].BoneOffset,
+            const std::array<uint32_t, 4> dispatch    = { vertexCount, rows[record.GpuPrimitive].BoneOffset,
                                                        history ? 1u : 0u, 0u };
             const RDG::BufferRef          dispatchRef =
                  graph.CreateBuffer( RDG::BufferDesc{ sizeof( dispatch ) }, "SkinCache.Dispatch" );
@@ -307,7 +307,7 @@ namespace Desert::Graphic::RayTracing
                                    record.Entity, added.GetError() );
                     entry.RefusalLogged      = true;
                     entry.StreamsReady       = false;
-                    GpuObjectMotion& row     = rows[record.MotionRow];
+                    GpuObjectMotion& row     = rows[record.GpuPrimitive];
                     row.SkinCacheAddressLo   = 0;
                     row.SkinCacheAddressHi   = 0;
                     row.SkinCacheVertexCount = 0;
@@ -332,7 +332,7 @@ namespace Desert::Graphic::RayTracing
             }
             for ( const std::size_t i : skinnedRecords )
             {
-                GpuObjectMotion& row     = rows[records[i].MotionRow];
+                GpuObjectMotion& row     = rows[records[i].GpuPrimitive];
                 row.SkinCacheAddressLo   = 0;
                 row.SkinCacheAddressHi   = 0;
                 row.SkinCacheVertexCount = 0;

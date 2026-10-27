@@ -6,10 +6,13 @@
 // Readers: the instance cull (Programs/GpuDriven/InstanceCull.shader) and, through VisibleInstances[gl_InstanceIndex],
 // the vertex stage of every binned mesh pass — which then reads World / PrevWorld / bones / material row from these
 // rows instead of the push block's Transform / MaterialIndex / PrimitiveIndex (Common/MaterialTransport.glslh) and
-// instead of the per-view ObjectMotions rows (Common/ObjectMotion.glslh), which this header retires.
+// instead of the per-view ObjectMotions rows (Common/Velocity.glslh), which this header retires.
 //
-// The buffer declarations (binding numbers in the scene-read range, Core/ShaderCompiler/ShaderGraphBindings.hpp)
-// are added with the first reader; this header fixes the row layouts.
+// Buffer declarations: the scene-read range (Core/ShaderCompiler/ShaderGraphBindings.hpp) holds the primitive
+// table at 25 (Core::kGpuScenePrimitivesBinding) and the bone palettes at 26 (Core::kObjectBonesBinding), each
+// declared by the stage that defines DESERT_GPU_SCENE_PRIMITIVES / DESERT_GPU_SCENE_BONES before including this
+// header (the view-pass vertex stages, Mesh/Surface/Vertex_Static.glslh / Vertex_Skinned.glslh). The other tables
+// get their numbers with their first reader (phase CULL / DRAWBINS).
 
 #ifndef DESERT_GPU_SCENE_GLSLH
 #define DESERT_GPU_SCENE_GLSLH
@@ -142,5 +145,27 @@ struct GpuCullView
     uint  Pad0;               // offset 248
     uint  Pad1;               // offset 252
 };
+
+// THE SCENE'S PRIMITIVE TABLE (GpuDriven::GpuScene, one per scene, stable rows): a view-pass draw reads its row
+// through the push block's PrimitiveIndex (Common/MaterialTransport.glslh). Bound by name onto every view-pass
+// material by Graphic::SceneFrameBinding::ApplyTo. DShaderParser refuses a Properties row or texture run inside
+// the scene-read range by name, and Tests/Engine/VelocityTarget holds the whole tree to nothing else there.
+#ifdef DESERT_GPU_SCENE_PRIMITIVES
+layout( std430, binding = 25 ) readonly buffer GpuScenePrimitives
+{
+    GpuScenePrimitive Primitives[];
+}
+gpuScene;
+#endif
+// THE SCENE'S BONE PALETTES this frame: both frames' palettes of every skinned primitive, end to end; a row's
+// BoneOffset / PrevBoneOffset name its two slices, so every pass that draws the primitive skins it from the same
+// bytes.
+#ifdef DESERT_GPU_SCENE_BONES
+layout( std430, binding = 26 ) readonly buffer ObjectBones
+{
+    mat4 Palettes[];
+}
+objectBones;
+#endif
 
 #endif

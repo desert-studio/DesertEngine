@@ -20,9 +20,10 @@ layout( location = 8 ) in vec2 a_TexCoord1;
 #include <Common/ShadowCasterBias.glslh>
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
-#define DESERT_OBJECT_MOTION_ROWS 1 // this stage reads its object's row
+#define DESERT_GPU_SCENE_PRIMITIVES 1 // this stage reads its primitive's GpuScene row
 #endif
-#include <Common/ObjectMotion.glslh>
+#include <Common/GpuScene.glslh>
+#include <Common/Velocity.glslh>
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 // The ONE engine push block, as the fragment stage's material row index reads it.
@@ -44,9 +45,9 @@ void main()
 #ifdef DESERT_SURFACE_VIEW_PASS
     // View pass: the object's row holds its current and previous world; Transform is the submesh's transform
     // relative to it (identical in both frames), so a still object gives PrevWorld == World bit for bit.
-    const GpuObjectMotion row       = objectMotions.Motions[m_PushConstants.PrimitiveIndex];
-    const mat4            world     = row.World * m_PushConstants.Transform;
-    const mat4            prevWorld = row.PrevWorld * m_PushConstants.Transform;
+    const GpuScenePrimitive row       = gpuScene.Primitives[m_PushConstants.PrimitiveIndex];
+    const mat4            world     = row.LocalToWorld * m_PushConstants.Transform;
+    const mat4            prevWorld = row.PrevLocalToWorld * m_PushConstants.Transform;
 #else
     const mat4 world = m_PushConstants.Transform;
 #endif
@@ -64,7 +65,7 @@ void main()
     v_Surface.TBN            = mat3( T, B, N );
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
-    // Velocity's two clip positions, both UNJITTERED (Common/ObjectMotion.glslh DesertVelocity).
+    // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh DesertVelocity).
     v_Surface.Clip     = cameraUB.ViewProjection * worldPos;
     v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevWorld * vec4( a_Position, 1.0 ) );
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )

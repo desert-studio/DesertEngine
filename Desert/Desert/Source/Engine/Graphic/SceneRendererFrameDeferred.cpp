@@ -1020,7 +1020,7 @@ namespace Desert::Graphic
         for ( const auto& draw : meshRenderer->GetStaticQueue() )
             if ( draw.Mesh != nullptr )
                 if ( const auto field = draw.Mesh->GetDistanceField() )
-                    place( draw.Mesh, field, draw.Transform, motionRows[draw.MotionRow].PrevWorld,
+                    place( draw.Mesh, field, draw.Transform, motionRows[draw.GpuPrimitive].PrevWorld,
                            draw.Mesh->IsDistanceFieldMostlyTwoSided() );
         for ( const auto& ism : meshRenderer->GetInstancedQueue() )
             if ( ism.Mesh != nullptr && ism.Transforms )

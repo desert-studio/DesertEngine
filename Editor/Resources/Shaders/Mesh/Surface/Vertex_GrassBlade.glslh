@@ -21,7 +21,7 @@ layout( location = 8 ) in vec2 a_TexCoord1;
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
 #include <Common/ShadowCasterBias.glslh>
 #endif
-#include <Common/ObjectMotion.glslh>
+#include <Common/Velocity.glslh>
 
 layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 {

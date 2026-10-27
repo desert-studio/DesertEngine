@@ -146,7 +146,7 @@ namespace Desert::Graphic::System
                         { .Instance  = shading.Instance,
                           .Surface   = shading.Surface,
                           .Hidden    = data.HiddenSubmeshes,
-                          .MotionRow = data.MotionRow },
+                          .GpuPrimitive = data.GpuPrimitive },
                         std::nullopt );
         }
         // Instanced static meshes and foliage: every instance is an instance of the Lumen scene (UE adds each ISM
@@ -190,7 +190,7 @@ namespace Desert::Graphic::System
             if ( !cards || cards->Cards.empty() )
                 continue;
             const uint64_t     key = ( static_cast<uint64_t>( g.Entity ) << 24u ) | ( g.MotionPart & 0xFFFFFFu );
-            CardCaptureSection section{ .Hidden = ~g.VisibleSubmeshMask, .MotionRow = g.MotionRow };
+            CardCaptureSection section{ .Hidden = ~g.VisibleSubmeshMask, .GpuPrimitive = g.GpuPrimitive };
             if ( g.SlotMaterial != nullptr )
             {
                 auto* const surface = dynamic_cast<DataDrivenMaterial*>( g.SlotMaterial );
@@ -276,7 +276,7 @@ namespace Desert::Graphic::System
                             { .Instance  = shading.Instance,
                               .Surface   = shading.Surface,
                               .Hidden    = skinned.HiddenSubmeshes,
-                              .MotionRow = data.MotionRow },
+                              .GpuPrimitive = data.GpuPrimitive },
                             std::nullopt );
             }
         }
@@ -399,7 +399,7 @@ namespace Desert::Graphic::System
                                           .InstanceCount     = 1u,
                                           .FirstInstance     = 0u,
                                           .HiddenSubmeshMask = section.Hidden,
-                                          .BindState = [material, instance, row = section.MotionRow, path, rect]
+                                          .BindState = [material, instance, row = section.GpuPrimitive, path, rect]
                                           {
                                               // Its own rectangle of the capture atlas only (the pass cleared the
                                               // whole atlas: every capture of the frame is new).

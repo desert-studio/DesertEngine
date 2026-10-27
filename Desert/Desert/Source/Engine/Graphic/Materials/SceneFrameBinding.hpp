@@ -91,10 +91,11 @@ namespace Desert::Graphic
         // still and two headless captures of one scene see the same material at the same frame.
         float TimeSeconds = 0.0f;
 
-        // The view's motion rows this frame (MeshRenderer::BuildObjectMotions: one GpuObjectMotion per drawn
-        // primitive, per frame x view). Bound by NAME onto every material whose template reads ObjectMotion —
-        // the same buffer for all of them, so a draw's PrimitiveIndex means the same row in every pass.
-        std::shared_ptr<ShaderResources::StorageBuffer> ObjectMotions;
+        // The scene's GpuScene primitive table (GpuDriven::GpuScene, one per scene, stable rows; uploaded by
+        // MeshRenderer::SyncGpuScene before any pass is declared). Bound by NAME onto every material whose template
+        // reads GpuScenePrimitives — the same buffer for all of them, so a draw's PrimitiveIndex means the same
+        // row in every pass and every view.
+        std::shared_ptr<ShaderResources::StorageBuffer> GpuScenePrimitives;
         // The view's palettes this frame: current and previous palette of every skinned primitive, end to end,
         // named by its row's BoneOffset / PrevBoneOffset. Bound onto every material whose template reads
         // ObjectBones (the view-pass skinned cell).

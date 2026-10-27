@@ -3,7 +3,7 @@
 // vertex stage of every surface template's Skinned cells and, for the depth cell of an opaque template,
 // Programs/Shadow/Shadow_Skinned.shader.
 // GPU SKIN CACHE (RayTracing/RayTracingSkinCache.hpp, Common/SkinCacheStreams.glslh): when the primitive carries
-// a streams address - a view pass in its GpuObjectMotion row, a light view in its push block - it was skinned ONCE
+// a streams address - a view pass in its GpuScenePrimitive row, a light view in its push block - it was skinned ONCE
 // this frame by "SkinCache: Skin" and this stage only FETCHES the posed position (and, where it needs them, last
 // frame's posed position and the posed tangent frame) by vertex index (UE FGPUSkinPassthroughVertexFactory).
 // Without one (skin cache off, or the entry refused) it skins here from the palettes.
@@ -28,14 +28,15 @@ layout( location = 8 ) in vec2 a_TexCoord1;
 #include <Common/ShadowCasterBias.glslh>
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
-#define DESERT_OBJECT_MOTION_ROWS 1 // this stage reads its object's row
-#define DESERT_OBJECT_BONES 1       // ...and both of its palettes from the view's ObjectBones
+#define DESERT_GPU_SCENE_PRIMITIVES 1 // this stage reads its primitive's GpuScene row
+#define DESERT_GPU_SCENE_BONES 1      // ...and both of its palettes from the scene's ObjectBones
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
 // A light view with varyings (masked caster) reads its primitive's row too, for the skin-cache fields only: the
 // row is their one source, and MaterialTransport's block has no room for them (120 of the guaranteed 128 bytes).
-#define DESERT_OBJECT_MOTION_ROWS 1
+#define DESERT_GPU_SCENE_PRIMITIVES 1
 #endif
-#include <Common/ObjectMotion.glslh>
+#include <Common/GpuScene.glslh>
+#include <Common/Velocity.glslh>
 #include <Common/SkinCacheStreams.glslh>
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
@@ -44,7 +45,7 @@ DESERT_SURFACE_VARYINGS( out )
 #else
 // The light view's own block: BoneOffset right after the transform (offset 64), where MaterialTransport keeps it
 // at 68 behind MaterialIndex; then the primitive's skin-cache streams (MaterialShadowSkinned::SetSkinCache, from
-// its GpuObjectMotion row; vertex count 0 = not cached, skin from the palette).
+// its GpuScenePrimitive row; vertex count 0 = not cached, skin from the palette).
 layout( push_constant ) uniform constants
 {
     mat4 Transform;
@@ -57,7 +58,7 @@ m_PushConstants;
 #endif
 
 #ifdef DESERT_SURFACE_VIEW_PASS
-// View pass: both palettes come from the view's ObjectBones at the row's two offsets (Common/ObjectMotion.glslh).
+// View pass: both palettes come from the view's ObjectBones at the row's two offsets (Common/Velocity.glslh).
 #define DESERT_SKIN_MATRIX( base, i ) objectBones.Palettes[( base ) + ( i )]
 #else
 // Light view (shadow depth / RSM): the pass's own Bones buffer (generated from ShaderProtocols/SkinnedMaterialUB.hpp,
@@ -73,9 +74,9 @@ void main()
 #ifdef DESERT_SURFACE_VIEW_PASS
     // View pass: see Vertex_Static. The previous pose is the one the view drew this primitive with last frame:
     // the skin cache's previous positions, or the palette at the row's PrevBoneOffset in the same ObjectBones.
-    const GpuObjectMotion row       = objectMotions.Motions[m_PushConstants.PrimitiveIndex];
-    const mat4            model     = row.World * m_PushConstants.Transform;
-    const mat4            prevModel = row.PrevWorld * m_PushConstants.Transform;
+    const GpuScenePrimitive row       = gpuScene.Primitives[m_PushConstants.PrimitiveIndex];
+    const mat4            model     = row.LocalToWorld * m_PushConstants.Transform;
+    const mat4            prevModel = row.PrevLocalToWorld * m_PushConstants.Transform;
     vec3                  posed;
     vec3                  prevPosed;
     vec3                  skinnedNormal;
@@ -124,7 +125,7 @@ void main()
 #endif
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     // The masked caster names its row through PrimitiveIndex (MeshRendererShadow.cpp, MaskedCasterDraw).
-    const GpuObjectMotion casterRow    = objectMotions.Motions[m_PushConstants.PrimitiveIndex];
+    const GpuScenePrimitive casterRow  = gpuScene.Primitives[m_PushConstants.PrimitiveIndex];
     const uint            cacheCount   = casterRow.SkinCacheVertexCount;
     const uint            cacheAddrLo  = casterRow.SkinCacheAddressLo;
     const uint            cacheAddrHi  = casterRow.SkinCacheAddressHi;

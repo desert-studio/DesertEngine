@@ -509,7 +509,7 @@ namespace Desert::Graphic::System
                         .Material          = d.Material->GetMaterialExecutor(),
                         .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
                         .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
-                        .BindState         = [material = &*d.Material, row = d.Row, motionRow = g.MotionRow]
+                        .BindState         = [material = &*d.Material, row = d.Row, motionRow = g.GpuPrimitive]
                         {
                             material->SetPrimitiveIndex( motionRow );
                             material->SetMaterialIndex( row );
@@ -951,13 +951,13 @@ namespace Desert::Graphic::System
             m_GlassDraws.Add( { .Pipeline = draw.State->Pipeline.get(),
                                 .Mesh     = obj->Mesh,
                                 // View pass: World / PrevWorld come from the object's motion row
-                                // (Common/ObjectMotion.glslh); the push carries the submesh transform RELATIVE
+                                // (Common/Velocity.glslh); the push carries the submesh transform RELATIVE
                                 // to it (identity here, RenderMesh multiplies the submesh's in).
                                 .Transform         = glm::mat4( 1.0f ),
                                 .Material          = material->GetMaterialExecutor(),
                                 .HiddenSubmeshMask = obj->HiddenSubmeshes,
                                 .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                                .BindState = [material, instance, motionRow = obj->MotionRow, row = draw.Row]
+                                .BindState = [material, instance, motionRow = obj->GpuPrimitive, row = draw.Row]
                                 {
                                     material->SetPushMatrix( glm::mat4( 1.0f ) );
                                     material->SetPrimitiveIndex( motionRow );
@@ -1058,7 +1058,7 @@ namespace Desert::Graphic::System
                                      .Material          = material->GetMaterialExecutor(),
                                      .HiddenSubmeshMask = obj->HiddenSubmeshes,
                                      .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                                     .BindState = [material, instance, motionRow = obj->MotionRow, row = draw.Row]
+                                     .BindState = [material, instance, motionRow = obj->GpuPrimitive, row = draw.Row]
                                      {
                                          material->SetPushMatrix( glm::mat4( 1.0f ) );
                                          material->SetPrimitiveIndex( motionRow );
@@ -1605,7 +1605,7 @@ namespace Desert::Graphic::System
                             .Material          = drawMat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj->HiddenSubmeshes,
                             .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                            .BindState = [drawMat, inst, motionRow = obj->MotionRow, i,
+                            .BindState = [drawMat, inst, motionRow = obj->GpuPrimitive, i,
                                           flags = PrimitiveFlagsOf( obj->CastContactShadow )]
                             {
                                 DESERT_PROFILE_SCOPE( "Mesh: PerObject Setup" );
@@ -1924,7 +1924,7 @@ namespace Desert::Graphic::System
                             .Transform         = glm::mat4( 1.0f ), // relative to the motion row's World
                             .Material          = mat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj.Section->HiddenSubmeshes,
-                            .BindState = [mat = &*mat, inst = instOf( obj ), motionRow = obj.Obj->MotionRow, i]
+                            .BindState = [mat = &*mat, inst = instOf( obj ), motionRow = obj.Obj->GpuPrimitive, i]
                             {
                                 mat->SetPushMatrix( glm::mat4( 1.0f ) );
                                 mat->SetPrimitiveIndex( motionRow );

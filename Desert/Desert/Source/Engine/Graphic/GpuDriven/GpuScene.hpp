@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <vector>
@@ -14,6 +15,11 @@
 namespace Desert
 {
     class Mesh;
+}
+
+namespace Desert::ShaderResources
+{
+    class StorageBuffer;
 }
 
 namespace Desert::Graphic::RDG
@@ -91,40 +97,95 @@ namespace Desert::Graphic::GpuDriven
     class GpuScene
     {
     public:
+        GpuScene();
+        ~GpuScene();
+        GpuScene( const GpuScene& )            = delete;
+        GpuScene& operator=( const GpuScene& ) = delete;
+
         // Registers a primitive and its instances; their rows are dirty until the next upload.
         [[nodiscard]] PrimitiveIndex AddPrimitive( const PrimitiveDesc& desc );
         // The mesh, LOD chain or instance set changed: same index, rows rewritten (instances re-allocated when
         // the count changes). DrawCommandCache is told by the caller (its slots name LODs and submeshes).
+        // LocalToWorld follows SetTransform's rule (Prev := the old world when it changed).
         void UpdatePrimitive( PrimitiveIndex primitive, const PrimitiveDesc& desc );
         void RemovePrimitive( PrimitiveIndex primitive );
+        // A live primitive (added and not removed).
+        [[nodiscard]] bool IsValid( PrimitiveIndex primitive ) const;
 
-        // The component moved: LocalToWorld := world, PrevLocalToWorld := the old LocalToWorld.
+        // The component moved: LocalToWorld := world, PrevLocalToWorld := the old LocalToWorld. The same world
+        // again is no change (nothing is dirtied), so every view of a frame may report it.
         void SetTransform( PrimitiveIndex primitive, const glm::mat4& world );
         // Skinned, every frame it is drawn.
         void SetSkinning( PrimitiveIndex primitive, const PrimitiveSkinning& skinning );
+        // The GPU skin cache's streams of a skinned primitive (RayTracingSkinCache::PrepareRows / SkinFrame);
+        // address 0 = skin in the vertex stage. Leaves the palette offsets and the pose box alone.
+        void SetSkinCache( PrimitiveIndex primitive, uint64_t address, uint32_t vertexCount );
         // This frame's palettes of every skinned primitive, end to end (the bytes SetSkinning's offsets index).
         void SetBonePalettes( std::span<const glm::mat4> palettes );
 
         // Frame boundary: the primitives that moved last frame and not since get Prev := LocalToWorld (dirty).
         void BeginFrame();
 
+        // Rows or palettes changed since the last upload: AddUploadPass has passes to add.
+        [[nodiscard]] bool HasPendingUpload() const;
+
         // "GPUScene: Upload": scatters the dirty rows into the persistent buffers (grown with a copy when the
         // high-water mark passes the capacity) and returns their graph handles. Refused when the device buffer
         // cannot be grown.
+        // The graph leaves every table in StorageRead: the passes that read them through a material's
+        // descriptor (binding Core::kGpuScenePrimitivesBinding / kObjectBonesBinding, SceneFrameBinding) are
+        // ordered after the scatter by that final state, the next frame's scatter after their reads.
         [[nodiscard]] Common::ResultStr<GpuSceneBuffers> AddUploadPass( RDG::Builder& graph );
 
         [[nodiscard]] const GpuScenePrimitive&          Primitive( PrimitiveIndex primitive ) const;
         [[nodiscard]] std::span<const GpuSceneInstance> Instances( PrimitiveIndex primitive ) const;
+        [[nodiscard]] uint32_t                          PrimitiveCount() const // high-water mark
+        {
+            return static_cast<uint32_t>( m_Primitives.size() );
+        }
+
+        // The persistent device tables, for the readers that bind them by descriptor rather than by graph ref:
+        // the view-pass surface cells (binding 25 / 26, SceneFrameBinding) and the skin step's import. Null until
+        // the first upload.
+        [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetPrimitivesBuffer() const;
+        [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetBonesBuffer() const;
+
+        // One persistent device table and its CPU image's upload state (implementation detail of the upload).
+        struct Table;
 
     private:
+        void MarkPrimitive( PrimitiveIndex primitive );
+        void WriteInstances( PrimitiveIndex primitive, const PrimitiveDesc& desc );
+        void WriteLodScreenSizes( PrimitiveIndex primitive, std::span<const float> sizes );
+
         std::vector<GpuScenePrimitive>   m_Primitives;
         std::vector<GpuSceneInstance>    m_Instances;
         std::vector<float>               m_LodScreenSizes;
         std::vector<PrimitiveIndex>      m_FreePrimitives;
         std::vector<PrimitiveIndex>      m_DirtyPrimitives; // UE FGPUScene::PrimitivesToUpdate
         std::vector<InstanceIndex>       m_DirtyInstances;
-        std::vector<PrimitiveIndex>      m_MovedLastFrame; // BeginFrame's Prev := LocalToWorld list
+        // The primitives SetTransform moved since the last BeginFrame: the next BeginFrame gives them
+        // Prev := LocalToWorld (m_MovedMark: already listed).
+        std::vector<PrimitiveIndex>      m_MovedLastFrame;
+        std::vector<uint8_t>             m_MovedMark;
         std::vector<GpuSceneWorldBounds> m_WorldBounds;
         std::vector<glm::mat4>           m_BonePalettes;
+        // Per primitive: live, its pose-box row in m_WorldBounds (kInvalidIndex = none).
+        std::vector<uint8_t>  m_Live;
+        std::vector<uint32_t> m_WorldBoundsRow;
+        std::vector<uint32_t> m_FreeWorldBounds;
+        // Free [first, first + count) ranges of Instances[] / LodScreenSizes[] (first fit, merged on free).
+        std::vector<glm::uvec2> m_FreeInstanceRanges;
+        std::vector<glm::uvec2> m_FreeLodRanges;
+        std::vector<uint32_t>   m_DirtyLodScreenSizes;
+        std::vector<uint32_t>   m_DirtyWorldBounds;
+        bool                    m_BonesDirty = false;
+
+        std::unique_ptr<Table> m_PrimitiveTable;
+        std::unique_ptr<Table> m_InstanceTable;
+        std::unique_ptr<Table> m_LodTable;
+        std::unique_ptr<Table> m_WorldBoundsTable;
+        std::unique_ptr<Table> m_BonesTable;
+        std::unique_ptr<struct GpuSceneUploadPipeline> m_Upload;
     };
 } // namespace Desert::Graphic::GpuDriven

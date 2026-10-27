@@ -178,7 +178,7 @@ namespace Desert::Graphic
     // are 128 bytes, the whole of Vulkan's guaranteed push-constant space (maxPushConstantsSize >= 128), with no
     // room left for the material index the push block also carries. So the pair moves into a per-(frame x view)
     // storage buffer (contract §2: per-frame renderer state), indexed by a draw index in the push block. std430
-    // layout; the GLSL twin lives in Common/ObjectMotion.glslh and a test asserts the two sizes agree.
+    // layout; the GLSL twin lives in Common/Velocity.glslh and a test asserts the two sizes agree.
     struct GpuObjectMotion
     {
         glm::mat4 World{ 1.0f };
@@ -198,10 +198,10 @@ namespace Desert::Graphic
         uint32_t Pad1                 = 0;
         uint32_t Pad2                 = 0;
     };
-    static_assert( sizeof( GpuObjectMotion ) == 160, "std430 twin in Common/ObjectMotion.glslh" );
-    static_assert( offsetof( GpuObjectMotion, BoneOffset ) == 128, "std430 twin in Common/ObjectMotion.glslh" );
+    static_assert( sizeof( GpuObjectMotion ) == 160, "std430 twin in Common/Velocity.glslh" );
+    static_assert( offsetof( GpuObjectMotion, BoneOffset ) == 128, "std430 twin in Common/Velocity.glslh" );
     static_assert( offsetof( GpuObjectMotion, PrevBoneOffset ) == 132,
-                   "std430 twin in Common/ObjectMotion.glslh" );
+                   "std430 twin in Common/Velocity.glslh" );
 
     // ---- Velocity --------------------------------------------------------------------------------------------
     //

@@ -1729,7 +1729,7 @@ namespace Desert::Graphic
             std::span<const System::TerrainDrawData>       queue     = terrain->GetQueue();
             const std::span<const System::TerrainInstance> instances = terrain->GetFrameInstances();
             const std::span<const System::TerrainFrameMaterial> materials = terrain->GetFrameMaterials();
-            const std::span<const uint32_t>                rows      = meshes->GetOtherMotionRows();
+            const std::span<const uint32_t>                rows      = meshes->GetOtherGpuInstances();
             // Parallel by construction (PrepareFrame packs one row per queued tile, BuildObjectMotions one motion
             // row per tile record); a mismatch is a broken invariant, said and not traced, never truncated.
             std::vector<RayTracing::LandscapeRayTracingTile> tiles;

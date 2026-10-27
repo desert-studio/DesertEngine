@@ -42,8 +42,8 @@ namespace Desert::Core
      */
     /**
      * THE RESERVED SCENE-READ RANGE: set-0 slots a VIEW-pass surface cell reads per-(frame x view) scene data at,
-     * bound by name — the view's per-primitive motion rows (`ObjectMotions`) and the view's bone palettes
-     * (`ObjectBones`), both declared by Common/ObjectMotion.glslh and bound by Graphic::SceneFrameBinding::ApplyTo
+     * bound by name — the scene's GpuScene primitive table (`GpuScenePrimitives`) and the scene's bone palettes
+     * (`ObjectBones`), both declared by Common/GpuScene.glslh and bound by Graphic::SceneFrameBinding::ApplyTo
      * (TAA1 step 4), and the view's scene depth (`SceneDepthTexture`) the particle-sprite cell reads for Depth Fade,
      * declared by Mesh/Surface/SurfaceTypes.glslh and bound by ParticleRenderer. The depth had sat at 26 on its
      * own, i.e. on top of the bone palettes in every sprite cell — a per-view scene read is exactly what this
@@ -57,11 +57,11 @@ namespace Desert::Core
      * A hope is not a guarantee, so two seams hold it: DShaderParser refuses a Properties `Binding(n)` /
      * `TextureBinding(n)` whose row or texture run reaches into this range (a named parse error), and
      * Tests/Engine/VelocityTarget asserts that over the whole shipped tree nothing but the two scene-read
-     * resources is declared at these numbers, and that ObjectMotion.glslh spells exactly these numbers.
+     * resources is declared at these numbers, and that Common/GpuScene.glslh spells exactly these numbers.
      */
     inline constexpr uint32_t kSceneReadBindingFirst = 25u;
-    inline constexpr uint32_t kObjectMotionsBinding  = kSceneReadBindingFirst;      // Common/ObjectMotion.glslh
-    inline constexpr uint32_t kObjectBonesBinding    = kSceneReadBindingFirst + 1u; // Common/ObjectMotion.glslh
+    inline constexpr uint32_t kGpuScenePrimitivesBinding = kSceneReadBindingFirst;      // Common/GpuScene.glslh
+    inline constexpr uint32_t kObjectBonesBinding        = kSceneReadBindingFirst + 1u; // Common/GpuScene.glslh
     inline constexpr uint32_t kSceneDepthBinding = kSceneReadBindingFirst + 2u; // Mesh/Surface/SurfaceTypes.glslh
     // The view's opaque shading word beside its depth (`SceneShadingWordTexture`, Forward cells only): the caster bit
     // of the texel a contact-shadow ray hit (Common/ContactShadow.glslh, SceneViewInputs::SceneShadingWord).
