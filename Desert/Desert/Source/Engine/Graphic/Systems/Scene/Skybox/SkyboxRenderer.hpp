@@ -67,8 +67,14 @@ namespace Desert::Graphic::System
                                const SunLightFx& fx, const AtmosphereLight1& light1 );
 
         // The physical sky's on-screen luminance ceiling for this view's exposure (Graphic::
-        // SkyLuminanceCeiling). Set from the post-process settings; re-uploads the block when it changes.
+        // SkyLuminanceCeiling). Set from the post-process settings; reaches the GPU with the frame's block.
         void SetSkyLuminanceCeiling( float ceiling );
+
+        // Writes this frame's packed sky block into THIS view's copy of the parameter buffer. Must run inside
+        // the view's ActiveViewScope (SceneRenderer::OnUpdate calls it every frame, before the sky light and
+        // the graph read it): the buffer is per (frame in flight x view), so a write outside the scope lands
+        // in the frame context's copy and the sky keeps an old block. Both setters above only change state.
+        void UploadFrameSkyParams();
 
         // The sky light of the scene this view renders (Core::Scene::GetSkyLight), handed in by
         // SceneRenderer::BeginScene. Held weakly: the renderer may outlive the scene, and GetEnvironment is asked
@@ -219,10 +225,6 @@ namespace Desert::Graphic::System
         // the choice in m_SkyDraw; Render records exactly that.
         void DeclareSkyDraw( RenderPassDeclaration& declared, const FrameGraphRefs& refs );
         [[nodiscard]] Common::BoolResultStr Render( const RDG::PassContext& context ) const;
-
-        // Writes the packed parameter block into the SSBO. One buffer serves the graphics pass and the
-        // bake's compute dispatch, so both are guaranteed to describe the same sky.
-        void UploadSkyParams();
 
         // Everything the two LUT passes read. When any of it moves, both LUTs are re-dispatched; while
         // it holds still they are not touched at all — the fingerprint arrangement the sky
