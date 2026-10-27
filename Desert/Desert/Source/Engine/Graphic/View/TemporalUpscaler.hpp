@@ -200,20 +200,16 @@ namespace Desert::Graphic
                                                         bool                                  deferredPath );
 
     // The quality a view renders when a vendor method it resolves to is unavailable (@p unavailable: the reason
-    // per method, TemporalMethodUnavailable in the renderer): the vendor's native AA becomes the engine's TAA and
-    // the vendor's upscaler becomes None, which UpscalerForScale turns into the level's engine temporal upscaler
-    // (TAAU or TSR) below 100 %. DLSS Ray Reconstruction unavailable falls back to DLSS Super Resolution first
-    // (Upscaler::DLSS below 100 %, plain DLAA at it), and that to the engine's method when DLSS is unavailable
-    // too; Why names every step. Why is empty when nothing was replaced. PURE.
+    // per method, TemporalMethodUnavailable in the renderer): DLSS Ray Reconstruction falls back to DLSS Super
+    // Resolution first, and DLSS / FSR unavailable to the engine's TSR (Scalability Resolve's rule 4); Why names
+    // every step and is empty when nothing was replaced. PURE.
     struct VendorMethodFallback
     {
         Common::Scalability::PathAntiAliasing AntiAliasing;
-        Common::Scalability::Upscaler         Upscaler = Common::Scalability::Upscaler::None;
         std::string                           Why;
     };
     [[nodiscard]] VendorMethodFallback
     ReplaceUnavailableVendorMethods( const Common::Scalability::PathAntiAliasing&               antiAliasing,
-                                     Common::Scalability::Upscaler                              upscaler,
                                      const std::function<std::string( TemporalMethod method )>& unavailable );
 
     // TWO EXTENTS PER VIEW (TAA1-B step 6). Every view target follows one of them: the RENDER set is what the
@@ -232,7 +228,8 @@ namespace Desert::Graphic
     {
         ResolutionSplit Split;
         TemporalMethod  Method = TemporalMethod::None;
-        // The upscaler this view's percent runs (Scalability UpscalerForScale): the frame's ViewInputs::Upscaler.
+        // The reconstruction pass this view's percent runs (Scalability UpscalerForScale): the frame's
+        // ViewInputs::Upscaler.
         // Not the setting's resolved one - a viewport override can sit on the other side of 100 %.
         Common::Scalability::Upscaler Upscaler = Common::Scalability::Upscaler::None;
         // Not empty when the requested scale was clamped to one the method's upscaler supports: why (the caller
@@ -242,15 +239,13 @@ namespace Desert::Graphic
 
     // THE ONE PER-VIEW RESOLUTION FUNCTION: the resolved setting's percent, replaced by the editor viewport's
     // override when it has one (@p viewportOverridePercent), split against @p output, the upscaler of that percent
-    // (Scalability UpscalerForScale with @p upscaler and the level's @p engineTemporal), the method chosen for it
+    // (Scalability UpscalerForScale of the method and the percent), the method chosen for it
     // (SelectTemporalMethod: its refusal is this function's error), then clamped by the upscaler that implements
     // that method (@p upscalerFor: the view's object for a method, null for None): a split the upscaler does not
     // Support falls back to native scale (100 %) when that is supported, else the named error.
     [[nodiscard]] Common::ResultStr<ViewResolution>
     ResolveViewResolution( ViewExtent output, int settingPercent, std::optional<int> viewportOverridePercent,
                            const Common::Scalability::PathAntiAliasing&                     antiAliasing,
-                           Common::Scalability::Upscaler                                    upscaler,
-                           Common::Scalability::EngineTemporalUpscaler                      engineTemporal,
                            const std::function<const ITemporalUpscaler*( TemporalMethod )>& upscalerFor );
 
     // The fixed SSAA downsample (Split.Mode == Supersample): RenderExtent -> OutputExtent, a separable Catmull-Rom

@@ -590,7 +590,10 @@ namespace Desert::Graphic
 
     bool TemporalSuperResolution::Supports( const ResolutionSplit& split ) const
     {
-        return split.Mode == Common::Scalability::ScaleMode::Upscale;
+        // UE TSR resolves r.ScreenPercentage 100 too (the same chain at a 1:1 ratio); above it the frame is
+        // supersampled and Scalability Resolve refuses TSR there (SupersampleRefusal).
+        return split.Mode == Common::Scalability::ScaleMode::Upscale ||
+               split.Mode == Common::Scalability::ScaleMode::Native;
     }
 
     std::vector<HistoryTextureDesc>

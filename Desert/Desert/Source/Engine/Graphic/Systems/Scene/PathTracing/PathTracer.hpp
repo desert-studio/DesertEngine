@@ -273,8 +273,8 @@ namespace Desert::Graphic::System
         {
             using Common::Scalability::Parameter;
             return quality.As<uint32_t>( Parameter::PathTracingDenoiser ) != 0u &&
-                   quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ) ==
-                        Common::Scalability::Upscaler::DLSSRayReconstruction;
+                   quality.As<Common::Scalability::AntiAliasingMethod>( Parameter::AntiAliasingMethod ) ==
+                        Common::Scalability::AntiAliasingMethod::DLSSRayReconstruction;
         }
 
         // What one frame's paths read, all of this frame's graph (SceneRenderer::AddFramePathTracing).

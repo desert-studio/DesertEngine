@@ -1429,16 +1429,15 @@ namespace Desert::Graphic
         inputs.CameraCut                         = m_CameraCutPending;
         inputs.SceneIdentity                     = m_SceneGeneration;
         inputs.Output                            = m_ViewExtent;
-        // THE ONE PER-VIEW RESOLUTION (ResolveViewResolution): the resolved RenderScalePercent and Upscaler,
-        // the method they select, clamped to a split the method's upscaler supports. Its refusal refuses the
+        // THE ONE PER-VIEW RESOLUTION (ResolveViewResolution): the resolved RenderScalePercent and AA method,
+        // the temporal method they select, clamped to a split the method's upscaler supports. Its refusal refuses the
         // frame by name; a clamp is said. The view's temporal upscaler is made for the resolved method here.
         using Common::Scalability::Parameter;
         // A path-traced view traces every output pixel (UE: the path tracer renders at 100 %, no upscaler): its
         // accumulation is the image, and an upscaler's history would only blur the converging estimate.
         int                settingPercent  = m_Quality.As<int>( Parameter::RenderScalePercent );
         std::optional<int> overridePercent = m_DebugView.ScreenPercentage;
-        auto               upscaler        = m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler );
-        // The wireframe view renders without anti-aliasing (BeginScene): no upscaler to reconstruct with. A
+        // The wireframe view renders without anti-aliasing (BeginScene): no temporal method to reconstruct with. A
         // path-traced view under the upscaler that denoises keeps it and its render scale
         // (System::PathTracer::KeepsDenoisingUpscaler).
         if ( ( PathTraced( m_RenderMethods ) && !System::PathTracer::KeepsDenoisingUpscaler( m_Quality ) ) ||
@@ -1446,7 +1445,6 @@ namespace Desert::Graphic
         {
             settingPercent  = 100;
             overridePercent = std::nullopt;
-            upscaler        = Common::Scalability::Upscaler::None;
         }
         // A vendor method its runtime stopped offering (DLSS after an exception inside its evaluation) renders
         // with the engine's method instead, said once per reason; the frame never waits on a method that cannot
@@ -1454,7 +1452,7 @@ namespace Desert::Graphic
         // Ray Reconstruction is refused also by the VIEW: it denoises traced lighting, so a view that traces none
         // (or renders the forward path, which has no G-buffer for its guides) runs DLSS Super Resolution instead.
         const VendorMethodFallback vendor = ReplaceUnavailableVendorMethods(
-             m_RenderedAntiAliasing, upscaler,
+             m_RenderedAntiAliasing,
              [this]( const TemporalMethod method ) -> std::string
              {
                  if ( method == TemporalMethod::DLSSRR )
@@ -1474,8 +1472,7 @@ namespace Desert::Graphic
         }
         m_RenderedAntiAliasing                           = vendor.AntiAliasing;
         const Common::ResultStr<ViewResolution> resolved = ResolveViewResolution(
-             m_ViewExtent, settingPercent, overridePercent, m_RenderedAntiAliasing, vendor.Upscaler,
-             m_Quality.As<Common::Scalability::EngineTemporalUpscaler>( Parameter::TemporalUpscaler ),
+             m_ViewExtent, settingPercent, overridePercent, m_RenderedAntiAliasing,
              [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
              {
                  EnsureTemporalUpscaler( method );

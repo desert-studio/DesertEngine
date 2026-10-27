@@ -58,30 +58,29 @@ namespace Desert::Graphic
     // ---- The temporal method of this frame -------------------------------------------------------------
     //
     // What resolves the frame's samples over time, derived from the two SCAL1 axes after
-    // ResolveAntiAliasingForPath. A vendor upscaler is one value here per ITemporalUpscaler implementation behind
-    // Common::Scalability::Upscaler, and SelectTemporalMethod refuses a value with no implementation (it is never
+    // ResolveAntiAliasingForPath. A vendor method is one value here per ITemporalUpscaler implementation behind
+    // its Common::Scalability::AntiAliasingMethod, and SelectTemporalMethod refuses a value with no implementation (it is never
     // offered by CapabilityCatalog until one exists, so reaching it means the catalog and the build disagree).
     enum class TemporalMethod : uint8_t
     {
-        None, // FXAA / SMAA / MSAA / None at Native or Supersample, and None / FXAA / SMAA under Upscaler
-              // Spatial below 100 %: no jitter, no history, no temporal pass
+        None, // FXAA / SMAA / MSAA / None at any split (below 100 % the spatial upscale brings them to the
+              // output): no jitter, no history, no temporal pass
         TAA,  // AntiAliasingMethod::TAA at Native or Supersample: same-extent temporal resolve
-        TAAU, // Upscaler::TAAU below 100 %: the temporal resolve writes OutputExtent
-        // The vendor upscalers. Each is one method for its native-AA mode at 100 % and its upscaler below it: one
+        TAAU, // AntiAliasingMethod::TAA below 100 %: the temporal resolve writes OutputExtent
+        // The vendor methods. Each is one method at every split <= 100 % (its native AA at 100 %): one
         // SDK feature resolves either split (the upscale ratio is an argument), and its history is internal to the
         // SDK, carried per view as an ITemporalUpscalerHistory. Present only in a build that has the SDK
         // (Graphic/API/UpscalerBuild.hpp).
-        // NVIDIA DLSS Super Resolution (Graphic::DLSSUpscaler, Streamline): AntiAliasingMethod::DLAA at 100 %,
-        // Upscaler::DLSS below it.
+        // NVIDIA DLSS Super Resolution (Graphic::DLSSUpscaler, Streamline): AntiAliasingMethod::DLSS (NVIDIA's
+        // DLAA at 100 %).
         DLSS,
-        // AMD FSR 3.1 (Graphic::Fsr3Upscaler, FidelityFX SDK): AntiAliasingMethod::FSRNative at 100 % ("Native
-        // AA"), Upscaler::FSR below it.
+        // AMD FSR 3.1 (Graphic::Fsr3Upscaler, FidelityFX SDK): AntiAliasingMethod::FSR ("Native AA" at 100 %).
         FSR,
-        // The engine's temporal super resolution (Graphic::TemporalSuperResolution, UE TSR): Upscaler::TSR below
-        // 100 %. Vendor-neutral, pure compute; at 100 % the native method is TAA.
+        // The engine's temporal super resolution (Graphic::TemporalSuperResolution, UE TSR):
+        // AntiAliasingMethod::TSR at every split <= 100 %. Vendor-neutral, pure compute.
         TSR,
         // NVIDIA DLSS Ray Reconstruction (Graphic::DLSSUpscaler of Streamline::DlssFeature::RayReconstruction):
-        // Upscaler::DLSSRayReconstruction below 100 %, and at 100 % under AntiAliasingMethod::DLAA. The upscaler
+        // AntiAliasingMethod::DLSSRayReconstruction at every split <= 100 %. The upscaler
         // that also denoises: the view's noisy lighting signals reach it raw (ITemporalUpscaler::
         // TakesRawLightingSignals).
         DLSSRR,
@@ -103,18 +102,15 @@ namespace Desert::Graphic
         High,
     };
 
-    // PURE. TAA iff the path's effective method is TAA and the split is Native/Supersample; TAAU iff the split is
-    // Upscale and the upscaler is TAAU; a vendor method (DLSS, FSR) iff the split is Upscale under its Upscaler or
-    // not Upscale under its native-AA method (DLAA, FSRNative), in a build with its SDK — at Supersample too: the
-    // implementation's Supports refuses that split and ResolveViewResolution clamps to 100 %, saying why; None for
-    // a non-temporal method at Native/Supersample, and for one under Upscaler::Spatial at Upscale (the spatial
-    // upscale is not temporal). An Upscale split with Upscaler::None, Spatial under a temporal method, a vendor
-    // method in a build without its SDK, or a vendor upscaler with no implementation (XeSS / MetalFX) is an error
-    // naming the value — SCAL1's Resolve never produces them, so it is a contract break,
-    // not a fallback.
+    // PURE. From the path's effective method alone: TAA at Native/Supersample and TAAU at Upscale under
+    // AntiAliasingMethod::TAA; TSR / DLSS / DLSSRR / FSR under the method of that name at any split, in a build with
+    // its SDK — at Supersample too: the implementation's Supports refuses that split and ResolveViewResolution clamps
+    // to 100 %, saying why; None for a method without history at any split (below 100 % the spatial upscale,
+    // Scalability UpscalerForScale, is not temporal). A vendor method in a build without its SDK, or one with no
+    // implementation (XeSS / MetalFX), is an error naming the value — Resolve never keeps one the catalog does not
+    // offer, so it is a contract break, not a fallback.
     [[nodiscard]] Common::ResultStr<TemporalMethod>
-    SelectTemporalMethod( const Common::Scalability::PathAntiAliasing& path, const ResolutionSplit& split,
-                          Common::Scalability::Upscaler upscaler );
+    SelectTemporalMethod( const Common::Scalability::PathAntiAliasing& path, const ResolutionSplit& split );
 
     // ---- Sub-pixel jitter (UE: Halton(2,3) sample offsets) ---------------------------------------------
     //
