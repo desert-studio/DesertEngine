@@ -705,7 +705,15 @@ Shader "PathTracerDenoise"
             // SVGF 4.3: sigma_l = 4 (the convergence fade's width, the edge-stop's).
             const float kLuminanceSigma = 4.0;
 
-            // THE FILTER FADES OUT AS THE ACCUMULATION CONVERGES: from kPathTracingDenoiseTemporalMomentPaths
+            // The accumulated surface paths from which the fade below holds. NOT kPathTracingDenoiseTemporalMomentPaths
+            // (4): the clamp is per pixel, so it is not energy-conserving, and a sum of a few heavy-tailed paths
+            // reads a small deviation on its dark majority - what those pixels gained from a firefly's spread was
+            // cut there (PT-DENOISE-11, Bistro Day dn4 PFM: mean R -3.1 % / G -1.8 % / B -1.6 %, cut8 2.30x; the
+            // fade off below this count: -0.5 / -0.2 / -0.3 %, cut8 2.72x). From 64 paths the deviation of the mean
+            // is a measured one and the clamp only keeps the converging image the tracer's own (dn1024 unchanged).
+            const float kFadePaths = 64.0;
+
+            // THE FILTER FADES OUT AS THE ACCUMULATION CONVERGES: from kFadePaths
             // accumulated surface paths on, a lobe's change is kept within kLuminanceSigma standard deviations of
             // the accumulation's mean - the width the edge-stop already calls noise - per channel in proportion to
             // the mean's colour. The variance of the mean is the 3 x 3 Gaussian average of the pixel's and its
@@ -713,7 +721,7 @@ Shader "PathTracerDenoise"
             // the image becomes the tracer's own: the converged frame is not blurred.
             vec3 FadedChange(vec3 change, vec3 meanIllumination, float paths, ivec2 pixel, ivec2 size, bool specular)
             {
-                if (paths < kPathTracingDenoiseTemporalMomentPaths)
+                if (paths < kFadePaths)
                     return change;
                 float meanVariance = 0.0;
                 for (int y = -1; y <= 1; ++y)

@@ -1295,9 +1295,19 @@ namespace Desert::Graphic
         hash.Value( rt.InstanceHash );
         hash.Values( std::span<const ShaderProtocols::PointLightPayload>( GetPointLights().PointLights ) );
         hash.Values( std::span<const ShaderProtocols::SpotLightPayload>( GetSpotLights().SpotLights ) );
-        // The record's sun, atmosphere light 1, sky look and extent (its camera rows restart through the
-        // ViewProjection test as well), and the two lights' discs, which the trace push carries beside it.
-        hash.Value( giFrame );
+        // The record's sun, atmosphere light 1, sky look and extent, and the two lights' discs, which the trace
+        // push carries beside it. NOT its camera rows (ViewProjection, InvViewProjection, Camera): the camera's
+        // motion is PathTracer::AddPasses' own test (ViewProjection != PrevViewProjection), the one restart the
+        // denoiser's history carries across - hashed here they made every moving frame a scene change, which
+        // emptied the history (PT-DENOISE-11: pan8 = 4 paths of this frame alone, history length 4.00 at every
+        // pixel).
+        hash.Value( giFrame.SunTravel );
+        hash.Value( giFrame.SunRadiance );
+        hash.Value( giFrame.Light1Travel );
+        hash.Value( giFrame.Light1Radiance );
+        hash.Value( giFrame.SkyYawCosSin );
+        hash.Value( giFrame.SkyGain );
+        hash.Value( giFrame.Screen );
         hash.Value( m_SunSourceAngleDegrees );
         hash.Value( m_AtmosphereLight1 ? m_AtmosphereLight1->SourceAngleDegrees : 0.0f );
         hash.Value( environment );
