@@ -127,26 +127,26 @@ namespace Desert::Graphic::GpuDriven
         Common::ResultStr<std::shared_ptr<ComputePipeline>> EnsurePipeline( GpuSceneUploadPipeline& upload )
         {
             if ( upload.Pipeline )
-                return upload.Pipeline;
+                return Common::MakeSuccess( upload.Pipeline );
             Runtime::ShaderService*       service = Runtime::ResourceRegistry::GetShaderService();
             const std::shared_ptr<Shader> shader =
                  service ? service->GetByName( std::string( kUploadShader ) ) : nullptr;
             if ( !shader )
-                return Common::MakeError( std::format(
+                return Common::MakeError<std::shared_ptr<ComputePipeline>>( std::format(
                      "the shader '{}' did not compile - expected Editor/Resources/Shaders/Programs/GpuDriven/"
                      "GpuSceneUpload.shader",
                      kUploadShader ) );
             if ( const Common::BoolResultStr valid =
                       upload.Layout.Validate( shader, GpuSceneUploadShaderParameters::kAll );
                  !valid )
-                return Common::MakeError( std::format( "'{}': {}", kUploadShader, valid.GetError() ) );
+                return Common::MakeError<std::shared_ptr<ComputePipeline>>( std::format( "'{}': {}", kUploadShader, valid.GetError() ) );
             const auto built =
                  ComputePipeline::Create( { .Shader = shader, .DebugName = std::string( kUploadShader ) } );
             if ( !built )
-                return Common::MakeError(
+                return Common::MakeError<std::shared_ptr<ComputePipeline>>(
                      std::format( "the '{}' pipeline was not built: {}", kUploadShader, built.GetError() ) );
             upload.Pipeline = built.GetValue();
-            return upload.Pipeline;
+            return Common::MakeSuccess( upload.Pipeline );
         }
 
         // Scatters @p rows (indices into the CPU image @p image; empty + @p contiguous = rows [0, rowCount)) of
@@ -163,14 +163,14 @@ namespace Desert::Graphic::GpuDriven
                 const uint32_t capacity = std::max( { needed, table.CapacityRows * 2u, kMinCapacityRows } );
                 const uint64_t bytes    = static_cast<uint64_t>( capacity ) * table.RowWords * 4u;
                 if ( bytes > std::numeric_limits<uint32_t>::max() )
-                    return Common::MakeError(
+                    return Common::MakeError<RDG::BufferRef>(
                          std::format( "GPUScene {}: {} rows ({} bytes) pass the 4 GiB a buffer "
                                       "is sized by",
                                       table.Name, capacity, bytes ) );
                 auto buffer = ShaderResources::StorageBuffer::Create( table.Name, static_cast<uint32_t>( bytes ),
                                                                       table.Binding, /*persistent=*/true );
                 if ( !buffer )
-                    return Common::MakeError( std::format( "GPUScene {}: the device buffer of {} rows ({} bytes) "
+                    return Common::MakeError<RDG::BufferRef>( std::format( "GPUScene {}: the device buffer of {} rows ({} bytes) "
                                                            "could not be created",
                                                            table.Name, capacity, bytes ) );
                 // The old buffer is retired on the frame ring by its API object: a frame in flight still reads it.
@@ -179,7 +179,7 @@ namespace Desert::Graphic::GpuDriven
                 table.Full         = true;
             }
             if ( const auto imported = Renderer::ImportBuffer( table.Buffer, table.Import ); !imported )
-                return Common::MakeError( std::format( "GPUScene {}: the table could not be imported: {}",
+                return Common::MakeError<RDG::BufferRef>( std::format( "GPUScene {}: the table could not be imported: {}",
                                                        table.Name, imported.GetError() ) );
             const RDG::BufferRef ref =
                  graph.RegisterExternal( table.Import, std::string( "GPUScene." ) + table.Name );
@@ -194,7 +194,7 @@ namespace Desert::Graphic::GpuDriven
             {
                 const auto pipeline = EnsurePipeline( upload );
                 if ( !pipeline )
-                    return Common::MakeError( std::format( "GPUScene {}: {}", table.Name, pipeline.GetError() ) );
+                    return Common::MakeError<RDG::BufferRef>( std::format( "GPUScene {}: {}", table.Name, pipeline.GetError() ) );
 
                 const uint32_t        rowBytes = table.RowWords * 4u;
                 std::vector<uint32_t> source( kUploadHeaderWords + ( contiguous ? 0u : count ) +
@@ -247,7 +247,7 @@ namespace Desert::Graphic::GpuDriven
             // leaves it readable, which orders those reads after this scatter and the next scatter after them.
             graph.Extract( ref, table.Import, RDG::Access::StorageRead );
             table.Full = false;
-            return ref;
+            return Common::MakeSuccess( ref );
         }
     } // namespace
 
@@ -578,7 +578,7 @@ namespace Desert::Graphic::GpuDriven
             auto ref = UploadTable( graph, table, *m_Upload, rowCount, static_cast<const std::byte*>( image ),
                                     dirty, contiguous && !dirty.empty() );
             if ( !ref )
-                return Common::MakeError( ref.GetError() );
+                return Common::MakeError<bool>( ref.GetError() );
             into = ref.GetValue();
             dirty.clear();
             return BOOLSUCCESS;
@@ -591,25 +591,25 @@ namespace Desert::Graphic::GpuDriven
         if ( const auto done = upload( *m_PrimitiveTable, out.PrimitiveCount, m_Primitives.data(),
                                        m_DirtyPrimitives, false, out.Primitives );
              !done )
-            return Common::MakeError( done.GetError() );
+            return Common::MakeError<GpuSceneBuffers>( done.GetError() );
         if ( const auto done = upload( *m_InstanceTable, out.InstanceCount, m_Instances.data(), m_DirtyInstances,
                                        false, out.Instances );
              !done )
-            return Common::MakeError( done.GetError() );
+            return Common::MakeError<GpuSceneBuffers>( done.GetError() );
         if ( const auto done = upload( *m_LodTable, static_cast<uint32_t>( m_LodScreenSizes.size() ),
                                        m_LodScreenSizes.data(), m_DirtyLodScreenSizes, false, out.LodScreenSizes );
              !done )
-            return Common::MakeError( done.GetError() );
+            return Common::MakeError<GpuSceneBuffers>( done.GetError() );
         if ( const auto done = upload( *m_WorldBoundsTable, static_cast<uint32_t>( m_WorldBounds.size() ),
                                        m_WorldBounds.data(), m_DirtyWorldBounds, false, out.WorldBounds );
              !done )
-            return Common::MakeError( done.GetError() );
+            return Common::MakeError<GpuSceneBuffers>( done.GetError() );
         if ( const auto done = upload( *m_BonesTable, static_cast<uint32_t>( m_BonePalettes.size() ),
                                        m_BonePalettes.data(), bones, true, out.ObjectBones );
              !done )
-            return Common::MakeError( done.GetError() );
+            return Common::MakeError<GpuSceneBuffers>( done.GetError() );
         m_BonesDirty = false;
-        return out;
+        return Common::MakeSuccess( out );
     }
 
     const GpuScenePrimitive& GpuScene::Primitive( const PrimitiveIndex primitive ) const
