@@ -273,9 +273,10 @@ namespace Common::Scalability
         PathTracingMaxPathIntensity, // the brightest one path's contribution may be, in exposed units (1 ~ the
                                      // image's white), 0 = no clamp, 0..65536 (UE r.PathTracing.MaxPathIntensity /
                                      // PostProcessSettings.PathTracingMaxPathIntensity, default 24)
-        // 0/1: the path-traced image is denoised on every frame (UE r.PathTracing.Denoiser) - raw into the upscaler
-        // when it is DLSS Ray Reconstruction, otherwise by the path tracer's spatial denoiser over its accumulation
-        // (System::PathTracer).
+        // What denoises the path-traced view (UE r.PathTracing.Denoiser): PathTracingDenoiserMethod
+        // (CapabilityCatalog.hpp) - Off, ReLAX (System::PathTracer's own denoiser), RR (DLSS Ray Reconstruction,
+        // the paths raw with their own guides), Auto (RR where offered, else ReLAX; never left in a resolved
+        // quality).
         PathTracingDenoiser,
         // GI SoftwareTraced / HardwareTraced screen probe layout, read by SceneRenderer::BeginScene into
         // ScreenProbeGatherInputs: the gather compiles its programs under it (ScreenProbeLayout, the shaders'
@@ -334,6 +335,9 @@ namespace Common::Scalability
         MSAACounts,
         RenderScale,
         AnisotropyLevels,
+        // PathTracingDenoiserMethod: RR needs DLSSRayReconstruction in AntiAliasingMethods; an RR the device does
+        // not offer falls back to ReLAX ("not offered by this device"); Auto settles to RR or ReLAX, unreported.
+        PathTracingDenoisers,
     };
 
     // ONE ROW PER PARAMETER, the single list every check is driven by: the JSON key, its group, its legal range

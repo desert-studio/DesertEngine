@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Settings/RenderMethods.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/View/PathTracedGuides.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 
@@ -92,6 +93,10 @@ namespace Desert::Graphic
         // xyz the world point the reflection came from, w log2 pdf, -126 no ray), raw; invalid where the view
         // traced no reflection this frame.
         RDG::TextureRef ReflectionRay;
+        // On a path-traced view whose paths go to the upscaler raw (System::PathTracer, THE DENOISER): the paths'
+        // own first-surface guides, which replace the G-buffer's and the reflection ray above - the colour was
+        // made by the paths, so only their factors demodulate it exactly. Invalid on every other view.
+        PathTracedGuides PathGuides;
         std::span<const HistoryRefs> History; // one per HistoryDescs() entry, same order
         // The NewHistory this view's last frame returned; null on the view's first frame, after
         // SceneViewState::Reset and while the method is None. May be another implementation's (a method change):

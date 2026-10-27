@@ -42,6 +42,8 @@
 // undenoised, composited into the colour as usual, and a third pass, "DLSS-RR: Guides" (DLSSRRGuides.shader),
 // writes the guides it demodulates them with - diffuse and specular albedo from the G-buffer and the split-sum
 // table, the reflection's hit distance from SSR's ray - beside the G-buffer's normal + roughness, tagged as is.
+// On a path-traced view (TemporalUpscalerInputs::PathGuides) "DLSS-RR: Path Guides" (DLSSRRPathGuides.shader)
+// writes all four from the paths' own guide sums instead: the paths made that colour.
 // Its presets are its own Scalability rows (Parameter::DlssRRPresetNative ..), its modes DLSS's.
 namespace Desert::Graphic
 {
@@ -81,21 +83,31 @@ namespace Desert::Graphic
         [[nodiscard]] Common::ResultStr<Streamline::DlssRenderRange> RangeOf( Streamline::DlssMode mode,
                                                                               ViewExtent           output ) const;
 
-        // "DLSS-RR: Guides" (Ray Reconstruction only): the diffuse / specular albedo and specular hit distance
-        // transients, returned in that order.
+        // The guides Ray Reconstruction is tagged with: the diffuse / specular albedo and specular hit distance
+        // transients, the normal + roughness image (the G-buffer's own, or the paths' resolved one), and whether
+        // the hit distance is this frame's trace (untagged otherwise).
         struct Guides
         {
             RDG::TextureRef DiffuseAlbedo;
             RDG::TextureRef SpecularAlbedo;
             RDG::TextureRef SpecularHitDistance;
+            RDG::TextureRef NormalRoughness;
+            bool            HitDistanceTraced = false;
         };
+        // "DLSS-RR: Guides" from the G-buffer, or on a path-traced view (TemporalUpscalerInputs::PathGuides)
+        // "DLSS-RR: Path Guides" (Ray Reconstruction only).
         [[nodiscard]] Common::ResultStr<Guides> AddGuidesPass( RDG::Builder& graph, const ViewFrame& frame,
                                                                const TemporalUpscalerInputs& inputs ) const;
+        // "DLSS-RR: Path Guides" (DLSSRRPathGuides.shader): the paths' guide sums of this frame divided by their
+        // surface paths - the factors the path-traced colour was made with.
+        [[nodiscard]] Common::ResultStr<Guides> AddPathGuidesPass( RDG::Builder& graph, const ViewFrame& frame,
+                                                                   const PathTracedGuides& sums ) const;
 
         const Streamline::DlssFeature m_Feature;
         UpscalerExposure              m_Exposure;
         struct GuidesPipeline; // the guides pass's compute pipeline, made on first record (DLSSUpscaler.cpp)
         std::unique_ptr<GuidesPipeline> m_GuidesPipeline;
+        std::unique_ptr<GuidesPipeline> m_PathGuidesPipeline; // DLSSRRPathGuides.shader's, the same holder type
 
         // slDLSSGetOptimalSettings by (mode, output width, output height): asked every frame by Supports.
         mutable std::mutex m_RangeMutex;

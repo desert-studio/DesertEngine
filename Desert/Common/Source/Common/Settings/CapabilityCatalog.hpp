@@ -223,6 +223,24 @@ namespace Common::Scalability
     inline constexpr std::array<std::string_view, 3> kDlssRRPresetNames{ "Default", "D", "E" };
     static_assert( static_cast<std::size_t>( DlssRRPreset::E ) + 1 == kDlssRRPresetNames.size() );
 
+    // WHAT DENOISES THE PATH-TRACED VIEW (Parameter::PathTracingDenoiser; UE r.PathTracing.Denoiser picks its
+    // denoiser plugin the same way). Stored by name. Off: the accumulation alone. ReLAX: the path tracer's own
+    // temporal + spatial denoiser (System::PathTracer, PathTracerDenoise.shader), on every device. RR: DLSS Ray
+    // Reconstruction - the view keeps that upscaler whatever AntiAliasing.Method says, and the paths go to it raw
+    // with their own guides (PathTracedGuides). Auto: RR where the device offers DLSS Ray Reconstruction, else
+    // ReLAX; Resolve settles it against the catalog, so a resolved quality never holds Auto. 0 and 1 keep the
+    // values the former on/off switch stored (Off, the engine denoiser).
+    enum class PathTracingDenoiserMethod : int
+    {
+        Off   = 0,
+        ReLAX = 1,
+        RR    = 2,
+        Auto  = 3,
+    };
+    inline constexpr std::array<std::string_view, 4> kPathTracingDenoiserNames{ "Off", "ReLAX", "RR", "Auto" };
+    static_assert( static_cast<std::size_t>( PathTracingDenoiserMethod::Auto ) + 1 ==
+                   kPathTracingDenoiserNames.size() );
+
     // THE CATALOG. Filled once per device (VulkanCapabilityCatalog::Build), then immutable for the device's
     // life; a device loss rebuilds it with the new device. Every list is ordered BEST FIRST where an order
     // exists, so "the best this device offers" is front() and a fallback walks the list.

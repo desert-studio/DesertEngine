@@ -973,9 +973,19 @@ namespace Desert::Graphic
         // the accumulation averages them (UE RenderPathTracing bypasses TAA/TSR the same way). No temporal method,
         // no FXAA/SMAA after it, no jitter; the view resolution is native (OnUpdate). The sample count stays the
         // scene path's one: PathTraced needs the G-buffer, and the deferred path is never multisampled. Except
-        // under the upscaler that denoises (System::PathTracer::KeepsDenoisingUpscaler: DLSS Ray Reconstruction):
-        // the paths go to it raw through the jittered pixel centres, and it is the anti-aliasing.
-        if ( PathTraced( m_RenderMethods ) && !System::PathTracer::KeepsDenoisingUpscaler( quality ) )
+        // under PathTracing.Denoiser RR (System::PathTracer::KeepsDenoisingUpscaler): the view runs DLSS Ray
+        // Reconstruction whatever AntiAliasing.Method asks - the denoiser is the path tracer's setting, as UE's
+        // r.PathTracing.Denoiser is - the paths go to it raw through the jittered pixel centres, and it is the
+        // anti-aliasing.
+        if ( PathTraced( m_RenderMethods ) && System::PathTracer::KeepsDenoisingUpscaler( quality ) &&
+             !m_DebugView.WireframeMode )
+        {
+            m_RenderedAntiAliasing.Method      = Common::Scalability::AntiAliasingMethod::DLSSRayReconstruction;
+            m_RenderedAntiAliasing.PostProcess = Common::Scalability::AntiAliasingMethod::None;
+            m_RenderedAntiAliasing.Reason      = "PathTracing.Denoiser RR: Ray Reconstruction denoises the paths";
+            m_AAMode                           = Common::Scalability::AntiAliasingMethod::None;
+        }
+        else if ( PathTraced( m_RenderMethods ) )
         {
             m_RenderedAntiAliasing.Method      = Common::Scalability::AntiAliasingMethod::None;
             m_RenderedAntiAliasing.PostProcess = Common::Scalability::AntiAliasingMethod::None;
@@ -1059,7 +1069,8 @@ namespace Desert::Graphic
                              .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
                              .MaxPathIntensity =
                                   quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
-                             .Denoise = quality.As<uint32_t>( Parameter::PathTracingDenoiser ) != 0u };
+                             .Denoiser = quality.As<Common::Scalability::PathTracingDenoiserMethod>(
+                                  Parameter::PathTracingDenoiser ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
@@ -1438,13 +1449,20 @@ namespace Desert::Graphic
         int                settingPercent  = m_Quality.As<int>( Parameter::RenderScalePercent );
         std::optional<int> overridePercent = m_DebugView.ScreenPercentage;
         // The wireframe view renders without anti-aliasing (BeginScene): no temporal method to reconstruct with. A
-        // path-traced view under the upscaler that denoises keeps it and its render scale
-        // (System::PathTracer::KeepsDenoisingUpscaler).
-        if ( ( PathTraced( m_RenderMethods ) && !System::PathTracer::KeepsDenoisingUpscaler( m_Quality ) ) ||
-             m_DebugView.WireframeMode )
+        // path-traced view under PathTracing.Denoiser RR keeps Ray Reconstruction and the render scale, at most
+        // 100 %: the network takes no supersampled input (SupersampleRefusal), and a supersampled path-traced
+        // frame would only trace pixels the network discards (System::PathTracer::KeepsDenoisingUpscaler).
+        const bool pathTraced = PathTraced( m_RenderMethods );
+        if ( ( pathTraced && !System::PathTracer::KeepsDenoisingUpscaler( m_Quality ) ) || m_DebugView.WireframeMode )
         {
             settingPercent  = 100;
             overridePercent = std::nullopt;
+        }
+        else if ( pathTraced )
+        {
+            settingPercent = std::min( settingPercent, 100 );
+            if ( overridePercent )
+                overridePercent = std::min( *overridePercent, 100 );
         }
         // A vendor method its runtime stopped offering (DLSS after an exception inside its evaluation) renders
         // with the engine's method instead, said once per reason; the frame never waits on a method that cannot
@@ -3367,6 +3385,7 @@ namespace Desert::Graphic
              .GBufferNormal = m_GBuffer ? textures.Colors( m_GBuffer, "GBuffer" )[1] : RDG::TextureRef{},
              .BrdfLut       = textures.Transients.BrdfLut,
              .ReflectionRay = textures.Transients.ReflectionRay,
+             .PathGuides    = textures.Transients.PathGuides,
              .History              = histories,
              .PrevHistory          = temporal ? m_ViewState.UpscalerHistory() : nullptr,
              .Quality              = &m_Quality };

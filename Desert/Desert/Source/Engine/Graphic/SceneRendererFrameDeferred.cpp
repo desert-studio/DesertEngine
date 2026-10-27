@@ -1443,12 +1443,19 @@ namespace Desert::Graphic
         inputs.SceneHash =
              PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash, cloudShadow );
         inputs.DynamicGeometry = rt.DynamicGeometry;
-        // The upscaler this frame resolves with denoises: the paths go to it raw (System::PathTracer, THE
-        // DENOISER). Asked of the upscaler that was made, so a runtime that refused Ray Reconstruction leaves the
-        // view on the accumulation and the spatial denoiser.
-        inputs.RawToUpscaler = m_PathTracingSettings.Denoise && m_TemporalUpscaler != nullptr &&
-                               m_TemporalUpscaler->TakesRawLightingSignals();
-        return pathTracer->AddPasses( graph, sceneColor, frame, inputs, m_PathTracingSettings );
+        // PathTracing.Denoiser RR and the upscaler this frame resolves with denoises: the paths go to it raw
+        // (System::PathTracer, THE DENOISER). Asked of the upscaler that was made, so a runtime that refused Ray
+        // Reconstruction leaves the view on the accumulation and the ReLAX denoiser.
+        inputs.RawToUpscaler =
+             m_PathTracingSettings.Denoiser == Common::Scalability::PathTracingDenoiserMethod::RR &&
+             m_TemporalUpscaler != nullptr && m_TemporalUpscaler->TakesRawLightingSignals();
+        const Common::ResultStr<PathTracedGuides> traced =
+             pathTracer->AddPasses( graph, sceneColor, frame, inputs, m_PathTracingSettings );
+        if ( !traced )
+            return Common::MakeError( traced.GetError() );
+        // The paths' guides replace the G-buffer's in the upscaler's inputs (TemporalUpscalerInputs::PathGuides).
+        textures.Transients.PathGuides = traced.GetValue();
+        return BOOLSUCCESS;
     }
 
     bool SceneRenderer::ReflectionsTraced() const

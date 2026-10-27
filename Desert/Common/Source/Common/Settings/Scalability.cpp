@@ -247,10 +247,11 @@ namespace Common::Scalability
                CL::None,
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the clamp of one path's exposed "
                "contribution)" },
-             { P::PathTracingDenoiser, G::GlobalIllumination, "PathTracing.Denoiser", 0, 1, CL::None,
-               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the image denoised every frame: by "
-               "DLSS "
-               "Ray Reconstruction or the spatial denoiser)" },
+             { P::PathTracingDenoiser, G::GlobalIllumination, "PathTracing.Denoiser", 0, 3,
+               CL::PathTracingDenoisers,
+               "SceneRenderer::BeginScene -> System::PathTracer::KeepsDenoisingUpscaler / AddPasses (what "
+               "denoises "
+               "the path-traced view: none, the engine's ReLAX or DLSS Ray Reconstruction)" },
              { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,
                CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (pixels a uniform probe side: "
@@ -315,6 +316,8 @@ namespace Common::Scalability
             {
                 case CatalogList::AntiAliasingMethods:
                     return kAntiAliasingMethodNames;
+                case CatalogList::PathTracingDenoisers:
+                    return kPathTracingDenoiserNames;
                 case CatalogList::None:
                 case CatalogList::MSAACounts:
                 case CatalogList::RenderScale:
@@ -778,7 +781,33 @@ namespace Common::Scalability
                            std::clamp( value, catalog.RenderScale.MinPercent, catalog.RenderScale.MaxPercent ),
                            kNotOffered );
                     return;
+                case CatalogList::PathTracingDenoisers:
+                {
+                    // Ray Reconstruction is the one denoiser a device may lack; the engine's ReLAX runs
+                    // everywhere.
+                    const bool offersRR = CapabilityCatalog::Offers( catalog.AntiAliasingMethods,
+                                                                     AntiAliasingMethod::DLSSRayReconstruction );
+                    const auto method   = static_cast<PathTracingDenoiserMethod>( value );
+                    const auto relax    = static_cast<ParameterValue>( PathTracingDenoiserMethod::ReLAX );
+                    // Auto is a request to settle, not a value that fell back: Resolve reports no Fallback for it
+                    // (SettlesUnreported).
+                    if ( method == PathTracingDenoiserMethod::Auto )
+                        r.Set( spec.Id,
+                               offersRR ? static_cast<ParameterValue>( PathTracingDenoiserMethod::RR ) : relax,
+                               {} );
+                    else if ( method == PathTracingDenoiserMethod::RR && !offersRR )
+                        r.Set( spec.Id, relax, kNotOffered );
+                    return;
+                }
             }
+        }
+
+        // A requested value Resolve settles by definition rather than lowers: PathTracing.Denoiser Auto becomes RR
+        // or ReLAX on every device, which is the meaning of Auto, not a fallback to log.
+        [[nodiscard]] bool SettlesUnreported( const Parameter parameter, const ParameterValue requested )
+        {
+            return parameter == Parameter::PathTracingDenoiser &&
+                   requested == static_cast<ParameterValue>( PathTracingDenoiserMethod::Auto );
         }
 
         // ---- QualityState storage --------------------------------------------------------------------------
@@ -1001,7 +1030,8 @@ namespace Common::Scalability
         resolved.Values     = r.Values;
         resolved.Overridden = r.Overridden;
         for ( std::size_t i = 0; i < kParameterCount; ++i )
-            if ( r.Values[i] != r.Requested[i] )
+            if ( r.Values[i] != r.Requested[i] &&
+                 !SettlesUnreported( static_cast<Parameter>( i ), r.Requested[i] ) )
                 resolved.Fallbacks.push_back(
                      { static_cast<Parameter>( i ), r.Requested[i], r.Values[i], r.Reasons[i] } );
         return resolved;
