@@ -30,9 +30,15 @@
             "Cinematic": {}
         },
         "ResolutionScale": {
-            "Low": {},
-            "Medium": {},
-            "High": {},
+            "Low": {
+                "Resolution.Percent": 50
+            },
+            "Medium": {
+                "Resolution.Percent": 71
+            },
+            "High": {
+                "Resolution.Percent": 87
+            },
             "Epic": {},
             "Cinematic": {}
         },
