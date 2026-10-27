@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 
 #include <Engine/UI/Ecs/RegistryUICanvasResources.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>

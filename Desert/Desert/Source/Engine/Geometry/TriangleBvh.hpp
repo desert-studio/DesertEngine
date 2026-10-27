@@ -2,7 +2,7 @@
 
 // A BOUNDING-VOLUME HIERARCHY OVER A TRIANGLE SOUP, for the offline mesh builders that UE runs against an Embree
 // scene: the distance field's sign rays (Assets/MeshDistanceFieldBuild.cpp) and the card build's surfel rays
-// (Assets/MeshCardBuild.cpp). Median split on the widest centroid axis, up to kLeafTriangles per leaf; closest
+// (Assets/MeshCardBuild.cpp). Binned SAH split (median past kSahMaxDepth), up to kLeafTriangles per leaf; closest
 // hit only, either side of a triangle (the caller decides what a back face means, as UE does with the hit
 // normal). Double precision: the builders' inputs are centimetres over meshes up to kilometres long.
 //
@@ -57,7 +57,7 @@ namespace Desert::Geometry
             bvh.m_Nodes.reserve( 2 * n / kLeafTriangles + 2 );
             bvh.m_Nodes.resize( 1 );
             if ( n > 0 )
-                bvh.Split( centroids, 0, 0, static_cast<int>( n ) );
+                bvh.Split( centroids, 0, 0, static_cast<int>( n ), 0 );
             bvh.m_Packed.resize( n * 9 );
             for ( size_t i = 0; i < n; ++i )
             {
@@ -166,7 +166,8 @@ namespace Desert::Geometry
         // scalars - it runs ~100 times per sample and the editor's builds are unoptimised.
         std::vector<double> m_Packed;
 
-        void Split( const std::vector<glm::dvec3>& centroids, const int node, const int first, const int count )
+        void Split( const std::vector<glm::dvec3>& centroids, const int node, const int first, const int count,
+                    const int depth )
         {
             glm::dvec3 lo( std::numeric_limits<double>::max() ), hi( std::numeric_limits<double>::lowest() );
             glm::dvec3 clo = lo, chi = hi;
@@ -194,16 +195,112 @@ namespace Desert::Geometry
                 m_Nodes[node].Count = count;
                 return;
             }
-            const int half = count / 2;
-            std::nth_element( m_Order.begin() + first, m_Order.begin() + first + half,
-                              m_Order.begin() + first + count, [&]( const int l, const int r )
-                              { return centroids[l][axis] < centroids[r][axis]; } );
+            // BINNED SAH (Embree's builder, which UE's distance-field and card rays go through): the split plane
+            // that minimises area x count of the two children over kSahBins centroid bins per axis. A median split
+            // on Bistro's mixed meshes (long trim strips over small tiles) left heavily overlapping siblings, and
+            // the ~100 short sign rays per band sample were 92 % of a field's build (BISTRO-LOOK p6 `sample`).
+            // Past kSahMaxDepth the median takes over: it halves the count, so the depth stays within the
+            // traversal's 64-entry stack whatever the triangles.
+            int half = count / 2;
+            if ( depth < kSahMaxDepth )
+                half = SahPartition( centroids, first, count, clo, chi );
+            if ( half <= 0 || half >= count )
+            {
+                half = count / 2;
+                std::nth_element( m_Order.begin() + first, m_Order.begin() + first + half,
+                                  m_Order.begin() + first + count, [&]( const int l, const int r )
+                                  { return centroids[l][axis] < centroids[r][axis]; } );
+            }
             const int left = static_cast<int>( m_Nodes.size() );
             m_Nodes.resize( m_Nodes.size() + 2 );
             m_Nodes[node].First = left;
             m_Nodes[node].Count = 0;
-            Split( centroids, left, first, half );
-            Split( centroids, left + 1, first + half, count - half );
+            Split( centroids, left, first, half, depth + 1 );
+            Split( centroids, left + 1, first + half, count - half, depth + 1 );
+        }
+
+        static constexpr int kSahBins     = 16;
+        static constexpr int kSahMaxDepth = 32;
+
+        static double HalfArea( const glm::dvec3& lo, const glm::dvec3& hi )
+        {
+            const glm::dvec3 e = glm::max( hi - lo, glm::dvec3( 0.0 ) );
+            return e.x * e.y + e.y * e.z + e.z * e.x;
+        }
+
+        // Partitions m_Order[first, first + count) at the cheapest SAH plane; returns the left count (0: no plane
+        // beats the median, the caller splits there).
+        int SahPartition( const std::vector<glm::dvec3>& centroids, const int first, const int count,
+                          const glm::dvec3& clo, const glm::dvec3& chi )
+        {
+            const double kMax     = std::numeric_limits<double>::max();
+            double       bestCost = kMax;
+            int          bestAxis = -1, bestBin = 0;
+            for ( int ax = 0; ax < 3; ++ax )
+            {
+                const double extent = chi[ax] - clo[ax];
+                if ( extent <= 0.0 )
+                    continue;
+                const double scale = kSahBins / extent;
+                glm::dvec3   lo[kSahBins], hi[kSahBins];
+                int          n[kSahBins] = {};
+                for ( int b = 0; b < kSahBins; ++b )
+                {
+                    lo[b] = glm::dvec3( kMax );
+                    hi[b] = glm::dvec3( -kMax );
+                }
+                for ( int i = first; i < first + count; ++i )
+                {
+                    const int t = m_Order[i];
+                    const int b =
+                         std::min( kSahBins - 1, static_cast<int>( ( centroids[t][ax] - clo[ax] ) * scale ) );
+                    ++n[b];
+                    for ( const glm::dvec3& p : { A[t], A[t] + E1[t], A[t] + E2[t] } )
+                    {
+                        lo[b] = glm::min( lo[b], p );
+                        hi[b] = glm::max( hi[b], p );
+                    }
+                }
+                // Right-to-left sweep: the area x count of every right side, then left-to-right against it.
+                double     rightCost[kSahBins] = {};
+                glm::dvec3 rlo( kMax ), rhi( -kMax );
+                int        rn = 0;
+                for ( int b = kSahBins - 1; b > 0; --b )
+                {
+                    rlo = glm::min( rlo, lo[b] );
+                    rhi = glm::max( rhi, hi[b] );
+                    rn += n[b];
+                    rightCost[b] = rn > 0 ? HalfArea( rlo, rhi ) * rn : 0.0;
+                }
+                glm::dvec3 llo( kMax ), lhi( -kMax );
+                int        ln = 0;
+                for ( int b = 0; b < kSahBins - 1; ++b )
+                {
+                    llo = glm::min( llo, lo[b] );
+                    lhi = glm::max( lhi, hi[b] );
+                    ln += n[b];
+                    if ( ln == 0 || ln == count )
+                        continue;
+                    const double cost = HalfArea( llo, lhi ) * ln + rightCost[b + 1];
+                    if ( cost < bestCost )
+                    {
+                        bestCost = cost;
+                        bestAxis = ax;
+                        bestBin  = b;
+                    }
+                }
+            }
+            if ( bestAxis < 0 )
+                return 0;
+            const double scale = kSahBins / ( chi[bestAxis] - clo[bestAxis] );
+            const auto   mid   = std::partition(
+                 m_Order.begin() + first, m_Order.begin() + first + count,
+                 [&]( const int t )
+                 {
+                     return std::min( kSahBins - 1, static_cast<int>( ( centroids[t][bestAxis] - clo[bestAxis] ) *
+                                                                          scale ) ) <= bestBin;
+                 } );
+            return static_cast<int>( mid - ( m_Order.begin() + first ) );
         }
 
         // Slab test: the entry distance of the ray into the node's box, or a negative value when it misses within

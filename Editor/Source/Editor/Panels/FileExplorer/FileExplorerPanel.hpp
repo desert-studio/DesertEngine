@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Panels/FileExplorer/AssetContextMenu.hpp>
@@ -15,7 +15,7 @@
 #include <Editor/Panels/FileExplorer/ContentBrowserToolbar.hpp>
 #include <Editor/Panels/FileExplorer/ContentDirectoryModel.hpp>
 #include <Editor/Panels/FileExplorer/DirectoryInformation.hpp>
-#include <Editor/Panels/FileExplorer/FileType.hpp>
+#include <Editor/Core/FileType.hpp>
 #include <Editor/Panels/FileExplorer/NewAssetMenu.hpp>
 #include <Editor/Panels/FileExplorer/ThumbnailEditMode.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>

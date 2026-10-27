@@ -32,6 +32,7 @@
 
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/SoundAsset.hpp>
@@ -1354,6 +1355,71 @@ namespace Desert::Migration
             if ( entity.PrefabOverrides )
                 for ( auto& override_ : *entity.PrefabOverrides )
                     drop( override_.Components, who );
+        }
+        return report;
+    }
+
+    SunRotationReport MigrateLightRotationV0ToV1( std::vector<Assets::EntityData>& entities )
+    {
+        // The old engine's gate (Rules::kSunDirectionEpsilon before light v1): below it a Translation was no
+        // direction and the light emitted nothing.
+        constexpr float kOldDirectionEpsilon = 1e-4f;
+
+        std::unordered_map<Common::UUID, const Assets::EntityData*> byId;
+        for ( const auto& entity : entities )
+            if ( entity.id.has_value() )
+                byId.emplace( *entity.id, &entity );
+
+        // The world rotation of a record as the file states it: its own Rotation under its parents'. Bounded
+        // by the record count, so a parent cycle in a damaged file ends instead of spinning.
+        const auto worldRotation = [&]( std::optional<Common::UUID> id )
+        {
+            glm::quat world = glm::quat( 1.0f, glm::vec3( 0.0f ) );
+            for ( std::size_t depth = 0; id.has_value() && depth <= entities.size(); ++depth )
+            {
+                const auto found = byId.find( *id );
+                if ( found == byId.end() )
+                    break;
+                world = glm::quat( found->second->Rotation.value_or( glm::vec3( 0.0f ) ) ) * world;
+                id    = found->second->parent;
+            }
+            return world;
+        };
+
+        const auto isLight = []( Common::Json::KeyedValues& components )
+        { return components.get( "DirectionLight" ).has_value(); };
+
+        SunRotationReport report;
+        for ( auto& entity : entities )
+        {
+            if ( isLight( entity.Components ) )
+            {
+                const glm::vec3 travel = entity.Translation.value_or( glm::vec3( 0.0f ) );
+                if ( glm::length( travel ) > kOldDirectionEpsilon )
+                {
+                    const glm::quat parent = worldRotation( entity.parent );
+                    entity.Rotation =
+                         glm::eulerAngles( glm::inverse( parent ) * ECS::Rules::RotationForTravel( travel ) );
+                    entity.Translation = glm::vec3( 0.0f );
+                    ++report.Aimed;
+                }
+                else
+                {
+                    ++report.Undirected;
+                }
+            }
+
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+            {
+                if ( !isLight( override_.Components ) || !override_.Translation.has_value() ||
+                     glm::length( *override_.Translation ) <= kOldDirectionEpsilon )
+                    continue;
+                override_.Rotation = glm::eulerAngles( ECS::Rules::RotationForTravel( *override_.Translation ) );
+                override_.Translation = glm::vec3( 0.0f );
+                ++report.Overrides;
+            }
         }
         return report;
     }
@@ -4842,6 +4908,18 @@ namespace Desert::Migration
             }
         }
 
+        // The light chain (kLightVersion*), after the asset-reference chain: its numbers are its tag's.
+        void RunLightSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
+                            std::vector<Assets::EntityData>& entities, FileMigrationReport& report )
+        {
+            report.StatedLightVersion = Assets::StatedVersion( header, Assets::kLightSchemaTag );
+            if ( report.StatedLightVersion < kLightVersionRotation )
+            {
+                report.SunRotationRaised = true;
+                report.SunRotation       = MigrateLightRotationV0ToV1( entities );
+            }
+        }
+
         // A file at a LATER World Partition generation than this tool raises to, refused in the scene's words.
         std::string RefuseLaterWorldPartition( const char* what, int stated )
         {
@@ -5155,6 +5233,8 @@ namespace Desert::Migration
         RunWorldPartitionSteps( scene.Header, report );
         if ( report.Refused.empty() )
             RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );
+        if ( report.Refused.empty() )
+            RunLightSteps( scene.Header, scene.Entities, report );
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently
         // (MigrationHeader keeps an existing GUID) - leaving it unstamped is how a load would re-run this.
@@ -5190,7 +5270,8 @@ namespace Desert::Migration
         const int foundWorldPartition = Assets::StatedVersion( prefab.Header, Assets::kWorldPartitionSchemaTag );
         if ( outcome.FoundSceneVersion == kSceneVersion && outcome.FoundUnitVersion == kUnitVersion &&
              foundWorldPartition == Core::kWorldPartitionVersion &&
-             Assets::StatedVersion( prefab.Header, Assets::kAssetRefSchemaTag ) == Core::kAssetRefVersion )
+             Assets::StatedVersion( prefab.Header, Assets::kAssetRefSchemaTag ) == Core::kAssetRefVersion &&
+             Assets::StatedVersion( prefab.Header, Assets::kLightSchemaTag ) == Core::kLightVersion )
         {
             outcome.AlreadyCurrent = true;
             return outcome;
@@ -5239,6 +5320,8 @@ namespace Desert::Migration
             RunWorldPartitionSteps( prefab.Header, outcome.Steps );
         if ( outcome.Steps.Refused.empty() )
             RunAssetRefSteps( prefab.Header, prefab.Entities, assetsRoot, prefab.Name, outcome.Steps );
+        if ( outcome.Steps.Refused.empty() )
+            RunLightSteps( prefab.Header, prefab.Entities, outcome.Steps );
         if ( !outcome.Steps.Refused.empty() )
         {
             outcome.Refused = outcome.Steps.Refused;

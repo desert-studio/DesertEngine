@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Editor/Panels/IPanel.hpp"
+#include "Editor/Core/IPanel.hpp"
 
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleWorldGpu.hpp>
 

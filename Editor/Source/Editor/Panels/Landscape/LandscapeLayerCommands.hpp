@@ -127,16 +127,17 @@ namespace Desert::Editor::Commands
                                                       float weightAlpha );
 
     /**
-     * @brief UE's Splines tool Ctrl+click: adds to landscape @p landscape a control point at @p location (world cm) with @p point's
-     * width and falloffs, joined by a segment with @p segment's Raise/Lower to control point @p joinTo when
-     * given, and re-derives the Splines edit layer — creating it on top of the stack the first time, as UE
-     * makes its splines layer. ONE undo entry (UE: one transaction per click); its undo restores the splines,
-     * the stack and the layer's data, so the ground returns byte for byte. Returns the new point's index.
+     * @brief UE's Splines tool Ctrl+click: adds to landscape @p landscape a control point at @p location (world
+     * cm) with @p point's width and falloffs, joined by a segment with @p segment's Raise/Lower to control point
+     * @p joinTo when given, and re-derives the Splines edit layer — creating it on top of the stack the first
+     * time, as UE makes its splines layer. ONE undo entry (UE: one transaction per click); its undo restores the
+     * splines, the stack and the layer's data, so the ground returns byte for byte. Returns the new point's index.
      */
-    Common::ResultStr<uint32_t> AddLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
-                                                         const glm::vec3& location, std::optional<uint32_t> joinTo,
-                                                         const World::Landscape::LandscapeSplineControlPoint& point,
-                                                         const World::Landscape::LandscapeSplineSegment& segment );
+    Common::ResultStr<uint32_t>
+    AddLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                             const glm::vec3& location, std::optional<uint32_t> joinTo,
+                             const World::Landscape::LandscapeSplineControlPoint& point,
+                             const World::Landscape::LandscapeSplineSegment&      segment );
 
     /// UE: a control point dragged by the transform gizmo. Control point @p point of landscape @p landscape goes
     /// to @p location (world cm), its segments' curves follow, and the Splines layer is re-derived, so the old
@@ -168,8 +169,9 @@ namespace Desert::Editor::Commands
      * splines by the renderer's side (ECS::LandscapeSplineMeshDraw), so a later point edit re-bends them.
      * Refuses a landscape with no segment and an entry ValidateLandscapeSplineMeshEntry refuses.
      */
-    Common::BoolResultStr SetLandscapeSplineMeshes( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
-                                                    const std::vector<World::Landscape::LandscapeSplineMeshEntry>& meshes );
+    Common::BoolResultStr
+    SetLandscapeSplineMeshes( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                              const std::vector<World::Landscape::LandscapeSplineMeshEntry>& meshes );
 
     /// The paint layer after the one the first segment paints, in the landscape's layer order, and "" after the
     /// last (and from ""  the first): what the palette's "Spline paint layer: next" sets.

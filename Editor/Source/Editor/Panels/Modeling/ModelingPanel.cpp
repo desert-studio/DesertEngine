@@ -4,7 +4,7 @@
 #include <Editor/Core/ColliderFit.hpp>
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
-#include <Editor/Core/Selection/MeshBakeNormalTool.hpp>
+#include <Editor/Panels/Modeling/MeshBakeNormalTool.hpp>
 #include <Editor/Core/Selection/MeshBooleanTool.hpp>
 #include <Editor/Core/Selection/MeshElementSelection.hpp>
 #include <Editor/Core/Selection/MeshSelectionOperations.hpp>

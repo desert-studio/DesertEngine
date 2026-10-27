@@ -45,6 +45,7 @@
 
 // 1. Engine Core
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
@@ -74,7 +75,7 @@
 // 2. Editor Base & Infrastructure
 #include "Editor/Core/GizmoState.hpp"
 #include "Editor/Core/CommandHistory.hpp"
-#include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
+#include "Editor/Panels/Landscape/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include "Editor/Core/EditorPreferences.hpp"
 #include "Editor/Packaging/GamePackager.hpp"
@@ -115,7 +116,7 @@
 #include "Editor/Core/DebugCommands.hpp"
 #include "Editor/Panels/Modeling/ModelingCommands.hpp"
 #include "Editor/Panels/Foliage/FoliageCommands.hpp"
-#include "Editor/Core/Rigging/HumanoidCommands.hpp"
+#include "Editor/Panels/SceneHierarchy/HumanoidCommands.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ToastManager.hpp"
 #include "Editor/Core/OpenableAssets.hpp"
@@ -663,7 +664,12 @@ namespace Desert::Editor
     void EditorLayer::OnFramePresented()
     {
         m_Startup.RevealWhenReady();
-        if ( const auto quit = m_Control.OnFramePresented() )
+        // What the frame just presented drew: displaced primitives still on their base mesh (ControlService).
+        const auto& scene = m_Workspace.ActiveScene();
+        const bool  displacementUnsettled =
+             scene && scene->GetRayTracingCache().GetDisplacement().GetStats().Unsettled > 0;
+        if ( const auto quit =
+                  m_Control.OnFramePresented( displacementUnsettled, m_Workspace.SubsurfaceHistoryConverging() ) )
             m_Application->Close( *quit );
     }
 

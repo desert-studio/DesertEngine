@@ -26,6 +26,10 @@ namespace Desert::Assets
     // and every reflected Asset<StaticMeshAsset> / Asset<MaterialAsset> field state {Guid, Path}, UE's soft object
     // reference; the mirror keys MeshGuid / MeshPath / MaterialGuids / MaterialPaths of the Static Mesh are gone.
     inline constexpr uint32_t kAssetRefSchemaTag = Common::Content::FourCC( "AREF" );
+    // How a light component states where it points (Core::kLightVersion), counted under its own tag as the two
+    // above are (MIGRATE-SUBSYS). v1 (PORT-SUN-ROTATION): a directional light is aimed by its Rotation (forward
+    // -Z), as UE's ULightComponent::GetDirection; its Translation is only where the editor draws it.
+    inline constexpr uint32_t kLightSchemaTag = Common::Content::FourCC( "LGHT" );
     // A .demat: the material schema, numbered for the first time by AF6f (v1). v2 (AF7c): the payload's
     // MaterialId is gone - the header GUID is the one identity - and an instance names its parent by that
     // GUID (`Parent`), stated again as the header's Dependency. v3 (T6c): every texture and cloud-asset

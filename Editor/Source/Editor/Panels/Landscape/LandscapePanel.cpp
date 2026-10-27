@@ -13,7 +13,7 @@
 
 #include "LandscapePanel.hpp"
 
-#include <Editor/Core/Commands/LandscapeLayerCommands.hpp>
+#include <Editor/Panels/Landscape/LandscapeLayerCommands.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Engine/Core/Scene.hpp>

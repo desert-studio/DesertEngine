@@ -1,7 +1,7 @@
 #include "ThumbnailPrefetch.hpp"
 
 #include <Editor/Widgets/ThumbnailFormats.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ContentKinds.hpp>

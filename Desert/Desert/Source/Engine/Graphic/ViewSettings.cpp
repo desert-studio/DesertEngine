@@ -61,10 +61,12 @@ namespace Desert::Graphic
         target.EnableBloom         = volume.EnableBloom;
         target.EnableLensFlare     = volume.EnableLensFlare;
         target.LensFlareGhostCount = volume.LensFlareGhostCount;
+        target.SubsurfaceScattering = volume.SubsurfaceScattering;
 
         target.GIIntensity       = Lerp( target.GIIntensity, volume.GIIntensity, weight );
         target.SSRIntensity      = Lerp( target.SSRIntensity, volume.SSRIntensity, weight );
         target.SSRMaxDistance    = Lerp( target.SSRMaxDistance, volume.SSRMaxDistance, weight );
+        target.SubsurfaceScale   = Lerp( target.SubsurfaceScale, volume.SubsurfaceScale, weight );
         target.ManualExposureEV100 = Lerp( target.ManualExposureEV100, volume.ManualExposureEV100, weight );
         target.WhitePoint        = Lerp( target.WhitePoint, volume.WhitePoint, weight );
         target.AutoExposureKey   = Lerp( target.AutoExposureKey, volume.AutoExposureKey, weight );

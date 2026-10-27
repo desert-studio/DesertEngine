@@ -433,10 +433,17 @@ namespace Desert::Editor::Tools
                                          static_cast<int>( operation ), snap );
         if ( scale.Owns )
             ImGuizmo::Enable( false );
-        const bool manipulated =
-             ImGuizmo::Manipulate( &view[0][0], &proj[0][0], static_cast<ImGuizmo::OPERATION>( operation ), space,
-                                   &modelMatrix[0][0], nullptr, snap ) ||
-             scale.Changed;
+        // NO VIEW-ALIGNED RING, as UE's rotate widget: three axis arcs and nothing else. ImGuizmo's ROTATE adds
+        // ROTATE_SCREEN, a ring about the camera's view axis drawn at EXACTLY the axis rings' radius (both are
+        // 0.06 of the viewport height) and hit-tested FIRST. Seen from above, the world-up ring and that ring
+        // coincide on screen, so grabbing "the azimuth ring" turned the sun about the camera's axis instead
+        // (camera pitch -89: the axis leaned 1 deg, a 90 deg turn lifted the sun from 5 to 6.4 deg).
+        auto gizmoOperation = static_cast<ImGuizmo::OPERATION>( operation );
+        if ( operation == Core::GizmoState::Operation::Rotate )
+            gizmoOperation = ImGuizmo::ROTATE_X | ImGuizmo::ROTATE_Y | ImGuizmo::ROTATE_Z;
+        const bool manipulated = ImGuizmo::Manipulate( &view[0][0], &proj[0][0], gizmoOperation, space,
+                                                       &modelMatrix[0][0], nullptr, snap ) ||
+                                 scale.Changed;
         if ( scale.Owns )
             ImGuizmo::Enable( true );
         DrawScaleHandle( "LevelSelection" );

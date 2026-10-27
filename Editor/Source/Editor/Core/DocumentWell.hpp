@@ -6,7 +6,7 @@
 // Desert::Editor. Make Desert::Editor::Core visible before them and every one of those names silently
 // rebinds to the wrong namespace.
 #include <Editor/Core/OpenDocuments.hpp>
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/IPanel.hpp>
 
 #include <algorithm>
 #include <cstddef>

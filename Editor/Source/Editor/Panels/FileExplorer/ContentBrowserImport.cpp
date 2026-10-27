@@ -4,7 +4,7 @@
 
 #include <Editor/Import/TextureDnD.hpp>
 #include <Editor/Panels/FileExplorer/DirectoryInformation.hpp>
-#include <Editor/Panels/FileExplorer/FileType.hpp>
+#include <Editor/Core/FileType.hpp>
 #include <Editor/Platform/DesktopPlatform.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Common/Core/Constants.hpp>

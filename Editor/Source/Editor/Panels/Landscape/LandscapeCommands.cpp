@@ -15,7 +15,7 @@
 #include <Engine/ECS/LandscapeEditTarget.hpp>
 #include <Engine/ECS/LandscapeRootOf.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
-#include <Editor/Core/Commands/LandscapeLayerCommands.hpp>
+#include <Editor/Panels/Landscape/LandscapeLayerCommands.hpp>
 #include <Editor/Import/LandscapeHeightmapIO.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
 #include <algorithm>

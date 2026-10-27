@@ -5,7 +5,7 @@
 // gets from ECS::SetEditableMesh (CoverMaterialIds), the write Output: Static Mesh makes, and the Accept /
 // Cancel / tool-bar rules of BlockoutSession.hpp and ActiveToolBar.hpp.
 
-#include <Editor/Import/StaticMeshOutput.hpp>
+#include <Editor/Core/StaticMeshOutput.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/ActiveToolBar.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/BlockoutSession.hpp>
 

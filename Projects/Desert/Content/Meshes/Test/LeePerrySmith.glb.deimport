@@ -1,0 +1,15 @@
+{
+    "Header": {
+        "Kind": "StaticMesh",
+        "Guid": "9e3b51c27d0a4f86b2c4e17a05d39f61",
+        "Versions": {
+            "DIMP": 2
+        },
+        "Dependencies": []
+    },
+    "Source": "LeePerrySmith.glb",
+    "Bounds": {
+        "Min": [-427.632080078125, -397.2547302246094, -259.03778076171875],
+        "Max": [427.632080078125, 397.2547302246094, 259.035888671875]
+    }
+}

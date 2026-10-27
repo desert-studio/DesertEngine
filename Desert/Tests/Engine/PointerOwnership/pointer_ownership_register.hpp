@@ -1638,7 +1638,7 @@ namespace Desert::Tests::PointerCensus
         { "Editor/Source/Editor/LevelEditor/SceneWorkspace.hpp",
           "SceneDocument", "Viewport", Guard::ReboundBeforeEveryUse,
           "the panel is owned by the editor's PanelRegistry (EditorLayer::m_Panels, which SceneWorkspace holds by reference) and this is an alias into it, so the guarantee is that every path destroying the panel NULLS the alias first: SceneWorkspace::CloseSceneView removes the panel and nulls this, and SceneWorkspace::Teardown nulls it for every document still open after OnDetach's m_Panels.Clear()" },
-        { "Editor/Source/Editor/Core/Selection/EntityCommands.hpp",
+        { "Editor/Source/Editor/LevelEditor/EntityCommands.hpp",
           "EntityCommands", "m_SubjectEditors", Guard::HostOutlivesUs,
           "DocumentHost::m_SubjectEditors; EditorLayer holds this provider as std::unique_ptr<EntityCommands> m_EntityCommands, declared AFTER m_Documents (EditorLayer.hpp), the DocumentHost that owns the registry, so the provider dies first (members die in reverse declaration order)" },
         { "Editor/Source/Editor/Panels/FileExplorer/AssetCommands.hpp",

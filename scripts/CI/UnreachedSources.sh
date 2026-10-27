@@ -45,8 +45,8 @@ SUITES=$(grep -c . "$MANIFEST")
 awk 'NF { print $1 }' "$MANIFEST" | sort -u > "$TMP/runners"
 
 # --- Every source file those runners compile, plus every source of a static library a runner links WHOLE
-#     (DesertPlatform.LinkWholeArchive: -force_load / --whole-archive on its link line -- EditorCore in
-#     EditorTests): such a library's objects are all in the runner, as if compiled there. A library linked by
+#     (DesertPlatform.LinkWholeArchive: -force_load / --whole-archive on its link line -- the five editor
+#     libraries in EditorTests): such a library's objects are all in the runner, as if compiled there. A library linked by
 #     reference (Desert, Common) contributes only the objects something pulls, which a makefile cannot tell, so
 #     its sources are not counted. Premake writes one dependency line per object:
 #       $(OBJDIR)/<name>.o: <source path>

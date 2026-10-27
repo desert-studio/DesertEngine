@@ -282,6 +282,10 @@ Dependencies = {
             meshoptimizer = baseDir .. "/meshoptimizer/src",
             -- <opensubdiv/far/...>: the CPU refiner the Subdivide port runs on (BuildScripts/ThirdParty/OpenSubdiv.lua).
             opensubdiv = baseDir .. "/OpenSubdiv",
+            -- <embree4/rtcore.h>: the distance-field builder (BuildScripts/ThirdParty/Embree.lua); its configured
+            -- rtcore_config.h lives beside the build script, not in the submodule.
+            embree = baseDir .. "/embree/include",
+            embree_config = baseDir .. "/../BuildScripts/ThirdParty/EmbreeConfig/include/embree4",
             jolt = baseDir .. "/JoltPhysics",
             lua = baseDir .. "/lua",
             Vulkan = vulkan and vulkan.include or nil,

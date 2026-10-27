@@ -1,5 +1,5 @@
 #include "LandscapeLayerCommands.hpp"
-#include "LandscapeEditLayerEdits.hpp"
+#include <Editor/Core/Commands/LandscapeEditLayerEdits.hpp>
 
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
@@ -375,8 +375,8 @@ namespace Desert::Editor::Commands
                 return written.IsSuccess();
             }
 
-            std::weak_ptr<::Desert::Core::Scene>    m_Scene;
-            Common::UUID                            m_Landscape;
+            std::weak_ptr<::Desert::Core::Scene>       m_Scene;
+            Common::UUID                               m_Landscape;
             World::Landscape::LandscapeStrokeRecord    m_Record;
             World::Landscape::LandscapeEditLayerTarget m_Layer;
             std::string                                m_Label;
@@ -806,7 +806,8 @@ namespace Desert::Editor::Commands
         {
             const auto root = ECS::FindLandscapeRootEntity( registry, landscape );
             if ( root == entt::null )
-                return Common::MakeError<LandscapeSplinesState>( "landscape splines: the landscape root is not loaded" );
+                return Common::MakeError<LandscapeSplinesState>(
+                     "landscape splines: the landscape root is not loaded" );
             const auto&           body = registry.get<ECS::LandscapeComponent>( root );
             LandscapeSplinesState state{ body.Splines, body.EditLayers, {} };
             if ( const WL::LandscapeEditLayer* layer = body.EditLayers.FindSplinesLayer() )
@@ -838,7 +839,7 @@ namespace Desert::Editor::Commands
             const auto root       = ECS::FindLandscapeRoot( registry, landscape );
             if ( rootEntity == entt::null || !root )
                 return Common::MakeError<bool>( "landscape splines: the landscape root is not loaded" );
-            const auto&                body  = registry.get<ECS::LandscapeComponent>( rootEntity );
+            const auto&                   body  = registry.get<ECS::LandscapeComponent>( rootEntity );
             const WL::LandscapeEditLayer* layer = body.EditLayers.FindSplinesLayer();
             if ( layer == nullptr )
                 return Common::MakeError<bool>( "landscape splines: the stack has no Splines layer" );
@@ -867,9 +868,8 @@ namespace Desert::Editor::Commands
         class LandscapeSplinesCommand final : public ICommand
         {
         public:
-            LandscapeSplinesCommand( ::Desert::Core::Scene& scene,
-                                     const Common::UUID& landscape, LandscapeSplinesState before,
-                                     LandscapeSplinesState after, std::string label )
+            LandscapeSplinesCommand( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
+                                     LandscapeSplinesState before, LandscapeSplinesState after, std::string label )
                  : m_Scene( &scene ), m_Landscape( landscape ), m_Before( std::move( before ) ),
                    m_After( std::move( after ) ), m_Label( std::move( label ) )
             {
@@ -904,10 +904,10 @@ namespace Desert::Editor::Commands
             }
 
             ::Desert::Core::Scene* m_Scene = nullptr;
-            Common::UUID                         m_Landscape;
-            LandscapeSplinesState                m_Before;
-            LandscapeSplinesState                m_After;
-            std::string                          m_Label;
+            Common::UUID           m_Landscape;
+            LandscapeSplinesState  m_Before;
+            LandscapeSplinesState  m_After;
+            std::string            m_Label;
         };
 
         /// Applies @p after's splines and stack, re-derives the Splines layer, and records ONE undo entry from
@@ -939,8 +939,8 @@ namespace Desert::Editor::Commands
         }
     } // namespace
 
-    Common::ResultStr<uint32_t> AddLandscapeSplinePoint( ::Desert::Core::Scene& scene, const Common::UUID& landscape,
-                                                         const glm::vec3&                       location,
+    Common::ResultStr<uint32_t> AddLandscapeSplinePoint( ::Desert::Core::Scene& scene,
+                                                         const Common::UUID& landscape, const glm::vec3& location,
                                                          std::optional<uint32_t>                joinTo,
                                                          const WL::LandscapeSplineControlPoint& point,
                                                          const WL::LandscapeSplineSegment&      segment )
@@ -1064,7 +1064,8 @@ namespace Desert::Editor::Commands
             return Common::MakeError<bool>( before.GetError() );
         LandscapeSplinesState after = before.GetValue();
         if ( after.Splines.Segments.empty() )
-            return Common::MakeError<bool>( "landscape splines: the landscape has no spline segment to lay a mesh on" );
+            return Common::MakeError<bool>(
+                 "landscape splines: the landscape has no spline segment to lay a mesh on" );
         for ( const WL::LandscapeSplineMeshEntry& entry : meshes )
             if ( auto valid = WL::ValidateLandscapeSplineMeshEntry( entry ); !valid )
                 return valid;

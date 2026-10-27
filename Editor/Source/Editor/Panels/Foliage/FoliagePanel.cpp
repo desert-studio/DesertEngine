@@ -11,13 +11,13 @@
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
-#include <Editor/Core/Selection/FoliagePaint.hpp>
-#include <Editor/Core/Selection/FoliageToolProperties.hpp>
+#include <Editor/Panels/Foliage/FoliagePaint.hpp>
+#include <Editor/Panels/Foliage/FoliageToolProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Panels/Foliage/FoliagePalette.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>

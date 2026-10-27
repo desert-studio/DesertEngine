@@ -1,0 +1,30 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "d61f8a3b7e2c4095a1b3c6e8f0274d5a",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["c4e0017af3dc4187a62e71e3dd4b038d", "4a7d2e90c1b84f3e9d6a05b8e2f71c34"]
+    },
+    "Shader": {
+        "Guid": "c4e0017af3dc4187a62e71e3dd4b038d",
+        "Path": "engine:Shaders/Programs/Surface/SubsurfaceProfileSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.85, 0.62, 0.52, 1.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [0.45, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [],
+    "CloudAssets": [],
+    "SubsurfaceProfile": {
+        "Guid": "4a7d2e90c1b84f3e9d6a05b8e2f71c34",
+        "Path": "assets:Materials/Subsurface/Skin.dsssprofile"
+    }
+}

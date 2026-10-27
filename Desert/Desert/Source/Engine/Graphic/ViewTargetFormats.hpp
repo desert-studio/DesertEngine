@@ -23,6 +23,9 @@ namespace Desert::Graphic::ViewTargetFormats
 
     // SceneRenderer::EnsureRendererResources.
     inline constexpr ImageFormat kSceneColor      = ImageFormat::RGBA16F;
+    // SSS-PROFILE (CONTRACT §9 Q3): the composite's demodulated diffuse of the scattered texels and the Burley
+    // pass's result - RGBA16F, not R11G11B10F (skin gradients band in a 6-bit mantissa; a = the profile row + 1).
+    inline constexpr ImageFormat kSubsurfaceDiffuse = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kSceneDepth      = ImageFormat::DEPTH32F;
     inline constexpr ImageFormat kSceneColorCopy  = kSceneColor; // snapshot of the scene target, same texel
     inline constexpr ImageFormat kGBufferA        = ImageFormat::RGBA8F;  // albedo.rgb + metallic

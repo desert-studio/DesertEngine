@@ -1,15 +1,33 @@
-# SSS-PROFILE: UE Subsurface Profile (Burley). Test object = CONTRACT §9 Q7 (a scanned head with the default skin
-# profile + a Bistro plant given a profile); hard side light, Lit.
-# p2 (MATL 7): dev's materials after scripts/Dev/migrate.sh --write must load and look the same. Starter = 16 .demat
-# materials, opens at startup (FIELD_Barn did not settle within 695 s on a loaded machine). 0a = dev build, 0b = this branch.
-# Frames 1-3 below need the SubsurfaceRenderer pass (p3); play only the 0a/0b block until then.
-Дано state
-Когда run View "View mode: Lit"
-Тогда-вид 0a_dev Starter on dev: every material textured/coloured, none pink or default grey
-Тогда-вид 0b_matl7 the same view after migration: identical materials, no pink/default, editor.log 0 material load errors
-Дано: the Q7 test object under a hard side light, Lit; material without a profile.
-Тогда 1_no_profile hard terminator, no bleed — same as dev.
-Когда: the material names the default skin profile (.dsssprofile).
-Тогда 2_profile light bleeds past the terminator with red-shifted falloff, thin parts glow, no screen-edge or depth-edge halos onto the background.
-Когда: PPV SubsurfaceScattering off.
-Тогда 3_ppv_off identical to frame 1.
+# SSS-PROFILE p4: the screen pass - a skin profile scatters light on screen. Test object = CONTRACT §9 Q7: the
+# Lee Perry-Smith head scan (CC BY 3.0, Infinite-Realities; docs licence record) in Projects/Desert/Content/Meshes/Test,
+# material M_Skin_SSS (SubsurfaceProfileSurface, profile Materials/Subsurface/Skin.dsssprofile = UE skin defaults),
+# put on Starter's Metal_40 sphere entity; the sun turned to light it from the side.
+# A DirectionLightComponent takes its travel direction from its TRANSLATION (Scene.cpp:815), Rotation is ignored: -100,-50,0 = from +X, 27 deg up.
+# The .deimport beside the glb was written by the editor (Content Browser > Reimport), not by hand.
+Дано run View "View mode: Lit"
+Дано set 106508827693059193 StaticMeshComponent.MeshHandle assets:Meshes/Test/LeePerrySmith.stmesh
+Дано set 106508827693059193 StaticMeshComponent.MaterialSlots[0] assets:Materials/M_Skin_SSS.demat
+Дано run Entity Metal_40
+Дано --subject selection set Scale 0.03,0.03,0.03
+Дано run Entity Sun
+Дано --subject selection set Translation -100,-50,0
+# Starter is authored unitless: Sun 1 lux under a Model-0 sky at EV100 0.53, so the sky alone lit the skin near white and
+# the sun term was invisible (p7 bisect: sphere, head, metal alike; CastShadows off changed nothing). A key light needs lux + exposure:
+Дано set 13376537502658031226 DirectionalLightData.Intensity 1000
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.ManualExposureEV100 8.5
+Дано --subject viewport set Camera.Position -70,62,-432
+Дано --subject viewport set Camera.Direction 0,0,-1
+Когда set 17921165617746467452 PostProcessVolumeData.Settings.SubsurfaceScattering true
+Тогда-вид 0_wide framing only: the whole bust, side-lit from +X (at ~0.04 cm/px the physical skin's red mean free path is ~1 px, so bleed is judged in the close-up below)
+# Close-up as UE's skin demos are judged: the nose at the terminator. The near plane is 10 cm (kDefaultNearPlane), so the
+# camera stays ~20 cm off the nose and narrows the lens instead: horizontal FOV 30 deg -> ~10.7 cm across, ~0.0075 cm/px.
+Когда --subject viewport set Camera.Position -70,63.6,-432
+Когда --subject viewport set Camera.FOV 30
+Тогда-вид 1_skin_on soft red-tinted terminator and bleed around nose/ears; specular highlights stay sharp; 0 dark dots
+Когда set 17921165617746467452 PostProcessVolumeData.Settings.SubsurfaceScattering false
+Тогда-вид 2_skin_off same view, hard Lambert terminator, no other change
+Когда set 17921165617746467452 PostProcessVolumeData.Settings.SubsurfaceScattering true
+Когда set 17921165617746467452 PostProcessVolumeData.Settings.SubsurfaceScale 4
+# The reply to `set SubsurfaceScale 4` waits on PendingWork::SubsurfaceHistory: a Scale change invalidates the Burley
+# history (UE SubsurfaceHistory), and the gate opens only once the scatter has read a full window of it.
+Тогда-вид 3_scale4 (history converged) wider bleed; on the lit ear no more dark dots than 2_skin_off, no black blob in the ear's concha, no banding, no halo

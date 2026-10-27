@@ -5,7 +5,7 @@
 // Every preview window calls the same three functions, which is what makes the setting ONE setting shared
 // by the Material Editor, the Static Mesh viewer and the Details mesh preview rather than three copies.
 
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/IPanel.hpp>
 
 #include <vector>
 

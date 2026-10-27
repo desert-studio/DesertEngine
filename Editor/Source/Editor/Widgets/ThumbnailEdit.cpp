@@ -3,7 +3,7 @@
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 
 #include <format>

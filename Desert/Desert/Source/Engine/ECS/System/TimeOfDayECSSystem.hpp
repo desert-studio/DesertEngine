@@ -113,39 +113,33 @@ namespace Desert::ECS
             const glm::vec3            travel   = position.Travel;
 
             // The SAME light the sky, the deferred pass and the shadows read (ECS::PickAtmosphereSun), with
-            // the clock's candidacy: hidden and degenerate lights are still driven.
+            // the clock's candidacy: hidden lights are still driven.
             const auto sun = PickAtmosphereSun( registry, SunCandidacy::Driven ).Sun();
             if ( !sun )
                 return;
 
-            auto& transform = registry.get<ECS::TransformComponent>( *sun );
-
             // THE CLOCK OVERRIDES THE AUTHORED DIRECTION, and it says so once per sun with the numbers. A
             // scene saved with a sun at +50 deg and the clock at 18.9 h renders a night sky at -9.5 deg, and
-            // nothing used to connect the two: the light's Translation in the file and the sky on screen
+            // nothing used to connect the two: the light's Rotation in the file and the sky on screen
             // simply disagreed (Mirage MainMenu, SUN-SOURCE).
             if ( *sun != m_DriveLoggedFor )
             {
                 m_DriveLoggedFor     = *sun;
-                const float authored = Rules::IsSunDirectionValid( transform.Translation )
-                                            ? glm::degrees( std::asin( glm::clamp(
-                                                   -glm::normalize( transform.Translation ).y, -1.0f, 1.0f ) ) )
-                                            : 0.0f;
+                const float authored = glm::degrees(
+                     std::asin( glm::clamp( -DirectionalLightTravel( registry, *sun ).y, -1.0f, 1.0f ) ) );
                 LOG_INFO(
-                     "[TimeOfDay] Time Of Day 'Drive Sun From Time Of Day' is on: the sun light's direction "
+                     "[TimeOfDay] Time Of Day 'Drive Sun From Time Of Day' is on: the sun light's rotation "
                      "comes from the clock ({:04}-{:02}-{:02} {:.2f} h, UTC{:+.1f}{}, latitude {:.1f} deg, "
                      "longitude {:.1f} deg) at elevation {:.1f} deg, azimuth {:.1f} deg, declination {:.1f} deg, "
-                     "replacing the authored {:.1f} deg. Untick it to keep the light's own direction.",
+                     "replacing the authored {:.1f} deg. Untick it to keep the light's own rotation.",
                      clock.Year, clock.Month, clock.Day, clock.TimeOfDay, clock.TimeZone,
                      clock.DaylightSavingTime ? " DST" : "", clock.Latitude, clock.Longitude,
                      position.CorrectedElevationDeg, position.AzimuthDeg, position.DeclinationDeg, authored );
             }
 
-            // The MAGNITUDE is preserved, not normalized away: some scenes author the sun's Translation as
-            // a position-like vector and the editor's own direction widget keeps its length for exactly
-            // that reason. Only the heading is ours to drive.
-            const float length    = glm::length( transform.Translation );
-            transform.Translation = travel * ( length > Rules::kSunDirectionEpsilon ? length : 1.0f );
+            // UE SunPosition sets the light's world rotation; the light's Translation (its icon's place) is
+            // not the clock's business.
+            AimDirectionalLight( registry, *sun, travel );
         }
 
     private:

@@ -78,6 +78,7 @@
 // is what makes the claim above well-formed.
 
 #include <Common/Json/Document.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <gtest/gtest.h>
 
 #include "CornellSymmetryReference.hpp"
@@ -179,8 +180,16 @@ namespace
     {
         Common::Json::Value Record;
         glm::vec3           Translation{ 0.0f };
+        glm::vec3           Rotation{ 0.0f };
         glm::vec3           Scale{ 1.0f };
     };
+
+    // The direction TOWARD a directional light: it travels along its Rotation's forward axis (-Z), as
+    // ECS::Rules::DirectionalLightTravel reads it, so the sun is the other way.
+    glm::vec3 TowardSun( const Entity& sun )
+    {
+        return -glm::normalize( glm::quat( sun.Rotation ) * glm::vec3( 0.0f, 0.0f, -1.0f ) );
+    }
 
     Entity EntityByTag( const Common::Json::Value& scene, const std::string& tag )
     {
@@ -201,6 +210,7 @@ namespace
             Entity found;
             found.Record      = record.Raw();
             found.Translation = Vec3( record, "Translation" );
+            found.Rotation    = Vec3( record, "Rotation" );
             found.Scale       = Vec3( record, "Scale" );
             return found;
         }
@@ -512,9 +522,7 @@ TEST( CornellSymmetry, TheOrangeCubesFrontFaceIsTurnedAwayFromBothLights )
     const glm::vec3 topNormal{ 0.0f, 1.0f, 0.0f };
 
     const PointLightPayload light = LoadPointLight( scene, "CB_BackLight" );
-    // The sun's direction is its TRANSLATION, normalized (Engine/Core/Scene.cpp) — not its rotation,
-    // which nothing reads. It is the direction the light TRAVELS, so the direction toward it is minus it.
-    const glm::vec3 towardSun = -glm::normalize( EntityByTag( scene, "CB_Sun" ).Translation );
+    const glm::vec3 towardSun = TowardSun( EntityByTag( scene, "CB_Sun" ) );
 
     EXPECT_LE( glm::dot( frontNormal, glm::normalize( light.Position - frontFace ) ), 0.0f )
          << "the point light is no longer behind the orange cube";
@@ -543,7 +551,7 @@ TEST( CornellSymmetry, TheSunIsOffAxisOnPurposeAndOnlyReachesOneWall )
     const std::string path  = std::format( "{}Projects/Desert/Content/Scenes/CornellDemo.desce", root );
     const auto        scene = ParseObject( ReadAll( path ), path );
 
-    const glm::vec3 towardSun = -glm::normalize( EntityByTag( scene, "CB_Sun" ).Translation );
+    const glm::vec3 towardSun = TowardSun( EntityByTag( scene, "CB_Sun" ) );
 
     const float onLeft  = glm::dot( fixture.LeftNormal, towardSun );
     const float onRight = glm::dot( fixture.RightNormal, towardSun );

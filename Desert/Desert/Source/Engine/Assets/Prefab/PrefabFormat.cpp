@@ -27,18 +27,19 @@ namespace Desert::Assets
     } // namespace
 
     std::string RefusePrefabVersion( std::string_view source, int foundSceneVersion, int foundUnitVersion,
-                                     int foundWorldPartitionVersion, int foundAssetRefVersion )
+                                     int foundWorldPartitionVersion, int foundAssetRefVersion,
+                                     int foundLightVersion )
     {
         return fmt::format(
              "[PrefabAsset] '{0}' is at scene schema v{1} / world units v{2} / world partition v{3} / asset references "
-             "v{8}, and this engine loads scene schema v{4} / world units v{5} / world partition v{6} / asset "
-             "references v{9} only. NOTHING WAS LOADED - "
+             "v{8} / lights v{10}, and this engine loads scene schema v{4} / world units v{5} / world partition v{6} / "
+             "asset references v{9} / lights v{11} only. NOTHING WAS LOADED - "
              "no entity was taken from this file, and the scene is exactly as it was. A prefab carries the same "
              "entity payloads a scene does, so it moves through the same generations; Tools/SceneMigrator "
              "converts it, once, and writes the file back. Run:  {7} \"{0}\"",
              source, foundSceneVersion, foundUnitVersion, foundWorldPartitionVersion, Core::kSceneVersion,
              Core::kUnitVersion, Core::kWorldPartitionVersion, kMigratorPath, foundAssetRefVersion,
-             Core::kAssetRefVersion );
+             Core::kAssetRefVersion, foundLightVersion, Core::kLightVersion );
     }
 
     std::string RefusePrefabVersion( std::string_view source, const PrefabData& prefab )
@@ -46,7 +47,8 @@ namespace Desert::Assets
         return RefusePrefabVersion( source, StatedVersion( prefab.Header, kSceneSchemaTag ),
                                     StatedVersion( prefab.Header, kUnitSchemaTag ),
                                     StatedVersion( prefab.Header, kWorldPartitionSchemaTag ),
-                                    StatedVersion( prefab.Header, kAssetRefSchemaTag ) );
+                                    StatedVersion( prefab.Header, kAssetRefSchemaTag ),
+                                    StatedVersion( prefab.Header, kLightSchemaTag ) );
     }
 
     Common::ResultStr<PrefabData> ParseLoadablePrefab( std::string_view source, const std::string& json )

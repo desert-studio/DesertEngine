@@ -55,8 +55,11 @@ local kHeaderToolCommand =
         -- request and so must follow its three operands.
         .. kReflectArguments
         -- Enums only (no reflected types): a reflected field may be typed with Common's settings enums
-        -- (PostProcessSettings' GIMethod / ReflectionMethod / ShadowMethod, Common/Settings/RenderMethods.hpp).
+        -- (PostProcessSettings' GIMethod / ReflectionMethod / ShadowMethod, Common/Settings/RenderMethods.hpp),
+        -- or with PhysicsCore's (ColliderData Shape / Axis, RigidBodyData Type, PhysicsWorld.hpp). Without the
+        -- second tree those three fields were generated as Struct with no StructType: neither written nor read.
         .. ' --reflect-enums "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source/Common/Settings"'
+        .. ' --reflect-enums "' .. _MAIN_SCRIPT_DIR .. '/Desert/PhysicsCore/Source/PhysicsCore"'
         .. ' --reflect-components "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"'
         .. DesertModuleLibs.HeaderToolRoots("check") -- every engine source root
         .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
@@ -73,6 +76,25 @@ local function EngineModuleLibrary(module)
     pchheader "pch.hpp"
     pchsource "Source/pch.cpp"
     forceincludes { "pch.hpp" }
+
+    -- THE DERIVED-DATA BUILDERS ARE OPTIMISED IN EVERY CONFIGURATION (UE builds its editor's engine modules
+    -- optimised in DebugGame for the same reason: the cook-time builders are the hot loops). At -O0 one Bistro
+    -- facade's distance field (98 sign rays per band sample through the TriangleBvh, all glm dvec3 calls)
+    -- took minutes: 1291 queued, 0 built in 257 s on 8 workers (BISTRO-LOOK p4, `sample` showed every worker
+    -- in DfInsideByRays). Off the PCH: an -O2 source cannot take the -O0 .gch (__OPTIMIZE__ differs).
+    -- MSVC: /O2 per file (optimize "Speed" -> the file's <Optimization>MaxSpeed>) with the Debug /RTC1 off for
+    -- the same files (runtimechecks "Off" -> <BasicRuntimeChecks>Default>), as /RTC1 and /O2 together are D8016;
+    -- Debug is /Zi (Configurations.lua), which takes /O2.
+    filter { "configurations:Debug", "action:gmake*",
+             "files:**/Engine/Assets/MeshDistanceFieldBuild.cpp or **/Engine/Assets/MeshCardBuild.cpp" }
+        flags { "NoPCH" }
+        buildoptions { "-O2" }
+    filter { "configurations:Debug", "action:vs*",
+             "files:**/Engine/Assets/MeshDistanceFieldBuild.cpp or **/Engine/Assets/MeshCardBuild.cpp" }
+        flags { "NoPCH" }
+        optimize "Speed"
+        runtimechecks "Off"
+    filter {}
 
     if DesertModules.LegacyLibName(module.Name) == DesertModuleLibs.CodegenLib() then
         dependson { "DesertHeaderTool" }
@@ -168,6 +190,7 @@ end
         "MeshOptimizer",
         "Voro",
         "OpenSubdiv",
+        "Embree", -- BuildScripts/ThirdParty/Embree.lua: the distance-field builder
         "Dav1d",
         "Opus",
     }
