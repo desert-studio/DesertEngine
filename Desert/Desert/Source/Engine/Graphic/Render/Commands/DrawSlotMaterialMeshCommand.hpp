@@ -21,8 +21,8 @@ namespace Desert::Graphic::Render
     // on the batched lit path — the two paths split the submesh set via masks.
     struct DrawSlotMaterialMeshCommand : RenderCommand
     {
-        // The entity that owns the draw (entt id incl. version): the view's MotionHistory keys this draw's
-        // previous transform by it (SceneViewState MotionKey), so the velocity of a moving object is its own.
+        // The entity that owns the draw (entt id incl. version): GpuSceneRegistry keys this draw's
+        // GpuScene primitive by it (MotionKey), so the velocity of a moving object is its own.
         uint32_t Entity;
         // A stable part of the entity (MotionRecord::Part; a fracture piece's node + 1), 0 = the entity itself:
         // the part the same piece's DrawStaticMeshCommand carries, so the piece's velocity is its own on both

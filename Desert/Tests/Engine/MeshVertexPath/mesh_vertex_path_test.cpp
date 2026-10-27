@@ -378,7 +378,7 @@ TEST_F( MeshVertexPathShaderRoot, TheInstancedGBufferCellIsTheStaticOnePlusItsOw
          << ", so it is not fetching a per-instance model matrix at all";
     instancedBindings.erase( ownBinding );
 
-    // The static cell reads its world from the view's motion row (ObjectMotions, Common/Velocity.glslh); the
+    // The static cell reads its world from its GpuScene row (GpuScenePrimitives, Common/GpuScene.glslh); the
     // instanced cell deliberately does not: a batch is world-static (moving an instance rebuilds it), so its
     // previous world IS its world and only the wind moves it, re-evaluated at the view's previous time
     // (Vertex_Instanced.glslh, InstanceWindPush::B.z). The row is the static path's vertex-factory input, not

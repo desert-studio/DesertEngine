@@ -32,7 +32,7 @@ namespace Desert::Graphic::GpuDriven
         // of its instance instead of LocalBounds x InstanceToWorld (today: MeshDrawCommand::WorldBounds /
         // BoundsPad, MeshRenderer.hpp:96-98).
         inline constexpr uint32_t kWorldBoundsOverride = 1u << 1;
-        // Skinned: BoneOffset / PrevBoneOffset / SkinCache* are live (GpuObjectMotion's skinned half).
+        // Skinned: BoneOffset / PrevBoneOffset / SkinCache* are live.
         inline constexpr uint32_t kSkinned = 1u << 2;
         // UE !bCastContactShadow: carried into the G-buffer shading word (today the PrimitiveFlags push field,
         // Common/MaterialTransport.glslh:41, Graphic::PrimitiveFlag).
@@ -43,8 +43,7 @@ namespace Desert::Graphic::GpuDriven
     } // namespace PrimitiveFlags
 
     // ONE ROW PER PRIMITIVE OF THE SCENE (a mesh component: static, skinned, ISM, fracture part).
-    // Replaces the per-(frame x view) GpuObjectMotion row (View/SceneViewState.hpp:182, View/ObjectMotionRows.hpp)
-    // as THE world/prev-world source for velocity, RT (RayTracingGather.cpp) and the surface cache.
+    // THE world/prev-world source for velocity, RT (RayTracingGather.cpp) and the surface cache.
     struct GpuScenePrimitive
     {
         glm::mat4 LocalToWorld{ 1.0f };     // 0

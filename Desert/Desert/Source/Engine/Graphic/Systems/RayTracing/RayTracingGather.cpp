@@ -40,7 +40,7 @@ namespace Desert::Graphic::RayTracing
         };
 
         // The records of one ISM field: every section group of one entity's mesh over one transform snapshot. The
-        // groups share the instances' rows (BuildObjectMotions keys them {Entity, instance}), so the field is one
+        // groups share the instances' GpuScene instances (SyncGpuScene: one per placed instance), so the field is one
         // primitive per instance whose BLAS holds every group's sections.
         struct FieldRecord
         {

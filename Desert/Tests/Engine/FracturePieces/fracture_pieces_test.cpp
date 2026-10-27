@@ -14,7 +14,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace
 {
@@ -217,7 +216,7 @@ TEST( FracturePieces, ThePieceDrawIsRaceFreeAndEachPieceHasItsOwnMotionKey )
     EXPECT_NE( draw.find( "Destruction::PieceDraws<Graphic::Material*>(" ), std::string::npos )
          << "the piece draws are no longer planned by PieceDraws (own motion part, static split)";
     EXPECT_NE( draw.find( "/*sortPriority*/ 0, /*maxDrawDistance*/ 0.0f, draw.MotionPart );" ), std::string::npos )
-         << "every piece's lit draw carries its own MotionHistory key";
+         << "every piece's lit draw carries its own GpuScene MotionKey";
 
     const std::string vertex = ReadText( "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanVertexBuffer.cpp" );
     EXPECT_NE( vertex.find( "RT_DestroyBuffer" ), std::string::npos );
@@ -297,7 +296,7 @@ TEST( FracturePieces, ACustomShaderSlotDrawsOnTheSlotPathWithThePiecesTransformA
 
 // The slot path is the static path's split and carries the part to the motion record. Red when FracturePieceDraw
 // stops emitting DrawSlotMaterialMeshCommand with the piece's part, MeshECSSystem splits statics by a rule of its
-// own again, or the part is dropped between the command and BuildObjectMotions.
+// own again, or the part is dropped between the command and SyncGpuScene.
 TEST( FracturePieces, TheSlotPathIsTheStaticSplitAndKeepsTheMotionPart )
 {
     const std::string draw = ReadText( "Desert/Desert/Source/Engine/ECS/System/FracturePieceDraw.cpp" );
@@ -323,8 +322,8 @@ TEST( FracturePieces, TheSlotPathIsTheStaticSplitAndKeepsTheMotionPart )
     const std::string meshRenderer =
          ReadText( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.cpp" );
     size_t parts = 0;
-    for ( size_t at = meshRenderer.find( ".Part = data.MotionPart" ); at != std::string::npos;
-          at        = meshRenderer.find( ".Part = data.MotionPart", at + 1 ) )
+    for ( size_t at = meshRenderer.find( ".Part   = data.MotionPart" ); at != std::string::npos;
+          at        = meshRenderer.find( ".Part   = data.MotionPart", at + 1 ) )
         ++parts;
     EXPECT_EQ( parts, 2u ) << "the static AND the generic queue's records carry the part";
 }

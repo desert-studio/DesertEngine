@@ -54,7 +54,7 @@ namespace ViewIdentityTest
     }
 
     // A non-temporal frame (FXAA at 100 %): no upscaler, no history textures — only the reset decision is tested.
-    ViewInputs Inputs( const uint64_t cameraIdentity, const uint64_t sceneIdentity )
+    ViewInputs Inputs( const uint64_t cameraIdentity )
     {
         ViewInputs      in;
         const glm::vec3 eye( 0.0f, 150.0f, 0.0f );
@@ -64,7 +64,6 @@ namespace ViewIdentityTest
         in.NearPlane                = 10.0f;
         in.FarPlane                 = 5'000'000.0f;
         in.CameraIdentity           = cameraIdentity;
-        in.SceneIdentity            = sceneIdentity;
         in.Output                   = ViewExtent{ 1920, 1080 };
         in.AntiAliasing.Method      = Scal::AntiAliasingMethod::FXAA;
         in.AntiAliasing.PostProcess = Scal::AntiAliasingMethod::FXAA;
@@ -106,15 +105,15 @@ TEST( ViewIdentity, AReloadIntoTheSameSceneResetsTheViewHistory )
     const uint64_t     after         = Desert::Core::NextSceneGeneration(); // what Scene::Clear takes
 
     SceneViewState state;
-    EXPECT_EQ( Begin( state, Inputs( MakeViewCameraIdentity( before, kCameraEntity ), before ) ),
+    EXPECT_EQ( Begin( state, Inputs( MakeViewCameraIdentity( before, kCameraEntity ) ) ),
                HistoryResetReason::FirstFrame );
     state.EndFrame( RDG::ExecuteReport{} );
     // Control: the same world again keeps the history.
-    EXPECT_EQ( Begin( state, Inputs( MakeViewCameraIdentity( before, kCameraEntity ), before ) ),
+    EXPECT_EQ( Begin( state, Inputs( MakeViewCameraIdentity( before, kCameraEntity ) ) ),
                HistoryResetReason::None );
     state.EndFrame( RDG::ExecuteReport{} );
 
-    EXPECT_EQ( Begin( state, Inputs( MakeViewCameraIdentity( after, kCameraEntity ), after ) ),
+    EXPECT_EQ( Begin( state, Inputs( MakeViewCameraIdentity( after, kCameraEntity ) ) ),
                HistoryResetReason::CameraCut );
 }
 
@@ -151,7 +150,7 @@ TEST( ViewIdentity, TwoOutsideDrivenCamerasAlternatedOnOneViewCutAtEverySwitch )
     const Desert::Core::CameraSourceTicket previewCamera;
     const uint64_t                         generation = Desert::Core::NextSceneGeneration();
     const auto                             through    = [&]( const Desert::Core::CameraSourceTicket& camera )
-    { return Inputs( MakeViewCameraIdentity( generation, camera.Get() ), generation ); };
+    { return Inputs( MakeViewCameraIdentity( generation, camera.Get() ) ); };
 
     SceneViewState state;
     EXPECT_EQ( Begin( state, through( editorCamera ) ), HistoryResetReason::FirstFrame );

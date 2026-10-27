@@ -219,15 +219,15 @@ namespace
         const char* Path;
         const char* Cell;                  // the StandardSurface cell (SURF1c: the three were programs)
         const char* PerObjectVertexBuffer; // nullptr = none
-        // The view's motion groups the cell's VIEW-pass vertex stage reads (TAA1 step 4): the per-primitive rows
-        // (static, skinned) and the view's palettes (skinned: both frames' palettes, named by the row). A batch
+        // The scene groups the cell's VIEW-pass vertex stage reads (TAA1 step 4): the GpuScene primitive rows
+        // (static, skinned) and the scene's palettes (skinned: both frames' palettes, named by the row). A batch
         // of instances is world-static and reads neither. Filled by SceneFrameBinding::ApplyTo like every scene
         // group.
-        bool ReadsObjectMotions = false;
-        bool ReadsObjectBones   = false;
+        bool ReadsGpuScenePrimitives = false;
+        bool ReadsObjectBones        = false;
     };
 
-    // The skinned cell has no per-object buffer of its own any more: its palettes are the view's ObjectBones.
+    // The skinned cell has no per-object buffer of its own any more: its palettes are the scene's ObjectBones.
     const MeshShader kMeshShaders[] = {
          { "Surface/StandardSurface.shader", "Static.Forward", nullptr, true, false },
          { "Surface/StandardSurface.shader", "Instanced.Forward", "InstanceTransforms", false, false },
@@ -238,7 +238,7 @@ namespace
     std::vector<std::string> MotionNamesOf( const MeshShader& shader )
     {
         std::vector<std::string> names;
-        if ( shader.ReadsObjectMotions )
+        if ( shader.ReadsGpuScenePrimitives )
             names.emplace_back( SceneResources::kGpuScenePrimitivesName );
         if ( shader.ReadsObjectBones )
             names.emplace_back( SceneResources::kObjectBonesName );
@@ -312,7 +312,7 @@ TEST_F( SceneFrameBindingShaderRoot, EverySceneBindingTheOneApplierFillsIsDeclar
         const auto declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell ) );
         ASSERT_FALSE( declared.empty() ) << shader.Path;
 
-        // Mutation: drop DESERT_OBJECT_MOTION_ROWS / DESERT_OBJECT_BONES from a view-pass vertex path -> red.
+        // Mutation: drop DESERT_GPU_SCENE_PRIMITIVES / DESERT_GPU_SCENE_BONES from a view-pass vertex path -> red.
         for ( const auto& name : MotionNamesOf( shader ) )
             EXPECT_TRUE( declared.contains( name ) ) << shader.Cell << " does not declare '" << name << "'";
         for ( const auto& name : expected )

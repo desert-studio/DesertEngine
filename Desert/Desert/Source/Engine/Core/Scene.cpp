@@ -1286,6 +1286,9 @@ namespace Desert::Core
         // A reload empties this object and refills it: a new world at the same address. Entity ids restart, so
         // a view's history keyed by (generation, entity) must not survive it (SceneRenderer::BeginScene).
         m_Generation   = NextSceneGeneration();
+        // The GPU scene is keyed by entity (MotionKey): the restarted ids would inherit the old world's
+        // primitives and previous transforms, so the reloaded world gets a registry of its own.
+        m_GpuScene     = std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>();
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
         m_PlayerController = entt::null;

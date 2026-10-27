@@ -81,7 +81,7 @@ namespace Desert::Destruction
                             const std::function<bool( const Common::Content::AssetGuid& )>& isMaterialAsset );
 
     /// The motion part of a piece's draws (MotionRecord::Part): node + 1, so every piece reads its own previous
-    /// world from the view's MotionHistory and 0 stays "the entity itself".
+    /// world from its own GpuScene primitive (GpuSceneRegistry MotionKey) and 0 stays "the entity itself".
     [[nodiscard]] inline uint32_t PieceMotionPart( int32_t node )
     {
         return static_cast<uint32_t>( node ) + 1u;

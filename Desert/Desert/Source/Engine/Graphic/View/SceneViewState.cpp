@@ -438,9 +438,6 @@ namespace Desert::Graphic
                 return Common::MakeError<ViewFrame>( named.GetError() );
         }
 
-        if ( inputs.SceneIdentity != m_SceneIdentity )
-            m_SceneIdentity = inputs.SceneIdentity;
-
         const bool historyRecreated = m_History.Prepare( descs );
 
         // Compared with the camera of the COMMITTED frame (the one the history and every Prev* belong to); this

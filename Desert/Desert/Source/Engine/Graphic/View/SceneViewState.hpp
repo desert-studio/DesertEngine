@@ -31,7 +31,7 @@ namespace Desert::Graphic
 
 // TAA1 — THE PERSISTENT PER-VIEW STATE (UE: FSceneViewState). Everything a view must remember from one of its
 // frames to the next: the previous matrices and time, the jitter position, whether the history may be read, the
-// temporal history textures, and the previous transforms of every object it drew (MotionHistory).
+// temporal history textures. The previous transforms of the objects are the scene's (GpuDriven/GpuScene.hpp).
 //
 // OWNERSHIP. One SceneViewState per SceneRenderer (a SceneRenderer is one view: the editor viewport, each asset
 // preview, each capture), a member next to its ViewResources. NOT on the camera component: one camera can feed
@@ -82,9 +82,6 @@ namespace Desert::Graphic
         // the camera moved: a fast camera is not a cut, and a threshold would be a magic number that is wrong for
         // some scene.
         bool CameraCut = false;
-        // Which scene the view draws (its generation). A change clears MotionHistory: entity ids are not stable
-        // across scenes, so a previous transform found under the same id would belong to another object.
-        uint64_t SceneIdentity = 0;
 
         ViewExtent                            Output;                   // the presented size
         int                                   RenderScalePercent = 100; // ResolvedQuality RenderScalePercent
@@ -389,7 +386,6 @@ namespace Desert::Graphic
         uint64_t        m_CommittedCameraIdentity = 0; // the camera of m_Committed (written by EndFrame only)
         uint64_t        m_PendingCameraIdentity   = 0; // the camera of m_Pending (written by BeginFrame)
         bool            m_FrameOpen               = false; // a BeginFrame succeeded and its EndFrame has not run
-        uint64_t        m_SceneIdentity           = 0;
         bool            m_PendingFaultReset       = false;
         uint32_t        m_JitterIndex             = 0;
         TemporalHistory m_History;

@@ -856,7 +856,7 @@ namespace Desert::Graphic
         // first view's camera, and "several viewports" could only ever mean "several worlds". The scene
         // holds a LIST of views now and each one carries its own camera; the view says which.
         m_SceneInfo.ActiveCamera = camera;
-        // The world this frame draws and its clock (ViewInputs::SceneIdentity / TimeSeconds, OnUpdate).
+        // The world this frame draws and its clock (its generation keys CameraIdentity; TimeSeconds, OnUpdate).
         m_SceneGeneration  = scene.GetGeneration();
         m_SceneTimeSeconds = scene.GetWorldTime().GetGameTimeSeconds();
         // The world's parameters, snapshotted once for every pass of this view's frame (per-frame state).
@@ -1429,7 +1429,6 @@ namespace Desert::Graphic
             inputs.CameraIdentity = MakeViewCameraIdentity( m_SceneGeneration, cam->GetSourceId() );
         }
         inputs.CameraCut                         = m_CameraCutPending;
-        inputs.SceneIdentity                     = m_SceneGeneration;
         inputs.Output                            = m_ViewExtent;
         // THE ONE PER-VIEW RESOLUTION (ResolveViewResolution): the resolved RenderScalePercent and Upscaler,
         // the method they select, clamped to a split the method's upscaler supports. Its refusal refuses the

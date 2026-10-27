@@ -31,11 +31,10 @@ namespace Desert::Graphic::RDG
 // Renderer/Private/GPUScene.cpp).
 //
 // Responsibility:
-//  - ONE per scene (owned beside the scene's renderer state, re-created with ViewInputs::SceneIdentity), NOT per
-//    view: every view, every pass and every consumer (velocity, RT gather, surface cache, culling) reads the same
-//    rows. Replaces the per-(frame x view) ObjectMotions rows (View/SceneViewState.hpp:182 GpuObjectMotion,
-//    View/ObjectMotionRows.hpp:29 BuildObjectMotionRows, MeshRenderer::BuildObjectMotions MeshRenderer.hpp:442)
-//    and the per-view MotionHistory maps (SceneViewState.hpp:171-174): PrevLocalToWorld lives in the row.
+//  - ONE per scene (Core::Scene owns its GpuSceneRegistry beside its renderer state; Scene::Clear re-creates
+//    it), NOT per view: every view, every pass and every consumer (velocity, RT gather, surface cache, culling)
+//    reads the same rows (written by MeshRenderer::SyncGpuScene through GpuSceneRegistry). The previous world of a
+//    primitive is PrevLocalToWorld in its row, one for every view of the scene.
 //  - Indices are stable for the primitive's life (free list; UE FGPUScene::AllocatePrimitive / FreeIndices).
 //  - Updates are DELTAS: the CPU marks rows dirty, AddUploadPass scatters only those rows into the persistent
 //    buffers in-graph (UE FGPUScene::Update + FGPUScatterUploadBuffer). A frame with no change uploads nothing.
@@ -43,7 +42,7 @@ namespace Desert::Graphic::RDG
 //    re-dirties every primitive that moved LAST frame and did not move this frame with Prev := LocalToWorld, so a
 //    primitive that stops reports zero motion one frame later. A primitive added this frame has Prev == World.
 //  - Skinned palettes change every frame: SetSkinning writes the row's Bone/PrevBone offsets into the scene's
-//    per-frame ObjectBones buffer (one for all views — today it is per view, MeshRenderer.hpp:442).
+//    per-frame ObjectBones buffer (one for all views of the scene).
 //
 // Not here: which passes a primitive draws in and with which pipeline/material (DrawCommandCache), what is visible
 // (InstanceCulling), how the draws are issued (IndirectDrawSubmission).
@@ -127,7 +126,7 @@ namespace Desert::Graphic::GpuDriven
         void BeginFrame();
         // The frame since the last BeginFrame never executed (FrameFault, GpuSceneRegistry): every transform it
         // and its BeginFrame changed goes back, and so does the list of primitives that moved in the frame before
-        // it - as if it never happened (the old per-view MotionHistory::DiscardCurrent). A primitive it added
+        // it - as if it never happened. A primitive it added
         // stays, with Prev == World; the caller removes it.
         void DiscardFrame();
 

@@ -87,7 +87,7 @@ namespace Desert::Graphic::RayTracing
     struct LandscapeRayTracingTile
     {
         uint32_t Entity      = 0;
-        uint32_t GpuSceneRow = 0; // the tile's ObjectMotions row: the TLAS custom index
+        uint32_t GpuSceneRow = 0; // the tile's GpuScene instance: the TLAS custom index
         // The heightmap and the weight pages the raster samples, and the revision of their pixels (bumped by
         // LandscapeECSSystem whenever it rewrites them in place: a sculpt or paint stroke, a neighbour's ring).
         std::shared_ptr<Image2D> Heightmap;

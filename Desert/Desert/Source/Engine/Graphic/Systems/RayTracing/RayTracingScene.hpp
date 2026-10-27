@@ -19,9 +19,9 @@
 // the scene's primitives). Device-free: this file decides WHICH instances, with which transform, mask and
 // GPU-scene row; the Vulkan pass turns the list into VkAccelerationStructureInstanceKHR rows and builds.
 //
-// ONE GATHER. The candidates are the primitives MeshRenderer already queued and gave a row in the view's
-// ObjectMotions buffer (BuildObjectMotions) — UE's GPUScene primitive data: World, PrevWorld, bone offsets. An
-// instance's custom index IS that row, so a hit shader and a raster pass read the same primitive data by the same
+// ONE GATHER. The candidates are the primitives MeshRenderer already queued and gave a GpuScene instance
+// (MeshRenderer::SyncGpuScene) — UE's GPUScene primitive/instance data: World, PrevWorld, bone offsets. An
+// instance's custom index IS that GpuScene instance index, so a hit shader and a raster pass read the same primitive data by the same
 // number; nothing is gathered twice and no second per-instance table exists.
 //
 // GATED BY THE METHODS. A frame builds a TLAS only when one of its three resolved methods traces hardware rays

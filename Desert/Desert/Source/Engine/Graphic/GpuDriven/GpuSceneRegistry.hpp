@@ -77,8 +77,7 @@ namespace Desert::Graphic
 
 // GPU-DRIVEN phase GPUSCENE: THE SCENE'S PRIMITIVES BY RENDERER KEY. Owns the scene's GpuScene (Scene::
 // GetGpuScene) and keeps, per MotionKey, the primitive's stable GpuScene index while the scene's views keep
-// queueing it. Replaces the per-view MotionHistory and BuildObjectMotionRows (both deleted): the previous world
-// is the row's PrevLocalToWorld, the previous palette is kept here per primitive, and every view of a frame
+// queueing it. The previous world is the row's PrevLocalToWorld, the previous palette is kept here per primitive, and every view of a frame
 // reads the same rows.
 //
 // Lifetime of a primitive: added the first frame a view queues it (Prev == World: no object motion, as a newly

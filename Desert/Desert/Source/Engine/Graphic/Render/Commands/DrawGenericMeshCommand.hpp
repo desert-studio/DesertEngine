@@ -20,8 +20,8 @@ namespace Desert::Graphic::Render
     // shader). Per-object path — does NOT go through the batched lit SSBO.
     struct DrawGenericMeshCommand : RenderCommand
     {
-        // The entity that owns the draw (entt id incl. version): the view's MotionHistory keys this draw's
-        // previous transform by it (SceneViewState MotionKey), so the velocity of a moving object is its own.
+        // The entity that owns the draw (entt id incl. version): GpuSceneRegistry keys this draw's
+        // GpuScene primitive by it (MotionKey), so the velocity of a moving object is its own.
         uint32_t                   Entity;
         Desert::Mesh*            Mesh;
         glm::mat4                Transform;

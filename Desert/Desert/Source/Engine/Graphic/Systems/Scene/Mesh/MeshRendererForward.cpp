@@ -1884,8 +1884,8 @@ namespace Desert::Graphic::System
 
         auto& gpuMaterials = m_ScratchGpuMaterials;
 
-        // The view pass skins from the view's ObjectBones (both frames' palettes, named by the object's motion
-        // row — MeshRenderer::BuildObjectMotions); the group uploads only its material rows.
+        // The view pass skins from the scene's ObjectBones (both frames' palettes, named by the object's GpuScene
+        // row — MeshRenderer::SyncGpuScene); the group uploads only its material rows.
         for ( auto& [mat, objects] : groups )
         {
             if ( objects.empty() )
