@@ -1,0 +1,23 @@
+# SKY-BACKDROP: the procedural sky's parameter block follows the scene every frame (UE: the sky's
+# parameters are the view's frame state). Before the fix the block was written from the command replay,
+# outside the view's ActiveViewScope, so the sky kept its first block: the sun froze at its load-time
+# elevation and a second scene drew the first one's palette.
+# 3_colors comes FIRST: opening a scene over unsaved edits stops at the "unsaved changes" popup, so the
+# copy (only ZenithColor 1,0,0 differs) is opened right after Starter, before any edit; Starter is then
+# reopened for the sun steps, which also proves the block follows a scene switch back.
+Дано run Scene "Open Scene Starter.desce"
+Когда run Scene "Open Scene SKY_BackdropRedZenith.desce"
+Когда --subject viewport set Camera.FOV 60
+Когда --subject viewport set Camera.Position 0,300,0
+Когда --subject viewport set Camera.Direction 0.2,0.95,0.2
+Тогда-вид 3_colors the zenith is red: the new scene's parameters reached the sky
+Когда run Scene "Open Scene Starter.desce"
+Когда run Entity "Sun"
+Когда --subject viewport set Camera.FOV 60
+Когда --subject viewport set Camera.Position 0,300,0
+Когда --subject viewport set Camera.Direction 0.573,0.707,0.409
+Когда --subject selection set SunElevation 45
+Тогда-вид 1_noon blue sky, the sun disc visible
+Когда --subject viewport set Camera.Direction 0.811,0.0,0.579
+Когда --subject selection set SunElevation 3
+Тогда-вид 2_sunset orange sunset at the horizon, the disc at the horizon

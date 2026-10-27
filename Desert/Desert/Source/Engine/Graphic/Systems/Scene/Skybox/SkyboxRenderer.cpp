@@ -753,19 +753,22 @@ namespace Desert::Graphic::System
         {
             m_Atmosphere = AtmosphereEnv{};
         }
-
-        UploadSkyParams();
+        // NOT uploaded here (SKY-BACKDROP): this runs from the frame's command replay, which Scene executes
+        // BETWEEN the view's BeginScene and OnUpdate — outside any ActiveViewScope. The non-persistent block
+        // then went to the frame context's copy while the pass bound the view's, so the sky drew the block of
+        // the one upload that happened inside a scope (the first exposure change) and never moved again: the
+        // sun froze at its load-time elevation and a second scene drew the first one's palette. The block is
+        // the view's frame state (UE: the sky's view uniform buffer) and is written by UploadFrameSkyParams,
+        // which SceneRenderer::OnUpdate calls inside its scope every frame.
     }
 
     void SkyboxRenderer::SetSkyLuminanceCeiling( float ceiling )
     {
-        if ( ceiling == m_SunInputs.LuminanceCeiling )
-            return;
+        // State only; the block carrying it is written once per frame by UploadFrameSkyParams.
         m_SunInputs.LuminanceCeiling = ceiling;
-        UploadSkyParams();
     }
 
-    void SkyboxRenderer::UploadSkyParams()
+    void SkyboxRenderer::UploadFrameSkyParams()
     {
         if ( !m_SkyParams || !m_UseProceduralSky )
             return;
@@ -773,12 +776,9 @@ namespace Desert::Graphic::System
         const SkyGpuPayload payload  = PackSky( m_SunDir, m_Sky, m_SunInputs, m_Light1 );
         const auto          uploaded = m_SkyParams->SetData( &payload, kSkyPayloadBytes );
         if ( !uploaded.IsSuccess() )
-            // REPORTED, NOT RETURNED, AND THE REASON IS THE CALL GRAPH. This is called from the settings
-            // path — the sky block is re-packed whenever a knob moves — and from the frame path, and
-            // neither has anywhere to put a refusal: the caller changed a value, it did not ask for a
-            // frame. The consequence is bounded and self-correcting, which is what makes the log the
-            // right answer here rather than a shrug: the buffer keeps the previous block, the sky draws
-            // one frame behind, and the very next UploadSkyParams overwrites it.
+            // REPORTED, NOT RETURNED: SceneRenderer::OnUpdate has nowhere to put a refusal of one block.
+            // The consequence is bounded and self-correcting: the buffer keeps the previous block, the sky
+            // draws one frame behind, and the next frame's UploadFrameSkyParams overwrites it.
             LOG_ERROR( "[Skybox] the sky block was not uploaded; the sky keeps the previous parameters "
                        "until the next update: {}",
                        uploaded.GetError() );

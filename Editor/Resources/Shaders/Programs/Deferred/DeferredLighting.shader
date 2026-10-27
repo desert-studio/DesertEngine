@@ -594,7 +594,9 @@ Shader "DeferredLighting"
         		indirect = GatherIndirectGI(v_TexCoord, worldPos, N, L, radiance) * giIntensity;
         	}
 
-        	if (dbg == 6) { oColor = vec4(indirect, 1.0); oColor.rgb *= ScreenSpaceGi.y; return; } // Indirect GI only
+        	// Indirect GI only. The screen-space bounce (GI mode 1) is `indirect` itself; the traced gather (modes 2, 3) is
+        	// the ambient's diffuse below, where it replaced the sky terms (UE: the Lumen Global Illumination view).
+        	if (dbg == 6 && giMode < 2) { oColor = vec4(indirect, 1.0); oColor.rgb *= ScreenSpaceGi.y; return; }
 
         	// Ambient = the BAKED ENVIRONMENT (split-sum IBL: diffuse irradiance + prefiltered specular)
         	// plus the one-bounce indirect, attenuated by SSAO — assembled by the SAME shared function the
@@ -654,6 +656,13 @@ Shader "DeferredLighting"
         		// UE's SSR input: the screen's hits over the GI's specular (or the environment), by their coverage.
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(SsrTexture, v_TexCoord, 0.0), sampled.Prefiltered);
         	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, sampled, surface, payload);
+        	if (dbg == 6)
+        	{
+        		const vec3 ambientDiffuse =
+        		     ambient - DesertEvaluateShadingModelAmbientSpecular(shadingModel, sampled, surface, payload);
+        		oColor = vec4(max(ambientDiffuse, vec3(0.0)) * ScreenSpaceGi.y, 1.0);
+        		return;
+        	}
 
         	// Self-illumination (view-independent) — added here (not lit) so HDR emissive reaches the composite
         	// and blooms, matching the forward path. GBufferEmissive is 0 where the material has none.
