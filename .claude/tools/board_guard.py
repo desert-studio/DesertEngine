@@ -140,7 +140,19 @@ def night_until():
 
 def landing():
     """A merge (land_dev.sh) running counts as the working slot it is."""
-    return subprocess.run(["pgrep", "-f", "land_dev.sh"], capture_output=True).returncode == 0
+    try:
+        return subprocess.run(["pgrep", "-f", "land_dev.sh"], capture_output=True).returncode == 0
+    except OSError:
+        pass
+    # Windows has no pgrep: the command lines of the running processes, through CIM
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                              "(Get-CimInstance Win32_Process -Filter \"CommandLine like '%land_dev.sh%' "
+                              "and not CommandLine like '%Win32_Process%'\").Count"],
+                             capture_output=True, text=True, timeout=20).stdout.strip()
+        return out.isdigit() and int(out) > 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def unaccepted(s):
