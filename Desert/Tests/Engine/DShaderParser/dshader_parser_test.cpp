@@ -662,7 +662,7 @@ Shader "Sugar"
     Domain Surface
     Vertex
     {
-        In(0) vec3 a_Position;
+        #include <Mesh/MeshVertexInputs.glslh>
         Out(1) vec2 v_UV;
         PushConstant Push { mat4 M; } pc;
         void main() { gl_Position = pc.M * vec4(a_Position, 1.0); v_UV = vec2(0.0); }
@@ -685,7 +685,8 @@ Shader "Sugar"
     const std::string& vs = stages.at( ShaderStage::Vertex );
     const std::string& fs = stages.at( ShaderStage::Fragment );
 
-    EXPECT_NE( vs.find( "layout(location = 0) in vec3 a_Position;" ), std::string::npos );
+    // A vertex stage declares no input of its own: they are generated (Graphic/ShaderProtocols/VertexInputs.hpp).
+    EXPECT_NE( vs.find( "#include <Mesh/MeshVertexInputs.glslh>" ), std::string::npos );
     EXPECT_NE( vs.find( "layout(location = 1) out vec2 v_UV;" ), std::string::npos );
     EXPECT_NE( vs.find( "layout(push_constant) uniform Push { mat4 M; } pc;" ), std::string::npos );
     EXPECT_NE( fs.find( "layout(binding = 3) uniform sampler2D u_Tex;" ), std::string::npos );

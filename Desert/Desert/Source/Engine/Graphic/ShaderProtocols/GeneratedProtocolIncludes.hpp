@@ -7,6 +7,7 @@
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SkinnedMaterialUB.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
+#include <Engine/Graphic/ShaderProtocols/VertexInputs.hpp>
 
 #include <array>
 #include <cstdint>
@@ -66,7 +67,8 @@ namespace Desert::Graphic::ShaderProtocols
                    "a scene protocol block is generated on a slot another protocol, a lit program's own resource "
                    "(material row / terrain layer arrays) or a reserved range already holds" );
 
-    /// THE INCLUDES WHOSE TEXT IS GENERATED FROM A C++ PROTOCOL (Std140Block.hpp) rather than read from disk.
+    /// THE INCLUDES WHOSE TEXT IS GENERATED FROM A C++ PROTOCOL (Std140Block.hpp uniform blocks, VertexInputs.hpp
+    /// vertex inputs) rather than read from disk.
     /// @p requested is an angle include's shader-root-relative path, normalised with '/' separators. Asked by the
     /// shader includer (to serve the text) and by the shader cache key (to hash it and walk it) — the two must
     /// agree, so both ask here. nullptr: not a generated include.
@@ -86,6 +88,14 @@ namespace Desert::Graphic::ShaderProtocols
             return &SpotLightsUBGlsl();
         if ( requested == kSkinnedBonesInclude )
             return &SkinnedBonesGlsl();
+        if ( requested == kMeshVertexInputsInclude )
+            return &MeshVertexInputsGlsl();
+        if ( requested == kMeshSkinnedVertexInputsInclude )
+            return &MeshSkinnedVertexInputsGlsl();
+        if ( requested == kMeshVertexAccessInclude )
+            return &MeshVertexAccessIncludeGlsl();
+        if ( requested == kUIVertexInputsInclude )
+            return &UIVertexInputsGlsl();
         return nullptr;
     }
 } // namespace Desert::Graphic::ShaderProtocols

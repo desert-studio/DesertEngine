@@ -112,6 +112,17 @@ namespace Desert::Graphic::API::Vulkan
             // built against the shader's inputs, not the mesh's full stream list.
             std::vector<uint32_t> VertexInputLocations;
 
+            // The same inputs with their names and GLSL types, checked against the layout field fed at each
+            // location (ShaderReflection::BuildVertexInput): the inputs are generated from the C++ vertex format
+            // (ShaderProtocols/VertexInputs.hpp), so a disagreement is a stage built against another format.
+            struct VertexInputDeclaration
+            {
+                uint32_t    Location = 0;
+                std::string Name;
+                std::string Glsl;
+            };
+            std::vector<VertexInputDeclaration> VertexInputs;
+
             // Every colour location the FRAGMENT stage writes, sorted and unique. A colour slot of the target
             // outside this set is drawn with write mask 0 (ShaderReflection::BuildColorBlendAttachments).
             std::vector<uint32_t> FragmentOutputLocations;
