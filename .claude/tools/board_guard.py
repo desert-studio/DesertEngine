@@ -16,6 +16,13 @@ and a lead decision went only into an agent's REMAINDER. Rules (lead session onl
    card waiting on a handed-in code is either launched or reported to the owner. One query clears every pending code;
    the turn may end meanwhile (owner 10-19: blocking Stop re-ran the lead's whole turn after each hand-in).
 
+5. Tails (owner 10-27: «я несколько недель напоминаю про хвосты, а ты всё равно забываешь после clear»). The board is
+   mirrored into state["board"] from every query/update/create. A tail = a card of this machine in В работе / Готово к
+   старту / На проверке / Заблокировано. SessionStart prints the tails (--session-start); a launch of anything that is not
+   a tail is refused while tails exist, unless the prompt carries «ХВОСТ: <tail code>» (a closer for that tail) or
+   «ВЛАДЕЛЕЦ: «<quote>»» with a quote the owner typed this session; Stop is blocked once while a card of this machine is
+   «В работе» with no live agent (abandoned work — set its honest status or relaunch it).
+
 State: ~/.claude/board_guard_state.json {pages: {page_id: code}, writes: {code: t}, pending: {code: t}, agents: {id: code}}.
 """
 import json
@@ -41,8 +48,10 @@ def load():
             s = json.load(f)
     except (OSError, ValueError):
         s = {}
-    for k in ("pages", "writes", "pending", "agents", "unblock", "launched", "stopped"):
+    for k in ("pages", "writes", "pending", "agents", "unblock", "launched", "stopped", "board"):
         s.setdefault(k, {})
+    s.setdefault("prompts", [])
+    s.setdefault("board_t", 0)
     return s
 
 
@@ -150,6 +159,105 @@ def unblock_reason(codes):
             "(владелец 10-14: SCR-DETAILS 5 дней в бэклоге после SCR-PORT-2).")
 
 
+# ---- Tails (rule 5) --------------------------------------------------------------------------------------------------
+BOARD = "collection://386f5e0e-e749-479b-83a7-59e03ef9b8b2"
+TAIL_STATUSES = ("В работе", "Готово к старту", "На проверке", "Заблокировано")
+TAILS_SQL = ("SELECT \"Код\",\"Статус\",\"Зона\",\"Приоритет\",substr(\"Кто ведёт\",1,60) AS who,substr(\"Обновлено\",1,10) AS upd "
+             f"FROM \"{BOARD}\" WHERE \"Статус\" IN ('В работе','Готово к старту','На проверке','Заблокировано') -- TAILS")
+SNAPSHOT_MAX_AGE = 12 * 3600
+FOREIGN = "Mac" if sys.platform == "win32" else "Windows"
+
+
+def foreign(row):
+    who = (row.get("who") or "").lstrip()
+    return who.startswith("Mac") if FOREIGN == "Mac" else who.startswith("Windows")
+
+
+def tails(s):
+    return {c: r for c, r in s["board"].items() if r.get("status") in TAIL_STATUSES and not foreign(r)}
+
+
+def abandoned(s):
+    if landing():
+        return []
+    return sorted(c for c, r in tails(s).items() if r.get("status") == "В работе" and not running_agent(s, c))
+
+
+def ingest_rows(s, resp, full, paged=False):
+    """Mirror board rows («Код» + «Статус») from a query response; a full TAILS query also drops closed tails."""
+    seen, partial = set(), paged
+    for text in resp:
+        try:
+            obj = json.loads(text)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        partial |= bool(obj.get("has_more"))
+        for row in obj.get("results") or []:
+            code, status = row.get("Код"), row.get("Статус")
+            if not code or not status:
+                continue
+            seen.add(code)
+            cur = s["board"].setdefault(code, {})
+            cur["status"] = status
+            for src, dst in (("Зона", "zone"), ("Приоритет", "prio"), ("who", "who"), ("Кто ведёт", "who"), ("upd", "upd")):
+                if row.get(src) is not None:
+                    cur[dst] = str(row[src])[:60]
+    if full and not partial:  # a paged answer (has_more) has not seen every tail: closing the unseen would lie
+        for code in list(s["board"]):
+            if code not in seen and s["board"][code].get("status") in TAIL_STATUSES:
+                s["board"][code]["status"] = "закрыта"
+    if full:
+        s["board_t"] = time.time()
+
+
+def owner_quote_ok(s, prompt):
+    m = re.search(r"ВЛАДЕЛЕЦ:\s*«([^»]{12,})»", prompt)
+    return bool(m) and any(m.group(1).strip().lower() in t.lower() for _, t in s["prompts"])
+
+
+def launch_refusal(s, code, prompt):
+    """Rule 5: while tails exist, only a tail (or a closer naming one, or an owner-quoted feature) may be launched."""
+    if time.time() - s["board_t"] > SNAPSHOT_MAX_AGE:
+        return ("снимок доски старше 12 ч — сначала один notion-query-data-sources с хвостами (он обновит снимок): " + TAILS_SQL)
+    t = tails(s)
+    row = s["board"].get(code) or {}
+    if not t or (row.get("status") in TAIL_STATUSES and not row.get("new")) or code in s["agents"].values():
+        return None  # a tail, or a later pass of work already started
+    named = re.search(r"ХВОСТ:\s*(" + CODE_RE + r")", prompt)
+    if named and named.group(1) in t:
+        return None
+    if owner_quote_ok(s, prompt):
+        return None
+    return (f"{code} — не хвост (статус «{row.get('status', 'Бэклог/новая')}»), а открытых хвостов {len(t)} "
+            "(владелец 10-27: хвосты первыми, «фичи можно, если хвосты закрыты»). Запусти хвост; закрывашку хвоста помечай "
+            "в промпте «ХВОСТ: <КОД хвоста>»; новую фичу — только с «ВЛАДЕЛЕЦ: «<его слова этой сессии>»».")
+
+
+def session_start(s):
+    t = tails(s)
+    age = (time.time() - s["board_t"]) / 3600 if s["board_t"] else None
+    out = []
+    if age is None or age > SNAPSHOT_MAX_AGE / 3600:
+        out.append("[tails] снимок доски " + ("пуст" if age is None else f"старше {age:.0f} ч") +
+                   " — ПЕРВЫЙ вызов сессии: notion-query-data-sources " + TAILS_SQL)
+    if t:
+        by = {}
+        for c, r in t.items():
+            by.setdefault(r.get("status"), []).append(c)
+        owner = sorted((c for c, r in t.items() if r.get("prio") == "Владелец назвал"), key=lambda c: t[c].get("upd") or "")
+        out.append(f"[tails] ХВОСТЫ ПЕРВЫМИ (владелец 10-27, после /clear не забывать): открыто {len(t)} — " +
+                   "; ".join(f"{k} {len(v)}" for k, v in sorted(by.items())))
+        gone = abandoned(s)
+        if gone:
+            out.append("[tails] БРОШЕНО («В работе» без агента): " + " ".join(gone))
+        if owner:
+            out.append(f"[tails] «Владелец назвал» {len(owner)}, старейшие: " + " ".join(owner[:20]) + (" …" if len(owner) > 20 else ""))
+        out.append("[tails] Новая фича не запустится, пока хвосты открыты (board_guard), кроме «ВЛАДЕЛЕЦ: «цитата»».")
+    print("\n".join(out))
+
+
 PUSH_RE = re.compile(r"\bgit\b[^;&|]*\bpush\b([^;&|]*)")
 STALE_SECONDS = 24 * 3600
 MAX_BEHIND = 40
@@ -189,6 +297,9 @@ def push_refusal(cmd):
 
 
 def main():
+    if "--session-start" in sys.argv:
+        session_start(load())
+        sys.exit(0)
     try:
         data = json.load(sys.stdin)
     except ValueError:
@@ -197,6 +308,12 @@ def main():
     tool = data.get("tool_name") or ""
     tin = data.get("tool_input") or {}
     s = load()
+
+    if event == "UserPromptSubmit":
+        s["prompts"] = [p for p in s["prompts"] if time.time() - p[0] < 48 * 3600][-40:] + \
+            [[time.time(), str(data.get("prompt") or "")[:4000]]]
+        save(s)
+        sys.exit(0)
 
     if event == "SubagentStop":
         code = s["agents"].get(data.get("agent_id") or "") or \
@@ -232,6 +349,10 @@ def main():
                   ". Приём = карточка: Статус (На проверке/Сделано/В работе), «Кто ведёт», итог и остаток в теле."})
         # Rule 4 is NOT enforced at Stop (owner 10-19: a blocked Stop re-ran the whole lead turn after every
         # hand-in); it is enforced before the next Agent launch, where the check actually changes what runs.
+        gone = abandoned(s)
+        if gone and not late and not data.get("stop_hook_active"):
+            emit({"decision": "block", "reason": "[board_guard] Брошено — «В работе» без живого агента: " + " ".join(gone) +
+                  ". Запусти или поставь честный статус (Готово к старту / Заблокировано с причиной) — владелец 10-27: хвосты не бросать."})
         night = night_until()
         if night and not data.get("stop_hook_active"):
             busy = running_count(s)
@@ -248,18 +369,28 @@ def main():
         now = time.time()
         if tool.endswith("notion-create-pages"):
             for page in tin.get("pages") or []:
-                code = (page.get("properties") or {}).get("Код")
+                props = page.get("properties") or {}
+                code = props.get("Код")
                 if code:
                     s["writes"][code] = now
+                    s["board"][code] = {"status": props.get("Статус") or "Бэклог", "zone": props.get("Зона"),
+                                        "prio": props.get("Приоритет"), "who": str(props.get("Кто ведёт") or "")[:60], "new": now}
         elif tool.endswith("notion-update-page"):
             code = s["pages"].get(norm(tin.get("page_id")))
             if code:
                 s["writes"][code] = now
-                status = (tin.get("properties") or {}).get("Статус")
+                props = tin.get("properties") or {}
+                status = props.get("Статус")
+                row = s["board"].setdefault(code, {})
+                if status:
+                    row["status"] = status
+                if props.get("Кто ведёт"):
+                    row["who"] = str(props["Кто ведёт"])[:60]
                 if status in ("На проверке", "Сделано"):
                     s["unblock"][code] = now
         elif tool.endswith("notion-query-data-sources"):
             sql = json.dumps(tin, ensure_ascii=False)
+            ingest_rows(s, list(strings(data.get("tool_response"))), "-- TAILS" in sql, "OFFSET" in sql.upper())
             if "Владелец назвал" in sql:
                 # One query over the owner-named backlog answers for every code handed in so far (owner 10-19).
                 s["unblock"].clear()
@@ -302,6 +433,9 @@ def main():
             if alive:
                 deny(f"агент {code} ещё работает ({alive}): второй агент на ту же задачу правит то же дерево и сжигает "
                      "токены впустую (10-20: двойной PT-GLASS, 2,3 млн). Дождись его уведомления или TaskStop, потом запускай.")
+            refusal = code not in s["writes"] or launch_refusal(s, code, str(tin.get("prompt") or ""))
+            if isinstance(refusal, str):
+                deny(refusal)
             if code not in s["writes"]:
                 deny(f"нет карточки {code} на доске «Задачи»: создай/обнови ДО запуска (Код={code}, Статус «В работе», "
                      "Ветка, «Кто ведёт»; заголовок «КОД · …»): notion-search по коду → update_properties по шаблону "
