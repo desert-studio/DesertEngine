@@ -272,8 +272,11 @@ namespace Desert::Graphic::System
         // resolved PathTracing.Denoiser is RR (Auto settled to it on a device that offers it). The view then runs
         // that temporal method at its render scale whatever AntiAliasing.Method says (SceneRenderer::BeginScene /
         // OnUpdate); otherwise it renders at 100 % with no temporal method (the accumulation is its own
-        // anti-aliasing). The frame itself asks the upscaler that was made (FrameInputs::RawToUpscaler): a
-        // runtime that refused Ray Reconstruction leaves the view on the accumulation and the ReLAX denoiser.
+        // anti-aliasing). A runtime that refused Ray Reconstruction after the catalog offered it is not RR here:
+        // the device withdraws it (VulkanPhysicalDevice::RefreshRuntimeOffers, CapabilityCatalog::
+        // RefusedAtRuntime) and Resolve settles the denoiser to ReLAX with a Fallback, so the view is exactly a
+        // device without RR (100 %, no jitter, ReLAX). The frame still asks the upscaler that was made
+        // (FrameInputs::RawToUpscaler) for the one frame between a refusal and the next resolution.
         [[nodiscard]] static bool KeepsDenoisingUpscaler( const Common::Scalability::ResolvedQuality& quality )
         {
             using Common::Scalability::Parameter;

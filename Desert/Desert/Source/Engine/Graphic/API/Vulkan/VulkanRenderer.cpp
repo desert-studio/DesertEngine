@@ -74,6 +74,13 @@ namespace Desert::Graphic::API::Vulkan
         // frame that actually recorded.
         DrawCounter::Roll();
 
+        // Before any view begins: a vendor runtime that refused a method since the catalog offered it withdraws
+        // it here, and Resolve lowers it (VulkanPhysicalDevice::RefreshRuntimeOffers) - the frame's views read a
+        // resolution that no longer names a method that cannot run.
+        SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
+             ->GetPhysicalDevice()
+             ->RefreshRuntimeOffers();
+
         // ONE PATH, WINDOW OR NOT. BeginRdgFrame waited this slot's fence (VulkanFrameLoop::BeginSlot) and began
         // its objects; the frame records into a graphics command buffer of the slot, already begun. A window is
         // only an output of PresentFinalImage's submission (Desert/Tests/Engine/EngineHost runs this same frame

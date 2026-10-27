@@ -694,6 +694,9 @@ namespace Common::Scalability
         };
 
         constexpr std::string_view kNotOffered = "not offered by this device";
+        // CapabilityCatalog::RefusedAtRuntime: the device offered it, its vendor runtime then refused it (the
+        // runtime's own reason is in its log line, e.g. "[Streamline] ... is not offered: ...").
+        constexpr std::string_view kRefusedAtRuntime = "refused by its runtime on this device";
 
         // A render-method ceiling (RenderMethods.hpp) down its ladder - the enum's order - past what this device
         // cannot run (no ray query) and what this build does not implement. The table cannot name an unimplemented
@@ -767,7 +770,9 @@ namespace Common::Scalability
                         to = AntiAliasingMethod::DLSS;
                     else if ( !CapabilityCatalog::Offers( catalog.AntiAliasingMethods, to ) )
                         to = AntiAliasingMethod::TAA;
-                    r.Set( spec.Id, static_cast<ParameterValue>( to ), kNotOffered );
+                    r.Set( spec.Id, static_cast<ParameterValue>( to ),
+                           CapabilityCatalog::Offers( catalog.RefusedAtRuntime, method ) ? kRefusedAtRuntime
+                                                                                         : kNotOffered );
                     return;
                 }
                 case CatalogList::MSAACounts:
@@ -787,16 +792,28 @@ namespace Common::Scalability
                     // everywhere.
                     const bool offersRR = CapabilityCatalog::Offers( catalog.AntiAliasingMethods,
                                                                      AntiAliasingMethod::DLSSRayReconstruction );
-                    const auto method   = static_cast<PathTracingDenoiserMethod>( value );
-                    const auto relax    = static_cast<ParameterValue>( PathTracingDenoiserMethod::ReLAX );
+                    const bool refusedRR = CapabilityCatalog::Offers( catalog.RefusedAtRuntime,
+                                                                      AntiAliasingMethod::DLSSRayReconstruction );
+                    const auto method    = static_cast<PathTracingDenoiserMethod>( value );
+                    const auto rr        = static_cast<ParameterValue>( PathTracingDenoiserMethod::RR );
+                    const auto relax     = static_cast<ParameterValue>( PathTracingDenoiserMethod::ReLAX );
                     // Auto is a request to settle, not a value that fell back: Resolve reports no Fallback for it
-                    // (SettlesUnreported).
+                    // (SettlesUnreported). Except where the device offered RR and its runtime then refused it:
+                    // Auto settled to RR on that offer, so the request becomes RR and its lowering to ReLAX is a
+                    // Fallback like an explicit RR's, logged and shown, exactly as the runtime's refusal of an
+                    // offered method is everywhere else.
                     if ( method == PathTracingDenoiserMethod::Auto )
-                        r.Set( spec.Id,
-                               offersRR ? static_cast<ParameterValue>( PathTracingDenoiserMethod::RR ) : relax,
-                               {} );
-                    else if ( method == PathTracingDenoiserMethod::RR && !offersRR )
-                        r.Set( spec.Id, relax, kNotOffered );
+                    {
+                        if ( offersRR || !refusedRR )
+                        {
+                            r.Set( spec.Id, offersRR ? rr : relax, {} );
+                            return;
+                        }
+                        r.Requested[static_cast<std::size_t>( spec.Id )] = rr;
+                    }
+                    else if ( method != PathTracingDenoiserMethod::RR || offersRR )
+                        return;
+                    r.Set( spec.Id, relax, refusedRR ? kRefusedAtRuntime : kNotOffered );
                     return;
                 }
             }

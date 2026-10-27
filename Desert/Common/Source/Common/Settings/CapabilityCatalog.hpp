@@ -253,6 +253,13 @@ namespace Common::Scalability
         // method without history is always available and is not listed (it is not a choice).
         std::vector<AntiAliasingMethod> AntiAliasingMethods;
 
+        // Reader: Resolve (AntiAliasingMethod, PathTracing.Denoiser). The vendor methods an earlier catalog of
+        // this device offered and whose runtime then refused them (Streamline at device creation, or an
+        // evaluation that faulted): never in AntiAliasingMethods. Resolve lowers them as not offered, naming the
+        // runtime as the reason, and PathTracing.Denoiser Auto that settled to RR on the offer falls back from RR
+        // to ReLAX, reported (a device that never offered RR settles Auto to ReLAX silently). Mac: always empty.
+        std::vector<AntiAliasingMethod> RefusedAtRuntime;
+
         // Reader: AntiAliasing group (AntiAliasingSamples). Colour AND depth sample counts both supported,
         // ascending, always starting with 1. Mac: Apple GPUs report 1/2/4 (8 on some), MoltenVK passes them on.
         std::vector<int> MSAACounts;

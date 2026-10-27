@@ -52,6 +52,11 @@ namespace Desert::Graphic::API::Vulkan
         // DLSS Ray Reconstruction (Streamline sl.dlss_d): its own plugin, NGX feature and device requirements, so
         // its own answer; offered only beside DlssAvailable.
         bool DlssRayReconstructionAvailable = false;
+        // The runtime offered the feature to an earlier probe of this device and has refused it since (at device
+        // creation, or an evaluation that faulted): CapabilityCatalog::RefusedAtRuntime. Never beside its
+        // *Available.
+        bool DlssRefused                  = false;
+        bool DlssRayReconstructionRefused = false;
         bool FsrAvailable     = false;
         bool XessAvailable    = false;
         bool MetalFxAvailable = false;

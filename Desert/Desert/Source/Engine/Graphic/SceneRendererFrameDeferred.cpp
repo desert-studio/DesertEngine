@@ -1444,8 +1444,9 @@ namespace Desert::Graphic
              PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash, cloudShadow );
         inputs.DynamicGeometry = rt.DynamicGeometry;
         // PathTracing.Denoiser RR and the upscaler this frame resolves with denoises: the paths go to it raw
-        // (System::PathTracer, THE DENOISER). Asked of the upscaler that was made, so a runtime that refused Ray
-        // Reconstruction leaves the view on the accumulation and the ReLAX denoiser.
+        // (System::PathTracer, THE DENOISER). Asked of the upscaler that was made too: a runtime refusal reaches
+        // Resolve at the next frame's start (VulkanPhysicalDevice::RefreshRuntimeOffers), and the frame in between
+        // must not hand raw paths to an upscaler that does not denoise.
         inputs.RawToUpscaler =
              m_PathTracingSettings.Denoiser == Common::Scalability::PathTracingDenoiserMethod::RR &&
              m_TemporalUpscaler != nullptr && m_TemporalUpscaler->TakesRawLightingSignals();

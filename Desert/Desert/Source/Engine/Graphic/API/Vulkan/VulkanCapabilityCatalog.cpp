@@ -91,6 +91,12 @@ namespace Desert::Graphic::API::Vulkan
         catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::TSR );
         if ( dlss && probe.DlssRayReconstructionAvailable )
             catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::DLSSRayReconstruction );
+        // What the runtime offered and then refused (CapabilityCatalog::RefusedAtRuntime): DLSS is NVIDIA-only
+        // here too, so a refusal on another vendor's device was never an offer.
+        if ( probe.VendorId == kVendorNvidia && probe.DlssRefused )
+            catalog.RefusedAtRuntime.push_back( AntiAliasingMethod::DLSS );
+        if ( probe.VendorId == kVendorNvidia && probe.DlssRayReconstructionRefused )
+            catalog.RefusedAtRuntime.push_back( AntiAliasingMethod::DLSSRayReconstruction );
         if ( probe.XessAvailable )
             catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::XeSS );
         if ( probe.MetalFxAvailable && probe.Portability )

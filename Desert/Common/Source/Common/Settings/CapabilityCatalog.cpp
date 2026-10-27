@@ -110,6 +110,8 @@ namespace Common::Scalability
     {
         std::string out = "[Catalog]";
         AppendList( out, "aa", catalog.AntiAliasingMethods );
+        if ( !catalog.RefusedAtRuntime.empty() )
+            AppendList( out, "refused", catalog.RefusedAtRuntime );
         AppendList( out, "msaa", catalog.MSAACounts );
         std::format_to( std::back_inserter( out ), " scale={}..{}%", catalog.RenderScale.MinPercent,
                         catalog.RenderScale.MaxPercent );

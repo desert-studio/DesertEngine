@@ -205,6 +205,9 @@ namespace Desert::Graphic::Streamline
         {
             bool        Candidate = false; // supported + requirements enabled on the device
             bool        Ready     = false; // slSetVulkanInfo accepted, entry points resolved
+            // AmendCatalogProbe reported it as available: a later Refuse is a refusal of an offered method
+            // (CatalogProbe::Dlss*Refused). Written under m_Mutex by the const AmendCatalogProbe.
+            mutable bool Offered = false;
             std::string Refusal;
         };
         // One feature refuses itself; the other keeps its state.
