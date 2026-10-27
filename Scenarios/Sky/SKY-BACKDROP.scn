@@ -11,5 +11,9 @@
 Когда --subject viewport set Camera.Direction 0.811,0.0,0.579
 Когда --subject selection set SunElevation 3
 Тогда-вид 2_sunset orange sunset at the horizon, the disc at the horizon
-# 3_colors: ZenithColor is not settable through `selection set` (only Transform offers properties);
-# needs a Starter copy with ZenithColor 1,0,0 opened by "Open Scene", or a Details-path setter.
+# 3_colors: a Starter copy whose ONLY difference is ZenithColor 1,0,0, opened AFTER Starter.
+Когда run Scene "Open Scene SKY_BackdropRedZenith.desce"
+Когда --subject viewport set Camera.FOV 60
+Когда --subject viewport set Camera.Position 0,300,0
+Когда --subject viewport set Camera.Direction 0.2,0.95,0.2
+Тогда-вид 3_colors the zenith is red: the new scene's parameters reached the sky
