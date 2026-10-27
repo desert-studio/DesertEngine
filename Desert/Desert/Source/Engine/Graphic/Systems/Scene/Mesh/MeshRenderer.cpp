@@ -722,6 +722,8 @@ namespace Desert::Graphic::System
             if ( gpu.Material )
                 if ( const auto* mat = dynamic_cast<const DataDrivenMaterial*>( gpu.Material->GetParentMaterial() ) )
                     (void)RegisterMaterialRow( registry, mat, gpu.Material.get(), true );
+        // The generic queue's rows (per-slot assets, Shader Override records) and its stand-in's.
+        RegisterGenericRows( registry );
         // The default surface's rows: what every stand-in draw of this frame names.
         const bool anyMeshDraw = !m_StaticQueue.empty() || !m_InstancedQueue.empty() || !m_SkinnedQueue.empty() ||
                                  !m_GpuInstancedQueue.empty();

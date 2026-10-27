@@ -99,13 +99,16 @@ namespace Desert::Graphic::GpuDriven
 
     // A row's identity in the scene material table (GpuScene::AddMaterialRow): the template whose layout the row
     // has (its schema), the instance whose overrides it carries (null = the template's own values) and the
-    // per-primitive bits that change the row's values (kMaterialRowNoSunShadows). The values themselves are not the
-    // key: a changed parameter re-uploads the same row, and an address reused by a new instance re-uploads too.
+    // per-primitive bits that change the row's values (kMaterialRowNoSunShadows). Owner: the primitive whose values
+    // the row carries when no material instance holds them (a Shader Override draw: its entity and part, packed by
+    // MeshRenderer), 0 otherwise. The values themselves are not the key: a changed parameter re-uploads the same
+    // row, and an address reused by a new instance re-uploads too.
     struct MaterialRowKey
     {
         const void* Material = nullptr;
         const void* Instance = nullptr;
         uint32_t    Variant  = 0;
+        uint64_t    Owner    = 0;
         bool        operator==( const MaterialRowKey& ) const = default;
     };
     // The component's Receive Shadows off zeroes the row's ReceiveSunShadows (MeshRenderer::SyncGpuScene).
@@ -117,7 +120,9 @@ namespace Desert::Graphic::GpuDriven
         {
             const std::size_t material = std::hash<const void*>{}( key.Material );
             const std::size_t instance = std::hash<const void*>{}( key.Instance );
-            return material ^ ( instance * 0x9E3779B97F4A7C15ull ) ^ ( static_cast<std::size_t>( key.Variant ) << 1u );
+            const std::size_t owner    = std::hash<uint64_t>{}( key.Owner );
+            return material ^ ( instance * 0x9E3779B97F4A7C15ull ) ^ ( static_cast<std::size_t>( key.Variant ) << 1u ) ^
+                   ( owner * 0xC2B2AE3D27D4EB4Full );
         }
     };
 

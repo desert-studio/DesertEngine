@@ -72,7 +72,12 @@ namespace Desert::Graphic::System
             material.ApplyDefaults();
             for ( const auto& [name, value] : g.Overrides.Params )
                 material.SetParamRaw( name, value );
+            ApplyGenericTextures( material, g, shaderName, logRefused );
+        }
 
+        void ApplyGenericTextures( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
+                                   const std::string_view shaderName, const bool logRefused )
+        {
             // Texture overrides: resolve asset handle -> runtime Image2D and bind by sampler name.
             // Unset samplers keep the backend fallback texture, so this is purely additive. Bound on
             // the material and not per draw, because the key above guarantees every draw sharing
@@ -99,6 +104,64 @@ namespace Desert::Graphic::System
                 LogRefusedTextureOverride( shaderName, g.DirectTextureSampler );
         }
     } // namespace MeshRendererDetail
+
+    void MeshRenderer::RegisterGenericRows( GpuDriven::GpuSceneRegistry& registry )
+    {
+        m_GenericStandInRow.reset();
+        if ( m_GenericQueue.empty() )
+            return;
+        // The stand-in's row: the default surface material is created with its pipeline (DefaultSurfacePipeline).
+        if ( DefaultSurfacePipeline() && m_DefaultSurfaceMaterial )
+            m_GenericStandInRow = RegisterMaterialRow( registry, m_DefaultSurfaceMaterial.get(), nullptr, true );
+
+        auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
+        for ( auto& g : m_GenericQueue )
+        {
+            g.MaterialRow.reset();
+            if ( g.Mesh == nullptr )
+                continue;
+            if ( g.SlotMaterial != nullptr )
+            {
+                // A per-slot draw's material IS the asset: its values were applied when it loaded, and its row is
+                // the asset's (the key the static queue and the card capture name for it too). Its program
+                // variants (MaterialService::GetVariant) are built from the same asset and read the same row.
+                if ( const auto* const slot = dynamic_cast<const DataDrivenMaterial*>( g.SlotMaterial ) )
+                    g.MaterialRow = RegisterMaterialRow( registry, slot, nullptr, true );
+                continue;
+            }
+            // A Shader Override draw owns no material: several entities share one per (template x texture set),
+            // so each record's values are its own row — the template's defaults, its Overrides.Params and the
+            // texture slots of its texture overrides — keyed by its entity part. That is what keeps three spheres
+            // differing only in a graph parameter three colours (MAT_ProbeSharedBlock.desce).
+            const auto shader = shaders->GetByName( g.ShaderName );
+            if ( !shader || !shader->IsCompiled() ||
+                 !Core::Formats::DrawnByMeshPath( shader->GetProgramMeta().Domain ) )
+                continue; // ShaderService named the compile error; BuildGenericDraws names the refused domain
+            auto& shared = m_GenericMaterials[g.ShaderName + GenericTextureKey( g )];
+            if ( !shared )
+                shared = std::make_unique<DataDrivenMaterial>( shader );
+            // The draw-time slices name a refused texture; this row build does not repeat it.
+            ApplyGenericOverrides( *shared, g, g.ShaderName, false );
+            const GpuDriven::MaterialRowKey key{ .Material = shared.get(),
+                                                 .Owner    = ( static_cast<uint64_t>( g.Entity ) << 32u ) |
+                                                          static_cast<uint64_t>( g.MotionPart ) };
+            const auto [it, inserted] = m_FrameMaterialRows.try_emplace( key, 0u );
+            if ( inserted )
+                it->second = registry.SyncMaterialRow( key, shared->GetParamRow() );
+            else
+            {
+                // Two records of one entity part through one (template x texture set): one row, so their values
+                // must agree; the second one's would silently take the first one's colours.
+                static std::unordered_set<std::string> s_Shared;
+                if ( s_Shared.insert( g.ShaderName ).second )
+                    LOG_ERROR( "[MeshRenderer] entity {} part {} submits two '{}' Shader Override draws with one "
+                               "texture set; they share one row of the scene material table (the first one's "
+                               "values).",
+                               g.Entity, g.MotionPart, g.ShaderName );
+            }
+            g.MaterialRow = it->second;
+        }
+    }
 
     void MeshRenderer::BuildGenericDraws( MeshDrawList& list, const GenericSlice slice )
     {
@@ -127,22 +190,18 @@ namespace Desert::Graphic::System
         // Reused across frames like every other accumulator in this file — this runs once per frame per
         // submesh group, and two fresh vectors a frame is the allocation churn the optimization workflow
         // says not to write.
-        auto& draws          = m_ScratchGenericDraws;
-        auto& rowsByMaterial = m_ScratchGenericRows;
+        auto& draws     = m_ScratchGenericDraws;
+        auto& recorders = m_ScratchGenericRecorders;
         draws.clear();
-        rowsByMaterial.clear();
-
-        const auto rowsFor = [&rowsByMaterial]( DataDrivenMaterial* mat ) -> MaterialRows&
-        {
-            for ( auto& [m, r] : rowsByMaterial )
-                if ( m == mat )
-                    return r;
-            rowsByMaterial.emplace_back( mat, MaterialRows{} );
-            return rowsByMaterial.back().second;
-        };
+        recorders.clear();
 
         for ( const auto& g : m_GenericQueue )
         {
+            // Its row in the scene material table (SyncGpuScene resolved it from the same record); none means
+            // SyncGpuScene could not shade it (no compiled program, a refused domain) and said so.
+            if ( !g.MaterialRow )
+                continue;
+
             // CULLED ON THE AUTHORED BOX, and that is only sound because no vertex stage of this queue
             // moves a vertex off it. (The instanced stages do since FO-7 - foliage wind - and the ISM loops
             // cull on the wind-widened box for exactly this reason: CollectIsmInstances.) A data-driven material
@@ -419,50 +478,38 @@ namespace Desert::Graphic::System
                 }
             }
 
-            // ── This draw's ROW ─────────────────────────────────────────────────────────────────────
+            // ── This draw's ROW: the scene material table's ─────────────────────────────────────────
             //
-            // A shader-override draw does not own its material: several entities share one within a
-            // frame, so each restates its own values. A per-slot draw is the opposite — the material IS
-            // the asset, its values were applied when the asset loaded, and restating them here would
-            // overwrite them with schema defaults.
-            //
-            // Either way the values end up as a row rather than in the material's own block, which is
-            // the whole change: the block WAS the parameters, so the last draw to write it decided the
-            // colours of every draw recorded before it, and three spheres differing only in a graph
-            // parameter rendered as one (MAT_ProbeSharedBlock.desce).
-            if ( g.SlotMaterial == nullptr && !standIn )
+            // SyncGpuScene put it there (one row per shader-override record, keyed by its entity part; a
+            // per-slot draw's row is its asset's, the stand-in's the default surface's). The recording material
+            // only carries the descriptors: a shader-override material takes the record's textures (a
+            // TextureBinding template's are descriptors of its set, which is why it is keyed by texture set).
+            std::optional<uint32_t> row = g.MaterialRow;
+            if ( standIn )
+                row = m_GenericStandInRow;
+            else if ( g.SlotMaterial == nullptr )
                 // The depth-normal program declares only what it reads: a texture it lacks is no refusal.
-                ApplyGenericOverrides( *material, g, shaderName, slice != GenericSlice::DeferredDepthNormal );
+                ApplyGenericTextures( *material, g, shaderName, slice != GenericSlice::DeferredDepthNormal );
+            if ( !row )
+                continue; // the stand-in's row: SyncGpuScene registers it whenever the generic queue is not empty
 
-            auto&       rows = rowsFor( material );
-            GenericDraw draw;
-            draw.Data     = &g;
-            draw.Material = material;
-            draw.Pipeline = pipeline;
-            draw.Row      = rows.Count;
-            ++rows.Count;
-            rows.Bytes.insert( rows.Bytes.end(), material->GetParamRow().begin(), material->GetParamRow().end() );
-            draws.push_back( draw );
+            if ( std::find( recorders.begin(), recorders.end(), material ) == recorders.end() )
+                recorders.push_back( material );
+            draws.push_back( { .Data = &g, .Material = material, .Pipeline = pipeline, .Row = *row } );
         }
 
         if ( draws.empty() )
             return;
 
-        // ── Upload every row BEFORE recording any draw ──────────────────────────────────────────────
+        // ── Lend the table to every recording material BEFORE recording any draw ────────────────────
         //
-        // At final size, and once, for the same reason DrawStaticMeshes does it: growing a storage
-        // buffer reallocates the VkBuffer, and a draw recorded against the old one would read freed
-        // memory. The scene snapshot goes on per MATERIAL rather than per draw — it depends only on
-        // scene-global state, and a shader that declares only CameraUB still receives only CameraUB.
-        for ( auto& [material, rows] : rowsByMaterial )
+        // The scene snapshot goes on per MATERIAL rather than per draw — it depends only on scene-global
+        // state, and a shader that declares only CameraUB still receives only CameraUB.
+        for ( DataDrivenMaterial* const material : recorders )
         {
             frameState.ApplyTo( material );
-            if ( rows.Bytes.empty() )
-                continue; // a shader with no parameters declares no Materials block to fill
-            // Find: the block can still be absent with rows to write (every field of it dead in the template).
-            if ( auto* sb = material->Find<StorageBufferProperty>( kMaterialRowBlock ) )
-                sb->SetRawData( rows.Bytes.data(),
-                                static_cast<uint32_t>( rows.Bytes.size() * sizeof( glm::vec4 ) ) );
+            if ( !LendMaterialTable( *material ) ) // said by name; its draws are not recorded
+                std::erase_if( draws, [material]( const GenericDraw& d ) { return d.Material == material; } );
         }
 
         // ── Record, IN QUEUE ORDER ──────────────────────────────────────────────────────────────────

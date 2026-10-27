@@ -423,6 +423,12 @@ namespace Desert::Graphic::System
             // the producer from the values this draw carries). Empty Template: a ray hit shades with SlotMaterial,
             // else the default surface. Read by the gather only when VisibleInRayTracing.
             RayTracing::RayTracingProgramHit RayHit;
+
+            // Its row in the scene material table (SyncGpuScene, RegisterGenericRows): a per-slot draw's is its
+            // asset's row, a Shader Override draw's its own (template defaults + Overrides.Params + texture slots,
+            // keyed by Entity/MotionPart). nullopt: SyncGpuScene could not shade the record (no compiled program,
+            // a domain the mesh path does not draw) and the record is not drawn.
+            std::optional<uint32_t> MaterialRow;
         };
 
         // THE MATERIAL A SECTION SHADES WITH, and whether it is Masked: the one answer the raster's casters
@@ -1714,6 +1720,9 @@ namespace Desert::Graphic::System
         // is not ready (static, instanced, skinned and glass stand-ins and the instanced spare all show the default
         // surface's defaults; every cell of one template declares one Materials layout).
         std::array<uint32_t, 2> m_StandInMaterialRows{};
+        // The generic path's stand-in row: m_DefaultSurfaceMaterial's own (SyncGpuScene, whenever m_GenericQueue
+        // is not empty), what a generic draw names while its pipeline compiles (BuildGenericDraws).
+        std::optional<uint32_t> m_GenericStandInRow;
 
         // THE SCENE MATERIAL TABLE, the one source of every mesh draw's Materials[] row (GpuScene::AddMaterialRow).
         // SyncGpuScene registers the row of every (template, instance) a queued draw shades with BEFORE the scene's
@@ -1733,6 +1742,9 @@ namespace Desert::Graphic::System
         // Lends the scene material table to @p material's Materials block (a template with no parameters declares
         // none: true, nothing to lend). False, said by name, when the table is not on the device.
         [[nodiscard]] bool LendMaterialTable( DataDrivenMaterial& material ) const;
+        // Every m_GenericQueue record's row (GenericMeshRenderData::MaterialRow) and m_GenericStandInRow, registered
+        // in @p registry: called by SyncGpuScene before the upload.
+        void RegisterGenericRows( GpuDriven::GpuSceneRegistry& registry );
         // The glass pass's stand-in: the default surface's (Static x Forward) cell with the translucent draw
         // state.
         TranslucentDraw* TranslucentStandIn();
@@ -1811,22 +1823,14 @@ namespace Desert::Graphic::System
             std::vector<InstancedDraw>  Draws;
         };
 
-        // One recorded generic draw, resolved in DrawGenericMeshes' first pass and executed in its third.
-        // The passes are separate because every row has to be uploaded at FINAL size before the first draw
-        // is recorded — growing a storage buffer reallocates the VkBuffer under a draw already recorded
-        // against the old one — and only the first pass knows how many rows there will be.
+        // One recorded generic draw, resolved in BuildGenericDraws' first pass and recorded after every recording
+        // material was lent the scene material table. Row: its row in that table (SyncGpuScene).
         struct GenericDraw
         {
             const GenericMeshRenderData*      Data     = nullptr;
             DataDrivenMaterial*               Material = nullptr;
             GraphicsPipeline*                 Pipeline = nullptr; // held by the pipeline cache / m_CellPipelines
             uint32_t                          Row = 0;
-        };
-        // One material's rows, end to end: Count rows of (parameter slots per row) vec4s.
-        struct MaterialRows
-        {
-            std::vector<glm::vec4> Bytes;
-            uint32_t               Count = 0;
         };
         struct ShadowBatch
         {
@@ -1900,7 +1904,7 @@ namespace Desert::Graphic::System
         std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>>
                                                                   m_MaskedCasterPipelines; // null = refused
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
-        std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
+        std::vector<DataDrivenMaterial*>         m_ScratchGenericRecorders; // distinct recording materials
         float                                                     m_WorldTimeSeconds = 0.0f;
         ParallaxQuality                                           m_ParallaxQuality;
         // SyncGpuScene's CPU scratch (capacity kept) and the scene's GPU scene it last synced into.
