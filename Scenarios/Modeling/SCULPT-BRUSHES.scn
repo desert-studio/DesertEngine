@@ -13,8 +13,8 @@
 Тогда-вид 1_inflate under the Inflate stroke (upper left) the surface swells outward along its normals
 Когда run Sculpt "Brush: Flatten"
 Когда --subject modeling set Sculpt.BrushSize 45
-Когда --subject viewport drag 750,300 790,360 20
-Тогда-вид 2_flatten under the Flatten stroke (right) a flat facet is cut into the curve
+Когда --subject viewport drag 812,290 812,370 20
+Тогда-вид 2_flatten under the Flatten stroke (right edge) the outline is cut straight: a flat facet in the curve
 Когда run Sculpt "Brush: Pinch"
 Когда --subject modeling set Sculpt.BrushSize 25
 Когда --subject viewport drag 640,390 790,390 20
