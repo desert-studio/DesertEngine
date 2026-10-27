@@ -35,8 +35,8 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
 - `Core/Serialize` — 47 files, 14,534 lines: AxisSpan, BuiltHLODCell, BuiltHLODIndex, BuiltHLODs, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, … (+89)
 - `Core/ShaderCompiler` — 16 files, 2,397 lines: BindlessShaderDefine, CookedProgramVariant, ScopedShaderPhase, ShaderCacheCounts, ShaderCompiler, ShaderMap, ShaderMapLookup, ShaderMapOutcome, ShaderMapRequest, ShaderMapStage, ShaderPhaseTimes, ShaderVariant, … (+1)
-- `Core/ShaderCompiler/DShader` — 2 files, 3,395 lines: DShaderParseResult, DShaderParser, DShaderPass, SurfaceTemplateInfo
-- `Core/ShaderCompiler/Includer` — 2 files, 261 lines: ShaderIncluder
+- `Core/ShaderCompiler/DShader` — 2 files, 3,438 lines: DShaderParseResult, DShaderParser, DShaderPass, SurfaceTemplateInfo
+- `Core/ShaderCompiler/Includer` — 2 files, 284 lines: ShaderIncluder
 - `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 141 lines: PreprocessedPass, ShaderPreprocess
 - `Core/ShaderCompiler/ShadingModels` — 6 files, 1,098 lines: LoadedShadingModels, PayloadSlot, ShadingModelEntry, ShadingModelManifest, ShadingModelRegistry, ShadingWordField
 - `Core/Traits` — 1 files, 17 lines
@@ -63,9 +63,9 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Geometry/MeshCore/Selections` — 4 files, 411 lines: Component, MeshConnectedComponents, QuadGridPatch
 - `Geometry/MeshCore/Solvers` — 2 files, 528 lines: SparseLDLT, SparseMatrixD, SpectralConformalMeshUVSolver, Triplet
 - `Geometry/MeshCore/Spatial` — 3 files, 1,208 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
-- `Graphic` — 119 files, 25,109 lines: ActiveViewScope, AllocationLedger, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, BlockDeclaration, … (+187)
+- `Graphic` — 120 files, 25,150 lines: ActiveViewScope, AllocationLedger, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, BlockDeclaration, … (+187)
 - `Graphic/API` — 2 files, 31 lines
-- `Graphic/API/Vulkan` — 86 files, 23,832 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CatalogProbe, CommandBufferAllocator, DescriptorIndexingLimits, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, … (+101)
+- `Graphic/API/Vulkan` — 86 files, 23,929 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CatalogProbe, CommandBufferAllocator, DescriptorIndexingLimits, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, … (+102)
 - `Graphic/API/Vulkan/FidelityFX` — 2 files, 225 lines: DeviceRequirements
 - `Graphic/API/Vulkan/Streamline` — 2 files, 1,364 lines: DlssEvaluation, DlssImage, DlssOptions, DlssRenderRange, FeatureState, Runtime
 - `Graphic/API/Vulkan/VulkanUtils` — 4 files, 565 lines: DescriptorSetBuilder
@@ -78,7 +78,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/Materials/Clouds` — 2 files, 39 lines: MaterialCloudComposite
 - `Graphic/Materials/Debug` — 5 files, 220 lines: CubemapSphereUB, GridUB, LineVertex, MaterialCubemapSphere, MaterialCubemapSphereShaderParameters, MaterialDebugLine, MaterialDebugLineShaderParameters, MaterialGrid, MaterialGridShaderParameters, MaterialOverdraw, MaterialOverdrawResolve
 - `Graphic/Materials/Deferred` — 3 files, 349 lines: DeferredCascadeShadow, DeferredEnvironmentInput, DeferredGIInput, DeferredScreenShadowMask, DeferredShadowInput, Inputs, MaterialDeferredLighting, MaterialDepthExpand, MaterialSSAO, MaterialSSAOShaderParameters, SSAOUBData
-- `Graphic/Materials/Mesh` — 8 files, 933 lines: DefaultVertexStreamsBinding, MaterialShadow, MaterialShadowInstanced, MaterialShadowSkinned, MaterialSilhouette, MaterialSilhouetteSkinned, MeshCellPipelineKey, MeshCellPipelineKeyHash
+- `Graphic/Materials/Mesh` — 8 files, 928 lines: DefaultVertexStreamsBinding, MaterialShadow, MaterialShadowInstanced, MaterialShadowSkinned, MaterialSilhouette, MaterialSilhouetteSkinned, MeshCellPipelineKey, MeshCellPipelineKeyHash
 - `Graphic/Materials/PostProcessing` — 6 files, 155 lines: MaterialFXAA, MaterialJFAFinal, MaterialTonemap, Params
 - `Graphic/Materials/Properties` — 8 files, 953 lines: FieldProperty, IProperty, IPropertyOwner, MaterialProperty, StorageBufferProperty, TProperty, Texture2DProperty, TextureCubeProperty, UniformBufferProperty
 - `Graphic/Materials/Reflection` — 1 files, 48 lines: UBFieldDescriptor, UBReflectionCache
@@ -88,8 +88,8 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/ReflectionCaptures` — 2 files, 1,396 lines: ReflectionCaptureEntry, ReflectionCaptureGpu, ReflectionCaptureLighting, ReflectionCaptureRenderer, SharedArray
 - `Graphic/Render` — 3 files, 190 lines: Page, RenderCommand, RenderCommandBuffer
 - `Graphic/Render/Commands` — 13 files, 613 lines: DrawGenericMeshCommand, DrawInstancedStaticMeshCommand, DrawLandscapeGrassCommand, DrawLandscapeTileCommand, DrawSkinnedMeshCommand, DrawSlotMaterialMeshCommand, DrawStaticMeshCommand, HeightFogCommand, PointLightCommand, ProceduralSkyCommand, SkyboxCommand, SpotLightCommand, … (+2)
-- `Graphic/Render2D` — 10 files, 2,550 lines: CachedExecutor, Capture, Demand, Draw, Entry, PreparedDraws, Render2D, ResolvedCommand, RetainedJob, RetainedPicture, RetainedTarget, RetiredBuild, … (+4)
-- `Graphic/ShaderProtocols` — 9 files, 750 lines: DirectionLight, PointLight, SkinnedUB, SpotLight, Std140Field
+- `Graphic/Render2D` — 10 files, 2,547 lines: CachedExecutor, Capture, Demand, Draw, Entry, PreparedDraws, Render2D, ResolvedCommand, RetainedJob, RetainedPicture, RetainedTarget, RetiredBuild, … (+4)
+- `Graphic/ShaderProtocols` — 10 files, 1,044 lines: DirectionLight, PointLight, SkinnedUB, SpotLight, Std140Field, VertexInputField, VertexInputSpec
 - `Graphic/StaticLighting` — 2 files, 235 lines: BakeProgress, ILightmassBake, LightmapRowGpu, LightmassSettings, StaticLightingFrame, StaticLightingRenderer
 - `Graphic/SubsurfaceProfiles` — 3 files, 268 lines: SubsurfaceProfileRegistry
 - `Graphic/Systems` — 1 files, 38 lines: RenderSystem
@@ -246,18 +246,18 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `.` — 8 files, 2,782 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
-- `Common` — 100 files, 14,815 lines
+- `Common` — 99 files, 14,798 lines
 - `Editor` — 1 files, 147 lines
 - `Generated` — 2 files, 81 lines
 - `Mesh` — 15 files, 1,535 lines
 - `Mesh/Generic` — 1 files, 19 lines
-- `Mesh/Surface` — 19 files, 2,179 lines
+- `Mesh/Surface` — 19 files, 2,142 lines
 - `Programs/AutoExposure` — 3 files, 218 lines
 - `Programs/Bloom` — 2 files, 216 lines
 - `Programs/Clouds` — 5 files, 1,953 lines
 - `Programs/Composite` — 2 files, 222 lines
 - `Programs/Compute` — 12 files, 1,715 lines
-- `Programs/Debug` — 7 files, 403 lines
+- `Programs/Debug` — 7 files, 400 lines
 - `Programs/Deferred` — 10 files, 1,494 lines
 - `Programs/Denoise` — 6 files, 779 lines
 - `Programs/DepthOfField` — 6 files, 455 lines
@@ -282,7 +282,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/ReflectionCapture` — 5 files, 417 lines
 - `Programs/SMAA` — 3 files, 122 lines
 - `Programs/Shadows` — 19 files, 1,508 lines
-- `Programs/Silhouette` — 2 files, 110 lines
+- `Programs/Silhouette` — 2 files, 102 lines
 - `Programs/Sky` — 5 files, 737 lines
 - `Programs/Skybox` — 1 files, 87 lines
 - `Programs/Subsurface` — 2 files, 262 lines
@@ -291,9 +291,9 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/TemporalAA` — 6 files, 835 lines
 - `Programs/TemporalSuperResolution` — 10 files, 1,882 lines
 - `Programs/Terrain` — 11 files, 1,229 lines
-- `Programs/Text` — 3 files, 161 lines
+- `Programs/Text` — 3 files, 158 lines
 - `Programs/Toon` — 2 files, 177 lines
-- `Programs/UI` — 7 files, 521 lines
+- `Programs/UI` — 7 files, 517 lines
 - `Programs/Unlit` — 1 files, 49 lines
 - `Programs/Water` — 2 files, 149 lines
 - `ShadingModels` — 1 files, 237 lines
