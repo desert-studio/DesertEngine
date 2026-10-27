@@ -13,3 +13,9 @@
 # Frame 9 stands out in the street (7/8 sit under the awning, which a camera metered for sunlight renders near black, as a real one).
 Дано --subject viewport set Camera.Position -440,300,-230
 Тогда-вид 9_day_physical дневная улица экспонирована нормально (белые фасады не выбиты, тени читаются), фонари и витрины днём не светятся ярче солнечных поверхностей
+# p13: the dark shade under EV14 is the ACES toe, not missing light (SKYLIGHT-PHYS: shade 5-10 % of the sun, 3-4 stops under
+# middle grey). UE's answer is local exposure at its new-project default contrast 0.8/0.8 (r.DefaultFeature.LocalExposure.*),
+# now authored in the content PPV. Frame 10 switches it back off for comparison.
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.LocalExposureShadowContrastScale 1
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.LocalExposureHighlightContrastScale 1
+Тогда-вид 10_no_local_exposure та же улица без локальной экспозиции: тень заметно темнее, чем в 9_day_physical
