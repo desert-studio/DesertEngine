@@ -1,21 +1,23 @@
 # SKYLIGHT-PHYS: the sky light is captured from the atmosphere in the SAME physical units as the sun (UE
 # FSkyLightSceneProxy over the real-time sky capture), and the traced GI reads the sky through that capture, so a
-# 100 000 lux sun leaves a readable shade at a sunlight exposure (EV100 15) without a content Min EV.
-# Starter: Sun 13376537502658031226, PostProcessVolume 17921165617746467452, Ground albedo 0.55 grey, Cube (0,50,150).
-# Reinhard with a far white point so the frame inverts to scene luminance: L = y/(1-y) / exposure, exposure = 1/(1.2*2^EV).
-Дано run Scene "Open Scene Starter.desce"
+# 100 000 lux sun leaves a readable shade at a sunlight exposure (EV100 14.5) without a content Min EV.
+# Bistro (BistroFoliageProj, branch bistro-sun): Sun 3651295826201078030 (100 000 lx), PostProcessVolume 6039035132485441499.
+# Manual EV100 14.5, Reinhard with a far white point so a frame inverts to scene luminance:
+# L = y/(1-y) / exposure, exposure = 1/(1.2*2^EV)  (scratch SKYLIGHT-PHYS/lum.py).
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
 Дано run View "View mode: Lit"
-Дано run Entity "Sun"
-Дано --subject selection set SunElevation 45
-Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposure false
-Дано set 17921165617746467452 PostProcessVolumeData.Settings.ManualExposureEV100 15
-Дано set 17921165617746467452 PostProcessVolumeData.Settings.Tonemapper 1
-Дано set 17921165617746467452 PostProcessVolumeData.Settings.WhitePoint 1000
-Дано set 13376537502658031226 DirectionalLightData.Intensity 100000
-Дано run Entity "Cube"
-Дано --subject viewport set Camera.FOV 60
-Дано --subject viewport set Camera.Position 0,350,900
-Дано --subject viewport set Camera.Direction 0,-0.35,-1
-Тогда-вид 1_lit sunlit ground ~0.55*(E_sun*cos45*T + E_sky)/pi (~10-14k cd/m2); the cube's shadow on the ground 10-25 % of the sunlit ground, not black; the sky blue
-# The second scene: the Bistro street under the bistro-sun content (100 000 lux, EV100 14-15) is played by
-# Scenarios/Bistro/BISTRO-LOOK.scn (frame 9_day_physical, the open street at -440,300,-230): its shade must read.
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.ManualExposureEV100 14.5
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.Tonemapper 1
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.WhitePoint 1000
+Дано --subject viewport set Camera.Position -440,300,-230
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Тогда-вид 1_bistro_lit дневная улица: солнечная мостовая не выбита
+Дано --subject viewport set Camera.Direction -0.6,-0.4,-0.7
+Тогда-вид 2_bistro_shade улица в тени читается: мостовая в тени ~10-20 % от солнечной, не провал в чёрное; солнечная мостовая не выбита
+Когда run View "View mode: Indirect Lighting (GI)"
+Тогда-вид 3_bistro_gi только непрямой диффузный свет (небо + отскок через трассированный GI): в тени — почти вся яркость тени из 2_bistro_shade
+# The albedo at EV100 0: lum.py with EV 0 reads the base colour itself, so E = pi L / albedo per region.
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ManualExposureEV100 0
+Когда run View "View mode: Albedo"
+Тогда-вид 4_bistro_albedo альбедо мостовой и фасадов (lum.py EV 0 = базовый цвет)
