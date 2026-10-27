@@ -34,6 +34,7 @@ namespace Desert::Graphic::API::Vulkan
         Swapchain,
         WideLines,
         FillModeNonSolid,
+        MultiDrawIndirect,
         SamplerAnisotropy,
         TextureCompressionBC,
         StorageImageWriteWithoutFormat,
@@ -43,6 +44,7 @@ namespace Desert::Graphic::API::Vulkan
         // DescriptorIndexing is already required: the global bindless texture table (BindlessTextureTable.hpp)
         // is the one way a shader reaches a texture by index, and there is no second, non-bindless path.
         TimelineSemaphore,
+        DrawIndirectCount,
         DescriptorIndexing,
         BufferDeviceAddress,
         DynamicRendering,
