@@ -80,6 +80,9 @@ namespace Desert::Editor
         /// whether the panel's window is open or not.
         void TickBuild();
 
+        /// A Build HLODs is running: its landscape bake has not finished, so its cell files are not written yet.
+        [[nodiscard]] bool IsBuildingHLODs() const noexcept { return m_Bake != nullptr; }
+
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
         {

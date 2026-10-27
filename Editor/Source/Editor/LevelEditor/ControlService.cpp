@@ -380,7 +380,7 @@ namespace Desert::Editor
     }
 
     void ControlService::SampleFrameQuiescence( const bool startupLoading, const bool reflectionCapturesFilling,
-                                                const bool texturesStreaming )
+                                                const bool texturesStreaming, const bool hlodBuildRunning )
     {
         Control::EditorQuiescence quiescence;
         // CONTENT SETTLING COUNTS AS STARTUP LOADING FOR THE CHANNEL, and it has to: the channel's whole
@@ -429,6 +429,10 @@ namespace Desert::Editor
         // first Starter shot after boot came back with a black sky that the next frame had filled.
         quiescence.Set( Control::PendingWork::ReflectionCaptures, reflectionCapturesFilling );
         quiescence.Set( Control::PendingWork::TexturesStreaming, texturesStreaming );
+        // UE's Build HLODs is one modal step: it returns once the HLOD packages are on disk. Here the landscape
+        // BaseColor bake runs over editor frames (TickBuild), so the reply to `run "Build HLODs"` waits for it -
+        // a Save or quit answered earlier cut the bake and no <Scene>_HLOD/ was written (WP-PROTOCOL.scn).
+        quiescence.Set( Control::PendingWork::HLODBuild, hlodBuildRunning );
         // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
         // Create answers "started" at once and a client polls `state` until idle before photographing it.
         quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
