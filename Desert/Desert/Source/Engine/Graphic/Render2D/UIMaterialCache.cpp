@@ -45,9 +45,7 @@ namespace Desert::Graphic::Render2D
         // batcher's own geometry, so a second spelling of it here would be a second thing to keep level.
         VertexBufferLayout UILayout()
         {
-            return VertexBufferLayout( { VertexBufferElement( ShaderDataType::Float2, "a_Position" ),
-                                         VertexBufferElement( ShaderDataType::Float2, "a_TexCoord" ),
-                                         VertexBufferElement( ShaderDataType::Float4, "a_Color" ) } );
+            return VertexBufferLayout::FromVertexInputs( ShaderProtocols::kUIVertexInputs );
         }
 
         Image2D* ResolveTextureImage( uint64_t textureHandle )

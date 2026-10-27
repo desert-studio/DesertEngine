@@ -479,7 +479,10 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         }
 
         if ( stage == Core::Formats::ShaderStage::Vertex )
+        {
             data.VertexInputLocations = ReflectVertexInputLocations( spirv );
+            data.VertexInputs         = ReflectVertexInputs( spirv );
+        }
         if ( stage == Core::Formats::ShaderStage::Fragment )
             data.FragmentOutputLocations = ReflectFragmentOutputLocations( spirv );
 
@@ -505,6 +508,37 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         std::sort( locations.begin(), locations.end() );
         locations.erase( std::unique( locations.begin(), locations.end() ), locations.end() );
         return locations;
+    }
+
+    std::vector<ShaderResource::ReflectionData::VertexInputDeclaration>
+    ReflectVertexInputs( const std::vector<uint32_t>& spirv )
+    {
+        const spirv_cross::Compiler        compiler( spirv );
+        const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
+
+        std::vector<ShaderResource::ReflectionData::VertexInputDeclaration> inputs;
+        for ( const auto& input : resources.stage_inputs )
+        {
+            const auto&       type   = compiler.get_type( input.type_id );
+            const bool        isInt  = type.basetype == spirv_cross::SPIRType::Int;
+            const bool        isUInt = type.basetype == spirv_cross::SPIRType::UInt;
+            const bool        isFlt  = type.basetype == spirv_cross::SPIRType::Float;
+            const char* const scalar = isFlt ? "float" : isInt ? "int" : isUInt ? "uint" : "?";
+            const char* const vector = isFlt ? "vec" : isInt ? "ivec" : isUInt ? "uvec" : "?vec";
+            std::string       glsl;
+            if ( type.columns > 1 )
+                glsl = std::format( "mat{}x{}", type.columns, type.vecsize );
+            else if ( type.vecsize > 1 )
+                glsl = std::format( "{}{}", vector, type.vecsize );
+            else
+                glsl = scalar;
+            for ( const uint32_t length : type.array )
+                glsl += std::format( "[{}]", length );
+            inputs.push_back( { compiler.get_decoration( input.id, spv::DecorationLocation ),
+                                compiler.get_name( input.id ), std::move( glsl ) } );
+        }
+        std::ranges::sort( inputs, {}, &ShaderResource::ReflectionData::VertexInputDeclaration::Location );
+        return inputs;
     }
 
     namespace
@@ -722,6 +756,37 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                 state.Errors.push_back( std::format(
                      "the vertex stage reads location {}, which the vertex layout does not feed", location ) );
         }
+        return state;
+    }
+
+    VertexInputState
+    BuildVertexInput( const VertexBufferLayout&                                                  layout,
+                      const std::vector<ShaderResource::ReflectionData::VertexInputDeclaration>& inputs )
+    {
+        std::vector<uint32_t> locations;
+        for ( const auto& input : inputs )
+            locations.push_back( input.Location );
+        std::sort( locations.begin(), locations.end() );
+        locations.erase( std::unique( locations.begin(), locations.end() ), locations.end() );
+        VertexInputState state = BuildVertexInput( layout, locations );
+
+        const auto check = [&]( const VertexBufferElement& element, const uint32_t location )
+        {
+            for ( const auto& input : inputs )
+            {
+                if ( input.Location != location )
+                    continue;
+                const std::string_view expected = ShaderProtocols::VertexInputGlsl( element.Type );
+                if ( input.Name != element.Name || input.Glsl != expected )
+                    state.Errors.push_back( std::format(
+                         "the vertex stage reads location {} as '{} {}', the layout feeds '{} {}' there", location,
+                         input.Glsl, input.Name, expected, element.Name ) );
+            }
+        };
+        for ( uint32_t location = 0; const auto& element : layout )
+            check( element, location++ );
+        for ( uint32_t location = layout.GetStreamFirstLocation(); const auto& element : layout.GetStreamElements() )
+            check( element, location++ );
         return state;
     }
 

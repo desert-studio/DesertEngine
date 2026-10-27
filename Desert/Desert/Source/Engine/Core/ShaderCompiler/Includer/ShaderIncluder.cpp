@@ -75,6 +75,23 @@ namespace Desert::Core
         return result.release();
     }
 
+    namespace
+    {
+        // A header that declares a generated vertex attribute (Graphic/ShaderProtocols/VertexInputs.hpp) as an input
+        // by hand is refused: the attribute's one declaration is the generated include, and a twin is how the C++
+        // layout and the shader drifted apart unchecked. Empty = none.
+        std::string HandWrittenVertexInput( const std::string& source )
+        {
+            for ( const std::string& name : Preprocess::DShaderParser::DeclaredInputNames( source ) )
+                if ( Graphic::ShaderProtocols::IsGeneratedVertexInputName( name ) )
+                    return std::format( "declares the vertex input '{}' by hand; it is generated from the C++ vertex "
+                                        "format — #include <Mesh/MeshVertexInputs.glslh>, "
+                                        "<Mesh/MeshVertexInputsSkinned.glslh> or <Common/UIVertexInputs.glslh>",
+                                        name );
+            return {};
+        }
+    } // namespace
+
     shaderc_include_result* ShaderIncluder::GetInclude( const char* requested_source, shaderc_include_type type,
                                                         const char* requesting_source, size_t include_depth )
     {
@@ -106,7 +123,11 @@ namespace Desert::Core
             const std::string requested =
                  std::filesystem::path( requested_source ).lexically_normal().generic_string();
             if ( const std::string* substituted = m_Variant.Find( requested ) )
+            {
+                if ( const std::string twin = HandWrittenVertexInput( *substituted ); !twin.empty() )
+                    return CreateErrorIncludeResult( std::format( "{}: {}", requested, twin ) );
                 return MakeResult( fullPath.string(), Preprocess::DShaderParser::TranslateSugar( *substituted ) );
+            }
             // A protocol block (Common/CameraUB.glslh) is GENERATED from its C++ struct (Std140Block.hpp): the
             // struct is the one layout truth, so its GLSL is never a file that could disagree with it.
             if ( const std::string* generated = Graphic::ShaderProtocols::FindGeneratedProtocolInclude( requested ) )
@@ -142,8 +163,10 @@ namespace Desert::Core
         // Translate the Desert layout sugar so shared `.glslh` headers can use the SAME vocabulary as the
         // stage blocks (the compiler inlines includes AFTER stage assembly, so headers must be translated
         // here). Line-preserving, so #line-based include error mapping stays exact.
-        return MakeResult( fullPath.string(),
-                           Preprocess::DShaderParser::TranslateSugar( rawInclude.ExtractValue() ) );
+        std::string includeText = rawInclude.ExtractValue();
+        if ( const std::string twin = HandWrittenVertexInput( includeText ); !twin.empty() )
+            return CreateErrorIncludeResult( std::format( "{}: {}", fullPath.string(), twin ) );
+        return MakeResult( fullPath.string(), Preprocess::DShaderParser::TranslateSugar( includeText ) );
     }
 
     shaderc_include_result* ShaderIncluder::CreateErrorIncludeResult( const std::string& error )

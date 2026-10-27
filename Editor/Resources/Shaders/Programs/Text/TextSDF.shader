@@ -29,11 +29,8 @@ Shader "TextSDF"
 
     Vertex
     {
-        In(0) vec3 a_Position;
-        In(1) vec3 a_Normal;
-        In(2) vec3 a_Tangent;
-        In(3) vec3 a_Bitangent;
-        In(4) vec2 a_TextureCoord;
+        // Generated from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp).
+        #include <Mesh/MeshVertexInputs.glslh>
 
         #include <Common/CameraUB.glslh>
 

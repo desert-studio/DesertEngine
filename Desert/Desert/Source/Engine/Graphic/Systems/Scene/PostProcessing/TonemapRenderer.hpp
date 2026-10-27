@@ -24,7 +24,13 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, LensFlareTexture );
         DESERT_SHADER_PARAMETER( Texture, LumBilateralGrid );
         DESERT_SHADER_PARAMETER( Texture, BlurredLogLuminance );
-        static constexpr std::array kAll{ RDG::Erase( GeometryTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( AverageLuminanceTexture ), RDG::Erase( BloomTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( LightShaftTexture ), RDG::Erase( LensFlareTexture ), RDG::Erase( LumBilateralGrid ), RDG::Erase( BlurredLogLuminance ) };
+        DESERT_SHADER_PARAMETER( Texture, ExposureFusionTexture );
+        static constexpr std::array kAll{
+             RDG::Erase( GeometryTexture ),         RDG::Erase( LinearRepeatSampler ),
+             RDG::Erase( AverageLuminanceTexture ), RDG::Erase( BloomTexture ),
+             RDG::Erase( LinearClampSampler ),      RDG::Erase( LightShaftTexture ),
+             RDG::Erase( LensFlareTexture ),        RDG::Erase( LumBilateralGrid ),
+             RDG::Erase( BlurredLogLuminance ),     RDG::Erase( ExposureFusionTexture ) };
     };
 
     class TonemapRenderer final : public RenderSystem
@@ -74,12 +80,16 @@ namespace Desert::Graphic::System
             // System.Black3D / System.Black and LocalExposureFrame::Produced false (local exposure 1 this draw).
             RDG::TextureRef LocalExposureGrid;
             RDG::TextureRef BlurredLogLuminance;
+            // Fusion: FrameTransients::ExposureFusion when the fusion ran, else System.Black (not read then).
+            RDG::TextureRef ExposureFusion;
         };
 
         // This frame's local exposure as SceneRenderer::AddFrameLocalExposure built it.
         struct LocalExposureFrame
         {
-            bool                Produced  = false; // the grid (and the blur, when the base uses it) ran this frame
+            // the grid (and the blur, when the base uses it) ran this frame — or, under Params.Method Fusion, the
+            // fusion pyramid did
+            bool                Produced  = false;
             bool                Visualize = false; // DeferredDebugMode::LocalExposure: draw the exposure itself
             LocalExposureParams Params;
             float               LogMiddleGrey = 0.0f;
@@ -118,6 +128,18 @@ namespace Desert::Graphic::System
         [[nodiscard]] float GetExposure() const
         {
             return m_Exposure;
+        }
+        [[nodiscard]] bool IsAutoExposureEnabled() const
+        {
+            return m_AutoExposureEnabled;
+        }
+        [[nodiscard]] float GetExposureKey() const
+        {
+            return m_ExposureKey;
+        }
+        [[nodiscard]] Core::TonemapOperator GetTonemapOperator() const
+        {
+            return m_TonemapOperator;
         }
 
         // The scene's tonemapping curve. ACES is the default and the one the sky programme measures

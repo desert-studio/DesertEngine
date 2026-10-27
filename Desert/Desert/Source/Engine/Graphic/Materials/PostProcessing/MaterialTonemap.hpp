@@ -32,6 +32,7 @@ namespace Desert::Graphic
             glm::vec4 LocalExposureThreshold{ 0.0f, 0.0f, 1.0f, 1.0f }; // hi thr, sh thr, hi strength, sh strength
             glm::vec4 LocalExposureUV{ 1.0f };                          // grid UV scale xy, blur UV scale xy
             glm::vec4 LocalExposureSlice{ 0.0f };                       // log middle grey, slice log min, 1/EV, mode
+            float     LocalExposureMethod = 0.0f; // 1: Fusion (ExposureFusionTexture), 0: Bilateral
         };
 
         // Uniform values only: every texture the shader samples (GeometryTexture, AverageLuminanceTexture,
@@ -59,5 +60,6 @@ namespace Desert::Graphic
         MPROPERTY( glm::vec4, LocalExposureThreshold, "LocalExposureThreshold", ( glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ) ) )
         MPROPERTY( glm::vec4, LocalExposureUV, "LocalExposureUV", ( glm::vec4( 1.0f ) ) )
         MPROPERTY( glm::vec4, LocalExposureSlice, "LocalExposureSlice", ( glm::vec4( 0.0f ) ) )
+        MPROPERTY( float, LocalExposureMethod, "LocalExposureMethod", 0.0f )
     };
 } // namespace Desert::Graphic

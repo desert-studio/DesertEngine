@@ -7,15 +7,11 @@
 // (and bend) draw and the clump tint. The variety's shape (GrassBladeShape) bends, tapers and colours it; the
 // scene's wind sways it as FoliageWind.glslh sways a mesh, resisted by the blade's stiffness. One function places
 // the blade for every pass, so the shadow and the depth a blade leaves are the blade that is drawn.
-layout( location = 0 ) in vec3 a_Position;
-layout( location = 1 ) in vec3 a_Normal;
-layout( location = 2 ) in vec3 a_Tangent;
-layout( location = 3 ) in vec3 a_Bitangent;
-layout( location = 4 ) in vec2 a_TextureCoord;
-#ifdef DESERT_SURFACE_HAS_VARYINGS
-layout( location = 7 ) in vec4 a_Color;
-layout( location = 8 ) in vec2 a_TexCoord1;
-#endif
+// The vertex inputs — binding 0 (position, normal, tangent, bitangent, UV0) and the optional streams at binding 1
+// (vertex colour, UV1; a mesh without them binds the shared white / (0,0) buffer at the same stride) — and
+// DesertMeshTextureUV, GENERATED from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp). The full
+// set in every pass: an input a depth cell does not read costs nothing, a subset would be a second list.
+#include <Mesh/MeshVertexInputs.glslh>
 
 #include <Common/CameraUB.glslh>
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
@@ -42,8 +38,6 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 DESERT_SURFACE_VARYINGS( out )
 #endif
-
-#include <Common/MeshTextureCoord.glslh>
 
 void main()
 {

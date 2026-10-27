@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Engine/Graphic/RendererTypes.hpp>
+#include <Engine/Graphic/ShaderDataType.hpp>
+#include <Engine/Graphic/ShaderProtocols/VertexInputs.hpp>
 #include <Engine/Graphic/DynamicResources.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 
@@ -8,27 +10,12 @@
 // Geometry/Mesh.hpp by translation units that never include Core.hpp on their own.
 #include <Common/Core/Core.hpp>
 
+#include <span>
+#include <string>
 #include <vector>
 
 namespace Desert::Graphic
 {
-    enum class ShaderDataType
-    {
-        None = 0,
-        Float,
-        Float2,
-        Float3,
-        Float4,
-        Int,
-        Int2,
-        Int3,
-        Int4,
-        Bool,
-        // Four 8-bit channels read as 0..1 floats (VK_FORMAT_R8G8B8A8_UNORM): the vertex colour stream, as
-        // UE's FColor vertex colours.
-        UNorm8x4
-    };
-
     inline uint32_t ShaderDataTypeSize( ShaderDataType type )
     {
         switch ( type )
@@ -101,6 +88,36 @@ namespace Desert::Graphic
         VertexBufferLayout( const std::initializer_list<VertexBufferElement>& elements ) : m_Elements( elements )
         {
             CalculateOffsetsAndStride();
+        }
+
+        /// THE LAYOUT OF A GENERATED VERTEX FORMAT (ShaderProtocols/VertexInputs.hpp): binding 0's attributes in
+        /// location order, then the streams (binding 1) from their first location. The shader's inputs are
+        /// generated from the same fields, so this is the only way a pipeline is handed a format's layout.
+        [[nodiscard]] static VertexBufferLayout
+        FromVertexInputs( const std::span<const ShaderProtocols::VertexInputField> fields )
+        {
+            VertexBufferLayout layout;
+            for ( const ShaderProtocols::VertexInputField& field : fields )
+            {
+                VertexBufferElement element( field.Type, std::string( field.Name ), field.Normalized );
+                if ( field.Binding == 0 )
+                {
+                    DESERT_VERIFY( field.Location == layout.m_Elements.size(),
+                                   "a vertex format's binding-0 attributes are not at consecutive locations" );
+                    layout.m_Elements.push_back( element );
+                    continue;
+                }
+                if ( layout.m_StreamElements.empty() )
+                    layout.m_StreamFirstLocation = field.Location;
+                DESERT_VERIFY( field.Binding == 1 && field.Location == layout.m_StreamFirstLocation +
+                                                                             layout.m_StreamElements.size(),
+                               "a vertex format's streams are not binding 1 at consecutive locations" );
+                element.Offset = layout.m_StreamStride;
+                layout.m_StreamStride += element.Size;
+                layout.m_StreamElements.push_back( element );
+            }
+            layout.CalculateOffsetsAndStride();
+            return layout;
         }
 
         inline uint32_t GetStride() const

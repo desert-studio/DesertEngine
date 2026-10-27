@@ -6,13 +6,8 @@ Shader "Silhouette_Skinned"
 
     Vertex
     {
-        In(0) vec3 a_Position;
-        In(1) vec3 a_Normal;
-        In(2) vec3 a_Tangent;
-        In(3) vec3 a_Bitangent;
-        In(4) vec2 a_TextureCoord;
-        In(5) ivec4 a_BoneIndices;
-        In(6) vec4  a_BoneWeights;
+        // Generated from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp).
+        #include <Mesh/MeshVertexInputsSkinned.glslh>
 
         #include <Common/CameraUB.glslh>
         #include <Common/SkinCacheStreams.glslh>

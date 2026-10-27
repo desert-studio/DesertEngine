@@ -113,6 +113,10 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
      */
     std::vector<uint32_t> ReflectVertexInputLocations( const std::vector<uint32_t>& spirv );
 
+    /** The input variables ONE vertex stage's SPIR-V declares — location, name, GLSL type — in location order. */
+    std::vector<ShaderResource::ReflectionData::VertexInputDeclaration>
+    ReflectVertexInputs( const std::vector<uint32_t>& spirv );
+
     /**
      * The colour output locations ONE fragment stage's SPIR-V declares, sorted and unique (an array output
      * occupies one location per element). ReflectStage stores this for the fragment stage in
@@ -173,6 +177,16 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
     };
     VertexInputState BuildVertexInput( const VertexBufferLayout&    layout,
                                        const std::vector<uint32_t>& consumedLocations );
+
+    /**
+     * The same, AND every input the stage declares is the layout field fed at its location by name and GLSL type:
+     * a `vec2` read where the layout feeds a `vec3`, or Tangent and Bitangent swapped, is named in Errors instead of
+     * drawn. The shader's inputs are generated from the format the layout is built from (VertexInputs.hpp), so
+     * this only fails for a stage compiled against another format than the pipeline's.
+     */
+    VertexInputState
+    BuildVertexInput( const VertexBufferLayout&                                                  layout,
+                      const std::vector<ShaderResource::ReflectionData::VertexInputDeclaration>& inputs );
 
     /**
      * Why a pipeline with this vertex input must not be built, or nothing when it may (UE: a shader reading an
