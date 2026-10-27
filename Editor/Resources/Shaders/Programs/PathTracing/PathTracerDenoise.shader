@@ -529,6 +529,16 @@ Shader "PathTracerDenoise"
             // The depth tolerance that remains on a plane facing the camera (zero depth gradient), as a share of
             // the camera distance: float noise in the averaged guide, not a surface boundary.
             const float kDepthFloorShare = 1.0e-3;
+            // The depth tolerance's width in the pair's slope x tap distance (SVGF's sigma_z = 1 here gave a plane
+            // exp(-1) along its depth gradient). The slope is the smaller one-sided difference of a ONE-path camera
+            // distance - a random sub-pixel point, half-float steps (0.5 cm at 10 m) - read low as often as not: on
+            // the flat Bistro cobbles the depth weight averaged 0.50 at spacing 1 (0.41 at 8), the geometry-only
+            // spread ran along the rows only (horizontal streaks, firefly dots kept at 2-5 % of their energy) and the
+            // shadow-side taps of every plane were cut. Measured on dn1 (PT-DENOISE-12, shader-only, r11 exe): sigma
+            // 1 -> 3 -> 10: Day cut8 2.92 -> 3.36 -> 3.53x, cutEdge 2.32 -> 2.47 -> 2.54x; Night 2.23 -> 2.64 ->
+            // 2.80x, cutEdge 1.82 -> 2.00 -> 2.07x; mean within 0.4 % per channel. A surface step stays many slopes
+            // deep (an object on the ground, a wall behind a post: tens of cm against a few cm per pixel).
+            const float kDepthSigma = 10.0;
             // ReLAX: the colour width of a history of no paths is (1 + kYoungWidth) x that of a full one.
             const float kYoungWidth = 2.0;
             // The specular lobe: its normal power is kNormalPower / max(roughness^2, kSpecularLobeFloor) (a
@@ -630,7 +640,7 @@ Shader "PathTracerDenoise"
                             // The depth tolerance over the larger of the two pixels' slopes and distances.
                             const float slope = max(depthSlope, DepthGradient(q, other.Depth));
                             const float wz    = exp(-abs(other.Depth - surface.Depth) /
-                                                 (slope * length(vec2(x, y)) * float(spacing) +
+                                                 (kDepthSigma * slope * length(vec2(x, y)) * float(spacing) +
                                                   kDepthFloorShare * max(surface.Depth, other.Depth)));
                             const float k        = kKernel[abs(x)] * kKernel[abs(y)];
                             const vec2  qLengths = imageLoad(HistoryLengthTexture, q).xy;
