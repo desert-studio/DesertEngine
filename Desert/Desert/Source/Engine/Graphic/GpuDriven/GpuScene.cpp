@@ -12,6 +12,7 @@
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
+#include <Common/Core/Core.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
@@ -62,6 +63,35 @@ namespace
         }
         const auto first = static_cast<uint32_t>( storage.size() );
         storage.resize( storage.size() + count );
+        return first;
+    }
+
+    // First fit of @p count rows whose first row is a multiple of @p count (a material row: its index is first /
+    // count at its template's stride), else the end of @p storage; the padding either side goes back to @p free.
+    template <typename Row>
+    uint32_t AllocateAlignedRange( std::vector<glm::uvec2>& free, std::vector<Row>& storage, const uint32_t count )
+    {
+        const auto alignUp = [count]( const uint32_t at ) { return ( ( at + count - 1u ) / count ) * count; };
+        for ( auto it = free.begin(); it != free.end(); ++it )
+        {
+            const uint32_t first = alignUp( it->x );
+            if ( first + count > it->x + it->y )
+                continue;
+            const glm::uvec2 range = *it;
+            free.erase( it );
+            if ( first > range.x )
+                free.push_back( { range.x, first - range.x } );
+            if ( range.x + range.y > first + count )
+                free.push_back( { first + count, range.x + range.y - ( first + count ) } );
+            std::sort( free.begin(), free.end(),
+                       []( const glm::uvec2& a, const glm::uvec2& b ) { return a.x < b.x; } );
+            return first;
+        }
+        const auto end   = static_cast<uint32_t>( storage.size() );
+        const uint32_t first = alignUp( end );
+        if ( first > end )
+            free.push_back( { end, first - end } );
+        storage.resize( static_cast<size_t>( first ) + count );
         return first;
     }
 
@@ -258,6 +288,7 @@ namespace Desert::Graphic::GpuDriven
            m_LodTable( MakeTable( "LodScreenSizes", 0u, 1u ) ),
            m_WorldBoundsTable( MakeTable( "WorldBounds", 0u, WordsOf<GpuSceneWorldBounds>() ) ),
            m_BonesTable( MakeTable( "ObjectBones", Core::kObjectBonesBinding, WordsOf<glm::mat4>() ) ),
+           m_MaterialTable( MakeTable( "MaterialRows", 0u, WordsOf<glm::vec4>() ) ),
            m_Upload( std::make_unique<GpuSceneUploadPipeline>() )
     {
     }
@@ -498,6 +529,40 @@ namespace Desert::Graphic::GpuDriven
         m_BonesDirty = true;
     }
 
+    uint32_t GpuScene::AddMaterialRow( const std::span<const glm::vec4> row )
+    {
+        DESERT_VERIFY( !row.empty(), "AddMaterialRow with an empty row: a template without parameters takes no row" );
+        const auto     slots = static_cast<uint32_t>( row.size() );
+        const uint32_t first = AllocateAlignedRange( m_FreeMaterialRanges, m_MaterialSlots, slots );
+        for ( uint32_t i = 0; i < slots; ++i )
+        {
+            m_MaterialSlots[first + i] = row[i];
+            m_DirtyMaterialSlots.push_back( first + i );
+        }
+        return first / slots;
+    }
+
+    void GpuScene::UpdateMaterialRow( const uint32_t row, const std::span<const glm::vec4> values )
+    {
+        const auto     slots = static_cast<uint32_t>( values.size() );
+        const uint64_t first = static_cast<uint64_t>( row ) * slots;
+        DESERT_VERIFY( slots != 0u && first + slots <= m_MaterialSlots.size(),
+                       "UpdateMaterialRow past the scene material table" );
+        for ( uint32_t i = 0; i < slots; ++i )
+        {
+            m_MaterialSlots[first + i] = values[i];
+            m_DirtyMaterialSlots.push_back( static_cast<uint32_t>( first ) + i );
+        }
+    }
+
+    void GpuScene::RemoveMaterialRow( const uint32_t row, const uint32_t slots )
+    {
+        if ( slots == 0u )
+            return;
+        // The freed slots keep their bytes until a new row takes them: no draw names a removed row.
+        FreeRange( m_FreeMaterialRanges, row * slots, slots );
+    }
+
     void GpuScene::JournalTransform( const PrimitiveIndex primitive )
     {
         if ( m_UndoMark[primitive] != 0u )
@@ -558,7 +623,8 @@ namespace Desert::Graphic::GpuDriven
     bool GpuScene::HasPendingUpload() const
     {
         return !m_DirtyPrimitives.empty() || !m_DirtyInstances.empty() || !m_DirtyLodScreenSizes.empty() ||
-               !m_DirtyWorldBounds.empty() || m_BonesDirty || !m_PrimitiveTable->Buffer || !m_BonesTable->Buffer;
+               !m_DirtyWorldBounds.empty() || !m_DirtyMaterialSlots.empty() || m_BonesDirty ||
+               !m_PrimitiveTable->Buffer || !m_BonesTable->Buffer || !m_MaterialTable->Buffer;
     }
 
     Common::ResultStr<GpuSceneBuffers> GpuScene::AddUploadPass( RDG::Builder& graph )
@@ -567,6 +633,7 @@ namespace Desert::Graphic::GpuDriven
         SortUnique( m_DirtyInstances );
         SortUnique( m_DirtyLodScreenSizes );
         SortUnique( m_DirtyWorldBounds );
+        SortUnique( m_DirtyMaterialSlots );
 
         GpuSceneBuffers out;
         out.PrimitiveCount = static_cast<uint32_t>( m_Primitives.size() );
@@ -609,6 +676,10 @@ namespace Desert::Graphic::GpuDriven
                                        m_BonePalettes.data(), bones, true, out.ObjectBones );
              !done )
             return Common::MakeError( done.GetError() );
+        if ( const auto done = upload( *m_MaterialTable, static_cast<uint32_t>( m_MaterialSlots.size() ),
+                                       m_MaterialSlots.data(), m_DirtyMaterialSlots, false, out.MaterialRows );
+             !done )
+            return Common::MakeError( done.GetError() );
         m_BonesDirty = false;
         return out;
     }
@@ -632,5 +703,10 @@ namespace Desert::Graphic::GpuDriven
     const std::shared_ptr<ShaderResources::StorageBuffer>& GpuScene::GetBonesBuffer() const
     {
         return m_BonesTable->Buffer;
+    }
+
+    const std::shared_ptr<ShaderResources::StorageBuffer>& GpuScene::GetMaterialsBuffer() const
+    {
+        return m_MaterialTable->Buffer;
     }
 } // namespace Desert::Graphic::GpuDriven

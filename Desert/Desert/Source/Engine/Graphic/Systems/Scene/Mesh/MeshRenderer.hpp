@@ -244,6 +244,9 @@ namespace Desert::Graphic::System
             uint32_t                  GpuPrimitive = 0;
             // The primitive's GpuScene instance (SyncGpuScene): its TLAS custom index and GI card-table row.
             uint32_t                  GpuInstance = 0;
+            // Its section's row in the scene material table (SyncGpuScene, GpuSceneRegistry::SyncMaterialRow): the
+            // MaterialIndex its forward / G-buffer draw names, and GpuDrawSlot::MaterialRow for the cached draws.
+            uint32_t                  MaterialRow = 0;
             class Desert::StaticMesh* Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             // Co-owned, and it must be: this queue is read by five passes, all of them AFTER the frame's
@@ -1706,6 +1709,9 @@ namespace Desert::Graphic::System
         };
         StandInCell*                              StandIn( MeshVertexPath path, MeshPass pass );
         std::unordered_map<uint32_t, StandInCell> m_StandIns; // key: path * 16 + pass; Material null = refused
+        // The (Static x Forward) stand-in's scene material table rows, [0] receiving sun shadows and [1] not
+        // (SyncGpuScene): the row a static draw names while it stands in for a material whose cell is not ready.
+        std::array<uint32_t, 2> m_StandInMaterialRows{};
         // The glass pass's stand-in: the default surface's (Static x Forward) cell with the translucent draw
         // state.
         TranslucentDraw* TranslucentStandIn();

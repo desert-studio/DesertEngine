@@ -640,6 +640,36 @@ namespace Desert::Graphic::System
             for ( size_t instance = 0; instance < data.Transforms->size(); ++instance )
                 m_InstancedGpuInstances.push_back( rows.FieldInstances[f] + static_cast<uint32_t>( instance ) );
         }
+        // The scene material table: every queued static draw's row, keyed by the template and instance its section
+        // shades with, registered here so the upload below puts it on the device before any pass names it. The
+        // component's Receive Shadows off zeroes the row's ReceiveSunShadows (either one opts out), so it is part
+        // of the key. The (Static x Forward) stand-in's rows too: a draw whose own cell is not ready yet records
+        // with the stand-in (BuildStaticDraws) in this same frame.
+        const auto materialRowOf = [&registry]( const DataDrivenMaterial* material, MaterialInstance* instance,
+                                                const bool receiveShadows ) -> uint32_t
+        {
+            Core::Formats::MaterialParamRow row = MeshRendererDetail::EffectiveRow( material, instance );
+            if ( !receiveShadows )
+                Core::Formats::SetMaterialParam( material->GetSchema(), row, "ReceiveSunShadows",
+                                                 glm::vec4( 0.0f ) );
+            const GpuDriven::MaterialRowKey key{ .Material = material,
+                                                 .Instance = instance,
+                                                 .Variant = receiveShadows ? 0u : GpuDriven::kMaterialRowNoSunShadows };
+            return registry.SyncMaterialRow( key, row );
+        };
+        for ( auto& data : m_StaticQueue )
+        {
+            if ( !data.MaterialSlots )
+                continue;
+            if ( const auto slot = MeshRendererDetail::SectionSurface( data.MaterialSlots.get(), data.SectionSlot ) )
+                data.MaterialRow = materialRowOf( slot.Surface, slot.Instance, data.ReceiveShadows );
+        }
+        if ( !m_StaticQueue.empty() )
+            if ( StandInCell* const standIn = StandIn( MeshVertexPath::Static, MeshPass::Forward ) )
+            {
+                m_StandInMaterialRows[0] = materialRowOf( standIn->Material.get(), standIn->Instance.get(), true );
+                m_StandInMaterialRows[1] = materialRowOf( standIn->Material.get(), standIn->Instance.get(), false );
+            }
         m_GpuScene = &scene;
 
         // The scene's deltas reach the device in a graph of their own, submitted ahead of this view's graph: its

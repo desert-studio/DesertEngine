@@ -1541,25 +1541,23 @@ namespace Desert::Graphic::System
             }
 
             // ---- Classic per-object path (singletons / wireframe) ----
-            // Fill this material's per-object storage buffer (one GpuMaterial per drawn object).
-            auto& gpuMaterials = m_ScratchGpuMaterials;
-            gpuMaterials.clear();
-            gpuMaterials.reserve( singles.size() );
-            for ( const auto& od : singles )
-            {
-                Core::Formats::MaterialParamRow row = od.Row;
-                // The per-mesh Receive Shadows toggle zeroes the material's ReceiveSunShadows (either one
-                // opts out); the batched path only ever carries receivers, so its rows keep the material's.
-                if ( !od.Obj->ReceiveShadows )
-                    Core::Formats::SetMaterialParam( mat->GetSchema(), row, "ReceiveSunShadows",
-                                                     glm::vec4( 0.0f ) );
-                AppendRow( gpuMaterials, row );
-            }
-
+            // The material is read through the scene material table (GpuScene::AddMaterialRow): each object's row
+            // was registered by SyncGpuScene, stable for as long as its instance is drawn and re-uploaded only when
+            // a value changes, so the drawn material's Materials block is lent the table and each draw names its
+            // row. No per-frame per-group refill: one source of the values, the row the cached draws name too.
             // Find: a surface template with no parameters declares no Materials row block.
             if ( auto* sb = drawMat->Find<StorageBufferProperty>( MeshForwardShaderParameters::Materials ) )
-                sb->SetRawData( gpuMaterials.data(),
-                                static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
+            {
+                const auto& table = m_GpuScene != nullptr ? m_GpuScene->GetMaterialsBuffer() : nullptr;
+                if ( table == nullptr )
+                {
+                    LOG_ERROR( "[MeshRenderer] The scene material table is not on the device (SyncGpuScene did not "
+                               "upload it); the {} object(s) of this material group are not drawn.",
+                               singles.size() );
+                    continue;
+                }
+                sb->LendViewBuffer( table );
+            }
 
             // SHARED per-frame scene data (camera / lights / shadow / env) is written ONCE per material
             // group, NOT per mesh: these Update* all write the drawn material's buffers (shared by every
@@ -1579,6 +1577,9 @@ namespace Desert::Graphic::System
             {
                 const auto*       obj  = singles[i].Obj;
                 MaterialInstance* inst = singles[i].Inst;
+                // A stand-in draw shows the default surface, so it names the stand-in's row (SyncGpuScene).
+                const uint32_t materialRow = mat == standInKey ? m_StandInMaterialRows[obj->ReceiveShadows ? 0 : 1]
+                                                               : obj->MaterialRow;
 
                 // Per-object work, written right before the draw is recorded: transform (push constant) +
                 // material index + descriptor bind. The INSTANCE still comes from the forward slot, and that is
@@ -1605,13 +1606,13 @@ namespace Desert::Graphic::System
                             .Material          = drawMat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj->HiddenSubmeshes,
                             .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                            .BindState = [drawMat, inst, motionRow = obj->GpuPrimitive, i,
+                            .BindState = [drawMat, inst, motionRow = obj->GpuPrimitive, materialRow,
                                           flags = PrimitiveFlagsOf( obj->CastContactShadow )]
                             {
                                 DESERT_PROFILE_SCOPE( "Mesh: PerObject Setup" );
                                 drawMat->SetPushMatrix( glm::mat4( 1.0f ) );
                                 drawMat->SetPrimitiveIndex( motionRow );
-                                drawMat->SetMaterialIndex( i );
+                                drawMat->SetMaterialIndex( materialRow );
                                 drawMat->SetPrimitiveFlags( flags );
                                 drawMat->Bind( inst );
                             } } );

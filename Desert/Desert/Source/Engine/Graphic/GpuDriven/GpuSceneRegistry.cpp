@@ -45,6 +45,32 @@ namespace Desert::Graphic::GpuDriven
         entry.Frame     = m_Frame;
     }
 
+    uint32_t GpuSceneRegistry::SyncMaterialRow( const MaterialRowKey& key, const std::span<const glm::vec4> row )
+    {
+        if ( row.empty() )
+            return 0u;
+        const auto [it, inserted] = m_MaterialRows.try_emplace( key );
+        MaterialEntry& entry      = it->second;
+        const bool sameLayout = !inserted && entry.Values.size() == row.size();
+        const bool sameValues = sameLayout && std::equal( row.begin(), row.end(), entry.Values.begin() );
+        if ( !sameLayout )
+        {
+            if ( !inserted ) // the template's layout changed (hot reload): a row at the new stride
+                m_Scene.RemoveMaterialRow( entry.Row, static_cast<uint32_t>( entry.Values.size() ) );
+            entry.Row = m_Scene.AddMaterialRow( row );
+        }
+        else if ( !sameValues )
+            m_Scene.UpdateMaterialRow( entry.Row, row );
+        if ( !sameValues )
+            entry.Values.assign( row.begin(), row.end() );
+        if ( entry.Frame != m_Frame ) // the first view of this frame to ask
+        {
+            entry.PrevFrame = entry.Frame;
+            entry.Frame     = m_Frame;
+        }
+        return entry.Row;
+    }
+
     void GpuSceneRegistry::DiscardFrame()
     {
         m_Scene.DiscardFrame();
@@ -62,6 +88,19 @@ namespace Desert::Graphic::GpuDriven
             {
                 m_Scene.RemovePrimitive( entry.Primitive );
                 it = m_Entries.erase( it );
+                continue;
+            }
+            ++it;
+        }
+        for ( auto it = m_MaterialRows.begin(); it != m_MaterialRows.end(); )
+        {
+            MaterialEntry& entry = it->second;
+            if ( entry.Frame == m_Frame )
+                entry.Frame = entry.PrevFrame;
+            if ( entry.Frame == kNoFrame ) // added by the discarded frame
+            {
+                m_Scene.RemoveMaterialRow( entry.Row, static_cast<uint32_t>( entry.Values.size() ) );
+                it = m_MaterialRows.erase( it );
                 continue;
             }
             ++it;
@@ -86,6 +125,17 @@ namespace Desert::Graphic::GpuDriven
                 }
                 m_Scene.RemovePrimitive( it->second.Primitive );
                 it = m_Entries.erase( it );
+            }
+        if ( m_Started )
+            for ( auto it = m_MaterialRows.begin(); it != m_MaterialRows.end(); )
+            {
+                if ( it->second.Frame == m_Frame )
+                {
+                    ++it;
+                    continue;
+                }
+                m_Scene.RemoveMaterialRow( it->second.Row, static_cast<uint32_t>( it->second.Values.size() ) );
+                it = m_MaterialRows.erase( it );
             }
         m_FrameBeforePrevious = m_PreviousFrame;
         m_PreviousFrame       = m_Frame;

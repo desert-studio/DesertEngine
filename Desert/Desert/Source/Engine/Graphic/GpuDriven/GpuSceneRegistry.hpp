@@ -97,6 +97,30 @@ namespace Desert::Graphic::GpuDriven
         std::vector<InstanceIndex>  FieldInstances;
     };
 
+    // A row's identity in the scene material table (GpuScene::AddMaterialRow): the template whose layout the row
+    // has (its schema), the instance whose overrides it carries (null = the template's own values) and the
+    // per-primitive bits that change the row's values (kMaterialRowNoSunShadows). The values themselves are not the
+    // key: a changed parameter re-uploads the same row, and an address reused by a new instance re-uploads too.
+    struct MaterialRowKey
+    {
+        const void* Material = nullptr;
+        const void* Instance = nullptr;
+        uint32_t    Variant  = 0;
+        bool        operator==( const MaterialRowKey& ) const = default;
+    };
+    // The component's Receive Shadows off zeroes the row's ReceiveSunShadows (MeshRenderer::SyncGpuScene).
+    inline constexpr uint32_t kMaterialRowNoSunShadows = 1u;
+
+    struct MaterialRowKeyHash
+    {
+        [[nodiscard]] std::size_t operator()( const MaterialRowKey& key ) const noexcept
+        {
+            const std::size_t material = std::hash<const void*>{}( key.Material );
+            const std::size_t instance = std::hash<const void*>{}( key.Instance );
+            return material ^ ( instance * 0x9E3779B97F4A7C15ull ) ^ ( static_cast<std::size_t>( key.Variant ) << 1u );
+        }
+    };
+
     class GpuSceneRegistry
     {
     public:
@@ -131,8 +155,23 @@ namespace Desert::Graphic::GpuDriven
         void Sync( std::span<const MotionRecord> rigid, std::span<const MotionRecord> skinned,
                    std::span<const MotionFieldRecord> fields, GpuSceneRecordRows& out );
 
+        // The scene material table row of @p key holding @p row: added the first time a frame asks, its slots
+        // re-uploaded when the values differ from the ones it holds (a parameter changed), re-added at the new
+        // stride when the template's layout changed (hot reload), removed by the first BeginFrame after a frame
+        // that did not ask (the primitives' rule; every view of a frame may ask). Returns the index the draw names
+        // as MaterialIndex / GpuDrawSlot::MaterialRow. An empty row (a template without parameters declares no
+        // Materials block) takes no row: 0, which its shader never reads.
+        [[nodiscard]] uint32_t SyncMaterialRow( const MaterialRowKey& key, std::span<const glm::vec4> row );
+
     private:
         static constexpr uint64_t kNoFrame = ~0ull;
+        struct MaterialEntry
+        {
+            uint32_t               Row       = 0;
+            std::vector<glm::vec4> Values;               // what the table holds at Row
+            uint64_t               Frame     = kNoFrame; // the last frame that asked for it
+            uint64_t               PrevFrame = kNoFrame; // the one before (DiscardFrame restores it)
+        };
 
         struct Entry
         {
@@ -155,6 +194,7 @@ namespace Desert::Graphic::GpuDriven
 
         GpuScene                                            m_Scene;
         std::unordered_map<MotionKey, Entry, MotionKeyHash> m_Entries;
+        std::unordered_map<MaterialRowKey, MaterialEntry, MaterialRowKeyHash> m_MaterialRows;
         std::vector<glm::mat4>                              m_FramePalettes;
         uint64_t                                            m_Frame         = kNoFrame;
         uint64_t                                            m_PreviousFrame = kNoFrame;

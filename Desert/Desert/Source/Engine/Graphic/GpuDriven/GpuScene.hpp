@@ -89,6 +89,7 @@ namespace Desert::Graphic::GpuDriven
         RDG::BufferRef LodScreenSizes; // float[]
         RDG::BufferRef WorldBounds;    // GpuSceneWorldBounds[] (this frame's pose boxes)
         RDG::BufferRef ObjectBones;    // mat4[] — this frame's and last frame's palettes, all skinned primitives
+        RDG::BufferRef MaterialRows;   // vec4[] — the scene material table (AddMaterialRow)
         uint32_t       PrimitiveCount = 0; // high-water mark: the dispatch range of a full-scene cull
         uint32_t       InstanceCount  = 0;
     };
@@ -122,6 +123,20 @@ namespace Desert::Graphic::GpuDriven
         // This frame's palettes of every skinned primitive, end to end (the bytes SetSkinning's offsets index).
         void SetBonePalettes( std::span<const glm::mat4> palettes );
 
+        // THE SCENE MATERIAL TABLE (UE: one material uniform buffer per FMaterialRenderProxy; here one stable row
+        // per material instance in ONE buffer that every mesh cell binds as its `Materials` block). A row is the
+        // instance's effective MaterialParamRow: N vec4 slots, N = its template's RowStride / 16. Its first slot is
+        // a multiple of N, so the returned index (first slot / N) is exactly what the generated shader reads,
+        // `MaterialRows[MaterialIndex]` at that template's own stride (DShaderParser) — templates of different
+        // strides share the buffer without a second indexing rule. The draw's MaterialIndex (push, and
+        // GpuDrawSlot::MaterialRow for the cached draws) is this index. @p row must not be empty: a template
+        // without parameters declares no Materials block and takes no row (GpuSceneRegistry::SyncMaterialRow).
+        [[nodiscard]] uint32_t AddMaterialRow( std::span<const glm::vec4> row );
+        // New values for a row of the same length (a parameter changed); only its slots go up.
+        void UpdateMaterialRow( uint32_t row, std::span<const glm::vec4> values );
+        // The row's slots return to the table's free list (@p slots = its length, the N it was added with).
+        void RemoveMaterialRow( uint32_t row, uint32_t slots );
+
         // Frame boundary: the primitives that moved last frame and not since get Prev := LocalToWorld (dirty).
         void BeginFrame();
         // The frame since the last BeginFrame never executed (FrameFault, GpuSceneRegistry): every transform it
@@ -153,6 +168,9 @@ namespace Desert::Graphic::GpuDriven
         // the first upload.
         [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetPrimitivesBuffer() const;
         [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetBonesBuffer() const;
+        // The scene material table (AddMaterialRow): what a mesh cell's `Materials` block is lent (LendViewBuffer).
+        // Null until the first upload.
+        [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetMaterialsBuffer() const;
 
         // One persistent device table and its CPU image's upload state (implementation detail of the upload).
         struct Table;
@@ -197,12 +215,18 @@ namespace Desert::Graphic::GpuDriven
         std::vector<uint32_t>   m_DirtyLodScreenSizes;
         std::vector<uint32_t>   m_DirtyWorldBounds;
         bool                    m_BonesDirty = false;
+        // The scene material table's CPU image (vec4 slots), its free slot ranges and the slots changed since the
+        // last upload.
+        std::vector<glm::vec4>  m_MaterialSlots;
+        std::vector<glm::uvec2> m_FreeMaterialRanges;
+        std::vector<uint32_t>   m_DirtyMaterialSlots;
 
         std::unique_ptr<Table> m_PrimitiveTable;
         std::unique_ptr<Table> m_InstanceTable;
         std::unique_ptr<Table> m_LodTable;
         std::unique_ptr<Table> m_WorldBoundsTable;
         std::unique_ptr<Table> m_BonesTable;
+        std::unique_ptr<Table> m_MaterialTable;
         std::unique_ptr<struct GpuSceneUploadPipeline> m_Upload;
     };
 } // namespace Desert::Graphic::GpuDriven

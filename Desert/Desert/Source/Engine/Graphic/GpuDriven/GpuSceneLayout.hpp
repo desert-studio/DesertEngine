@@ -168,7 +168,9 @@ namespace Desert::Graphic::GpuDriven
         // Its row in the pass's DrawBins[] / IndirectDraws[]; kInvalidIndex = the submesh does not draw in this pass
         // (hidden, or no pipeline for its material there): the cull skips the slot.
         uint32_t Bin         = 0; // 0
-        uint32_t MaterialRow = 0; // 4  — its row in Materials[] (Material.hpp kMaterialRowBlock)
+        // Its section's row in the scene material table (GpuScene::AddMaterialRow, GpuSceneRegistry::SyncMaterialRow;
+        // MeshRenderer::StaticMeshRenderData::MaterialRow): the index the shader reads as MaterialRows[MaterialIndex].
+        uint32_t MaterialRow = 0; // 4
         // Its row in DrawCommandCache::SubmeshTransforms[]: the submesh's node transform relative to the
         // primitive (Submesh::Transform). World = LocalToWorld x InstanceToPrimitive x this.
         uint32_t SubmeshTransform = 0; // 8

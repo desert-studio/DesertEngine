@@ -132,8 +132,9 @@ namespace Desert::Graphic::GpuDriven
     using PassPipelineResolver = std::function<const GraphicsPipeline*(
          MeshPass pass, PrimitiveIndex primitive, const Mesh& mesh, uint32_t submesh, uint32_t materialRow )>;
 
-    // What a primitive hands the cache: its mesh, the Materials[] row of each material slot (mesh section i draws
-    // with MaterialRows[SectionMaterialSlot( i, size )], MeshTypes.hpp), how many instances it has in GpuScene
+    // What a primitive hands the cache: its mesh, the scene material table row of each material slot
+    // (GpuSceneRegistry::SyncMaterialRow; mesh section i draws with MaterialRows[SectionMaterialSlot( i, size )],
+    // MeshTypes.hpp), how many instances it has in GpuScene
     // (the capacity its draws add to their bins) and where they start in GpuScene's Instances[] (the rows the
     // unculled list names), which submeshes it hides (bit i = submesh i, the component's hidden-section mask;
     // submeshes past 64 are never hidden, as in WalkMeshSubmeshes) and its PrimitiveFlags.
