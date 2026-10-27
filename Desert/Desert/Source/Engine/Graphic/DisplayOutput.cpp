@@ -38,13 +38,24 @@ namespace Desert::Graphic
         else if ( os.PeakNits > 0.0f )
             state.PeakNits = os.PeakNits;
         else
-            state.PeakNits = os.EdrHeadroom * state.PaperWhiteNits;
+        {
+            // macOS answers maximumExtendedDynamicRangeColorComponentValue = 1.0 until a layer on the screen asks
+            // for EDR (CAMetalLayer wantsExtendedDynamicRangeContent, which the scRGB swapchain itself sets): the
+            // "now" headroom cannot decide whether to build the EDR swapchain. The display's capability is the
+            // potential headroom (Apple, "Displaying HDR content in a Metal layer"); a reference preset (XDR
+            // reference modes) pins it. Once EDR is on, the current headroom is the truth.
+            const float headroom = os.EdrHeadroom > 1.0f      ? os.EdrHeadroom
+                                   : os.ReferenceHeadroom > 1.0f ? os.ReferenceHeadroom
+                                                                 : os.PotentialHeadroom;
+            state.PeakNits = headroom * state.PaperWhiteNits;
+        }
         state.Headroom = state.PeakNits / state.PaperWhiteNits;
         if ( !( state.Headroom > 1.0f ) )
             return Common::MakeError<DisplayOutputState>( std::format(
                  "the display has no headroom above paper white (peak {:.0f} nits, paper white {:.0f} nits; {} "
-                 "EDR headroom {:.3f}): an HDR output would present SDR",
-                 state.PeakNits, state.PaperWhiteNits, os.Source, os.EdrHeadroom ) );
+                 "EDR headroom {:.3f}, potential {:.3f}, reference {:.3f}): an HDR output would present SDR",
+                 state.PeakNits, state.PaperWhiteNits, os.Source, os.EdrHeadroom, os.PotentialHeadroom,
+                 os.ReferenceHeadroom ) );
         return Common::MakeSuccess( state );
     }
 
