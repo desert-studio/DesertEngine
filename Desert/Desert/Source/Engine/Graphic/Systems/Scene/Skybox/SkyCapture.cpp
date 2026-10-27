@@ -635,14 +635,16 @@ namespace Desert::Graphic::System
         }
         const RDG::BufferRef readback =
              graph.RegisterExternal( m_IrradianceReadbackImport, "SkyCapture.IrradianceReadback" );
-        auto*                 images     = Runtime::ResourceRegistry::GetImageService();
-        const RDG::TextureRef irradiance = textures.Import( images->Share( m_IrradianceHandle ), "SkyCapture.Irradiance" );
+        auto*                 images = Runtime::ResourceRegistry::GetImageService();
+        const RDG::TextureRef irradiance =
+             textures.Import( images->Share( m_IrradianceHandle ), "SkyCapture.Irradiance" );
 
         graph.AddPass(
              "Sky Capture: Irradiance Readback", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
              [&]( RDG::PassBuilder& pass )
              {
-                 pass.Bindings( m_IrradianceReadback.Layout.Get( m_IrradianceReadback.Pipeline->GetSpecification().Shader ),
+                 pass.Bindings( m_IrradianceReadback.Layout.Get(
+                                     m_IrradianceReadback.Pipeline->GetSpecification().Shader ),
                                 Renderer::GetPipelineRouteFill( *m_IrradianceReadback.Pipeline ) )
                       .Texture( SkyCaptureIrradianceReadbackShaderParameters::IrradianceTexture, irradiance,
                                 RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
