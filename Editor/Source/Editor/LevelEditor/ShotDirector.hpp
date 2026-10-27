@@ -63,11 +63,16 @@ namespace Desert::Editor
         // after its PNG — the layer then finishes its own records and closes with Finish().
         // @p recordedFrame is this frame's AdmitFrame verdict.
         [[nodiscard]] bool CountRenderedFrame( bool recordedFrame );
+        // THIS FRAME'S RENDER IS RECORDED (end of the layer's update): its AdmitFrame verdict and the start-up
+        // state it was rendered under are held for EndFrame. Nothing is read back here - the frame's commands
+        // are recorded but not yet submitted, so the scene image still holds the PREVIOUS frame.
+        void FrameRecorded( bool recordedFrame, bool startupLoading, bool contentSettling );
+        // THE END OF A FRAME OF THE CAPTURE, called once the frame is submitted and presented (the layer's
+        // OnFramePresented): the --flight sample, then CountRenderedFrame; on the last frame the profiler dump
+        // and the --flight CSV are written and the capture's status comes back to close with. A frame whose
+        // update never reached FrameRecorded counts nothing.
+        [[nodiscard]] std::optional<int32_t> EndFrame( ProfilerWindow& profiler );
         // A record the layer keeps for the capture (the --flight CSV) failed: the capture fails with it.
-        // THE END OF A FRAME OF THE CAPTURE: the --flight sample, then CountRenderedFrame; on the last frame the
-        // profiler dump and the --flight CSV are written and the capture's status comes back to close with.
-        [[nodiscard]] std::optional<int32_t> EndFrame( bool recordedFrame, bool startupLoading,
-                                                       bool contentSettling, ProfilerWindow& profiler );
         void MarkFailed()
         {
             m_ShotFailed = true;
@@ -103,5 +108,14 @@ namespace Desert::Editor
         bool           m_ShotCameraPlaced = false;
         // Set when any PNG of this capture could not be written; becomes the process exit status.
         bool m_ShotFailed = false;
+
+        // The frame FrameRecorded saw, waiting for its submit: EndFrame reads back and counts it, then clears it.
+        struct RecordedFrame
+        {
+            bool Recorded        = false;
+            bool StartupLoading  = false;
+            bool ContentSettling = false;
+        };
+        std::optional<RecordedFrame> m_PendingFrame;
     };
 } // namespace Desert::Editor

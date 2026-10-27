@@ -622,11 +622,9 @@ namespace Desert::Editor
         if ( m_Workspace.ActiveScene() && m_AssetManager )
             RigBuilder::ProcessPending( *m_Workspace.ActiveScene(), *m_AssetManager );
 
-        // Screenshot mode, END OF FRAME (ShotDirector::EndFrame): the --flight sample, and on the capture's last
-        // frame the profiler dump, the --flight CSV and the capture's status to close with.
-        if ( const auto finished = m_Shots.EndFrame( shotRecorded, m_Startup.StartupLoading(),
-                                                     m_Startup.ContentSettling(), m_Profiler ) )
-            m_Application->Close( *finished );
+        // Screenshot mode: this frame's render is recorded. It is read back, counted and written once it has
+        // been SUBMITTED (ShotDirector::EndFrame in OnFramePresented); read here, the image is the last frame's.
+        m_Shots.FrameRecorded( shotRecorded, m_Startup.StartupLoading(), m_Startup.ContentSettling() );
 
         return BOOLSUCCESS;
     }
@@ -663,6 +661,14 @@ namespace Desert::Editor
 
     void EditorLayer::OnFramePresented()
     {
+        // Screenshot mode, END OF FRAME (ShotDirector::EndFrame): the frame just submitted is read back and
+        // written, the --flight sampled, and on the capture's last frame the profiler dump, the --flight CSV
+        // and the capture's status to close with.
+        if ( const auto finished = m_Shots.EndFrame( m_Profiler ) )
+        {
+            m_Application->Close( *finished );
+            return;
+        }
         m_Startup.RevealWhenReady();
         // What the frame just presented drew: displaced primitives still on their base mesh (ControlService).
         const auto& scene = m_Workspace.ActiveScene();
