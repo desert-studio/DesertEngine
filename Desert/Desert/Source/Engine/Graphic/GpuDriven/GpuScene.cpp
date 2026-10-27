@@ -291,7 +291,7 @@ namespace Desert::Graphic::GpuDriven
         {
             GpuSceneInstance& instance = m_Instances[row.FirstInstance + i];
             instance.InstanceToPrimitive =
-                 desc.InstanceToPrimitive.empty() ? glm::mat4( 1.0f ) : desc.InstanceToPrimitive[i];
+                 PackAffine( desc.InstanceToPrimitive.empty() ? glm::mat4( 1.0f ) : desc.InstanceToPrimitive[i] );
             instance.Primitive         = primitive;
             instance.CullDistanceStart = desc.CullDistanceStart;
             instance.CullDistanceEnd   = desc.CullDistanceEnd;
@@ -342,8 +342,8 @@ namespace Desert::Graphic::GpuDriven
         GpuScenePrimitive& row = m_Primitives[primitive];
         row                    = GpuScenePrimitive{};
         row.FirstLodScreenSize = kInvalidIndex;
-        row.LocalToWorld       = desc.LocalToWorld;
-        row.PrevLocalToWorld   = desc.LocalToWorld; // added this frame: no object motion
+        row.LocalToWorld       = PackAffine( desc.LocalToWorld );
+        row.PrevLocalToWorld   = row.LocalToWorld; // added this frame: no object motion
         UpdatePrimitive( primitive, desc );
         return primitive;
     }
@@ -401,11 +401,12 @@ namespace Desert::Graphic::GpuDriven
         if ( !IsValid( primitive ) )
             return;
         GpuScenePrimitive& row = m_Primitives[primitive];
-        if ( row.LocalToWorld == world )
+        const GpuAffine3x4 packed = PackAffine( world );
+        if ( row.LocalToWorld == packed )
             return;
         JournalTransform( primitive );
         row.PrevLocalToWorld = row.LocalToWorld;
-        row.LocalToWorld     = world;
+        row.LocalToWorld     = packed;
         MarkPrimitive( primitive );
         if ( m_MovedMark[primitive] == 0u )
         {

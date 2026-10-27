@@ -179,8 +179,8 @@ namespace Desert::Graphic::GpuDriven
         struct TransformUndo
         {
             PrimitiveIndex Primitive = kInvalidIndex;
-            glm::mat4      LocalToWorld{ 1.0f };
-            glm::mat4      PrevLocalToWorld{ 1.0f };
+            GpuAffine3x4   LocalToWorld{};
+            GpuAffine3x4   PrevLocalToWorld{};
         };
         std::vector<TransformUndo>  m_FrameUndo;
         std::vector<uint8_t>        m_UndoMark;

@@ -98,6 +98,14 @@ namespace Desert::Graphic::GpuDriven
         std::vector<GpuDrawBin>            Bins; // sorted by IndirectGroup
         std::vector<IndirectGroup>         Groups;
         uint32_t                           VisibleCapacity = 0; // sum of the bins' Capacity
+        // THE UNCULLED LIST: every instance of every bin, VisibleCapacity rows, bin b's at [FirstVisible,
+        // +Capacity) in primitive order. What the vertex stage reads through VisibleInstances[gl_InstanceIndex]
+        // when nothing culled the pass (UE: InstanceCulling with culling off still writes every instance id):
+        // the CPU-recorded draw of a slot instances [SlotFirstVisible[slot], +InstanceCount) of it, so no
+        // per-draw state is pushed. The cull's compacted list (InstanceCulling) has the same row type and
+        // indexing; it replaces this one as the pass's VisibleInstances, never adds a second path.
+        std::vector<GpuVisibleInstance> UnculledVisible;
+        std::vector<uint32_t>           SlotFirstVisible; // host only, per DrawSlot; kInvalidIndex = Bin invalid
     };
 
     // The graph handles of one pass's tables after this frame's upload.
@@ -106,6 +114,7 @@ namespace Desert::Graphic::GpuDriven
         RDG::BufferRef PrimitiveDraws; // GpuPrimitivePassDraws[]
         RDG::BufferRef DrawSlots;      // GpuDrawSlot[]
         RDG::BufferRef Bins;           // GpuDrawBin[]
+        RDG::BufferRef UnculledVisible; // GpuVisibleInstance[] (PassDrawTable::UnculledVisible)
     };
 
     // Every table of the cache after this frame's upload: the passes', and the submesh transforms every pass's
@@ -125,12 +134,14 @@ namespace Desert::Graphic::GpuDriven
 
     // What a primitive hands the cache: its mesh, the Materials[] row of each material slot (mesh section i draws
     // with MaterialRows[SectionMaterialSlot( i, size )], MeshTypes.hpp), how many instances it has in GpuScene
-    // (the capacity its draws add to their bins), which submeshes it hides (bit i = submesh i, the component's
-    // hidden-section mask; submeshes past 64 are never hidden, as in WalkMeshSubmeshes) and its PrimitiveFlags.
+    // (the capacity its draws add to their bins) and where they start in GpuScene's Instances[] (the rows the
+    // unculled list names), which submeshes it hides (bit i = submesh i, the component's hidden-section mask;
+    // submeshes past 64 are never hidden, as in WalkMeshSubmeshes) and its PrimitiveFlags.
     struct PrimitiveDrawDesc
     {
         const Mesh*               Mesh = nullptr;
         std::span<const uint32_t> MaterialRows{};
+        uint32_t                  FirstInstance     = kInvalidIndex; // GpuScenePrimitive::FirstInstance
         uint32_t                  InstanceCount     = 1;
         uint64_t                  HiddenSubmeshMask = 0;
         uint32_t                  PrimitiveFlags    = 0;
@@ -160,6 +171,13 @@ namespace Desert::Graphic::GpuDriven
         [[nodiscard]] bool NeedsRebuild() const;
 
         [[nodiscard]] const PassDrawTable& Pass( MeshPass pass ) const;
+        // The gl_InstanceIndex base of the primitive's draw of (lod, submesh) in @p pass on the unculled list:
+        // its instances are the rows [base, base + InstanceCount) (PassDrawTable::UnculledVisible), so a CPU-
+        // recorded draw passes firstInstance = base and pushes nothing. nullopt: the primitive has no draw there
+        // (not in the cache, not in the pass, lod / submesh past its chain, or no PSO for the submesh). Valid
+        // after Rebuild, until the next AddPrimitive / RemovePrimitive / InvalidatePipelines.
+        [[nodiscard]] std::optional<uint32_t> UnculledFirstVisible( MeshPass pass, PrimitiveIndex primitive,
+                                                                    uint32_t lod, uint32_t submesh ) const;
         [[nodiscard]] std::span<const glm::mat4> SubmeshTransforms() const
         {
             return m_SubmeshTransforms;
@@ -175,6 +193,7 @@ namespace Desert::Graphic::GpuDriven
         {
             const Mesh*           Mesh = nullptr;
             std::vector<uint32_t> MaterialRows; // per SUBMESH, already through SectionMaterialSlot
+            uint32_t              FirstInstance     = kInvalidIndex;
             uint32_t              InstanceCount     = 1;
             uint64_t              HiddenSubmeshMask = 0;
             uint32_t              PrimitiveFlags    = 0;
@@ -205,8 +224,9 @@ namespace Desert::Graphic::GpuDriven
         // Rebuilt and not uploaded yet (the pass tables), and the transforms changed since the last upload.
         std::array<bool, kMeshPassCount> m_Unuploaded{};
         bool                             m_TransformsUnuploaded = false;
-        // [pass][PrimitiveDraws, DrawSlots, Bins]: the persistent device tables (DrawCommandCache.cpp).
-        std::array<std::array<std::unique_ptr<Table>, 3>, kMeshPassCount> m_PassTables;
+        // [pass][PrimitiveDraws, DrawSlots, Bins, UnculledVisible]: the persistent device tables
+        // (DrawCommandCache.cpp).
+        std::array<std::array<std::unique_ptr<Table>, 4>, kMeshPassCount> m_PassTables;
         std::unique_ptr<Table>                                            m_TransformTable;
     };
 } // namespace Desert::Graphic::GpuDriven

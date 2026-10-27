@@ -27,7 +27,7 @@ namespace Desert::Graphic::GpuDriven
             if ( held.size() != std::max<size_t>( transforms.size(), 1u ) )
                 return false;
             for ( size_t i = 0; i < transforms.size(); ++i )
-                if ( held[i].InstanceToPrimitive != transforms[i] )
+                if ( held[i].InstanceToPrimitive != PackAffine( transforms[i] ) )
                     return false;
             return true;
         }
@@ -163,7 +163,7 @@ namespace Desert::Graphic::GpuDriven
             auto&          owned     = entityPrimitives[record.Entity];
             PrimitiveIndex primitive = kInvalidIndex;
             for ( const PrimitiveIndex held : owned ) // only rigid primitives exist yet: skinned run last
-                if ( m_Scene.Primitive( held ).LocalToWorld == record.World )
+                if ( m_Scene.Primitive( held ).LocalToWorld == PackAffine( record.World ) )
                 {
                     primitive = held;
                     break;

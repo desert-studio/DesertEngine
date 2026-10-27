@@ -86,6 +86,8 @@ namespace VelocityTargetTest
             return 64;
         if ( type == "vec4" )
             return 16;
+        if ( type == "GpuAffine3x4" ) // three vec4 rows (Common/GpuScene.glslh)
+            return 48;
         if ( type == "uint" || type == "float" || type == "int" )
             return 4;
         return 0; // unknown: the census fails on it by name
@@ -116,7 +118,7 @@ TEST( VelocityTarget, GpuScenePrimitiveHasAStd430TwinInGlsl )
          ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/GpuScene.glslh" );
     ASSERT_FALSE( source.empty() );
     const auto members = GlslStructMembers( source, "GpuScenePrimitive" );
-    ASSERT_EQ( members.size(), 20u ); // 2 mat4, 2 vec4, 12 uint/int words, SkinCache x3 ... Pad0-2
+    ASSERT_EQ( members.size(), 20u ); // 2 GpuAffine3x4, 2 vec4, 12 uint/int words, SkinCache x3 ... Pad0-2
     EXPECT_EQ( members[0].second, "LocalToWorld" );
     EXPECT_EQ( members[1].second, "PrevLocalToWorld" );
     EXPECT_EQ( members[12].second, "BoneOffset" );
@@ -164,8 +166,8 @@ TEST( VelocityTarget, ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface )
         ASSERT_FALSE( src.empty() ) << vertex;
         EXPECT_NE( src.find( "gpuScene.Primitives[m_PushConstants.PrimitiveIndex]" ), std::string::npos )
              << vertex;
-        EXPECT_NE( src.find( "row.LocalToWorld*m_PushConstants.Transform" ), std::string::npos ) << vertex;
-        EXPECT_NE( src.find( "row.PrevLocalToWorld*m_PushConstants.Transform" ), std::string::npos ) << vertex;
+        EXPECT_NE( src.find( "GpuScene_LocalToWorld(row)*m_PushConstants.Transform" ), std::string::npos ) << vertex;
+        EXPECT_NE( src.find( "GpuScene_PrevLocalToWorld(row)*m_PushConstants.Transform" ), std::string::npos ) << vertex;
         EXPECT_NE( src.find( "v_Surface.Clip=cameraUB.ViewProjection*" ), std::string::npos ) << vertex;
         EXPECT_NE( src.find( "v_Surface.PrevClip=cameraUB.PrevViewProjection*" ), std::string::npos ) << vertex;
     }
@@ -322,7 +324,11 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-    ASSERT_EQ( sceneRead.size(), 13u );
+    ASSERT_EQ( sceneRead.size(), 17u );
+    EXPECT_EQ( sceneRead["GpuSceneInstances"], Desert::Core::kGpuSceneInstancesBinding );
+    EXPECT_EQ( sceneRead["GpuSceneVisibleInstances"], Desert::Core::kGpuSceneVisibleInstancesBinding );
+    EXPECT_EQ( sceneRead["GpuSceneDrawSlots"], Desert::Core::kGpuSceneDrawSlotsBinding );
+    EXPECT_EQ( sceneRead["GpuSceneSubmeshTransforms"], Desert::Core::kGpuSceneSubmeshTransformsBinding );
     EXPECT_EQ( sceneRead["LocalShadowAtlasTexture"], Desert::Core::kLocalShadowAtlasBinding );
     EXPECT_EQ( sceneRead["LocalShadowViewsUB"], Desert::Core::kLocalShadowViewsBinding );
     EXPECT_EQ( sceneRead["MegaLightsVolumeUB"], Desert::Core::kMegaLightsVolumeParamsBinding );

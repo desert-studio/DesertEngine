@@ -46,8 +46,8 @@ void main()
     // View pass: the object's row holds its current and previous world; Transform is the submesh's transform
     // relative to it (identical in both frames), so a still object gives PrevWorld == World bit for bit.
     const GpuScenePrimitive row       = gpuScene.Primitives[m_PushConstants.PrimitiveIndex];
-    const mat4            world     = row.LocalToWorld * m_PushConstants.Transform;
-    const mat4            prevWorld = row.PrevLocalToWorld * m_PushConstants.Transform;
+    const mat4            world     = GpuScene_LocalToWorld( row ) * m_PushConstants.Transform;
+    const mat4            prevWorld = GpuScene_PrevLocalToWorld( row ) * m_PushConstants.Transform;
 #else
     const mat4 world = m_PushConstants.Transform;
 #endif

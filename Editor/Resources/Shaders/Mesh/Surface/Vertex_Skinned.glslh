@@ -75,8 +75,8 @@ void main()
     // View pass: see Vertex_Static. The previous pose is the one the view drew this primitive with last frame:
     // the skin cache's previous positions, or the palette at the row's PrevBoneOffset in the same ObjectBones.
     const GpuScenePrimitive row       = gpuScene.Primitives[m_PushConstants.PrimitiveIndex];
-    const mat4            model     = row.LocalToWorld * m_PushConstants.Transform;
-    const mat4            prevModel = row.PrevLocalToWorld * m_PushConstants.Transform;
+    const mat4            model     = GpuScene_LocalToWorld( row ) * m_PushConstants.Transform;
+    const mat4            prevModel = GpuScene_PrevLocalToWorld( row ) * m_PushConstants.Transform;
     vec3                  posed;
     vec3                  prevPosed;
     vec3                  skinnedNormal;

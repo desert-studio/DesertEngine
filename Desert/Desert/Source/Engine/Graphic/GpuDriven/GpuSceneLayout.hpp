@@ -42,44 +42,84 @@ namespace Desert::Graphic::GpuDriven
         inline constexpr uint32_t kSkipOcclusion = 1u << 4;
     } // namespace PrimitiveFlags
 
+    // THE BINNED DRAW'S INSTANCE ID STREAM (decision 10-27, UE5 instance id stream): a mesh-pass pipeline binds one
+    // uint32 per drawn instance at VK_VERTEX_INPUT_RATE_INSTANCE on this vertex binding, read as `a_VisibleRow` at
+    // this location (Common/GpuScene.glslh, DESERT_GPU_SCENE_DRAWS): the row of the pass's VisibleInstances list
+    // the instance resolves from. Bindings 0 / 1 are the mesh's vertices and optional streams (MeshVertexLayout),
+    // locations 0-8 their attributes. Written by the cull's compaction, or by the CPU loop from the
+    // DrawCommandCache's unculled list until PASSES. Transforms are never streamed.
+    inline constexpr uint32_t kVisibleRowVertexBinding  = 2u;
+    inline constexpr uint32_t kVisibleRowVertexLocation = 9u;
+
+    // AN AFFINE TRANSFORM, PACKED 3x4 (UE FRenderTransform; decision 10-27): the first three ROWS of the matrix, the
+    // fourth (0, 0, 0, 1) implicit. Rows[r] = (m[0][r], m[1][r], m[2][r], m[3][r]) of the column-major glm::mat4, so
+    // Rows[r].w is the translation's r. 48 bytes instead of 64; a scene transform is affine by construction (TRS),
+    // a projective one cannot be stored here. Shaders unpack only through GpuScene_LocalToWorld /
+    // GpuScene_PrevLocalToWorld / GpuScene_InstanceToPrimitive (Common/GpuScene.glslh).
+    struct GpuAffine3x4
+    {
+        glm::vec4 Rows[3]{ glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ), glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f ),
+                           glm::vec4( 0.0f, 0.0f, 1.0f, 0.0f ) };
+
+        bool operator==( const GpuAffine3x4& ) const = default;
+    };
+    static_assert( sizeof( GpuAffine3x4 ) == 48, "std430 twin: three vec4 rows (Common/GpuScene.glslh)" );
+
+    [[nodiscard]] inline GpuAffine3x4 PackAffine( const glm::mat4& m )
+    {
+        GpuAffine3x4 packed;
+        for ( int r = 0; r < 3; ++r )
+            packed.Rows[r] = glm::vec4( m[0][r], m[1][r], m[2][r], m[3][r] );
+        return packed;
+    }
+
+    [[nodiscard]] inline glm::mat4 UnpackAffine( const GpuAffine3x4& packed )
+    {
+        glm::mat4 m( 1.0f );
+        for ( int c = 0; c < 4; ++c )
+            for ( int r = 0; r < 3; ++r )
+                m[c][r] = packed.Rows[r][c];
+        return m;
+    }
+
     // ONE ROW PER PRIMITIVE OF THE SCENE (a mesh component: static, skinned, ISM, fracture part).
     // THE world/prev-world source for velocity, RT (RayTracingGather.cpp) and the surface cache.
     struct GpuScenePrimitive
     {
-        glm::mat4 LocalToWorld{ 1.0f };     // 0
-        glm::mat4 PrevLocalToWorld{ 1.0f }; // 64  — == LocalToWorld the frame after the primitive stopped moving
+        GpuAffine3x4 LocalToWorld{};     // 0
+        GpuAffine3x4 PrevLocalToWorld{}; // 48  — == LocalToWorld the frame after the primitive stopped moving
         // Mesh-space bounds of the whole mesh (Geometry::LocalBounds): xyz centre / extent, cm.
         // LocalBoundsCenter.w = how far wind moves vertices past the bounds (cm, today
         // MeshDrawCommand::BoundsPad). LocalBoundsExtent.w = 0.
-        glm::vec4 LocalBoundsCenter{ 0.0f }; // 128
-        glm::vec4 LocalBoundsExtent{ 0.0f }; // 144
-        uint32_t  FirstInstance      = 0;    // 160 — its instances: Instances[FirstInstance, +InstanceCount)
-        uint32_t  InstanceCount      = 0;    // 164 — 1 for a non-instanced primitive
-        uint32_t  FirstLodScreenSize = 0; // 168 — LodScreenSizes[FirstLodScreenSize, +LodCount) (UE screen size)
-        uint32_t  LodCount           = 0; // 172 — 1 = no LOD chain
-        int32_t   LodBias            = 0; // 176 — Geometry::SelectLODFromBounds lodBias
-        int32_t   ForcedLod          = -1; // 180 — Geometry::SelectLODFromBounds forcedLOD (-1 = auto)
-        uint32_t  Flags              = 0;  // 184 — PrimitiveFlags
-        uint32_t  Entity             = 0;  // 188 — the owning entity (picking, debug views, RT hit records)
+        glm::vec4 LocalBoundsCenter{ 0.0f }; // 96
+        glm::vec4 LocalBoundsExtent{ 0.0f }; // 112
+        uint32_t  FirstInstance      = 0;    // 128 — its instances: Instances[FirstInstance, +InstanceCount)
+        uint32_t  InstanceCount      = 0;    // 132 — 1 for a non-instanced primitive
+        uint32_t  FirstLodScreenSize = 0; // 136 — LodScreenSizes[FirstLodScreenSize, +LodCount) (UE screen size)
+        uint32_t  LodCount           = 0; // 140 — 1 = no LOD chain
+        int32_t   LodBias            = 0; // 144 — Geometry::SelectLODFromBounds lodBias
+        int32_t   ForcedLod          = -1; // 148 — Geometry::SelectLODFromBounds forcedLOD (-1 = auto)
+        uint32_t  Flags              = 0;  // 152 — PrimitiveFlags
+        uint32_t  Entity             = 0;  // 156 — the owning entity (picking, debug views, RT hit records)
         // Skinned (kSkinned): this frame's / the previous frame's palette in the scene's per-frame ObjectBones
         // buffer; the GPU skin cache's streams (RayTracingSkinCache) when it is on, 0 = skin in the vertex stage.
-        uint32_t BoneOffset           = 0; // 192
-        uint32_t PrevBoneOffset       = 0; // 196
-        uint32_t SkinCacheAddressLo   = 0; // 200
-        uint32_t SkinCacheAddressHi   = 0; // 204
-        uint32_t SkinCacheVertexCount = 0; // 208
-        // std430 struct-array stride: 224 = 14 x 16. The per-pass draws live in PassDraws[primitive], not here.
-        uint32_t Pad0 = 0; // 212
-        uint32_t Pad1 = 0; // 216
-        uint32_t Pad2 = 0; // 220
+        uint32_t BoneOffset           = 0; // 160
+        uint32_t PrevBoneOffset       = 0; // 164
+        uint32_t SkinCacheAddressLo   = 0; // 168
+        uint32_t SkinCacheAddressHi   = 0; // 172
+        uint32_t SkinCacheVertexCount = 0; // 176
+        // std430 struct-array stride: 192 = 12 x 16. The per-pass draws live in PassDraws[primitive], not here.
+        uint32_t Pad0 = 0; // 180
+        uint32_t Pad1 = 0; // 184
+        uint32_t Pad2 = 0; // 188
     };
-    static_assert( sizeof( GpuScenePrimitive ) == 224, "std430 twin in Common/GpuScene.glslh" );
-    static_assert( offsetof( GpuScenePrimitive, PrevLocalToWorld ) == 64, "Common/GpuScene.glslh" );
-    static_assert( offsetof( GpuScenePrimitive, LocalBoundsCenter ) == 128, "Common/GpuScene.glslh" );
-    static_assert( offsetof( GpuScenePrimitive, FirstInstance ) == 160, "Common/GpuScene.glslh" );
-    static_assert( offsetof( GpuScenePrimitive, Flags ) == 184, "Common/GpuScene.glslh" );
-    static_assert( offsetof( GpuScenePrimitive, BoneOffset ) == 192, "Common/GpuScene.glslh" );
-    static_assert( offsetof( GpuScenePrimitive, SkinCacheVertexCount ) == 208, "Common/GpuScene.glslh" );
+    static_assert( sizeof( GpuScenePrimitive ) == 192, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuScenePrimitive, PrevLocalToWorld ) == 48, "Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuScenePrimitive, LocalBoundsCenter ) == 96, "Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuScenePrimitive, FirstInstance ) == 128, "Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuScenePrimitive, Flags ) == 152, "Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuScenePrimitive, BoneOffset ) == 160, "Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuScenePrimitive, SkinCacheVertexCount ) == 176, "Common/GpuScene.glslh" );
 
     // ONE ROW PER INSTANCE: a non-instanced primitive owns exactly one (identity InstanceToPrimitive), an ISM one
     // per placed instance (today CPU CollectIsmInstances, InstanceCullDistance.hpp:97). World = primitive's
@@ -88,18 +128,18 @@ namespace Desert::Graphic::GpuDriven
     // same way, through the primitive).
     struct GpuSceneInstance
     {
-        glm::mat4 InstanceToPrimitive{ 1.0f }; // 0
-        uint32_t  Primitive = kInvalidIndex;   // 64 — its row in Primitives[]
+        GpuAffine3x4 InstanceToPrimitive{};     // 0
+        uint32_t     Primitive = kInvalidIndex; // 48 — its row in Primitives[]
         // Distance cull of the ISM component (InstanceCullDistance.hpp), cm from the view origin; 0/0 = none.
-        float CullDistanceStart = 0.0f; // 68
-        float CullDistanceEnd   = 0.0f; // 72
+        float CullDistanceStart = 0.0f; // 52
+        float CullDistanceEnd   = 0.0f; // 56
         // Pose bounds when the primitive has kWorldBoundsOverride: the row in WorldBoundsOverrides[]
         // (kInvalidIndex otherwise). Today MeshDrawCommand::WorldBounds (SkinnedPoseBounds).
-        uint32_t WorldBoundsRow = kInvalidIndex; // 76
+        uint32_t WorldBoundsRow = kInvalidIndex; // 60
     };
-    static_assert( sizeof( GpuSceneInstance ) == 80, "std430 twin in Common/GpuScene.glslh" );
-    static_assert( offsetof( GpuSceneInstance, Primitive ) == 64, "Common/GpuScene.glslh" );
-    static_assert( offsetof( GpuSceneInstance, WorldBoundsRow ) == 76, "Common/GpuScene.glslh" );
+    static_assert( sizeof( GpuSceneInstance ) == 64, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuSceneInstance, Primitive ) == 48, "Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuSceneInstance, WorldBoundsRow ) == 60, "Common/GpuScene.glslh" );
 
     // A world-space box that replaces LocalBounds x InstanceToWorld for one instance (skinned pose this frame).
     struct GpuSceneWorldBounds

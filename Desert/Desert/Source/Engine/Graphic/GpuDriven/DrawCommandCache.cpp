@@ -29,7 +29,8 @@ namespace Desert::Graphic::GpuDriven
     namespace
     {
         constexpr uint64_t                                kMinTableBytes = 4096u;
-        constexpr std::array<const char*, 3>              kPassTableNames{ "PrimitiveDraws", "DrawSlots", "Bins" };
+        constexpr std::array<const char*, 4>              kPassTableNames{ "PrimitiveDraws", "DrawSlots", "Bins",
+                                                                         "UnculledVisible" };
         constexpr std::array<const char*, kMeshPassCount> kPassNames{ "DepthPrepass", "GBuffer", "Forward",
                                                                       "ShadowCascade", "VirtualShadow" };
 
@@ -197,9 +198,15 @@ namespace Desert::Graphic::GpuDriven
             return Common::MakeFormattedError( "DrawCommands: primitive {} has no material slot", primitive );
         if ( desc.InstanceCount == 0u )
             return Common::MakeFormattedError( "DrawCommands: primitive {} has no instance", primitive );
+        if ( desc.FirstInstance == kInvalidIndex ||
+             uint64_t{ desc.FirstInstance } + desc.InstanceCount > uint64_t{ kInvalidIndex } )
+            return Common::MakeFormattedError(
+                 "DrawCommands: primitive {} names no GpuScene instance range (first {}, count {})", primitive,
+                 desc.FirstInstance, desc.InstanceCount );
 
         PrimitiveRecord record;
         record.Mesh              = &mesh;
+        record.FirstInstance     = desc.FirstInstance;
         record.InstanceCount     = desc.InstanceCount;
         record.HiddenSubmeshMask = desc.HiddenSubmeshMask;
         record.PrimitiveFlags    = desc.PrimitiveFlags;
@@ -295,6 +302,7 @@ namespace Desert::Graphic::GpuDriven
         std::map<BinKey, uint32_t>                                          binOf;
         std::map<std::pair<const GraphicsPipeline*, const Mesh*>, uint32_t> groupOf;
         std::vector<BinDraft>                                               drafts;
+        std::vector<const PrimitiveRecord*>                                 slotRecord; // per DrawSlot
 
         for ( size_t primitive = 0; primitive < m_Primitives.size(); ++primitive )
         {
@@ -345,6 +353,7 @@ namespace Desert::Graphic::GpuDriven
                         slot.Bin = it->second; // the draft's ordinal; remapped to the sorted row below
                     }
                     table.DrawSlots.push_back( slot );
+                    slotRecord.push_back( &*record );
                 }
             }
         }
@@ -384,11 +393,47 @@ namespace Desert::Graphic::GpuDriven
         // gl_InstanceIndex = FirstVisible + instance is a uint32 the GPU computes: a list past it cannot be drawn.
         // Clamped, not wrapped; AddUploadPass refuses the pass so the overflow is named, not drawn wrong.
         table.VisibleCapacity = static_cast<uint32_t>( std::min<uint64_t>( visible, UINT32_MAX ) );
+        if ( table.VisibleCapacity == UINT32_MAX )
+            return;
+
+        // The unculled list: each slot's instances in its bin, in slot (= primitive) order, so a bin's rows are
+        // filled exactly to its Capacity (the same InstanceCount sum that sized it above).
+        table.UnculledVisible.resize( table.VisibleCapacity );
+        table.SlotFirstVisible.assign( table.DrawSlots.size(), kInvalidIndex );
+        std::vector<uint32_t> filled( table.Bins.size(), 0u );
+        for ( size_t s = 0; s < table.DrawSlots.size(); ++s )
+        {
+            const GpuDrawSlot& slot = table.DrawSlots[s];
+            if ( slot.Bin == kInvalidIndex )
+                continue;
+            const PrimitiveRecord& record = *slotRecord[s];
+            const uint32_t         first  = table.Bins[slot.Bin].FirstVisible + filled[slot.Bin];
+            table.SlotFirstVisible[s]     = first;
+            for ( uint32_t i = 0; i < record.InstanceCount; ++i )
+                table.UnculledVisible[size_t{ first } + i] =
+                     GpuVisibleInstance{ .Instance = record.FirstInstance + i, .DrawSlot = static_cast<uint32_t>( s ) };
+            filled[slot.Bin] += record.InstanceCount;
+        }
     }
 
     const PassDrawTable& DrawCommandCache::Pass( const MeshPass pass ) const
     {
         return m_Passes[static_cast<uint32_t>( pass )];
+    }
+
+    std::optional<uint32_t> DrawCommandCache::UnculledFirstVisible( const MeshPass pass, const PrimitiveIndex primitive,
+                                                                    const uint32_t lod, const uint32_t submesh ) const
+    {
+        const PassDrawTable& table = m_Passes[static_cast<uint32_t>( pass )];
+        if ( primitive >= table.PrimitiveDraws.size() )
+            return std::nullopt;
+        const GpuPrimitivePassDraws& draws = table.PrimitiveDraws[primitive];
+        if ( draws.SubmeshCount == 0u || lod >= draws.LodCount || submesh >= draws.SubmeshCount )
+            return std::nullopt;
+        const size_t slot = size_t{ draws.FirstDrawSlot } + size_t{ lod } * draws.SubmeshCount + submesh;
+        if ( slot >= table.SlotFirstVisible.size() || table.SlotFirstVisible[slot] == kInvalidIndex )
+            return std::nullopt;
+        return table.SlotFirstVisible[slot];
     }
 
     Common::ResultStr<DrawCommandBuffers> DrawCommandCache::AddUploadPass( RDG::Builder& graph )
@@ -413,8 +458,13 @@ namespace Desert::Graphic::GpuDriven
             auto bins = UploadTable( graph, *gpu[2], BytesOf( table.Bins ), write );
             if ( !bins )
                 return Common::MakeError<DrawCommandBuffers>( bins.GetError() );
-            out.Passes[pass] = PassDrawBuffers{
-                 .PrimitiveDraws = draws.GetValue(), .DrawSlots = slots.GetValue(), .Bins = bins.GetValue() };
+            auto unculled = UploadTable( graph, *gpu[3], BytesOf( table.UnculledVisible ), write );
+            if ( !unculled )
+                return Common::MakeError<DrawCommandBuffers>( unculled.GetError() );
+            out.Passes[pass] = PassDrawBuffers{ .PrimitiveDraws  = draws.GetValue(),
+                                                .DrawSlots       = slots.GetValue(),
+                                                .Bins            = bins.GetValue(),
+                                                .UnculledVisible = unculled.GetValue() };
         }
         auto transforms =
              UploadTable( graph, *m_TransformTable, BytesOf( m_SubmeshTransforms ), m_TransformsUnuploaded );
