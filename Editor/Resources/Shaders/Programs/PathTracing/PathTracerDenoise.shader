@@ -11,8 +11,9 @@
 //    neighbourhood of a fast (6-path) one so a lighting change does not ghost;
 //  - VARIANCE from the integrated temporal moments (SVGF 4.2; a 7 x 7 spatial estimate while the history holds
 //    fewer than four paths), then a variance-guided a-trous ("Filter", SVGF 4.3, here an energy-conserving
-//    exchange) whose luminance width widens on young histories and whose first two iterations spread by geometry
-//    alone below 16 paths - the disocclusion pre-blur that makes the frame after a cut usable.
+//    exchange) whose luminance width and normal lobe widen on young histories and whose iterations up to a
+//    spacing of 8 / L spread by geometry alone (30 pixels at one path, ReLAX's pre-pass radius) - the
+//    disocclusion pre-blur that makes the frame after a cut usable.
 // THE STILL CAMERA: the path tracer's accumulation is the temporal integration (it sums every path while nothing
 // changes), so on a still frame the history is not touched: the integrated signal is the history (frozen at the
 // pose the camera stopped at, weight L) plus the accumulation (weight s), which wins as s grows - the converged
@@ -91,14 +92,18 @@ Shader "PathTracerDenoise"
                 specular = Fold(hs, hm.y, hm.w, imageLoad(DemodulatedSpecularTexture, q), paths);
             }
 
-            // Kept within kClampSigma of the fast neighbourhood (mean, deviation), in luminance, hue kept.
-            vec3 ClampToFast(vec3 slow, vec2 fastMoments)
+            // The factor that keeps @p slow within kClampSigma of the fast neighbourhood (mean, deviation), in
+            // luminance, hue kept. The lobe's whole history is scaled by it - its mean by the factor, its second
+            // moment by the factor squared - so the variance Combine derives from them (m2 - m1^2) is the clamped
+            // history's own; scaling the mean alone made it negative (floored to 0: no filtering) where the clamp
+            // raised a history and inflated it where the clamp lowered one.
+            float ClampToFast(vec3 slow, vec2 fastMoments)
             {
                 const float deviation = sqrt(max(fastMoments.y - fastMoments.x * fastMoments.x, 0.0));
                 const float luminance = PathTracingDenoiseLuminance(slow);
                 const float clamped   = clamp(luminance, fastMoments.x - kClampSigma * deviation,
                                               fastMoments.x + kClampSigma * deviation);
-                return luminance > 1.0e-10 ? slow * (clamped / luminance) : slow;
+                return luminance > 1.0e-10 ? clamped / luminance : 1.0;
             }
 
             void main()
@@ -140,15 +145,16 @@ Shader "PathTracerDenoise"
                 const float roughness = imageLoad(GuideSpecularTexture, pixel).a / paths;
                 const vec4  hit       = imageLoad(GuideHitTexture, pixel);
                 const vec4  normal    = imageLoad(GuideNormalTexture, pixel);
-                const vec3  diffuseSignal  = ClampToFast(diffuse.Signal.rgb, fastMoments.xy);
-                const vec3  specularSignal = ClampToFast(specular.Signal.rgb, fastMoments.zw);
+                const float diffuseScale  = ClampToFast(diffuse.Signal.rgb, fastMoments.xy);
+                const float specularScale = ClampToFast(specular.Signal.rgb, fastMoments.zw);
                 imageStore(SnapshotDiffuseTexture, pixel,
-                           vec4(diffuseSignal, min(diffuse.Signal.a, kPathTracingDenoiseDiffuseHistory)));
+                           vec4(diffuse.Signal.rgb * diffuseScale, min(diffuse.Signal.a, kPathTracingDenoiseDiffuseHistory)));
                 imageStore(SnapshotSpecularTexture, pixel,
-                           vec4(specularSignal,
+                           vec4(specular.Signal.rgb * specularScale,
                                 min(specular.Signal.a, PathTracingDenoiseSpecularHistory(roughness))));
                 imageStore(SnapshotMomentsTexture, pixel,
-                           vec4(diffuse.SecondMoment, specular.SecondMoment, diffuse.Fast, specular.Fast));
+                           vec4(diffuse.SecondMoment * diffuseScale * diffuseScale,
+                                specular.SecondMoment * specularScale * specularScale, diffuse.Fast, specular.Fast));
                 imageStore(SnapshotGuideTexture, pixel,
                            vec4(PathTracingDenoiseOctEncode(normal.xyz), normal.w / paths,
                                 hit.y > 1.0e-4 ? hit.x / hit.y : 0.0));
@@ -385,7 +391,13 @@ Shader "PathTracerDenoise"
                             continue;
                         const vec4  qGuide = imageLoad(GuideNormalTexture, q);
                         const vec3  qn     = qGuide.xyz / max(length(qGuide.xyz), 1.0e-6);
-                        const float w      = pow(max(dot(n, qn), 0.0), kNormalPower) *
+                        // The young history's normal lobe as in "Filter" (at roughness 1: a neighbourhood to take
+                        // statistics over, for both lobes): with SVGF's power alone a normal-mapped surface's one-path
+                        // pixels each found only themselves, whose single-path variance is 0 - and a zero width
+                        // stopped every colour-weighted iteration.
+                        const float cosine = max(dot(n, qn), 0.0);
+                        const float w      = max(pow(cosine, kNormalPower),
+                                                 PathTracingDenoiseYoungNormalWeight(cosine, 1.0, paths)) *
                                         float(abs(qGuide.w / qPaths - depth) <= kSpatialDepthShare * depth);
                         const vec4 qMoments = specular ? imageLoad(DemodulatedSpecularTexture, q)
                                                        : imageLoad(DemodulatedDiffuseTexture, q);
@@ -470,8 +482,11 @@ Shader "PathTracerDenoise"
     // Symmetric weights: normal; depth over both pixels' slopes and distances; colour over the pair's joint width,
     // widened on the pair's younger history (ReLAX: young histories are blurred harder); the specular lobe also by
     // its lobe - the pair's roughness narrows the normal weight and the tap radius, and a roughness change stops it.
-    // Below kPathTracingDenoiseSpreadPaths (the pair's shorter history) the first two iterations drop the colour
-    // weight: the pre-blur that spreads a firefly's energy over its surface.
+    // The iterations whose spacing is at most kPathTracingDenoiseSpreadRadius / L (L the pair's shorter history)
+    // drop the colour weight: the pre-blur that spreads a firefly's energy over its surface, 30 pixels at one path.
+    // A young pair's normal weight is ReLAX's lobe (PathTracingDenoiseYoungNormalWeight) where it is wider than
+    // SVGF's power: one path per pixel samples a normal-mapped surface's shading normal at a random sub-pixel point,
+    // which max(0, n_p . n_q)^128 alone would read as a different surface at every pixel.
     Pass "Filter"
     {
         Compute
@@ -552,6 +567,12 @@ Shader "PathTracerDenoise"
                 return exp(-PathTracingDenoiseChannelDistance(centre.rgb, tap.rgb, width));
             }
 
+            // Whether the iteration of tap @p spacing spreads a pair of @p historyLength paths by geometry alone.
+            bool Spread(int spacing, float historyLength)
+            {
+                return float(spacing) * max(historyLength, 1.0) <= kPathTracingDenoiseSpreadRadius;
+            }
+
             void main()
             {
                 const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
@@ -595,9 +616,10 @@ Shader "PathTracerDenoise"
                             const vec2  pair     = min(lengths, qLengths);
 
                             const vec4  diffuseTap = imageLoad(IlluminationDiffuseTexture, q);
-                            const float wd         = k * pow(cosine, kNormalPower) * wz *
-                                             ColourWeight(diffuseCentre, diffuseTap,
-                                                          pair.x, pair.x < kPathTracingDenoiseSpreadPaths && spacing <= 2);
+                            const float wnd        = max(pow(cosine, kNormalPower),
+                                                         PathTracingDenoiseYoungNormalWeight(cosine, 1.0, pair.x));
+                            const float wd         = k * wnd * wz *
+                                             ColourWeight(diffuseCentre, diffuseTap, pair.x, Spread(spacing, pair.x));
                             diffuseExchange += wd * (diffuseTap.rgb - diffuseCentre.rgb);
                             diffuseVariance += wd * wd * diffuseTap.a;
                             diffuseShare += wd;
@@ -606,11 +628,11 @@ Shader "PathTracerDenoise"
                             const float radius     = 1.0 + kSpecularRadius * roughness;
                             const float reach      = length(vec2(x, y)) * float(spacing) / radius;
                             const vec4  specularTap = imageLoad(IlluminationSpecularTexture, q);
-                            const float ws = k * pow(cosine, kNormalPower / max(roughness * roughness, kSpecularLobeFloor)) *
-                                             wz * exp(-reach * reach) *
+                            const float wns = max(pow(cosine, kNormalPower / max(roughness * roughness, kSpecularLobeFloor)),
+                                                  PathTracingDenoiseYoungNormalWeight(cosine, roughness, pair.y));
+                            const float ws = k * wns * wz * exp(-reach * reach) *
                                              exp(-abs(surface.Roughness - other.Roughness) / kSpecularRoughnessWidth) *
-                                             ColourWeight(specularCentre, specularTap,
-                                                          pair.y, pair.y < kPathTracingDenoiseSpreadPaths && spacing <= 2);
+                                             ColourWeight(specularCentre, specularTap, pair.y, Spread(spacing, pair.y));
                             specularExchange += ws * (specularTap.rgb - specularCentre.rgb);
                             specularVariance += ws * ws * specularTap.a;
                             specularShare += ws;

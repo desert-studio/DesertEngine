@@ -41,11 +41,32 @@ const float kPathTracingMissDepth = 1.0e8;
 // then effectively at infinity and reprojects like a direction.
 const float kPathTracingDenoiseMissHitDistance = 1.0e6;
 
-// Below this many paths in a pixel's history a lobe's illumination is a few heavy-tailed samples: its luminance tells
-// a firefly from a dark path, not a lighting edge from a flat one. The filter's first two iterations then spread by
-// geometry only (energy-conserving, so each firefly's energy is shared over its surface instead of cut) - ReLAX's
-// history fix / pre-blur of disoccluded pixels.
-const float kPathTracingDenoiseSpreadPaths = 16.0;
+// While a pixel's history is young its lobe's illumination is a few heavy-tailed samples: its luminance tells a
+// firefly from a dark path, not a lighting edge from a flat one. The filter's iterations whose tap spacing is at most
+// kPathTracingDenoiseSpreadRadius / L (L the pair's shorter history, paths) then spread by geometry only
+// (energy-conserving, so each firefly's energy is shared over its surface instead of cut): at one path the spacings
+// 1, 2, 4, 8 - a reach of 2 x 15 = 30 pixels, NVIDIA NRD ReLAX's pre-pass blur radius - halving as the history
+// doubles, none from 9 paths on (ReLAX's pre-pass + history fix of disoccluded pixels).
+const float kPathTracingDenoiseSpreadRadius = 8.0;
+
+// ReLAX's normal weight of a young history: the lobe half-angle (NRD GetSpecularLobeHalfAngle: atan(0.75 / 0.25 x
+// roughness^2), the diffuse lobe at roughness 1) scaled by 1 / L, so a one-path pixel accepts every neighbour within
+// its lobe - the shading normals of a normal-mapped surface sampled at random sub-pixel points - and the angle shrinks
+// to SVGF's max(0, n_p . n_q)^128 (which stays the floor of the weight) as the history fills.
+const float kPathTracingDenoiseLobeVolume = 0.75;
+
+float PathTracingDenoiseLobeHalfAngle(float roughness)
+{
+    return atan(kPathTracingDenoiseLobeVolume / (1.0 - kPathTracingDenoiseLobeVolume) * roughness * roughness);
+}
+
+// The young-history normal weight of a pair whose normals meet at cosine @p cosine (NRD ComputeNonExponentialWeight
+// over the angle): 1 at equal normals, 0 from the lobe half-angle of @p roughness / @p historyLength on.
+float PathTracingDenoiseYoungNormalWeight(float cosine, float roughness, float historyLength)
+{
+    const float angle = PathTracingDenoiseLobeHalfAngle(roughness) / max(historyLength, 1.0);
+    return 1.0 - smoothstep(0.0, 1.0, acos(clamp(cosine, -1.0, 1.0)) / max(angle, 1.0e-4));
+}
 
 // SVGF 4.2: below four paths the pixel's own (temporal) moments say nothing; the spatial ones stand in.
 const float kPathTracingDenoiseTemporalMomentPaths = 4.0;
