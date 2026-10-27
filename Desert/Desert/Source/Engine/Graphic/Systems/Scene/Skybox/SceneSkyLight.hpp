@@ -138,6 +138,15 @@ namespace Desert::Graphic
         void AddPasses( const void* view, RDG::Builder& graph, FrameTextures& textures,
                         const System::SkyCaptureFrameReads& reads );
 
+        /// The last completed capture's horizontal illuminance (lux, rgb), once, to the view that recorded it, on
+        /// the frame it is readable (System::SkyCapture::ReadBackZenithIlluminance).
+        [[nodiscard]] std::optional<glm::vec3> ReadBackZenithIlluminance( const void* view )
+        {
+            if ( !Claims( view ) )
+                return std::nullopt;
+            return m_Capture.ReadBackZenithIlluminance();
+        }
+
     private:
         [[nodiscard]] bool Claims( const void* view ) const;
 

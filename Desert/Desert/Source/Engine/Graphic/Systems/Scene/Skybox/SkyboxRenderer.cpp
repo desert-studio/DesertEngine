@@ -1012,7 +1012,29 @@ namespace Desert::Graphic::System
     void SkyboxRenderer::AddSkyCapturePasses( RDG::Builder& graph, FrameTextures& textures )
     {
         const std::shared_ptr<SceneSkyLight> skyLight = m_SceneSkyLight.lock();
-        if ( !m_UseProceduralSky || !skyLight || !skyLight->IsCapturing() )
+        if ( !m_UseProceduralSky || !skyLight )
+            return;
+
+        // WHAT THE CAPTURED SKY LIGHT DELIVERS, against the sun, once per capture: the horizontal illuminance of
+        // the sky (the irradiance cube at the zenith) and of the sun on the ground (its illuminance through the
+        // atmosphere times the cosine of its zenith angle). A clear sky under a high sun gives roughly 10-20 % of
+        // the sun's -- the ratio a shadow on open ground reads at, since that shadow is lit by the sky alone.
+        if ( const std::optional<glm::vec3> sky = skyLight->ReadBackZenithIlluminance( this ) )
+        {
+            const auto luminance = []( const glm::vec3& c )
+            { return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b; };
+            const float skyLux = luminance( *sky );
+            const float sunLux =
+                 luminance( m_Atmosphere.SunIlluminanceOnGround ) * glm::max( m_Atmosphere.SunDirection.y, 0.0f );
+            LOG_INFO( "[SkyAtmosphere] Sky light illuminance on a horizontal surface: sky {:.0f} lx (rgb {:.0f}, "
+                      "{:.0f}, {:.0f}), sun {:.0f} lx at elevation {:.1f} deg; shade/sun {:.1f} %, sky/(sun+sky) "
+                      "{:.1f} %.",
+                      skyLux, sky->r, sky->g, sky->b, sunLux,
+                      glm::degrees( std::asin( glm::clamp( m_Atmosphere.SunDirection.y, -1.0f, 1.0f ) ) ),
+                      sunLux > 0.0f ? 100.0f * skyLux / sunLux : 0.0f,
+                      skyLux + sunLux > 0.0f ? 100.0f * skyLux / ( skyLux + sunLux ) : 0.0f );
+        }
+        if ( !skyLight->IsCapturing() )
             return;
 
         // The physical march reads the cached pair this frame's graph has written (or an earlier one has, when

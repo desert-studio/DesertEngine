@@ -2,6 +2,7 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
 #include <Engine/Graphic/ComputeImages.hpp> // DispatchGroupCount, kComputeImagesWorkGroupSize
 #include <Engine/Graphic/FallbackTextures.hpp>
@@ -100,6 +101,16 @@ namespace Desert::Graphic::System
         };
 
         // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct SkyCaptureIrradianceReadbackShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( Texture, IrradianceTexture );
+            DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+            DESERT_SHADER_PARAMETER( StorageBuffer, IrradianceReadback );
+        };
+        // Buffer(3) in SkyCaptureIrradianceReadback.shader.
+        constexpr uint32_t kIrradianceReadbackBinding = 3u;
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
         struct SkyCapturePrefilterShaderParameters
         {
             DESERT_SHADER_PARAMETER( Texture, inputTexture );
@@ -161,6 +172,7 @@ namespace Desert::Graphic::System
         bool made = MakeProgram( m_Downsample, "SkyCaptureDownsample" );
         made      = MakeProgram( m_Irradiance, "SkyCaptureIrradiance" ) && made;
         made      = MakeProgram( m_Prefilter, "PrefilterEnvMap" ) && made;
+        made      = MakeProgram( m_IrradianceReadback, "SkyCaptureIrradianceReadback" ) && made;
         if ( !made )
             return Common::MakeError( "the sky capture's compute programs are missing (see the errors above)" );
         return BOOLSUCCESS;
@@ -444,6 +456,7 @@ namespace Desert::Graphic::System
                 case SkyCaptureStep::Filter:
                     AddRadianceMips( graph, textures );
                     AddIrradiance( graph, textures );
+                    AddIrradianceReadback( graph, textures );
                     AddPrefilter( graph, textures );
                     step = SkyCaptureStep::Done;
                     break;
@@ -604,6 +617,71 @@ namespace Desert::Graphic::System
                  const uint32_t          groups = DispatchGroupCount( kSkyEnvIrradianceFaceSize, kSmallGroupSize );
                  return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, groups, groups, 6u );
              } );
+    }
+
+    void SkyCapture::AddIrradianceReadback( RDG::Builder& graph, FrameTextures& textures )
+    {
+        if ( !m_IrradianceReadbackBuffer )
+            m_IrradianceReadbackBuffer = ShaderResources::StorageBuffer::Create(
+                 "SkyCapture.IrradianceReadback", sizeof( glm::vec4 ), kIrradianceReadbackBinding );
+        if ( const Common::BoolResultStr imported =
+                  Renderer::ImportBuffer( m_IrradianceReadbackBuffer, m_IrradianceReadbackImport );
+             !imported )
+        {
+            LOG_ERROR( "[SkyCapture] the irradiance readback is not in the frame graph, so this capture's sky "
+                       "illuminance is not logged: {}",
+                       imported.GetError() );
+            return;
+        }
+        const RDG::BufferRef readback =
+             graph.RegisterExternal( m_IrradianceReadbackImport, "SkyCapture.IrradianceReadback" );
+        auto*                 images = Runtime::ResourceRegistry::GetImageService();
+        const RDG::TextureRef irradiance =
+             textures.Import( images->Share( m_IrradianceHandle ), "SkyCapture.Irradiance" );
+
+        graph.AddPass(
+             "Sky Capture: Irradiance Readback", RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Bindings( m_IrradianceReadback.Layout.Get(
+                                     m_IrradianceReadback.Pipeline->GetSpecification().Shader ),
+                                Renderer::GetPipelineRouteFill( *m_IrradianceReadback.Pipeline ) )
+                      .Texture( SkyCaptureIrradianceReadbackShaderParameters::IrradianceTexture, irradiance,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( SkyCaptureIrradianceReadbackShaderParameters::LinearClampSampler,
+                                RDG::SamplerDesc::LinearClamp() )
+                      .Storage( SkyCaptureIrradianceReadbackShaderParameters::IrradianceReadback, readback,
+                                RDG::Access::StorageWrite );
+             },
+             [pipeline = m_IrradianceReadback.Pipeline]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 DESERT_PROFILE_PASS( "Sky Capture: Irradiance Readback" );
+                 const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, 1u, 1u, 1u );
+             } );
+        m_IrradianceReadbackFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+    }
+
+    std::optional<glm::vec3> SkyCapture::ReadBackZenithIlluminance()
+    {
+        // The copy the readback pass wrote is this frame index's again FramesInFlight frames later, and the
+        // frames-in-flight fence has finished it by then (StorageBuffer::ReadBack).
+        if ( !m_IrradianceReadbackFrame || !m_IrradianceReadbackBuffer )
+            return std::nullopt;
+        const Engine::FrameManager& frames = Engine::FrameManager::GetInstance();
+        if ( frames.GetAbsoluteFrameCount() != *m_IrradianceReadbackFrame + frames.GetMaxFramesInFlight() )
+            return std::nullopt;
+        m_IrradianceReadbackFrame.reset();
+        glm::vec4 value( 0.0f );
+        if ( const Common::BoolResultStr read = m_IrradianceReadbackBuffer->ReadBack( &value, sizeof( value ) );
+             !read.IsSuccess() )
+        {
+            LOG_ERROR( "[SkyCapture] the captured sky illuminance was not read back: {}", read.GetError() );
+            return std::nullopt;
+        }
+        if ( value.w != 1.0f )
+            return std::nullopt;
+        return glm::vec3( value );
     }
 
     void SkyCapture::AddPrefilter( RDG::Builder& graph, FrameTextures& textures )
