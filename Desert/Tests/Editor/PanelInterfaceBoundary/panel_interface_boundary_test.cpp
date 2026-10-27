@@ -1,7 +1,7 @@
 // "THE PANEL INTERFACE MUST NOT SPEAK THE TOOLKIT'S VOCABULARY." The owner's instruction was shorter --
 // "ubrat' ImVec" -- and this is what it means as a property of the tree.
 //
-// WHAT WAS ACTUALLY WRONG. Editor/Source/Editor/Panels/IPanel.hpp is the base class of every panel and
+// WHAT WAS ACTUALLY WRONG. Editor/Source/Editor/Core/IPanel.hpp is the base class of every panel and
 // of every document, and two of its virtuals returned `ImVec2`:
 //
 //     virtual ImVec2 GetWindowPadding() const;
@@ -37,7 +37,7 @@
 #include "TestSupport/source_roots.hpp"
 #include "../../Engine/SettingConsumers/setting_consumers_reader.hpp"
 
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/IPanel.hpp>
 
 #include <gtest/gtest.h>
 
@@ -55,7 +55,7 @@ namespace CT = Desert::Tests::ConsumerText;
 namespace
 {
     // The one header this census is about.
-    constexpr const char* kInterfaceHeader = "Editor/Source/Editor/Panels/IPanel.hpp";
+    constexpr const char* kInterfaceHeader = "Editor/Source/Editor/Core/IPanel.hpp";
 
     // THE CONVERSION SITE -- where a panel's glm::vec2 becomes the toolkit's ImVec2, which is the other
     // end of this change and the only place that may still name it. It doubles as the negative control:

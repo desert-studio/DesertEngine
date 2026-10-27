@@ -118,6 +118,14 @@ Shader "DeferredLighting"
         #define GiBackfaceTexture sampler2D(GiBackfaceTexture, PointClampSampler)
 
         Out(0) vec4 oColor;
+        // SSS-PROFILE (CONTRACT §4): when the view scatters (ScreenSpaceGi.z), a texel whose shading model is
+        // screen-space scattered (the model's `SubsurfaceProfile` line) and whose material names a profile writes
+        // its DEMODULATED diffuse (BaseColor = 1, UE AdjustBaseColorAndSpecularColorForSubsurfaceProfileLighting)
+        // here, a = its profile row + 1, and only its specular + emissive to oColor; Graphic::SubsurfaceRenderer
+        // scatters this and adds BaseColor x it back. Every other geometry texel writes 0 (a = 0: not scattered).
+        // A storage image, not a 5th colour attachment: the scene target keeps its layout for every other pass
+        // (UE has no explicit target at all - checkerboard or SceneColor.a, CONTRACT §2.1).
+        layout(set = 1, binding = 8, rgba16f) writeonly uniform image2D SubsurfaceDiffuseTexture;
 
         const vec3 Fdielectric = vec3(0.04); // base reflectance for dielectrics (matches Lit.glsl.frag)
 
@@ -167,7 +175,10 @@ Shader "DeferredLighting"
         	mat4 InverseJitteredViewProjection; // the inverse of the matrix the G-buffer depth was rasterised with
         	mat4 JitteredWorldToClip;    // the matrix itself: the contact shadows march the depth in its space
         	vec4 ScreenSpaceGi;  // x = the screen-space gather's samples per pixel (Scalability
-        	                       // GlobalIllumination.ScreenSpaceSamples); y = ViewFrame::PreExposure; zw unused
+        	                       // GlobalIllumination.ScreenSpaceSamples); y = ViewFrame::PreExposure; z = 1 when the view
+        	                       // scatters (SSS-PROFILE, SubsurfaceDiffuseTexture); w unused
+        	vec4 Light1Direction; // atmosphere light 1 (UE Atmosphere Sun Light Index 1, the moon): xyz = travel
+        	vec4 Light1Color;     // rgb = colour, a = intensity (after the atmosphere's transmittance); a == 0: none
         };
 
         float ssgiHash(vec2 p)
@@ -252,6 +263,9 @@ Shader "DeferredLighting"
         #ifdef DESERT_SUN_SHADOW_SCREEN_MASK
         Uniform(5) texture2D ScreenShadowMaskTexture; // r = visibility, 1 = lit (render extent = this target's)
         #define ScreenShadowMaskTexture sampler2D(ScreenShadowMaskTexture, PointClampSampler)
+        // The other directional lights keep their cascades under the sun's mask (DeferredScreenShadowMask::Lights).
+        Uniform(10) texture2DArray ShadowCascadesTexture;
+        #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
         #else
         // The four cascades are ONE array texture (layer c = cascade c), read through the shared repeat state.
         Uniform(5) texture2DArray ShadowCascadesTexture;
@@ -263,12 +277,13 @@ Shader "DeferredLighting"
         // with cascades, their thickness transmittance; with a screen mask (ray-traced or virtual shadow maps) the
         // mask itself, as UE's ray-traced shadows feed the same mask to the subsurface transmission.
         #ifdef DESERT_SUN_SHADOW_SCREEN_MASK
+        #include <Mesh/CascadedShadow.glslh>
         #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) texelFetch(ScreenShadowMaskTexture, ivec2(gl_FragCoord.xy), 0).r
         #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) texelFetch(ScreenShadowMaskTexture, ivec2(gl_FragCoord.xy), 0).r
         #else
         #include <Mesh/CascadedShadow.glslh>
-        #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) ShadowFactor(worldPos, N, L, cascade)
-        #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) TransmissionShadowFactor(worldPos, density)
+        #define DESERT_SUN_SHADOW(worldPos, N, L, cascade) ShadowFactor(kShadowLightSun, worldPos, N, L, cascade)
+        #define DESERT_SUN_TRANSMISSION_SHADOW(worldPos, density) TransmissionShadowFactor(kShadowLightSun, worldPos, density)
         #endif
 
         // THE CONTACT SHADOWS (UE ContactShadowLength): a short screen-space ray toward each light through
@@ -341,6 +356,20 @@ Shader "DeferredLighting"
         };
 
         #ifndef DESERT_MEGALIGHTS
+        // The specular half of ShadeGridLight (the screen-space scattered models' split, CONTRACT §4).
+        vec3 ShadeGridLightSpecular(uint light, int shadingModel, vec3 worldPos, vec3 N, float subsurfaceOpacity,
+                                    DesertSurface surface, DesertPayload payload)
+        {
+        	if (light < lightsMetadata.PointLightCount)
+        		return DesertEvaluateShadingModelSpecular(shadingModel,
+        		                                          DesertShadowedPointLightAt(pointLights[light], worldPos, N, subsurfaceOpacity),
+        		                                          surface, payload);
+        	return DesertEvaluateShadingModelSpecular(shadingModel,
+        	                                          DesertShadowedSpotLightAt(spotLights[light - lightsMetadata.PointLightCount],
+        	                                                                    worldPos, N, subsurfaceOpacity),
+        	                                          surface, payload);
+        }
+
         // One light of the grid's index space (Mesh/LightGrid.glslh): points first, then spots.
         vec3 ShadeGridLight(uint light, int shadingModel, vec3 worldPos, vec3 N, float subsurfaceOpacity,
                             DesertSurface surface, DesertPayload payload)
@@ -478,11 +507,43 @@ Shader "DeferredLighting"
         	transmissionShadow *= cloudShadow;
         	vec3  radiance = LightColor.rgb * LightColor.a;
 
+        	// The screen-space scattered texel (CONTRACT §4) is lit with BaseColor = 1: its diffuse leaves demodulated,
+        	// so the scatter does not smear the albedo's texture detail; Recombine multiplies BaseColor back.
+        	const bool scatters = ScreenSpaceGi.z > 0.5 && DesertShadingModelScattersInScreenSpace(shadingModel) &&
+        	                      DesertSubsurfaceProfileIndex(shadingModel, payload) != 255u;
+        	if (scatters)
+        		albedo = vec3(1.0);
         	const DesertSurface surface =
         	     DesertMakeSurface(worldPos, N, view, albedo, metallic, roughness, DesertShadingWordSpecular(word));
 
-        	vec3 result = DesertEvaluateShadingModel(
-        	     shadingModel, DesertSunLight(LightDirection.xyz, radiance, shadow, transmissionShadow), surface, payload);
+        	const DesertLight sunLight = DesertSunLight(LightDirection.xyz, radiance, shadow, transmissionShadow);
+        	vec3 result   = DesertEvaluateShadingModel(shadingModel, sunLight, surface, payload);
+        	// The specular half of `result`, summed only for a scattered texel (diffuse = result - specular).
+        	vec3 specular = scatters ? DesertEvaluateShadingModelSpecular(shadingModel, sunLight, surface, payload)
+        	                         : vec3(0.0);
+
+        	// ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): the same shading model, its own
+        	// direction and transmitted illuminance, occluded by ITS OWN cascades (slot kShadowLightAtmosphere1 of the
+        	// one CascadedShadow text; UE: a CSM per directional light). The contact march, the relief self-shadow and
+        	// the cloud shadow map are fitted to the SUN's direction, so none of them occludes this light. Absent
+        	// (a == 0) adds nothing at all.
+        	if (Light1Color.a > 0.0)
+        	{
+        		const vec3 L1 = normalize(-Light1Direction.xyz);
+        		int        cascade1 = -1;
+        		const float shadow1 =
+        		     receivesSun ? ShadowFactor(kShadowLightAtmosphere1, worldPos, N, L1, cascade1) : 1.0;
+        		const float transmission1 =
+        		     (receivesSun && subsurfaceOpacity >= 0.0)
+        		          ? TransmissionShadowFactor(kShadowLightAtmosphere1, worldPos,
+        		                                     ContactShadowSubsurfaceDensity(subsurfaceOpacity))
+        		          : 1.0;
+        		const DesertLight light1 =
+        		     DesertSunLight(Light1Direction.xyz, Light1Color.rgb * Light1Color.a, shadow1, transmission1);
+        		result += DesertEvaluateShadingModel(shadingModel, light1, surface, payload);
+        		if (scatters)
+        			specular += DesertEvaluateShadingModelSpecular(shadingModel, light1, surface, payload);
+        	}
 
         	// Point and spot lights (the city payoff): full Cook-Torrance lit, each occluded by its atlas views when it
         	// casts shadows — the lights of this pixel's froxel only, in the order the full loop would sum them. An
@@ -490,10 +551,12 @@ Shader "DeferredLighting"
         	// Under MegaLights the same lights arrive sampled, traced and denoised: the texel remodulated by the
         	// reflectances they were demodulated with ("MegaLights: Shade Samples"), diffuse and specular apart.
         #ifdef DESERT_MEGALIGHTS
+        	const vec3 megaLightsSpecular = texelFetch(MegaLightsSpecularTexture, ivec2(gl_FragCoord.xy), 0).rgb *
+        	                                MegaLightsSpecularReflectance(albedo, metallic, roughness, N, view);
         	result += texelFetch(MegaLightsDiffuseTexture, ivec2(gl_FragCoord.xy), 0).rgb *
         	              MegaLightsDiffuseReflectance(albedo, metallic) +
-        	          texelFetch(MegaLightsSpecularTexture, ivec2(gl_FragCoord.xy), 0).rgb *
-        	              MegaLightsSpecularReflectance(albedo, metallic, roughness, N, view);
+        	          megaLightsSpecular;
+        	specular += megaLightsSpecular;
         #else
         	const uint cell  = LightGridCellAt(lightGrid, gl_FragCoord.xy, worldPos);
         	const uint count = lightGridCells[cell];
@@ -501,14 +564,23 @@ Shader "DeferredLighting"
         	{
         		const uint list = LightGridListOffset(lightGrid, cell);
         		for (uint j = 0u; j < count; j++)
+        		{
         			result += ShadeGridLight(lightGridCells[list + j], shadingModel, worldPos, N, subsurfaceOpacity, surface,
         			                         payload);
+        			if (scatters)
+        				specular += ShadeGridLightSpecular(lightGridCells[list + j], shadingModel, worldPos, N,
+        				                                   subsurfaceOpacity, surface, payload);
+        		}
         	}
         	else
         	{
         		const uint lights = lightsMetadata.PointLightCount + lightsMetadata.SpotLightCount;
         		for (uint i = 0u; i < lights; i++)
+        		{
         			result += ShadeGridLight(i, shadingModel, worldPos, N, subsurfaceOpacity, surface, payload);
+        			if (scatters)
+        				specular += ShadeGridLightSpecular(i, shadingModel, worldPos, N, subsurfaceOpacity, surface, payload);
+        		}
         	}
         #endif
 
@@ -522,7 +594,9 @@ Shader "DeferredLighting"
         		indirect = GatherIndirectGI(v_TexCoord, worldPos, N, L, radiance) * giIntensity;
         	}
 
-        	if (dbg == 6) { oColor = vec4(indirect, 1.0); oColor.rgb *= ScreenSpaceGi.y; return; } // Indirect GI only
+        	// Indirect GI only. The screen-space bounce (GI mode 1) is `indirect` itself; the traced gather (modes 2, 3) is
+        	// the ambient's diffuse below, where it replaced the sky terms (UE: the Lumen Global Illumination view).
+        	if (dbg == 6 && giMode < 2) { oColor = vec4(indirect, 1.0); oColor.rgb *= ScreenSpaceGi.y; return; }
 
         	// Ambient = the BAKED ENVIRONMENT (split-sum IBL: diffuse irradiance + prefiltered specular)
         	// plus the one-bounce indirect, attenuated by SSAO — assembled by the SAME shared function the
@@ -582,10 +656,34 @@ Shader "DeferredLighting"
         		// UE's SSR input: the screen's hits over the GI's specular (or the environment), by their coverage.
         		sampled.Prefiltered = DesertComposeTracedReflection(textureLod(SsrTexture, v_TexCoord, 0.0), sampled.Prefiltered);
         	vec3 ambient = DesertEvaluateShadingModelAmbient(shadingModel, sampled, surface, payload);
+        	if (dbg == 6)
+        	{
+        		const vec3 ambientDiffuse =
+        		     ambient - DesertEvaluateShadingModelAmbientSpecular(shadingModel, sampled, surface, payload);
+        		oColor = vec4(max(ambientDiffuse, vec3(0.0)) * ScreenSpaceGi.y, 1.0);
+        		return;
+        	}
 
         	// Self-illumination (view-independent) — added here (not lit) so HDR emissive reaches the composite
         	// and blooms, matching the forward path. GBufferEmissive is 0 where the material has none.
         	vec3 emissive = ge.rgb;
+
+        	// The view scatters (CONTRACT §4): a scattered texel splits, every other geometry texel marks itself
+        	// unscattered (the target is a transient: every texel the scatter reads is written here or is sky).
+        	if (ScreenSpaceGi.z > 0.5)
+        	{
+        		if (scatters)
+        		{
+        			const vec3 ambientSpecular =
+        			     DesertEvaluateShadingModelAmbientSpecular(shadingModel, sampled, surface, payload);
+        			const vec3 diffuse = max(result + ambient - specular - ambientSpecular, vec3(0.0));
+        			imageStore(SubsurfaceDiffuseTexture, ivec2(gl_FragCoord.xy),
+        			           vec4(diffuse * ScreenSpaceGi.y, float(DesertSubsurfaceProfileIndex(shadingModel, payload)) + 1.0));
+        			oColor = vec4((specular + ambientSpecular + emissive) * ScreenSpaceGi.y, 1.0);
+        			return;
+        		}
+        		imageStore(SubsurfaceDiffuseTexture, ivec2(gl_FragCoord.xy), vec4(0.0));
+        	}
 
         	// Stored pre-exposed (ViewFrame::PreExposure): a 100 000 lx sun stays inside RGBA16F.
         	oColor = vec4((result + ambient + emissive) * ScreenSpaceGi.y, 1.0);

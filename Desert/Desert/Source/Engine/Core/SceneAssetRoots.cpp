@@ -2,6 +2,7 @@
 #include <Engine/Core/SceneAssetRoots.hpp>
 
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 #include <Engine/ECS/Components.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -215,7 +216,11 @@ namespace Desert::Core
         // Open asset editors' subjects first: no scene names them (AssetRootPin).
         Assets::AssetRootPin::MarkAll( roots );
 
-        std::string census;
+        static const TextTemplate kCensus(
+             "AssetRootsCensus",
+             "{% for s in scenes %}{% if not loop.first %}, {% endif %}'{{ s.name }}' (+{{ s.roots }}){% endfor %}"
+             "{% if not scenes %}no live scene{% endif %}" );
+        Common::Json::Value::Array census;
         for ( Scene* scene : Scene::LiveScenes() )
         {
             if ( scene == nullptr )
@@ -224,13 +229,18 @@ namespace Desert::Core
             const std::size_t before = roots.Size();
             CollectAssetRoots( *scene, roots );
 
-            if ( !census.empty() )
-                census += ", ";
-            census += "'" + scene->GetSceneName() + "' (+" + std::to_string( roots.Size() - before ) + ")";
+            census.emplace_back( Common::Json::ObjectBuilder()
+                                      .Set( "name", scene->GetSceneName() )
+                                      .Set( "roots", roots.Size() - before )
+                                      .Build() );
         }
 
         LOG_INFO( "[Assets] roots: {} live scene(s) named {} asset(s) -- {}", Scene::LiveScenes().size(),
-                  roots.Size(), census.empty() ? std::string( "no live scene" ) : census );
+                  roots.Size(),
+                  kCensus.RenderOrLog(
+                       Common::Json::Value( Common::Json::ObjectBuilder()
+                                                 .Set( "scenes", Common::Json::Value( std::move( census ) ) )
+                                                 .Build() ) ) );
 
         return roots;
     }

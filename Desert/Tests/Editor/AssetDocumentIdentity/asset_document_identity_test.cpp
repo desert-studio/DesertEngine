@@ -13,12 +13,12 @@
 //
 // Why these live in headers at all: EditorLayer.cpp is one of the editor translation units no suite compiles
 // (scripts/CI/UnreachedSources.sh), and neither the naming nor the lookup can be exercised through a window.
-// So they sit in Editor/Panels/IPanel.hpp and Editor/Core/SubjectEditorRegistry.hpp as pure functions, for
+// So they sit in Editor/Core/IPanel.hpp and Editor/Core/SubjectEditorRegistry.hpp as pure functions, for
 // exactly the reason Editor/Core/SceneViewIdentity.hpp does — see Tests/Engine/ViewLifetime.
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Core/OpenDocuments.hpp>
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/IPanel.hpp>
 #include <Editor/Panels/SkyboxViewer/SkyboxViewerIdentity.hpp>
 #include <Editor/Panels/StaticMeshViewer/StaticMeshViewerIdentity.hpp>
 

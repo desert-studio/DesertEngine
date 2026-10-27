@@ -141,24 +141,13 @@ namespace Desert::Assets::Serialization
             for ( std::size_t i = 0; i < group.size(); ++i )
             {
                 const VFXModuleUse& use = group[i];
-                const std::string   at  = std::format( "{} module {} '{}'", where, i, use.Module );
-                if ( use.Module.starts_with( kVFXEnginePrefix ) )
-                {
-                    if ( use.Module.size() == kVFXEnginePrefix.size() )
-                        return Common::MakeFormattedError<bool>( "{}: no engine module name", at );
-                }
-                else if ( use.Module.starts_with( kVFXLocalPrefix ) )
-                {
-                    const std::string_view id    = std::string_view( use.Module ).substr( kVFXLocalPrefix.size() );
-                    bool                   found = false;
-                    for ( const VFXLocalModule& m : system.LocalModules )
-                        found = found || m.Id == id;
-                    if ( !found )
-                        return Common::MakeFormattedError<bool>( "{}: names no LocalModules row", at );
-                }
-                else
-                    return Common::MakeFormattedError<bool>( "{}: Module is neither engine:<Name> nor local:<Id>",
-                                                             at );
+                const std::string   at  = std::format( "{} module {} '{}'", where, i, use.Module.Path );
+                if ( const auto guid = Common::Content::AssetGuidFromText( use.Module.Guid );
+                     !guid || guid.GetValue().IsNull() )
+                    return Common::MakeFormattedError<bool>( "{}: Module GUID '{}' is not well-formed", at,
+                                                             use.Module.Guid );
+                if ( use.Module.Path.empty() )
+                    return Common::MakeFormattedError<bool>( "{}: Module {} states no Path", at, use.Module.Guid );
                 std::set<std::string> names;
                 for ( const VFXModuleInput& in : use.Inputs )
                 {
@@ -181,6 +170,26 @@ namespace Desert::Assets::Serialization
             if ( r.Mesh.has_value() != ( r.Kind == VFXRendererKind::Mesh ) )
                 return Common::MakeFormattedError<bool>( "{}: Mesh settings are stated exactly on a Mesh row",
                                                          at );
+            if ( r.Light.has_value() != ( r.Kind == VFXRendererKind::Light ) )
+                return Common::MakeFormattedError<bool>( "{}: Light settings are stated exactly on a Light row",
+                                                         at );
+            if ( r.Light )
+            {
+                const VFXLightRendererData& l = *r.Light;
+                if ( r.Material )
+                    return Common::MakeFormattedError<bool>( "{}: a Light row draws nothing and takes no Material",
+                                                             at );
+                if ( !std::isfinite( l.RadiusScale ) || l.RadiusScale <= 0.0f || !std::isfinite( l.Intensity ) ||
+                     l.Intensity < 0.0f || !std::isfinite( l.ColorAdd.x ) || !std::isfinite( l.ColorAdd.y ) ||
+                     !std::isfinite( l.ColorAdd.z ) || l.ColorAdd.x < 0.0f || l.ColorAdd.y < 0.0f ||
+                     l.ColorAdd.z < 0.0f )
+                    return Common::MakeFormattedError<bool>(
+                         "{}: light RadiusScale {} not > 0, or Intensity {} / ColorAdd not finite and >= 0", at,
+                         l.RadiusScale, l.Intensity );
+                if ( l.MaxLights == 0u || l.MaxLights > kVFXLightMaxPerEmitter )
+                    return Common::MakeFormattedError<bool>( "{}: light MaxLights {} is outside 1 .. {}", at,
+                                                             l.MaxLights, kVFXLightMaxPerEmitter );
+            }
             if ( r.Ribbon )
             {
                 const VFXRibbonRendererData& rb = *r.Ribbon;
@@ -206,24 +215,6 @@ namespace Desert::Assets::Serialization
 
         // The header's Dependencies of a system: its renderer rows' materials and meshes, each once, in emitter
         // then row order.
-        std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data )
-        {
-            std::vector<std::string> out;
-            const auto               add = [&out]( const AssetGuidRef& ref )
-            {
-                if ( std::find( out.begin(), out.end(), ref.Guid ) == out.end() )
-                    out.push_back( ref.Guid );
-            };
-            for ( const VFXEmitterData& e : data.Emitters )
-                for ( const VFXRendererData& r : e.Renderers )
-                {
-                    if ( r.Material )
-                        add( *r.Material );
-                    if ( r.Mesh )
-                        add( r.Mesh->Mesh );
-                }
-            return out;
-        }
     } // namespace
 
     uint32_t ComponentCount( const VFXValueType type )
@@ -265,9 +256,6 @@ namespace Desert::Assets::Serialization
         if ( data.Loop && data.Duration <= 0.0f )
             return Common::MakeFormattedError<bool>( "a looping system needs Duration > 0, has {}",
                                                      data.Duration );
-        if ( !Finite( data.Bounds.Min ) || !Finite( data.Bounds.Max ) || data.Bounds.Min.x > data.Bounds.Max.x ||
-             data.Bounds.Min.y > data.Bounds.Max.y || data.Bounds.Min.z > data.Bounds.Max.z )
-            return Common::MakeFormattedError<bool>( "Bounds are not a finite box with Min <= Max" );
 
         std::set<std::string> tags;
         for ( const std::string& tag : data.Tags )
@@ -284,11 +272,6 @@ namespace Desert::Assets::Serialization
                 return ok;
         }
 
-        std::set<std::string> modules;
-        for ( const VFXLocalModule& m : data.LocalModules )
-            if ( m.Id.empty() || !modules.insert( m.Id ).second )
-                return Common::MakeFormattedError<bool>( "local module id '{}' is empty or repeated", m.Id );
-
         std::set<std::string> emitters;
         for ( const VFXEmitterData& e : data.Emitters )
         {
@@ -296,6 +279,11 @@ namespace Desert::Assets::Serialization
                 return Common::MakeFormattedError<bool>( "emitter name '{}' is empty or repeated", e.Name );
             if ( e.Capacity == 0 )
                 return Common::MakeFormattedError<bool>( "emitter '{}' has Capacity 0", e.Name );
+            if ( !Finite( e.Bounds.Min ) || !Finite( e.Bounds.Max ) || e.Bounds.Min.x > e.Bounds.Max.x ||
+                 e.Bounds.Min.y > e.Bounds.Max.y || e.Bounds.Min.z > e.Bounds.Max.z )
+                return Common::MakeFormattedError<bool>(
+                     "emitter '{}' Bounds are not a finite box with Min <= Max (Min {} {} {}, Max {} {} {})", e.Name,
+                     e.Bounds.Min.x, e.Bounds.Min.y, e.Bounds.Min.z, e.Bounds.Max.x, e.Bounds.Max.y, e.Bounds.Max.z );
             const VFXEmitterLifecycle& l = e.Lifecycle;
             if ( !std::isfinite( l.Delay ) || l.Delay < 0.0f || !std::isfinite( l.LoopDuration ) ||
                  l.LoopDuration <= 0.0f )
@@ -372,17 +360,75 @@ namespace Desert::Assets::Serialization
                  "Category '{}' is not in the project's VFX category register ({})", data.Category,
                  kVFXCategoriesFileName );
 
-        // ONE REFERENCE, TWO STATEMENTS OF IT: the registry reads the edges from the header, the renderer from
-        // the rows. A file where they disagree would have the two sides load different assets.
+        // ONE REFERENCE, TWO STATEMENTS OF IT: the registry, the cook and the packager read the edges from the
+        // header (ContentRegistry::Closure), the renderer and the stack compiler from the rows. A module or asset a
+        // row names and the header leaves out would be missing from a packaged game.
         const auto  expected = VFXSystemDependencies( data );
         const auto& stated   = data.Header ? data.Header->Dependencies : std::vector<std::string>{};
         if ( stated.size() != expected.size() ||
              !std::is_permutation( stated.begin(), stated.end(), expected.begin() ) )
             return Common::MakeFormattedError<VFXSystemData>(
-                 "the header states {} Dependencies; the system references exactly its {} renderer material(s) "
-                 "and mesh(es)",
+                 "the header states {} Dependencies; the system references exactly its {} module(s), renderer "
+                 "material(s) and mesh(es) - run Tools/SceneMigrator",
                  stated.size(), expected.size() );
         return Common::MakeSuccess( std::move( data ) );
+    }
+
+    Common::Math::AABB VFXBoundsAt( const VFXBounds& bounds, const glm::mat4& localToWorld )
+    {
+        // Arvo: each world axis of the box is the translation plus, per local axis, the smaller / larger of the
+        // column times the local min and max - exactly the box of the 8 transformed corners.
+        glm::vec3 lo( localToWorld[3] );
+        glm::vec3 hi( localToWorld[3] );
+        for ( int axis = 0; axis < 3; ++axis )
+        {
+            const glm::vec3 column( localToWorld[axis] );
+            const glm::vec3 a = column * bounds.Min[axis];
+            const glm::vec3 b = column * bounds.Max[axis];
+            lo += glm::min( a, b );
+            hi += glm::max( a, b );
+        }
+        return Common::Math::AABB{ lo, hi };
+    }
+
+    std::optional<VFXBounds> VFXSystemExtent( const VFXSystemData& data )
+    {
+        std::optional<VFXBounds> extent;
+        for ( const VFXEmitterData& e : data.Emitters )
+        {
+            if ( !e.Enabled )
+                continue;
+            if ( !extent )
+                extent = e.Bounds;
+            else
+            {
+                extent->Min = glm::min( extent->Min, e.Bounds.Min );
+                extent->Max = glm::max( extent->Max, e.Bounds.Max );
+            }
+        }
+        return extent;
+    }
+
+    std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data )
+    {
+        // Every asset a row names: each stack module (`.dfxmod`), each renderer's material and mesh. Sorted, each
+        // once, so a rewrite of the same system states the same header.
+        std::set<std::string> guids;
+        for ( const VFXEmitterData& e : data.Emitters )
+        {
+            for ( const auto* group : { &e.Stack.EmitterSpawn, &e.Stack.EmitterUpdate, &e.Stack.ParticleSpawn,
+                                        &e.Stack.ParticleUpdate } )
+                for ( const VFXModuleUse& use : *group )
+                    guids.insert( use.Module.Guid );
+            for ( const VFXRendererData& r : e.Renderers )
+            {
+                if ( r.Material )
+                    guids.insert( r.Material->Guid );
+                if ( r.Mesh )
+                    guids.insert( r.Mesh->Mesh.Guid );
+            }
+        }
+        return { guids.begin(), guids.end() };
     }
 
     std::string WriteVFXSystem( const VFXSystemData& data )

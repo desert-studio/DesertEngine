@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometryVariants.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingProceduralGeometry.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/DisplacementCache.hpp>
 
 #include <cstdint>
 
@@ -37,6 +38,7 @@ namespace Desert::Graphic::RayTracing
                 m_Variants.EndFrame();
                 m_SkinCache.EndFrame( m_Frame );
                 m_Procedural.EndFrame( m_Frame );
+                m_Displacement.EndFrame( m_Frame );
             }
             m_Frame    = frame;
             m_HasFrame = true;
@@ -53,6 +55,16 @@ namespace Desert::Graphic::RayTracing
         [[nodiscard]] const RayTracingGeometryVariants& GetVariants() const
         {
             return m_Variants;
+        }
+        // The scene's displaced geometry (DisplacementCache.hpp): one per scene like the skin cache, ended on the same
+        // frame boundary; the raster and the ray-tracing scene read the same twins.
+        [[nodiscard]] System::DisplacementCache& GetDisplacement()
+        {
+            return m_Displacement;
+        }
+        [[nodiscard]] const System::DisplacementCache& GetDisplacement() const
+        {
+            return m_Displacement;
         }
         [[nodiscard]] RayTracingSkinCache& GetSkinCache()
         {
@@ -91,6 +103,7 @@ namespace Desert::Graphic::RayTracing
         ResourceOwnerInstance      m_LedgerInstance; // the owning Core::Scene's (Scene::GetLedgerInstance)
         RayTracingGeometryVariants m_Variants{ MakeVariantBuild() };
         RayTracingSkinCache        m_SkinCache;
+        System::DisplacementCache  m_Displacement;
         RayTracingProceduralCache  m_Procedural; // BLASes of meshes the uploader built none for
         uint64_t                   m_Frame    = 0;
         bool                       m_HasFrame = false;

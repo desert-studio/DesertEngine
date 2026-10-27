@@ -262,7 +262,7 @@ namespace Desert::Graphic::GlobalIllumination
          kHardwareTracerInstanceSurfaceCacheRowsName };
 
     // THE GI FRAME RECORD — what every GI pass knows of the frame, neutral to the tracer. std430 — must match
-    // `struct GIFrame` in Common/GIFrame.glslh. 224 bytes. Uploaded once per frame by the frame's owner and bound
+    // `struct GIFrame` in Common/GIFrame.glslh. 256 bytes. Uploaded once per frame by the frame's owner and bound
     // as "GIFrameUB" by the radiance cache's passes and the screen probe gather.
     struct GIFramePayload
     {
@@ -270,12 +270,14 @@ namespace Desert::Graphic::GlobalIllumination
         glm::mat4 InvViewProjection{ 1.0f }; // its inverse
         glm::vec4 Camera{ 0.0f };            // xyz = camera world position (cm)
         glm::vec4 SunTravel{ 0.0f };         // xyz = direction the sunlight travels, w = 1 when there is a sun
-        glm::vec4 SunRadiance{ 0.0f };       // rgb = colour * intensity
+        glm::vec4 SunRadiance{ 0.0f };       // rgb = colour * intensity, w = 1 when it casts shadows
+        glm::vec4 Light1Travel{ 0.0f };   // atmosphere light 1 (the moon): xyz = travel, w = 1 when there is one
+        glm::vec4 Light1Radiance{ 0.0f }; // rgb = colour * intensity, w = 1 when it casts shadows
         glm::vec4 SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f };
         glm::vec4 SkyGain{ 1.0f };
         glm::vec4 Screen{ 0.0f }; // xy = G-buffer extent (pixels), zw = 1 / that
     };
-    static_assert( sizeof( GIFramePayload ) == 224 );
+    static_assert( sizeof( GIFramePayload ) == 256 );
 
     // Empty when @p frame holds every resource its tracer reads; otherwise what is missing (for the consumer's
     // one error line).

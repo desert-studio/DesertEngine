@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Panels/FileExplorer/AssetContextMenu.hpp>
@@ -15,7 +15,7 @@
 #include <Editor/Panels/FileExplorer/ContentBrowserToolbar.hpp>
 #include <Editor/Panels/FileExplorer/ContentDirectoryModel.hpp>
 #include <Editor/Panels/FileExplorer/DirectoryInformation.hpp>
-#include <Editor/Panels/FileExplorer/FileType.hpp>
+#include <Editor/Core/FileType.hpp>
 #include <Editor/Panels/FileExplorer/NewAssetMenu.hpp>
 #include <Editor/Panels/FileExplorer/ThumbnailEditMode.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>
@@ -110,6 +110,7 @@ namespace Desert::Editor
         Common::BoolResultStr CreateNewVFXDataChannel();
         // A copy of an engine VFX system template (NewAssetMenu::VFXSystemTemplates) in the current folder.
         Common::BoolResultStr CreateVFXSystemFromTemplate( const std::filesystem::path& templateFile );
+        Common::BoolResultStr CreateNewVFXModule();
 
         void ChangeDirectory( DirectoryInformation* directory );
         // Hand the pictures of m_CurrentDir's tiles to ThumbnailPrefetch so a worker decodes them before

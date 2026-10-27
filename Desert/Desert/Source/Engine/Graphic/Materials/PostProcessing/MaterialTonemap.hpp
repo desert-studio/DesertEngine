@@ -27,6 +27,11 @@ namespace Desert::Graphic
             float     LensFlareIntensity;  // Lens Flare Intensity x screen fade (0 = off)
             glm::vec3 LensFlareTint;       // the lens's Tint
             float     PreExposure;         // ViewFrame::PreExposure the scene colour is stored at (> 0)
+            // Local exposure (TonemapRenderer::FillMaterial): vec4 packing so std140 cannot drift.
+            glm::vec4 LocalExposureContrast{ 1.0f, 1.0f, 1.0f, 0.6f };  // highlight, shadow, detail, blurred blend
+            glm::vec4 LocalExposureThreshold{ 0.0f, 0.0f, 1.0f, 1.0f }; // hi thr, sh thr, hi strength, sh strength
+            glm::vec4 LocalExposureUV{ 1.0f };                          // grid UV scale xy, blur UV scale xy
+            glm::vec4 LocalExposureSlice{ 0.0f };                       // log middle grey, slice log min, 1/EV, mode
         };
 
         // Uniform values only: every texture the shader samples (GeometryTexture, AverageLuminanceTexture,
@@ -50,5 +55,9 @@ namespace Desert::Graphic
         // they cannot disagree about whether the effect is on.
         MPROPERTY( glm::vec4, LensFlareTintIntensity, "LensFlareTintIntensity",
                    ( glm::vec4( 1.0f, 1.0f, 1.0f, 0.0f ) ) )
+        MPROPERTY( glm::vec4, LocalExposureContrast, "LocalExposureContrast", ( glm::vec4( 1.0f, 1.0f, 1.0f, 0.6f ) ) )
+        MPROPERTY( glm::vec4, LocalExposureThreshold, "LocalExposureThreshold", ( glm::vec4( 0.0f, 0.0f, 1.0f, 1.0f ) ) )
+        MPROPERTY( glm::vec4, LocalExposureUV, "LocalExposureUV", ( glm::vec4( 1.0f ) ) )
+        MPROPERTY( glm::vec4, LocalExposureSlice, "LocalExposureSlice", ( glm::vec4( 0.0f ) ) )
     };
 } // namespace Desert::Graphic

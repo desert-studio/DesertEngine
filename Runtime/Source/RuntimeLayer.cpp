@@ -5,11 +5,11 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include "RuntimeShot.hpp"
-#include <Engine/Audio/AudioEngine.hpp>
+#include <Audio/AudioEngine.hpp>
 #include <Engine/Media/MediaAudioOutput.hpp>
 #include <Engine/Media/MediaTexture.hpp>
 #include <Engine/Media/StartupMoviePlayer.hpp>
-#include <Engine/Project/GameSettings.hpp>
+#include <Projects/GameSettings.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
 
@@ -24,7 +24,7 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 #include <Engine/Graphic/QualityBoot.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 

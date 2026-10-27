@@ -45,4 +45,21 @@ namespace Desert::ECS
         component.EditableMesh.reset();
         component.RuntimeMesh.reset();
     }
+
+    void PostEditStaticMesh( const StaticMeshComponent& before, StaticMeshComponent& after )
+    {
+        const bool meshChanged      = before.MeshHandle != after.MeshHandle;
+        const bool materialsChanged = before.MaterialSlots != after.MaterialSlots;
+        if ( meshChanged && after.MeshHandle )
+        {
+            after.Primitive.reset();
+            ClearEditableMesh( after );
+        }
+        if ( meshChanged || materialsChanged )
+        {
+            // Rebuilt by MeshECSSystem from the slots on the next frame (AdoptMeshMaterialSlots fills a new
+            // mesh's extra sections from its own materials) together with the binding that carries them.
+            after.RuntimeMaterialInstances.clear();
+        }
+    }
 } // namespace Desert::ECS

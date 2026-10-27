@@ -9,7 +9,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Widgets/ThumbnailPose.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>

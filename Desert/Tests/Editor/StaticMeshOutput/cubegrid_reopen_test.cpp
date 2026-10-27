@@ -7,7 +7,7 @@
 //    return to: that state reopens to the mesh it had.
 
 #include <Editor/Import/MeshDeriver.hpp>
-#include <Editor/Import/StaticMeshOutput.hpp>
+#include <Editor/Core/StaticMeshOutput.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/BlockoutSession.hpp>
 
 #include <Common/Core/Constants.hpp>

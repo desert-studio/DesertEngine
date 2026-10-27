@@ -14,7 +14,7 @@
 #include <Engine/Core/SceneEntityIndex.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/PhysicsBodyLifetime.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/Graphic/Systems/Scene/Particles/ParticleEmitterRetire.hpp>
 
 #include "../PhysicsFixture.hpp"

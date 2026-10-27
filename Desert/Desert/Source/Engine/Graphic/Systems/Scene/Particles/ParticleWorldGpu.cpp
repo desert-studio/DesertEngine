@@ -4,11 +4,13 @@
 
 #include "ParticleEmitterRetire.hpp"
 
+#include <Engine/Assets/VFXModuleAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/LightUnits.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/VFX/VFXCurveLUT.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
@@ -20,6 +22,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -212,7 +215,7 @@ namespace Desert::Graphic::System
             gpu.Pipeline = nullptr;
         };
 
-        const auto compiled = VFX::CompileEmitterStack( system, index, VFX::EngineModuleDir() );
+        const auto compiled = VFX::CompileEmitterStack( system, index, Assets::RegistryVFXModuleResolver{} );
         if ( !compiled.IsSuccess() )
             return refuse( compiled.GetError() );
         const auto curves = VFX::BuildCurveAtlas( system );
@@ -339,6 +342,62 @@ namespace Desert::Graphic::System
         }
     }
 
+    void ParticleWorldGpu::ReadLightReadbacks()
+    {
+        m_Lights.clear();
+        m_LightSerial = m_LightSerial == 0xFFFFFFFFu ? 1u : m_LightSerial + 1u; // 0 = a copy never written
+        constexpr uint32_t words =
+             kParticleLightHeaderUints + Assets::Serialization::kVFXLightMaxPerEmitter * kParticleLightRowFloats;
+        std::vector<uint32_t> data( words, 0u );
+        for ( const ParticleFrameEmitter& fe : m_FrameEmitters )
+        {
+            if ( fe.Light == nullptr || !fe.Gpu->LightReadback )
+                continue;
+            std::fill( data.begin(), data.end(), 0u );
+            if ( const Common::BoolResultStr read = fe.Gpu->LightReadback->ReadBack( data.data(), words * 4u );
+                 !read )
+            {
+                LOG_ERROR( "[Particles] entity {} emitter {}: the light readback was not read: {}", fe.EntityId,
+                           fe.Emitter, read.GetError() );
+                continue;
+            }
+            if ( data[1] == 0u )
+                continue; // this copy was not written yet (the first FramesInFlight frames)
+            const Assets::Serialization::VFXLightRendererData& l = *fe.Light;
+            const uint32_t                                     rows =
+                 std::min( { data[0], l.MaxLights, Assets::Serialization::kVFXLightMaxPerEmitter } );
+            for ( uint32_t r = 0; r < rows; ++r )
+            {
+                const auto at = [&data, r]( const uint32_t c ) {
+                    return std::bit_cast<float>(
+                         data[kParticleLightHeaderUints + r * kParticleLightRowFloats + c] );
+                };
+                const glm::vec4                    color( at( 4 ), at( 5 ), at( 6 ), at( 7 ) );
+                ShaderProtocols::PointLightPayload light{};
+                light.Position = glm::vec3( at( 0 ), at( 1 ), at( 2 ) );
+                light.Radius   = std::max( at( 3 ), 0.0f ) * l.RadiusScale;
+                light.Color =
+                     glm::max( glm::vec3( color ) *
+                                    ( l.AlphaScalesBrightness ? std::clamp( color.a, 0.0f, 1.0f ) : 1.0f ),
+                               glm::vec3( 0.0f ) ) +
+                     l.ColorAdd;
+                // UE Niagara: inverse-square lights state candelas (the photometric law with no emitter size);
+                // the exponent variant is the renderer's unitless multiplier.
+                const ECS::LightFalloff falloff =
+                     l.UseInverseSquaredFalloff ? ECS::LightFalloff::InverseSquare : ECS::LightFalloff::Quadratic;
+                light.Falloff   = static_cast<int32_t>( falloff );
+                light.Intensity = ECS::LightPhotometry::ShaderIntensity(
+                     l.Intensity,
+                     l.UseInverseSquaredFalloff ? ECS::LightUnits::Candelas : ECS::LightUnits::Unitless, falloff,
+                     0.0f, ECS::LightPhotometry::kPointLightCosHalfCone );
+                if ( light.Radius <= 0.0f || !std::isfinite( light.Radius ) ||
+                     !std::isfinite( light.Position.x + light.Position.y + light.Position.z ) )
+                    continue;
+                m_Lights.push_back( light );
+            }
+        }
+    }
+
     void ParticleWorldGpu::ApplyUserOverrides( ParticleSystemGpu& system,
                                                const std::vector<ECS::VFXUserOverride>& overrides,
                                                const uint32_t entityId )
@@ -365,12 +424,11 @@ namespace Desert::Graphic::System
     }
 
     void ParticleWorldGpu::ApplyPointSets( ParticleSystemGpu& system, const std::vector<ECS::VFXPointSet>& sets,
-                                           const glm::mat3& basis, const uint32_t entityId )
+                                           const uint32_t entityId )
     {
         // UE ArrayPosition: the set is the emitter's own buffer, every painted point in it (no cap), each with the
         // set's cumulative weight so a particle picks a point in proportion to its weight (VFX_PointSet).
-        system.PointSets     = sets;
-        system.PointSetBasis = basis;
+        system.PointSets = sets;
         for ( ParticleEmitterGpu& gpu : system.Emitters )
         {
             gpu.PointSetData.clear();
@@ -399,8 +457,7 @@ namespace Desert::Graphic::System
                     if ( p.w <= 0.0f )
                         continue; // a zero-weight point is never picked
                     cumulative += p.w;
-                    gpu.PointSetData.emplace_back( basis * glm::vec3( p ),
-                                                   static_cast<float>( cumulative / total ) );
+                    gpu.PointSetData.emplace_back( glm::vec3( p ), static_cast<float>( cumulative / total ) );
                 }
                 gpu.PointSetData.back().w = 1.0f; // the last point takes u up to 1 whatever the rounding
                 if ( row < gpu.ParamRows.size() )
@@ -489,15 +546,14 @@ namespace Desert::Graphic::System
                      for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
                          BuildEmitter( system.Emitters[k], *instances->System, k, entityId );
                      ApplyUserOverrides( system, vfx.Data.Overrides, entityId );
-                     ApplyPointSets( system, vfx.Data.PointSets, glm::mat3( transform.GetTransform() ), entityId );
+                     ApplyPointSets( system, vfx.Data.PointSets, entityId );
                  }
                  else
                  {
                      if ( system.Overrides != vfx.Data.Overrides )
                          ApplyUserOverrides( system, vfx.Data.Overrides, entityId );
-                     if ( const glm::mat3 basis( transform.GetTransform() );
-                          system.PointSets != vfx.Data.PointSets || system.PointSetBasis != basis )
-                         ApplyPointSets( system, vfx.Data.PointSets, basis, entityId );
+                     if ( system.PointSets != vfx.Data.PointSets )
+                         ApplyPointSets( system, vfx.Data.PointSets, entityId );
                  }
 
                  // One range of the pool per system, each emitter a slice of it in emitter order.
@@ -507,7 +563,7 @@ namespace Desert::Graphic::System
                  if ( total == 0 )
                      return;
                  const ParticlePoolRange systemRange = m_Ranges.Acquire( entityId, total );
-                 const glm::vec3         worldPos    = glm::vec3( transform.GetTransform()[3] );
+                 const glm::mat4         localToWorld( transform.GetTransform() );
 
                  uint32_t offset = 0;
                  for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
@@ -521,7 +577,7 @@ namespace Desert::Graphic::System
                      if ( !EnsureTickBuffers( gpu, stepCapacity ) )
                          continue;
                      if ( !PrepareEmitter( gpu, *instance, instances->System->Emitters[k], range, entityId,
-                                           static_cast<uint32_t>( k ), worldPos, stepSeconds ) )
+                                           static_cast<uint32_t>( k ), localToWorld, stepSeconds ) )
                          continue;
                  }
              } );
@@ -552,7 +608,7 @@ namespace Desert::Graphic::System
     bool ParticleWorldGpu::PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
                                            const Assets::Serialization::VFXEmitterData& data,
                                            const ParticlePoolRange& range, const uint32_t entityId,
-                                           const uint32_t emitterIndex, const glm::vec3& worldPos,
+                                           const uint32_t emitterIndex, const glm::mat4& localToWorld,
                                            const float stepSeconds )
     {
         const VFX::EmitterInstance* instance = &emitter;
@@ -650,10 +706,10 @@ namespace Desert::Graphic::System
         }
 
         // Where this tick's draw finds the particles: the compiled columns, the range they are strided by, and the
-        // emitter position a Local emitter's particles are drawn around (the one the simulation placed them by).
+        // placement transform a Local emitter's particles are drawn through (the one the simulation placed them by).
         ParticleDrawLayoutGpu layout = gpu.DrawColumns;
         layout.Range                 = glm::uvec4( range.Count, range.Base, gpu.Local ? 1u : 0u, 0u );
-        layout.EmitterPos            = glm::vec4( worldPos, 0.0f );
+        layout.LocalToWorld          = localToWorld;
         // The emitter's Ribbon row: its settings ride the layout to the ribbon vertex path (its RibbonIdBinding's
         // column is in DrawColumns). The emitter's ribbons are drawn by the first enabled Ribbon row; another with
         // other settings is refused aloud below (one ribbon order per emitter, ParticleSort).
@@ -684,7 +740,9 @@ namespace Desert::Graphic::System
         fe.Gpu             = &gpu;
         fe.Pipeline        = gpu.Pipeline.get();
         fe.StepCount       = stepCount;
-        fe.Push.EmitterPos = glm::vec4( worldPos, stepSeconds );
+        fe.Push.LocalToWorld = localToWorld;
+        fe.Push.Step         = glm::vec4( stepSeconds, 0.0f, 0.0f, 0.0f );
+        fe.WorldBounds       = Assets::Serialization::VFXBoundsAt( data.Bounds, localToWorld );
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
         // The random streams' step (Stack.x + step): the emitter's own step since its reset, never the world's
         // tick - the same age draws the same numbers however it was reached (play, scrub forward, scrub back).
@@ -695,6 +753,28 @@ namespace Desert::Graphic::System
             const Assets::Serialization::VFXRendererData& row = data.Renderers[r];
             if ( !row.Enabled )
                 continue;
+            if ( row.Kind == Assets::Serialization::VFXRendererKind::Light )
+            {
+                // VFX-LIGHT: a Light row draws nothing; its particles' lights come back through LightReadback.
+                if ( !row.Light )
+                    continue;
+                if ( fe.Light != nullptr )
+                {
+                    LOG_ERROR( "[Particles] emitter {} renderer row {} casts no light: the emitter's first Light "
+                               "row already does, and an emitter reads one set of lights",
+                               entityId, r );
+                    continue;
+                }
+                fe.Light = &*row.Light;
+                if ( !gpu.LightReadback )
+                    gpu.LightReadback = ShaderResources::StorageBuffer::Create(
+                         "ParticleLightReadback",
+                         ( kParticleLightHeaderUints +
+                           Assets::Serialization::kVFXLightMaxPerEmitter * kParticleLightRowFloats ) *
+                              4u,
+                         3 );
+                continue;
+            }
             if ( row.Kind == Assets::Serialization::VFXRendererKind::Ribbon )
             {
                 if ( !row.Ribbon || *row.Ribbon != *ribbon )

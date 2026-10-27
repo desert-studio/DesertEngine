@@ -40,7 +40,7 @@
 #include <Editor/Widgets/ThumbnailFoliage.hpp>
 #include <Editor/Widgets/ThumbnailPose.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
@@ -302,6 +302,11 @@ namespace Desert::Editor
     FileExplorerPanel::CreateVFXSystemFromTemplate( const std::filesystem::path& templateFile )
     {
         return m_NewAssetMenu.CreateVFXSystemFromTemplate( m_CurrentDir, templateFile );
+    }
+
+    Common::BoolResultStr FileExplorerPanel::CreateNewVFXModule()
+    {
+        return m_NewAssetMenu.CreateNewVFXModule( m_CurrentDir );
     }
 
     ImVec2 GetAspectCorrectedSize( const ImVec2& originalSize, float maxSize )
@@ -608,7 +613,7 @@ namespace Desert::Editor
                 {
                     while ( shown.size() > 1 && ImGui::CalcTextSize( ( shown + "..." ).c_str() ).x > cellW )
                         shown.pop_back();
-                    shown += "...";
+                    shown = std::format( "{}...", shown );
                 }
                 const float tw = ImGui::CalcTextSize( shown.c_str() ).x;
                 ImGui::SetCursorPosX( ImGui::GetCursorPosX() + std::max( 0.0f, ( cellW - tw ) * 0.5f ) );

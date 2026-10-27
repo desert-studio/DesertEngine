@@ -11,13 +11,13 @@
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
-#include <Editor/Core/Selection/FoliagePaint.hpp>
-#include <Editor/Core/Selection/FoliageToolProperties.hpp>
+#include <Editor/Panels/Foliage/FoliagePaint.hpp>
+#include <Editor/Panels/Foliage/FoliageToolProperties.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Editor/Panels/Foliage/FoliagePalette.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/UIHelper/ImGuiUI.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <set>
 #include <string>
 #include <string_view>
@@ -342,9 +343,8 @@ namespace Desert::Editor::Tools
                     sum.Expected += one.Expected;
                 }
                 ImGui::Text( "~%.0f new per dab", sum.Expected );
-                Row::Tooltip( ( "The checked types want " +
-                                std::to_string( static_cast<long>( sum.Desired + 0.5f ) ) +
-                                " under the brush and " + std::to_string( sum.Existing ) + " are there" )
+                Row::Tooltip( std::format( "The checked types want {} under the brush and {} are there",
+                                           static_cast<long>( sum.Desired + 0.5f ), sum.Existing )
                                    .c_str() );
             }
             else

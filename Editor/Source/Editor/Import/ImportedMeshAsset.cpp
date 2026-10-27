@@ -16,7 +16,7 @@
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <array>
 #include <mutex>
 #include <unordered_map>

@@ -100,9 +100,11 @@ namespace Desert::Graphic::SurfaceCache
         {
             glm::vec4  LightDir{ 0.0f };
             glm::vec4  LightColor{ 0.0f };
+            glm::vec4  Light1Dir{ 0.0f };   // atmosphere light 1 (the moon)
+            glm::vec4  Light1Color{ 0.0f }; // a == 0: none
             glm::uvec4 Flags{ 0u }; // x = 1: the pages keep their IndirectLighting (it runs this frame)
         };
-        static_assert( sizeof( DirectLightingPush ) == 48 );
+        static_assert( sizeof( DirectLightingPush ) == 80 );
 
         struct SceneViewPush
         {
@@ -564,6 +566,8 @@ namespace Desert::Graphic::SurfaceCache
         DirectLightingPush push;
         push.LightDir                 = inputs.LightDir;
         push.LightColor               = inputs.LightColor;
+        push.Light1Dir                = inputs.Light1Dir;
+        push.Light1Color              = inputs.Light1Color;
         push.Flags.x                  = inputs.IndirectLighting ? 1u : 0u;
         GraphicsPipeline* const raw   = m_LightingPipeline.get();
         const uint32_t          count = static_cast<uint32_t>( frame.LightingPages.size() );

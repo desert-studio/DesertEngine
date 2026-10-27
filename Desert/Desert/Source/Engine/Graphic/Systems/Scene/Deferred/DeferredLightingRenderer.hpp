@@ -57,6 +57,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, GiSpecularTexture );
         DESERT_SHADER_PARAMETER( Texture, MegaLightsDiffuseTexture );
         DESERT_SHADER_PARAMETER( Texture, MegaLightsSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SubsurfaceDiffuseTexture );
         DESERT_SHADER_PARAMETER( Texture, ScreenShadowMaskTexture );
         DESERT_SHADER_PARAMETER( Texture, LocalShadowMasksTexture );
         DESERT_SHADER_PARAMETER( Texture, GiBackfaceTexture );
@@ -88,6 +89,9 @@ namespace Desert::Graphic::System
         RDG::TextureRef MegaLightsDiffuse;
         RDG::TextureRef MegaLightsSpecular;
         RDG::TextureRef GIBackface; // irradiance from -N, the light through a two-sided leaf ("GiBackfaceTexture")
+        // SSS-PROFILE (CONTRACT §4): the demodulated diffuse of the screen-space scattered texels, written when the
+        // view scatters (DeferredGIInput::SubsurfaceSplit); a 1x1 transient nothing writes otherwise.
+        RDG::TextureRef SubsurfaceDiffuse;
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
@@ -359,7 +363,8 @@ namespace Desert::Graphic::System
         // = camera world position; debugMode selects a raw channel (0 = lit); gi.Mode picks the indirect-light
         // source (0 = off, 1 = screen-space, 2 = the traced final gather under SSAO, 3 = the traced final gather
         // occluded by its own short-range AO; 2 and 3 read GIDiffuse / GISpecular / GIBackface).
-        void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
+        void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& light1Dir,
+                           const glm::vec4& light1Color, const glm::vec4& cameraPos,
                            const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
                            uint32_t spotCount, const DeferredShadowInput& shadow, const DeferredGIInput& gi,
                            bool ssaoEnabled, const CloudShadowInput& cloudShadow,
@@ -374,7 +379,8 @@ namespace Desert::Graphic::System
             if ( !program.Material )
                 return;
             ReportEnvironmentGap( environment );
-            program.Material->BindInputs( lightDir, lightColor, cameraPos, invJitteredViewProjection, debugMode,
+            program.Material->BindInputs( lightDir, lightColor, light1Dir, light1Color, cameraPos,
+                                          invJitteredViewProjection, debugMode,
                                           pointCount, spotCount, shadow, gi, ssaoEnabled, cloudShadow, environment,
                                           jitteredViewProjection );
         }
@@ -421,7 +427,9 @@ namespace Desert::Graphic::System
                  .Texture( DeferredLightingCompositeShaderParameters::GiSpecularTexture, inputs.GISpecular, kRead,
                            kWhole )
                  .Texture( DeferredLightingCompositeShaderParameters::GiBackfaceTexture, inputs.GIBackface, kRead,
-                           kWhole );
+                           kWhole )
+                 .Storage( DeferredLightingCompositeShaderParameters::SubsurfaceDiffuseTexture,
+                           inputs.SubsurfaceDiffuse, RDG::Access::StorageWrite );
             // The light rows and their shadow views: the light-grid loop's. The MegaLights program reads
             // MegaLights' lighting instead.
             if ( m_Active == kMegaLightsProgram )

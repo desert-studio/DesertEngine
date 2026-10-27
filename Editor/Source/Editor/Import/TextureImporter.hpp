@@ -12,6 +12,8 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 
+#include <glm/glm.hpp>
+
 namespace Desert::Editor
 {
     // What one cook of one source did. `Fresh` and `Cooked` both leave the platform data in the DDC; the
@@ -73,6 +75,19 @@ namespace Desert::Editor
         // The editor's platform-data builder (registered with Assets::SetTexturePlatformDataBuilder): cooks
         // the asset into the DDC and returns the entry. The runtime calls it on a DDC miss.
         static Common::ResultStr<std::string> BuildPlatformData( const std::filesystem::path& asset );
+
+        // THE ASSET'S PLATFORM DATA ON THE CPU, AS THE GPU SAMPLES IT: every level of the cooked chain (the DDC
+        // entry; a miss cooks it) decoded by DecodeCookedTextureLevel - linear RGBA, the view's channel rules, BC
+        // blocks decompressed. The CPU twins of a GPU texture read use it - the displaced mesh builder samples a
+        // height map with it (Assets::SetDisplacedMeshBuilder), so collision and the Baked surface match the
+        // runtime displacement texel for texel. A level that does not decode is an error naming asset and level.
+        struct PlatformMip
+        {
+            uint32_t               Width  = 0;
+            uint32_t               Height = 0;
+            std::vector<glm::vec4> Texels; // row-major, Width x Height
+        };
+        static Common::ResultStr<std::vector<PlatformMip>> DecodePlatformMips( const std::filesystem::path& asset );
 
     private:
         std::unordered_map<std::string, Common::UUID> m_Cache;

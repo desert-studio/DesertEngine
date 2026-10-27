@@ -30,7 +30,7 @@
 #include <Editor/Widgets/CloudThumbnail.hpp>
 #include <Editor/Widgets/ThumbnailFormats.hpp>
 #include <Editor/Widgets/ThumbnailProducers.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 
 #include <gtest/gtest.h>

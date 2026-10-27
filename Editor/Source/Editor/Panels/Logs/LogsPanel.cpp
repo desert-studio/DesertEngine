@@ -1,7 +1,9 @@
 #include "LogsPanel.hpp"
+#include <Common/Core/Profiler.hpp>
 
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/LogView.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -62,36 +64,52 @@ namespace Desert::Editor
         Refresh();
     }
 
+    void LogsPanel::ResetParsed()
+    {
+        m_Entries.clear();
+        m_PendingLine.clear();
+        m_ReadOffset = 0;
+        m_CountInfo = m_CountWarning = m_CountError = 0;
+        s_SessionTail.clear();
+    }
+
     void LogsPanel::Refresh()
     {
+        DESERT_PROFILE_SCOPE( "Logs: Refresh" );
         // The file the logger placed (Common::Logger::LogFilePath) — never a bare name, which would be read
         // from whatever directory the editor was started in.
         const std::filesystem::path logFile = Common::Logger::LogFilePath();
-        std::error_code             ec;
-        if ( logFile.empty() || !std::filesystem::exists( logFile, ec ) )
+        if ( logFile.empty() )
             return;
 
         // TAILED, not re-read: only the bytes written since the last call are parsed. Re-reading the whole
         // file on every change made this panel O(log size) per frame - the logger writes every frame, so a
-        // 28k-line Bistro session spent 110 ms of a 233 ms frame here. A file shorter than what was already
-        // read was truncated (Clear, or a new session reusing the name): start over from its first byte.
-        const std::uintmax_t size = std::filesystem::file_size( logFile, ec );
-        if ( ec || size == m_ReadOffset )
-            return;
-        if ( size < m_ReadOffset )
+        // 28k-line Bistro session spent 110 ms of a 233 ms frame here. The file stays OPEN between frames:
+        // opening it (plus exists/file_size) twice a frame cost 8.9 ms of a 28 ms Bistro frame on Windows,
+        // where every open is scanned. A file shorter than what was already read was truncated (Clear, or a
+        // new session reusing the name): start over from its first byte.
+        if ( !m_File.is_open() || m_FilePath != logFile )
         {
-            m_Entries.clear();
-            m_PendingLine.clear();
-            m_ReadOffset = 0;
-            m_CountInfo = m_CountWarning = m_CountError = 0;
-            s_SessionTail.clear();
+            m_File.close();
+            m_File.open( logFile, std::ios::binary );
+            m_FilePath = logFile;
+            ResetParsed();
+            if ( !m_File.is_open() )
+                return;
         }
+        m_File.clear();
+        m_File.seekg( 0, std::ios::end );
+        const std::streamoff end = m_File.tellg();
+        if ( end < 0 || static_cast<std::uintmax_t>( end ) == m_ReadOffset )
+            return;
+        const auto size = static_cast<std::uintmax_t>( end );
+        if ( size < m_ReadOffset )
+            ResetParsed();
 
-        std::ifstream file( logFile, std::ios::binary );
-        file.seekg( static_cast<std::streamoff>( m_ReadOffset ) );
+        m_File.seekg( static_cast<std::streamoff>( m_ReadOffset ) );
         std::string chunk( static_cast<std::size_t>( size - m_ReadOffset ), '\0' );
-        file.read( chunk.data(), static_cast<std::streamsize>( chunk.size() ) );
-        chunk.resize( static_cast<std::size_t>( file.gcount() ) );
+        m_File.read( chunk.data(), static_cast<std::streamsize>( chunk.size() ) );
+        chunk.resize( static_cast<std::size_t>( m_File.gcount() ) );
         m_ReadOffset += chunk.size();
 
         // A line the logger is still writing has no '\n' yet; it waits in m_PendingLine for the rest.
@@ -379,14 +397,19 @@ namespace Desert::Editor
         {
             if ( ImGui::MenuItem( "Copy visible" ) )
             {
-                std::string all;
+                static const ::Desert::Core::TextTemplate kVisible(
+                     "LogsCopyVisible",
+                     "{% for row in rows %}{{ row.text }}{% if row.count > 1 %}  (x{{ row.count }}){% endif %}\n"
+                     "{% endfor %}" );
+                Common::Json::Value::Array lines;
+                lines.reserve( rows.size() );
                 for ( const auto& r : rows )
-                {
-                    all += r.Text;
-                    if ( r.Count > 1 )
-                        all += "  (x" + std::to_string( r.Count ) + ")";
-                    all += '\n';
-                }
+                    lines.emplace_back(
+                         Common::Json::ObjectBuilder().Set( "text", r.Text ).Set( "count", r.Count ).Build() );
+                const std::string all = kVisible.RenderOrLog(
+                     Common::Json::Value( Common::Json::ObjectBuilder()
+                                               .Set( "rows", Common::Json::Value( std::move( lines ) ) )
+                                               .Build() ) );
                 ImGui::SetClipboardText( all.c_str() );
             }
             ImGui::EndPopup();

@@ -4,9 +4,15 @@
 #include "Editor/Core/ProjectContext.hpp"
 #include <Common/Core/Core.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp> // reading the PRESENTED frame back (shot.window)
+#include <Engine/Graphic/SceneRenderer.hpp>              // the view's HDR scene colour (--shot-hdr)
 #include <stb_image/stb_image_write.h>
 
+#include <glm/gtc/packing.hpp>
+
+#include <cstring>
+#include <filesystem>
 #include <format>
+#include <fstream>
 
 namespace Desert::Editor
 {
@@ -19,6 +25,40 @@ namespace Desert::Editor
             stbi_flip_vertically_on_write( 0 );
             return stbi_write_png( path.c_str(), static_cast<int>( width ), static_cast<int>( height ), 4, rgba,
                                    static_cast<int>( width ) * 4 ) != 0;
+        }
+
+        // The directory of a sequence is named on the command line and usually does not exist yet. Create it
+        // rather than letting the writer fail on a path that is only missing a folder.
+        bool CreateParentDirectory( const std::string& path )
+        {
+            const std::filesystem::path file = std::filesystem::path( path );
+            if ( file.has_parent_path() && !file.parent_path().empty() )
+            {
+                std::error_code ec;
+                std::filesystem::create_directories( file.parent_path(), ec );
+                if ( ec && !std::filesystem::exists( file.parent_path() ) )
+                {
+                    LOG_ERROR( "[Shot] could not create '{}': {}", file.parent_path().string(), ec.message() );
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // A PFM (the Portable Float Map: "PF", the size, a negative scale for little endian, then float RGB rows
+        // from the BOTTOM row up). @p rgb is top row first, tightly packed.
+        bool WritePfmRGB32F( const std::string& path, uint32_t width, uint32_t height,
+                             const std::vector<float>& rgb )
+        {
+            std::ofstream out( std::filesystem::path( path ), std::ios::binary );
+            if ( !out )
+                return false;
+            out << std::format( "PF\n{} {}\n-1.0\n", width, height );
+            const std::streamsize rowBytes = static_cast<std::streamsize>( width ) * 3 * sizeof( float );
+            for ( uint32_t row = height; row-- > 0; )
+                out.write( reinterpret_cast<const char*>( rgb.data() + static_cast<size_t>( row ) * width * 3 ),
+                           rowBytes );
+            return static_cast<bool>( out );
         }
     } // namespace
 
@@ -136,19 +176,8 @@ namespace Desert::Editor
             return false;
         }
 
-        // The directory of a sequence is named on the command line and usually does not exist yet. Create
-        // it rather than letting stb fail on a path that is only missing a folder.
-        const std::filesystem::path file = std::filesystem::path( path );
-        if ( file.has_parent_path() && !file.parent_path().empty() )
-        {
-            std::error_code ec;
-            std::filesystem::create_directories( file.parent_path(), ec );
-            if ( ec && !std::filesystem::exists( file.parent_path() ) )
-            {
-                LOG_ERROR( "[Shot] could not create '{}': {}", file.parent_path().string(), ec.message() );
-                return false;
-            }
-        }
+        if ( !CreateParentDirectory( path ) )
+            return false;
 
         std::vector<uint8_t> px;
         uint32_t             w = 0;
@@ -161,6 +190,76 @@ namespace Desert::Editor
 
         const bool written = WritePngRGBA8( path, w, h, px.data() );
         LOG_INFO( "[Shot] {} -> {} ({}x{})", written ? "wrote" : "FAILED to write", path, w, h );
+        return written;
+    }
+
+    bool ViewportCapture::WriteSceneColorPfm( const std::string& path )
+    {
+        const auto* scene = m_Workspace.ActiveScene().get();
+        if ( !scene )
+        {
+            LOG_ERROR( "[Shot] no scene to capture the scene colour of ('{}')", path );
+            return false;
+        }
+        if ( !CreateParentDirectory( path ) )
+            return false;
+        const Graphic::SceneRenderer* renderer = scene->GetViewRenderer( 0 );
+        const auto                    image    = renderer ? renderer->GetSceneColorImage() : nullptr;
+        if ( !image )
+        {
+            LOG_ERROR( "[Shot] view 0 has no scene colour target ('{}')", path );
+            return false;
+        }
+        const auto format = image->GetImageSpecification().Format;
+        if ( format != Desert::Core::Formats::ImageFormat::RGBA16F )
+        {
+            LOG_ERROR( "[Shot] the scene colour is not RGBA16F (format {}); the PFM writer reads RGBA16F ('{}')",
+                       static_cast<int>( format ), path );
+            return false;
+        }
+
+        Graphic::Renderer::GetInstance().WaitDeviceIdle();
+        auto begun = image->BeginReadbackBytes();
+        if ( !begun.IsSuccess() )
+        {
+            LOG_ERROR( "[Shot] scene colour readback refused: {} ('{}')", begun.GetError(), path );
+            return false;
+        }
+        // The copy was submitted by BeginReadbackBytes; an idle device has finished it.
+        Graphic::Renderer::GetInstance().WaitDeviceIdle();
+        const auto& readback = begun.GetValue();
+        if ( !readback->IsComplete() )
+        {
+            LOG_ERROR( "[Shot] the scene colour copy did not complete on an idle device ('{}')", path );
+            return false;
+        }
+        auto bytes = readback->ReadBytes();
+        if ( !bytes.IsSuccess() )
+        {
+            LOG_ERROR( "[Shot] scene colour readback failed: {} ('{}')", bytes.GetError(), path );
+            return false;
+        }
+        const std::vector<uint8_t>& texels      = bytes.GetValue();
+        const uint32_t              w           = image->GetWidth();
+        const uint32_t              h           = image->GetHeight();
+        const size_t                count       = static_cast<size_t>( w ) * h;
+        constexpr size_t            kTexelBytes = 4 * sizeof( uint16_t );
+        if ( texels.size() != count * kTexelBytes )
+        {
+            LOG_ERROR( "[Shot] scene colour readback is {} bytes, expected {}x{}x{} = {} ('{}')", texels.size(), w,
+                       h, kTexelBytes, count * kTexelBytes, path );
+            return false;
+        }
+        std::vector<float> rgb( count * 3 );
+        for ( size_t texel = 0; texel < count; ++texel )
+        {
+            uint16_t halves[3] = {};
+            std::memcpy( halves, texels.data() + texel * kTexelBytes, sizeof( halves ) );
+            for ( size_t c = 0; c < 3; ++c )
+                rgb[texel * 3 + c] = glm::unpackHalf1x16( halves[c] );
+        }
+        const bool written = WritePfmRGB32F( path, w, h, rgb );
+        LOG_INFO( "[Shot] {} -> {} ({}x{} HDR scene colour)", written ? "wrote" : "FAILED to write", path, w, h );
         return written;
     }
 

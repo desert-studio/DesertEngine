@@ -1,0 +1,140 @@
+#ifndef DESERT_PATH_TRACING_DENOISE_GLSLH
+#define DESERT_PATH_TRACING_DENOISE_GLSLH
+
+#include <Mesh/MegaLightsDemodulation.glslh>
+
+// THE PATH TRACER'S DENOISER CONTRACT, spelled once for the writer (Programs/PathTracing/PathTracer.shader: each path
+// adds its first surface's guides and its two demodulated lobes to the view's sums) and the reader (Programs/
+// PathTracing/PathTracerDenoise.shader: the ReLAX-style temporal + spatial denoiser over sum / count). UE 5.8 keeps
+// the same writer/reader split between its path tracer and its denoiser plugin (PathTracing.cpp: albedo and normal
+// accumulated per pixel beside the radiance); the signal split by lobe is NVIDIA NRD ReLAX's (diffuse and specular
+// radiance, each demodulated, each with its own history and filter), which is what the real-time path tracers
+// (Cyberpunk 2077 RT Overdrive, Alan Wake 2) denoise.
+//
+// Each path splits its radiance at its first opaque surface (glass is looked through to the surface behind it):
+//   E   = what it gathered before that surface's lighting - the sky it left the scene to, the emission of the
+//         surface itself, an emitter met on the way through glass - which no reflectance modulates, and
+//   R_d = the light that surface reflects through its diffuse lobe, R_d = D_d * I_d, and
+//   R_s = the light it reflects through its specular lobe, R_s = D_s * I_s.
+// The split is by the BSDF's own lobes: each light sample of the first surface and the whole continuation of its
+// bounce are shared between the lobes in proportion to the lobe's f * cos in that direction (an unbiased estimate of
+// each lobe, PathTracingSplitShare). D_d is the diffuse reflectance (base colour x (1 - metallic)), D_s the split-sum
+// specular reflectance (F0 x A + B, Karis' environment BRDF fit) - the same two factors MegaLights demodulates by
+// (Mesh/MegaLightsDemodulation.glslh, one function per factor). Only I_d and I_s are filtered; E passes through.
+//
+// The sums, all divided by s (the pixel's surface paths) before use; s = 0 is a pixel that saw no surface:
+// GuideAlbedo:         rgb = sum D_d,                     a = s (a path that left the scene adds to no guide).
+// GuideNormal:         xyz = sum first-surface normal,    w = sum camera distance (cm).
+// GuideSpecular:       rgb = sum D_s,                     a = sum roughness.
+// GuideHit:            x   = sum w * t, y = sum w: t the distance the first bounce ray travelled (kPathTracing-
+//                      DenoiseMissHitDistance when it left the scene), w the specular share of that bounce
+//                      (luminance of PathTracingSplitShare); z, w = 0. Reprojects the specular lobe by its virtual
+//                      image (the reflected point seen behind the mirror).
+// DemodulatedDiffuse:  rgb = sum I_d, a = sum lum(I_d)^2.
+// DemodulatedSpecular: rgb = sum I_s, a = sum lum(I_s)^2.
+
+// The camera distance a pixel no path of which met a surface reads (cm, 1000 km): far past any scene, so a sky
+// pixel never passes the depth test against a surface beside it.
+const float kPathTracingMissDepth = 1.0e8;
+
+// The distance a first bounce that left the scene reports for the virtual image (cm, 10 km): the reflected point is
+// then effectively at infinity and reprojects like a direction.
+const float kPathTracingDenoiseMissHitDistance = 1.0e6;
+
+// While a pixel's history is young its lobe's illumination is a few heavy-tailed samples: its luminance tells a
+// firefly from a dark path, not a lighting edge from a flat one. The filter's iterations whose tap spacing is at most
+// kPathTracingDenoiseSpreadRadius / L (L the pair's shorter history, paths) then spread by geometry only
+// (energy-conserving, so each firefly's energy is shared over its surface instead of cut): at one path the spacings
+// 1, 2, 4, 8 - a reach of 2 x 15 = 30 pixels, NVIDIA NRD ReLAX's pre-pass blur radius - halving as the history
+// doubles, none from 9 paths on (ReLAX's pre-pass + history fix of disoccluded pixels).
+const float kPathTracingDenoiseSpreadRadius = 8.0;
+
+// ReLAX's normal weight of a young history: the lobe half-angle (NRD GetSpecularLobeHalfAngle: atan(0.75 / 0.25 x
+// roughness^2), the diffuse lobe at roughness 1) scaled by 1 / L, so a one-path pixel accepts every neighbour within
+// its lobe - the shading normals of a normal-mapped surface sampled at random sub-pixel points - and the angle shrinks
+// to SVGF's max(0, n_p . n_q)^128 (which stays the floor of the weight) as the history fills.
+const float kPathTracingDenoiseLobeVolume = 0.75;
+
+float PathTracingDenoiseLobeHalfAngle(float roughness)
+{
+    return atan(kPathTracingDenoiseLobeVolume / (1.0 - kPathTracingDenoiseLobeVolume) * roughness * roughness);
+}
+
+// The young-history normal weight of a pair whose normals meet at cosine @p cosine (NRD ComputeNonExponentialWeight
+// over the angle): 1 at equal normals, 0 from the lobe half-angle of @p roughness / @p historyLength on.
+float PathTracingDenoiseYoungNormalWeight(float cosine, float roughness, float historyLength)
+{
+    const float angle = PathTracingDenoiseLobeHalfAngle(roughness) / max(historyLength, 1.0);
+    return 1.0 - smoothstep(0.0, 1.0, acos(clamp(cosine, -1.0, 1.0)) / max(angle, 1.0e-4));
+}
+
+// SVGF 4.2: below four paths the pixel's own (temporal) moments say nothing; the spatial ones stand in.
+const float kPathTracingDenoiseTemporalMomentPaths = 4.0;
+
+// ReLAX defaults: the slow history of the diffuse lobe is capped at 32 frames (an exponential average of weight
+// 1 / 33 once full), the fast history the slow one is clamped against at 6.
+const float kPathTracingDenoiseDiffuseHistory = 32.0;
+const float kPathTracingDenoiseFastHistory    = 6.0;
+// The specular lobe's cap falls with roughness: a sharp reflection moves with its virtual image, and what the
+// reprojection gets wrong must leave the history within a few frames.
+const float kPathTracingDenoiseSpecularMinHistory = 4.0;
+
+float PathTracingDenoiseLuminance(vec3 c)
+{
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// The specular lobe's slow history cap at @p roughness (perceptual): 4 frames for a mirror, the diffuse lobe's 32 from
+// roughness 0.5 on.
+float PathTracingDenoiseSpecularHistory(float roughness)
+{
+    return max(kPathTracingDenoiseSpecularMinHistory,
+               kPathTracingDenoiseDiffuseHistory * clamp(2.0 * roughness, 0.0, 1.0));
+}
+
+// The edge-stopping distance between illuminations a and b, per channel (SVGF 4.3 weighs by luminance only, which
+// lets a spike in one channel pass and spread onto a neighbour that reflects more of it: a coloured speckle). Each
+// channel's standard deviation is taken proportional to the pair's mean colour: channel c is compared over
+// lumWidth * m.c / lum(m), m = (a + b) / 2; the distance is the largest of the three. SYMMETRIC in a and b (and
+// lumWidth is the pair's joint width), so the weight one pixel gives another is the weight it receives back - the
+// condition for the filter's exchange to conserve energy (PathTracerDenoise.shader).
+float PathTracingDenoiseChannelDistance(vec3 a, vec3 b, float lumWidth)
+{
+    const vec3  m             = 0.5 * (a + b);
+    const float relativeWidth = lumWidth / max(PathTracingDenoiseLuminance(m), 1.0e-10);
+    const vec3  d             = abs(b - a) / (relativeWidth * m + 1.0e-10);
+    return max(d.r, max(d.g, d.b));
+}
+
+// The camera distance of a pixel's surface from its guide sums: the mean over its surface paths, or
+// kPathTracingMissDepth when none met a surface.
+float PathTracingDenoiseSurfaceDepth(vec4 normalSum, float surfacePaths)
+{
+    return surfacePaths > 0.5 ? normalSum.w / surfacePaths : kPathTracingMissDepth;
+}
+
+// The specular lobe's share of f * cos per channel, @p specular of @p total (the lobe split above); a direction the
+// BSDF does not reflect into gives everything to the diffuse lobe, which then carries nothing.
+vec3 PathTracingSplitShare(vec3 specular, vec3 total)
+{
+    return clamp(specular / max(total, vec3(1.0e-12)), vec3(0.0), vec3(1.0));
+}
+
+// The unit normal @p n as two floats (octahedral map), for the snapshot's guide (PathTracerDenoise.shader).
+vec2 PathTracingDenoiseOctEncode(vec3 n)
+{
+    n /= max(abs(n.x) + abs(n.y) + abs(n.z), 1.0e-12);
+    const vec2 signs = vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+    return n.z >= 0.0 ? n.xy : (1.0 - abs(n.yx)) * signs;
+}
+
+vec3 PathTracingDenoiseOctDecode(vec2 e)
+{
+    vec3        n = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+    const float t = max(-n.z, 0.0);
+    n.x += n.x >= 0.0 ? -t : t;
+    n.y += n.y >= 0.0 ? -t : t;
+    return normalize(n);
+}
+
+#endif

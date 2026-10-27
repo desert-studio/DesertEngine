@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <format>
 
 namespace Common::Utils::ContentScanLedger
 {
@@ -55,15 +56,10 @@ namespace Common::Utils::ContentScanLedger
             return "no content scan walked a directory — every content identity came from the cooked "
                    "registry";
 
-        std::string text = std::to_string( readout.Walks ) + " content scan(s) over " +
-                           std::to_string( readout.Entries ) + " entr(ies) in ";
         // Two decimals, spelled the way SyncLoadLedger spells its own, so the three boot lines can be
         // read as one paragraph.
-        char millis[32] = {};
-        std::snprintf( millis, sizeof( millis ), "%.2f", readout.Milliseconds );
-        text += millis;
-        text += " ms";
-        return text;
+        return std::format( "{} content scan(s) over {} entr(ies) in {:.2f} ms", readout.Walks, readout.Entries,
+                            readout.Milliseconds );
     }
 
     void Reset()

@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <string>
 #include <string_view>
 
@@ -40,7 +41,7 @@ namespace Desert::World::Landscape
     inline std::filesystem::path LandscapeTileBlobPath( const std::filesystem::path& scenePath, uint64_t tileId )
     {
         const std::string directory = scenePath.stem().string() + "_Landscape";
-        const std::string file      = std::to_string( tileId ) + kLandscapeTileExtension;
+        const std::string file      = std::format( "{}{}", tileId, kLandscapeTileExtension );
         return scenePath.parent_path() / directory / file;
     }
 

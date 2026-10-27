@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/SkySettings.hpp>
+#include <Engine/Graphic/SunLightFx.hpp>
 
 #include <glm/glm.hpp>
 
@@ -27,7 +28,7 @@ namespace Desert::Graphic
     // and the IBL bake), and to 17 when the physical sky started taking its sun from the atmosphere sun
     // LIGHT (vec4s 15-16, UE's AtmosphereLight illuminance and Atmosphere Sun Disk Color Scale). Extension
     // is APPEND-ONLY: every existing offset is a promise to every shader that reads the block.
-    inline constexpr uint32_t kSkyPackedVec4Count = 17;
+    inline constexpr uint32_t kSkyPackedVec4Count = 20;
 
     // THE PHYSICAL SKY'S SUN, as UE has it: the atmosphere sun LIGHT's own numbers, not the sky
     // component's. UE's sky atmosphere has no sun intensity of its own — the Sky-View LUT, the aerial
@@ -76,6 +77,11 @@ namespace Desert::Graphic
         glm::vec4 AtmosphereLight; // 240  rgb = sun light outer-space illuminance (lux, Color x Intensity),
                                    //      w = on-screen sky luminance ceiling (Graphic::SkyLuminanceCeiling)
         glm::vec4 SunDisk;         // 256  rgb = Atmosphere Sun Disk Color Scale, w = reserved (0)
+
+        // ---- Atmosphere light 1 (UE's Atmosphere Sun Light Index 1, the moon; appended). PhysicalAtmosphere only.
+        glm::vec4 Light1Direction;   // 272  xyz = direction TOWARD light 1 (normalized), w = disc angular RADIUS (rad)
+        glm::vec4 Light1Illuminance; // 288  rgb = outer-space illuminance (lux), w = 1 when the light exists, else 0
+        glm::vec4 Light1Disk;        // 304  rgb = its Atmosphere Sun Disk Color Scale, w = reserved (0)
     };
 
     static_assert( sizeof( SkyGpuPayload ) == kSkyPackedVec4Count * sizeof( glm::vec4 ),
@@ -97,6 +103,9 @@ namespace Desert::Graphic
     static_assert( offsetof( SkyGpuPayload, SkyApLuminance ) == 224 );
     static_assert( offsetof( SkyGpuPayload, AtmosphereLight ) == 240 );
     static_assert( offsetof( SkyGpuPayload, SunDisk ) == 256 );
+    static_assert( offsetof( SkyGpuPayload, Light1Direction ) == 272 );
+    static_assert( offsetof( SkyGpuPayload, Light1Illuminance ) == 288 );
+    static_assert( offsetof( SkyGpuPayload, Light1Disk ) == 304 );
 
     // Size the buffer is created with, and the size every writer must hand to SetData.
     inline constexpr uint32_t kSkyPayloadBytes =
@@ -162,7 +171,8 @@ namespace Desert::Graphic
     static_assert( sizeof( SkyAerialPerspectivePush ) == 96 );
 
     // @p towardSun must be normalized — the single normalization lives in ECS::Rules::AtmosphereSunDirection.
-    inline SkyGpuPayload PackSky( const glm::vec3& towardSun, const SkySettings& sky, const SkySunInputs& sun )
+    inline SkyGpuPayload PackSky( const glm::vec3& towardSun, const SkySettings& sky, const SkySunInputs& sun,
+                                  const AtmosphereLight1& light1 )
     {
         SkyGpuPayload payload;
         payload.SunDirection = glm::vec4( towardSun, sky.SunIntensity );
@@ -186,6 +196,12 @@ namespace Desert::Graphic
         payload.SkyApLuminance = glm::vec4( sky.SkyAndAerialPerspectiveLuminanceFactor, 0.0f );
         payload.AtmosphereLight = glm::vec4( sun.OuterSpaceIlluminance, sun.LuminanceCeiling );
         payload.SunDisk         = glm::vec4( sun.DiskColorScale, 0.0f );
+        // An absent light 1 packs zeros with w = 0: the passes branch on that w and add nothing.
+        payload.Light1Direction   = glm::vec4( light1.Present ? light1.TowardLight : glm::vec3( 0.0f, 1.0f, 0.0f ),
+                                               light1.Present ? light1.DiskAngularRadius : 0.0f );
+        payload.Light1Illuminance = glm::vec4( light1.Present ? light1.OuterSpaceIlluminance : glm::vec3( 0.0f ),
+                                               light1.Present ? 1.0f : 0.0f );
+        payload.Light1Disk        = glm::vec4( light1.Present ? light1.DiskColorScale : glm::vec3( 0.0f ), 0.0f );
         return payload;
     }
 

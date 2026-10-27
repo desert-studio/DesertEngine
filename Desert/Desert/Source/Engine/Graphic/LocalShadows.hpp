@@ -34,8 +34,8 @@ namespace Desert::Graphic
     //
     // EVERY DISTANCE IS IN WORLD UNITS (centimetres, Common::Units).
 
-    // How many local shadow views one renderer holds per frame: six per point light, one per spot.
-    inline constexpr uint32_t kMaxLocalShadowViews = 48;
+    // A renderer holds as many local shadow views per frame as its lights need (six per point light, one per
+    // spot): there is no fixed count. The one budget is the atlas below (UE: the shadow pool).
     // A light's payload says "no shadow" with this view index (ShaderProtocols::PointLightPayload::ShadowView).
     inline constexpr int32_t  kNoLocalShadowView = -1;
     inline constexpr uint32_t kPointShadowFaces  = 6;
@@ -215,10 +215,16 @@ namespace Desert::Graphic
     }
 
     // Near plane of a local light's projection: a sliver of its reach, never under 2 cm (the standard-Z
-    // perspective's precision is spent near the light, where contact shadows are).
-    [[nodiscard]] inline float LocalShadowNear( const float reach )
+    // perspective's precision is spent near the light, where contact shadows are), and never inside the light's
+    // emitter. The sphere of Source Radius IS the light (UE SampleSphereLight): every traced shadow of it - the path
+    // tracer, MegaLights, "Shadows: Ray Traced Local" (Common/LightSourceSampling.glslh) - ends its ray on that
+    // sphere, so a caster inside it (the bulb of the lamp fixture the light is placed in) never shadows its own
+    // light. A map that kept the bulb would leave dark the light every traced path lets out. Half the reach at
+    // most, so an emitter as large as its reach still leaves the map a depth range.
+    [[nodiscard]] inline float LocalShadowNear( const float reach, const float sourceRadius )
     {
-        return std::clamp( reach * 0.001f, Common::Units::Cm( 2.0f ), Common::Units::Cm( 20.0f ) );
+        const float sliver = std::clamp( reach * 0.001f, Common::Units::Cm( 2.0f ), Common::Units::Cm( 20.0f ) );
+        return std::max( sliver, std::min( sourceRadius, reach * 0.5f ) );
     }
 
     // tan(half field of view) of a view @p tile texels wide covering @p tanHalfCore, widened by the guard band.

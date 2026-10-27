@@ -7,7 +7,7 @@
 // namespace. PreviewViewport.hpp carries a note about the same trap. So the registry takes the fields of a
 // request rather than the request, and nothing here drags that namespace along.
 #include <Engine/Core/ViewBudget.hpp>
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/IPanel.hpp>
 
 #include <functional>
 #include <memory>

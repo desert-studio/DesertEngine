@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <format>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -182,8 +183,7 @@ namespace Desert::Editor
             return;
 
         // "###" keeps the id stable while the count in the label changes.
-        const std::string label =
-             std::string( ICON_MDI_STAR "  Pinned (" ) + std::to_string( rows.size() ) + ")###PinnedFields";
+        const std::string label = std::format( ICON_MDI_STAR "  Pinned ({})###PinnedFields", rows.size() );
         if ( !Utils::ImGuiUtilities::SectionHeader( label.c_str() ) )
             return;
 

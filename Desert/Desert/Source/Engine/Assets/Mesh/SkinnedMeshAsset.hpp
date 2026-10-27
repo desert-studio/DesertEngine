@@ -5,9 +5,12 @@
 #include <Engine/Geometry/MeshTypes.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
+#include <Engine/Assets/MeshDisplacementSettings.hpp>
+#include <Engine/Assets/MeshDisplacementTopology.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -87,7 +90,32 @@ namespace Desert::Assets
             return m_IsReadyForUse;
         }
 
+        // THE MESH'S DISPLACEMENT MODE (MeshBinary v6 header; CONTRACT-DISPLACE §9.8): None or Runtime - Baked is
+        // refused by the reader, a deforming surface has no single baked pose.
+        [[nodiscard]] MeshDisplacementMode GetDisplacement() const
+        {
+            return m_Displacement;
+        }
+
+        // The key the displacement topology derives from (SkinnedMeshRenderDataKey of the file's bytes).
+        [[nodiscard]] uint64_t GetRenderDataKey() const
+        {
+            return m_RenderDataKey;
+        }
+
+        // Where the topology over the REST pose's LOD0 lands (MeshDisplacementTopology.hpp): null unless the mode
+        // is Runtime and a section's material assigns a Height; then a slot ResolveDependencies' worker job fills.
+        // The scene's DisplacementCache dices it over the skin cache's posed vertices each frame.
+        [[nodiscard]] const std::shared_ptr<const DisplacementTopologySlot>& GetDisplacementTopology() const
+        {
+            return m_DisplacementTopology;
+        }
+
     private:
+        // Runtime: the topology slot and its derive job (DDC hit or editor build); the component's materials
+        // decide per frame which sections move.
+        void ResolveDisplacementTopology();
+
         // Skinning geometry
         std::vector<SkinnedVertex> m_Vertices;
         std::vector<Index>         m_Indices;
@@ -95,6 +123,12 @@ namespace Desert::Assets
         std::vector<MorphTarget>   m_MorphTargets;
         std::vector<MeshVertexStreams> m_VertexStreams;
         std::vector<Common::UUID>  m_MaterialAssetHandles;
+        // Per submesh, the material GUID the file states (null = none): where each section's Height resolves from.
+        std::vector<Common::Content::AssetGuid> m_MaterialGuids;
+
+        MeshDisplacementMode                            m_Displacement  = MeshDisplacementMode::None;
+        uint64_t                                        m_RenderDataKey = 0;
+        std::shared_ptr<const DisplacementTopologySlot> m_DisplacementTopology;
 
         Common::Content::AssetGuid m_Skeleton; // the .skmesh header's SkeletonGuid; null until parsed
 

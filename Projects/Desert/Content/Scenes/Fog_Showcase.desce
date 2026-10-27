@@ -3,6 +3,8 @@
         "Kind": "Scene",
         "Guid": "2e7f1fb2dd84686b69de21a859f5f018",
         "Versions": {
+            "AREF": 1,
+            "LGHT": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -89,8 +91,8 @@
             "id": 3651295826201078030,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [0.15000000596046448, -0.3700000047683716, 0.9200000166893005],
-            "Rotation": [0.0, 0.0, 0.0],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-2.75921368598938, -0.15013019740581512, 0.7412042617797852],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
                 "Color": [1.0, 1.0, 1.0],
@@ -148,9 +150,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4000.0, 0.20000000298023224, 4000.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {
@@ -161,9 +171,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/M_Dielectric_R0.demat"],
-                "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f19593762f19be4d47cadcb269c4e878",
+                        "Path": "assets:Materials/M_Dielectric_R0.demat"
+                    }
+                ]
             }
         },
         {
@@ -174,9 +192,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Prop.demat"],
-                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
             }
         },
         {
@@ -187,9 +213,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/M_Dielectric_R0.demat"],
-                "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f19593762f19be4d47cadcb269c4e878",
+                        "Path": "assets:Materials/M_Dielectric_R0.demat"
+                    }
+                ]
             }
         },
         {
@@ -200,9 +234,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Prop.demat"],
-                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
             }
         },
         {
@@ -213,9 +255,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/M_Dielectric_R0.demat"],
-                "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f19593762f19be4d47cadcb269c4e878",
+                        "Path": "assets:Materials/M_Dielectric_R0.demat"
+                    }
+                ]
             }
         },
         {
@@ -226,9 +276,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Prop.demat"],
-                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
             }
         },
         {
@@ -262,6 +320,17 @@
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,

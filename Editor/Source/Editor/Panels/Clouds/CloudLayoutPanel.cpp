@@ -39,6 +39,7 @@
 #include <cmath>
 #include <cctype>
 #include <filesystem>
+#include <format>
 
 namespace Desert::Editor
 {
@@ -283,7 +284,7 @@ namespace Desert::Editor
             // asset manager does not know is a scene pointing at a file that is not there, and a blank
             // label would read as an empty slot — which is the one thing it is not.
             if ( slot.TypeName.empty() )
-                slot.TypeName = "an unregistered type " + std::to_string( static_cast<uint64_t>( handle ) );
+                slot.TypeName = std::format( "an unregistered type {}", static_cast<uint64_t>( handle ) );
         }
 
         layer.Placement.RepeatsPerRegion = static_cast<uint32_t>( std::clamp( material.LayoutRepeats, 1, 16 ) );
@@ -419,9 +420,9 @@ namespace Desert::Editor
         // did nothing.
         m_CanvasImageDirty = true;
 
-        m_Status = std::string( "Read the " ) + ( table == Table::Pattern ? "pattern" : "mask" ) + " from '" +
-                   m_SourceName + "': " + std::to_string( width ) + "x" + std::to_string( height ) + ", " +
-                   std::to_string( sourceChannels ) + " channels in the file.";
+        m_Status        = std::format( "Read the {} from '{}': {}x{}, {} channels in the file.",
+                                table == Table::Pattern ? "pattern" : "mask", m_SourceName, width, height,
+                                       sourceChannels );
         m_StatusIsError = false;
 
         RebuildLayout();
@@ -462,8 +463,8 @@ namespace Desert::Editor
             return;
         }
 
-        m_Status = std::string( "Exported the " ) + what + ", " + std::to_string( picture.Side ) + "x" +
-                   std::to_string( picture.Side ) + ", to " + target.string();
+        m_Status =
+             std::format( "Exported the {}, {}x{}, to {}", what, picture.Side, picture.Side, target.string() );
         m_StatusIsError = false;
         LOG_INFO( "[CloudLayout] {} exported: '{}', {}x{}.", what, target.string(), picture.Side, picture.Side );
     }
@@ -737,7 +738,7 @@ namespace Desert::Editor
         }
 
         m_Canvas           = made.ExtractValue();
-        m_SourceName       = "a canvas " + std::to_string( m_Canvas.Side ) + " a side";
+        m_SourceName       = std::format( "a canvas {} a side", m_Canvas.Side );
         m_Painting         = false;
         m_Stroke           = Assets::CloudLayoutStroke{};
         m_CanvasImageDirty = true;
@@ -1176,9 +1177,10 @@ namespace Desert::Editor
             if ( slot < layer.SpeciesCount )
             {
                 const LayerContext::SpeciesSlot& species = layer.Species[slot];
-                label                                    = "-> " + species.TypeName +
-                        ( species.BuiltIn ? std::string()
-                                          : " (Cloud Type " + std::to_string( species.AuthoredSlot + 1u ) + ")" );
+                label =
+                     std::format( "-> {}{}", species.TypeName,
+                                  species.BuiltIn ? std::string()
+                                                  : std::format( " (Cloud Type {})", species.AuthoredSlot + 1u ) );
             }
             else
             {
@@ -1188,7 +1190,7 @@ namespace Desert::Editor
             // The visible text is a TYPE NAME and two slots can hold the same words, so the widget's
             // identity is the slot number after `##` rather than the label. Without it two channels
             // mapped to one unfilled slot would be one control wearing two labels.
-            label += "##slot" + std::to_string( slot );
+            label = std::format( "{}##slot{}", label, slot );
 
             // A THIRD OF THE ROW FOR THE COMBO, because the LABEL is the part that carries the answer here
             // and ImGui draws it after the widget. At the default full width the type name ran off the
@@ -1908,9 +1910,9 @@ namespace Desert::Editor
             property.Value[0]   = static_cast<float>( bytes );
             property.Settable   = false;
             property.NotSettableReason =
-                 std::string( "'" ) + name + "' is " + what + " - " + std::to_string( bytes ) +
-                 " bytes of picture. This channel carries at most four numbers, so it cannot express one; "
-                 "the panel imports and exports it as a file.";
+                 std::format( "'{}' is {} - {} bytes of picture. This channel carries at most four numbers, so it "
+                              "cannot express one; the panel imports and exports it as a file.",
+                              name, what, bytes );
             return property;
         };
         properties.push_back( picture( "Pattern", "Pattern (4 species planes)", m_Canvas.Pattern.size(),

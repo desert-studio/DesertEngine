@@ -161,6 +161,8 @@ namespace Desert::Graphic
             {
                 view.SkyTransmittanceLut = textures.Import( sky->GetTransmittanceLut(), "Sky.TransmittanceLut" );
                 view.SkyViewLut          = textures.Import( sky->GetSkyViewLut(), "Sky.SkyViewLut" );
+                if ( sky->SkyPassSamplesLight1Lut() )
+                    view.SkyViewLut1 = textures.Import( sky->GetSkyViewLut1(), "Sky.SkyViewLut1" );
             }
         // THE NEUTRAL RADIANCE CACHE (FrameTransients::RadianceCache*): a zeroed params block (no clipmap, so
         // every read answers "past the coarsest clipmap" and touches neither the indirection nor the probes, which
@@ -688,7 +690,8 @@ namespace Desert::Graphic
                                            const RDG::TextureRef             localShadowMasks,
                                            const System::MegaLightsLighting& megaLights,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const ViewFrame& frame )
+                                           const glm::vec4& lightColor, const ViewFrame& frame,
+                                           const RDG::TextureRef subsurfaceDiffuse )
     {
         // w: what SsrTexture holds (DeferredLighting.shader REFLECTION_INPUT_*): 0 nothing, 1 the screen trace, 2 the
         // traced reflection, which the composite fades into the traced GI's rough specular past
@@ -760,7 +763,11 @@ namespace Desert::Graphic
             // AddFrameRayTracedSunShadow logged why a mask is missing; the sun is then unshadowed (System.White),
             // never shadowed by cascades no pass drew.
             inputs.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : refs.System.White;
-            shadow.Sun           = DeferredScreenShadowMask{ .Mask = inputs.SunShadowMask };
+            // The sun is the mask's; every other shadowed directional light keeps its cascades under it.
+            shadow.Sun = DeferredScreenShadowMask{ .Mask   = inputs.SunShadowMask,
+                                                   .Lights = meshRenderer != nullptr
+                                                                  ? meshRenderer->DirectionalShadows()
+                                                                  : SceneResources::DirectionalShadowViews{} };
             // Shadows Stochastic: MegaLights' local lighting (AddFrameMegaLights logged why one is missing; a view
             // without local lights has none to add): black adds no local light, never the unshadowed grid loop.
             shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
@@ -771,14 +778,16 @@ namespace Desert::Graphic
             inputs.LocalShadowMasks     = localShadowMasks;
         }
         else if ( meshRenderer != nullptr )
-            shadow.Sun = DeferredCascadeShadow{ .CascadeVP            = meshRenderer->GetCascadeViewProj(),
-                                                .Count                = meshRenderer->GetValidCascadeCount(),
-                                                .Enabled              = meshRenderer->AreShadowsEnabled(),
-                                                .CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel(),
-                                                .CascadeDepthRange    = meshRenderer->GetCascadeDepthRange(),
-                                                .SourceTanHalf        = meshRenderer->GetSunSourceTanHalf() };
+            shadow.Sun = DeferredCascadeShadow{ .Lights = meshRenderer->DirectionalShadows() };
         inputs.MegaLightsDiffuse  = megaLights.Diffuse.IsValid() ? megaLights.Diffuse : refs.System.Black;
         inputs.MegaLightsSpecular = megaLights.Specular.IsValid() ? megaLights.Specular : refs.System.Black;
+        // SSS-PROFILE: the split's target, or a 1x1 transient the composite never writes (SubsurfaceSplit off).
+        inputs.SubsurfaceDiffuse =
+             subsurfaceDiffuse.IsValid()
+                  ? subsurfaceDiffuse
+                  : graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 1u, .Height = 1u },
+                                                           .Format = ViewTargetFormats::kSubsurfaceDiffuse },
+                                         "SubsurfaceDiffuse (unsplit)" );
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
         shadow.Contact                       = GetContactShadowSettings( frame, true );
         shadow.Filter                        = GetShadowFilterSettings();
@@ -814,7 +823,8 @@ namespace Desert::Graphic
         const DeferredGIInput compositeGI{ .Mode      = giMode,
                                            .Intensity = gi == GIMethod::ScreenSpace ? m_GIIntensity : 0.0f,
                                            .ScreenSpaceSamples = m_ScreenSpaceGISamples,
-                                           .PreExposure        = frame.PreExposure };
+                                           .PreExposure        = frame.PreExposure,
+                                           .SubsurfaceSplit    = subsurfaceDiffuse.IsValid() };
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
@@ -832,8 +842,14 @@ namespace Desert::Graphic
              "Deferred: Composite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
-                                         static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
+                 // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.
+                 const FrameSun light1 = GetFrameLight1();
+                 deferred->FillMaterial( lightDir, lightColor, light1.Direction, light1.ColorIntensity, cameraPos,
+                                         frame.InvJitteredViewProjection,
+                                         m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure
+                                              ? 0 // a post view mode: the lighting draws Lit
+                                              : static_cast<int>( m_DebugView.DeferredDebug ),
+                                         pointCount, spotCount,
                                          shadow, compositeGI, m_EnableSSAO, cloudShadow, environment,
                                          frame.JitteredViewProjection );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
@@ -841,6 +857,70 @@ namespace Desert::Graphic
              },
              [deferred]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->Record( context ); } );
+    }
+
+    bool SceneRenderer::SubsurfaceRuns() const
+    {
+        if ( !m_SubsurfaceScattering || m_SubsurfaceScale <= 0.0f )
+            return false;
+        // The debug channels return before the split: only the Lit view (and the post view modes drawn Lit).
+        if ( static_cast<int>( m_DebugView.DeferredDebug ) != 0 &&
+             m_DebugView.DeferredDebug != DeferredDebugMode::LocalExposure )
+            return false;
+        const auto it = m_RenderSystems.find( "SubsurfaceSystem" );
+        if ( it == m_RenderSystems.end() )
+            return false;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* const subsurface = static_cast<const System::SubsurfaceRenderer*>( it->second.get() );
+        auto* const       profiles   = Runtime::ResourceRegistry::GetSubsurfaceProfileService();
+        return subsurface->IsReady() && profiles != nullptr && profiles->Registry().Count() > 0u;
+    }
+
+    bool SceneRenderer::SubsurfaceHistoryConverging() const
+    {
+        if ( !SubsurfaceRuns() )
+            return false;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* const subsurface =
+             static_cast<const System::SubsurfaceRenderer*>( m_RenderSystems.at( "SubsurfaceSystem" ).get() );
+        return subsurface->HistoryConverging();
+    }
+
+    void SceneRenderer::AddFrameSubsurface( RDG::Builder& graph, FrameTextures& textures,
+                                            const std::vector<RDG::TextureRef>& gbuffer,
+                                            const RDG::TextureRef subsurfaceDiffuse, const ViewFrame& frame )
+    {
+        if ( gbuffer.size() < 2 )
+            return;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* const subsurface = UNIQUE_GET_AS( System::SubsurfaceRenderer, m_RenderSystems["SubsurfaceSystem"] );
+        const System::SubsurfaceInputs inputs{ .SubsurfaceDiffuse = subsurfaceDiffuse,
+                                               .GBufferA          = gbuffer[0],
+                                               .GBufferB          = gbuffer[1],
+                                               .Depth             = textures.Depth( m_GBuffer, "GBuffer" ) };
+        const System::SubsurfaceSettings settings{ .Scale = m_SubsurfaceScale };
+        const System::SubsurfaceScatter  scatter = subsurface->AddScatter(
+             graph, Runtime::ResourceRegistry::GetSubsurfaceProfileService()->Registry(), inputs, settings, frame,
+             m_TargetFramebuffer->GetFramebufferWidth(), m_TargetFramebuffer->GetFramebufferHeight() );
+        if ( !scatter.Scattered.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] Subsurface: Burley was not added (no atlas rows or no pipeline)" );
+            return;
+        }
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Subsurface: Recombine" );
+        if ( !targets )
+            return;
+        const RDG::ImportedFramebuffer& target = *targets;
+        const std::vector<RDG::LoadOp>  loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
+        graph.AddPass(
+             "Subsurface: Recombine", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 subsurface->DeclareRecombineBindings( pass, inputs, scatter );
+                 DeferredFrameNodes::LoadTarget( pass, target, loads );
+             },
+             [subsurface]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return subsurface->RecordRecombine( context ); } );
     }
 
     bool SceneRenderer::GlobalDistanceFieldRead() const
@@ -1186,7 +1266,16 @@ namespace Desert::Graphic
         payload.Camera            = glm::vec4( frame.CameraPosition, 1.0f );
         const bool hasSun         = !m_DirectionLights.DirectionLights.empty();
         payload.SunTravel         = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
-        payload.SunRadiance       = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
+        // w: the sun's CastShadows (ViewShadowSettings::Enabled), as light 1's below - off, no ray of it is occluded.
+        payload.SunRadiance = glm::vec4( glm::vec3( lightColor ) * lightColor.w, m_SunCastsShadows ? 1.0f : 0.0f );
+        // Atmosphere light 1 (the moon), as the deferred pass shades it (OnUpdate applied its transmittance).
+        if ( m_AtmosphereLight1 )
+        {
+            const ShaderProtocols::DirectionLightPayload& light1 = m_AtmosphereLight1->Light;
+            payload.Light1Travel   = glm::vec4( glm::normalize( glm::vec3( light1.Direction ) ), 1.0f );
+            payload.Light1Radiance = glm::vec4( glm::vec3( light1.ColorIntensity ) * light1.ColorIntensity.w,
+                                                m_AtmosphereLight1->CastShadows ? 1.0f : 0.0f );
+        }
         if ( const auto& env = GetEnvironment(); env.has_value() )
         {
             const SkyLookGPU look = ToGPU( env->Look );
@@ -1206,8 +1295,11 @@ namespace Desert::Graphic
         hash.Value( rt.InstanceHash );
         hash.Values( std::span<const ShaderProtocols::PointLightPayload>( GetPointLights().PointLights ) );
         hash.Values( std::span<const ShaderProtocols::SpotLightPayload>( GetSpotLights().SpotLights ) );
-        // The record's sun, sky look and extent (its camera rows restart through the ViewProjection test as well).
+        // The record's sun, atmosphere light 1, sky look and extent (its camera rows restart through the
+        // ViewProjection test as well), and the two lights' discs, which the trace push carries beside it.
         hash.Value( giFrame );
+        hash.Value( m_SunSourceAngleDegrees );
+        hash.Value( m_AtmosphereLight1 ? m_AtmosphereLight1->SourceAngleDegrees : 0.0f );
         hash.Value( environment );
         for ( const std::string& name : m_ReflectionHitGroups.Templates )
             hash.Bytes( std::as_bytes( std::span<const char>( name.data(), name.size() ) ) );
@@ -1333,11 +1425,19 @@ namespace Desert::Graphic
         inputs.Emissive = emissive.GetValue();
         // The sun's disc (UE: the directional light's SourceAngle is its full angular diameter).
         inputs.SunSinHalfAngle = std::sin( glm::radians( m_SunSourceAngleDegrees ) * 0.5f );
+        // Atmosphere light 1's disc by the same law, from its own light's SourceAngle.
+        inputs.Light1SinHalfAngle =
+             m_AtmosphereLight1 ? std::sin( glm::radians( m_AtmosphereLight1->SourceAngleDegrees ) * 0.5f ) : 0.0f;
         // The angle one pixel subtends at the centre of the view: the camera ray's cone (ray cone LOD).
         inputs.PixelSpread     = std::atan( 2.0f / ( frame.Projection[1][1] * static_cast<float>( extent.y ) ) );
         inputs.SceneHash =
              PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash, cloudShadow );
         inputs.DynamicGeometry = rt.DynamicGeometry;
+        // The upscaler this frame resolves with denoises: the paths go to it raw (System::PathTracer, THE
+        // DENOISER). Asked of the upscaler that was made, so a runtime that refused Ray Reconstruction leaves the
+        // view on the accumulation and the spatial denoiser.
+        inputs.RawToUpscaler = m_PathTracingSettings.Denoise && m_TemporalUpscaler != nullptr &&
+                               m_TemporalUpscaler->TakesRawLightingSignals();
         return pathTracer->AddPasses( graph, sceneColor, frame, inputs, m_PathTracingSettings );
     }
 

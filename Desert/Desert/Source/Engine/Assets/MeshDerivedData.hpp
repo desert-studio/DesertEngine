@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Assets
@@ -34,7 +35,8 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         11; // 11: M23 LOD reduction and MikkTSpace tangent frames together; 10: UV weighs 0.5 in the reduction
+         12; // 12: MeshBinary v6 container (displacement streams); 11: M23 LOD reduction and MikkTSpace
+             // tangent frames together; 10: UV weighs 0.5 in the reduction
              // (chart borders priced, not crossed for free); 7-9 were probes; 6: LODs reduced by meshoptimizer 1.3
              // Permissive + Prune (seams crossed natively, small parts pruned); 5: LODs reduced over position-welded
              // topology; 4: LODs reduced to the ratio with normal/UV attributes, no error cap / MikkTSpace tangent
@@ -55,6 +57,11 @@ namespace Desert::Assets
     // The key of an asset as it stands: its SRCE hash and its IMPT settings with the current builder version.
     uint64_t MeshAssetDerivedDataKey( const MeshSourceAsset& asset );
 
+    // THE SKINNED MESH'S RENDER-DATA KEY (DISPLACE-5): a .skmesh is its own render data (no source envelope, no
+    // deriver), so its key is the hash of its MeshBinary bytes with the header's displacement-mode byte zeroed - the
+    // mode does not change the geometry that the displacement topology (keyed from this) is built from.
+    [[nodiscard]] uint64_t SkinnedMeshRenderDataKey( std::string_view meshBinaryBytes );
+
     // The MeshBinary container bytes of the asset's render data (EncodeMeshBinary's output).
     using MeshPlatformDataBuilder = std::function<Common::ResultStr<std::string>( const MeshSourceAsset& asset )>;
     void SetMeshPlatformDataBuilder( MeshPlatformDataBuilder builder );
@@ -69,6 +76,9 @@ namespace Desert::Assets
     {
         std::string Bytes;
         uint64_t    Key = 0;
+        // The asset's import settings (IMPT): what the loader reads beside the render data - the displacement
+        // mode is not in the render-data key, so it comes from the asset itself.
+        MeshImportSettings Settings;
     };
     Common::ResultStr<MeshPlatformDataBytes> LoadMeshPlatformDataKeyed( const std::filesystem::path& asset );
 

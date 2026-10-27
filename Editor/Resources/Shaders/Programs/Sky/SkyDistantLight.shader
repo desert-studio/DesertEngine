@@ -105,6 +105,16 @@ Shader "SkyDistantLight"
                                                     SKY_DISTANT_LIGHT_ALTITUDE_KM,
                                                     SKY_DISTANT_LIGHT_SAMPLES);
 
+            // Atmosphere light 1 (the moon): the same mean over the same directions, in a frame of its own
+            // (only its zenith angle matters for the same reason as the sun's), added.
+            if (UnpackLight1Present(s))
+            {
+                float light1ZenithCos = clamp(UnpackLight1Direction(s).y, -1.0f, 1.0f);
+                vec3  light1Dir = vec3(sqrt(max(1.0f - light1ZenithCos * light1ZenithCos, 0.0f)), light1ZenithCos, 0.0f);
+                radiance += SkyDistantLightRadiance(atm, direction, light1Dir, UnpackLight1Illuminance(s),
+                                                    SKY_DISTANT_LIGHT_ALTITUDE_KM, SKY_DISTANT_LIGHT_SAMPLES);
+            }
+
             // The art-direction tint that belongs INSIDE every scattering integration (UE's
             // SkyAndAerialPerspectiveLuminanceFactor): the ambient a fog receives has to be the ambient
             // of the sky that is on screen, tint and all.

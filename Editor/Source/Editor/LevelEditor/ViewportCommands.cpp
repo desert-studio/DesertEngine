@@ -7,6 +7,7 @@
 #include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
 
 #include <cstdio>
+#include <iterator>
 #include <string>
 
 namespace Desert::Editor
@@ -146,52 +147,50 @@ namespace Desert::Editor
                                   EditorPreferences::Save();
                                   return PaletteCommandDone();
                               } } );
-        // The Global Distance Field view under a name, for the same reason: a frame of the field the GPU holds is
-        // its only check that the geometry is recognisable, and that frame has to be taken over the channel.
-        commands.push_back( { "View", "View mode: Global Distance Field", []
-                              {
-                                  auto& view = EditorPreferences::Get().DebugView;
-                                  view.ClearViewMode();
-                                  view.DeferredDebug = Graphic::DeferredDebugMode::GlobalDistanceField;
-                                  EditorPreferences::Save();
-                                  return PaletteCommandDone();
-                              } } );
-        // The surface cache's three views under names: the frames that show the cards captured and the scene they
-        // rebuild are taken over the channel.
-        commands.push_back( { "View", "View mode: Surface Cache Atlas", []
-                              {
-                                  auto& view = EditorPreferences::Get().DebugView;
-                                  view.ClearViewMode();
-                                  view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheAtlas;
-                                  EditorPreferences::Save();
-                                  return PaletteCommandDone();
-                              } } );
-        commands.push_back( { "View", "View mode: Lumen Scene (Cards)", []
-                              {
-                                  auto& view = EditorPreferences::Get().DebugView;
-                                  view.ClearViewMode();
-                                  view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheScene;
-                                  EditorPreferences::Save();
-                                  return PaletteCommandDone();
-                              } } );
-        commands.push_back( { "View", "View mode: Lumen Scene (Lit)", []
-                              {
-                                  auto& view = EditorPreferences::Get().DebugView;
-                                  view.ClearViewMode();
-                                  view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheSceneLit;
-                                  EditorPreferences::Save();
-                                  return PaletteCommandDone();
-                              } } );
-        // The traced reflections alone under a name: the proof that a mirror shows what is behind the camera
-        // under SoftwareTraced / HardwareTraced is a frame taken over the channel.
-        commands.push_back( { "View", "View mode: Reflections", []
-                              {
-                                  auto& view = EditorPreferences::Get().DebugView;
-                                  view.ClearViewMode();
-                                  view.DeferredDebug = Graphic::DeferredDebugMode::Reflections;
-                                  EditorPreferences::Save();
-                                  return PaletteCommandDone();
-                              } } );
+        // EVERY BUFFER VIEW UNDER A NAME - UE's `viewmode <name>` / r.Lumen.Visualize from the console: a frame of a
+        // debug view is the proof of the pass behind it, and a view reachable only through the toolbar combo
+        // cannot be photographed over the channel (a scenario on an external project had no way to see the
+        // indirect light alone). One row per DeferredDebugMode, so a new mode is a new row here; the labels of the
+        // modes that were reachable before keep their exact text (committed scenarios address them).
+        constexpr struct
+        {
+            const char*                 Label;
+            Graphic::DeferredDebugMode Mode;
+        } kBufferViews[] = {
+            { "View mode: Albedo", Graphic::DeferredDebugMode::Albedo },
+            { "View mode: World Normal", Graphic::DeferredDebugMode::Normal },
+            { "View mode: Metallic", Graphic::DeferredDebugMode::Metallic },
+            { "View mode: Roughness", Graphic::DeferredDebugMode::Roughness },
+            { "View mode: Ambient Occlusion", Graphic::DeferredDebugMode::AO },
+            { "View mode: Indirect Lighting (GI)", Graphic::DeferredDebugMode::GI },
+            { "View mode: Light Complexity", Graphic::DeferredDebugMode::LightComplexity },
+            { "View mode: Overdraw", Graphic::DeferredDebugMode::Overdraw },
+            { "View mode: Material Complexity", Graphic::DeferredDebugMode::MaterialComplexity },
+            { "View mode: Shading Model", Graphic::DeferredDebugMode::ShadingModel },
+            { "View mode: Sun Shadow Receive", Graphic::DeferredDebugMode::SunShadowReceive },
+            { "View mode: Velocity", Graphic::DeferredDebugMode::Velocity },
+            { "View mode: Light Grid (World)", Graphic::DeferredDebugMode::LightGridWorld },
+            { "View mode: Global Distance Field", Graphic::DeferredDebugMode::GlobalDistanceField },
+            { "View mode: Surface Cache Atlas", Graphic::DeferredDebugMode::SurfaceCacheAtlas },
+            { "View mode: Lumen Scene (Cards)", Graphic::DeferredDebugMode::SurfaceCacheScene },
+            { "View mode: Lumen Scene (Lit)", Graphic::DeferredDebugMode::SurfaceCacheSceneLit },
+            { "View mode: Reflections", Graphic::DeferredDebugMode::Reflections },
+            { "View mode: Local Exposure", Graphic::DeferredDebugMode::LocalExposure },
+        };
+        static_assert( std::size( kBufferViews ) == static_cast<size_t>( Graphic::DeferredDebugMode::LocalExposure ),
+                       "a DeferredDebugMode without a View mode command cannot be photographed over the channel" );
+        for ( const auto& row : kBufferViews )
+        {
+            const Graphic::DeferredDebugMode mode = row.Mode;
+            commands.push_back( { "View", row.Label, [mode]
+                                  {
+                                      auto& view = EditorPreferences::Get().DebugView;
+                                      view.ClearViewMode();
+                                      view.DeferredDebug = mode;
+                                      EditorPreferences::Save();
+                                      return PaletteCommandDone();
+                                  } } );
+        }
         // Lit and Wireframe under names (the dropdown's first two entries): the CubeGrid seam check is "no
         // interior faces", which only a wireframe frame shows, and a mode reachable only by the toolbar
         // combo could not be photographed over the channel. Same channel reset as the dropdown

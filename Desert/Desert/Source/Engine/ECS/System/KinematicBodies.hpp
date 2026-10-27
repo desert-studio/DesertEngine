@@ -7,7 +7,7 @@
 // Kept out of PhysicsECSSystem.hpp so a suite can drive it with a bare registry and a real PhysicsWorld — that
 // header includes Scene, and Scene includes the renderer.
 
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <entt/entt.hpp>
 #include <glm/glm.hpp>

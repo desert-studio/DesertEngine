@@ -429,6 +429,52 @@ namespace Desert::Migration
     //       records are a scene's, so it states the same three tags.
     inline constexpr int kWorldPartitionVersionTagged = 1;
 
+    // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
+    // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
+    //
+    //   1 - STATIC MESHES AND MATERIALS BY {Guid, Path} (STATICMESH-FORMAT). The Static Mesh block's MeshGuid +
+    //       MeshPath become its reflected `MeshHandle` {Guid, Path} and MaterialGuids + MaterialPaths its
+    //       `MaterialSlots` [{Guid, Path}] (the GUIDs the file already states); every reflected material field
+    //       stated as a bare key (LandscapeMaterial.Material, VolumetricCloud.Material,
+    //       Destructible.InteriorMaterial, UIPanel.Material) becomes {Guid, Path}, the GUID read from the
+    //       `.demat` header. Records and prefab overrides alike. MigrateReflectedAssetRefsV0ToV1.
+    inline constexpr int kAssetRefVersionReflected = 1;
+
+    static_assert( kAssetRefVersionReflected == Core::kAssetRefVersion,
+                   "the last asset-reference step and the engine's required asset-reference version must be the "
+                   "same generation - raise Core::kAssetRefVersion in Engine/Core/Serialize/SceneFormat.hpp" );
+
+    // THE LIGHT COMPONENTS' OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a file states under
+    // Assets::kLightSchemaTag and run after the asset-reference chain.
+    //
+    //   1 - A DIRECTIONAL LIGHT IS AIMED BY ITS ROTATION (PORT-SUN-ROTATION), as in UE: the light travels along
+    //       the entity's world forward axis (-Z) and its Translation is only where it sits. Every record with a
+    //       DirectionLight block whose Translation is a direction (longer than 1e-4, the old engine's gate) gets
+    //       the Rotation that aims its world forward axis along normalize(Translation) - the parents' stated
+    //       Rotations divided out - and a zero Translation, so no direction is stored twice. A light whose
+    //       Translation was no direction emitted nothing before; it keeps its Rotation and is counted. A prefab
+    //       override that states a Translation beside a DirectionLight block is converted the same way, its
+    //       parent rotation unknown here and taken as identity, and counted (MigrateLightRotationV0ToV1).
+    //       Scenes and prefabs alike.
+    inline constexpr int kLightVersionRotation = 1;
+
+    static_assert( kLightVersionRotation == Core::kLightVersion,
+                   "the last light step and the engine's required light version must be the same generation - "
+                   "raise Core::kLightVersion in Engine/Core/Serialize/SceneFormat.hpp" );
+
+    // What MigrateReflectedAssetRefsV0ToV1 did to one file.
+    struct ReflectedAssetRefsReport
+    {
+        std::size_t              MeshBlocks     = 0; // Static Mesh blocks (records and overrides) restated
+        std::size_t              MaterialFields = 0; // bare material keys restated as {Guid, Path}
+        std::vector<std::string> Refused;            // a material file with no header GUID, or a wrong shape
+    };
+
+    // Restates the reflected static-mesh and material references as {Guid, Path} (kAssetRefVersionReflected).
+    // `assetsRoot` locates the `.demat` an "assets:" key names. Reads files; writes none.
+    ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
+                                                              const std::filesystem::path&     assetsRoot );
+
     static_assert(
          kWorldPartitionVersionTagged == Core::kWorldPartitionVersion,
          "the last World Partition step and the engine's required World Partition version must be the "
@@ -771,6 +817,18 @@ namespace Desert::Migration
     // prefab override. PURE.
     DisplayTransferReport MigrateDisplayTransferV64ToV65( std::vector<Assets::EntityData>& entities );
 
+    // What MigrateLightRotationV0ToV1 did to one file.
+    struct SunRotationReport
+    {
+        std::size_t Aimed      = 0; // records whose Translation became their Rotation
+        std::size_t Overrides  = 0; // prefab overrides converted with an identity parent rotation
+        std::size_t Undirected = 0; // lights whose Translation was no direction; Rotation kept as stated
+    };
+
+    // Moves every directional light's direction from its Translation into its Rotation, under the rule
+    // kLightVersionRotation states. PURE.
+    SunRotationReport MigrateLightRotationV0ToV1( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
@@ -894,6 +952,22 @@ namespace Desert::Migration
     // ANGR 2, or whose body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateAnimGraphV2ToV3( const std::string& text );
 
+    // The current VFXS text of a VFXS 1 .. 4 `.dfx`: one step per generation, each on the UNTYPED body (no step
+    // reads a typed struct of a later layout), then the engine's reader, validator and writer (current header,
+    // GUID kept, Dependencies stamped from the stacks).
+    //   1 -> 2 (VFX-09): a Ribbon row gets the default ribbon settings, no row a Material; a v1 Mesh row (no mesh)
+    //          or a v1 row stating a VFXS 2 key is an error naming the emitter.
+    //   2 -> 3 (VFX-11): the system names the project's `Default` effect type (the caller creates the project's
+    //          VFX/Default.dfxtype from DefaultVFXEffectTypeForV3 when it has none).
+    //   3 -> 4 (VFX-MODULE-ASSET): every stack row's `engine:<Name>` becomes {Guid, Path} of <Name>.dfxmod in the
+    //          engine module library (the frozen kEngineVFXModulesV3); LocalModules goes (a non-empty list is an
+    //          error - a local module becomes a project .dfxmod by hand).
+    //   4 -> 5 (VFX-PORT-2): the system's fixed Bounds move into every emitter (VFXEmitterData::Bounds, UE
+    //          UNiagaraEmitter::FixedBounds); a system without Bounds or an emitter already stating them is an error.
+    // A file that states no VFXS, or the current one or later, is an error naming what it states. PURE - no
+    // filesystem access.
+    Common::ResultStr<std::string> MigrateVFXSystem( const std::string& text );
+
     // ANIM-SKELREF: one .skeleton as the TargetSkeleton step matches it - header GUID, path relative to its
     // `Assets` root (ReadSkeletonCandidate's form) and every bone name.
     struct TargetSkeletonRig
@@ -936,6 +1010,12 @@ namespace Desert::Migration
     Common::ResultStr<std::string>
     MigrateMeshBinaryToV5( std::string_view path, std::string_view bytes,
                            std::span<const Animation::SkeletonCandidate> skeletons );
+
+    // MeshBinary 5 -> 6 (DISPLACE-5): v6 gives the skinned mesh's displacement mode the header byte at 72 that v5
+    // wrote as zero, and zero is MeshDisplacementMode::None - so the raise is the version field alone. A v5 file
+    // whose byte 72 is not zero is refused by name (no writer produced one). The result is judged by the engine's
+    // DecodeMeshBinary and re-stated by EncodeMeshBinary. PURE.
+    Common::ResultStr<std::string> MigrateMeshBinaryV5ToV6( std::string_view path, std::string_view bytes );
 
     // MSAS SRCE 2 -> 3 (a `.stmesh` / `.skmesh` mesh source asset): the skin's bone signature (U64) becomes its
     // skeleton's GUID (Hi, Lo; same rule as above) and the header's dependencies gain it after the materials; a
@@ -993,13 +1073,9 @@ namespace Desert::Migration
     // naming it. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateMaterialV5ToV6( const std::string& text );
 
-    // The VFXS 3 text of a v1 or v2 `.dfx`. 1 -> 2 (VFX-09): every v1 value kept, a Ribbon row given the default
-    // ribbon settings (one ribbon per emitter, 10 cm wide, U stretched), no row a Material (v1 drew the engine's
-    // particle material); a v1 Mesh row names no mesh, so it is an error naming the emitter. 2 -> 3 (VFX-11): the
-    // system names the project's `Default` effect type (UE UNiagaraSettings::DefaultEffectType; the project's
-    // VFX/Default.dfxtype must exist for it to play). The header's GUID kept and its Dependencies stamped; a file
-    // that states neither VFXS 1 nor 2 is an error naming what it states. PURE - no filesystem access.
-    Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text );
+    // The v7 text of a v6 `.demat` (SSS-PROFILE): every value kept, the tag raised - the SubsurfaceProfile
+    // reference is additive. A file that does not state MATL 6 is an error naming what it states. PURE.
+    Common::ResultStr<std::string> MigrateMaterialV6ToV7( const std::string& text );
 
     // The `Default` effect type the 2 -> 3 step names (VFX-11): the global distance ladder VFXS 2 culled by
     // (the removed Effects.MaxDistance row, Low .. Cinematic 5000 / 10000 / 20000 / 50000 / 0 cm) with no spawn
@@ -1097,6 +1173,14 @@ namespace Desert::Migration
         // World Partition's chain (keyed by the WPAR number the file states, not the scene number).
         int         StatedWorldPartitionVersion = 0; // what the file stated under kWorldPartitionSchemaTag
         bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
+        // The asset-reference chain (keyed by the AREF number the file states).
+        int                      StatedAssetRefVersion = 0;
+        bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
+        ReflectedAssetRefsReport ReflectedAssetRefs;
+        // The light chain (keyed by the LGHT number the file states).
+        int               StatedLightVersion = 0;
+        bool              SunRotationRaised  = false; // below kLightVersionRotation
+        SunRotationReport SunRotation;
         std::size_t RootSiblingIndexDropped = 0;     // root records that lost their siblingIndex
 
         bool                      AssetKeysRaised = false; // below kSceneVersionAssetKeys
@@ -1145,7 +1229,8 @@ namespace Desert::Migration
                    RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
-                   RootSiblingIndexRaised || WorldPartitionTagRaised;
+                   RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
+                   SunRotationRaised;
         }
     };
 

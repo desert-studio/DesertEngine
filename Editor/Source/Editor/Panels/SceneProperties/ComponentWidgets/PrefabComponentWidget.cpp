@@ -11,6 +11,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <filesystem>
+#include <format>
 
 namespace Desert::Editor
 {
@@ -43,7 +44,7 @@ namespace Desert::Editor
             }
             else
             {
-                displayName = "Missing (" + std::to_string( prefab.Prefab ) + ")";
+                displayName = std::format( "Missing ({})", static_cast<uint64_t>( prefab.Prefab ) );
             }
         }
 

@@ -95,6 +95,16 @@ namespace
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleLightReadbackShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DrawLayout );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Readback );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct ParticleShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
@@ -167,6 +177,7 @@ namespace Desert::Graphic::System
         for ( const auto& [name, into] : { std::pair{ "ParticleCompact", &m_CompactPipeline },
                                            std::pair{ "ParticleDispatchArgs", &m_ArgsPipeline },
                                            std::pair{ "ParticleDebugReadback", &m_DebugPipeline },
+                                           std::pair{ "ParticleLightReadback", &m_LightPipeline },
                                            std::pair{ "ParticleSort", &m_SortPipeline },
                                            std::pair{ "ParticleMeshInstances", &m_MeshPipeline } } )
         {
@@ -192,6 +203,7 @@ namespace Desert::Graphic::System
     void ParticleRenderer::OnSceneReplaced()
     {
         m_ViewEmitters.clear();
+        m_ViewCulls.clear();
         m_World     = nullptr;
         m_Simulates = false;
         std::size_t rows = 0;
@@ -209,6 +221,8 @@ namespace Desert::Graphic::System
         for ( const ViewEmitter& emitter : m_ViewEmitters )
             for ( const ViewDraw& draw : emitter.Draws )
             {
+                if ( !emitter.InView )
+                    continue;
                 if ( draw.Sprite == nullptr || !draw.Sprite->Pipeline )
                     continue;
                 const auto& shader = draw.Sprite->Pipeline->GetSpecification().Shader;
@@ -221,22 +235,35 @@ namespace Desert::Graphic::System
     void ParticleRenderer::PrepareFrame( const ::Desert::Core::Scene& scene )
     {
         m_ViewEmitters.clear();
+        m_ViewCulls.clear();
 
         ParticleWorldGpu& world = ParticleWorldGpu::Of( scene.GetVFXWorld() );
         m_World                 = &world;
         m_Simulates             = world.PrepareTick( scene );
         if ( m_Simulates )
+        {
             world.ReadDebugReadbacks(); // VFX-16: before this frame's node writes the copy it reads
+            world.ReadLightReadbacks(); // VFX-LIGHT: the same, for the Light rows' copies
+        }
 
         // This view's materials follow the scene's emitters: a destroyed emitter's goes through the allocator's
         // deletion ring with it, so the frame still reading it finishes first.
         RetireDestroyedEmitters( m_Materials, scene.GetRegistry() );
         m_ViewEmitters.reserve( world.FrameEmitters().size() );
+        m_ViewCulls.reserve( world.FrameEmitters().size() );
+        // UE's fixed-bounds view cull: an emitter whose box misses this view's frustum draws nothing in it. Its
+        // simulation runs regardless (the simulating view dispatches every declared emitter), and its Mesh rows
+        // still reach the mesh renderer, whose cascades cull them by their own frustum (AddMeshInstances).
+        const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        const std::optional<Core::Frustum> frustum =
+             camera != nullptr ? std::optional<Core::Frustum>( camera->GetFrustum() ) : std::nullopt;
         for ( const ParticleFrameEmitter& fe : world.FrameEmitters() )
         {
             EmitterMaterials& materials = m_Materials[fe.EntityId];
             ViewEmitter       ve;
-            ve.Frame = &fe;
+            ve.Frame  = &fe;
+            ve.InView = frustum && frustum->Intersects( fe.WorldBounds );
+            m_ViewCulls.push_back( { fe.EntityId, fe.Emitter, !ve.InView } );
             // One draw per enabled renderer row, in `.dfx` order (UE: every renderer of the emitter draws), each
             // with its own material instance keyed by (emitter, row).
             ve.Draws.reserve( fe.Renderers.size() );
@@ -435,6 +462,7 @@ namespace Desert::Graphic::System
             ve.Declared = false;
             ve.Sorted   = false;
             ve.Debugged = false;
+            ve.Lit      = false;
             ve.Ribboned = false;
         }
         if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Slots )
@@ -518,6 +546,19 @@ namespace Desert::Graphic::System
                     else
                         LOG_ERROR( "[Particles] emitter {} has no debug readback this frame: {}", i, debug.GetError() );
                 }
+                if ( gpu.LightReadback && ve.Frame->Light != nullptr )
+                {
+                    const Common::BoolResultStr light =
+                         Renderer::ImportBuffer( gpu.LightReadback, ve.LightImport );
+                    if ( light )
+                    {
+                        ve.LightRef =
+                             graph.RegisterExternal( ve.LightImport, std::format( "ParticleLightReadback{}", i ) );
+                        ve.Lit = true;
+                    }
+                    else
+                        LOG_ERROR( "[Particles] emitter {} casts no light this frame: {}", i, light.GetError() );
+                }
             }
             ve.CountersRef = graph.RegisterExternal( ve.CountersImport, std::format( "ParticleCounters{}", i ) );
             ve.FloatsRef   = graph.RegisterExternal( ve.FloatsImport, std::format( "VFXAttributeFloats{}", i ) );
@@ -562,6 +603,66 @@ namespace Desert::Graphic::System
                 return dispatched;
         }
         return BOOLSUCCESS;
+    }
+
+    bool ParticleRenderer::RunsLight( const ViewEmitter& ve ) const
+    {
+        return m_Simulates && ve.Declared && ve.Lit && ve.Frame->Light != nullptr && m_LightPipeline != nullptr;
+    }
+
+    bool ParticleRenderer::LightReadbackRequested() const
+    {
+        if ( !m_Simulates || m_LightPipeline == nullptr || m_World == nullptr )
+            return false;
+        return std::ranges::any_of( m_ViewEmitters, [this]( const ViewEmitter& ve ) { return RunsLight( ve ); } );
+    }
+
+    Common::BoolResultStr ParticleRenderer::LightReadback( const RDG::PassContext& context )
+    {
+        uint32_t block = 0;
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsLight( ve ) )
+                continue;
+            const ParticleEmitterGpu& gpu = *ve.Frame->Gpu;
+            const uint32_t half = ve.Frame->StepCount & 1u; // the slot / alive half the last compact filled
+            const uint32_t lights =
+                 std::min( ve.Frame->Light->MaxLights, Assets::Serialization::kVFXLightMaxPerEmitter );
+            const ParticleLightPush push{ glm::uvec4( half, lights, m_World->LightSerial(), 0u ),
+                                          glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, 0u, 0u, 0u ) };
+            RDG::PassBindings       bindings( context, context.GetBindingBlock( block++ ) );
+            bindings.PushConstants( &push, sizeof( push ) );
+            const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
+                 bindings, *m_LightPipeline,
+                 std::max( 1u, ( lights + kParticleLocalSize - 1 ) / kParticleLocalSize ), 1, 1 );
+            if ( !dispatched )
+                return dispatched;
+        }
+        return BOOLSUCCESS;
+    }
+
+    void ParticleRenderer::DeclareLightReadbackBindings( RDG::PassBuilder& pass ) const
+    {
+        if ( !m_LightPipeline )
+            return; // LightReadback dispatches nothing either
+        const auto& layout = m_LightLayout.Get( m_LightPipeline->GetSpecification().Shader );
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsLight( ve ) )
+                continue; // LightReadback skips it the same way
+            pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_LightPipeline ) )
+                 .Storage( ParticleLightReadbackShaderParameters::AttributeFloats, ve.FloatsRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleLightReadbackShaderParameters::AliveList, m_Pool.AliveRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleLightReadbackShaderParameters::Counters, ve.CountersRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleLightReadbackShaderParameters::DrawLayout, ve.DrawLayoutRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleLightReadbackShaderParameters::Readback, ve.LightRef,
+                           RDG::Access::StorageWrite )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleLightPush ) ) );
+        }
     }
 
     void ParticleRenderer::DeclareDebugReadbackBindings( RDG::PassBuilder& pass ) const
@@ -666,7 +767,7 @@ namespace Desert::Graphic::System
 
     bool ParticleRenderer::IsDrawn( const ViewEmitter& ve )
     {
-        return ve.Declared && !ve.Draws.empty();
+        return ve.Declared && ve.InView && !ve.Draws.empty();
     }
 
     ParticleRenderer::SpriteDraw* ParticleRenderer::SpriteDrawFor( const std::string& cellShader )
@@ -1190,7 +1291,7 @@ namespace Desert::Graphic::System
                      } );
 
                 // Each material section drawn by the GBuffer and the cascades through its Instanced cell; the
-                // view-variant keys sit above the grass's (Key * 64 + section, kept below 2^31 / kMaxCascades).
+                // view-variant keys sit above the grass's (Key * 64 + section, kept below 2^31 / kCascadeViews).
                 for ( uint32_t s = 0; s < static_cast<uint32_t>( state.Sections.size() ); ++s )
                     meshes.SubmitGpuInstanced( { .Mesh               = state.Mesh,
                                                  .Path               = MeshVertexPath::Instanced,
@@ -1200,7 +1301,8 @@ namespace Desert::Graphic::System
                                                  .Instances          = state.Instances,
                                                  .Refs               = &state.Refs,
                                                  .Key                = 0x08000000u + state.Key * 64u + s,
-                                                 .PrevInstanceOffset = state.Capacity } );
+                                                 .PrevInstanceOffset = state.Capacity,
+                                                 .WorldBounds        = ve.Frame->WorldBounds } );
             }
         }
     }

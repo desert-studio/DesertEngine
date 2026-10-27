@@ -4,6 +4,7 @@
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/ECS/VFXPointSet.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 #include <Engine/VFX/VFXWorld.hpp>
 #include <Engine/VFX/VFXStackCompiler.hpp>
@@ -31,9 +32,12 @@ namespace Desert::Graphic::System
     // ParticleSimulate.shader's PushConstants, field for field.
     struct ParticleSimPush
     {
-        glm::vec4  EmitterPos; // xyz world pos (cm), w the fixed step length (seconds)
-        glm::uvec4 Counts;     // range count, step index into the step table, range pool base, local-space
-        glm::uvec4 Stack;      // x = the world's serial of this tick's step 0, yzw 0
+        // The entity's full transform (cm; UE Engine.Owner.SystemLocalToWorld): a World emitter's newborns are
+        // placed through it, a Local emitter's Spawn-from-Channel positions come back through its inverse.
+        glm::mat4  LocalToWorld = glm::mat4( 1.0f );
+        glm::vec4  Step;   // x = the fixed step length (seconds), yzw 0
+        glm::uvec4 Counts; // range count, step index into the step table, range pool base, local-space
+        glm::uvec4 Stack;  // x = the world's serial of this tick's step 0, yzw 0
     };
 
     // ParticleCompact's push constant: x = pool base, y = particle count, z = the slot filled, w = flags
@@ -67,6 +71,18 @@ namespace Desert::Graphic::System
     };
     constexpr uint32_t kParticleDebugHeaderUints = 4u;
     constexpr uint32_t kParticleDebugMaxRows     = 64u;
+
+    // VFX-LIGHT (UE Niagara Light Renderer): ParticleLightReadback's push constant and its readback's shape - 4
+    // header uints (lights written, frame serial, 0, 0), then per light 8 floats: world position (cm), the larger
+    // SpriteSize axis (cm), Color rgba. The CPU reads the copy FramesInFlight frames later (no stall) and turns
+    // each row into a point light with the emitter's Light row (ParticleWorldGpu::ReadLightReadbacks).
+    struct ParticleLightPush
+    {
+        glm::uvec4 Page;       // x = the last compact's slot, y = lights wanted, z = serial (never 0), w = 0
+        glm::uvec4 AliveRange; // x = the drawn alive half's offset in AliveList, yzw = 0
+    };
+    constexpr uint32_t kParticleLightHeaderUints = 4u;
+    constexpr uint32_t kParticleLightRowFloats   = 8u;
 
     // What an editor debugger asks of the scene's particles: nothing runs while Enabled is false. The attribute
     // table is the page [FirstRow, FirstRow + kParticleDebugMaxRows) of the alive list of emitter Emitter of
@@ -144,7 +160,9 @@ namespace Desert::Graphic::System
         glm::uvec4 Range      = glm::uvec4( 0u ); // x = range count (column stride), y = pool base, z = 1 local
         glm::uvec4 Columns0   = glm::uvec4( kParticleAttrNone ); // Position, SpriteSize, Color, SpriteRotation
         glm::uvec4 Columns1   = glm::uvec4( kParticleAttrNone ); // Age, Lifetime, RibbonWidth, RibbonLinkOrder
-        glm::vec4  EmitterPos = glm::vec4( 0.0f );               // xyz = emitter world position (cm)
+        // The entity's full transform (cm): a Local emitter's particles are drawn through it (UE: a local-space
+        // emitter's LocalToWorld in the sprite / mesh vertex factory).
+        glm::mat4 LocalToWorld = glm::mat4( 1.0f );
         // x = the Ribbon row's RibbonIdBinding attribute (an Int; none = one ribbon), y = Scale, z =
         // MeshOrientation.
         glm::uvec4 Columns2 = glm::uvec4( kParticleAttrNone );
@@ -184,7 +202,8 @@ namespace Desert::Graphic::System
         // The ParamRow of each PointSet.* binding (row, set name): (first, count) of the placement's set in
         // PointSetData (ApplyPointSets).
         std::vector<std::pair<uint32_t, std::string>> PointSetRows;
-        // The PointSets buffer's contents: xyz = point turned by the placement's transform (cm), w = the set's
+        // The PointSets buffer's contents: xyz = the painted point in the placement frame (cm; the simulation's
+        // LocalToWorld places it like every other shape offset), w = the set's
         // cumulative weight through it, normalised to 1 (the weighted pick's search key). Never empty.
         std::vector<glm::vec4>                          PointSetData;
         std::vector<float>                              CurveFloats;
@@ -206,6 +225,10 @@ namespace Desert::Graphic::System
         std::string                                     DebugName;
         uint32_t                                        DebugEntity  = 0;
         uint32_t                                        DebugEmitter = 0;
+
+        // VFX-LIGHT: the Light row's per-frame-in-flight readback (made on the first tick with an enabled Light
+        // row, kept while the emitter lives).
+        std::shared_ptr<ShaderResources::StorageBuffer> LightReadback;
     };
 
     // One enabled renderer row of an emitter this tick (UE: the FNiagaraRenderer made per
@@ -234,7 +257,12 @@ namespace Desert::Graphic::System
         // The emitter's enabled renderer rows in `.dfx` order (VFXS 2); none = the emitter simulates and draws
         // nothing (UE: an emitter without renderers).
         std::vector<ParticleFrameRenderer> Renderers;
+        // VFX-LIGHT: the emitter's first enabled Light row (null = it casts no light); the system's data holds it.
+        const Assets::Serialization::VFXLightRendererData* Light = nullptr;
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
+        // VFX-PORT-2: the emitter's fixed Bounds through this tick's placement transform (VFXBoundsAt), cm: what every view and
+        // shadow view culls the emitter's draws by (ParticleRenderer).
+        Common::Math::AABB WorldBounds;
     };
 
     // The pool's buffers: the slots (id + alive flag per particle, Common/ParticleState.glslh), the free list (one
@@ -259,9 +287,8 @@ namespace Desert::Graphic::System
         std::vector<ParticleEmitterGpu>                             Emitters;
         // The VFXComponent overrides the emitters' User rows were last filled from (UE OverrideParameters).
         std::vector<ECS::VFXUserOverride> Overrides;
-        // The point sets and the transform the emitters' PointSet rows were last filled from (VFX-15).
+        // The point sets the emitters' PointSet rows were last filled from (VFX-15).
         std::vector<ECS::VFXPointSet> PointSets;
-        glm::mat3                     PointSetBasis = glm::mat3( 0.0f );
     };
 
     class ParticleWorldGpu final : public VFX::WorldGpuState
@@ -312,6 +339,20 @@ namespace Desert::Graphic::System
         }
         void ReadDebugReadbacks();
 
+        // VFX-LIGHT (UE Niagara Light Renderer): the simulating view reads every Light row's readback right after
+        // PrepareTick (before this frame's "Particles: Light Readback" writes the copy it reads) into the scene's
+        // particle lights, which EVERY view of the scene adds to its local lights (SceneRenderer, after
+        // ParticleRenderer::PrepareFrame). A tick that does not simulate keeps the last lights.
+        void                                                                 ReadLightReadbacks();
+        [[nodiscard]] const std::vector<ShaderProtocols::PointLightPayload>& ParticleLights() const
+        {
+            return m_Lights;
+        }
+        [[nodiscard]] uint32_t LightSerial() const
+        {
+            return m_LightSerial;
+        }
+
         // Counts are read back while the panel's request is enabled or the world's debugger shows the viewport
         // overview (VFXDebugSettings::Overview, taken at PrepareTick); the attribute table only for the request.
         [[nodiscard]] bool DebugReading() const
@@ -326,7 +367,7 @@ namespace Desert::Graphic::System
         // Uploads emitter @p emitter's tick into @p gpu and adds its frame emitter; false = it sits out this tick.
         bool PrepareEmitter( ParticleEmitterGpu& gpu, const VFX::EmitterInstance& emitter,
                              const Assets::Serialization::VFXEmitterData& data, const ParticlePoolRange& range,
-                             uint32_t entityId, uint32_t emitterIndex, const glm::vec3& worldPos,
+                             uint32_t entityId, uint32_t emitterIndex, const glm::mat4& localToWorld,
                              float stepSeconds );
         // Makes @p gpu's per-tick buffers (step table, counters, dispatch args, channel spawns); false = it sits
         // out.
@@ -338,10 +379,10 @@ namespace Desert::Graphic::System
         static void ApplyUserOverrides( ParticleSystemGpu& system, const std::vector<ECS::VFXUserOverride>& overrides,
                                         uint32_t entityId );
         // Fills every emitter's PointSetData (and its PointSet rows' first/count) from the placement's @p sets,
-        // each point turned by @p basis (the placement's rotation and scale; the emitter position adds the
-        // translation); a buffer too small for the points is made anew.
+        // each point as painted, in the placement frame (the simulation's LocalToWorld places it); a buffer too
+        // small for the points is made anew.
         static void ApplyPointSets( ParticleSystemGpu& system, const std::vector<ECS::VFXPointSet>& sets,
-                                    const glm::mat3& basis, uint32_t entityId );
+                                    uint32_t entityId );
         // The host program for one compiled stack, by its key (null = refused, said once).
         std::shared_ptr<ComputePipeline> ProgramFor( uint64_t key, const std::string& name,
                                                      const std::string& hostSource );
@@ -355,6 +396,8 @@ namespace Desert::Graphic::System
         ParticleDebugRequest                                           m_DebugRequest;
         std::vector<ParticleEmitterDebug>                              m_Debug;
         uint32_t                                                       m_DebugSerial = 0;
+        std::vector<ShaderProtocols::PointLightPayload>                m_Lights;
+        uint32_t                                                       m_LightSerial = 0;
         bool                                                           m_DebugCounts = false;
     };
 } // namespace Desert::Graphic::System

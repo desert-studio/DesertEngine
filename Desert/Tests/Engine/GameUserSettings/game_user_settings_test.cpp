@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include <Engine/Audio/AudioMix.hpp>
+#include <Audio/AudioMix.hpp>
 #include <Engine/Core/FramePacer.hpp>
 #include <Engine/Core/Window.hpp>
 #include <Engine/Localization/LocalizationService.hpp>

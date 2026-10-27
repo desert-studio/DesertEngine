@@ -1,9 +1,9 @@
 #pragma once
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/IPanel.hpp>
 
-#include <Engine/Physics/PhysicsAssetFormat.hpp>
+#include <PhysicsCore/PhysicsAssetFormat.hpp>
 
 #include <memory>
 #include <optional>

@@ -17,7 +17,7 @@
 //
 // ── WHAT IS BATCHED ──────────────────────────────────────────────────────────────────────────────
 //
-//   * A StaticMesh block naming a mesh asset (MeshGuid/MeshPath) or a Primitive: one instance at the
+//   * A StaticMesh block naming a mesh asset (MeshHandle {Guid, Path}) or a Primitive: one instance at the
 //     record's WORLD matrix (Detail::ComposeWorld, the loader's own composition).
 //   * An InstancedStaticMesh block: each of its instances, whose matrices are WORLD already
 //     (Detail::AppendInstancePoints states why).
@@ -70,6 +70,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <format>
 #include <functional>
 #include <map>
 #include <optional>
@@ -274,13 +275,27 @@ namespace Desert::Core::Rules
                     hlod.NotInstanced.push_back( { index, HLODExclusion::EditorMesh } );
                 else if ( mesh.HiddenSubmeshes.value_or( 0 ) != 0 )
                     hlod.NotInstanced.push_back( { index, HLODExclusion::HiddenSubmeshes } );
-                else if ( mesh.MeshGuid.has_value() || mesh.MeshPath.has_value() || mesh.Primitive.has_value() )
+                else if ( ( mesh.MeshHandle.has_value() &&
+                            ( !mesh.MeshHandle->Guid.empty() || !mesh.MeshHandle->Path.empty() ) ) ||
+                          mesh.Primitive.has_value() )
                 {
+                    // The Static Mesh states {Guid, Path} pairs (asset references v1); the instanced key keeps
+                    // its own GUID / path fields.
                     Assets::InstancedStaticMeshComponentSer key;
-                    key.MeshGuid      = mesh.MeshGuid;
-                    key.MeshPath      = mesh.MeshPath;
-                    key.MaterialGuids = mesh.MaterialGuids;
-                    key.MaterialPaths = mesh.MaterialPaths;
+                    if ( mesh.MeshHandle.has_value() && !mesh.MeshHandle->Guid.empty() )
+                        key.MeshGuid = mesh.MeshHandle->Guid;
+                    if ( mesh.MeshHandle.has_value() && !mesh.MeshHandle->Path.empty() )
+                        key.MeshPath = mesh.MeshHandle->Path;
+                    if ( mesh.MaterialSlots.has_value() && !mesh.MaterialSlots->empty() )
+                    {
+                        key.MaterialGuids = std::vector<std::string>{};
+                        key.MaterialPaths = std::vector<std::string>{};
+                        for ( const Assets::AssetGuidRef& slot : *mesh.MaterialSlots )
+                        {
+                            key.MaterialGuids->push_back( slot.Guid );
+                            key.MaterialPaths->push_back( slot.Path );
+                        }
+                    }
                     key.Primitive     = mesh.Primitive;
                     // Absent = true on both sides; written only when false, as the registry writes it.
                     if ( !mesh.CastShadows.value_or( true ) )
@@ -347,7 +362,7 @@ namespace Desert::Core::Rules
         {
             const HLODLayerSerialized& layer = layers[i];
             if ( layer.Name.empty() )
-                return Common::MakeError<bool>( "HLOD layer " + std::to_string( i ) + " has no Name" );
+                return Common::MakeError<bool>( std::format( "HLOD layer {} has no Name", i ) );
             for ( std::size_t j = 0; j < i; ++j )
                 if ( layers[j].Name == layer.Name )
                     return Common::MakeError<bool>( "HLOD layer '" + layer.Name + "' is named twice" );
@@ -360,9 +375,9 @@ namespace Desert::Core::Rules
                      "HLOD layer '" + layer.Name +
                      "' states SimplifyTrianglePercent, which only MeshSimplify reads" );
             if ( simplify && !( *layer.SimplifyTrianglePercent > 0.0f && *layer.SimplifyTrianglePercent <= 1.0f ) )
-                return Common::MakeError<bool>( "HLOD layer '" + layer.Name + "': SimplifyTrianglePercent " +
-                                                std::to_string( *layer.SimplifyTrianglePercent ) +
-                                                " is outside (0, 1]" );
+                return Common::MakeError<bool>(
+                     std::format( "HLOD layer '{}': SimplifyTrianglePercent {:f} is outside (0, 1]", layer.Name,
+                                  *layer.SimplifyTrianglePercent ) );
             // Walk the parent chain: every link must resolve, and it must end within the list's length.
             const HLODLayerSerialized* at = &layer;
             for ( std::size_t steps = 0; at->ParentLayer.has_value(); ++steps )
@@ -540,8 +555,7 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline Common::UUID HLODRecordId( std::string_view world, std::string_view name,
                                                     std::size_t batch )
     {
-        const std::string identity =
-             std::string( world ) + "\nHLOD\n" + std::string( name ) + "\n" + std::to_string( batch );
+        const std::string identity = std::format( "{}\nHLOD\n{}\n{}", world, name, batch );
         return Common::UUID( Common::Utils::PakContentHash( identity.data(), identity.size() ) );
     }
 
@@ -553,7 +567,7 @@ namespace Desert::Core::Rules
     {
         Assets::EntityData record;
         record.id                                                  = id;
-        record.Tag                                                 = "HLOD " + std::to_string( index );
+        record.Tag                                                 = std::format( "HLOD {}", index );
         if ( batch.Mesh.has_value() )
             record.Components[std::string( kPrimitiveComponent )] = Common::Json::FromStruct( *batch.Mesh );
         else

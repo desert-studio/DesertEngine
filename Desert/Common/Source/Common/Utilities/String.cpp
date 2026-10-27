@@ -1,5 +1,7 @@
 #include <Common/Utilities/String.hpp>
 
+#include <format>
+
 namespace Common::Utils
 {
     const std::string String::BytesToString( const uint64_t bytes )
@@ -14,23 +16,23 @@ namespace Common::Utils
 
         if ( bytes >= TB )
         {
-            result = std::to_string( size / TB ) + " TB";
+            result = std::format( "{:f} TB", size / TB );
         }
         else if ( bytes >= GB )
         {
-            result = std::to_string( size / GB ) + " GB";
+            result = std::format( "{:f} GB", size / GB );
         }
         else if ( bytes >= MB )
         {
-            result = std::to_string( size / MB ) + " MB";
+            result = std::format( "{:f} MB", size / MB );
         }
         else if ( bytes >= KB )
         {
-            result = std::to_string( size / KB ) + " KB";
+            result = std::format( "{:f} KB", size / KB );
         }
         else
         {
-            result = std::to_string( bytes ) + " B";
+            result = std::format( "{} B", bytes );
         }
 
         return result;

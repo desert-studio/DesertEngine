@@ -3,6 +3,8 @@
         "Kind": "Scene",
         "Guid": "66673d771549faedf5dce0b11989492e",
         "Versions": {
+            "AREF": 1,
+            "LGHT": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -110,7 +112,10 @@
             },
             "VolumetricCloud": {
                 "Enabled": true,
-                "Material": "assets:Materials/M_SIL_Lenticular_Clouds.demat",
+                "Material": {
+                    "Guid": "0d7f234fc14e1f8ef95528082a290ebd",
+                    "Path": "assets:Materials/M_SIL_Lenticular_Clouds.demat"
+                },
                 "PlanetRadius": 6360.0,
                 "LayerAltitudeOffset": 0.0,
                 "MaxViewDistance": 6000000.0,
@@ -138,8 +143,8 @@
             "id": 3852173717021806005,
             "siblingIndex": 1,
             "Tag": "Sun",
-            "Translation": [-30.0, -75.0, -55.0],
-            "Rotation": [0.0, 0.0, 0.0],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-0.9380475282669067, 0.312025249004364, -0.1590743213891983],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
                 "Color": [1.0, 1.0, 1.0],
@@ -173,9 +178,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4000.0, 20.0, 4000.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/M_CheckerFloor.demat"],
-                "MaterialGuids": ["45d579b03cc0d0a8df2e4cb025d6bea5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "45d579b03cc0d0a8df2e4cb025d6bea5",
+                        "Path": "assets:Materials/M_CheckerFloor.demat"
+                    }
+                ]
             }
         },
         {
@@ -209,6 +222,17 @@
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": true,
                     "BloomThreshold": 1.0,
                     "BloomIntensity": 0.3499999940395355,

@@ -1,5 +1,6 @@
 #include "WeatherPresetService.hpp"
 
+#include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -60,6 +61,26 @@ namespace Desert::Runtime
         if ( !asset )
             return Common::MakeFormattedError<Assets::AssetHandle>(
                  "'{}' cannot be registered as a weather preset", full.string() );
+        return Common::MakeSuccess<Assets::AssetHandle>( Assets::AssetHandle( asset->GetMetadata().Handle ) );
+    }
+
+    Common::ResultStr<Assets::AssetHandle>
+    WeatherPresetService::CloudTypeHandleForPath( const std::filesystem::path& path )
+    {
+        const auto assets = m_Assets.lock();
+        if ( !assets )
+            return Common::MakeError<Assets::AssetHandle>( std::string( "no asset manager is bound" ) );
+        const std::filesystem::path full =
+             path.is_absolute() ? path : ( Common::Constants::Path::ASSETS_PATH / path ).lexically_normal();
+        std::error_code ec;
+        if ( !std::filesystem::exists( full, ec ) )
+            return Common::MakeFormattedError<Assets::AssetHandle>( "no cloud type at '{}'", full.string() );
+        auto asset = assets->FindByPath<Assets::CloudTypeAsset>( full );
+        if ( !asset )
+            asset = assets->CreateAsset<Assets::CloudTypeAsset>( full, /*loadAfterCreate=*/false );
+        if ( !asset )
+            return Common::MakeFormattedError<Assets::AssetHandle>( "'{}' cannot be registered as a cloud type",
+                                                                    full.string() );
         return Common::MakeSuccess<Assets::AssetHandle>( Assets::AssetHandle( asset->GetMetadata().Handle ) );
     }
 

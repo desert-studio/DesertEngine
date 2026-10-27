@@ -52,7 +52,7 @@ namespace Desert::Graphic
         // reads, so a lane that moved would move for both sides at once. The sun direction it packs is
         // irrelevant here — only the medium block is used.
         const SkyGpuPayload payload =
-             PackSky( towardSun, sky, SkySunInputs{} ); // the medium only: the sun is not read
+             PackSky( towardSun, sky, SkySunInputs{}, AtmosphereLight1{} ); // the medium only: the sun is not read
 
         const SkyAtmParams p =
              SkyMakeAtmParams( payload.MediumRayleigh, payload.MediumMie, payload.MediumMieAbsorption,
@@ -122,7 +122,7 @@ namespace Desert::Graphic
         if ( sky.Model == ECS::SkyModel::PhysicalAtmosphere )
         {
             const SkyGpuPayload payload =
-                 PackSky( towardSun, sky, SkySunInputs{} ); // the medium only: the sun is not read
+                 PackSky( towardSun, sky, SkySunInputs{}, AtmosphereLight1{} ); // the medium only: the sun is not read
             const SkyAtmParams  p =
                  SkyMakeAtmParams( payload.MediumRayleigh, payload.MediumMie, payload.MediumMieAbsorption,
                                    payload.MediumOzone, payload.MediumGround, payload.MediumTentPlanet );

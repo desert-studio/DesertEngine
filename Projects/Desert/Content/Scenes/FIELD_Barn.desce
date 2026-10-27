@@ -3,6 +3,8 @@
         "Kind": "Scene",
         "Guid": "9f6174036d8b88429df5ff712f042697",
         "Versions": {
+            "AREF": 1,
+            "LGHT": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -18,8 +20,8 @@
             "id": 8180000000000001,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [0.7089999914169312, -0.3089999854564667, 0.6330000162124634],
-            "Rotation": [0.0, 0.0, 0.0],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-2.6874685287475586, -0.788657546043396, 2.1278862953186035],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
                 "Color": [1.0, 0.9700000286102295, 0.9200000166893005],
@@ -120,7 +122,10 @@
             },
             "VolumetricCloud": {
                 "Enabled": true,
-                "Material": "assets:Materials/FieldBarn/M_FieldBarn_Clouds.demat",
+                "Material": {
+                    "Guid": "96b9613ab6105e2d4bf851bc19dbba55",
+                    "Path": "assets:Materials/FieldBarn/M_FieldBarn_Clouds.demat"
+                },
                 "PlanetRadius": 6360.0,
                 "LayerAltitudeOffset": 0.0,
                 "MaxViewDistance": 6000000.0,
@@ -175,6 +180,17 @@
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": true,
                     "BloomThreshold": 2.5,
                     "BloomIntensity": 0.3499999940395355,
@@ -256,7 +272,10 @@
                 ]
             },
             "LandscapeMaterial": {
-                "Material": "assets:Materials/FieldBarn/M_FieldBarn_Landscape.demat"
+                "Material": {
+                    "Guid": "3484bb954b28686f2f2c225c75dd9798",
+                    "Path": "assets:Materials/FieldBarn/M_FieldBarn_Landscape.demat"
+                }
             }
         },
         {
@@ -267,10 +286,24 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "StaticMesh": {
-                "MeshPath": "assets:Environments/FieldBarn/Meshes/Barn/Barn.stmesh",
-                "MeshGuid": "6831a5786cc03c9521fd4e6f326f9e3c",
-                "MaterialPaths": ["assets:Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Siding.demat", "assets:Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Roof.demat", "assets:Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Trim.demat"],
-                "MaterialGuids": ["eaf8fb2f7d02639251cf1e3d8b9509e7", "cdd32b25ecbf02877d37a24a5dba1e82", "cd18c58242cd665c07470eccd72ba91d"]
+                "MeshHandle": {
+                    "Guid": "6831a5786cc03c9521fd4e6f326f9e3c",
+                    "Path": "assets:Environments/FieldBarn/Meshes/Barn/Barn.stmesh"
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "eaf8fb2f7d02639251cf1e3d8b9509e7",
+                        "Path": "assets:Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Siding.demat"
+                    },
+                    {
+                        "Guid": "cdd32b25ecbf02877d37a24a5dba1e82",
+                        "Path": "assets:Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Roof.demat"
+                    },
+                    {
+                        "Guid": "cd18c58242cd665c07470eccd72ba91d",
+                        "Path": "assets:Materials/Environments/FieldBarn/Meshes/Barn/Barn/M_Barn_Trim.demat"
+                    }
+                ]
             }
         },
         {
@@ -281,10 +314,24 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [3.0, 3.0, 3.0],
             "StaticMesh": {
-                "MeshPath": "assets:Environments/FieldBarn/Meshes/island_tree_01/island_tree_01.stmesh",
-                "MeshGuid": "6fc7758ca71aaf424936be96d961d61e",
-                "MaterialPaths": ["assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_leaves.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_branches.demat"],
-                "MaterialGuids": ["cadb04bde225c774a2597971f3d3a5db", "a2057248f4f9e4544442314944bed9a5", "a1673396e31e144dceb4cbfad89d941c"]
+                "MeshHandle": {
+                    "Guid": "6fc7758ca71aaf424936be96d961d61e",
+                    "Path": "assets:Environments/FieldBarn/Meshes/island_tree_01/island_tree_01.stmesh"
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "cadb04bde225c774a2597971f3d3a5db",
+                        "Path": "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01.demat"
+                    },
+                    {
+                        "Guid": "a2057248f4f9e4544442314944bed9a5",
+                        "Path": "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_leaves.demat"
+                    },
+                    {
+                        "Guid": "a1673396e31e144dceb4cbfad89d941c",
+                        "Path": "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_branches.demat"
+                    }
+                ]
             }
         },
         {
@@ -295,10 +342,24 @@
             "Rotation": [0.0, 37.0, 0.0],
             "Scale": [2.5999999046325684, 2.5999999046325684, 2.5999999046325684],
             "StaticMesh": {
-                "MeshPath": "assets:Environments/FieldBarn/Meshes/island_tree_02/island_tree_02.stmesh",
-                "MeshGuid": "544896472e3f0608af9d146f1c8cdf2b",
-                "MaterialPaths": ["assets:Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02_leaves.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02_branches.demat"],
-                "MaterialGuids": ["55d64d107f0770cf65fbc9d9748069a8", "bd014cc93e0decb975a67d81baac6278", "40bbdf25c81a389070d22ca642d72521"]
+                "MeshHandle": {
+                    "Guid": "544896472e3f0608af9d146f1c8cdf2b",
+                    "Path": "assets:Environments/FieldBarn/Meshes/island_tree_02/island_tree_02.stmesh"
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "55d64d107f0770cf65fbc9d9748069a8",
+                        "Path": "assets:Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02.demat"
+                    },
+                    {
+                        "Guid": "bd014cc93e0decb975a67d81baac6278",
+                        "Path": "assets:Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02_leaves.demat"
+                    },
+                    {
+                        "Guid": "40bbdf25c81a389070d22ca642d72521",
+                        "Path": "assets:Materials/Environments/FieldBarn/Meshes/island_tree_02/island_tree_02/island_tree_02_branches.demat"
+                    }
+                ]
             }
         },
         {
@@ -309,10 +370,24 @@
             "Rotation": [0.0, 74.0, 0.0],
             "Scale": [2.799999952316284, 2.799999952316284, 2.799999952316284],
             "StaticMesh": {
-                "MeshPath": "assets:Environments/FieldBarn/Meshes/island_tree_01/island_tree_01.stmesh",
-                "MeshGuid": "6fc7758ca71aaf424936be96d961d61e",
-                "MaterialPaths": ["assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_leaves.demat", "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_branches.demat"],
-                "MaterialGuids": ["cadb04bde225c774a2597971f3d3a5db", "a2057248f4f9e4544442314944bed9a5", "a1673396e31e144dceb4cbfad89d941c"]
+                "MeshHandle": {
+                    "Guid": "6fc7758ca71aaf424936be96d961d61e",
+                    "Path": "assets:Environments/FieldBarn/Meshes/island_tree_01/island_tree_01.stmesh"
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "cadb04bde225c774a2597971f3d3a5db",
+                        "Path": "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01.demat"
+                    },
+                    {
+                        "Guid": "a2057248f4f9e4544442314944bed9a5",
+                        "Path": "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_leaves.demat"
+                    },
+                    {
+                        "Guid": "a1673396e31e144dceb4cbfad89d941c",
+                        "Path": "assets:Materials/Environments/FieldBarn/Meshes/island_tree_01/island_tree_01/island_tree_01_branches.demat"
+                    }
+                ]
             }
         },
         {

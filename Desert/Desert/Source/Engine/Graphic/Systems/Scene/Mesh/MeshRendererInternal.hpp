@@ -78,7 +78,7 @@ namespace Desert::Graphic::System
         void ApplyGenericOverrides( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
                                     std::string_view shaderName, bool logRefused );
 
-        static_assert( SceneResources::kMaxCascades == kSceneViewShadowCascades,
+        static_assert( SceneResources::kMaxCascadeViews == kSceneViewShadowCascades,
                        "the lit materials' cascade count is the scene/view inputs' cascade count" );
 
         // The shadow cache keys' hash, shared with the non-mesh casters (ShadowCaster.hpp).

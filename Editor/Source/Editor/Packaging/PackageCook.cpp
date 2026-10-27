@@ -24,8 +24,8 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
-#include <Engine/Text/FontCache.hpp>
-#include <Engine/Vector/IconBake.hpp>
+#include <TextCore/Text/FontCache.hpp>
+#include <TextCore/Vector/IconBake.hpp>
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>

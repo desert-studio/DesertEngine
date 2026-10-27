@@ -2,7 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/ECS/Components.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <glm/glm.hpp>
 

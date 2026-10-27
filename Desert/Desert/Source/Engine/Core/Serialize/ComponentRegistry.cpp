@@ -1323,7 +1323,7 @@ namespace Desert::Core::Serialize
             const std::string text = ( guids && slot < guids->size() ) ? ( *guids )[slot] : std::string();
             const std::string path = ( paths && slot < paths->size() ) ? ( *paths )[slot] : std::string();
             return ResolveGuidRef( resolver, text, path, "MaterialAsset",
-                                   "material slot " + std::to_string( slot ) );
+                                   std::format( "material slot {}", slot ) );
         }
 
         uint64_t ResolveMeshRef( const Reflection::AssetResolver& resolver, const std::optional<std::string>& guid,
@@ -1391,7 +1391,8 @@ namespace Desert::Core::Serialize
         // ---- Static Mesh (asset-bearing: handle <-> path) ----
         {
             ComponentSerializer s;
-            s.Key = "StaticMesh";
+            s.Key             = "StaticMesh";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::StaticMeshComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::StaticMeshComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
@@ -1399,30 +1400,17 @@ namespace Desert::Core::Serialize
                 const auto&                    smc = entity.GetComponent<ECS::StaticMeshComponent>();
                 Assets::StaticMeshComponentSer meshSer;
 
-                // Asset refs go through the single shared resolver (same code path as the reflected
-                // components), instead of duplicating FindByHandle/FindByPath here.
-                auto resolver = MakeAssetResolver( assetManager );
-                if ( smc.MeshHandle )
+                // MeshHandle and MaterialSlots are the component's REFLECTED fields and are written by reflection,
+                // {Guid, Path} each (UE's UPROPERTY StaticMesh / OverrideMaterials); the mirror carries the rest.
+                const auto* type = Reflection::ReflectionRegistry::Get().Find( "StaticMeshComponent" );
+                if ( type == nullptr )
                 {
-                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( smc.MeshHandle ), "StaticMeshAsset" );
-                         !p.empty() )
-                        meshSer.MeshPath = p;
-                    meshSer.MeshGuid =
-                         MeshGuidText( resolver, static_cast<uint64_t>( smc.MeshHandle ), "StaticMeshAsset" );
+                    LOG_ERROR( "[ComponentRegistry] StaticMeshComponent is not reflected - its mesh and materials "
+                               "cannot be saved" );
+                    return { Common::Json::Object{} };
                 }
-
-                if ( !smc.MaterialSlots.empty() )
-                {
-                    meshSer.MaterialPaths = std::vector<std::string>{};
-                    meshSer.MaterialGuids = std::vector<std::string>{};
-                    for ( auto handle : smc.MaterialSlots )
-                    {
-                        meshSer.MaterialPaths->push_back(
-                             resolver.ToPath( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
-                        meshSer.MaterialGuids->push_back(
-                             resolver.ToGuid( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
-                    }
-                }
+                auto                 resolver = MakeAssetResolver( assetManager );
+                Common::Json::Object out      = Reflection::SerializeReflected( *type, &smc, &resolver );
                 meshSer.Primitive = smc.Primitive;
 
                 // Rendering controls: write only non-default values (absent = default on load).
@@ -1449,12 +1437,24 @@ namespace Desert::Core::Serialize
                 if ( smc.EditableMesh )
                     meshSer.EditMesh = Geometry::ToSerialized( *smc.EditableMesh );
 
-                return Common::Json::FromStruct( meshSer );
+                const Common::Json::Value rest = Common::Json::FromStruct( meshSer );
+                if ( const auto* fields = std::get_if<Common::Json::Object>( &rest.variant() ) )
+                    for ( const auto& [name, value] : *fields )
+                        if ( name != "MeshHandle" && name != "MaterialSlots" ) // reflection's keys, above
+                            out[name] = value;
+                return Common::Json::Value( std::move( out ) );
             };
 
             s.Deserialize = []( ECS::Entity entity, const Common::Json::Node& g,
                                 const Assets::AssetManager& assetManager, Common::Json::Issues& issues )
             {
+                const auto* type = Reflection::ReflectionRegistry::Get().Find( "StaticMeshComponent" );
+                if ( type == nullptr )
+                {
+                    LOG_ERROR( "[ComponentRegistry] StaticMeshComponent is not reflected - its block cannot be "
+                               "read" );
+                    return;
+                }
                 auto parsed = ReadBlock<Assets::StaticMeshComponentSer>( g, issues );
                 if ( !parsed.has_value() )
                     return;
@@ -1462,24 +1462,8 @@ namespace Desert::Core::Serialize
 
                 auto& smc      = entity.AddComponent<ECS::StaticMeshComponent>();
                 auto  resolver = MakeAssetResolver( assetManager );
-
-                const uint64_t meshHandle =
-                     ResolveMeshRef( resolver, meshData.MeshGuid, meshData.MeshPath, "StaticMeshAsset" );
-                if ( meshHandle != 0 )
-                    smc.MeshHandle = Common::UUID( meshHandle );
-
-                const size_t slotCount = meshData.MaterialGuids
-                                              ? meshData.MaterialGuids->size()
-                                              : ( meshData.MaterialPaths ? meshData.MaterialPaths->size() : 0 );
-                if ( slotCount > 0 )
-                {
-                    smc.MaterialSlots.clear();
-                    for ( size_t i = 0; i < slotCount; ++i )
-                    {
-                        smc.MaterialSlots.push_back( Common::UUID(
-                             ResolveSlotRef( resolver, meshData.MaterialGuids, meshData.MaterialPaths, i ) ) );
-                    }
-                }
+                // MeshHandle / MaterialSlots: the reflected fields, read by reflection ({Guid, Path} each).
+                Reflection::DeserializeReflected( *type, &smc, g, issues, &resolver );
                 smc.Primitive = meshData.Primitive;
 
                 smc.OutlineDraw     = meshData.OutlineDraw.value_or( smc.OutlineDraw );
@@ -1525,6 +1509,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key = "InstancedStaticMesh";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::InstancedStaticMeshComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::InstancedStaticMeshComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
@@ -1637,6 +1622,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key = "Material";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::MaterialComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::MaterialComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
@@ -1753,6 +1739,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key = "SkinnedMesh";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::SkinnedMeshComponentSer>();
             s.Has = []( ECS::Entity e ) { return e.HasComponent<ECS::SkinnedMeshComponent>(); };
 
             s.Serialize = []( ECS::Entity entity, const Assets::AssetManager& assetManager ) -> Common::Json::Value
@@ -1831,6 +1818,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key       = "UIAnim";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::UIAnimComponentSer>();
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::UIAnimComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
@@ -1899,6 +1887,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key       = "Text";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::TextComponentSer>();
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::TextComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
@@ -1939,6 +1928,7 @@ namespace Desert::Core::Serialize
         {
             ComponentSerializer s;
             s.Key       = "Animation";
+            s.DeclaredMembers = Common::Json::MemberNames<Assets::AnimationComponentSer>();
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<ECS::AnimationComponent>(); };
             s.Serialize = []( ECS::Entity e, const Assets::AssetManager& assetManager ) -> Common::Json::Value
             {

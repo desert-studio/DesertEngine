@@ -33,9 +33,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <glm/vec4.hpp>
 
 namespace Desert::Editor
 {
@@ -83,4 +86,16 @@ namespace Desert::Editor
     /// error naming both sizes; the caller names the path.
     [[nodiscard]] Common::ResultStr<DdsBlockChain> ReadDdsBlockChain( const unsigned char* bytes,
                                                                       std::size_t          size );
+
+    /// ONE LEVEL OF A COOKED TEXTURE AS THE GPU SAMPLER READS IT: the `.tex` level bytes in their engine format
+    /// decoded to linear RGBA with the view's channel rules - BC4/R8/R16/R32F as (R, 0, 0, 1), BC5/RG8/RG16F as
+    /// (X, Y, 0, 1) with no reconstructed Z, BGRA8 swizzled, the *_SRGB views (RGBA8, BGRA8, BC7 with
+    /// TextureColorSpace::SRGB) linearised. The CPU twins of a GPU texture read (the displacement heights of the
+    /// displaced bake and collision) sample THESE values, so block compression and the cooker's mip filter are
+    /// the same on both sides. @p rowPitch 0 = tightly packed. A format the sampler cannot read as colour (depth,
+    /// integer) is an error naming it.
+    [[nodiscard]] Common::ResultStr<std::vector<glm::vec4>>
+    DecodeCookedTextureLevel( ::Desert::Core::Formats::ImageFormat       format,
+                              ::Desert::Core::Formats::TextureColorSpace space, std::span<const unsigned char> bytes,
+                              uint32_t width, uint32_t height, uint32_t rowPitch );
 } // namespace Desert::Editor

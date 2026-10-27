@@ -1,10 +1,14 @@
 #pragma once
 
+#include <Editor/Core/TextList.hpp>
+
 #include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <string>
+#include <vector>
 
 namespace Desert::Editor::Control
 {
@@ -57,6 +61,8 @@ namespace Desert::Editor::Control
         ReflectionCaptures, ///< the active scene's reflection captures are still being written for the first time
         TexturesStreaming,  ///< texture loads are in flight (the frame shows placeholders where they land)
         ModelingAccept,     ///< a modeling tool's Accept is raised and waits for its background compute to land
+        Displacement, ///< the frame drew a displaced primitive's base mesh while its twin was still tessellating
+        SubsurfaceHistory, ///< a view's subsurface scatter has not yet averaged its full history window
         Count
     };
 
@@ -77,6 +83,8 @@ namespace Desert::Editor::Control
          "the reflection captures are still being filled for the first time",
          "textures are still streaming in",
          "a modeling tool's Accept is waiting for its background compute",
+         "displaced geometry is still being tessellated (the frame drew the base mesh)",
+         "the subsurface scatter's history is still converging (a Scale change, a camera cut or the first frames)",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),
@@ -131,16 +139,11 @@ namespace Desert::Editor::Control
         /// What is outstanding, in words, for a refusal. Empty when Settled().
         [[nodiscard]] std::string Describe() const
         {
-            std::string description;
+            std::vector<const char*> outstanding;
             for ( std::size_t i = 0; i < m_Pending.size(); ++i )
-            {
-                if ( !m_Pending[i] )
-                    continue;
-                if ( !description.empty() )
-                    description += "; ";
-                description += kPendingWorkNames[i];
-            }
-            return description;
+                if ( m_Pending[i] )
+                    outstanding.push_back( kPendingWorkNames[i] );
+            return TextTemplates::JoinList( outstanding, "; " );
         }
 
         void Set( BackgroundWork kind, bool running ) noexcept
@@ -165,16 +168,11 @@ namespace Desert::Editor::Control
         /// The background runs, in words. Empty when none runs. Never part of Describe(): no reply waits on them.
         [[nodiscard]] std::string DescribeBackground() const
         {
-            std::string description;
+            std::vector<const char*> outstanding;
             for ( std::size_t i = 0; i < m_Background.size(); ++i )
-            {
-                if ( !m_Background[i] )
-                    continue;
-                if ( !description.empty() )
-                    description += "; ";
-                description += kBackgroundWorkNames[i];
-            }
-            return description;
+                if ( m_Background[i] )
+                    outstanding.push_back( kBackgroundWorkNames[i] );
+            return TextTemplates::JoinList( outstanding, "; " );
         }
 
     private:
@@ -400,13 +398,15 @@ namespace Desert::Editor::Control
                                                                FrameGate::Clock::duration waited )
     {
         const std::string outstanding = quiescence.Describe();
-        return "the editor had not finished coming up after " + DescribeWait( framesWaited, waited ) +
-               ", so this request was NOT run — answering it from a half-built editor would have "
-               "produced a successful reply about a project it has not read yet. Still outstanding: " +
-               ( outstanding.empty() ? std::string( "nothing — which means the gate and the census "
-                                                    "disagree, and that is a defect in the channel itself" )
-                                     : outstanding ) +
-               ". Ask 'state' for the same census at any moment; it answers throughout the boot.";
+        return std::format(
+             "the editor had not finished coming up after {}, so this request was NOT run — "
+             "answering it from a half-built editor would have produced a successful reply about a "
+             "project it has not read yet. Still outstanding: {}. Ask 'state' for the same census at any "
+             "moment; it answers throughout the boot.",
+             DescribeWait( framesWaited, waited ),
+             outstanding.empty() ? std::string( "nothing — which means the gate and the census "
+                                                "disagree, and that is a defect in the channel itself" )
+                                 : outstanding );
     }
 
     /// The refusal a TimedOut verdict owes its caller. Names what never finished, because "the editor did
@@ -416,13 +416,12 @@ namespace Desert::Editor::Control
                                                             FrameGate::Clock::duration waited )
     {
         const std::string outstanding = quiescence.Describe();
-        return "the editor did not reach a settled frame within " + DescribeWait( framesWaited, waited ) +
-               ", so this reply cannot promise that a rendered frame reflects the command. Still "
-               "outstanding: " +
-               ( outstanding.empty() ? std::string( "nothing — which means the gate and the "
-                                                    "census disagree, and that is a defect "
-                                                    "in the channel itself" )
-                                     : outstanding ) +
-               ".";
+        return std::format(
+             "the editor did not reach a settled frame within {}, so this reply cannot promise "
+             "that a rendered frame reflects the command. Still outstanding: {}.",
+             DescribeWait( framesWaited, waited ),
+             outstanding.empty() ? std::string( "nothing — which means the gate and the census "
+                                                "disagree, and that is a defect in the channel itself" )
+                                 : outstanding );
     }
 } // namespace Desert::Editor::Control

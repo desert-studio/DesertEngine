@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
+#include <Editor/Core/TextList.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -197,7 +198,7 @@ namespace Desert::Editor::Control
         Selection, ///< the selected entity's transform (Core/Selection/SelectionTransformProperties.hpp)
         Entity,    ///< one entity's reflected components, addressed by 'entity' (its UUID); values as 'text'
         World,     ///< the open scene's SceneSettings (World Settings); values as 'text'
-        Tool,      ///< the active editor mode's tool settings (Foliage: Core/Selection/FoliageToolProperties.hpp);
+        Tool,      ///< the active editor mode's tool settings (Foliage: Panels/Foliage/FoliageToolProperties.hpp);
                    ///< 'text'
     };
 
@@ -215,14 +216,7 @@ namespace Desert::Editor::Control
 
     [[nodiscard]] inline std::string KnownSubjectList()
     {
-        std::string list;
-        for ( const SubjectSpec& spec : kSubjects )
-        {
-            if ( !list.empty() )
-                list += ", ";
-            list += spec.Name;
-        }
-        return list;
+        return TextTemplates::JoinList( kSubjects, ", ", []( const SubjectSpec& spec ) { return spec.Name; } );
     }
 
     struct Request
@@ -292,14 +286,7 @@ namespace Desert::Editor::Control
     /// so an operation added above appears here without anyone remembering to add it.
     [[nodiscard]] inline std::string KnownOpList()
     {
-        std::string list;
-        for ( const OpSpec& spec : kOps )
-        {
-            if ( !list.empty() )
-                list += ", ";
-            list += spec.Name;
-        }
-        return list;
+        return TextTemplates::JoinList( kOps, ", ", []( const OpSpec& spec ) { return spec.Name; } );
     }
 
     namespace ProtocolDetail

@@ -30,7 +30,7 @@
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 
 #include <CoreReflection/ReflectionMacros.hpp>
@@ -160,9 +160,24 @@ namespace Desert::ECS
         glm::vec4   Value = glm::vec4( 0.0f );
     };
 
+    // UE's UStaticMeshComponent: the two authored references (UPROPERTY StaticMesh, OverrideMaterials) are
+    // REFLECTED, so Details draws the mesh row from them and DesertCtl `set` addresses them (StaticMesh.MeshHandle,
+    // StaticMesh.MaterialSlots[0]); an edit re-states what depends on them through ECS::PostEditStaticMesh (UE
+    // PostEditChangeProperty). On disk they are these two fields' own keys, written by reflection as {Guid, Path}
+    // (asset references v1, Assets::kAssetRefSchemaTag); World Partition, HLOD and WorldGen read the same keys from
+    // raw records through Assets::StaticMeshComponentSer.
     struct StaticMeshComponent
     {
-        Assets::AssetHandle              MeshHandle;
+        REFLECT()
+
+        PROPERTY( DisplayName( "Static Mesh" ), Category( "Static Mesh" ), Summary, Asset<StaticMeshAsset>,
+                  Tooltip( "The mesh asset this component draws (UE StaticMesh). Ignored while a Primitive "
+                           "or an edited mesh is set; setting it clears both." ) )
+        Assets::AssetHandle MeshHandle;
+        // Drawn by the component's Materials list (one row per mesh section, as UE customizes OverrideMaterials).
+        PROPERTY( DisplayName( "Materials" ), Category( "Materials" ), Asset<MaterialAsset>, Hidden,
+                  Tooltip( "One material per mesh section (UE OverrideMaterials); a null slot takes the "
+                           "mesh's own section material." ) )
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<Graphic::MaterialInstancePtr>
              RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
@@ -241,6 +256,9 @@ namespace Desert::ECS
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<Graphic::MaterialInstancePtr>
                  RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
+        // The displaced (base-cell) siblings of the same slots, drawn over the displaced twin (CONTRACT-DISPLACE
+        // §9.8); built when the mesh is displaced, empty otherwise. Transient like the cache above.
+        std::vector<Graphic::MaterialInstancePtr> RuntimeDisplacedInstances;
         uint32_t SeenMaterialsVersion = 0; // see StaticMeshComponent
         bool     CastShadows          = true; // false = skipped by the shadow (depth) passes, like the static twin
 
@@ -283,6 +301,8 @@ namespace Desert::ECS
         std::optional<Geometry::PrimitiveType>    Primitive;
         std::shared_ptr<DynamicMesh>              RuntimeMesh;
         std::vector<Graphic::MaterialInstancePtr> RuntimeMaterialInstances;
+        // The displaced siblings of the same slots (built when the mesh is displaced, empty otherwise).
+        std::vector<Graphic::MaterialInstancePtr> RuntimeDisplacedInstances;
         uint32_t                                  SeenMaterialsVersion = 0; // see StaticMeshComponent
 
         // `InstancesDirty` STOOD HERE, WRITTEN BY FIVE PLACES AND READ BY NONE. Every one of the five was
@@ -915,10 +935,11 @@ namespace Desert::ECS
                   Tooltip( "This light drives the sky and the sky's IBL bake." ) )
         bool AtmosphereSunLight = true;
 
-        PROPERTY( DisplayName( "Atmosphere Sun Light Index" ), Category( "Atmosphere" ), Range( 0, 0 ),
+        PROPERTY( DisplayName( "Atmosphere Sun Light Index" ), Category( "Atmosphere" ), Range( 0, 1 ),
                   EditCondition( "AtmosphereSunLight" ),
-                  Tooltip( "The engine renders exactly one directional light; index 1 is reserved for a "
-                           "future second sun." ) )
+                  Tooltip( "0 = the sun, 1 = a second atmosphere light such as the moon (UE). Both light the "
+                           "sky, draw a disc and light the scene; the time-of-day clock and the cascaded "
+                           "shadows belong to index 0." ) )
         int AtmosphereSunLightIndex = 0;
 
         // UE's "Affected By Atmosphere Transmittance", same name, same default (ON): in

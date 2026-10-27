@@ -128,7 +128,7 @@ namespace Desert::Graphic
         {
             // OnUpdate's frame decision: under "Shadows: Ray Traced Sun" the composite and the opaque programs
             // read the screen mask, and the cascades are drawn only for the blended programs that sample them.
-            if ( m_FrameSunCascades )
+            if ( m_FrameCascades )
                 AddFrameSunCascades( graph, textures, *mesh );
             // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
             // light and casters stood still keeps last frame's depth (it has no pass at all).

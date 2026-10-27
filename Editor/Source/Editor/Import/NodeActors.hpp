@@ -38,8 +38,9 @@ namespace Desert::Editor
     // (ImportRecord.hpp `Lights`, engine space), named by its node:
     //   - Point: a PointLightComponent at Position;
     //   - Spot: a SpotLightComponent at Position, rotated so its forward (-Z) is Direction, the record's cones;
-    //   - Directional: a DirectionLightComponent whose Translation is Direction (the engine's rule: a directional
-    //     light's Translation is the way it travels, SystemRules.hpp DirectionalLightTravel).
+    //   - Directional: a DirectionLightComponent whose Rotation aims its forward axis (-Z) along Direction (the
+    //     engine's rule, as UE: a directional light travels along its forward axis, SystemRules.hpp
+    //     DirectionalLightTravel; ECS::AimDirectionalLight writes it).
     // Colour and Intensity are the record's. A point or spot light falls off as UE's do, by the inverse square of
     // the distance in metres (LightFalloff::InverseSquare with a 100 cm Min Radius: full Intensity within a metre,
     // Intensity / d^2 beyond), windowed to zero at the record's Radius - unbounded (FLT_MAX, UE's value) when the

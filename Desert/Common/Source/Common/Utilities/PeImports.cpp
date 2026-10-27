@@ -1,10 +1,12 @@
 #include "PeImports.hpp"
 
+#include <Common/Json/Template.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <format>
 #include <map>
 #include <optional>
 #include <set>
@@ -187,8 +189,7 @@ namespace Common::Utils
                        ", outside every section";
             const auto name = image.CString( *at );
             if ( !name || name->empty() )
-                return std::string( table ) + " name at offset " + std::to_string( *at ) +
-                       " is unterminated or empty";
+                return std::format( "{} name at offset {} is unterminated or empty", table, *at );
             if ( seen.insert( Lower( *name ) ).second )
                 names.push_back( *name );
             return std::nullopt;
@@ -202,7 +203,7 @@ namespace Common::Utils
                 return std::nullopt;
             const auto rva = image.U32( dirsAt + static_cast<std::size_t>( directory ) * 8 );
             if ( !rva )
-                return std::string( "data directory " ) + std::to_string( directory ) + " is truncated";
+                return std::format( "data directory {} is truncated", directory );
             if ( *rva == 0 )
                 return std::nullopt;
             const auto start = RvaToOffset( sections, *rva );
@@ -318,13 +319,11 @@ namespace Common::Utils
 
         if ( !debugImports.empty() )
         {
-            std::string list;
-            for ( const std::string& entry : debugImports )
-                list += "\n  " + entry;
             return Common::MakeFormattedError<Paths>(
                  "{} is linked against the DEBUG C++ runtime, which Microsoft does not license for redistribution "
-                 "and which exists only where Visual Studio is installed — package a Release or Shipping build:{}",
-                 exe.filename().string(), list );
+                 "and which exists only where Visual Studio is installed — package a Release or Shipping "
+                 "build:\n  {}",
+                 exe.filename().string(), Common::Text::Join( debugImports, "\n  " ) );
         }
 
         Paths result;

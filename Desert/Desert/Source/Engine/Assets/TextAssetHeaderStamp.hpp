@@ -21,6 +21,15 @@ namespace Desert::Assets
     // another branch is also taking (MIGRATE-SUBSYS; WP17 had to renumber v69 -> v70). Stated by every .desce and
     // .deprefab, as the other two - a prefab's records are a scene's.
     inline constexpr uint32_t kWorldPartitionSchemaTag = Common::Content::FourCC( "WPAR" );
+    // How a component's reflected asset reference is written (Core::kAssetRefVersion), counted under its own tag
+    // as World Partition is (MIGRATE-SUBSYS). v1 (STATICMESH-FORMAT): the Static Mesh's MeshHandle / MaterialSlots
+    // and every reflected Asset<StaticMeshAsset> / Asset<MaterialAsset> field state {Guid, Path}, UE's soft object
+    // reference; the mirror keys MeshGuid / MeshPath / MaterialGuids / MaterialPaths of the Static Mesh are gone.
+    inline constexpr uint32_t kAssetRefSchemaTag = Common::Content::FourCC( "AREF" );
+    // How a light component states where it points (Core::kLightVersion), counted under its own tag as the two
+    // above are (MIGRATE-SUBSYS). v1 (PORT-SUN-ROTATION): a directional light is aimed by its Rotation (forward
+    // -Z), as UE's ULightComponent::GetDirection; its Translation is only where the editor draws it.
+    inline constexpr uint32_t kLightSchemaTag = Common::Content::FourCC( "LGHT" );
     // A .demat: the material schema, numbered for the first time by AF6f (v1). v2 (AF7c): the payload's
     // MaterialId is gone - the header GUID is the one identity - and an instance names its parent by that
     // GUID (`Parent`), stated again as the header's Dependency. v3 (T6c): every texture and cloud-asset
@@ -31,7 +40,9 @@ namespace Desert::Assets
     // clear share of the sky (W = 1 elsewhere, Assets::CloudWeatherPresence), was the slope of a ramp that
     // emptied 1 - 1/(2s); Tools/SceneMigrator raises v4 by s -> max(0, 1 - 1/(2s)), the clear share kept.
     inline constexpr uint32_t kMaterialSchemaTag     = Common::Content::FourCC( "MATL" );
-    inline constexpr uint32_t kMaterialSchemaVersion = 6;
+    // v6 (BISTRO-MAT-V6). v7 (SSS-PROFILE): the optional SubsurfaceProfile reference (UE
+    // UMaterial::SubsurfaceProfile); additive, Tools/SceneMigrator raises v6 by stamping the tag only.
+    inline constexpr uint32_t kMaterialSchemaVersion = 7;
     // A .decloudtype: the cloud type file layout, stated in the header since v4 (AF7v; v1-v3 had a
     // top-level FormatVersion and no header). Here rather than beside CloudTypeData so the migrator can
     // state it without the cloud maths. v5 (T7h): the noise volume is named by {Guid, Path} and stated as
@@ -77,9 +88,10 @@ namespace Desert::Assets
     inline constexpr uint32_t kLandscapeGrassTypeSchemaVersion = 3;
     // A .dfx: the VFX system file layout, stated in the header from its first version (VFX-02); v2 (VFX-09):
     // renderer rows state their Material / Ribbon / Mesh, those assets the Dependencies; v3 (VFX-11): the system
-    // names its EffectType.
+    // names its EffectType; v4 (VFX-PORT-1, int/vfx VFX-MODULE-ASSET): stack rows name `.dfxmod` modules by
+    // {Guid, Path}, their GUIDs join the Dependencies, LocalModules is gone; v5 (VFX-PORT-2): Bounds per emitter.
     inline constexpr uint32_t kVFXSystemSchemaTag     = Common::Content::FourCC( "VFXS" );
-    inline constexpr uint32_t kVFXSystemSchemaVersion = 3;
+    inline constexpr uint32_t kVFXSystemSchemaVersion = 5;
     // A .dfxtype: the VFX effect type file layout (UE UNiagaraEffectType), stated from its first version (VFX-11).
     inline constexpr uint32_t kVFXEffectTypeSchemaTag     = Common::Content::FourCC( "VFXT" );
     inline constexpr uint32_t kVFXEffectTypeSchemaVersion = 2;
@@ -100,6 +112,13 @@ namespace Desert::Assets
     // Serialization/WeatherPreset.hpp).
     inline constexpr uint32_t kWeatherPresetSchemaTag     = Common::Content::FourCC( "WTHP" );
     inline constexpr uint32_t kWeatherPresetSchemaVersion = 1;
+    // A .dsssprofile: one Burley subsurface profile (SSS-PROFILE; Serialization/SubsurfaceProfile.hpp).
+    inline constexpr uint32_t kSubsurfaceProfileSchemaTag     = Common::Content::FourCC( "SSSP" );
+    inline constexpr uint32_t kSubsurfaceProfileSchemaVersion = 1;
+    // A .dfxmod: the VFX module file layout (comment header, `Module "<Name>"` block), stated in the header from
+    // its first version (VFX-MODULE-ASSET; Engine/VFX/VFXModuleFormat.hpp).
+    inline constexpr uint32_t kVFXModuleSchemaTag     = Common::Content::FourCC( "VFXM" );
+    inline constexpr uint32_t kVFXModuleSchemaVersion = 1;
     // A <name>.<ext>.deimport: an imported source's record (its asset's GUID), stated from its first version
     // (FIX8; Serialization/ImportRecord.hpp).
     inline constexpr uint32_t kImportRecordSchemaTag     = Common::Content::FourCC( "DIMP" );

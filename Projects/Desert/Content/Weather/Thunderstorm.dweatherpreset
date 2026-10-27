@@ -64,6 +64,17 @@
         }
     ],
     "CloudCoverage": 1.0,
+    "CloudTypes": [
+        {
+            "Type": "Clouds/Types/Cumulus_Congestus.decloudtype",
+            "Weight": 1.0
+        },
+        {
+            "Type": "Clouds/Types/Stratus.decloudtype",
+            "Weight": 1.0
+        }
+    ],
+    "CloudDensity": 1.8,
     "FogDensity": 0.07,
     "WindSpeed": 1800.0
 }

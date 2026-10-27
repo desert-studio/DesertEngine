@@ -551,9 +551,9 @@ namespace Desert::Graphic::System
                                   previous.Stamp.ReadableIn( frame );
             std::array<RDG::TextureRef, 2> history = { scene.Black, scene.Black };
             if ( readable )
-                history = AcquireSlot( graph, previous, width, height, prefix + std::to_string( m_Parity ) );
+                history = AcquireSlot( graph, previous, width, height, std::format( "{}{}", prefix, m_Parity ) );
             const std::array<RDG::TextureRef, 2> written =
-                 AcquireSlot( graph, next, width, height, prefix + std::to_string( 1u - m_Parity ) );
+                 AcquireSlot( graph, next, width, height, std::format( "{}{}", prefix, 1u - m_Parity ) );
             m_Parity = 1u - m_Parity;
 
             const glm::vec4 temporalPush( readable ? 1.0f : 0.0f, static_cast<float>( m_Signal ),

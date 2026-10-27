@@ -317,6 +317,32 @@ namespace Desert::Editor::ImportOptions
         settings.CombineMeshes = on;
     }
 
+    Common::BoolResultStr SetDisplacement( Assets::SourceImportSettings&      settings,
+                                           const Assets::MeshDisplacementMode mode, const ImportContentKind kind )
+    {
+        // CONTRACT-DISPLACE §9.8: a skeletal mesh is displaced over its skinned pose each frame; a bake is one
+        // pose.
+        if ( kind == ImportContentKind::SkeletalMesh && mode == Assets::MeshDisplacementMode::Baked )
+            return Common::MakeFormattedError<bool>(
+                 "Displacement {}: a skeletal mesh is displaced None or Runtime",
+                 Assets::MeshDisplacementModeName( mode ) );
+        settings.Mesh.Displacement = mode;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SetShownDisplacement( const Assets::MeshDisplacementMode mode )
+    {
+        const auto shown = ShownSettings();
+        if ( !shown )
+            return Common::MakeError<bool>( shown.GetError() );
+        QueuedSource& source = Window().Queue.front(); // the shown one (DrawWindow shows the queue's front)
+        if ( !source.Kind )
+            source.Kind = SharedImporter().ProbeContent( source.Source );
+        if ( !*source.Kind )
+            return Common::MakeError<bool>( source.Kind->GetError() );
+        return SetDisplacement( *shown.GetValue(), mode, source.Kind->GetValue() );
+    }
+
     Common::BoolResultStr SetShownUniformScale( const float scale )
     {
         const auto shown = ShownSettings();
@@ -499,6 +525,52 @@ namespace Desert::Editor::ImportOptions
             changed                 = true;
         }
         UI::EndPropertyRow();
+
+        // CONTRACT-DISPLACE §9.7: the mode and the bake edge length live in the mesh's import settings. A skeletal
+        // mesh offers None/Runtime only (§9.8: displaced over the skin cache each frame; a bake would be one pose)
+        // and no edge length (it has no baked surface: its collision is its physics asset).
+        const bool skeletal = kind == ImportContentKind::SkeletalMesh;
+        UI::BeginPropertyRow( "Displacement",
+                              skeletal ? "Sections whose material assigns its Height move along the surface. "
+                                         "Runtime: diced per frame by screen size over the skinned pose."
+                                       : "Sections whose material assigns its Height move along the surface. "
+                                         "Runtime: diced per frame by screen size. Baked: a dense mesh cooked at "
+                                         "the edge length below, drawn with its own LODs. Collision uses the "
+                                         "baked surface in both modes." );
+        static constexpr std::array<const char*, 3> kDisplacementLabels = { "None", "Runtime", "Baked" };
+        static constexpr std::array<Assets::MeshDisplacementMode, 3> kDisplacementModes = {
+             Assets::MeshDisplacementMode::None, Assets::MeshDisplacementMode::Runtime,
+             Assets::MeshDisplacementMode::Baked };
+        const int modeCount = skeletal ? 2 : static_cast<int>( kDisplacementLabels.size() );
+        int       mode      = 0;
+        for ( std::size_t i = 0; i < kDisplacementModes.size(); ++i )
+            if ( kDisplacementModes[i] == settings.Mesh.Displacement )
+                mode = static_cast<int>( i );
+        if ( ImGui::Combo( "##Displacement", &mode, kDisplacementLabels.data(), modeCount ) )
+        {
+            if ( const auto set =
+                      SetDisplacement( settings, kDisplacementModes[static_cast<std::size_t>( mode )], kind );
+                 !set )
+                ImGui::SetTooltip( "%s", set.GetError().c_str() );
+            else
+                changed = true;
+        }
+        UI::EndPropertyRow();
+
+        if ( !skeletal && settings.Mesh.Displacement != Assets::MeshDisplacementMode::None )
+        {
+            UI::BeginPropertyRow( "Bake Edge Length",
+                                  "Centimetres per diced edge of the baked surface (Baked draw and collision). "
+                                  "Clusters that cannot dice this fine bake at their densest level." );
+            float edge = settings.Mesh.DisplacementBake.EdgeLengthCm;
+            if ( ImGui::DragFloat( "##DisplacementEdge", &edge, 0.05f, 0.05f, 100.0f, "%.2f cm" ) &&
+                 edge > 0.0f && edge != settings.Mesh.DisplacementBake.EdgeLengthCm )
+            {
+                settings.Mesh.DisplacementBake.EdgeLengthCm = edge;
+                changed                                     = true;
+            }
+            UI::EndPropertyRow();
+        }
 
         UI::BeginPropertyRow(
              "FBX Specular Map",

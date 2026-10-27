@@ -8,6 +8,7 @@
 #include <Engine/Core/Camera.hpp>
 
 #include <Engine/Graphic/Materials/PostProcessing/MaterialTonemap.hpp>
+#include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 
 namespace Desert::Graphic::System
 {
@@ -21,7 +22,9 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
         DESERT_SHADER_PARAMETER( Texture, LightShaftTexture );
         DESERT_SHADER_PARAMETER( Texture, LensFlareTexture );
-        static constexpr std::array kAll{ RDG::Erase( GeometryTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( AverageLuminanceTexture ), RDG::Erase( BloomTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( LightShaftTexture ), RDG::Erase( LensFlareTexture ) };
+        DESERT_SHADER_PARAMETER( Texture, LumBilateralGrid );
+        DESERT_SHADER_PARAMETER( Texture, BlurredLogLuminance );
+        static constexpr std::array kAll{ RDG::Erase( GeometryTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( AverageLuminanceTexture ), RDG::Erase( BloomTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( LightShaftTexture ), RDG::Erase( LensFlareTexture ), RDG::Erase( LumBilateralGrid ), RDG::Erase( BlurredLogLuminance ) };
     };
 
     class TonemapRenderer final : public RenderSystem
@@ -67,7 +70,31 @@ namespace Desert::Graphic::System
             bool            LightShaftsProduced = false;
             RDG::TextureRef LensFlare;
             bool            LensFlareProduced = false;
+            // Local exposure: FrameTransients::LocalExposureGrid / BlurredLogLuminance when the setup ran, else
+            // System.Black3D / System.Black and LocalExposureFrame::Produced false (local exposure 1 this draw).
+            RDG::TextureRef LocalExposureGrid;
+            RDG::TextureRef BlurredLogLuminance;
         };
+
+        // This frame's local exposure as SceneRenderer::AddFrameLocalExposure built it.
+        struct LocalExposureFrame
+        {
+            bool                Produced  = false; // the grid (and the blur, when the base uses it) ran this frame
+            bool                Visualize = false; // DeferredDebugMode::LocalExposure: draw the exposure itself
+            LocalExposureParams Params;
+            float               LogMiddleGrey = 0.0f;
+            float               SliceLogMin   = 0.0f;
+            glm::vec2           GridUVScale{ 1.0f };
+            glm::vec2           BlurUVScale{ 1.0f };
+        };
+        void SetLocalExposure( const LocalExposureFrame& frame )
+        {
+            m_LocalExposure = frame;
+        }
+        [[nodiscard]] const LocalExposureFrame& GetLocalExposure() const
+        {
+            return m_LocalExposure;
+        }
         // SETUP of "PostFX: Tonemap", first: the material's values, from this frame's settings and @p inputs'
         // effect flags (an effect that did not run draws with intensity 0). Filled before DeclareBindings so the
         // setup validates the block against the route fill the draw will use.
@@ -86,6 +113,11 @@ namespace Desert::Graphic::System
         void SetParams( float exposure )
         {
             m_Exposure = exposure;
+        }
+        // The manual exposure (the bloom's local exposure uses it when auto-exposure is off).
+        [[nodiscard]] float GetExposure() const
+        {
+            return m_Exposure;
         }
 
         // The scene's tonemapping curve. ACES is the default and the one the sky programme measures
@@ -169,6 +201,7 @@ namespace Desert::Graphic::System
         float                  m_LightShaftIntensity = 0.0f;
         glm::vec3              m_LightShaftTint      = glm::vec3( 1.0f );
 
+        LocalExposureFrame     m_LocalExposure;
         float                  m_LensFlareIntensity = 0.0f;
         glm::vec3              m_LensFlareTint      = glm::vec3( 1.0f );
     };

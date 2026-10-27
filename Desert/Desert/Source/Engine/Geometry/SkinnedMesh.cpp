@@ -138,6 +138,33 @@ namespace Desert
         twin->m_MorphReach       = base.m_MorphTargetReach;
         twin->m_MorphTargetReach = base.m_MorphTargetReach;
         twin->m_VertexBuffer     = std::move( morphedVertices );
+        // The morphed twin is what the skinned record draws, so it carries the base's displacement topology: the
+        // displaced pass reads the morphed, skinned vertices (same order) and moves that surface.
+        twin->m_DisplacementTopology = base.m_DisplacementTopology;
+        return twin;
+    }
+
+    std::shared_ptr<SkinnedMesh>
+    SkinnedMesh::MakeDisplacedTwin( const SkinnedMesh& base, std::shared_ptr<Graphic::VertexBuffer> vertices,
+                                    std::shared_ptr<Graphic::VertexBuffer> streams,
+                                    std::shared_ptr<Graphic::IndexBuffer> indices, std::vector<Submesh> submeshes,
+                                    const uint32_t vertexCount, const float boundsGrowthCm )
+    {
+        // Private default constructor: make_shared cannot reach it.
+        std::shared_ptr<SkinnedMesh> twin( new SkinnedMesh() );
+        twin->m_Submeshes    = std::move( submeshes );
+        twin->m_VertexBuffer = std::move( vertices );
+        twin->m_StreamBuffer = std::move( streams );
+        twin->m_IndexBuffer  = std::move( indices );
+        twin->m_Skeleton     = base.m_Skeleton;
+        twin->m_VertexCount  = vertexCount;
+        twin->m_BoneBounds   = base.m_BoneBounds;
+        for ( BoneBounds& bounds : twin->m_BoneBounds )
+        {
+            bounds.Box.Min -= glm::vec3( boundsGrowthCm );
+            bounds.Box.Max += glm::vec3( boundsGrowthCm );
+        }
+        twin->m_MorphReach = base.m_MorphReach;
         return twin;
     }
 

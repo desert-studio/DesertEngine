@@ -66,12 +66,8 @@ local function DesertRunnerSettings(deps)
         -- reference links it (see the file). Before BUILD1 the suites compiled Reflection.gen.cpp.
         "%{_MAIN_SCRIPT_DIR}/Desert/Tests/TestSupport/EngineReflectionLink.cpp",
     }
+    includedirs(DesertModuleLibs.IncludeDirs())
     includedirs {
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
-        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
         -- Engine suites read header-only editor types (component editors' data, command records).
         "%{_MAIN_SCRIPT_DIR}/Editor/Source",
     }
@@ -88,7 +84,7 @@ local function DesertRunnerSettings(deps)
     end
     defines { "USE_OPTICK=1", "OPTICK_ENABLE_GPU=0", "OPTICK_ENABLE_TRACING=0" }
     DesertModuleLibs.Link()
-    links { "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus", "Voro" }
+    links { "GLFW", "Optick", "MeshOptimizer", "OpenSubdiv", "Embree", "ImGui", "Assimp", "OpenEXRCore", "Dav1d", "Opus", "Voro" }
     filter "system:windows"
         buildoptions { "/bigobj" }
     -- gmake does not link a static library's own dependencies transitively (Visual Studio does, through
@@ -127,14 +123,10 @@ end
 -- before BUILD1, each with the reason it is there.
 local kRunners = {
     Common = function(deps)
+        includedirs(DesertModuleLibs.IncludeDirs())
         includedirs {
-            "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source",
             -- Rounding, ProductName, ReservedIdentifiers, TidyRegister-style text checks and AssetRenameMove
             -- read engine/editor headers that are header-only; nothing of Desert or Editor is linked.
-            "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source",
-            "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
-            "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
-            "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
             "%{_MAIN_SCRIPT_DIR}/Editor/Source",
             -- CrashHandler checks the packaged game's --crash-test parser (header-only RuntimeCrashTest.hpp).
             "%{_MAIN_SCRIPT_DIR}/Runtime/Source",
@@ -258,14 +250,13 @@ local kRunners = {
                   'DESERT_MEDIA_PATTERN_CLIP="' .. _MAIN_SCRIPT_DIR .. '/Desert/Tests/Data/Media/testsrc2_1080p_5s.webm"' }
     end,
     Editor = function(deps)
-        -- EditorCore (Editor/premake5.lua) is every editor source but the entry point, built once as a static
-        -- library, so a suite gets the editor code it tests by LINKING it, as the Editor executable does -- not
-        -- from a list of editor sources compiled here a second time (BLD-EDITORCORE; the list was 67 files).
-        -- Named before DesertRunnerSettings so the link line has it ahead of Desert and the libraries it uses:
+        -- The editor libraries (BuildScripts/EditorLibs.lua) are every editor source but the entry point, so a
+        -- suite gets the editor code it tests by LINKING them, as the Editor executable does -- not from a list
+        -- of editor sources compiled here a second time (BLD-EDITORCORE; the list was 67 files).
+        -- Named before DesertRunnerSettings so the link line has them ahead of Desert and the libraries they use:
         -- gmake resolves static libraries left to right.
-        -- Whole, as the Editor links it: a suite reading the component-editor registry sees the editor's.
-        links { "EditorCore" }
-        DesertPlatform.LinkWholeArchive( "EditorCore" )
+        -- Whole, as the Editor links them: a suite reading the component-editor registry sees the editor's.
+        DesertEditorLibs.Link( true )
         DesertRunnerSettings(deps)
         files {
             -- PackagedContent: the player's packaged-content resolution (the Runtime executable's source).
@@ -285,14 +276,14 @@ local kRunners = {
             "%{_MAIN_SCRIPT_DIR}/ThirdParty/Imath/src/Imath",
         }
         links { "ImGuiNodeEditor" }
-        -- EditorCore's face tracking builds against dlib when ThirdParty/dlib is present (Editor/premake5.lua).
+        -- The editor's face tracking (EditorWidgets) builds against dlib when ThirdParty/dlib is present (Editor/premake5.lua).
         if os.isdir( _MAIN_SCRIPT_DIR .. "/ThirdParty/dlib" ) then
             links { "Dlib" }
         end
         filter "system:windows"
             -- The control socket (ControlTransport, ControlDispatch) is Winsock; the system file dialogs
             -- (Editor/Platform/Windows/DesktopPlatformWindows.cpp) are comdlg32/shell32/ole32 -- the same
-            -- system libraries the Editor executable names, since both link EditorCore.
+            -- system libraries the Editor executable names, since both link the editor libraries.
             links { "ws2_32", "advapi32", "comdlg32", "shell32", "ole32" }
         filter {}
     end,

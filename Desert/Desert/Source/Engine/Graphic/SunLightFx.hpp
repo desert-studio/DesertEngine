@@ -45,4 +45,18 @@ namespace Desert::Graphic
         // this with its own authored value, which defaults to on as UE ships it.
         bool AffectedByAtmosphereTransmittance = false;
     };
+    // UE's ATMOSPHERE LIGHT 1 (Atmosphere Sun Light Index 1, the moon), in transport form: the second light the
+    // physical sky scatters and draws a disc for. Present == false is "the scene has no second atmosphere light"
+    // and every consumer then contributes exactly nothing (the sky passes branch on it, so a scene without one
+    // renders bit-for-bit what it rendered before the slot existed).
+    struct AtmosphereLight1
+    {
+        bool      Present = false;
+        glm::vec3 TowardLight{ 0.0f, 1.0f, 0.0f };   // normalized, ECS::Rules::AtmosphereSunDirection
+        glm::vec3 OuterSpaceIlluminance{ 0.0f };     // the light's Color x Intensity (lux), as the sun's
+        glm::vec3 DiskColorScale{ 1.0f };            // its Atmosphere Sun Disk Color Scale
+        float     DiskAngularRadius = 0.0f;          // radians: half the light's Source Angle (UE draws the
+                                                     // disc of an atmosphere light at its source angle)
+        bool AffectedByAtmosphereTransmittance = false; // as SunLightFx: false until a chosen light says
+    };
 } // namespace Desert::Graphic

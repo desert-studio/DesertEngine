@@ -1,5 +1,6 @@
 #include "ShaderGraph.hpp"
 
+#include <Editor/Core/TextList.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 
 #include <algorithm>
@@ -375,14 +376,8 @@ namespace Desert::Editor::ShaderGraph
     // beside it, so a row added there appears in what the artist is told without anybody remembering to.
     static std::string ShadowRayScopeList()
     {
-        std::string list;
-        for ( const auto& scope : ShadowRayScopes() )
-        {
-            if ( !list.empty() )
-                list += ", ";
-            list += scope.OutputPin;
-        }
-        return list;
+        return Editor::TextTemplates::JoinList( ShadowRayScopes(), ", ",
+                                                []( const auto& scope ) { return scope.OutputPin; } );
     }
 
     const char* OutputKind( Domain domain )

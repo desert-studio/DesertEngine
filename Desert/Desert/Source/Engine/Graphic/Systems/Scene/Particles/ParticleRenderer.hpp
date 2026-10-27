@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -64,6 +65,14 @@ namespace Desert::Graphic::System
     // blend from the cell's template (ApplySurfaceBlendMode), depth-TESTED against the scene depth it holds
     // read-only (and samples for the depth fade where the cell does), INDIRECT from the last compact's slot of
     // the emitter's Counters - six vertices per particle the compact found alive.
+    // One emitter of the frame's tick as one view's cull saw it (ParticleRenderer::ViewEmitterCulls).
+    struct ParticleViewEmitterCull
+    {
+        uint32_t EntityId = 0; // the raw entt entity value, as VFXSystemDebugStats::EntityId
+        uint32_t Emitter  = 0; // the emitter's index in its system
+        bool     Culled   = false;
+    };
+
     class ParticleRenderer final : public RenderSystem
     {
     public:
@@ -96,10 +105,19 @@ namespace Desert::Graphic::System
             return m_Simulates;
         }
 
-        // The particle part of SceneRenderer::LocalShadowMapsRead / SunCascadesRead: an emitter of this view
-        // (PrepareFrame's m_ViewEmitters) draws with a sprite program that samples @p textureName. Emitters carry
-        // no bounds here, so every view emitter counts (conservative: the maps are drawn, never missed).
+        // The particle part of SceneRenderer::LocalShadowMapsRead / SunCascadesRead: an emitter this view draws
+        // (PrepareFrame's m_ViewEmitters, its fixed Bounds in the view's frustum) draws with a sprite program that
+        // samples @p textureName.
         [[nodiscard]] bool ViewEmittersSample( std::string_view textureName ) const;
+
+        // VFX-PORT-2 (UE: the Niagara fixed-bounds view cull, stat Niagara's culled count): every emitter of this
+        // frame's tick and whether this view culled it - its fixed Bounds (ParticleFrameEmitter::WorldBounds) out
+        // of the view's frustum, so none of its sprite / ribbon rows and none of its Mesh rows' geometry draws in
+        // this view (the cascades cull the Mesh rows by their own frustum). Built by PrepareFrame.
+        [[nodiscard]] std::span<const ParticleViewEmitterCull> ViewEmitterCulls() const
+        {
+            return m_ViewCulls;
+        }
 
         // How many fixed steps this frame simulates: the most any declared emitter runs (0 in a view that does not
         // simulate).
@@ -143,6 +161,14 @@ namespace Desert::Graphic::System
         [[nodiscard]] bool                  DebugReadbackRequested() const;
         [[nodiscard]] Common::BoolResultStr DebugReadback( const RDG::PassContext& context );
         void                                DeclareDebugReadbackBindings( RDG::PassBuilder& pass ) const;
+
+        // VFX-LIGHT (UE Niagara Light Renderer): the node "Particles: Light Readback", in the simulating view
+        // after the last compact - one ParticleLightReadback dispatch per declared emitter with an enabled Light
+        // row, copying up to its MaxLights alive particles' position, size and colour into its readback, which
+        // ParticleWorldGpu::ReadLightReadbacks turns into the scene's particle point lights FramesInFlight later.
+        [[nodiscard]] bool                  LightReadbackRequested() const;
+        [[nodiscard]] Common::BoolResultStr LightReadback( const RDG::PassContext& context );
+        void                                DeclareLightReadbackBindings( RDG::PassBuilder& pass ) const;
 
         // VFX-09: every Mesh renderer row of a declared emitter as GPU instances (GpuInstances.hpp, UE
         // FNiagaraRendererMeshes): one "Particles: Mesh Instances {emitter}.{row}" Compute node writes a transform
@@ -283,7 +309,11 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer         DebugImport; // VFX-16: the debugger's readback (simulating view only)
             RDG::BufferRef              DebugRef;
             bool                        Debugged = false;
+            RDG::ExternalBuffer         LightImport; // VFX-LIGHT: the Light row's readback (simulating view only)
+            RDG::BufferRef              LightRef;
+            bool                        Lit      = false;
             bool                        Declared = false;
+            bool                        InView   = false; // its fixed Bounds meet this view's frustum (PrepareFrame)
             bool                        Sorted   = false; // the draw reads m_SortedRef, not AliveList
             bool                        Ribboned = false; // its ribbon link order is in m_RibbonRef
         };
@@ -298,6 +328,8 @@ namespace Desert::Graphic::System
         bool RunsCompact( const ViewEmitter& ve, uint32_t compact ) const;
         // Whether the Debug Readback node dispatches @p ve.
         bool RunsDebug( const ViewEmitter& ve ) const;
+        // Whether the Light Readback node dispatches @p ve.
+        bool RunsLight( const ViewEmitter& ve ) const;
         // The sprite draw of @p cellShader in this view, built on first use (null = refused, said once by name).
         SpriteDraw* SpriteDrawFor( const std::string& cellShader );
         // The draw renderer row @p row of @p fe draws with this frame: the row's material's cell of the row's
@@ -313,6 +345,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<ComputePipeline> m_CompactPipeline;
         std::shared_ptr<ComputePipeline> m_ArgsPipeline;
         std::shared_ptr<ComputePipeline> m_DebugPipeline;
+        std::shared_ptr<ComputePipeline> m_LightPipeline; // ParticleLightReadback
         std::shared_ptr<ComputePipeline> m_SortPipeline;
         std::shared_ptr<ComputePipeline> m_MeshPipeline; // ParticleMeshInstances
         mutable ShaderBindingLayoutCache m_MeshLayout;
@@ -329,6 +362,7 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache                                             m_CompactLayout;
         mutable ShaderBindingLayoutCache                                             m_ArgsLayout;
         mutable ShaderBindingLayoutCache                                             m_DebugLayout;
+        mutable ShaderBindingLayoutCache                                             m_LightLayout;
 
         // The ParticleSpriteDefault template's ParticleSprite.Forward cell (Initialize refuses without it).
         std::string m_DefaultCell;
@@ -342,6 +376,7 @@ namespace Desert::Graphic::System
         const ParticleWorldGpu*                        m_World     = nullptr;
         bool                                          m_Simulates = false;
         std::vector<ViewEmitter>                      m_ViewEmitters;
+        std::vector<ParticleViewEmitterCull>          m_ViewCulls; // one per m_ViewEmitters entry
         ViewPool                                      m_Pool;
     };
 } // namespace Desert::Graphic::System

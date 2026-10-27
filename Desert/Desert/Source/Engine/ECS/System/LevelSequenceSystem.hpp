@@ -4,7 +4,7 @@
 #include <Engine/Assets/LevelSequenceAsset.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
-#include <Engine/Audio/AudioEngine.hpp>
+#include <Audio/AudioEngine.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/LevelSequencePlayback.hpp>

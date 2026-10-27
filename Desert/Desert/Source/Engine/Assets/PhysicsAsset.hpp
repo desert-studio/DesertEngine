@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Assets/AssetBase.hpp>
-#include <Engine/Physics/PhysicsAssetFormat.hpp>
+#include <PhysicsCore/PhysicsAssetFormat.hpp>
 
 namespace Desert::Assets
 {

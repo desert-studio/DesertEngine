@@ -1,3 +1,5 @@
+#include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
+#include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
@@ -553,6 +555,12 @@ namespace Desert::Graphic
                     LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable: {}",
                               deferredInit.GetError() );
                 m_ProgramRefusals.Shadows = deferred->Refusals().Shadows;
+                // The screen-space subsurface scatter (SSS-PROFILE): without it the profile materials shade unsplit.
+                RegisterSystem<System::SubsurfaceRenderer>( "SubsurfaceSystem", this, m_TargetFramebuffer );
+                if ( const auto subsurfaceInit =
+                          SP_CAST( System::SubsurfaceRenderer, m_RenderSystems["SubsurfaceSystem"] )->Initialize();
+                     !subsurfaceInit )
+                    LOG_ERROR( "[SceneRenderer] Subsurface scattering unavailable: {}", subsurfaceInit.GetError() );
                 return "DeferredLighting";
             }
             case 20:
@@ -566,6 +574,12 @@ namespace Desert::Graphic
                     LOG_ERROR(
                          "[SceneRenderer] auto-exposure did not initialise; exposure stays at its default." );
                 tonemapSystem->SetAutoExposureImage( autoExposureSystem->GetAdaptedLuminanceImage() );
+                // Local exposure (UE Bilateral): grid + blurred log luminance the tonemap and the bloom read.
+                RegisterSystem<System::LocalExposureRenderer>( "LocalExposureSystem", this, m_TargetFramebuffer );
+                if ( const auto le =
+                          SP_CAST( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] )->Initialize();
+                     !le )
+                    LOG_ERROR( "[SceneRenderer] local exposure did not initialise: {}", le.GetError() );
                 return "AutoExposure";
             }
             case 21:
@@ -646,7 +660,7 @@ namespace Desert::Graphic
                 kind = "preview";
             else if ( profile == kThumbnailViewProfile )
                 kind = "thumbnail";
-            return std::string( kind ) + " #" + std::to_string( number );
+            return std::format( "{} #{}", kind, number );
         }
 
         // Every live renderer, so the view budget can name what each holds. Guarded: views are built and
@@ -958,8 +972,10 @@ namespace Desert::Graphic
         // A PATH-TRACED VIEW renders its own anti-aliasing: each path starts at a random point of its pixel and
         // the accumulation averages them (UE RenderPathTracing bypasses TAA/TSR the same way). No temporal method,
         // no FXAA/SMAA after it, no jitter; the view resolution is native (OnUpdate). The sample count stays the
-        // scene path's one: PathTraced needs the G-buffer, and the deferred path is never multisampled.
-        if ( PathTraced( m_RenderMethods ) )
+        // scene path's one: PathTraced needs the G-buffer, and the deferred path is never multisampled. Except
+        // under the upscaler that denoises (System::PathTracer::KeepsDenoisingUpscaler: DLSS Ray Reconstruction):
+        // the paths go to it raw through the jittered pixel centres, and it is the anti-aliasing.
+        if ( PathTraced( m_RenderMethods ) && !System::PathTracer::KeepsDenoisingUpscaler( quality ) )
         {
             m_RenderedAntiAliasing.Method      = Common::Scalability::AntiAliasingMethod::None;
             m_RenderedAntiAliasing.PostProcess = Common::Scalability::AntiAliasingMethod::None;
@@ -980,11 +996,15 @@ namespace Desert::Graphic
             m_AAMode                           = Common::Scalability::AntiAliasingMethod::None;
         }
         m_GIIntensity    = post.GIIntensity;
+        m_SubsurfaceScattering = post.SubsurfaceScattering;
+        m_SubsurfaceScale      = post.SubsurfaceScale;
         m_SSRIntensity   = post.SSRIntensity;
         m_SSRMaxDistance = post.SSRMaxDistance;
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
         m_SSRRaysPerPixel      = quality.As<int>( Parameter::ReflectionRaysPerPixel );
         m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
+        m_DisplacementDicingRate = quality.As<int>( Parameter::DisplacementDicingRate );
+        m_DisplacementPoolMiB    = static_cast<uint32_t>( quality.As<int>( Parameter::DisplacementPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
         m_ScreenProbeAdaptivePercent = quality.As<uint32_t>( Parameter::ScreenProbeAdaptiveAllocation );
         m_ScreenProbeShortRangeAO    = quality.As<int>( Parameter::ScreenProbeShortRangeAO ) != 0;
@@ -1036,8 +1056,12 @@ namespace Desert::Graphic
         m_PathTracingSettings                 = System::PathTracer::Settings{
                              .SamplesPerPixel = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
                              .PathsPerFrame   = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
-                             .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ) };
+                             .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
+                             .MaxPathIntensity =
+                                  quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
+                             .Denoise = quality.As<uint32_t>( Parameter::PathTracingDenoiser ) != 0u };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
+        m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
         m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
         m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;
@@ -1085,6 +1109,11 @@ namespace Desert::Graphic
                 scene.GetVFXWorld().SubmitView( report );
             }
             UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
+            // VFX-LIGHT (UE Niagara Light Renderer): the scene's particle lights join this view's local lights -
+            // the same light grid, composite and forward paths as a PointLightComponent's, casting no shadow.
+            for ( const ShaderProtocols::PointLightPayload& light :
+                  System::ParticleWorldGpu::Of( scene.GetVFXWorld() ).ParticleLights() )
+                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false } );
         }
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
@@ -1118,7 +1147,23 @@ namespace Desert::Graphic
                 m_LastExposure  = lum > 0.0f ? post.AutoExposureKey / std::max( lum, 1e-4f ) : 0.0f;
                 LOG_TRACE( "[PreExposure] {}: read-back adapted luminance {} -> exposure {}",
                            m_ViewResources.GetName(), lum, m_LastExposure );
+                // UE UpdatePreExposure x AverageLocalExposure (PostProcessEyeAdaptation.cpp:1559,1587): the
+                // tonemap scales the scene term by local exposure, so the stored range follows it.
+                m_LastAverageLocalExposure = ae->GetLastAverageLocalExposure();
             }
+        }
+        if ( !post.AutoExposure || m_ViewProfile.SceneCapture )
+            m_LastAverageLocalExposure = 1.0f;
+        {
+            const LocalExposureParams localExposure = ResolveLocalExposure( post );
+            const float               logMiddleGrey = LocalExposureLogMiddleGrey(
+                 post.AutoExposureKey, localExposure.MiddleGreyBiasEV, !post.AutoExposure );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( auto* le = UNIQUE_GET_AS( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] ) )
+                le->SetParams( localExposure, logMiddleGrey, m_LastExposure > 0.0f ? m_LastExposure : manualExposure );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( auto* ae = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
+                ae->SetLocalExposure( localExposure, logMiddleGrey, post.AutoExposureKey );
         }
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
         // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
@@ -1278,6 +1323,7 @@ namespace Desert::Graphic
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
+        m_AtmosphereLight1       = sceneRenderInfo.AtmosphereLight1;
 
         // THE SUN THE ATMOSPHERE LETS THROUGH (UE's PrepareSunLightProxy). The light's authored colour
         // is its OUTER-SPACE illuminance in the physical model; what reaches the ground has crossed the
@@ -1301,11 +1347,22 @@ namespace Desert::Graphic
             colorIntensity.y *= transmittance.y;
             colorIntensity.z *= transmittance.z;
         }
+        // Atmosphere light 1 (the moon) by the same law, through its own direction's factor.
+        if ( m_AtmosphereLight1 )
+        {
+            const glm::vec3 transmittance  = skyboxSystem->GetAtmosphere().Light1TransmittanceAtGround;
+            glm::vec4&      colorIntensity = m_AtmosphereLight1->Light.ColorIntensity;
+            colorIntensity.x *= transmittance.x;
+            colorIntensity.y *= transmittance.y;
+            colorIntensity.z *= transmittance.z;
+        }
 
         // Decide whether the procedural sky's light is (re)captured this frame and allocate the capture, before
         // the render graph is built: its passes are recorded by AddFrameSkyLight at the head of the graph.
         {
             DESERT_PROFILE_PASS( "Sky: EnsureProceduralEnv" );
+            // The sky block first, inside this view's scope: the capture and the graph below read it.
+            skyboxSystem->UploadFrameSkyParams();
             skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
         }
 
@@ -1349,6 +1406,10 @@ namespace Desert::Graphic
         // every barrier and layout transition. A pass this frame does not run is not added. The lambdas run inside
         // Execute, after the whole graph is built, so a value one pass hands a later one travels through `values`,
         // which outlives Execute; everything else they need is captured by value.
+        // Every CPU stage of the graph's build and execution is a row of its own, so the body has no time that
+        // no child scope accounts for.
+        DESERT_PROFILE_PHASES( phases );
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: Frame setup" );
         RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
 
@@ -1377,8 +1438,11 @@ namespace Desert::Graphic
         int                settingPercent  = m_Quality.As<int>( Parameter::RenderScalePercent );
         std::optional<int> overridePercent = m_DebugView.ScreenPercentage;
         auto               upscaler        = m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler );
-        // The wireframe view renders without anti-aliasing (BeginScene): no upscaler to reconstruct with.
-        if ( PathTraced( m_RenderMethods ) || m_DebugView.WireframeMode )
+        // The wireframe view renders without anti-aliasing (BeginScene): no upscaler to reconstruct with. A
+        // path-traced view under the upscaler that denoises keeps it and its render scale
+        // (System::PathTracer::KeepsDenoisingUpscaler).
+        if ( ( PathTraced( m_RenderMethods ) && !System::PathTracer::KeepsDenoisingUpscaler( m_Quality ) ) ||
+             m_DebugView.WireframeMode )
         {
             settingPercent  = 100;
             overridePercent = std::nullopt;
@@ -1438,7 +1502,7 @@ namespace Desert::Graphic
                                    ? glm::vec3( 0.0f )
                                    : glm::normalize( -glm::vec3( m_DirectionLights.DirectionLights[0].Direction ) );
         m_LastRenderScalePercent                 = inputs.RenderScalePercent;
-        inputs.LastExposure                      = m_LastExposure;
+        inputs.LastExposure                      = m_LastExposure * m_LastAverageLocalExposure;
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
         if ( !begun )
         {
@@ -1456,6 +1520,9 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
             autoExp->SetPreExposure( frame.PreExposure );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* le = UNIQUE_GET_AS( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] ) )
+            le->SetPreExposure( frame.PreExposure );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* bloom = UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] ) )
             bloom->SetPreExposure( frame.PreExposure );
@@ -1581,6 +1648,19 @@ namespace Desert::Graphic
                 m_FrameRayTracingCache->BeginViewFrame( frameNumber );
                 skinCache = &m_FrameRayTracingCache->GetSkinCache();
                 skinCache->SetEnabled( meshes->IsSkinCacheEnabled() );
+                skinCache->SetDisplacement( &m_FrameRayTracingCache->GetDisplacement() );
+                // Mesh displacement (DisplacementCache.hpp): this view's level requests, the frame's one
+                // displacement (first view), and the twins every pass of this view draws.
+                System::DisplacementCache& displacement = m_FrameRayTracingCache->GetDisplacement();
+                displacement.SetQuality( System::DisplacementQuality{
+                     .Enabled          = m_DisplacementDicingRate > 0,
+                     .DicingRatePixels = static_cast<float>( std::max( m_DisplacementDicingRate, 1 ) ),
+                     .PoolBytes        = static_cast<uint64_t>( m_DisplacementPoolMiB ) << 20u } );
+                if ( const auto* viewCamera = GetMainCamera(); viewCamera != nullptr )
+                    meshes->ApplyDisplacement(
+                         displacement,
+                         Geometry::LODView{ viewCamera->GetPosition(), viewCamera->GetProjectionMatrix() },
+                         static_cast<float>( m_ViewExtent.Height ), frameNumber, !m_ViewProfile.SceneCapture );
             }
             if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions(
                       m_ViewState.Motion(), m_ScratchTileMotions, skinCache, frameNumber );
@@ -1605,6 +1685,7 @@ namespace Desert::Graphic
                      "SceneColor" } } );
         };
 
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: Grass, TLAS, shadow plan" );
         AddFrameClearMainFramebuffer( graph, textures );
 
         // The landscape grass of this view, before every node that draws it (the cascades, the geometry) and
@@ -1819,18 +1900,34 @@ namespace Desert::Graphic
             // after a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it). A
             // path-traced frame reads no cascade: its paths trace the sun's visibility through the TLAS, and the
             // lit passes that sample the maps do not run.
-            m_FrameSunCascades = meshes != nullptr && !PathTraced( m_RenderMethods ) &&
-                                 ( !SunShadowIsScreenMask() || SunCascadesRead() );
-            if ( !m_FrameSunCascades )
+            // EVERY OTHER DIRECTIONAL LIGHT keeps its cascades under the sun's mask (the moon, slot
+            // kShadowLightAtmosphere1: DeferredScreenShadowMask::Lights, the surface cache's cascade arm), so the
+            // array is drawn while any slot casts. The sun's own slot is dropped when nothing reads it
+            // (MeshRenderer::DropDirectionalShadow): its layers are not drawn for the moon's sake, and the receivers
+            // that pack DirectionalShadows() below (the composite, the surface cache) see it with no cascade.
+            const bool sunCascadesUnread = SunShadowIsScreenMask() && !SunCascadesRead();
+            if ( meshes != nullptr && sunCascadesUnread )
+                meshes->DropDirectionalShadow( SceneResources::kDirectionalShadowSun );
+            const auto anySlotCasts = [meshes]
+            {
+                for ( const SceneResources::DirectionalShadowView& light : meshes->DirectionalShadows() )
+                    if ( light.CastShadows && light.Count > 0 )
+                        return true;
+                return false;
+            };
+            m_FrameCascades = meshes != nullptr && !PathTraced( m_RenderMethods ) &&
+                              ( !sunCascadesUnread || anySlotCasts() );
+            if ( !m_FrameCascades )
                 textures.Transients.ShadowCascades = AddFrameNoSunCascades( graph );
-            else if ( !m_SunCascadesDrawnLastFrame )
+            else if ( !m_CascadesDrawnLastFrame )
                 meshes->InvalidateCascadeCaches();
-            m_SunCascadesDrawnLastFrame = m_FrameSunCascades;
+            m_CascadesDrawnLastFrame = m_FrameCascades;
         }
 
         // A face view draws no particles (UE: a capture's ShowFlags.Particles = 0, "usually dynamic, and can't be
         // captured well"), and simulates none: the face views render first in a frame, and the first view to
         // prepare the tick is the one that simulates it.
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: Add passes" );
         if ( !m_ViewProfile.SceneCapture )
             AddFrameParticlesSimulate( graph );
 
@@ -1955,8 +2052,21 @@ namespace Desert::Graphic
                                                               ? AddFrameRayTracedLocalShadows( graph, textures,
                                                                                                gbuffer, frame )
                                                               : RDG::TextureRef{};
+                // SSS-PROFILE: the composite splits the scattered texels' diffuse into this target when the view
+                // scatters; Burley + Recombine add it back BEFORE the forward meshes (AddFrameGeneric), which may
+                // stand in front of a scattered texel and must not receive its diffuse.
+                const RDG::TextureRef subsurfaceDiffuse =
+                     SubsurfaceRuns()
+                          ? graph.CreateTexture(
+                                 RDG::TextureDesc{ .Size   = { .Width  = m_TargetFramebuffer->GetFramebufferWidth(),
+                                                               .Height = m_TargetFramebuffer->GetFramebufferHeight() },
+                                                   .Format = ViewTargetFormats::kSubsurfaceDiffuse },
+                                 "SubsurfaceDiffuse" )
+                          : RDG::TextureRef{};
                 AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, localShadowMasks,
-                                   megaLights, meshRenderer, lightDir, lightColor, frame );
+                                   megaLights, meshRenderer, lightDir, lightColor, frame, subsurfaceDiffuse );
+                if ( subsurfaceDiffuse.IsValid() )
+                    AddFrameSubsurface( graph, textures, gbuffer, subsurfaceDiffuse, frame );
                 AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask, localShadowMasks );
 
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
@@ -2130,6 +2240,7 @@ namespace Desert::Graphic
             const RDG::TextureRef postSource = postInput.empty() ? RDG::TextureRef{} : postInput.front();
             const RDG::TextureRef outlined   = AddFrameJumpFlood( graph, textures, postSource );
             AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
+            AddFrameLocalExposure( graph, textures, postInput );
             if ( m_BloomEnabled )
             {
                 AddFrameBloom( graph, textures, postInput );
@@ -2167,6 +2278,7 @@ namespace Desert::Graphic
         // the final image black for this frame.
         // A FrameFault never reaches EndFrame: the next BeginFrame still sees the last committed frame as
         // previous. A frame that executed commits as previous with what its report says it lost.
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: ExecuteGraph" );
         if ( Renderer::ExecuteGraph( graph ).IsSuccess() )
             m_ViewState.EndFrame( graph.GetExecuteReport() );
         textures.ResetInvalidatedHistories();
@@ -2244,6 +2356,14 @@ namespace Desert::Graphic
                         ->ViewEmittersSample( mapName );
         }
     } // namespace
+
+    std::span<const System::ParticleViewEmitterCull> SceneRenderer::ParticleViewEmitterCulls() const
+    {
+        const auto particles = m_RenderSystems.find( "ParticleSystem" );
+        if ( particles == m_RenderSystems.end() || !particles->second )
+            return {};
+        return static_cast<const System::ParticleRenderer*>( particles->second.get() )->ViewEmitterCulls();
+    }
 
     bool SceneRenderer::LocalShadowMapsRead() const
     {
@@ -3049,7 +3169,8 @@ namespace Desert::Graphic
                                              const MaterialInstancePtr& material, uint64_t hiddenSubmeshes,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                              bool castShadows, bool castContactShadow,
-                                             const InstanceCullDistance& cullDistance, const InstanceWind& wind )
+                                             const InstanceCullDistance& cullDistance, const InstanceWind& wind,
+                                             const MaterialInstancePtr& displacedMaterial )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
@@ -3063,6 +3184,7 @@ namespace Desert::Graphic
              ->SubmitInstancedMesh( { .Entity            = entity,
                                       .Mesh              = mesh,
                                       .Material          = material,
+                                      .DisplacedMaterial = displacedMaterial,
                                       .HiddenSubmeshes   = hiddenSubmeshes,
                                       .Transforms        = transforms,
                                       .CastShadows       = castShadows,
@@ -3088,11 +3210,12 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow,
-                                          const SkySettings& sky, const SunLightFx& fx )
+                                          const SkySettings& sky, const SunLightFx& fx,
+                                          const AtmosphereLight1& light1 )
     {
         m_SunLightFx = fx;
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
-             ->SetProceduralSky( enabled, sunDir, bakeNow, sky, fx );
+             ->SetProceduralSky( enabled, sunDir, bakeNow, sky, fx, light1 );
     }
 
     const AtmosphereEnv& SceneRenderer::GetAtmosphere() const

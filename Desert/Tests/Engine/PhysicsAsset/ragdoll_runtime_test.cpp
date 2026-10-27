@@ -3,9 +3,9 @@
 #include <Engine/Animation/BoneControl.hpp>
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/Skeleton.hpp>
-#include <Engine/Physics/PhysicsAssetFormat.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
-#include <Engine/Physics/RagdollDesc.hpp>
+#include <PhysicsCore/PhysicsAssetFormat.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
+#include <Engine/Physics/RagdollDescBuilder.hpp>
 #include <Engine/Physics/RagdollPose.hpp>
 
 #include "../PhysicsFixture.hpp"

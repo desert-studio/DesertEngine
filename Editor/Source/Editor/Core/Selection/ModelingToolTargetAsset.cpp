@@ -2,7 +2,7 @@
 // ModelingToolTarget.cpp so the rule itself compiles into a suite with no asset registry and no device.
 #include "ModelingToolTarget.hpp"
 
-#include <Editor/Import/EditedMeshAsset.hpp>
+#include <Editor/Core/Selection/EditedMeshAsset.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>

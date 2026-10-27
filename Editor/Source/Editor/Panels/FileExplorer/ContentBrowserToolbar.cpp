@@ -5,7 +5,7 @@
 #include <Editor/Panels/FileExplorer/AssetViewState.hpp>
 #include <Editor/Panels/FileExplorer/ContentBrowserHistory.hpp>
 #include <Editor/Panels/FileExplorer/DirectoryInformation.hpp>
-#include <Editor/Panels/FileExplorer/FileType.hpp>
+#include <Editor/Core/FileType.hpp>
 
 #include <ImGui/imgui.h>
 
@@ -53,6 +53,7 @@ namespace Desert::Editor
              { "VFX Data Channels", static_cast<int>( FileType::VFXDataChannel ) },
              { "VFX Effect Types", static_cast<int>( FileType::VFXEffectType ) },
              { "State Trees", static_cast<int>( FileType::StateTree ) },
+             { "VFX Modules", static_cast<int>( FileType::VFXModule ) },
         };
     } // namespace
 

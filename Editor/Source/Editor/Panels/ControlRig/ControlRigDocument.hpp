@@ -13,7 +13,7 @@
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
 #include <Editor/Panels/ControlRig/ControlRigDocumentModel.hpp>
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/IPanel.hpp>
 
 #include <Common/Core/Core.hpp>
 #include <Engine/Assets/AssetMetadata.hpp>

@@ -19,6 +19,7 @@
 #include <Engine/Graphic/ShaderProtocols/PointLight.hpp>
 #include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>
 #include <Engine/Graphic/LocalShadows.hpp>
+#include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/AtmosphereEnv.hpp>
 #include <Engine/Graphic/Clouds/CloudShadowPayload.hpp>
 #include <Engine/Graphic/SkySettings.hpp>
@@ -75,6 +76,7 @@
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include "Systems/Scene/Deferred/DepthExpandRenderer.hpp"
 #include "Systems/Scene/Deferred/HZBRenderer.hpp"
+#include "Systems/Scene/Deferred/SubsurfaceRenderer.hpp"
 #include "Systems/Scene/Deferred/SSRRenderer.hpp"
 #include "Systems/Scene/Deferred/SceneColorHistoryRenderer.hpp"
 #include "Systems/Scene/Particles/ParticleRenderer.hpp"
@@ -139,6 +141,20 @@ namespace Desert::Graphic
     class SceneRenderer final
     {
     public:
+        // Atmosphere light 1 (UE's Atmosphere Sun Light Index 1, the moon) as a frame lights it: the payload the
+        // deferred pass shades (direction it travels, colour/intensity, as DirLights' sun) and what a TRACED ray of
+        // it needs beside - its disc and whether it is occluded (the path tracer's light sample, the GI hit
+        // lighting) - and its own cascades' policy (MeshRenderer fits slot 1 with it exactly as it fits the sun's
+        // with ViewShadowSettings), read from the same DirectionLightComponent.
+        struct AtmosphereLight1Frame
+        {
+            ShaderProtocols::DirectionLightPayload Light;
+            float SourceAngleDegrees = 0.0f; // UE SourceAngle: the disc's full angular diameter (0: a delta)
+            bool  CastShadows        = true; // UE bCastShadows: false = no ray of it is ever occluded, no cascades
+            CascadeBiasSettings ShadowBias;  // ShadowBias / ShadowSlopeBias / ShadowCascadeBiasDistribution
+            float CascadeSplitLambda = 0.6f; // UE CascadeDistributionExponent's role: the split blend
+        };
+
         struct UpdateInfo
         {
             // The WORLD'S step this frame (Core::WorldTime::GetDeltaSeconds): zero while paused or while
@@ -150,6 +166,10 @@ namespace Desert::Graphic
             // would never be re-baked).
             Common::Timestep                RealTimestep;
             ShaderProtocols::DirectionLight DirLights;
+            // Atmosphere light 1 (UE's Atmosphere Sun Light Index 1, the moon), when the scene marks one:
+            // direction it travels and colour/intensity, as DirLights' sun. Shaded by the deferred pass, and lit
+            // by the path tracer and the GI hit lighting through the GI frame record.
+            std::optional<AtmosphereLight1Frame> AtmosphereLight1;
         };
 
         struct RenderSubmissionExtra
@@ -377,7 +397,8 @@ namespace Desert::Graphic
                                   uint64_t                                             hiddenSubmeshes,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                   bool castShadows, bool castContactShadow,
-                                  const InstanceCullDistance& cullDistance, const InstanceWind& wind );
+                                  const InstanceCullDistance& cullDistance, const InstanceWind& wind,
+                                  const MaterialInstancePtr& displacedMaterial );
 
         void SetEnvironment( const std::shared_ptr<MaterialSkybox>& material, const SkyLook& look );
 
@@ -422,6 +443,8 @@ namespace Desert::Graphic
         }
         // The GI / reflection / shadow methods this view renders and why any came out below its request — what
         // the viewport overlay draws (Graphic/RenderMethods.hpp). Refreshed every BeginScene.
+        // VFX-PORT-2: this view's particle cull (ParticleRenderer::ViewEmitterCulls); empty without the system.
+        [[nodiscard]] std::span<const System::ParticleViewEmitterCull> ParticleViewEmitterCulls() const;
         [[nodiscard]] const RenderMethods& GetRenderMethods() const
         {
             return m_RenderMethods;
@@ -459,7 +482,7 @@ namespace Desert::Graphic
         // sunDir is the direction TOWARD the sun, already normalized; bakeNow is the one-shot request from
         // the editor's Bake button.
         void SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow, const SkySettings& sky,
-                               const SunLightFx& fx );
+                               const SunLightFx& fx, const AtmosphereLight1& light1 );
 
         // This frame's exponential height fog (from ExponentialHeightFogComponent, via the ECS).
         // `present` = false means the scene has no enabled fog component at all — said explicitly, because
@@ -554,6 +577,12 @@ namespace Desert::Graphic
         const auto& GetDirectionLights() const
         {
             return m_DirectionLights;
+        }
+        // Atmosphere light 1 as this frame lights it (UpdateInfo::AtmosphereLight1, its colour through its own
+        // transmittance), when the scene marks one: MeshRenderer fits its cascades from it.
+        [[nodiscard]] const std::optional<AtmosphereLight1Frame>& GetAtmosphereLight1() const
+        {
+            return m_AtmosphereLight1;
         }
 
         // CSM debug: a cascade's static-caster cache (MeshRenderer::GetCascadeCacheImage), for the editor's
@@ -658,6 +687,15 @@ namespace Desert::Graphic
             }
             return sun;
         }
+        // Atmosphere light 1 (the moon) as the same lit passes receive it: its direction and colour/intensity, or
+        // zero colour/intensity when the scene has none (the shaders then add nothing).
+        [[nodiscard]] FrameSun GetFrameLight1() const
+        {
+            if ( !m_AtmosphereLight1 )
+                return FrameSun{ .ColorIntensity = glm::vec4( 0.0f ) };
+            return FrameSun{ .Direction      = m_AtmosphereLight1->Light.Direction,
+                             .ColorIntensity = m_AtmosphereLight1->Light.ColorIntensity };
+        }
 
         /// THE view's contact shadows (Common/ContactShadow.glslh): the march's view values and the sun's length,
         /// packed into ShadowUB for every lit pass (the deferred composite, the forward meshes, the glass).
@@ -669,6 +707,9 @@ namespace Desert::Graphic
         /// THE view's sun PCSS kernel (Scalability Shadows.BlockerSearchTaps / Shadows.FilterTaps), packed into
         /// ShadowUB by every lit pass that samples the cascades.
         [[nodiscard]] SceneResources::ShadowFilterSettings GetShadowFilterSettings() const;
+        /// SSS-PROFILE: this view scatters and its Burley history has not yet averaged its full window (a Scale
+        /// change, a camera cut, the first frames) - the control gate's PendingWork::SubsurfaceHistory.
+        [[nodiscard]] bool SubsurfaceHistoryConverging() const;
 
     private:
         // THIS VIEW in the resource ledger (RT-LEDGER-2). Its RT rows — the TLAS storage, the landscape tiles'
@@ -794,6 +835,8 @@ namespace Desert::Graphic
         LODPreviewLease m_LODPreview;
         // ScenePreExposure's source this frame (ViewInputs::LastExposure); 0 = none known.
         float m_LastExposure = 0.0f;
+        // The AverageLocalExposure the eye adaptation read back with it (1 = none): pre-exposure follows it.
+        float m_LastAverageLocalExposure = 1.0f;
         // Scene::GetGeneration() of the scene BeginScene was handed (a reload at the same address is a new
         // generation, so a new identity: SceneViewState resets the history).
         uint64_t m_SceneGeneration = 0;
@@ -895,7 +938,7 @@ namespace Desert::Graphic
         // clears its cascade), the scene target's sky + mesh geometry + terrain (the sky clears, the rest load),
         // the outline mask (clears).
         void AddFrameShadowDepths( RDG::Builder& graph, FrameTextures& textures );
-        // The sun's cascade depths (MeshRenderer::ShadowCascadePasses); declared only when m_FrameSunCascades.
+        // The directional lights' cascade depths (MeshRenderer::ShadowCascadePasses); declared only when m_FrameCascades.
         void AddFrameSunCascades( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer& mesh );
         // The one-texel far-plane cascade array a view binds when no cascade is drawn this frame ("CSM.None").
         RDG::TextureRef AddFrameNoSunCascades( RDG::Builder& graph );
@@ -1212,7 +1255,15 @@ namespace Desert::Graphic
                                 RDG::TextureRef sunShadowMask, RDG::TextureRef localShadowMasks,
                                 const System::MegaLightsLighting& megaLights,
                                 System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                const glm::vec4& lightColor, const ViewFrame& frame );
+                                const glm::vec4& lightColor, const ViewFrame& frame,
+                                RDG::TextureRef subsurfaceDiffuse );
+        // SSS-PROFILE (CONTRACT §5): whether this view scatters - SubsurfaceScattering on with a Scale above 0, the
+        // Lit view, a profile registered and the SubsurfaceRenderer built.
+        [[nodiscard]] bool SubsurfaceRuns() const;
+        // "Subsurface: Burley" + "Subsurface: Recombine" over the composite's @p subsurfaceDiffuse (its split).
+        void AddFrameSubsurface( RDG::Builder& graph, FrameTextures& textures,
+                                 const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef subsurfaceDiffuse,
+                                 const ViewFrame& frame );
         // The scene snapshot (UE: CreateTexture from the scene colour's desc, copied by a raster node): published
         // as FrameTransients::SceneColorCopy and returned; invalid when no copy was made (no copy system, no scene
         // colour, its desc refused - logged). @p into: the imported image to copy into (the view's scene
@@ -1276,6 +1327,10 @@ namespace Desert::Graphic
         // @p previous: PrepareFrameAutoExposure's result (nothing is added when it is invalid).
         void AddFrameAutoExposure( RDG::Builder& graph, FrameTextures& textures,
                                    const std::vector<RDG::TextureRef>& sceneColor, RDG::TextureRef previous );
+        // UE Local Exposure (Bilateral): Setup (grid + 1/32 log luminance) then BlurH/BlurV of the latter, into
+        // FrameTransients::LocalExposureGrid / BlurredLogLuminance. Nothing is added at identity settings.
+        void AddFrameLocalExposure( RDG::Builder& graph, FrameTextures& textures,
+                                    const std::vector<RDG::TextureRef>& sceneColor );
         void AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                             const std::vector<RDG::TextureRef>& sceneColor );
         void AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,
@@ -1303,6 +1358,9 @@ namespace Desert::Graphic
         SunLightFx m_SunLightFx;
 
         ShaderProtocols::DirectionLight m_DirectionLights;
+        // This frame's atmosphere light 1 (the moon) as the deferred pass shades it: the scene's value times
+        // AtmosphereEnv::Light1TransmittanceAtGround (OnUpdate), or nothing.
+        std::optional<AtmosphereLight1Frame> m_AtmosphereLight1;
         ShaderProtocols::PointLight     m_PointLight;
         ShaderProtocols::SpotLight      m_SpotLight;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.
@@ -1446,6 +1504,9 @@ namespace Desert::Graphic
 
     private:
         float                   m_GIIntensity   = 2.0f;
+        // PostProcessSettings SubsurfaceScattering / SubsurfaceScale of this view (SSS-PROFILE, CONTRACT §6).
+        bool  m_SubsurfaceScattering = true;
+        float m_SubsurfaceScale      = 1.0f;
         float                   m_SSRIntensity  = 1.0f;
         // World units (= centimetres). Mirrors SceneSettings::SSRMaxDistance's default; refreshed from
         // SceneSettings every frame, so this value only matters before the first Update.
@@ -1462,7 +1523,8 @@ namespace Desert::Graphic
         uint32_t m_ReflectionDenoiserRadius = 2;
         // GlobalIllumination.ScreenSpaceSamples (Scalability): the screen-space gather's samples per pixel.
         int m_ScreenSpaceGISamples = 12;
-        // PathTracing.SamplesPerPixel / PathsPerFrame / MaxBounces (Scalability), taken each BeginScene.
+        // PathTracing.SamplesPerPixel / PathsPerFrame / MaxBounces / MaxPathIntensity (Scalability), taken each
+        // BeginScene.
         System::PathTracer::Settings m_PathTracingSettings;
         bool                         m_PathTracerReady  = false;
         bool                         m_PathTracerFailed = false;
@@ -1470,6 +1532,10 @@ namespace Desert::Graphic
         // view's request to its scene's pool (DistanceFieldSceneData::BeginViewFrame) - a scene budget, counted
         // once in the scene's ledger rows, not per view.
         uint32_t m_DistanceFieldPoolMiB = 256;
+        // Mesh displacement (Scalability ViewDistance.DisplacementDicingRate / DisplacementPoolMiB), handed to the
+        // scene's DisplacementCache before this view requests levels. Rate 0 = runtime displacement off.
+        int      m_DisplacementDicingRate = 2;
+        uint32_t m_DisplacementPoolMiB    = 256;
         int m_SSAOSamples = 16;
         // Adaptive screen probes per uniform one, percent (Scalability GlobalIllumination.
         // AdaptiveProbeAllocationPercent, UE r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction), refreshed
@@ -1545,11 +1611,12 @@ namespace Desert::Graphic
         System::VirtualShadowMapQuality  m_VirtualShadowQuality;
         bool                             m_VirtualShadowReady  = false;
         bool                             m_VirtualShadowFailed = false;
-        // This frame draws the sun's cascades (OnUpdate's frame decision): CascadedMaps, or a ray-traced sun with
-        // a cascade reader queued (MeshRenderer::SunCascadeReadersQueued). Last frame's, to redraw the static
-        // caches after a gap in which nothing drew them.
-        bool m_FrameSunCascades          = true;
-        bool m_SunCascadesDrawnLastFrame = false;
+        // This frame draws the directional cascade array (OnUpdate's frame decision): CascadedMaps; or a screen-mask
+        // sun with a cascade reader queued (MeshRenderer::SunCascadeReadersQueued), or with another directional
+        // light (the moon) that casts its own cascades. Last frame's, to redraw the static caches after a gap in
+        // which nothing drew them.
+        bool m_FrameCascades          = true;
+        bool m_CascadesDrawnLastFrame = false;
         // The sun path the cascade budget was taken for (ShadowQualityOf): a ray-traced sun's cascades are the
         // low-detail ones. Re-budgeted when it or the quality generation moves.
         bool m_ShadowBudgetSunRayTraced = false;
@@ -1561,6 +1628,9 @@ namespace Desert::Graphic
         // BeginScene and packed into every ShadowUB (GetShadowFilterSettings).
         SceneResources::ShadowFilterSettings                            m_ShadowFilter;
         float                                                           m_SunSourceAngleDegrees = 0.0f;
+        // The elected sun's CastShadows (ViewShadowSettings::Enabled), taken each BeginScene: the GI frame record's
+        // SunRadiance.w, so the path tracer and the GI hit lighting leave its rays unoccluded as the raster does.
+        bool m_SunCastsShadows = true;
         bool                                                            m_SSRResourcesFailed = false;
         std::unordered_map<std::string, std::shared_ptr<IRenderSystem>> m_RenderSystems;
 

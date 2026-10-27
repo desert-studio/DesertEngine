@@ -3,7 +3,9 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Json/Document.hpp>
 
+#include <format>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
@@ -58,6 +60,22 @@ namespace Common::Text
 
     [[nodiscard]] ResultStr<std::string> Render( const Template& tpl, const Json::Node& data,
                                                  const TemplateLoader& loader = {} );
+
+    // A list as one run of text, "a, b, c" for separator ", ": what the `join` filter writes, for a list that
+    // is one argument of a one-line message. `project` picks the printed part of each item.
+    template <typename Range, typename Projection = std::identity>
+    [[nodiscard]] std::string Join( const Range& items, std::string_view separator, Projection project = {} )
+    {
+        std::string out;
+        bool        first = true;
+        for ( const auto& item : items )
+        {
+            std::format_to( std::back_inserter( out ), "{}{}", first ? std::string_view() : separator,
+                            std::invoke( project, item ) );
+            first = false;
+        }
+        return out;
+    }
 
     // Named templates compiled once; its Loader() serves them to `include`. The set must outlive the loader.
     class TemplateSet

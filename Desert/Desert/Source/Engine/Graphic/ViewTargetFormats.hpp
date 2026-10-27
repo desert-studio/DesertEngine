@@ -23,6 +23,9 @@ namespace Desert::Graphic::ViewTargetFormats
 
     // SceneRenderer::EnsureRendererResources.
     inline constexpr ImageFormat kSceneColor      = ImageFormat::RGBA16F;
+    // SSS-PROFILE (CONTRACT §9 Q3): the composite's demodulated diffuse of the scattered texels and the Burley
+    // pass's result - RGBA16F, not R11G11B10F (skin gradients band in a 6-bit mantissa; a = the profile row + 1).
+    inline constexpr ImageFormat kSubsurfaceDiffuse = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kSceneDepth      = ImageFormat::DEPTH32F;
     inline constexpr ImageFormat kSceneColorCopy  = kSceneColor; // snapshot of the scene target, same texel
     inline constexpr ImageFormat kGBufferA        = ImageFormat::RGBA8F;  // albedo.rgb + metallic
@@ -76,6 +79,9 @@ namespace Desert::Graphic::ViewTargetFormats
     // (Common/PathTracingSky.glslh).
     inline constexpr ImageFormat kPathTracingAccumulation = ImageFormat::RGBA32F;
     inline constexpr ImageFormat kPathTracingSkyRadiance  = ImageFormat::RGBA32F;
+    // The path tracer's spatial denoiser (PathTracerDenoise.shader): demodulated radiance (rgb, radiance / an
+    // albedo floored at 0.01, so past a half float's 65504 on a bright emitter) and its variance (a).
+    inline constexpr ImageFormat kPathTracingDenoise = ImageFormat::RGBA32F;
 
     // Screen-space reflections.
     inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA16F;

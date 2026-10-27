@@ -66,6 +66,8 @@ m_PushConstants;
 #define DESERT_SKIN_MATRIX( base, i ) bones.BoneMatrices[( base ) + ( i )].Matrix
 #endif
 
+#include <Common/MeshTextureCoord.glslh>
+
 void main()
 {
 #ifdef DESERT_SURFACE_VIEW_PASS
@@ -169,8 +171,8 @@ void main()
     const vec3 N             = normalize( normalMatrix * skinnedNormal );
     v_Surface.WorldPosition  = worldPos.xyz;
     v_Surface.Normal         = N;
-    v_Surface.UV0            = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
-    v_Surface.UV1            = vec2( a_TexCoord1.x, 1.0 - a_TexCoord1.y );
+    v_Surface.UV0            = DesertMeshTextureUV( a_TextureCoord );
+    v_Surface.UV1            = DesertMeshTextureUV( a_TexCoord1 );
     v_Surface.VertexColor    = a_Color;
     v_Surface.TBN            = mat3( T, B, N );
 #endif

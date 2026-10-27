@@ -20,12 +20,19 @@ uint ParticleLocalIndex( uint poolIndex )
     return poolIndex - DrawLayoutData.Range.y;
 }
 
-// World position (cm): a Local emitter's particles are drawn at the emitter + their Position.
+// The frame a particle's attributes are stated in, to the world: a Local emitter's is the entity's full transform
+// (UE: the local-space emitter's LocalToWorld), a World emitter's the identity.
+mat4 ParticleSimulationToWorld()
+{
+    return DrawLayoutData.Range.z == 1u ? DrawLayoutData.LocalToWorld : mat4( 1.0 );
+}
+
+// World position (cm): a Local emitter's Position goes through the entity's full transform.
 vec3 ParticleWorldPosition( uint n )
 {
     const uint c = DrawLayoutData.Columns0.x;
     const vec3 p = vec3( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 0.0 ) );
-    return DrawLayoutData.Range.z == 1u ? DrawLayoutData.EmitterPos.xyz + p : p;
+    return ( ParticleSimulationToWorld() * vec4( p, 1.0 ) ).xyz;
 }
 
 vec2 ParticleSpriteSize( uint n )

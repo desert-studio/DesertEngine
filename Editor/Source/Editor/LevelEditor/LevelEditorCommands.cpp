@@ -6,7 +6,7 @@
 #include "Editor/Core/DebugCommands.hpp"
 #include "Editor/Core/DetailsNavigation.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
-#include "Editor/Core/Rigging/HumanoidCommands.hpp"
+#include "Editor/Panels/SceneHierarchy/HumanoidCommands.hpp"
 #include "Editor/Core/SaveShortcut.hpp"
 #include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/ToastManager.hpp"
@@ -92,6 +92,8 @@ namespace Desert::Editor
                              []( Out& out )
                              {
                                  for ( PaletteCommand& command : QualityLevelPaletteCommands() )
+                                     out.push_back( std::move( command ) );
+                                 for ( PaletteCommand& command : QualityMethodOverridePaletteCommands() )
                                      out.push_back( std::move( command ) );
                              } );
         m_Commands.Register( "Clouds",

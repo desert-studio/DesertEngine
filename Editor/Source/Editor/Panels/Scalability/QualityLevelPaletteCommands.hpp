@@ -44,4 +44,48 @@ namespace Desert::Editor
             }
         return commands;
     }
+
+    // The three render methods as explicit overrides ("Quality: GlobalIllumination.Method SoftwareTraced"), the
+    // console variable of UE (r.DynamicGlobalIlluminationMethod & co.): QualityState::SetOverride, so it REPLACES
+    // the view's PostProcessSettings request (ResolveRenderMethods, MethodLimit::Override) and is saved to
+    // machine.json. "... Level" clears it: the group's level is a ceiling again. One entry per value plus Level.
+    [[nodiscard]] inline std::vector<PaletteCommand> QualityMethodOverridePaletteCommands()
+    {
+        using Common::Scalability::Parameter;
+        using Common::Scalability::ParameterValue;
+        using Common::Scalability::QualityState;
+
+        std::vector<PaletteCommand> commands;
+        const auto                  append = [&commands]( const Parameter parameter, const auto& names )
+        {
+            const std::string_view key = Common::Scalability::SpecOf( parameter ).Key;
+            for ( std::size_t v = 0; v < names.size(); ++v )
+                commands.push_back( { "Quality", std::format( "Quality: {} {}", key, names[v] ),
+                                      [parameter, v]() -> Common::BoolResultStr
+                                      {
+                                          const auto report = QualityState::SetOverride(
+                                               parameter, static_cast<ParameterValue>( v ) );
+                                          if ( !report.Refused.empty() )
+                                              return Common::MakeError( std::string( report.Refused ) );
+                                          if ( !report.Saved )
+                                              return Common::MakeError(
+                                                   "the method override applies but machine.json was not saved" );
+                                          return PaletteCommandDone();
+                                      } } );
+            commands.push_back(
+                 { "Quality", std::format( "Quality: {} Level", key ), [parameter]() -> Common::BoolResultStr
+                   {
+                       const auto report = QualityState::ClearOverride( parameter );
+                       if ( !report.Refused.empty() )
+                           return Common::MakeError( std::string( report.Refused ) );
+                       if ( !report.Saved )
+                           return Common::MakeError( "the level applies but machine.json was not saved" );
+                       return PaletteCommandDone();
+                   } } );
+        };
+        append( Parameter::GlobalIlluminationMethod, Common::Scalability::kGIMethodNames );
+        append( Parameter::ReflectionsMethod, Common::Scalability::kReflectionMethodNames );
+        append( Parameter::ShadowsMethod, Common::Scalability::kShadowMethodNames );
+        return commands;
+    }
 } // namespace Desert::Editor

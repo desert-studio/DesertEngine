@@ -34,7 +34,9 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <format>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <span>
@@ -742,21 +744,24 @@ namespace Desert::Core
         // entity's transform, as this frame's debug lines (DebugDraw ticked above, so they draw this frame).
         if ( m_VFXWorld.GetDebugSettings().DrawBounds )
             for ( const VFX::VFXSystemDebugStats& system : m_VFXWorld.GetDebugStats().Systems )
-            {
-                const glm::vec3 lo = system.Bounds.Min;
-                const glm::vec3 hi = system.Bounds.Max;
-                glm::vec3       corner[8];
-                for ( int i = 0; i < 8; ++i )
-                    corner[i] = glm::vec3( system.Transform * glm::vec4( ( i & 1 ) ? hi.x : lo.x,
-                                                                         ( i & 2 ) ? hi.y : lo.y,
-                                                                         ( i & 4 ) ? hi.z : lo.z, 1.0f ) );
-                DebugDrawStyle style;
-                style.Color = glm::vec4( 1.0f, 0.55f, 0.1f, 1.0f );
-                for ( int i = 0; i < 8; ++i )
-                    for ( int axis = 1; axis < 8; axis <<= 1 )
-                        if ( ( i & axis ) == 0 )
-                            DebugDraw::Line( *this, corner[i], corner[i | axis], style ); // the 12 edges
-            }
+                for ( const VFX::VFXEmitterDebugStats& emitter : system.Emitters )
+                {
+                    if ( emitter.Capacity == 0 )
+                        continue; // disabled: draws nothing, culls nothing
+                    // The box the renderer culls the emitter by (VFXBoundsAt: the entity's full transform).
+                    const Common::Math::AABB box =
+                         Assets::Serialization::VFXBoundsAt( emitter.Bounds, glm::mat4( system.Transform ) );
+                    glm::vec3 corner[8];
+                    for ( int i = 0; i < 8; ++i )
+                        corner[i] = glm::vec3( ( i & 1 ) ? box.Max.x : box.Min.x, ( i & 2 ) ? box.Max.y : box.Min.y,
+                                               ( i & 4 ) ? box.Max.z : box.Min.z );
+                    DebugDrawStyle style;
+                    style.Color = glm::vec4( 1.0f, 0.55f, 0.1f, 1.0f );
+                    for ( int i = 0; i < 8; ++i )
+                        for ( int axis = 1; axis < 8; axis <<= 1 )
+                            if ( ( i & axis ) == 0 )
+                                DebugDraw::Line( *this, corner[i], corner[i | axis], style ); // the 12 edges
+                }
 #endif
 
         // Dir lights
@@ -772,59 +777,70 @@ namespace Desert::Core
             const ECS::AtmosphereSunPick pick = ECS::PickAtmosphereSun( m_Registry, ECS::SunCandidacy::Lit );
             if ( const auto sun = pick.Sun() )
             {
-                const auto& light     = m_Registry.get<ECS::DirectionLightComponent>( *sun );
-                const auto& transform = m_Registry.get<ECS::TransformComponent>( *sun );
-                // Chosen implies DirectionValid, so the gate below cannot refuse; asked anyway, because the
-                // optional is the one place that normalizes a light's Translation.
-                if ( const auto travel = ECS::Rules::DirectionalLightTravel( transform.Translation ) )
-                    sceneRendererInfo.DirLights.DirectionLights.push_back(
-                         { glm::vec4( *travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );
+                const auto&     light  = m_Registry.get<ECS::DirectionLightComponent>( *sun );
+                const glm::vec3 travel = ECS::DirectionalLightTravel( m_Registry, *sun );
+                sceneRendererInfo.DirLights.DirectionLights.push_back(
+                     { glm::vec4( travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );
             }
 
-            // WHICH LIGHTS EMIT NOTHING, AND WHY ANYONE SHOULD HEAR ABOUT IT.
-            //
-            // A DirectionLightComponent takes its direction from its TRANSLATION, not its rotation, so a
-            // sun aimed with the rotation gizmo has a Translation of (0,0,0) and cannot be collected; and
-            // every visible light that is not the sun contributes nothing at all. Both used to be silent or
-            // truncated with a different rule than the sky's. Hidden lights are not in the pick: a light
-            // the artist deliberately hid is not one they mis-authored.
+            // ATMOSPHERE LIGHT 1 (UE's Atmosphere Sun Light Index 1, the moon): lit by the deferred pass beside
+            // the sun, never a stand-in for it — it has no fallback. When it casts shadows it gets cascades of its
+            // own (SceneResources slot 1, MeshRenderer::UpdateCascades), fitted from these same fields.
+            static_assert( static_cast<int>( Graphic::SceneResources::kMaxShadowedDirectionalLights ) ==
+                                ECS::Rules::kAtmosphereLightCount,
+                           "a cascade slot per atmosphere light: the slot IS the Atmosphere Sun Light Index" );
+            const ECS::AtmosphereSunPick secondPick =
+                 ECS::PickAtmosphereLight( m_Registry, ECS::SunCandidacy::Lit, 1 );
+            const auto second = secondPick.Sun();
+            sceneRendererInfo.AtmosphereLight1.reset();
+            if ( second )
+            {
+                const auto&     light  = m_Registry.get<ECS::DirectionLightComponent>( *second );
+                const glm::vec3 travel = ECS::DirectionalLightTravel( m_Registry, *second );
+                sceneRendererInfo.AtmosphereLight1 = Graphic::SceneRenderer::AtmosphereLight1Frame{
+                     .Light = Graphic::ShaderProtocols::DirectionLightPayload{
+                          glm::vec4( travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) },
+                     .SourceAngleDegrees = light.Data.SourceAngle,
+                     .CastShadows        = light.Data.CastShadows,
+                     .ShadowBias         = { .BiasCm       = light.Data.ShadowBias,
+                                             .SlopeBiasCm  = light.Data.ShadowSlopeBias,
+                                             .Distribution = light.Data.ShadowCascadeBiasDistribution },
+                     .CascadeSplitLambda = light.Data.CascadeSplitLambda };
+            }
+
+            // WHICH LIGHTS EMIT NOTHING, AND WHY ANYONE SHOULD HEAR ABOUT IT: every visible directional
+            // light that is not the sun contributes nothing at all. Hidden lights are not in the pick: a
+            // light the artist deliberately hid is not one they mis-authored.
             const auto nameOf = [&]( entt::entity entity ) -> std::string
             {
                 return m_Registry.has<ECS::TagComponent>( entity )
                             ? m_Registry.get<ECS::TagComponent>( entity ).Tag
                             : std::string( "<untagged>" );
             };
-            std::string degenerate;
             std::string unused;
             for ( size_t i = 0; i < pick.Candidates.size(); ++i )
             {
-                if ( !pick.Candidates[i].DirectionValid )
-                    degenerate += ( degenerate.empty() ? "" : ", " ) + nameOf( pick.Entities[i] );
-                else if ( pick.Selection.Chosen != i )
-                    unused += ( unused.empty() ? "" : ", " ) + nameOf( pick.Entities[i] );
+                if ( pick.Selection.Chosen != i && pick.Entities[i] != second )
+                    std::format_to( std::back_inserter( unused ), "{}{}", unused.empty() ? "" : ", ",
+                                    nameOf( pick.Entities[i] ) );
             }
 
             // Latched on the MESSAGE, not on a flag: this runs every frame, so an unlatched LOG_ERROR here
             // would bury the log at 60 lines a second, and a plain once-only flag would go quiet about the
             // SECOND state. Comparing the text reports each distinct state once and re-reports when the set
             // changes — including back to empty, which is the line that tells a user their fix worked.
-            const std::string report = degenerate + "|" + unused + "|" + ( pick.Sun() ? "sun" : "" );
+            const std::string report = std::format( "{}|{}", unused, pick.Sun() ? "sun" : "" );
             if ( report != m_DirLightsReported )
             {
                 m_DirLightsReported = report;
-                if ( !degenerate.empty() )
-                    LOG_ERROR( "[Scene] directional light(s) {} have a Translation shorter than {} and "
-                               "emit NOTHING. A directional light takes its direction from its "
-                               "TRANSLATION (the direction the light travels), not from its Rotation.",
-                               degenerate, ECS::Rules::kSunDirectionEpsilon );
                 if ( !unused.empty() && pick.Sun() )
-                    LOG_ERROR( "[Scene] directional light(s) {} emit NOTHING: the engine renders one directional "
-                               "light, the atmosphere sun '{}'. Remove them, or mark the one you want as "
-                               "Atmosphere Sun Light (index 0).",
+                    LOG_ERROR( "[Scene] directional light(s) {} emit NOTHING: the engine renders the two "
+                               "atmosphere lights only (the sun '{}' at index 0, a moon at index 1). Remove them, "
+                               "or mark them as Atmosphere Sun Light at a free index.",
                                unused, nameOf( *pick.Sun() ) );
                 if ( !pick.Sun() && m_Registry.view<ECS::DirectionLightComponent>().size() > 0 )
-                    LOG_ERROR( "[Scene] no visible directional light with a usable direction: the scene has "
-                               "NO sun — no direct light, no shadows, no atmosphere sun." );
+                    LOG_ERROR( "[Scene] no visible directional light: the scene has NO sun — no direct light, "
+                               "no shadows, no atmosphere sun." );
             }
         }
 

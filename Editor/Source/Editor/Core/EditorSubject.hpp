@@ -9,6 +9,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <cstdint>
+#include <format>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -181,8 +182,7 @@ namespace Desert::Editor
         // possible for no gain — the string is built once per frame per document, and it is short.
         [[nodiscard]] std::string ToString() const
         {
-            return std::string( SubjectDomainName( Domain ) ) + ':' + std::to_string( Facet ) + ':' +
-                   std::to_string( static_cast<uint64_t>( Owner ) );
+            return std::format( "{}:{}:{}", SubjectDomainName( Domain ), Facet, static_cast<uint64_t>( Owner ) );
         }
     };
 

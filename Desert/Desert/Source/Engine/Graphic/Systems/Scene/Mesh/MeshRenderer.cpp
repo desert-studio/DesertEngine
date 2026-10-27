@@ -491,21 +491,10 @@ namespace Desert::Graphic::System
         frame.SpotLights      = &m_SceneRenderer->GetSpotLights();
         frame.DirectionLights = &m_SceneRenderer->GetDirectionLights();
 
-        frame.CascadeViewProj = m_CascadeVP;
-        // THE COUNT TRAVELS WITH THE MAPS. Without it the applier bound four maps and told the shader to
-        // walk four cascades whatever this renderer had allocated, so a one-cascade renderer would have
-        // had three identity matrices tested and three unbound samplers read — the shader's own loop is
-        // driven by ShadowParams.w and would have found "the fragment is inside cascade 1" everywhere.
-        //
-        // And it is the count FITTED THIS FRAME, not the count allocated — GetValidCascadeCount, see
-        // UpdateCascades. The two differ whenever the fit does not run or degenerates (no sun in the
-        // scene, most commonly), and publishing the allocation then sends the shader through matrices no
-        // frame ever wrote.
-        frame.CascadeCount      = GetValidCascadeCount();
-        frame.CascadeTexelWorld = m_CascadeWorldPerTexel;
-        frame.CascadeDepthRange = m_CascadeDepthRange;
-        frame.SunSourceTanHalf  = GetSunSourceTanHalf();
-        frame.ShadowsEnabled    = m_ShadowsEnabled;
+        // THE COUNTS TRAVEL WITH THE MAPS, per shadowed directional light, and they are the counts FITTED THIS
+        // FRAME, not the counts allocated (DirectionalShadows): the shader's loop is driven by them, and
+        // publishing the allocation sends it through matrices no frame ever wrote.
+        frame.DirectionalShadows = DirectionalShadows();
         frame.ShadowDebugMode   = m_ShadowDebugMode;
         frame.ShowNormals       = m_ShowNormals;
         frame.LightingDebug     = m_LightingDebug;
@@ -582,7 +571,9 @@ namespace Desert::Graphic::System
             const std::vector<glm::mat4>& transforms = *data.Transforms;
             for ( size_t instance = 0; instance < transforms.size(); ++instance )
                 records.push_back( { .Entity = data.Entity,
-                                     .Part   = static_cast<uint32_t>( instance + 1 ),
+                                     .Part   = ( data.InstanceIds ? ( *data.InstanceIds )[instance]
+                                                                : static_cast<uint32_t>( instance ) ) +
+                                             1u,
                                      .World  = transforms[instance] } );
         }
         records.insert( records.end(), otherRigid.begin(), otherRigid.end() );

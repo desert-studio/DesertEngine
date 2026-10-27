@@ -71,6 +71,10 @@ namespace Desert::Graphic
         // that reddens the sky behind it, which is the whole point of the physical model.
         glm::vec3 SunTransmittanceAtGround{ 1.0f };
 
+        // The same factor for ATMOSPHERE LIGHT 1 (the moon, UE's Atmosphere Sun Light Index 1), from the same
+        // Graphic::SunLightFactorAtGround: its consumer is that light's colour in SceneRenderer::OnUpdate.
+        glm::vec3 Light1TransmittanceAtGround{ 1.0f };
+
         // UE's AtmosphereLightIlluminanceOnGroundPostTransmittance: the sun LIGHT's own illuminance —
         // the directional light's authored Color x Intensity — after the atmosphere has taken its cut.
         // Exactly the product of the light's outer-space illuminance and the transmittance above, so it

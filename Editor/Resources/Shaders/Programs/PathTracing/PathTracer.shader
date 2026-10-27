@@ -12,8 +12,11 @@
 // SourceAngle), Light/PathTracingSkyLight.ush (the sky, Common/PathTracingSky.glslh), MonteCarlo.ush
 // MISWeightPower. Adapted: the material is the engine's one lit BRDF (Mesh/DirectLighting.glslh EvaluateDirectLight:
 // Lambert + GGX, metallic) sampled as a mixture of a cosine lobe and the GGX distribution of visible normals (Heitz
-// 2018) instead of UE's per-shading-model lobes; point and spot lights are the engine's delta sources with their
-// authored falloff (Mesh/LightSources.glslh) instead of UE's spherical area lights; a PCG hash sequence instead of
+// 2018) instead of UE's per-shading-model lobes; point and spot lights keep their authored falloff
+// (Mesh/LightSources.glslh) but are seen as UE's emitter spheres of SourceRadius (UE SampleSphereLight,
+// Common/LightSourceSampling.glslh): the light sample's direction is uniform in the cone the sphere subtends and its
+// light ray ends on the sphere, so a lamp whose centre sits inside its bulb's socket still shines through the rest of
+// the sphere; the material rays never meet the sphere, so that sample takes the whole weight; a PCG hash sequence instead of
 // UE's scrambled Sobol (FRandomSequence); a box pixel filter.
 //
 // THE EMISSIVE SURFACES AS LIGHTS (Common/EmissiveLights.glslh, the scene's one emissive triangle list): next event
@@ -42,13 +45,22 @@ Shader "PathTracer"
             #include <Common/SkyLook.glslh>
             #include <Common/ReconstructPosition.glslh>
             #include <Mesh/LightSources.glslh>
+            #include <Common/LightSourceSampling.glslh>
             #include <Mesh/DirectLighting.glslh>
             #include <Common/RayTracingPayload.glslh>
             #include <Common/EmissiveLights.glslh>
+            #include <Common/PathTracingDenoise.glslh>
 
             layout(binding = 1) uniform accelerationStructureEXT SceneTlas;
             // The view's running sum (rgb) of every path since the last reset; a = the paths summed.
             layout(binding = 2, rgba32f) uniform image2D AccumulationTexture;
+            // The denoiser's guide sums beside it, summed over the same paths (Common/PathTracingDenoise.glslh).
+            layout(binding = 24, rgba32f) uniform image2D GuideAlbedoTexture;
+            layout(binding = 25, rgba32f) uniform image2D GuideNormalTexture;
+            layout(binding = 26, rgba32f) uniform image2D DemodulatedDiffuseTexture;
+            layout(binding = 27, rgba32f) uniform image2D GuideSpecularTexture;
+            layout(binding = 28, rgba32f) uniform image2D GuideHitTexture;
+            layout(binding = 29, rgba32f) uniform image2D DemodulatedSpecularTexture;
             layout(std430, binding = 3) readonly buffer GIFrameUB
             {
                 GIFrame giFrame;
@@ -124,9 +136,12 @@ Shader "PathTracer"
             {
                 uvec4 Counts; // x = point lights, y = spot lights, z = paths already summed (0: overwrite), w = max bounces
                 uvec4 SkyParams;    // x = sky side S (0: no sky light), y = its pyramid levels, z = frame seed, w = paths this frame (>= 1)
-                vec4  SunParams;    // x = sin of half the sun's source angle (0: a delta direction), y = pixel spread angle
+                vec4  SunParams;    // x = sin of half the sun's source angle (0: a delta direction), y = pixel spread angle,
+                                    // z = the same as x of atmosphere light 1 (the moon), w = the path intensity
+                                    // clamp in radiance (MaxPathIntensity / PreExposure; 0: no clamp)
                 uvec4 EmissiveCounts;        // the static part: x = triangles, y = power tree leaves, z = its levels, w = TLAS instances of the lookup
                 uvec4 EmissiveDynamicCounts; // the dynamic part: x = triangles, y = power tree leaves, z = its levels
+                uvec4 CameraParams;          // x = 1: camera rays through the (jittered) pixel centre, the signal a denoising upscaler takes raw
             };
 
             // ---- Random numbers: a PCG hash chain per pixel and path (UE: FRandomSequence). ----
@@ -192,9 +207,16 @@ Shader "PathTracer"
                 return m;
             }
 
+            // The specular lobe's share of the last PathTracingBsdfCos, per channel (Common/PathTracingDenoise.glslh
+            // PathTracingSplitShare): the denoiser's lobe split of the first surface's light samples and bounce.
+            vec3 gPathTracingSpecularShare = vec3(0.0);
+
             vec3 PathTracingBsdfCos(PathTracingMaterial m, vec3 N, vec3 V, vec3 L)
             {
-                return EvaluateDirectLight(L, vec3(1.0), V, N, m.F0, m.Metallic, m.Roughness, m.BaseColor);
+                const vec3 total = EvaluateDirectLight(L, vec3(1.0), V, N, m.F0, m.Metallic, m.Roughness, m.BaseColor);
+                gPathTracingSpecularShare =
+                     PathTracingSplitShare(EvaluateDirectLightSpecular(L, vec3(1.0), V, N, m.F0, m.Roughness), total);
+                return total;
             }
 
             float PathTracingSmithG1(float NoV, float alpha)
@@ -250,10 +272,12 @@ Shader "PathTracer"
             }
 
             // ---- Glass: the dielectric interface of a translucent hit (Transmission > 0). ----
-            // RayTracingScene.hpp kMaskOpaque / kMaskTranslucent: a primitive drawn only by translucent sections
-            // carries the translucent bit alone.
-            const uint kPathTracingMaskOpaque      = 0x01u;
-            const uint kPathTracingMaskTranslucent = 0x04u;
+            // RayTracingScene.hpp kMaskShadowCaster / kMaskTranslucentShadowCaster: the light rays trace only the
+            // primitives with CastShadows (UE PATHTRACER_MASK_SHADOW), as the raster's shadow maps and RT shadows
+            // do. A primitive with CastShadows off - a street lamp's glass around its own point light - is still
+            // met by the material rays (cull mask 0xFF), so it is seen, lit and emits; it only never occludes.
+            const uint kPathTracingMaskShadowCaster            = 0x02u;
+            const uint kPathTracingMaskTranslucentShadowCaster = 0x08u;
             // Solid glass reaches its tint after this many centimetres inside it (Beer's law).
             const float kPathTracingAbsorptionDistance = 100.0;
             // A light ray crosses at most this many translucent surfaces; past them it is blocked. A bound on the
@@ -310,16 +334,16 @@ Shader "PathTracer"
                 PathTracingTraceMaterialTo(origin, direction, coneWidth, 1.0e9);
             }
 
-            // The light ray's transmittance: 0 when an opaque primitive blocks it (any hit of the opaque mask ends
+            // The light ray's transmittance: 0 when an opaque shadow caster blocks it (any hit of that mask ends
             // the ray; the any-hit stages still cut masked holes, and the miss stage writes HitT < 0, so an unchanged
-            // HitT means occluded); otherwise the product over the translucent surfaces on the segment, walked
+            // HitT means occluded); otherwise the product over the translucent shadow casters on the segment, walked
             // nearest first: a thin sheet's tint, a solid's Fresnel transmission at each interface and its
             // absorption between entering and leaving it.
             vec3 PathTracingTransmittance(vec3 origin, vec3 direction, float distance)
             {
                 payload.HitT = 1.0;
                 traceRayEXT(SceneTlas, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT,
-                            kPathTracingMaskOpaque, 0u, 1u, 0u, origin, 0.0, direction, distance, 0);
+                            kPathTracingMaskShadowCaster, 0u, 1u, 0u, origin, 0.0, direction, distance, 0);
                 if (payload.HitT >= 0.0)
                     return vec3(0.0);
                 vec3  transmittance = vec3(1.0);
@@ -327,7 +351,8 @@ Shader "PathTracer"
                 float entered       = 0.0; // where the ray entered the solid it is in (0: it starts inside one)
                 for (uint layer = 0u; layer < kPathTracingMaxTranslucentLayers; ++layer)
                 {
-                    PathTracingTraceMaterialMasked(origin, start, direction, 0.0, distance, kPathTracingMaskTranslucent);
+                    PathTracingTraceMaterialMasked(origin, start, direction, 0.0, distance,
+                                                   kPathTracingMaskTranslucentShadowCaster);
                     if (payload.HitT < 0.0)
                         return transmittance;
                     // A translucent primitive with no dielectric to give (an Additive surface) blocks.
@@ -352,11 +377,40 @@ Shader "PathTracer"
                 return vec3(0.0);
             }
 
-            // ---- The lights (UE PathTracingLightSampling.ush). Index: 0 = the sun, 1 = the sky, 2.. = point lights,
-            // then spot lights. ----
-            bool PathTracingHasSun()
+            // ---- The lights (UE PathTracingLightSampling.ush). Index: 0 = the sun, 1 = the sky, 2 = atmosphere light 1
+            // (the moon), 3.. = point lights, then spot lights. ----
+            const uint kPathTracingFirstLocalLight = 3u;
+
+            // The scene's directional lights (UE: every directional light is in the path tracer's light list):
+            // d = 0 the sun, d = 1 atmosphere light 1 (the moon); light index 0 and 2.
+            bool PathTracingHasDirectional(uint d)
             {
-                return giFrame.sunTravel.w > 0.5;
+                return (d == 0u ? giFrame.sunTravel.w : giFrame.light1Travel.w) > 0.5;
+            }
+            vec3 PathTracingDirectionalToLight(uint d)
+            {
+                return -normalize(d == 0u ? giFrame.sunTravel.xyz : giFrame.light1Travel.xyz);
+            }
+            vec3 PathTracingDirectionalRadiance(uint d)
+            {
+                return d == 0u ? giFrame.sunRadiance.rgb : giFrame.light1Radiance.rgb;
+            }
+            float PathTracingDirectionalSinHalfAngle(uint d)
+            {
+                return d == 0u ? SunParams.x : SunParams.z;
+            }
+            // A directional light with CastShadows off is never occluded (UE: a light without
+            // PATHTRACER_FLAG_CAST_SHADOW_MASK traces no visibility ray), as the deferred pass shades it: the sun's
+            // flag in sunRadiance.w, light 1's in light1Radiance.w (GIFrame.glslh).
+            bool PathTracingDirectionalCastsShadows(uint d)
+            {
+                return (d == 0u ? giFrame.sunRadiance.w : giFrame.light1Radiance.w) > 0.5;
+            }
+            // The cloud shadow map is projected along the sun: only the sun's light is weighed by it (the deferred
+            // pass shades light 1 without it as well).
+            float PathTracingDirectionalClouds(uint d, vec3 origin)
+            {
+                return d == 0u ? CloudShadowFactor(origin) : 1.0;
             }
             // A sky with no light (the black cube of a view without an environment, or a black sky) is no light
             // source: its mean weight is 0, and every pdf of it would divide by that mean.
@@ -365,21 +419,24 @@ Shader "PathTracer"
                 return SkyParams.x > 0u && PathTracingSkyMean(SkyParams.x, SkyParams.y) > 0.0;
             }
 
-            // The sun's cone: 1 - cos(theta max) and its solid angle (UE DirectionalLight_TraceLight).
-            float PathTracingSunOneMinusCos()
+            // A directional light's cone: 1 - cos(theta max) from sin of its half angle (UE DirectionalLight_TraceLight).
+            float PathTracingConeOneMinusCos(float sinHalfAngle)
             {
-                const float s2 = SunParams.x * SunParams.x;
+                const float s2 = sinHalfAngle * sinHalfAngle;
                 return s2 < 0.01 ? s2 * (0.5 + 0.125 * s2) : 1.0 - sqrt(1.0 - s2);
             }
 
             // UE EstimateLight: the light's share in the choice at P.
             float PathTracingEstimate(uint light, vec3 P)
             {
-                if (light == 0u)
-                    return PathTracingHasSun() ? PathTracingLuminance(giFrame.sunRadiance.rgb) : 0.0;
+                if (light == 0u || light == 2u)
+                {
+                    const uint d = light == 0u ? 0u : 1u;
+                    return PathTracingHasDirectional(d) ? PathTracingLuminance(PathTracingDirectionalRadiance(d)) : 0.0;
+                }
                 if (light == 1u)
                     return PathTracingHasSky() ? PathTracingSkyEstimate(SkyParams.x, SkyParams.y) : 0.0;
-                const uint i = light - 2u;
+                const uint i = light - kPathTracingFirstLocalLight;
                 if (i < Counts.x)
                     return PathTracingLuminance(DesertPointLightAt(pointLights[i], P).Radiance);
                 return PathTracingLuminance(DesertSpotLightAt(spotLights[i - Counts.x], P).Radiance);
@@ -388,7 +445,7 @@ Shader "PathTracer"
             float PathTracingEstimateTotal(vec3 P)
             {
                 float total = 0.0;
-                const uint lights = 2u + Counts.x + Counts.y;
+                const uint lights = kPathTracingFirstLocalLight + Counts.x + Counts.y;
                 for (uint l = 0u; l < lights; ++l)
                     total += PathTracingEstimate(l, P);
                 return total;
@@ -401,7 +458,7 @@ Shader "PathTracer"
             {
                 if (total <= 0.0)
                     return vec3(0.0);
-                const uint lights = 2u + Counts.x + Counts.y;
+                const uint lights = kPathTracingFirstLocalLight + Counts.x + Counts.y;
                 float      pick   = PathTracingRandom(rng) * total;
                 uint       chosen = lights - 1u;
                 float      share  = 0.0;
@@ -419,35 +476,39 @@ Shader "PathTracer"
                 if (pickPdf <= 0.0)
                     return vec3(0.0);
                 const vec2 u = PathTracingRandom2(rng);
-                if (chosen == 0u)
+                if (chosen == 0u || chosen == 2u)
                 {
-                    const vec3 toSun = -normalize(giFrame.sunTravel.xyz);
-                    vec3       L     = toSun;
-                    float      lightPdf = 0.0; // 0: a delta direction, no MIS
-                    if (SunParams.x > 0.0)
+                    const uint  d        = chosen == 0u ? 0u : 1u;
+                    const vec3  toLight  = PathTracingDirectionalToLight(d);
+                    const float sinHalf  = PathTracingDirectionalSinHalfAngle(d);
+                    vec3        L        = toLight;
+                    float       lightPdf = 0.0; // 0: a delta direction, no MIS
+                    if (sinHalf > 0.0)
                     {
                         // UE UniformSampleConeRobust over the source angle.
-                        const float oneMinusCos = PathTracingSunOneMinusCos();
+                        const float oneMinusCos = PathTracingConeOneMinusCos(sinHalf);
                         const float cosTheta    = 1.0 - u.x * oneMinusCos;
                         const float sinTheta    = sqrt(max(1.0 - cosTheta * cosTheta, 0.0));
                         const float phi         = 2.0 * PI * u.y;
-                        L        = PathTracingBasis(toSun) * vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+                        L        = PathTracingBasis(toLight) * vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
                         lightPdf = 1.0 / (2.0 * PI * oneMinusCos);
                     }
                     if (dot(N, L) <= 0.0)
                         return vec3(0.0);
-                    const vec3 transmittance = PathTracingTransmittance(origin, L, 1.0e9);
+                    const vec3 transmittance =
+                        PathTracingDirectionalCastsShadows(d) ? PathTracingTransmittance(origin, L, 1.0e9) : vec3(1.0);
                     if (all(lessThanEqual(transmittance, vec3(0.0))))
                         return vec3(0.0);
                     // The sun's light crosses the cloud layer on its way down: its transmittance from this vertex
                     // (the same factor the sun disc a material ray from here meets is weighed by, PathTracingMissRadiance).
-                    const float clouds = CloudShadowFactor(origin);
-                    // radiance / pdf of the cone sample is the sun's colour (the cone's radiance is normalised by
+                    const float clouds = PathTracingDirectionalClouds(d, origin);
+                    // radiance / pdf of the cone sample is the light's colour (the cone's radiance is normalised by
                     // its solid angle, UE DirectionalLight_SampleLight).
                     const float weight = lightPdf > 0.0
                                              ? PathTracingMISWeightPower(pickPdf * lightPdf, PathTracingBsdfPdf(m, N, V, L))
                                              : 1.0;
-                    return PathTracingBsdfCos(m, N, V, L) * giFrame.sunRadiance.rgb * transmittance * (clouds * weight / pickPdf);
+                    return PathTracingBsdfCos(m, N, V, L) * PathTracingDirectionalRadiance(d) * transmittance *
+                           (clouds * weight / pickPdf);
                 }
                 if (chosen == 1u)
                 {
@@ -461,24 +522,29 @@ Shader "PathTracer"
                     return PathTracingBsdfCos(m, N, V, s.Direction) * s.Radiance * transmittance * weight /
                            (pickPdf * s.Pdf);
                 }
-                const uint  i = chosen - 2u;
+                const uint  i = chosen - kPathTracingFirstLocalLight;
                 DesertLight light;
                 vec3        position;
+                float       sourceRadius;
                 if (i < Counts.x)
                 {
-                    light    = DesertPointLightAt(pointLights[i], P);
-                    position = pointLights[i].position;
+                    light        = DesertPointLightAt(pointLights[i], P);
+                    position     = pointLights[i].position;
+                    sourceRadius = pointLights[i].sourceRadius;
                 }
                 else
                 {
-                    light    = DesertSpotLightAt(spotLights[i - Counts.x], P);
-                    position = spotLights[i - Counts.x].position;
+                    light        = DesertSpotLightAt(spotLights[i - Counts.x], P);
+                    position     = spotLights[i - Counts.x].position;
+                    sourceRadius = spotLights[i - Counts.x].sourceRadius;
                 }
-                if (dot(N, light.L) <= 0.0)
+                float      reach;
+                const vec3 toLight = SampleLightSourceSphere(normalize(position - origin), distance(position, origin),
+                                                             sourceRadius, u, reach);
+                if (dot(N, toLight) <= 0.0)
                     return vec3(0.0);
-                const vec3 transmittance =
-                    PathTracingTransmittance(origin, normalize(position - origin), distance(position, origin));
-                return PathTracingBsdfCos(m, N, V, light.L) * light.Radiance * transmittance / pickPdf;
+                const vec3 transmittance = PathTracingTransmittance(origin, toLight, reach);
+                return PathTracingBsdfCos(m, N, V, toLight) * light.Radiance * transmittance / pickPdf;
             }
 
             // ---- The emissive triangles. ----
@@ -545,11 +611,11 @@ Shader "PathTracer"
                 return PathTracingMISWeightPower(bsdfPdf, lightPdf);
             }
 
-            // What a material ray that left the scene sees: the sky, and the sun's disc when it has a size. Weighted
-            // against the light sampler of the vertex it left (lightPickSky / lightPickSun: that vertex's choice
-            // probabilities; bsdfPdf < 0: a camera ray, nothing to weigh). The sky carries the clouds (the sky capture
+            // What a material ray that left the scene sees: the sky, and each directional light's disc when it has a
+            // size. Weighted against the light sampler of the vertex it left (lightPickSky / lightPickDirectional: that
+            // vertex's choice probabilities, x the sun, y light 1; bsdfPdf < 0: a camera ray, nothing to weigh). The sky carries the clouds (the sky capture
             // marches them into the environment); the disc is seen through them from @p origin, the ray's start.
-            vec3 PathTracingMissRadiance(vec3 origin, vec3 direction, float bsdfPdf, float lightPickSky, float lightPickSun)
+            vec3 PathTracingMissRadiance(vec3 origin, vec3 direction, float bsdfPdf, float lightPickSky, vec2 lightPickDirectional)
             {
                 vec3 radiance = vec3(0.0);
                 if (bsdfPdf < 0.0)
@@ -561,49 +627,114 @@ Shader "PathTracer"
                     const vec4 sky = PathTracingSkyEval(direction, SkyParams.x, SkyParams.y);
                     radiance += sky.rgb * PathTracingMISWeightPower(bsdfPdf, lightPickSky * sky.w);
                 }
-                if (PathTracingHasSun() && SunParams.x > 0.0)
+                for (uint d = 0u; d < 2u; ++d)
                 {
-                    const float oneMinusCos = PathTracingSunOneMinusCos();
-                    if (1.0 - dot(direction, -normalize(giFrame.sunTravel.xyz)) < oneMinusCos)
+                    const float sinHalf = PathTracingDirectionalSinHalfAngle(d);
+                    if (!PathTracingHasDirectional(d) || sinHalf <= 0.0)
+                        continue;
+                    const float oneMinusCos = PathTracingConeOneMinusCos(sinHalf);
+                    if (1.0 - dot(direction, PathTracingDirectionalToLight(d)) < oneMinusCos)
                     {
                         const float solidAngle = 2.0 * PI * oneMinusCos;
+                        const float pick       = d == 0u ? lightPickDirectional.x : lightPickDirectional.y;
                         const float weight =
-                            bsdfPdf < 0.0 ? 1.0 : PathTracingMISWeightPower(bsdfPdf, lightPickSun / solidAngle);
-                        radiance += giFrame.sunRadiance.rgb * (CloudShadowFactor(origin) / solidAngle * weight);
+                            bsdfPdf < 0.0 ? 1.0 : PathTracingMISWeightPower(bsdfPdf, pick / solidAngle);
+                        radiance += PathTracingDirectionalRadiance(d) *
+                                    (PathTracingDirectionalClouds(d, origin) / solidAngle * weight);
                     }
                 }
                 return radiance;
             }
 
+            // UE PathTracingCore.ush AccumulateRadiance (r.PathTracing.MaxPathIntensity): one contribution of a path,
+            // scaled down with its hue kept so that its largest channel is at most SunParams.w, unless @p cameraRay
+            // (what the camera ray itself sees is never clamped). Bounds the pixel's variance - the fireflies - at the
+            // price of a bias toward darker highlights.
+            void PathTracingAccumulate(inout vec3 radiance, vec3 contribution, bool cameraRay)
+            {
+                const float brightest = max(contribution.r, max(contribution.g, contribution.b));
+                if (!cameraRay && SunParams.w > 0.0 && brightest > SunParams.w)
+                    contribution *= SunParams.w / brightest;
+                radiance += contribution;
+            }
+
             // One path of the pixel: the camera ray, then up to Counts.w bounces. @p sampleIndex is the path's index
             // in the pixel's accumulation (paths summed before it + its place in this frame), so every path of the
             // pixel since the restart draws its own random sequence.
-            vec3 PathTracingTracePath(ivec2 pixel, ivec2 size, uint sampleIndex)
+            // The denoiser's share of the path (Common/PathTracingDenoise.glslh), at its first opaque surface (glass
+            // is looked through to the surface behind it): the guides (D_d, 1), (world normal, camera distance),
+            // (D_s, roughness), (w * t, w) of the first bounce, and the two lobes of the radiance that surface
+            // reflects (everything the path adds from its lighting on, clamped as the radiance is), each divided by
+            // its reflectance. A path that meets no surface returns them all zero: its whole radiance is E.
+            struct PathTracingDenoiseSample
+            {
+                vec4 Albedo;
+                vec4 Normal;
+                vec4 Specular;
+                vec4 Hit;
+                vec3 Diffuse;      // I_d
+                vec3 SpecularLobe; // I_s
+            };
+
+            vec3 PathTracingTracePath(ivec2 pixel, ivec2 size, uint sampleIndex, out PathTracingDenoiseSample guide)
             {
                 uint rng = PathTracingHash(uint(pixel.x) + PathTracingHash(uint(pixel.y) + PathTracingHash(sampleIndex + PathTracingHash(SkyParams.z))));
 
-                // The camera ray through a uniformly chosen point of the pixel (a box filter).
-                const vec2 uv     = (vec2(pixel) + PathTracingRandom2(rng)) / vec2(size);
+                // The camera ray through a uniformly chosen point of the pixel (a box filter) - or through its centre
+                // when the upscaler denoises (CameraParams.x): the upscaler's jitter is then the sub-pixel position, as
+                // for every raster signal it reconstructs.
+                const vec2 subPixel = CameraParams.x != 0u ? vec2(0.5) : PathTracingRandom2(rng);
+                const vec2 uv       = (vec2(pixel) + subPixel) / vec2(size);
                 vec3       origin = cameraUB.CameraPos;
                 vec3       dir    = normalize(ReconstructWorldPosition(uv, 0.5, cameraUB.InvJitteredViewProjection) - origin);
+                guide.Albedo       = vec4(0.0);
+                guide.Normal       = vec4(0.0);
+                guide.Specular     = vec4(0.0);
+                guide.Hit          = vec4(0.0);
+                guide.Diffuse      = vec3(0.0);
+                guide.SpecularLobe = vec3(0.0);
+                bool guided        = false;
+                vec3 unmodulated   = vec3(0.0); // E: the radiance gathered before the first opaque surface's lighting
+                // The lobe split of R at the first surface: its light samples' specular part; the radiance summed
+                // when its bounce left (everything after is the bounce's) and that bounce's specular share;
+                // whether the first surface bounced at all, and whether the next segment is that bounce (its
+                // length is the virtual image's distance).
+                vec3 specularDirect = vec3(0.0);
+                vec3 bounceStart    = vec3(0.0);
+                vec3 bounceShare    = vec3(0.0);
+                bool bounced        = false;
+                bool firstBounce    = false;
 
                 vec3  radiance     = vec3(0.0);
                 vec3  throughput   = vec3(1.0);
                 float bsdfPdf      = -1.0; // the density the current ray was drawn with; < 0: the camera ray
                 float lightPickSky = 0.0;
-                float lightPickSun = 0.0;
+                vec2  lightPickDirectional = vec2(0.0);
                 float coneWidth    = 0.0;
                 // Glass on the path: the absorption coefficient of the solid the ray is inside (0: outside), and
                 // whether a glass interface lies between the ray and the last vertex that sampled the lights - the
                 // emissive light samples stop at glass, so emission met past it takes the whole weight.
                 vec3 absorption = vec3(0.0);
                 bool pastGlass  = false;
+                // The ray is still the camera's: no material vertex scattered it yet (glass interfaces are delta
+                // lobes and keep it), so what it meets is not clamped (PathTracingAccumulate).
+                bool cameraRay  = true;
                 for (uint bounce = 0u;; ++bounce)
                 {
                     PathTracingTraceMaterial(origin, dir, coneWidth);
+                    if (firstBounce)
+                    {
+                        const float w = PathTracingDenoiseLuminance(bounceShare);
+                        guide.Hit     = vec4(w * (payload.HitT < 0.0 ? kPathTracingDenoiseMissHitDistance : payload.HitT),
+                                         w, 0.0, 0.0);
+                        firstBounce   = false;
+                    }
                     if (payload.HitT < 0.0)
                     {
-                        radiance += throughput * PathTracingMissRadiance(origin, dir, bsdfPdf, lightPickSky, lightPickSun);
+                        PathTracingAccumulate(radiance,
+                                              throughput * PathTracingMissRadiance(origin, dir, bsdfPdf, lightPickSky,
+                                                                                   lightPickDirectional),
+                                              cameraRay);
                         break;
                     }
                     throughput *= exp(-absorption * payload.HitT);
@@ -612,8 +743,10 @@ Shader "PathTracer"
                     const vec3 V = -dir;
                     // Emission the material ray met, weighed against the emissive light sampler.
                     if (any(greaterThan(payload.Emissive, vec3(0.0))))
-                        radiance += throughput * payload.Emissive *
-                                    PathTracingEmissiveHitWeight(dir, pastGlass ? -1.0 : bsdfPdf);
+                        PathTracingAccumulate(radiance,
+                                              throughput * payload.Emissive *
+                                                  PathTracingEmissiveHitWeight(dir, pastGlass ? -1.0 : bsdfPdf),
+                                              cameraRay);
 
                     coneWidth += SunParams.y * payload.HitT;
                     // The next rays leave the surface by an offset that grows with the distance travelled, so they do
@@ -653,21 +786,55 @@ Shader "PathTracer"
                     }
 
                     const PathTracingMaterial m = PathTracingMaterialOf(N, V);
+                    const bool firstSurface = !guided;
+                    if (firstSurface)
+                    {
+                        guide.Albedo   = vec4(MegaLightsDiffuseReflectance(m.BaseColor, m.Metallic), 1.0);
+                        guide.Normal   = vec4(N, length(P - cameraUB.CameraPos));
+                        guide.Specular = vec4(MegaLightsSpecularReflectance(m.BaseColor, m.Metallic, m.Roughness, N, V),
+                                              m.Roughness);
+                        guided         = true;
+                        // Its own emission (added above) and all before it is E; the rest the path adds is R.
+                        unmodulated = radiance;
+                    }
                     const vec3  next  = P + N * offset;
                     const float total = PathTracingEstimateTotal(P);
-                    radiance += throughput * PathTracingSampleLights(m, P, N, V, next, total, rng);
-                    radiance += throughput * PathTracingSampleEmissive(m, N, V, next, coneWidth, rng);
+                    // Each light sample is shared between the lobes by its own direction's f * cos (a sampler that
+                    // returns before evaluating the BSDF returns nothing, so the reset share is never used).
+                    vec3 before               = radiance;
+                    gPathTracingSpecularShare = vec3(0.0);
+                    PathTracingAccumulate(radiance, throughput * PathTracingSampleLights(m, P, N, V, next, total, rng),
+                                          false);
+                    if (firstSurface)
+                        specularDirect += (radiance - before) * gPathTracingSpecularShare;
+                    before                    = radiance;
+                    gPathTracingSpecularShare = vec3(0.0);
+                    PathTracingAccumulate(radiance,
+                                          throughput * PathTracingSampleEmissive(m, N, V, next, coneWidth, rng),
+                                          false);
+                    if (firstSurface)
+                        specularDirect += (radiance - before) * gPathTracingSpecularShare;
                     if (bounce >= Counts.w)
                         break;
+                    cameraRay = false;
 
                     lightPickSky = total > 0.0 ? PathTracingEstimate(1u, P) / total : 0.0;
-                    lightPickSun = total > 0.0 ? PathTracingEstimate(0u, P) / total : 0.0;
+                    lightPickDirectional = total > 0.0 ? vec2(PathTracingEstimate(0u, P), PathTracingEstimate(2u, P)) / total
+                                                       : vec2(0.0);
                     const vec3 L = PathTracingSampleBsdf(m, N, V, rng);
                     bsdfPdf      = PathTracingBsdfPdf(m, N, V, L);
                     pastGlass    = false;
                     if (bsdfPdf <= 0.0)
                         break;
                     throughput *= PathTracingBsdfCos(m, N, V, L) / bsdfPdf;
+                    if (firstSurface)
+                    {
+                        // Everything the path adds from here on is this bounce's, shared by its direction's f * cos.
+                        bounceStart = radiance;
+                        bounceShare = gPathTracingSpecularShare;
+                        bounced     = true;
+                        firstBounce = true;
+                    }
                     // Russian roulette after the third bounce, on the throughput's largest channel (UE
                     // PathTracingCore.ush: continue with probability min(1, max(throughput))).
                     if (bounce >= 3u)
@@ -683,7 +850,22 @@ Shader "PathTracer"
                 // A NaN or infinite path would poison every later sample of the pixel: it is dropped (counted as
                 // black), as UE's accumulation does.
                 if (any(isnan(radiance)) || any(isinf(radiance)))
-                    radiance = vec3(0.0);
+                {
+                    radiance       = vec3(0.0);
+                    unmodulated    = vec3(0.0);
+                    specularDirect = vec3(0.0);
+                    bounced        = false;
+                }
+                if (guided)
+                {
+                    // R_s = the light samples' specular part + the bounce's specular share of all after it; R_d the
+                    // rest (R_d + R_s = R exactly, so remodulation returns the path's radiance).
+                    const vec3 reflected  = max(radiance - unmodulated, vec3(0.0));
+                    const vec3 afterward  = bounced ? max(radiance - bounceStart, vec3(0.0)) : vec3(0.0);
+                    const vec3 specular   = min(specularDirect + afterward * bounceShare, reflected);
+                    guide.Diffuse         = (reflected - specular) / guide.Albedo.rgb;
+                    guide.SpecularLobe    = specular / guide.Specular.rgb;
+                }
                 return radiance;
             }
 
@@ -695,11 +877,36 @@ Shader "PathTracer"
                 const ivec2 size  = imageSize(AccumulationTexture);
                 if (pixel.x >= size.x || pixel.y >= size.y)
                     return;
-                vec3 sum = vec3(0.0);
+                vec3 sum         = vec3(0.0);
+                vec4 albedoSum   = vec4(0.0); // rgb D_d, a surface paths
+                vec4 normalSum   = vec4(0.0); // xyz normal, w camera distance
+                vec4 specularSum = vec4(0.0); // rgb D_s, a roughness
+                vec4 hitSum      = vec4(0.0); // x w * t, y w
+                vec4 diffuseSum  = vec4(0.0); // rgb I_d, a lum(I_d)^2
+                vec4 lobeSum     = vec4(0.0); // rgb I_s, a lum(I_s)^2
                 for (uint s = 0u; s < SkyParams.w; ++s)
-                    sum += PathTracingTracePath(pixel, size, Counts.z + s);
-                const vec4 previous = Counts.z == 0u ? vec4(0.0) : imageLoad(AccumulationTexture, pixel);
+                {
+                    PathTracingDenoiseSample guide;
+                    const vec3  radiance = PathTracingTracePath(pixel, size, Counts.z + s, guide);
+                    const float d        = PathTracingDenoiseLuminance(guide.Diffuse);
+                    const float l        = PathTracingDenoiseLuminance(guide.SpecularLobe);
+                    sum += radiance;
+                    albedoSum += guide.Albedo;
+                    normalSum += guide.Normal;
+                    specularSum += guide.Specular;
+                    hitSum += guide.Hit;
+                    diffuseSum += vec4(guide.Diffuse, d * d);
+                    lobeSum += vec4(guide.SpecularLobe, l * l);
+                }
+                const bool overwrite = Counts.z == 0u;
+                const vec4 previous  = overwrite ? vec4(0.0) : imageLoad(AccumulationTexture, pixel);
                 imageStore(AccumulationTexture, pixel, vec4(previous.rgb + sum, previous.a + float(SkyParams.w)));
+                imageStore(GuideAlbedoTexture, pixel, albedoSum + (overwrite ? vec4(0.0) : imageLoad(GuideAlbedoTexture, pixel)));
+                imageStore(GuideNormalTexture, pixel, normalSum + (overwrite ? vec4(0.0) : imageLoad(GuideNormalTexture, pixel)));
+                imageStore(GuideSpecularTexture, pixel, specularSum + (overwrite ? vec4(0.0) : imageLoad(GuideSpecularTexture, pixel)));
+                imageStore(GuideHitTexture, pixel, hitSum + (overwrite ? vec4(0.0) : imageLoad(GuideHitTexture, pixel)));
+                imageStore(DemodulatedDiffuseTexture, pixel, diffuseSum + (overwrite ? vec4(0.0) : imageLoad(DemodulatedDiffuseTexture, pixel)));
+                imageStore(DemodulatedSpecularTexture, pixel, lobeSum + (overwrite ? vec4(0.0) : imageLoad(DemodulatedSpecularTexture, pixel)));
             }
         }
 

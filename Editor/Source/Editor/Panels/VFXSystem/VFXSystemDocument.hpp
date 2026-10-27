@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Editor/Core/SubjectEditorRegistry.hpp>
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/IPanel.hpp>
 
 #include <Common/Core/Core.hpp> // Common::Filepath, which AssetMetadata.hpp names without including
 
@@ -129,6 +129,9 @@ namespace Desert::Editor
         // Ends a gesture that began from @p before: one undo step labelled @p label, or - when the result is not a
         // valid system - m_Working back to @p before and the refusal shown.
         Common::BoolResultStr Commit( Assets::Serialization::VFXSystemData before, const std::string& label );
+        // Emitter @p emitter's Fixed Bounds (UE FixedBounds; the stack's "Fixed Bounds" header and
+        // `<Emitter>.Bounds.Min|Max`), one undo step; refused like any edit the format refuses.
+        Common::BoolResultStr SetEmitterBounds( std::size_t emitter, Assets::Serialization::VFXBounds bounds );
 
         // THE STACK'S STRUCTURE (12d, UE's stack: add from the module library, delete, reorder, the row's
         // enable checkbox). Each is one Commit - one undo step - and, being a change of m_Working, restarts the
@@ -137,7 +140,7 @@ namespace Desert::Editor
         // @p channel: the DataChannel a BindingRequired input (SpawnFromChannel's Channel) is bound to - UE picks
         // the channel asset on the new row; a module with such an input and no channel is refused.
         /// VFX-15: the emitter is born at the placement's point set @p set (UE: a shape-location module reading
-        /// an ArrayPosition User parameter): its spawn-group shape modules are disabled and engine:ShapePointSet
+        /// an ArrayPosition User parameter): its spawn-group shape modules are disabled and ShapePointSet
         /// is added with Location bound to PointSet.<set>. One undo step.
         Common::BoolResultStr SpawnFromPointSet( std::size_t emitter, const std::string& set );
         Common::BoolResultStr AddModule( std::size_t emitter, std::size_t stage, const std::string& module,
@@ -146,16 +149,25 @@ namespace Desert::Editor
         Common::BoolResultStr MoveModule( std::size_t emitter, std::size_t stage, std::size_t module, int delta );
         Common::BoolResultStr SetModuleEnabled( std::size_t emitter, std::size_t stage, std::size_t module,
                                                 bool enabled );
+        // VFX-LIGHT: one renderer row of an emitter replaced by @p value (its Enabled box, a Light row's
+        // settings), one undo step; refused like any edit the format refuses.
+        Common::BoolResultStr SetRenderer( std::size_t emitter, std::size_t row,
+                                           Assets::Serialization::VFXRendererData value,
+                                           const std::string&                     label );
+        // `<Emitter>.Render.<row>.<Field>` for a renderer row's Enabled and a Light row's settings; nullopt = not
+        // such a name.
+        std::optional<Common::BoolResultStr> SetRendererProperty( const std::string&        name,
+                                                                  const std::vector<float>& value );
         // One row of a stage's module picker: a module whose Usage includes the stage, or one that cannot be described
         // (Error set - shown disabled with the reason, never silently left out).
         struct ModuleChoice
         {
-            std::string Ref;
+            std::string Ref; // the module's registry path ({Guid, Path} row key), what AddModule takes
             std::string Error;
             bool        NeedsChannel = false; // an input is BindingRequired: the picker asks for the channel
         };
-        // What stage @p stage's picker offers (UE: the module picker filtered by Module Usage): the CPU emitter
-        // modules, the engine library, then this system's LocalModules.
+        // What stage @p stage's picker offers (UE: the module picker filtered by Module Usage): every `.dfxmod` of
+        // the content registry (engine library and project Content) whose Usage takes the stage.
         [[nodiscard]] std::vector<ModuleChoice> ModuleLibrary( std::size_t stage ) const;
 
         Assets::AssetManager*             m_Assets = nullptr;

@@ -13,7 +13,7 @@
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ViewportModes.hpp"
-#include "Editor/Panels/IPanel.hpp"
+#include "Editor/Core/IPanel.hpp"
 
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 

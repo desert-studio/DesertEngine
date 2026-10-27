@@ -61,6 +61,10 @@ namespace Desert::Graphic::System
 //             vertex's current before overwriting it); a fresh entry (or one not skinned last frame) writes the
 //             new pose into both, so a newly cached primitive carries camera motion only
 //   [6V, 15V) tangent frame      - normal, tangent, bitangent (3 x float3) skinned by the palette's 3x3
+namespace Desert::Graphic::System
+{
+    class DisplacementCache;
+}
 namespace Desert::Graphic::RayTracing
 {
     inline constexpr std::string_view kSkinCacheShader    = "SkinCache";
@@ -76,6 +80,14 @@ namespace Desert::Graphic::RayTracing
         [[nodiscard]] bool IsEnabled() const
         {
             return m_Enabled;
+        }
+        // The scene's displacement (CONTRACT-DISPLACE §9.8, owned beside this cache by RayTracingSceneCache): a
+        // skinned record whose Mesh is a displaced twin (SkinSource = the base it skins) gets SECOND streams, sized
+        // to the twin, that "Displacement: Pose" + "Displacement: Skinned" fill in the same skin graph right after
+        // the base is skinned; those are the streams its row, the raster, the velocity pass and the BLAS read.
+        void SetDisplacement( System::DisplacementCache* displacement )
+        {
+            m_Displacement = displacement;
         }
 
         // RASTER, step 1 (MeshRenderer::BuildObjectMotions, before the rows are uploaded): makes an entry (keyed
@@ -141,6 +153,8 @@ namespace Desert::Graphic::RayTracing
             {
                 if ( item.second.Streams )
                     bytes.Positions += item.second.Streams->GetBytes();
+                if ( item.second.Displaced )
+                    bytes.Positions += item.second.Displaced->GetBytes();
                 if ( item.second.Geometry )
                     bytes.Blas += item.second.Geometry->GetMemoryBytes();
             }
@@ -157,8 +171,13 @@ namespace Desert::Graphic::RayTracing
         struct Entry
         {
             std::unique_ptr<SkinCacheStreams>          Streams;
+            // The displaced twin's streams (record.SkinSource set): what the row, the raster and the BLAS read; the
+            // base Streams above are then only the displacement pass's input. Null for an undisplaced record.
+            std::unique_ptr<SkinCacheStreams>          Displaced;
             std::unique_ptr<SkinnedRayTracingGeometry> Geometry;       // made on the first frame a view traces it
-            const SkinnedMesh*                         Mesh = nullptr; // the mesh the streams were prepared for
+            const SkinnedMesh*                         Mesh = nullptr; // the mesh the record draws (a twin or base)
+            const SkinnedMesh*                         Source = nullptr; // the mesh skinned (Mesh when undisplaced)
+            bool DisplacedFresh = false; // Displaced holds no previous pose (new buffer or another twin)
             RDG::ExternalBuffer VerticesImport;        // the mesh's vertex buffer as a graph external
             uint64_t            LastFrame     = 0;     // last frame a view asked for it
             uint64_t            SkinnedFrame  = 0;     // last frame a skin graph that skinned it executed
@@ -183,6 +202,11 @@ namespace Desert::Graphic::RayTracing
         RDG::BufferRef     StreamsIn( RDG::Builder& graph, Entry& entry );
         RDG::BufferRef     StorageIn( RDG::Builder& graph, Entry& entry );
         [[nodiscard]] bool EnsurePipeline( std::size_t skinnedCount );
+        // The streams the record draws: the displaced ones when it has them, else the skinned base.
+        [[nodiscard]] static SkinCacheStreams& DrawnStreams( Entry& entry )
+        {
+            return entry.Displaced ? *entry.Displaced : *entry.Streams;
+        }
 
         std::unordered_map<uint64_t, Entry>    m_Entries;
         std::vector<uint64_t>                  m_RecordKeys;       // CPU scratch: KeyRecords' output
@@ -190,7 +214,8 @@ namespace Desert::Graphic::RayTracing
         std::shared_ptr<ComputePipeline>       m_Pipeline;
         ShaderBindingLayoutCache               m_Layout;
         // The graph DeclareReads registered into last, and its serial: AddPasses must run on that same graph.
-        const RDG::Builder* m_DeclaringGraph        = nullptr;
+        const RDG::Builder*        m_DeclaringGraph = nullptr;
+        System::DisplacementCache* m_Displacement   = nullptr;
         uint64_t            m_GraphSerial           = 0;
         bool                m_Enabled               = true;
         bool                m_PipelineRefusalLogged = false;

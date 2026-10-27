@@ -16,7 +16,7 @@
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
-#include <Editor/Core/Selection/FoliagePaint.hpp>
+#include <Editor/Panels/Foliage/FoliagePaint.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
@@ -1253,8 +1253,7 @@ namespace Desert::Editor
                         {
                             if ( c > 0 )
                                 ImGui::SameLine();
-                            const std::string lbl =
-                                 std::string( rl[r] ) + cl[c] + "##a" + std::to_string( r * 4 + c );
+                            const std::string lbl = std::format( "{}{}##a{}", rl[r], cl[c], r * 4 + c );
                             if ( ImGui::Button( lbl.c_str(), ImVec2( 40.0f, 28.0f ) ) )
                             {
                                 ApplyAnchorPreset( reg, selUI, viewRect, modes[c], modes[r] );
@@ -1350,6 +1349,7 @@ namespace Desert::Editor
                 VM_Reflections,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
+                VM_LocalExposure,
                 VM_Count
             };
             const char* kViewModes[] = { ICON_MDI_LIGHTBULB_ON "  Lit",
@@ -1374,7 +1374,8 @@ namespace Desert::Editor
                                          ICON_MDI_LIGHTBULB_ON "  Lumen Scene (Lit)",
                                          ICON_MDI_CIRCLE_HALF_FULL "  Reflections",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
-                                         ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
+                                         ICON_MDI_BRIGHTNESS_6 "  Shadow Factor",
+                                         ICON_MDI_BRIGHTNESS_6 "  Local Exposure" };
             static_assert( IM_ARRAYSIZE( kViewModes ) == VM_Count,
                            "every view mode needs a label - a short array silently truncates the combo" );
 
@@ -1424,6 +1425,8 @@ namespace Desert::Editor
                 vm = VM_SurfaceCacheSceneLit;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::Reflections )
                 vm = VM_Reflections;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::LocalExposure )
+                vm = VM_LocalExposure;
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
@@ -1631,6 +1634,9 @@ namespace Desert::Editor
                         break;
                     case VM_ShadowFactor:
                         view.ShadowDebug = Graphic::ShadowDebugMode::ShadowFactor;
+                        break;
+                    case VM_LocalExposure:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::LocalExposure;
                         break;
                     default:
                         break; // VM_Lit
@@ -2238,7 +2244,8 @@ namespace Desert::Editor
                                             renderer->TakeLedgerMemory(), viewportMin, viewportMax );
                 // VFX-16: the effects world's overview (Particle Debugger -> Viewport overview).
                 if ( m_Scene->GetVFXWorld().GetDebugSettings().Overview )
-                    DrawVFXOverviewOverlay( m_Scene->GetVFXWorld().GetDebugStats(), viewportMin, viewportMax );
+                    DrawVFXOverviewOverlay( m_Scene->GetVFXWorld().GetDebugStats(),
+                                            renderer->ParticleViewEmitterCulls(), viewportMin, viewportMax );
             }
 
         // Perf HUD (View -> Perf HUD): FPS + frame graph + top CPU scopes, useful in Play too.

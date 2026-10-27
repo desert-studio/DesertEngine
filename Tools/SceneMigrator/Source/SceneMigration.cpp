@@ -32,6 +32,7 @@
 
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/SoundAsset.hpp>
@@ -58,12 +59,14 @@
 
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ByteText.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Units.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #include <glm/trigonometric.hpp>
 
@@ -84,19 +87,36 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace Desert::Migration
 {
     namespace
     {
+        // A scene refused over a list, in one line: "'<scene>': [<count> <what>: ]<items, '; '-separated>.
+        // Nothing was written." From one template (text built from a list is a template, owner 10-16). A
+        // template that fails is logged at ERROR and its error becomes the refusal: the scene is still refused.
+        std::string RefusedOver( const std::string& scene, std::string_view what,
+                                 const std::vector<std::string>& items )
+        {
+            static const Core::TextTemplate kRefusal(
+                 "SceneRefusal", "'{{ scene }}': {% if what %}{{ items | length }} {{ what }}: {% endif %}"
+                                 "{{ items | join(\"; \") }}. Nothing was written." );
+            Common::Json::Value::Array list;
+            list.reserve( items.size() );
+            for ( const std::string& item : items )
+                list.emplace_back( item );
+            Common::Json::ObjectBuilder model;
+            model.Set( "scene", scene ).Set( "items", Common::Json::Value( std::move( list ) ) );
+            if ( !what.empty() )
+                model.Set( "what", what );
+            return kRefusal.RenderOrLog( Common::Json::Value( model.Build() ) );
+        }
+
         // A step that refused entities refuses the whole scene: one line naming the scene and every refusal.
         std::string RefusedWhole( const std::string& scene, const std::vector<std::string>& refusals )
         {
-            std::string text = std::format( "'{}': ", scene );
-            for ( size_t i = 0; i < refusals.size(); ++i )
-                std::format_to( std::back_inserter( text ), "{}{}", i == 0 ? "" : "; ", refusals[i] );
-            text += ". Nothing was written.";
-            return text;
+            return RefusedOver( scene, {}, refusals );
         }
 
         // The offending value, spelled out. A warning that says "wrong type" without saying WHAT was in
@@ -112,7 +132,7 @@ namespace Desert::Migration
             if ( const auto s = g.to_string(); s.has_value() )
                 return "\"" + s.value() + "\"";
             if ( const auto a = g.to_array(); a.has_value() )
-                return "an array of " + std::to_string( a.value().size() ) + " element(s)";
+                return std::format( "an array of {} element(s)", a.value().size() );
             if ( g.to_object().has_value() )
                 return "an object";
             return "null";
@@ -259,9 +279,8 @@ namespace Desert::Migration
                 continue;
             auto& overrides = *entity.PrefabOverrides;
             for ( std::size_t i = 0; i < overrides.size(); ++i )
-                RaisePathOnlyMeshGuids( overrides[i].Components,
-                                        tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot,
-                                        report );
+                RaisePathOnlyMeshGuids( overrides[i].Components, std::format( "{} > PrefabOverrides[{}]", tag, i ),
+                                        assetsRoot, report );
         }
         return report;
     }
@@ -376,7 +395,7 @@ namespace Desert::Migration
         for ( std::size_t i = 0; i < entities.size(); ++i )
         {
             auto&             entity = entities[i];
-            const std::string who    = "entity #" + std::to_string( i ) + " '" + entity.Tag.value_or( "" ) + "'";
+            const std::string who    = std::format( "entity #{} '{}'", i, entity.Tag.value_or( "" ) );
             settle( entity.Components, who );
             if ( !entity.PrefabOverrides )
                 continue;
@@ -1340,6 +1359,71 @@ namespace Desert::Migration
         return report;
     }
 
+    SunRotationReport MigrateLightRotationV0ToV1( std::vector<Assets::EntityData>& entities )
+    {
+        // The old engine's gate (Rules::kSunDirectionEpsilon before light v1): below it a Translation was no
+        // direction and the light emitted nothing.
+        constexpr float kOldDirectionEpsilon = 1e-4f;
+
+        std::unordered_map<Common::UUID, const Assets::EntityData*> byId;
+        for ( const auto& entity : entities )
+            if ( entity.id.has_value() )
+                byId.emplace( *entity.id, &entity );
+
+        // The world rotation of a record as the file states it: its own Rotation under its parents'. Bounded
+        // by the record count, so a parent cycle in a damaged file ends instead of spinning.
+        const auto worldRotation = [&]( std::optional<Common::UUID> id )
+        {
+            glm::quat world = glm::quat( 1.0f, glm::vec3( 0.0f ) );
+            for ( std::size_t depth = 0; id.has_value() && depth <= entities.size(); ++depth )
+            {
+                const auto found = byId.find( *id );
+                if ( found == byId.end() )
+                    break;
+                world = glm::quat( found->second->Rotation.value_or( glm::vec3( 0.0f ) ) ) * world;
+                id    = found->second->parent;
+            }
+            return world;
+        };
+
+        const auto isLight = []( Common::Json::KeyedValues& components )
+        { return components.get( "DirectionLight" ).has_value(); };
+
+        SunRotationReport report;
+        for ( auto& entity : entities )
+        {
+            if ( isLight( entity.Components ) )
+            {
+                const glm::vec3 travel = entity.Translation.value_or( glm::vec3( 0.0f ) );
+                if ( glm::length( travel ) > kOldDirectionEpsilon )
+                {
+                    const glm::quat parent = worldRotation( entity.parent );
+                    entity.Rotation =
+                         glm::eulerAngles( glm::inverse( parent ) * ECS::Rules::RotationForTravel( travel ) );
+                    entity.Translation = glm::vec3( 0.0f );
+                    ++report.Aimed;
+                }
+                else
+                {
+                    ++report.Undirected;
+                }
+            }
+
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+            {
+                if ( !isLight( override_.Components ) || !override_.Translation.has_value() ||
+                     glm::length( *override_.Translation ) <= kOldDirectionEpsilon )
+                    continue;
+                override_.Rotation = glm::eulerAngles( ECS::Rules::RotationForTravel( *override_.Translation ) );
+                override_.Translation = glm::vec3( 0.0f );
+                ++report.Overrides;
+            }
+        }
+        return report;
+    }
+
     SkySunFromLightReport MigrateSkySunFromLightV56ToV57( std::vector<Assets::EntityData>& entities )
     {
         SkySunFromLightReport report;
@@ -1988,9 +2072,9 @@ namespace Desert::Migration
                 if ( !layer.has_value() || layer.value().get( "Guid" ).has_value() )
                     continue;
                 const auto name = layer.value().get( "Name" );
-                inline_layers.push_back( tag + " > Landscape.Layers[" + std::to_string( i ) + "] = '" +
-                                         ( name.has_value() ? name.value().to_string().value_or( "?" ) : "?" ) +
-                                         "'" );
+                inline_layers.push_back( std::format( "{} > Landscape.Layers[{}] = '{}'", tag, i,
+                                                      name.has_value() ? name.value().to_string().value_or( "?" )
+                                                                       : std::string( "?" ) ) );
             }
         };
         for ( const auto& entity : entities )
@@ -2001,7 +2085,7 @@ namespace Desert::Migration
                 continue;
             const auto& overrides = *entity.PrefabOverrides;
             for ( std::size_t i = 0; i < overrides.size(); ++i )
-                scan( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]" );
+                scan( overrides[i].Components, std::format( "{} > PrefabOverrides[{}]", tag, i ) );
         }
         return inline_layers;
     }
@@ -2118,12 +2202,11 @@ namespace Desert::Migration
 
                 std::string relative;
                 // One file per distinct set of numbers and mesh within this scene.
-                std::string dataKey = std::to_string( data.Density ) + "|" + std::to_string( scaleMin ) + "|" +
-                                      std::to_string( scaleMax ) + "|" + std::to_string( zMin ) + "|" +
-                                      std::to_string( zMax ) + "|" + std::to_string( data.RandomPitchAngle ) +
-                                      "|" + std::to_string( slopeMin ) + "|" + std::to_string( slopeMax ) + "|" +
-                                      ( data.AlignToNormal ? "1" : "0" ) + ( data.RandomYaw ? "1" : "0" ) + "|" +
-                                      data.Mesh.Guid;
+                // `{:f}` is std::to_string's fixed six decimals: the key is unchanged from the one it replaced.
+                std::string dataKey =
+                     std::format( "{:f}|{:f}|{:f}|{:f}|{:f}|{:f}|{:f}|{:f}|{}{}|{}", data.Density, scaleMin,
+                                  scaleMax, zMin, zMax, data.RandomPitchAngle, slopeMin, slopeMax,
+                                  data.AlignToNormal ? "1" : "0", data.RandomYaw ? "1" : "0", data.Mesh.Guid );
                 if ( const auto it = Minted.find( dataKey ); it != Minted.end() )
                     relative = it->second;
                 else
@@ -2198,6 +2281,48 @@ namespace Desert::Migration
         }
 
         // One channel per component, Linear keys at the given times.
+        // THE ENGINE MODULE LIBRARY AS VFXS 3 FOUND IT (VFX-MODULE-ASSET): every `engine:<Name>` a VFXS 1 stack row
+        // or the v51 scene step could name, with the GUID its `.dfxmod` states (Editor/Resources/Engine/VFX/
+        // Modules). Frozen, as a step is: the files may move or be renamed later, and a reference written by this
+        // step follows them through the GUID.
+        struct EngineVFXModuleV3
+        {
+            std::string_view Name;
+            std::string_view Guid;
+        };
+        constexpr std::array kEngineVFXModulesV3{
+             EngineVFXModuleV3{ "AddVelocityInCone", "37ef32a37dfc4501bb57e95fc9919372" },
+             EngineVFXModuleV3{ "ColorOverLife", "9488cdf80a5f4f4fba16c02d431bc8e0" },
+             EngineVFXModuleV3{ "CurlNoiseForce", "13cdf49c6bf0428790436694facfc331" },
+             EngineVFXModuleV3{ "Drag", "a0f042db0b6248cab1bcf38605abbf78" },
+             EngineVFXModuleV3{ "Gravity", "bd19bb728e4646919475240f1a19369d" },
+             EngineVFXModuleV3{ "InitializeColor", "dff69e4e958a45f5a4fd4f19ba7de22c" },
+             EngineVFXModuleV3{ "InitializeLifetime", "2d5323b9c4d349f8b91c4fc795599f4f" },
+             EngineVFXModuleV3{ "InitializeRotation", "e64f581d72684d28ab4dc2f70e9c807a" },
+             EngineVFXModuleV3{ "InitializeSpriteSize", "55923c5734e04fc78e068ad051c4772c" },
+             EngineVFXModuleV3{ "ShapeBox", "022360554da04ff3b498ee101948b24a" },
+             EngineVFXModuleV3{ "ShapeCone", "faf8cbc20f5b43a4b3d6ecd7d35047d5" },
+             EngineVFXModuleV3{ "ShapePoint", "8079c58d9d214db694607abaf9c1a4b2" },
+             EngineVFXModuleV3{ "ShapeSphere", "3435fcff54c84b3499fa6ed992a4bfd3" },
+             EngineVFXModuleV3{ "SizeOverLife", "240adf0c6a0f407489419764780491eb" },
+             EngineVFXModuleV3{ "SolveForcesAndVelocity", "d1378c9a2062498ab14e47e7ef29cccb" },
+             EngineVFXModuleV3{ "SpawnBurst", "02637a2ef2774901a0a88452af542abd" },
+             EngineVFXModuleV3{ "SpawnFromChannel", "c3e1a7d94b2f4e6a8d05f1b97a6e2c48" },
+             EngineVFXModuleV3{ "SpawnRate", "10e483e233d547108e31d1855328a54b" },
+             EngineVFXModuleV3{ "SubUVAnimation", "7abfca5b622c4e59b6862841e67c01c8" },
+             EngineVFXModuleV3{ "UpdateAge", "0caef28c515f4a4e93363f1616ed3ca3" },
+             EngineVFXModuleV3{ "UpdateRotation", "94456c88cf0e495e9396474e052d53bd" },
+        };
+
+        std::optional<Assets::AssetGuidRef> EngineVFXModuleRefV3( std::string_view name )
+        {
+            for ( const EngineVFXModuleV3& row : kEngineVFXModulesV3 )
+                if ( row.Name == name )
+                    return Assets::AssetGuidRef{ std::string( row.Guid ),
+                                                 std::format( "engine:Engine/VFX/Modules/{}.dfxmod", row.Name ) };
+            return std::nullopt;
+        }
+
         S::VFXModuleInput CurveInput( const char* name, S::VFXValueType type,
                                       const std::vector<std::vector<S::VFXCurveKey>>& channels )
         {
@@ -2218,10 +2343,11 @@ namespace Desert::Migration
             return key;
         }
 
+        // Every name the v51 step uses is a row of kEngineVFXModulesV3 (the step's own constant list).
         S::VFXModuleUse Use( const char* module, std::vector<S::VFXModuleInput> inputs )
         {
             S::VFXModuleUse use;
-            use.Module = std::string( S::kVFXEnginePrefix ) + module;
+            use.Module = EngineVFXModuleRefV3( module ).value();
             use.Inputs = std::move( inputs );
             return use;
         }
@@ -2329,7 +2455,7 @@ namespace Desert::Migration
         // its longest life at the top speed under gravity, plus the larger sprite.
         const float reach = std::abs( speedMax ) * lifeMax + 0.5f * glm::length( d.Gravity ) * lifeMax * lifeMax +
                             std::max( std::abs( d.StartSize ), std::abs( d.EndSize ) );
-        system.Bounds = S::VFXBounds{ glm::vec3( -reach ), glm::vec3( reach ) };
+        emitter.Bounds = S::VFXBounds{ glm::vec3( -reach ), glm::vec3( reach ) };
         system.Emitters.push_back( std::move( emitter ) );
         return system;
     }
@@ -3117,6 +3243,32 @@ namespace Desert::Migration
         return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
     }
 
+    Common::ResultStr<std::string> MigrateMeshBinaryV5ToV6( const std::string_view path, const std::string_view bytes )
+    {
+        namespace C = Common::Content;
+        if ( bytes.size() < sizeof( C::MeshBinaryFileHeader ) ||
+             std::memcmp( bytes.data(), C::kMeshBinaryMagic, 8 ) != 0 )
+            return Common::MakeFormattedError<std::string>( "'{}' is not a cooked mesh", path );
+        C::MeshBinaryFileHeader header{};
+        std::memcpy( &header, bytes.data(), sizeof( header ) );
+        if ( header.Version != 5u )
+            return Common::MakeFormattedError<std::string>( "'{}' is mesh version {}; this step raises 5", path,
+                                                            header.Version );
+        if ( header.DisplacementMode != 0 )
+            return Common::MakeFormattedError<std::string>(
+                 "'{}' is mesh version 5 with byte 72 = {}; v5 wrote zero there, so the file is not a v5 mesh",
+                 path, header.DisplacementMode );
+        static_assert( C::kMeshBinaryVersion == 6u, "a later MeshBinary version adds its own raise after this one" );
+        header.Version = C::kMeshBinaryVersion;
+        std::string raised( bytes );
+        std::memcpy( raised.data(), &header, sizeof( header ) );
+        auto decoded = Assets::Serialization::DecodeMeshBinary( raised, path );
+        if ( !decoded )
+            return Common::MakeFormattedError<std::string>( "'{}': the raised v{} does not read: {}", path,
+                                                            C::kMeshBinaryVersion, decoded.GetError() );
+        return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
+    }
+
     Common::ResultStr<std::string>
     MigrateMeshSourceToV3( const std::string_view path, const std::string_view bytes,
                            const std::span<const Animation::SkeletonCandidate> skeletons )
@@ -3604,59 +3756,6 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( written ) );
     }
 
-    Common::ResultStr<std::string> MigrateVFXSystemToV3( const std::string& text )
-    {
-        namespace S = Assets::Serialization;
-        // VFXS 3 IS VFXS 2 IS VFXS 1 PLUS OPTIONAL KEYS, so the v1 body reads as the current type; what a v1 row
-        // lacks is filled on the typed data, not by splicing text.
-        const auto v1 = Common::Json::Read<S::VFXSystemData>( text );
-        if ( !v1 )
-            return Common::MakeFormattedError<std::string>( "VFXS 1 body does not read: {}", v1.GetError() );
-        S::VFXSystemData data = v1.GetValue();
-        if ( !data.Header )
-            return Common::MakeFormattedError<std::string>(
-                 "the file states no header, and this step raises VFXS 1 only" );
-        const auto stated = data.Header->Versions.find( "VFXS" );
-        if ( stated == data.Header->Versions.end() || ( stated->second != 1u && stated->second != 2u ) )
-            return Common::MakeFormattedError<std::string>(
-                 "the header states VFXS {}, and this step raises VFXS 1 and 2 only",
-                 stated == data.Header->Versions.end() ? std::string( "nothing" )
-                                                       : std::to_string( stated->second ) );
-
-        const bool fromV1 = stated->second == 1u;
-        for ( S::VFXEmitterData& e : data.Emitters )
-            for ( S::VFXRendererData& r : e.Renderers )
-            {
-                if ( !fromV1 )
-                    break;
-                if ( r.Material || r.Ribbon || r.Mesh )
-                    return Common::MakeFormattedError<std::string>(
-                         "emitter '{}': a VFXS 1 renderer row states VFXS 2 keys", e.Name );
-                if ( r.Kind == S::VFXRendererKind::Ribbon )
-                    r.Ribbon = S::VFXRibbonRendererData{};
-                else if ( r.Kind == S::VFXRendererKind::Mesh )
-                    return Common::MakeFormattedError<std::string>(
-                         "emitter '{}': a VFXS 1 Mesh row names no mesh, and VFXS 2 needs one", e.Name );
-            }
-        if ( data.EffectType )
-            return Common::MakeFormattedError<std::string>(
-                 "a VFXS {} system already names EffectType '{}', a VFXS 3 key", stated->second,
-                 *data.EffectType );
-        data.EffectType = "Default";
-
-        // WriteVFXSystem stamps the header at the engine's VFXS, keeps the loaded GUID and states the
-        // Dependencies.
-        std::string written = S::WriteVFXSystem( data );
-        const auto  reread  = Common::Json::Read<S::VFXSystemData>( written );
-        if ( !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as VFXS 3: {}",
-                                                            reread.GetError() );
-        if ( auto valid = S::ValidateVFXSystemData( reread.GetValue() ); !valid )
-            return Common::MakeFormattedError<std::string>( "the raised file is not a valid VFXS 3 system: {}",
-                                                            valid.GetError() );
-        return Common::MakeSuccess( std::move( written ) );
-    }
-
     namespace
     {
         // The DSL texture properties MATL 5 stored under their GLSL spelling, and the parameter name MATL 6
@@ -3745,12 +3844,41 @@ namespace Desert::Migration
         }
         data.Header->Versions["MATL"] = 6u;
 
+        // Not WriteMaterialJson: that stamps the engine's CURRENT generation (MATL 7) over the 6 set above, and
+        // MigrateMaterialV6ToV7 would refuse the result. The header is written as raised here; the next step
+        // restamps it (and its Dependencies, which a texture rename leaves unchanged).
+        auto written = Common::Content::CanonicalJsonTextOfWriterOutput( Common::Json::Write( data ) );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "the raised material does not write: {}",
+                                                            written.GetError() );
+        // v6 text, not the engine's current generation: MigrateMaterialV6ToV7 is the chain's next step and rereads.
+        return Common::MakeSuccess( std::string( written.GetValue() ) );
+    }
+
+    Common::ResultStr<std::string> MigrateMaterialV6ToV7( const std::string& text )
+    {
+        const auto parsed = Common::Json::Read<Assets::MaterialData>( text );
+        if ( !parsed )
+            return Common::MakeFormattedError<std::string>( "MATL 6 body does not read: {}", parsed.GetError() );
+        Assets::MaterialData data = parsed.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises MATL 6 only" );
+        const auto stated = data.Header->Versions.find( "MATL" );
+        if ( stated == data.Header->Versions.end() || stated->second != 6u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states MATL {}, and this step raises MATL 6 only",
+                 stated == data.Header->Versions.end() ? std::string( "nothing" )
+                                                       : std::to_string( stated->second ) );
+        // SSS-PROFILE: the SubsurfaceProfile reference is additive (absent = none); only the tag moves.
+        data.Header->Versions["MATL"] = 7u;
+
         auto written = Assets::WriteMaterialJson( data );
         if ( !written )
             return Common::MakeFormattedError<std::string>( "the raised material does not write: {}",
                                                             written.GetError() );
-        if ( auto reread = Assets::ParseMaterialJson( "MATL 5 -> 6", written.GetValue() ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as MATL 6: {}",
+        if ( auto reread = Assets::ParseMaterialJson( "MATL 6 -> 7", written.GetValue() ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as MATL 7: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::string( written.GetValue() ) );
     }
@@ -3855,7 +3983,7 @@ namespace Desert::Migration
                 continue;
             auto& overrides = *entity.PrefabOverrides;
             for ( std::size_t i = 0; i < overrides.size(); ++i )
-                writer.Raise( overrides[i].Components, tag + "_Override" + std::to_string( i ) );
+                writer.Raise( overrides[i].Components, std::format( "{}_Override{}", tag, i ) );
         }
         return report;
     }
@@ -3880,13 +4008,9 @@ namespace Desert::Migration
                 report.PathOnlyMeshGuids       = MigratePathOnlyMeshGuidsV31ToV32( entities, assetsRoot );
                 if ( !report.PathOnlyMeshGuids.UnknownNames.empty() )
                 {
-                    std::string names;
-                    for ( const auto& unknown : report.PathOnlyMeshGuids.UnknownNames )
-                        names += ( names.empty() ? "" : "; " ) + unknown;
-                    report.Refused = "'" + name +
-                                     "': " + std::to_string( report.PathOnlyMeshGuids.UnknownNames.size() ) +
-                                     " path-only mesh reference(s) cannot be given a header GUID: " + names +
-                                     ". Nothing was written.";
+                    report.Refused =
+                         RefusedOver( name, "path-only mesh reference(s) cannot be given a header GUID",
+                                      report.PathOnlyMeshGuids.UnknownNames );
                     return;
                 }
             }
@@ -3898,12 +4022,8 @@ namespace Desert::Migration
                 report.FoliageTypes       = MigrateInlineFoliageV32ToV33( entities, name, assetsRoot );
                 if ( !report.FoliageTypes.UnknownNames.empty() )
                 {
-                    std::string names;
-                    for ( const auto& unknown : report.FoliageTypes.UnknownNames )
-                        names += ( names.empty() ? "" : "; " ) + unknown;
-                    report.Refused =
-                         "'" + name + "': " + std::to_string( report.FoliageTypes.UnknownNames.size() ) +
-                         " Foliage block(s) cannot become a foliage type: " + names + ". Nothing was written.";
+                    report.Refused = RefusedOver( name, "Foliage block(s) cannot become a foliage type",
+                                                  report.FoliageTypes.UnknownNames );
                     return;
                 }
             }
@@ -3915,13 +4035,11 @@ namespace Desert::Migration
                 const auto inline_layers        = MigrateLandscapeLayerRefsV33ToV34( entities );
                 if ( !inline_layers.empty() )
                 {
-                    std::string names;
-                    for ( const auto& layer : inline_layers )
-                        names += ( names.empty() ? "" : "; " ) + layer;
-                    report.Refused = "'" + name + "': " + std::to_string( inline_layers.size() ) +
-                                     " inline landscape layer(s) must become .delayerinfo assets first (create "
-                                     "them in the Landscape panel and re-link): " +
-                                     names + ". Nothing was written.";
+                    report.Refused =
+                         RefusedOver( name,
+                                      "inline landscape layer(s) must become .delayerinfo assets first "
+                                      "(create them in the Landscape panel and re-link)",
+                                      inline_layers );
                     return;
                 }
             }
@@ -4147,9 +4265,9 @@ namespace Desert::Migration
         std::string RefuseGeneration( const char* what, int statedSceneVersion, int statedUnitVersion,
                                       const char* why )
         {
-            return std::string( "states " ) + what + " schema v" + std::to_string( statedSceneVersion ) +
-                   " / world units v" + std::to_string( statedUnitVersion ) + ", and this tool raises files to v" +
-                   std::to_string( kSceneVersion ) + "/v" + std::to_string( kUnitVersion ) + ". " + why;
+            return std::format(
+                 "states {} schema v{} / world units v{}, and this tool raises files to v{}/v{}. {}", what,
+                 statedSceneVersion, statedUnitVersion, kSceneVersion, kUnitVersion, why );
         }
     } // namespace
 
@@ -4406,11 +4524,11 @@ namespace Desert::Migration
                 continue; // not an instance, or already states all three
             const std::string& prefabPath = *record.PrefabPath;
 
-            const std::string site =
-                 ( record.id.has_value()
-                        ? "Entities[id=" + std::to_string( static_cast<uint64_t>( *record.id ) ) + "]"
-                        : std::string( "Entities[?]" ) ) +
-                 " > '" + prefabPath + "'";
+            const std::string site = std::format(
+                 "{} > '{}'",
+                 record.id.has_value() ? std::format( "Entities[id={}]", static_cast<uint64_t>( *record.id ) )
+                                       : std::string( "Entities[?]" ),
+                 prefabPath );
 
             const auto located = LocateMeshFile( prefabPath, assetsRoot );
             if ( !located )
@@ -4775,6 +4893,33 @@ namespace Desert::Migration
                 report.WorldPartitionTagRaised = true; // the stamp only: v1 is the v70 block under its own tag
         }
 
+        // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.
+        void RunAssetRefSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
+                               std::vector<Assets::EntityData>& entities, const std::filesystem::path& assetsRoot,
+                               const std::string& file, FileMigrationReport& report )
+        {
+            report.StatedAssetRefVersion = Assets::StatedVersion( header, Assets::kAssetRefSchemaTag );
+            if ( report.StatedAssetRefVersion < kAssetRefVersionReflected )
+            {
+                report.ReflectedAssetRefsRaised = true;
+                report.ReflectedAssetRefs       = MigrateReflectedAssetRefsV0ToV1( entities, assetsRoot );
+                if ( !report.ReflectedAssetRefs.Refused.empty() )
+                    report.Refused = RefusedWhole( file, report.ReflectedAssetRefs.Refused );
+            }
+        }
+
+        // The light chain (kLightVersion*), after the asset-reference chain: its numbers are its tag's.
+        void RunLightSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
+                            std::vector<Assets::EntityData>& entities, FileMigrationReport& report )
+        {
+            report.StatedLightVersion = Assets::StatedVersion( header, Assets::kLightSchemaTag );
+            if ( report.StatedLightVersion < kLightVersionRotation )
+            {
+                report.SunRotationRaised = true;
+                report.SunRotation       = MigrateLightRotationV0ToV1( entities );
+            }
+        }
+
         // A file at a LATER World Partition generation than this tool raises to, refused in the scene's words.
         std::string RefuseLaterWorldPartition( const char* what, int stated )
         {
@@ -4784,6 +4929,145 @@ namespace Desert::Migration
                    "THAT build's SceneMigrator.";
         }
     } // namespace
+
+    ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
+                                                              const std::filesystem::path&     assetsRoot )
+    {
+        ReflectedAssetRefsReport report;
+        // The header GUID of the `.demat` an "assets:" key names, read once per key; nullopt = refused.
+        std::map<std::string, std::optional<std::string>> guids;
+        const auto guidOf = [&]( const std::string& key, const std::string& who ) -> std::optional<std::string>
+        {
+            if ( const auto found = guids.find( key ); found != guids.end() )
+                return found->second;
+            constexpr std::string_view kMount = "assets:";
+            std::optional<std::string> guid;
+            const std::string relative = key.starts_with( kMount ) ? key.substr( kMount.size() ) : key;
+            std::filesystem::path file = ( assetsRoot / relative ).lexically_normal();
+            if ( const auto located = LocateMeshFile( relative, assetsRoot ); located.IsSuccess() )
+                file = located.GetValue().File;
+            if ( std::ifstream in( file ); in )
+            {
+                std::stringstream text;
+                text << in.rdbuf();
+                if ( const auto parsed = rfl::json::read<rfl::Generic>( text.str() ); parsed.has_value() )
+                    if ( const auto root = parsed.value().to_object(); root.has_value() )
+                        if ( const auto headerNode = root.value().get( "Header" ); headerNode.has_value() )
+                            if ( const auto header = headerNode.value().to_object(); header.has_value() )
+                                if ( const auto g = header.value().get( "Guid" ); g.has_value() )
+                                    if ( const auto t = g.value().to_string();
+                                         t.has_value() && Common::Content::AssetGuidFromText( t.value() ) )
+                                        guid = t.value();
+            }
+            if ( !guid )
+                report.Refused.push_back(
+                     std::format( "{}: material '{}' ({}) states no header GUID", who, key, file.string() ) );
+            guids.emplace( key, guid );
+            return guid;
+        };
+        const auto ref = []( const std::string& guid, const std::string& path )
+        {
+            rfl::Generic::Object one;
+            one["Guid"] = rfl::Generic( guid );
+            one["Path"] = rfl::Generic( path );
+            return rfl::Generic( std::move( one ) );
+        };
+        const auto texts = [&]( const rfl::Generic::Object& block, const char* key, const std::string& who,
+                                std::vector<std::string>& out ) -> bool
+        {
+            const auto stated = block.get( key );
+            if ( !stated.has_value() )
+                return true;
+            const auto array = stated.value().to_array();
+            if ( !array.has_value() )
+            {
+                report.Refused.push_back( std::format( "{}: StaticMesh.{} is not an array", who, key ) );
+                return false;
+            }
+            for ( const rfl::Generic& item : array.value() )
+                out.push_back( item.to_string().value_or( std::string() ) );
+            return true;
+        };
+        const auto raise = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "StaticMesh",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto text = [&]( const char* key )
+                           {
+                               const auto v = block.get( key );
+                               return v.has_value() ? v.value().to_string().value_or( std::string() )
+                                                    : std::string();
+                           };
+                           const bool statesMesh = block.get( "MeshGuid" ).has_value() ||
+                                                   block.get( "MeshPath" ).has_value();
+                           std::vector<std::string> slotGuids;
+                           std::vector<std::string> slotPaths;
+                           if ( !texts( block, "MaterialGuids", who, slotGuids ) ||
+                                !texts( block, "MaterialPaths", who, slotPaths ) )
+                               return false;
+                           const bool statesSlots = block.get( "MaterialGuids" ).has_value() ||
+                                                    block.get( "MaterialPaths" ).has_value();
+                           if ( !statesMesh && !statesSlots && block.get( "MeshHandle" ).has_value() )
+                               return false; // already v1
+                           const std::string meshGuid = text( "MeshGuid" );
+                           const std::string meshPath = text( "MeshPath" );
+                           for ( const char* key : { "MeshGuid", "MeshPath", "MaterialGuids", "MaterialPaths" } )
+                               DropKey( block, key );
+                           // Both keys always, as the save writes them (reflection states every field): a
+                           // primitive's MeshHandle is the empty {"", ""}, so a migrated scene and the same
+                           // scene saved again are byte-equal.
+                           block["MeshHandle"] = ref( meshGuid, meshPath );
+                           rfl::Generic::Array slots;
+                           const std::size_t   count = std::max( slotGuids.size(), slotPaths.size() );
+                           for ( std::size_t i = 0; i < count; ++i )
+                               slots.push_back( ref( i < slotGuids.size() ? slotGuids[i] : std::string(),
+                                                     i < slotPaths.size() ? slotPaths[i] : std::string() ) );
+                           block["MaterialSlots"] = rfl::Generic( std::move( slots ) );
+                           ++report.MeshBlocks;
+                           return true;
+                       } );
+            // The reflected Asset<MaterialAsset> fields, stated as a bare key until v1.
+            constexpr std::array<std::pair<const char*, const char*>, 4> kMaterialFields = {
+                 { { "LandscapeMaterial", "Material" },
+                   { "VolumetricCloud", "Material" },
+                   { "Destructible", "InteriorMaterial" },
+                   { "UIPanel", "Material" } } };
+            for ( const auto& [component, field] : kMaterialFields )
+                EditBlock( components, component,
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               const auto stated = block.get( field );
+                               if ( !stated.has_value() )
+                                   return false;
+                               const auto key = stated.value().to_string();
+                               if ( !key.has_value() )
+                                   return false; // already an object: {Guid, Path}
+                               std::string guid;
+                               if ( !key.value().empty() )
+                               {
+                                   const auto found =
+                                        guidOf( key.value(), std::format( "{} / {}.{}", who, component, field ) );
+                                   if ( !found )
+                                       return false;
+                                   guid = *found;
+                               }
+                               block[field] = ref( guid, key.value() );
+                               ++report.MaterialFields;
+                               return true;
+                           } );
+        };
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id.has_value() ? std::format( "entity {}", entity.id->ToString() )
+                                                          : std::string( "<record without id>" );
+            raise( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    raise( override_.Components, who + " (prefab override)" );
+        }
+        return report;
+    }
 
     FileMigrationReport MigrateScene( SceneSerialized& scene, const std::filesystem::path& assetsRoot,
                                       const std::filesystem::path& sourceFile )
@@ -4895,10 +5179,10 @@ namespace Desert::Migration
             report.InstanceTransforms       = MigrateInstanceTransformsV36ToV37( scene.Entities, assetsRoot );
             if ( !report.InstanceTransforms.UnknownNames.empty() )
             {
-                report.Refused = "'" + scene.SceneName +
-                                 "': " + std::to_string( report.InstanceTransforms.UnknownNames.size() ) +
-                                 " prefab instance(s) whose root transform cannot be stated: " +
-                                 report.InstanceTransforms.UnknownNames.front();
+                report.Refused =
+                     std::format( "'{}': {} prefab instance(s) whose root transform cannot be stated: {}",
+                                  scene.SceneName, report.InstanceTransforms.UnknownNames.size(),
+                                  report.InstanceTransforms.UnknownNames.front() );
                 return report; // unstamped, as every refusal
             }
         }
@@ -4947,6 +5231,10 @@ namespace Desert::Migration
 
         // World Partition's own chain, after the scene's: its numbers are its tag's (kWorldPartitionVersion*).
         RunWorldPartitionSteps( scene.Header, report );
+        if ( report.Refused.empty() )
+            RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );
+        if ( report.Refused.empty() )
+            RunLightSteps( scene.Header, scene.Entities, report );
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently
         // (MigrationHeader keeps an existing GUID) - leaving it unstamped is how a load would re-run this.
@@ -4981,7 +5269,9 @@ namespace Desert::Migration
 
         const int foundWorldPartition = Assets::StatedVersion( prefab.Header, Assets::kWorldPartitionSchemaTag );
         if ( outcome.FoundSceneVersion == kSceneVersion && outcome.FoundUnitVersion == kUnitVersion &&
-             foundWorldPartition == Core::kWorldPartitionVersion )
+             foundWorldPartition == Core::kWorldPartitionVersion &&
+             Assets::StatedVersion( prefab.Header, Assets::kAssetRefSchemaTag ) == Core::kAssetRefVersion &&
+             Assets::StatedVersion( prefab.Header, Assets::kLightSchemaTag ) == Core::kLightVersion )
         {
             outcome.AlreadyCurrent = true;
             return outcome;
@@ -5028,6 +5318,10 @@ namespace Desert::Migration
         }
         if ( outcome.Steps.Refused.empty() )
             RunWorldPartitionSteps( prefab.Header, outcome.Steps );
+        if ( outcome.Steps.Refused.empty() )
+            RunAssetRefSteps( prefab.Header, prefab.Entities, assetsRoot, prefab.Name, outcome.Steps );
+        if ( outcome.Steps.Refused.empty() )
+            RunLightSteps( prefab.Header, prefab.Entities, outcome.Steps );
         if ( !outcome.Steps.Refused.empty() )
         {
             outcome.Refused = outcome.Steps.Refused;
@@ -5040,6 +5334,234 @@ namespace Desert::Migration
         prefab.UnitVersion  = std::nullopt;
 
         return outcome;
+    }
+
+    namespace
+    {
+        // VFXS 4 -> 5 on the untyped body: the system's "Bounds" goes, and every emitter states it right after its
+        // Capacity (the key order of VFXEmitterData). An emitter that already states Bounds is an error.
+        Common::BoolResultStr MoveVFXSystemBoundsIntoEmitters( rfl::Generic::Object& system )
+        {
+            const auto bounds = system.get( "Bounds" );
+            if ( !bounds || !bounds.value().to_object() )
+                return Common::MakeFormattedError<bool>(
+                     "the system states no Bounds object to move into its emitters" );
+            const auto emitters = system.get( "Emitters" ).value_or( rfl::Generic() ).to_array();
+            if ( !emitters )
+                return Common::MakeFormattedError<bool>( "Emitters is not an array" );
+            rfl::Generic::Array outEmitters;
+            for ( const rfl::Generic& e : emitters.value() )
+            {
+                const auto emitter = e.to_object();
+                if ( !emitter )
+                    return Common::MakeFormattedError<bool>( "an emitter is not an object" );
+                rfl::Generic::Object out;
+                bool                 placed = false;
+                for ( const auto& [key, field] : emitter.value() )
+                {
+                    if ( key == "Bounds" )
+                        return Common::MakeFormattedError<bool>(
+                             "emitter '{}' already states Bounds, a VFXS 5 key",
+                             emitter.value().get( "Name" ).value_or( rfl::Generic() ).to_string().value_or( "?" ) );
+                    out[key] = field;
+                    if ( key == "Capacity" )
+                    {
+                        out["Bounds"] = bounds.value();
+                        placed        = true;
+                    }
+                }
+                if ( !placed )
+                    out["Bounds"] = bounds.value(); // no Capacity stated (the reader's default): after the rest
+                outEmitters.push_back( out );
+            }
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : system )
+            {
+                if ( key == "Bounds" )
+                    continue;
+                if ( key == "Emitters" )
+                    raised[key] = outEmitters;
+                else
+                    raised[key] = field;
+            }
+            system = std::move( raised );
+            return BOOLSUCCESS;
+        }
+
+        // VFXS 1 -> 2 (VFX-09) on the untyped body: a Ribbon row gets the default ribbon settings (one ribbon per
+        // emitter, 10 cm wide, U stretched), no row a Material (v1 drew the engine's particle material). A v1 row
+        // stating a VFXS 2 key, or a v1 Mesh row (it names no mesh, and VFXS 2 needs one), is an error naming the
+        // emitter.
+        Common::BoolResultStr RaiseVFXSystemRenderersTo2( rfl::Generic::Object& system )
+        {
+            const auto ribbon = rfl::json::read<rfl::Generic>(
+                 Common::Json::Write( Assets::Serialization::VFXRibbonRendererData{} ) );
+            if ( !ribbon )
+                return Common::MakeFormattedError<bool>( "the default ribbon settings do not read back: {}",
+                                                         ribbon.error().what() );
+            const auto emitters = system.get( "Emitters" ).value_or( rfl::Generic() ).to_array();
+            if ( !emitters )
+                return Common::MakeFormattedError<bool>( "Emitters is not an array" );
+            rfl::Generic::Array outEmitters;
+            for ( const rfl::Generic& e : emitters.value() )
+            {
+                auto emitter = e.to_object();
+                if ( !emitter )
+                    return Common::MakeFormattedError<bool>( "an emitter is not an object" );
+                const std::string name =
+                     emitter.value().get( "Name" ).value_or( rfl::Generic() ).to_string().value_or( "?" );
+                const auto rows = emitter.value().get( "Renderers" ).value_or( rfl::Generic() ).to_array();
+                if ( rows )
+                {
+                    rfl::Generic::Array outRows;
+                    for ( const rfl::Generic& r : rows.value() )
+                    {
+                        auto row = r.to_object();
+                        if ( !row )
+                            return Common::MakeFormattedError<bool>( "emitter '{}': a renderer row is not an object",
+                                                                     name );
+                        for ( const char* key : { "Material", "Ribbon", "Mesh" } )
+                            if ( row.value().get( key ) )
+                                return Common::MakeFormattedError<bool>(
+                                     "emitter '{}': a VFXS 1 renderer row states {}, a VFXS 2 key", name, key );
+                        const std::string kind =
+                             row.value().get( "Kind" ).value_or( rfl::Generic() ).to_string().value_or( "" );
+                        if ( kind == "Mesh" )
+                            return Common::MakeFormattedError<bool>(
+                                 "emitter '{}': a VFXS 1 Mesh row names no mesh, and VFXS 2 needs one", name );
+                        if ( kind == "Ribbon" )
+                            row.value()["Ribbon"] = ribbon.value();
+                        outRows.push_back( row.value() );
+                    }
+                    emitter.value()["Renderers"] = outRows;
+                }
+                outEmitters.push_back( emitter.value() );
+            }
+            system["Emitters"] = outEmitters;
+            return BOOLSUCCESS;
+        }
+
+        // VFXS 2 -> 3 (VFX-11) on the untyped body: the system names the project's `Default` effect type (UE
+        // UNiagaraSettings::DefaultEffectType). A system already naming one is an error.
+        Common::BoolResultStr RaiseVFXSystemEffectTypeTo3( rfl::Generic::Object& system )
+        {
+            if ( const auto stated = system.get( "EffectType" ) )
+                return Common::MakeFormattedError<bool>(
+                     "the system already names EffectType '{}', a VFXS 3 key",
+                     stated.value().to_string().value_or( "?" ) );
+            system["EffectType"] = std::string( "Default" );
+            return BOOLSUCCESS;
+        }
+
+        // VFXS 3 -> 4 (VFX-MODULE-ASSET) on the untyped body: every stack row's `engine:<Name>` becomes {Guid, Path}
+        // of <Name>.dfxmod in the engine module library (kEngineVFXModulesV3), LocalModules goes (a non-empty list
+        // is an error - a local module becomes a project .dfxmod by hand).
+        Common::BoolResultStr RaiseVFXSystemModulesTo4( rfl::Generic::Object& system )
+        {
+            if ( const auto local = system.get( "LocalModules" ) )
+            {
+                const auto rows = local.value().to_array();
+                if ( rows && !rows.value().empty() )
+                    return Common::MakeFormattedError<bool>(
+                         "the system states {} LocalModules; VFXS 4 has none - each becomes a project .dfxmod by "
+                         "hand (the corpus had none)",
+                         rows.value().size() );
+            }
+            const auto emitters = system.get( "Emitters" ).value_or( rfl::Generic() ).to_array();
+            if ( !emitters )
+                return Common::MakeFormattedError<bool>( "Emitters is not an array" );
+            rfl::Generic::Array outEmitters;
+            for ( const rfl::Generic& e : emitters.value() )
+            {
+                auto emitter = e.to_object();
+                if ( !emitter )
+                    return Common::MakeFormattedError<bool>( "an emitter is not an object" );
+                auto stack = emitter.value().get( "Stack" ).value_or( rfl::Generic() ).to_object();
+                if ( stack )
+                {
+                    for ( const char* group : { "EmitterSpawn", "EmitterUpdate", "ParticleSpawn", "ParticleUpdate" } )
+                    {
+                        const auto uses = stack.value().get( group ).value_or( rfl::Generic() ).to_array();
+                        if ( !uses )
+                            continue;
+                        rfl::Generic::Array outUses;
+                        for ( const rfl::Generic& u : uses.value() )
+                        {
+                            auto use = u.to_object();
+                            if ( !use )
+                                return Common::MakeFormattedError<bool>( "a {} row is not an object", group );
+                            const auto module = use.value().get( "Module" ).value_or( rfl::Generic() ).to_string();
+                            constexpr std::string_view kEngine = "engine:";
+                            if ( !module || !module.value().starts_with( kEngine ) )
+                                return Common::MakeFormattedError<bool>(
+                                     "a {} row's Module '{}' is not engine:<Name>", group,
+                                     module ? module.value() : std::string( "?" ) );
+                            const auto ref =
+                                 EngineVFXModuleRefV3( std::string_view( module.value() ).substr( kEngine.size() ) );
+                            if ( !ref )
+                                return Common::MakeFormattedError<bool>(
+                                     "a {} row names '{}', which the engine module library never had", group,
+                                     module.value() );
+                            rfl::Generic::Object moduleRef;
+                            moduleRef["Guid"]     = ref->Guid;
+                            moduleRef["Path"]     = ref->Path;
+                            use.value()["Module"] = moduleRef;
+                            outUses.push_back( use.value() );
+                        }
+                        stack.value()[group] = outUses;
+                    }
+                    emitter.value()["Stack"] = stack.value();
+                }
+                outEmitters.push_back( emitter.value() );
+            }
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : system )
+            {
+                if ( key == "LocalModules" )
+                    continue;
+                raised[key] = key == "Emitters" ? rfl::Generic( outEmitters ) : field;
+            }
+            system = std::move( raised );
+            return BOOLSUCCESS;
+        }
+    } // namespace
+
+    Common::ResultStr<std::string> MigrateVFXSystem( const std::string& text )
+    {
+        using Result = std::string;
+        auto read    = rfl::json::read<rfl::Generic::Object>( text );
+        if ( !read )
+            return Common::MakeFormattedError<Result>( "the body does not read: {}", read.error().what() );
+        rfl::Generic::Object system = read.value();
+
+        const auto header   = system.get( "Header" ).value_or( rfl::Generic() ).to_object();
+        const auto versions = header ? header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object()
+                                     : rfl::Result<rfl::Generic::Object>( rfl::Error( "no header" ) );
+        const auto stated   = versions ? versions.value().get( "VFXS" ).value_or( rfl::Generic() ).to_int()
+                                       : rfl::Result<int>( rfl::Error( "no versions" ) );
+        constexpr int kCurrent = static_cast<int>( Assets::kVFXSystemSchemaVersion );
+        static_assert( kCurrent == 5, "a new VFXS needs its step in this chain" );
+        if ( !stated || stated.value() < 1 || stated.value() >= kCurrent )
+            return Common::MakeFormattedError<Result>(
+                 "the header states VFXS {}, and this chain raises VFXS 1 .. {} only",
+                 stated ? std::to_string( stated.value() ) : "nothing", kCurrent - 1 );
+
+        // One step per generation, each on the untyped body (no step reads a typed struct of a later layout).
+        using Step = Common::BoolResultStr ( * )( rfl::Generic::Object& );
+        constexpr std::array<Step, 4> kSteps{ RaiseVFXSystemRenderersTo2, RaiseVFXSystemEffectTypeTo3,
+                                              RaiseVFXSystemModulesTo4, MoveVFXSystemBoundsIntoEmitters };
+        for ( int from = stated.value(); from < kCurrent; ++from )
+            if ( auto raised = kSteps[static_cast<std::size_t>( from - 1 )]( system ); !raised )
+                return Common::MakeFormattedError<Result>( "VFXS {} -> {}: {}", from, from + 1, raised.GetError() );
+
+        // The engine's reader and writer give the current text: the writer stamps the current generation, keeps the
+        // GUID and states the header's Dependencies from the stacks (VFXSystemDependencies).
+        auto typed = Common::Json::Read<Assets::Serialization::VFXSystemData>( rfl::json::write( system ) );
+        if ( !typed )
+            return Common::MakeFormattedError<Result>( "the raised system does not read: {}", typed.GetError() );
+        if ( auto valid = Assets::Serialization::ValidateVFXSystemData( typed.GetValue() ); !valid )
+            return Common::MakeFormattedError<Result>( "the raised system is not valid: {}", valid.GetError() );
+        return Common::MakeSuccess( Assets::Serialization::WriteVFXSystem( typed.GetValue() ) );
     }
 
 } // namespace Desert::Migration

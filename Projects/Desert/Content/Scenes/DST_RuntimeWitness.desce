@@ -3,6 +3,8 @@
         "Kind": "Scene",
         "Guid": "9a3c51e07d2b4f8e86c0d4b1e5f27a63",
         "Versions": {
+            "AREF": 1,
+            "LGHT": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -15,8 +17,8 @@
             "id": 1001,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [-0.30000001192092896, -0.550000011920929, -0.7799999713897705],
-            "Rotation": [0.0, 0.0, 0.0],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-0.614159345626831, 0.30455127358436584, -0.09725314378738403],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
                 "Color": [1.0, 1.0, 1.0],
@@ -139,9 +141,17 @@
                 "CollisionProfile": "BlockAll"
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
             }
         },
         {
@@ -158,7 +168,10 @@
                 "ImpactRadius": 60.0,
                 "ImpactShells": 3,
                 "ImpactSitesPerShell": 10,
-                "InteriorMaterial": "assets:Materials/CB_Red.demat",
+                "InteriorMaterial": {
+                    "Guid": "e04d99eaf3ddd30e0184e38e5c3bcc57",
+                    "Path": "assets:Materials/CB_Red.demat"
+                },
                 "DamageThreshold": [50000.0, 50000.0],
                 "AnchoredNodes": [],
                 "DensityKgPerCm3": 0.002400000113993883,
@@ -174,9 +187,17 @@
                 "CollisionEventMinImpulse": 1000.0
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
             }
         },
         {
@@ -193,7 +214,10 @@
                 "ImpactRadius": 60.0,
                 "ImpactShells": 3,
                 "ImpactSitesPerShell": 10,
-                "InteriorMaterial": "assets:Materials/CB_Red.demat",
+                "InteriorMaterial": {
+                    "Guid": "e04d99eaf3ddd30e0184e38e5c3bcc57",
+                    "Path": "assets:Materials/CB_Red.demat"
+                },
                 "DamageThreshold": [50000.0, 50000.0],
                 "AnchoredNodes": [],
                 "DensityKgPerCm3": 0.002400000113993883,
@@ -209,9 +233,17 @@
                 "CollisionEventMinImpulse": 1000.0
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
             }
         },
         {
@@ -228,7 +260,10 @@
                 "ImpactRadius": 60.0,
                 "ImpactShells": 3,
                 "ImpactSitesPerShell": 10,
-                "InteriorMaterial": "assets:Materials/CB_Red.demat",
+                "InteriorMaterial": {
+                    "Guid": "e04d99eaf3ddd30e0184e38e5c3bcc57",
+                    "Path": "assets:Materials/CB_Red.demat"
+                },
                 "DamageThreshold": [50000.0, 50000.0],
                 "AnchoredNodes": [],
                 "DensityKgPerCm3": 0.002400000113993883,
@@ -244,9 +279,17 @@
                 "CollisionEventMinImpulse": 1000.0
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
             }
         },
         {
@@ -280,6 +323,17 @@
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,

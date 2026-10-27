@@ -15,7 +15,7 @@
 //          its last streaming source. The streamer is asked for through a getter each frame rather than
 //          handed in once, because Play's stop and a streaming error both destroy it from the editor's side.
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 #include "LandscapeHLODBake.hpp"
 #include "WorldPartitionMap.hpp"
 

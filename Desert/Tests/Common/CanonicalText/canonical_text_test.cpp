@@ -287,7 +287,7 @@ namespace
         const char* Writes;
     };
     constexpr std::array kNotATextAsset{
-         NotATextAsset{ "Desert/Desert/Source/Engine/Project/ProjectContext.cpp",
+         NotATextAsset{ "Desert/Projects/Source/Projects/ProjectContext.cpp",
                         ".deproj and the projects registry" },
          NotATextAsset{ "Desert/Desert/Source/Engine/Assets/ContentRegistry.hpp", "the cooked content registry" },
          NotATextAsset{ "Editor/Source/Editor/Packaging/GamePackager.cpp",

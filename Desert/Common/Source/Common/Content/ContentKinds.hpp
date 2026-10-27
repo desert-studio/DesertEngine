@@ -90,6 +90,8 @@ namespace Common::Content
         WeatherPreset,
         VFXEffectType,
         StateTree,
+        SubsurfaceProfile,
+        VFXModule,
         COUNT,
     };
 
@@ -210,6 +212,14 @@ namespace Common::Content
              // UE's UStateTree: the authored tree an AI controller runs (Engine/AI/StateTree/StateTree.hpp). Under
              // the assets root, as a sound is: a tree sits beside the AI that runs it.
              /* StateTree            */ { "StateTree", ".dstatetree", &P::ASSETS_PATH },
+             // UE USubsurfaceProfile: one Burley subsurface profile a material names (Engine/Assets/Serialization/
+             // SubsurfaceProfile.hpp, SSS-PROFILE). Under the assets root, beside the materials that name it.
+             /* SubsurfaceProfile    */ { "SubsurfaceProfile", ".dsssprofile", &P::ASSETS_PATH },
+             // UE's UNiagaraScript of Usage Module (Engine/VFX/VFXModuleFormat.hpp). Rooted in the project's VFX
+             // folder, so ScanRootsOf also walks the engine content mount's VFX folder: the engine's module
+             // library (Editor/Resources/Engine/VFX/Modules) and a project's own modules are one list, as UE's
+             // /Niagara and /Game mounts are.
+             /* VFXModule            */ { "VFXModule", ".dfxmod", &P::VFX_PATH },
         } };
     }
 

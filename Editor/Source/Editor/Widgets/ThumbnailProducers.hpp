@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Editor/Panels/FileExplorer/FileType.hpp>
+#include <Editor/Core/FileType.hpp>
 #include <Editor/Widgets/ThumbnailFormats.hpp>
 
 #include <array>
@@ -85,6 +85,8 @@ namespace Desert::Editor::ThumbnailProducers
               "landscape" },
          Row{ FileType::StateTree, Producer::TypeIcon,
               "UE (UStateTree): the class icon; states and transitions have no picture" },
+         Row{ FileType::VFXModule, Producer::TypeIcon,
+              "UE (UNiagaraScript, Usage Module): the class icon; a module is text and has no picture" },
          Row{ FileType::ImportSettings, Producer::TypeIcon, "import settings text beside a source file" },
          Row{ FileType::SkinnedMesh, Producer::RenderedPose, "UE (USkeletalMesh): the mesh in its bind pose" },
          Row{ FileType::Skeleton, Producer::RenderedPose,

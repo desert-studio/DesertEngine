@@ -23,6 +23,7 @@
 #include <Common/BindlessTextures.glslh>
 #include <Common/LandscapeWeights.glslh>
 #include <Common/SdfText.glslh>
+#include <Common/MeshTextureCoord.glslh>
 
 #if !defined( RAY_QUERY_VISIBILITY_TLAS_BINDING ) || !defined( RAY_QUERY_VISIBILITY_GEOMETRY_BINDING ) || \
      !defined( RAY_QUERY_VISIBILITY_MATERIALS_BINDING )
@@ -133,9 +134,13 @@ bool RayQueryCandidateBlocks( rayQueryEXT query )
              0.0 );
         return !LandscapeIsHole( page[int( layer % 4u )] );
     }
-    const vec4  texel   = SampleBindless( material.OpacityTexture, material.OpacitySampler, uv, 0.0 );
-    if ( ( material.Flags & kRayTracingMaterialSdfMedian ) != 0u )
-        return SdfTextMedian( texel.rgb ) >= material.OpacityCutoff; // 3D text: the glyph's outline
+    if ( ( material.Flags & kRayTracingMaterialSdfMedian ) != 0u ) // 3D text: the glyph's outline, its own UVs
+        return SdfTextMedian( SampleBindless( material.OpacityTexture, material.OpacitySampler, uv, 0.0 ).rgb ) >=
+               material.OpacityCutoff;
+    // A masked mesh segment: the stored UV in the raster's convention (Common/MeshTextureCoord.glslh), or the test
+    // reads the mask mirrored in V.
+    const vec4  texel   = SampleBindless( material.OpacityTexture, material.OpacitySampler, DesertMeshTextureUV( uv ),
+                                          0.0 );
     const uint  channel = ( material.Flags >> 1u ) & 3u;
     const float opacity = channel == 0u ? texel.a : texel[int( channel ) - 1];
     return opacity >= material.OpacityCutoff;

@@ -3,6 +3,8 @@
         "Kind": "Scene",
         "Guid": "dfb12e1e3c0e4e1895f0c968ae4b3a32",
         "Versions": {
+            "AREF": 1,
+            "LGHT": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -15,8 +17,8 @@
             "id": 1001,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [-0.30000001192092896, -0.550000011920929, -0.7799999713897705],
-            "Rotation": [0.0, 0.0, 0.0],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-0.614159345626831, 0.30455127358436584, -0.09725314378738403],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
                 "Color": [1.0, 1.0, 1.0],
@@ -139,9 +141,17 @@
                 "CollisionProfile": "BlockAll"
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
             }
         },
         {
@@ -175,9 +185,17 @@
                 ]
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
             }
         },
         {
@@ -211,9 +229,17 @@
                 ]
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
             }
         },
         {
@@ -239,9 +265,17 @@
                 "CollisionProfile": "BlockAll"
             },
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
-                "MaterialGuids": ["df51ca6ed9cb71779a9b5634db0863bc"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                        "Path": "assets:Materials/CB_Orange.demat"
+                    }
+                ]
             }
         },
         {
@@ -290,9 +324,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [0.6000000238418579, 1.7999999523162842, 0.6000000238418579],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Prop.demat"],
-                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
-                "Primitive": "Capsule"
+                "Primitive": "Capsule",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
             }
         },
         {
@@ -358,6 +400,17 @@
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,

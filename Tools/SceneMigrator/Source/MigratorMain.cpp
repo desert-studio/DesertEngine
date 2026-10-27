@@ -456,14 +456,14 @@ namespace
         }
         Content::MeshBinaryFileHeader header{};
         if ( bytes.size() < sizeof( header ) )
-            return Fail( "is " + std::to_string( bytes.size() ) + " bytes, shorter than a mesh header" );
+            return Fail( std::format( "is {} bytes, shorter than a mesh header", bytes.size() ) );
         std::memcpy( &header, bytes.data(), sizeof( header ) );
         if ( header.ByteOrder != Content::kMeshBinaryByteOrderTag )
             return Fail( "is a cooked mesh of the other byte order; re-cook it on this host" );
         if ( header.Version != Content::kMeshBinaryVersion )
-            return Fail( "is mesh version " + std::to_string( header.Version ) + "; this tool reads only v" +
-                         std::to_string( Content::kMeshBinaryVersion ) +
-                         " (older cooked meshes are not supported - re-cook it from its source)" );
+            return Fail( std::format( "is mesh version {}; this tool reads only v{} (older cooked meshes are not "
+                                      "supported - re-cook it from its source)",
+                                      header.Version, Content::kMeshBinaryVersion ) );
         return Common::MakeSuccess( header.Version );
     }
 
@@ -553,6 +553,18 @@ namespace
         if ( report.WorldPartitionTagRaised )
             out << " world partition v" << report.StatedWorldPartitionVersion << "->v"
                 << Desert::Migration::kWorldPartitionVersionTagged << " (the WPAR tag is stated)";
+        if ( report.ReflectedAssetRefsRaised )
+            out << " asset references v" << report.StatedAssetRefVersion << "->v"
+                << Desert::Migration::kAssetRefVersionReflected << " (" << report.ReflectedAssetRefs.MeshBlocks
+                << " Static Mesh block(s) and " << report.ReflectedAssetRefs.MaterialFields
+                << " material field(s) restated as {Guid, Path})";
+        if ( report.SunRotationRaised && ( report.SunRotation.Aimed > 0 || report.SunRotation.Overrides > 0 ||
+                                           report.SunRotation.Undirected > 0 ) )
+            out << std::format( " lights v{}->v{} ({} directional light(s) aimed by Rotation, {} override(s) "
+                                "with an identity parent, {} without a direction kept their Rotation)",
+                                report.StatedLightVersion,
+                                Desert::Migration::kLightVersionRotation, report.SunRotation.Aimed,
+                                report.SunRotation.Overrides, report.SunRotation.Undirected );
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never
@@ -727,9 +739,12 @@ namespace Desert::Migration
                  bytes.size() >= 16 &&
                  std::string_view( bytes ).starts_with( std::string_view(
                       Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
-                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u ) )
+                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u || stated == 5u ) )
             {
-                const auto raised = Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
+                // 3/4 are re-stated at the current version by the SkeletonGuid raise; 5 only gains the version.
+                const auto raised = stated == 5u
+                                         ? Desert::Migration::MigrateMeshBinaryV5ToV6( path.string(), bytes )
+                                         : Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
                 if ( !raised )
                 {
                     err << "FAIL   " << raised.GetError() << "\n";
@@ -793,6 +808,10 @@ namespace Desert::Migration
                 const auto asset = Desert::Assets::DecodeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) );
                 if ( !asset )
                 {
+                    // An MSAS 1 asset is raised by the DISPLACE pass below; only a file no version reads fails
+                    // here.
+                    if ( Desert::Assets::UpgradeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) ) )
+                        continue;
                     err << "FAIL   " << path.string() << " — neither a cooked DESTMESH mesh nor a readable mesh "
                         << "asset: " << asset.GetError() << "\n";
                     ++failed;
@@ -963,8 +982,8 @@ namespace Desert::Migration
             if ( stated != static_cast<int>( Desert::Assets::kShaderSchemaVersion ) )
             {
                 err << "FAIL   " << path.string() << " — "
-                    << ( header ? "states SHDR " + std::to_string( stated ) + "; this tool reads SHDR " +
-                                       std::to_string( Desert::Assets::kShaderSchemaVersion )
+                    << ( header ? std::format( "states SHDR {}; this tool reads SHDR {}", stated,
+                                               Desert::Assets::kShaderSchemaVersion )
                                 : header.GetError() )
                     << "\n";
                 ++failed;
@@ -1146,16 +1165,21 @@ namespace Desert::Migration
                 ++failed;
                 continue;
             }
-            if ( stated.GetValue() == 5u )
+            if ( stated.GetValue() == 5u || stated.GetValue() == 6u )
             {
-                const auto raised = Desert::Migration::MigrateMaterialV5ToV6( source );
+                // The chain: 5 -> 6 (SHADER-NAMING), 6 -> 7 (SSS-PROFILE).
+                auto raised = stated.GetValue() == 5u ? Desert::Migration::MigrateMaterialV5ToV6( source )
+                                                      : Common::MakeSuccess( std::string( source ) );
+                if ( raised )
+                    raised = Desert::Migration::MigrateMaterialV6ToV7( raised.GetValue() );
                 if ( !raised )
                 {
-                    err << "FAIL   " << path.string() << " — MATL 5 -> 6: " << raised.GetError() << "\n";
+                    err << "FAIL   " << path.string() << " — MATL " << stated.GetValue() << " -> 7: "
+                        << raised.GetError() << "\n";
                     ++failed;
                     continue;
                 }
-                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL 5 -> "
+                out << ( check ? "would raise " : "raised " ) << path.string() << " MATL " << stated.GetValue() << " -> "
                     << Desert::Assets::kMaterialSchemaVersion << "\n";
                 if ( !check && !WriteText( path, raised.GetValue(), err ) )
                 {
@@ -1620,14 +1644,15 @@ namespace Desert::Migration
                     continue;
                 }
             }
-            // VFXS 1 -> 2 (VFX-09): renderer rows state their Material / Ribbon / Mesh; 2 -> 3 (VFX-11): the
-            // system names the Default effect type.
+            // VFXS 1 .. 4 -> current, one chain on the untyped body (MigrateVFXSystem): 1 -> 2 renderer rows
+            // (VFX-09), 2 -> 3 the Default effect type (VFX-11), 3 -> 4 module assets (VFX-MODULE-ASSET), 4 -> 5
+            // emitter bounds (VFX-PORT-2).
             if ( path.extension() == Desert::Assets::Serialization::kVFXSystemExtension )
             {
                 const auto stated = ReadStatedVersion( path, text, "VFXS" );
                 if ( stated && stated.GetValue() < Desert::Assets::kVFXSystemSchemaVersion )
                 {
-                    const auto raised = Desert::Migration::MigrateVFXSystemToV3( text );
+                    const auto raised = Desert::Migration::MigrateVFXSystem( text );
                     if ( !raised )
                     {
                         err << "FAIL   " << path.string() << " — VFXS " << stated.GetValue() << " -> "
@@ -1642,8 +1667,15 @@ namespace Desert::Migration
                         ++failed;
                         continue;
                     }
-                    // The step names `Default`: the project's VFX root must hold it (UE DefaultEffectType). Created
-                    // once, beside the first system raised, when the project has none; an existing one is kept.
+                    if ( stated.GetValue() >= 3u )
+                    {
+                        // Already named its effect type: the 2 -> 3 step did not run.
+                        ++vfxSystemsRaised;
+                        continue;
+                    }
+                    // The 2 -> 3 step names `Default`: the project's VFX root must hold it (UE DefaultEffectType).
+                    // Created once, beside the first system raised, when the project has none; an existing one is
+                    // kept.
                     const auto vfxRoot = Common::Constants::Path::RootForContentPath(
                          Common::Constants::Path::ContentDir::VFX, path );
                     if ( !vfxRoot )
@@ -1772,6 +1804,37 @@ namespace Desert::Migration
             if ( const Layout layout = RelayOutIfNeeded( path, text, check, out, err );
                  layout != Layout::Canonical )
                 ++( layout == Layout::Failed ? failed : relaid );
+        }
+
+        // THE MESH ASSETS (DISPLACE): MSAS 1 -> 2 states the displacement mode and bake settings in IMPT. The step
+        // is the engine's own UpgradeMeshSourceAsset (one statement of the format): nullopt = already current; a
+        // cooked MeshBinary is the mesh pass's above; a file neither reads FAILS by name and is left untouched.
+        for ( const auto& path : meshes )
+        {
+            const std::string bytes = ReadAll( path );
+            if ( std::string_view( bytes ).starts_with( std::string_view(
+                      Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) )
+                continue;
+            const auto raised = Desert::Assets::UpgradeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) );
+            if ( !raised )
+            {
+                err << "FAIL   " << path.string() << " — " << raised.GetError() << "\n";
+                ++failed;
+                continue;
+            }
+            if ( !raised.GetValue() )
+                continue;
+            out << ( check ? "would raise " : "raised " ) << path.string() << " MSAS 1 -> "
+                << Desert::Assets::kMeshAssetSubsystemVersion << "\n";
+            if ( check )
+                continue;
+            if ( const auto written =
+                      Common::Utils::FileSystem::WriteBytesToFileAtomic( path, *raised.GetValue() );
+                 !written )
+            {
+                err << "FAIL   " << path.string() << " — " << written.GetError() << "\n";
+                ++failed;
+            }
         }
 
         // THE SKINNED IMPORTS' SOURCE HASH (SKEL-fixa, ImportRecordSourceHash.hpp): a `.skmesh` with its raw

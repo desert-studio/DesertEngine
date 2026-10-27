@@ -3,6 +3,8 @@
         "Kind": "Scene",
         "Guid": "e41a616c94aeb7649f941eed2ea52b71",
         "Versions": {
+            "AREF": 1,
+            "LGHT": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -19,9 +21,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4000.0, 0.20000000298023224, 4000.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {
@@ -99,7 +109,10 @@
             },
             "VolumetricCloud": {
                 "Enabled": true,
-                "Material": "assets:Materials/M_Clouds_Sunset_Clouds.demat",
+                "Material": {
+                    "Guid": "2731f4b41a1ce80f8f52cea1bb617496",
+                    "Path": "assets:Materials/M_Clouds_Sunset_Clouds.demat"
+                },
                 "PlanetRadius": 6360.0,
                 "LayerAltitudeOffset": 0.0,
                 "MaxViewDistance": 6000000.0,
@@ -127,8 +140,8 @@
             "id": 3852173717021806005,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [-30.0, -75.0, -55.0],
-            "Rotation": [0.0, 0.0, 0.0],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-0.9380475282669067, 0.312025249004364, -0.1590743213891983],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
                 "Color": [1.0, 1.0, 1.0],
@@ -185,6 +198,17 @@
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": true,
                     "BloomThreshold": 2.5,
                     "BloomIntensity": 0.3499999940395355,
@@ -223,9 +247,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [6.0, 6.0, 6.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {
@@ -236,9 +268,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [15.0, 15.0, 15.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {
@@ -249,9 +289,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [27.0, 27.0, 27.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {
@@ -262,9 +310,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [42.0, 42.0, 42.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {
@@ -275,9 +331,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [57.0, 57.0, 57.0],
             "StaticMesh": {
-                "MaterialPaths": ["assets:Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {

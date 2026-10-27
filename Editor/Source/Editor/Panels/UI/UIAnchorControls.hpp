@@ -9,6 +9,7 @@
 #include <ImGui/imgui.h>
 
 #include <algorithm>
+#include <format>
 #include <string>
 
 namespace Desert::Editor::UIAnchors
@@ -85,7 +86,7 @@ namespace Desert::Editor::UIAnchors
             {
                 if ( cc > 0 )
                     ImGui::SameLine();
-                const std::string lbl = std::string( rl[rr] ) + cl[cc] + "##da" + std::to_string( rr * 4 + cc );
+                const std::string lbl = std::format( "{}{}##da{}", rl[rr], cl[cc], rr * 4 + cc );
                 if ( ImGui::Button( lbl.c_str(), ImVec2( 40.0f, 26.0f ) ) )
                     ApplyPreset( L, modes[cc], modes[rr] );
             }

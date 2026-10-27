@@ -9,6 +9,7 @@
 
 #include <Engine/Animation/Animator.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Geometry/SkinnedMesh.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
@@ -173,13 +174,15 @@ namespace Desert::Editor
         // So FitTarget reads the pose from the camera's OWN matrices (ThumbnailFraming::PlaceInView) and no
         // camera constant is written down anywhere in this file. A pose that is measured cannot go stale.
 
-        // Key light pointing toward the camera-facing hemisphere (DirectionLight stores the *travel*
-        // direction in Translation; the shader lights along -Direction). From above + the camera's side.
-        auto  light           = m_Scene->CreateNewEntity( "ThumbLight" );
+        // Key light pointing toward the camera-facing hemisphere, aimed by its Rotation along the direction
+        // the light TRAVELS; the shader lights along -Direction. From above + the camera's side. The sky
+        // below takes the same vector, so the one constant is named once.
+        const glm::vec3 keyTravel( 2.0f, -6.0f, 5.0f );
+        auto            light = m_Scene->CreateNewEntity( "ThumbLight" );
         auto& lightC          = light.AddComponent<ECS::DirectionLightComponent>();
         lightC.Data.Intensity = 3.5f;
         lightC.Data.Color     = { 1.0f, 0.97f, 0.92f }; // warm key
-        light.GetComponent<ECS::TransformComponent>().Translation = { 2.0f, -6.0f, 5.0f };
+        ECS::AimDirectionalLight( *light.GetRegistry(), light.GetHandle(), keyTravel );
 
         m_Target = m_Scene->CreateNewEntity( "ThumbTarget" );
         m_Target.AddComponent<ECS::StaticMeshComponent>();
@@ -199,8 +202,8 @@ namespace Desert::Editor
         // direct SceneRenderer::SetProceduralSky below so the sky is enabled from frame 0 (the ECS command
         // path alone proved insufficient in this minimal scene). Sun dir = the ThumbLight.
         // Through the engine's ONE negation, not a second hand-written one (ECS::Rules::AtmosphereSunDirection):
-        // the light's Translation is the direction it TRAVELS, the sky wants the direction toward the sun.
-        const glm::vec3 sunDir = ECS::Rules::AtmosphereSunDirection( glm::vec3( 2.0f, -6.0f, 5.0f ) );
+        // the light TRAVELS along keyTravel, the sky wants the direction toward the sun.
+        const glm::vec3 sunDir = ECS::Rules::AtmosphereSunDirection( keyTravel );
 
         // IMPORTANT: which part of the dome ends up behind the subject is NOT knowable here. The subject is
         // placed on whatever view axis the engine's default camera currently has (see FitTarget), so the
@@ -249,7 +252,7 @@ namespace Desert::Editor
         // Default SunLightFx: a thumbnail has no sun light entity to read shafts from, and streaks in a
         // 128px preview would be noise anyway.
         m_Renderer->SetProceduralSky( true, sunDir, /*bakeNow=*/true, Graphic::MakeSkySettings( skyC.Data ),
-                                      Graphic::SunLightFx{} );
+                                      Graphic::SunLightFx{}, Graphic::AtmosphereLight1{} );
 
         // Resize ONCE here (after the camera exists) so the camera projection becomes square. We render at
         // kRenderSize (2x the output) and downscale on write = supersampled anti-aliasing. The renderer was

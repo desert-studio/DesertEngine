@@ -571,7 +571,7 @@ namespace Desert::Editor
                 }
             if ( !taken )
                 break;
-            name = "NewClip_" + std::to_string( n );
+            name = std::format( "NewClip_{}", n );
         }
 
         Animation::AnimationClip clip;

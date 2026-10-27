@@ -3,6 +3,8 @@
         "Kind": "Scene",
         "Guid": "0c42ee850e95277f8d732c3c69595870",
         "Versions": {
+            "AREF": 1,
+            "LGHT": 1,
             "SCNE": 70,
             "UNIT": 1,
             "WPAR": 1
@@ -74,7 +76,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -187,7 +192,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "assets:Materials/UI_RadialWipe.demat",
+                "Material": {
+                    "Guid": "53e7930a82e65578715e5c2659a4ae9f",
+                    "Path": "assets:Materials/UI_RadialWipe.demat"
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -247,7 +255,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "assets:Materials/UI_RadialWipe.demat",
+                "Material": {
+                    "Guid": "53e7930a82e65578715e5c2659a4ae9f",
+                    "Path": "assets:Materials/UI_RadialWipe.demat"
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -307,7 +318,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "",
+                "Material": {
+                    "Guid": "",
+                    "Path": ""
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -367,7 +381,10 @@
                     "Path": ""
                 },
                 "SpriteBorder": [0.0, 0.0, 0.0, 0.0],
-                "Material": "assets:Materials/CB_Orange.demat",
+                "Material": {
+                    "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                    "Path": "assets:Materials/CB_Orange.demat"
+                },
                 "Video": "",
                 "VideoVolume": 1.0,
                 "VideoMuted": false,
@@ -633,6 +650,17 @@
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,

@@ -19,6 +19,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -85,8 +86,8 @@
 #include <limits>
 #include <optional>
 
-// Directional light is a CUSTOM entry: the reflected fields PLUS a sun dial, because the sun's direction
-// is not a field — it hides in TransformComponent.Translation. See MakeDirectionalLightEntry.
+// Directional light is a CUSTOM entry: the reflected fields PLUS the one direction widget (a sun dial over the
+// entity's Rotation, the light's forward axis -Z, as UE). See MakeDirectionalLightEntry.
 // Point / spot light: the reflected fields, plus UE ULocalLightComponent::PostEditChangeProperty - a change of
 // Intensity Units re-states Intensity in the new units, so the light keeps its brightness (LightPhotometry).
 namespace
@@ -276,7 +277,7 @@ namespace Desert::Editor
 
         std::filesystem::path path = dir / ( base + ext );
         for ( int n = 1; std::filesystem::exists( path, ec ); ++n )
-            path = dir / ( base + "_" + std::to_string( n ) + ext );
+            path = dir / std::format( "{}_{}{}", base, n, ext );
 
         // Write the file FIRST (Terrain shader + a freshly minted header GUID), then create-with-load: the
         // asset adopts its in-file GUID as the internal handle during Load, so the handle registered here is
@@ -463,67 +464,147 @@ namespace Desert::Editor
 
     // Collider editor: same auto-built reflected UI as the one-liner, PLUS a one-time auto-fit on Add and
     // a manual "Fit to Mesh Bounds" button.
-    // A top-down hemisphere dial for a sun direction: the centre is straight up (elevation 90 deg), the
-    // rim is the horizon, and the angle around the circle is the compass azimuth (up = +Z, right = +X).
-    // Dragging moves the sun; the numeric sliders beside it stay the precise path (and are the only way
-    // to put the sun BELOW the horizon, which a hemisphere cannot show).
-    static bool DrawSunDial( float& azimuthDeg, float& elevationDeg, float diameter )
+    // THE ONE DIRECTION WIDGET of a directional light (PORT-SUN-ROTATION). Two views of the same sky over one
+    // Rotation, both draggable, then the two numbers an artist means:
+    //   - the COMPASS: the hemisphere seen from above - the rim is the horizon, the centre the zenith, the
+    //     angle round the circle the azimuth (up = N = +Z, right = E = +X); dragging places the sun;
+    //   - the HORIZON ARC: the same sky seen from the side, the sun on the arc at its elevation, the horizon
+    //     line through it and the half below it shaded - dragging there changes the elevation only, and is the
+    //     one place the sun goes BELOW the horizon by mouse;
+    //   - Elevation (deg) and Azimuth (deg) as drag fields, the exact path.
+    // Colours are UE5 Details' (sunk frame #0F0F0F, rule #1A1A1A, text #C8C8C8, muted #8A8A8A, accent #0070E0).
+    struct SunDirectionEdit
     {
-        ImDrawList*  dl     = ImGui::GetWindowDrawList();
+        bool Changed     = false; // the direction moved this frame
+        bool Activated   = false; // a gesture (drag, field edit) began this frame
+        bool Deactivated = false; // ... and ended this frame
+    };
+
+    static SunDirectionEdit DrawSunDirectionWidget( float& azimuthDeg, float& elevationDeg )
+    {
+        constexpr ImU32 kFrame  = IM_COL32( 0x0F, 0x0F, 0x0F, 0xFF );
+        constexpr ImU32 kRule   = IM_COL32( 0x1A, 0x1A, 0x1A, 0xFF );
+        constexpr ImU32 kGrid   = IM_COL32( 0x3A, 0x3A, 0x3A, 0xFF );
+        constexpr ImU32 kText   = IM_COL32( 0xC8, 0xC8, 0xC8, 0xFF );
+        constexpr ImU32 kMuted  = IM_COL32( 0x8A, 0x8A, 0x8A, 0xFF );
+        constexpr ImU32 kAccent = IM_COL32( 0x00, 0x70, 0xE0, 0xFF );
+        constexpr ImU32 kSky    = IM_COL32( 0x16, 0x22, 0x30, 0xFF );
+        constexpr ImU32 kGround = IM_COL32( 0x1E, 0x1A, 0x15, 0xFF );
+        constexpr ImU32 kSun    = IM_COL32( 0xFF, 0xD2, 0x5A, 0xFF );
+        constexpr ImU32 kNight  = IM_COL32( 0x78, 0x82, 0xA0, 0xFF );
+
+        SunDirectionEdit edit;
+        const auto       track = [&]
+        {
+            edit.Activated |= ImGui::IsItemActivated();
+            edit.Deactivated |= ImGui::IsItemDeactivated();
+        };
+
+        const float avail    = ImGui::GetContentRegionAvail().x;
+        const float gap      = ImGui::GetStyle().ItemSpacing.x;
+        const float diameter = glm::clamp( ( avail - gap ) * 0.5f, 96.0f, 168.0f );
+        const float r        = diameter * 0.5f;
+        ImDrawList* dl       = ImGui::GetWindowDrawList();
+
+        // ---- the compass (top view) ----
         const ImVec2 origin = ImGui::GetCursorScreenPos();
-        const float  r      = diameter * 0.5f;
         const ImVec2 c( origin.x + r, origin.y + r );
-
-        ImGui::InvisibleButton( "##sundial", ImVec2( diameter, diameter ) );
-
-        bool changed = false;
+        ImGui::InvisibleButton( "##sun_compass", ImVec2( diameter, diameter ) );
+        track();
         if ( ImGui::IsItemActive() )
         {
             const ImVec2 m   = ImGui::GetIO().MousePos;
             const float  dx  = m.x - c.x;
             const float  dy  = m.y - c.y;
             const float  len = std::sqrt( dx * dx + dy * dy );
-
-            azimuthDeg = glm::degrees( std::atan2( dx, -dy ) );
+            azimuthDeg       = glm::degrees( std::atan2( dx, -dy ) );
             if ( azimuthDeg < 0.0f )
                 azimuthDeg += 360.0f;
             elevationDeg = ( 1.0f - glm::min( 1.0f, len / r ) ) * 90.0f;
-            changed      = true;
+            edit.Changed = true;
         }
+        const bool compassHot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+        dl->AddCircleFilled( c, r, kSky, 64 );
+        dl->AddCircle( c, r * ( 1.0f - 30.0f / 90.0f ), kGrid, 48 ); // 30 deg
+        dl->AddCircle( c, r * ( 1.0f - 60.0f / 90.0f ), kGrid, 32 ); // 60 deg
+        dl->AddLine( ImVec2( c.x - r, c.y ), ImVec2( c.x + r, c.y ), kGrid );
+        dl->AddLine( ImVec2( c.x, c.y - r ), ImVec2( c.x, c.y + r ), kGrid );
+        dl->AddCircle( c, r, compassHot ? kAccent : kMuted, 64, 1.5f ); // the horizon
+        dl->AddText( ImVec2( c.x - 3.0f, c.y - r + 2.0f ), kText, "N" );
+        dl->AddText( ImVec2( c.x + r - 11.0f, c.y - 7.0f ), kMuted, "E" );
+        dl->AddText( ImVec2( c.x - 3.0f, c.y + r - 16.0f ), kMuted, "S" );
+        dl->AddText( ImVec2( c.x - r + 4.0f, c.y - 7.0f ), kMuted, "W" );
 
-        const ImU32 ring = ImGui::GetColorU32( ImGuiCol_Border );
-        dl->AddCircleFilled( c, r, ImGui::GetColorU32( ImGuiCol_FrameBg ), 48 );
-        dl->AddCircle( c, r, ring, 48 );
-        dl->AddCircle( c, r * 0.5f, ring, 32 ); // the 45 deg elevation ring
-        dl->AddLine( ImVec2( c.x - r, c.y ), ImVec2( c.x + r, c.y ), ring );
-        dl->AddLine( ImVec2( c.x, c.y - r ), ImVec2( c.x, c.y + r ), ring );
-
-        const ImU32 label = ImGui::GetColorU32( ImGuiCol_TextDisabled );
-        dl->AddText( ImVec2( c.x - 3.0f, c.y - r - 2.0f ), label, "N" );
-        dl->AddText( ImVec2( c.x + r - 6.0f, c.y - 7.0f ), label, "E" );
-        dl->AddText( ImVec2( c.x - 3.0f, c.y + r - 14.0f ), label, "S" );
-        dl->AddText( ImVec2( c.x - r + 2.0f, c.y - 7.0f ), label, "W" );
-
-        // The sun itself. Below the horizon it is pinned to the rim and drawn hollow — the dial covers
-        // the sky, so "night" has to read as a state rather than a position.
-        const bool   belowHorizon = elevationDeg < 0.0f;
-        const float  el           = glm::clamp( elevationDeg, 0.0f, 90.0f );
-        const float  rr           = ( 1.0f - el / 90.0f ) * r;
-        const float  azr          = glm::radians( azimuthDeg );
+        const bool   below = elevationDeg < 0.0f;
+        const float  azr   = glm::radians( azimuthDeg );
+        const float  rr    = ( 1.0f - glm::clamp( elevationDeg, 0.0f, 90.0f ) / 90.0f ) * r;
         const ImVec2 sun( c.x + std::sin( azr ) * rr, c.y - std::cos( azr ) * rr );
-        dl->AddLine( c, sun, ImGui::GetColorU32( ImGuiCol_TextDisabled ) );
-        if ( belowHorizon )
-            dl->AddCircle( sun, 6.0f, IM_COL32( 120, 130, 160, 255 ), 16, 2.0f );
+        dl->AddLine( c, sun, kMuted );
+        if ( below )
+            dl->AddCircle( sun, 6.0f, kNight, 16, 2.0f );
         else
-            dl->AddCircleFilled( sun, 6.0f, IM_COL32( 255, 210, 90, 255 ), 16 );
+            dl->AddCircleFilled( sun, 6.0f, kSun, 16 );
 
-        return changed;
+        // ---- the horizon arc (side view) ----
+        ImGui::SameLine( 0.0f, gap );
+        const ImVec2 arcOrigin = ImGui::GetCursorScreenPos();
+        const float  arcW      = glm::max( diameter, avail - diameter - gap );
+        const float  arcR      = glm::min( arcW * 0.5f - 6.0f, diameter * 0.62f );
+        const ImVec2 h( arcOrigin.x + arcW * 0.5f, arcOrigin.y + arcR + 8.0f ); // the observer, on the horizon
+        ImGui::InvisibleButton( "##sun_arc", ImVec2( arcW, diameter ) );
+        track();
+        if ( ImGui::IsItemActive() )
+        {
+            const ImVec2 m = ImGui::GetIO().MousePos;
+            // The arc is the vertical plane through the sun's azimuth seen from its left: right = toward the sun.
+            float e = glm::degrees( std::atan2( h.y - m.y, std::abs( m.x - h.x ) + 1e-3f ) );
+            elevationDeg = glm::clamp( e, -90.0f, 90.0f );
+            edit.Changed = true;
+        }
+        const bool arcHot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+        dl->AddRectFilled( arcOrigin, ImVec2( arcOrigin.x + arcW, arcOrigin.y + diameter ), kFrame, 2.0f );
+        dl->AddRectFilled( ImVec2( arcOrigin.x, h.y ), ImVec2( arcOrigin.x + arcW, arcOrigin.y + diameter ), kGround,
+                           2.0f );
+        dl->PathArcTo( h, arcR, glm::pi<float>(), 2.0f * glm::pi<float>(), 48 );
+        dl->PathStroke( arcHot ? kAccent : kMuted, 0, 1.5f );
+        dl->AddLine( ImVec2( arcOrigin.x + 4.0f, h.y ), ImVec2( arcOrigin.x + arcW - 4.0f, h.y ), kText, 1.0f );
+        dl->AddRect( arcOrigin, ImVec2( arcOrigin.x + arcW, arcOrigin.y + diameter ), kRule, 2.0f );
+        dl->AddText( ImVec2( arcOrigin.x + 6.0f, h.y + 3.0f ), kMuted, "horizon" );
+        const float  er = glm::radians( elevationDeg );
+        const ImVec2 arcSun( h.x + std::cos( er ) * arcR, h.y - std::sin( er ) * arcR );
+        dl->AddLine( h, arcSun, kMuted );
+        if ( below )
+            dl->AddCircle( arcSun, 6.0f, kNight, 16, 2.0f );
+        else
+            dl->AddCircleFilled( arcSun, 6.0f, kSun, 16 );
+
+        // ---- the numbers ----
+        const auto row = [&]( const char* label, const char* id, float& value, float lo, float hi )
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::PushStyleColor( ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4( kText ) );
+            ImGui::TextUnformatted( label );
+            ImGui::PopStyleColor();
+            ImGui::SameLine( ImGui::GetFontSize() * 6.0f );
+            ImGui::SetNextItemWidth( -1.0f );
+            ImGui::PushStyleColor( ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4( kFrame ) );
+            const bool moved = ImGui::DragFloat( id, &value, 0.25f, lo, hi, "%.1f\xc2\xb0",
+                                                 ImGuiSliderFlags_AlwaysClamp );
+            ImGui::PopStyleColor();
+            track();
+            edit.Changed |= moved;
+        };
+        row( "Elevation", "##sun_elevation", elevationDeg, -90.0f, 90.0f );
+        row( "Azimuth", "##sun_azimuth", azimuthDeg, 0.0f, 360.0f );
+        if ( below )
+            ImGui::TextColored( ImGui::ColorConvertU32ToFloat4( kNight ), ICON_MDI_WEATHER_NIGHT " below the horizon" );
+        return edit;
     }
 
     // Directional light: the reflected fields, plus the thing that is NOT a field — where the sun is.
-    // The engine stores the sun as the direction light TRAVELS in TransformComponent.Translation
-    // (Scene.cpp uploads normalize(Translation); the sky negates it), which is unauthorable as three
-    // raw numbers. This edits it as azimuth/elevation.
+    // The light travels along the entity's world forward axis (its Rotation, as in UE), which is
+    // unauthorable as three Euler angles when what an artist means is "sun at 40 deg, in the south-west".
+    // This edits the same Rotation as azimuth/elevation; the transform gizmo's rotate tool edits it too.
     static ComponentEditorEntry MakeDirectionalLightEntry()
     {
         using C = ::Desert::ECS::DirectionLightComponent;
@@ -544,51 +625,42 @@ namespace Desert::Editor
             if ( ctx.FieldFilter || !en.HasComponent<::Desert::ECS::TransformComponent>() )
                 return; // while searching, only the matched fields are on screen
 
-            auto& t = en.GetComponent<::Desert::ECS::TransformComponent>();
+            entt::registry& registry = *en.GetRegistry();
+            const glm::vec3  toSun    = ::Desert::ECS::Rules::AtmosphereSunDirection(
+                 ::Desert::ECS::WorldRotation( registry, en.GetHandle() ) );
 
-            // Translation is the TRAVEL direction; the sun sits the other way.
-            // Through the rules on both counts. The threshold was a fourth spelling of
-            // kSunDirectionEpsilon, and `-travel / length` was a fourth copy of the negation that
-            // SystemRules.hpp calls "the engine's ONE negation" — in the widget a user reaches for to
-            // aim a sun, so a disagreement here shows a direction for a light the renderer has already
-            // thrown away.
-            glm::vec3 travel = t.Translation;
-            if ( !::Desert::ECS::Rules::IsSunDirectionValid( travel ) )
-                travel = glm::vec3( -0.4f, -1.0f, -0.5f ); // the dial's placeholder aim, not a light
-            const float     length = glm::length( travel );
-            const glm::vec3 toSun  = ::Desert::ECS::Rules::AtmosphereSunDirection( travel );
-
-            float elevation = glm::degrees( std::asin( glm::clamp( toSun.y, -1.0f, 1.0f ) ) );
-            float azimuth   = glm::degrees( std::atan2( toSun.x, toSun.z ) );
-            if ( azimuth < 0.0f )
-                azimuth += 360.0f;
+            const ::Desert::ECS::Rules::SunAngles angles = ::Desert::ECS::Rules::SunAnglesFromToward( toSun );
+            float                                 elevation = angles.ElevationDeg;
+            float                                 azimuth   = angles.AzimuthDeg;
 
             if ( !::Desert::Editor::Utils::ImGuiUtilities::SectionHeader( ICON_MDI_WEATHER_SUNNY
                                                                           "  Sun Direction" ) )
                 return;
 
+            // One undo step per gesture (a drag on the compass or the arc, an edit of a number), the same
+            // TransformCommand the viewport's rotate gizmo records - the widget and the gizmo edit ONE Rotation.
+            static std::vector<::Desert::Editor::Commands::TransformSnapshot> s_Before;
+
             ImGui::Indent( 6.0f );
-            bool changed = DrawSunDial( azimuth, elevation, 120.0f );
-
-            ImGui::SameLine();
-            ImGui::BeginGroup();
-            ImGui::SetNextItemWidth( -1.0f );
-            changed |= ImGui::SliderFloat( "##azimuth", &azimuth, 0.0f, 360.0f, "Azimuth %.0f deg" );
-            ImGui::SetNextItemWidth( -1.0f );
-            changed |= ImGui::SliderFloat( "##elevation", &elevation, -90.0f, 90.0f, "Elevation %.0f deg" );
-            if ( elevation < 0.0f )
-                ImGui::TextColored( ImVec4( 0.6f, 0.65f, 0.8f, 1.0f ), ICON_MDI_WEATHER_NIGHT " below horizon" );
-            ImGui::EndGroup();
-
-            if ( changed )
+            ImGui::PushID( "sun_direction" );
+            const SunDirectionEdit edit = DrawSunDirectionWidget( azimuth, elevation );
+            ImGui::PopID();
+            if ( edit.Activated )
             {
-                const float     az = glm::radians( azimuth );
-                const float     el = glm::radians( elevation );
-                const glm::vec3 dir( std::cos( el ) * std::sin( az ), std::sin( el ),
-                                     std::cos( el ) * std::cos( az ) );
-                // Keep the vector's length: some scenes author it as a "sun position" and only the
-                // direction is read, so rewriting the magnitude would be a silent edit.
-                t.Translation = -dir * length;
+                const auto& t = en.GetComponent<::Desert::ECS::TransformComponent>();
+                s_Before      = { { en.GetComponent<::Desert::ECS::UUIDComponent>().UUID, t.Translation, t.Rotation,
+                                    t.Scale } };
+            }
+            if ( edit.Changed )
+            {
+                ::Desert::ECS::AimDirectionalLight(
+                     registry, en.GetHandle(),
+                     -::Desert::ECS::Rules::TowardSunFromAngles( { .AzimuthDeg = azimuth, .ElevationDeg = elevation } ) );
+            }
+            if ( edit.Deactivated && !s_Before.empty() )
+            {
+                ::Desert::Editor::Commands::RecordTransformEdits( s_Before );
+                s_Before.clear();
             }
 
             ImGui::Unindent( 6.0f );
@@ -855,7 +927,7 @@ namespace Desert::Editor
 
         std::filesystem::path path = dir / ( base + ext );
         for ( int n = 1; std::filesystem::exists( path, ec ); ++n )
-            path = dir / ( base + "_" + std::to_string( n ) + ext );
+            path = dir / std::format( "{}_{}{}", base, n, ext );
 
         // Write the file FIRST (cloud shader + a freshly minted header GUID), then create-with-load — the
         // same order CreateLandscapeMaterial documents, and for the same handle-adoption reason.
@@ -1689,7 +1761,7 @@ namespace Desert::Editor
                         glm::vec3 scale   = decomposed.Scale;
 
                         bool              moved = false;
-                        const std::string label = "[" + std::to_string( i ) + "]";
+                        const std::string label = std::format( "[{}]", i );
 
                         U::ImGuiUtilities::BeginPropertyRow( label.c_str(), "World position, in centimetres" );
                         moved |= U::ImGuiUtilities::VectorField( "pos", &translation.x, 3, 1.0f, "%.1f" );

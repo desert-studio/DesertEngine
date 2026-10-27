@@ -173,55 +173,87 @@ namespace Desert::ECS::Rules
     // could pick different ones and nothing said so. The rule below is the single answer, and because it
     // is a function of plain numbers, the test can hold it to all six cases including the tie-break.
 
-    // Below this length a Translation is not a direction at all — normalizing it yields NaN and the sun
-    // ends up pointing nowhere. Two different epsilons for this existed in the engine; this is the one.
-    inline constexpr float kSunDirectionEpsilon = 1e-4f;
+    // A DIRECTIONAL LIGHT'S DIRECTION IS ITS ROTATION, as in UE (ULightComponent::GetDirection =
+    // GetComponentTransform().GetUnitAxis( EAxis::X )). The light travels along the entity's forward axis,
+    // which in this engine is -Z for every entity (cameras, spot lights, projectiles); Translation is only
+    // where the editor draws the light's icon. A rotation is always a direction, so there is no degenerate
+    // sun any more: the old Translation-as-direction model had an epsilon, a "light emits nothing" report
+    // and a migration-era comment explaining why the rotation gizmo did nothing — all gone with it.
+    inline constexpr glm::vec3 kLightForwardAxis = glm::vec3( 0.0f, 0.0f, -1.0f );
 
-    inline bool IsSunDirectionValid( const glm::vec3& lightTranslation )
+    // The direction the light TRAVELS (sun -> scene), from the entity's WORLD rotation.
+    inline glm::vec3 DirectionalLightTravel( const glm::quat& worldRotation )
     {
-        return glm::length( lightTranslation ) > kSunDirectionEpsilon;
+        return glm::normalize( worldRotation * kLightForwardAxis );
     }
 
-    // THE DIRECTION A DIRECTIONAL LIGHT TRAVELS, or nothing at all when its Translation is not a
-    // direction — the LIGHTING half of the same question `IsSunDirectionValid` answers for the sky.
-    //
-    // It exists because the two halves disagreed. The comment on kSunDirectionEpsilon above says "two
-    // different epsilons for this existed in the engine; this is the one", and that consolidation
-    // reached the sky and stopped: `Engine/Core/Scene.cpp` went on open-coding
-    // `glm::length(rawDir) > 0.001f` when it collected directional lights for the renderer — TEN TIMES
-    // this epsilon. A sun whose Translation measured, say, 5e-4 was therefore VALID TO THE SKY and
-    // INVALID TO THE RENDERER at the same instant: the atmosphere took a sun direction from it and lit
-    // the dome, while the deferred composite received no directional light at all. Both sides were
-    // individually defensible and neither could see the other. Now there is one gate and the question
-    // cannot be answered twice.
-    //
-    // Returning an optional rather than a bool is the point: the caller that wants the direction and the
-    // caller that wants the verdict get the SAME answer, and a caller cannot normalize a vector this
-    // function has just called unusable.
-    inline std::optional<glm::vec3> DirectionalLightTravel( const glm::vec3& lightTranslation )
+    // THE ENGINE'S ONE NEGATION. The atmosphere and the IBL bake want the direction TOWARD the sun; every
+    // one of them goes through here. Two negations is how a sky ends up lit from below. The travel form is
+    // for lights that are not entities (the asset previews' fixed key light).
+    inline glm::vec3 AtmosphereSunDirection( const glm::vec3& travel )
     {
-        if ( !IsSunDirectionValid( lightTranslation ) )
-            return std::nullopt;
-        return glm::normalize( lightTranslation );
+        return -glm::normalize( travel );
     }
 
-    // THE ENGINE'S ONE NEGATION. TransformComponent::Translation on a directional light is the direction
-    // the light TRAVELS (sun -> scene); the atmosphere and the IBL bake both want the
-    // direction TOWARD the sun. Every one of them goes through here. Two negations is how a sky ends up
-    // lit from below — which is precisely the bug the viewport's light gizmo shipped with.
-    inline glm::vec3 AtmosphereSunDirection( const glm::vec3& lightTranslation )
+    inline glm::vec3 AtmosphereSunDirection( const glm::quat& worldRotation )
     {
-        return -glm::normalize( lightTranslation );
+        return AtmosphereSunDirection( DirectionalLightTravel( worldRotation ) );
     }
+
+    // The rotation whose forward axis is `travel` — the shortest arc from kLightForwardAxis, so roll stays
+    // zero for every heading except the exact opposite one (a light aimed along +Z), which turns about +Y.
+    // Roll does not change a directional light. This is the inverse of DirectionalLightTravel and the one
+    // way the clock, the editor's direction widget and the scene migrator turn a heading into a Rotation.
+    inline glm::quat RotationForTravel( const glm::vec3& travel )
+    {
+        const glm::vec3 to = glm::normalize( travel );
+        const float     d  = glm::dot( kLightForwardAxis, to );
+        if ( d < -0.999999f )
+            return glm::quat( 0.0f, glm::vec3( 0.0f, 1.0f, 0.0f ) ); // 180 deg about +Y
+        const glm::vec3 axis = glm::cross( kLightForwardAxis, to );
+        return glm::normalize( glm::quat( 1.0f + d, axis ) );
+    }
+
+    // A SUN'S PLACE AS AN ARTIST STATES IT: elevation above the horizon and compass azimuth, both in degrees
+    // (azimuth 0 = north = +Z, 90 = east = +X). The editor's direction widget and the control channel's
+    // `selection` Sun Elevation / Sun Azimuth go through these two, so a number typed and a number sent are the
+    // same sun. `towardSun` is AtmosphereSunDirection's (scene -> sun).
+    struct SunAngles
+    {
+        float AzimuthDeg   = 0.0f; // [0, 360)
+        float ElevationDeg = 0.0f; // [-90, 90]
+    };
+
+    inline SunAngles SunAnglesFromToward( const glm::vec3& towardSun )
+    {
+        const glm::vec3 d = glm::normalize( towardSun );
+        SunAngles       a;
+        a.ElevationDeg = glm::degrees( std::asin( glm::clamp( d.y, -1.0f, 1.0f ) ) );
+        a.AzimuthDeg   = glm::degrees( std::atan2( d.x, d.z ) );
+        if ( a.AzimuthDeg < 0.0f )
+            a.AzimuthDeg += 360.0f;
+        return a;
+    }
+
+    inline glm::vec3 TowardSunFromAngles( const SunAngles& a )
+    {
+        const float az = glm::radians( a.AzimuthDeg );
+        const float el = glm::radians( a.ElevationDeg );
+        return glm::vec3( std::cos( el ) * std::sin( az ), std::sin( el ), std::cos( el ) * std::cos( az ) );
+    }
+
+    // UE's Atmosphere Sun Light Index range: 0 is the sun, 1 the second atmosphere light (the moon). Both light
+    // the atmosphere, draw a disc and light the scene through the deferred pass; the time-of-day clock and the
+    // cascaded shadow maps belong to index 0.
+    inline constexpr int kAtmosphereLightCount = 2;
 
     struct SunCandidate
     {
         // Entity UUID. A plain integer rather than Common::UUID so the rule stays link-free: the tests that
         // exercise it deliberately do not link the engine, and UUID's constructors live in a .cpp.
-        uint64_t Id             = 0;
-        bool     Marked         = false; // DirectionalLightData::AtmosphereSunLight
-        int      Index          = 0;     // DirectionalLightData::AtmosphereSunLightIndex
-        bool     DirectionValid = false; // IsSunDirectionValid( Translation )
+        uint64_t Id     = 0;
+        bool     Marked = false; // DirectionalLightData::AtmosphereSunLight
+        int      Index  = 0;     // DirectionalLightData::AtmosphereSunLightIndex
     };
 
     // The selection AND everything worth complaining about, so the rule itself stays pure. Logging belongs
@@ -230,20 +262,20 @@ namespace Desert::ECS::Rules
     struct AtmosphereSunSelection
     {
         std::optional<size_t> Chosen;           // index into the candidate span
-        bool                  Fallback = false; // rule 5: nothing was marked, lowest id taken
-        std::vector<size_t>   Collisions;       // rule 3: further marked candidates at wantedIndex
-        std::vector<size_t>   WrongIndex;       // rule 4: marked, but at an index v1 does not render
+        bool                  Fallback = false; // rule 4: nothing was marked, lowest id taken
+        std::vector<size_t>   Collisions;       // rule 2: further marked candidates at wantedIndex
+        std::vector<size_t>   WrongIndex;       // rule 3: marked at an index outside [0, kAtmosphereLightCount)
     };
 
     // Rules, in order:
-    //  1. candidates whose direction is degenerate are ignored entirely;
-    //  2. prefer marked candidates at `wantedIndex`;
-    //  3. several of those -> lowest Id wins, the rest are reported as collisions;
-    //  4. marked at another index -> treated as unmarked and reported (the field is authorable, but the
-    //     engine renders exactly one directional light, so index != 0 is not a thing that can work);
-    //  5. nothing marked -> lowest-Id valid candidate, reported as a fallback, because the sky must not go
-    //     missing just because nobody ticked a box;
-    //  6. nothing valid -> no selection: the scene has NO sun, and every caller says so instead of lighting
+    //  1. prefer marked candidates at `wantedIndex`;
+    //  2. several of those -> lowest Id wins, the rest are reported as collisions;
+    //  3. marked at another index -> not this slot's light; reported only when that index is outside
+    //     [0, kAtmosphereLightCount), because a light marked at the OTHER slot is that slot's light;
+    //  4. nothing marked at index 0 -> lowest-Id candidate that is not marked at the other slot,
+    //     reported as a fallback, because the sky must not go missing just because nobody ticked a box.
+    //     Index 1 has no fallback: a second atmosphere light exists only when one is marked for it;
+    //  5. no candidates -> no selection: the scene has NO sun, and every caller says so instead of lighting
     //     the sky from a default direction nobody authored (ECS::PickAtmosphereSun, AtmosphereSunLight.hpp).
     inline AtmosphereSunSelection SelectAtmosphereSun( std::span<const SunCandidate> candidates, int wantedIndex )
     {
@@ -252,14 +284,13 @@ namespace Desert::ECS::Rules
         for ( size_t i = 0; i < candidates.size(); ++i )
         {
             const SunCandidate& c = candidates[i];
-            if ( !c.DirectionValid )
-                continue;
             if ( !c.Marked )
                 continue;
 
             if ( c.Index != wantedIndex )
             {
-                result.WrongIndex.push_back( i );
+                if ( c.Index < 0 || c.Index >= kAtmosphereLightCount )
+                    result.WrongIndex.push_back( i );
                 continue;
             }
 
@@ -281,12 +312,14 @@ namespace Desert::ECS::Rules
             }
         }
 
-        if ( result.Chosen )
+        if ( result.Chosen || wantedIndex != 0 )
             return result;
 
         for ( size_t i = 0; i < candidates.size(); ++i )
         {
-            if ( !candidates[i].DirectionValid )
+            // A light marked for the other slot is that slot's light, never this one's stand-in.
+            if ( candidates[i].Marked && candidates[i].Index != wantedIndex && candidates[i].Index >= 0 &&
+                 candidates[i].Index < kAtmosphereLightCount )
                 continue;
             if ( !result.Chosen || candidates[i].Id < candidates[*result.Chosen].Id )
                 result.Chosen = i;

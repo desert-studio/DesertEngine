@@ -2,7 +2,7 @@
 #include "Editor/Core/DocumentWell.hpp"
 #include "Editor/Core/EditorSubject.hpp"
 #include "Editor/Core/IconsMaterialDesignIcons.hpp"
-#include "Editor/Panels/IPanel.hpp"
+#include "Editor/Core/IPanel.hpp"
 #include <cstddef>
 #include <format>
 #include <functional>
@@ -94,7 +94,7 @@ namespace Desert::Editor
         // every material shares one, a mesh viewer another. The owner is left out on purpose.
         std::string DocumentKindKey( const SubjectId& subject )
         {
-            return std::string( SubjectDomainName( subject.Domain ) ) + ':' + std::to_string( subject.Facet );
+            return std::format( "{}:{}", SubjectDomainName( subject.Domain ), subject.Facet );
         }
     } // namespace
 
