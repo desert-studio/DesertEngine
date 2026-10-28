@@ -172,9 +172,10 @@ namespace Desert::Editor
         if ( Utils::ImGuiUtilities::SectionHeader( "Anti-Aliasing" ) )
         {
             // ONE METHOD (AA1, UE's r.AntiAliasingMethod + r.MSAACount) and a sample count shown only under
-            // MSAA. The list is the catalog's: every method it offers runs here - FSRNative and DLAA only where
-            // the device and the build have the vendor upscaler (Graphic/API/UpscalerBuild.hpp). TAA (TAA1-B) and
-            // the vendor methods are the ones that let Resolution.Percent go below 100 %.
+            // MSAA. The list is the catalog's: every method it offers runs here - FSR / DLSS / DLSS Ray
+            // Reconstruction only where the device and the build have the vendor SDK (Graphic/API/
+            // UpscalerBuild.hpp). A temporal method (TAA, TSR, the vendor ones) runs at any Resolution.Percent
+            // <= 100 and reconstructs the output itself; the percent is the other axis, below.
             const std::vector<SC::AntiAliasingMethod> methods( catalog.AntiAliasingMethods.begin(),
                                                                catalog.AntiAliasingMethods.end() );
 
@@ -236,12 +237,11 @@ namespace Desert::Editor
             }
 
             // UE's r.NGX.DLSS.<Mode>Preset: which DLSS network each DLSS mode runs. Shown where this device offers
-            // DLSS (DLAA at 100 %, the DLSS upscaler below it) - elsewhere the rows have no reader.
-            if ( std::find( catalog.Upscalers.begin(), catalog.Upscalers.end(), SC::Upscaler::DLSS ) !=
-                 catalog.Upscalers.end() )
+            // DLSS (its 100 % mode is NVIDIA's DLAA) - elsewhere the rows have no reader.
+            if ( SC::CapabilityCatalog::Offers( catalog.AntiAliasingMethods, SC::AntiAliasingMethod::DLSS ) )
             {
                 static constexpr std::array<std::pair<SC::Parameter, const char*>, 6> kPresetRows{ {
-                     { SC::Parameter::DlssPresetDLAA, "DLSS Preset: DLAA" },
+                     { SC::Parameter::DlssPresetNative, "DLSS Preset: 100 % (DLAA)" },
                      { SC::Parameter::DlssPresetUltraQuality, "DLSS Preset: Ultra Quality" },
                      { SC::Parameter::DlssPresetQuality, "DLSS Preset: Quality" },
                      { SC::Parameter::DlssPresetBalanced, "DLSS Preset: Balanced" },
@@ -271,10 +271,10 @@ namespace Desert::Editor
         if ( Utils::ImGuiUtilities::SectionHeader( "Resolution" ) )
         {
             // UE's r.ScreenPercentage (sg.ResolutionQuality): the scene renders at this percent of the output.
-            // The range is the device catalog's. Which upscaler runs is NOT a choice here: Scalability Resolve
-            // picks it from the AA method (TAA below 100 % -> TAAU; no temporal AA -> the spatial upscaler).
-            // Resolution.Upscaler is a vendor override (FSR / DLSS / MetalFX), offered only when the catalog lists
-            // one; Resolution.Sharpness is the post sharpen after the resolve (SceneRenderer, Graphic::Sharpen).
+            // The range is the device catalog's. What reconstructs the output is NOT a choice here: it is the AA
+            // method's own pass (Scalability UpscalerForScale: TAA below 100 % -> TAAU, TSR / DLSS / FSR their
+            // own; no temporal AA -> the spatial upscaler). Resolution.Sharpness is the post sharpen after the
+            // resolve (SceneRenderer, Graphic::Sharpen).
             const int requestedScale =
                  m_DraggedRenderScale.value_or( Requested( SC::Parameter::RenderScalePercent ) );
             int scale = requestedScale;
@@ -286,31 +286,14 @@ namespace Desert::Editor
                 SC::QualityState::SetOverride( SC::Parameter::RenderScalePercent, *m_DraggedRenderScale );
                 m_DraggedRenderScale.reset();
             }
-            Utils::ImGuiUtilities::Tooltip( "Below 100 % the scene renders smaller and TAA upscales it to the "
-                                            "output (without TAA the spatial upscaler does); above 100 % it is "
-                                            "supersampled. Applies on release." );
+            Utils::ImGuiUtilities::Tooltip( "Below 100 % the scene renders smaller and the temporal AA method "
+                                            "reconstructs the output (without one the spatial upscaler does); "
+                                            "above 100 % it is supersampled and only TAA runs. Applies on "
+                                            "release." );
             ShowFallback( resolved, SC::Parameter::RenderScalePercent );
 
-            std::vector<SC::Upscaler> vendors;
-            for ( const SC::Upscaler upscaler : catalog.Upscalers )
-                if ( upscaler != SC::Upscaler::None && upscaler != SC::Upscaler::TAAU &&
-                     upscaler != SC::Upscaler::TSR && upscaler != SC::Upscaler::Spatial )
-                    vendors.push_back( upscaler );
-            // The engine's own temporal upscaler (UE: TSR vs TAAU), used below 100 % when no vendor override is
-            // picked and when the picked one is not offered.
-            const auto engineTemporal =
-                 static_cast<SC::EngineTemporalUpscaler>( Requested( SC::Parameter::TemporalUpscaler ) );
-            if ( const auto picked = ValueCombo( "Temporal Upscaler", static_cast<std::size_t>( engineTemporal ),
-                                                 SC::kEngineTemporalUpscalerNames.size(), []( std::size_t i )
-                                                 { return std::string( SC::kEngineTemporalUpscalerNames[i] ); } ) )
-                SC::QualityState::SetOverride( SC::Parameter::TemporalUpscaler,
-                                               static_cast<SC::ParameterValue>( *picked ) );
-            Utils::ImGuiUtilities::Tooltip( "The engine's temporal upscaler below 100 %: TSR (temporal super "
-                                            "resolution, UE TSR) or TAAU. A vendor override replaces it where "
-                                            "the device offers one." );
-            ShowFallback( resolved, SC::Parameter::TemporalUpscaler );
-            if ( resolved.As<SC::EngineTemporalUpscaler>( SC::Parameter::TemporalUpscaler ) ==
-                 SC::EngineTemporalUpscaler::TSR )
+            const auto resolvedMethod = resolved.As<SC::AntiAliasingMethod>( SC::Parameter::AntiAliasingMethod );
+            if ( resolvedMethod == SC::AntiAliasingMethod::TSR )
             {
                 // UE's sg.AntiAliasingQuality rows of r.TSR.*; the level sets them, an override replaces one.
                 const auto tsrSlider = [&]( const char* label, SC::Parameter parameter, const char* tooltip )
@@ -339,24 +322,12 @@ namespace Desert::Editor
                 tsrSlider( "TSR Resurrection", SC::Parameter::TsrResurrection,
                            "r.TSR.Resurrection: keep persistent frames and resurrect disoccluded history from them." );
             }
-            if ( !vendors.empty() )
-            {
-                const auto requestedUpscaler = static_cast<SC::Upscaler>( Requested( SC::Parameter::Upscaler ) );
-                std::vector<SC::Upscaler> choices{ SC::Upscaler::None };
-                choices.insert( choices.end(), vendors.begin(), vendors.end() );
-                if ( const auto picked =
-                          ValueCombo( "Upscaler Override", IndexOf( choices, requestedUpscaler ), choices.size(),
-                                      [&choices]( std::size_t i ) {
-                                          return i == 0 ? std::string( "Engine" )
-                                                        : std::string( rfl::enum_to_string( choices[i] ) );
-                                      } ) )
-                    SC::QualityState::SetOverride( SC::Parameter::Upscaler,
-                                                   static_cast<SC::ParameterValue>( choices[*picked] ) );
-            }
-            ImGui::TextDisabled( "%s", std::format( "Upscaler: {}", rfl::enum_to_string( resolved.As<SC::Upscaler>(
-                                                                         SC::Parameter::Upscaler ) ) )
-                                            .c_str() );
-            ShowFallback( resolved, SC::Parameter::Upscaler );
+            const SC::Upscaler reconstruction =
+                 SC::UpscalerForScale( resolvedMethod, resolved.As<int>( SC::Parameter::RenderScalePercent ) );
+            ImGui::TextDisabled( "%s",
+                                 std::format( "Reconstruction: {}",
+                                              SC::kUpscalerNames[static_cast<std::size_t>( reconstruction )] )
+                                      .c_str() );
 
             int sharpness = Requested( SC::Parameter::UpscalerSharpness );
             if ( ImGui::SliderInt( "Sharpness", &sharpness, 0, 100, "%d", ImGuiSliderFlags_AlwaysClamp ) )

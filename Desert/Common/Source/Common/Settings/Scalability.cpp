@@ -29,14 +29,12 @@ namespace Common::Scalability
         // MeshRenderer::RebudgetShadows, on a generation change only).
         constexpr std::array<ParameterSpec, kParameterCount> kParameterSpecs{ {
              { P::AntiAliasingMethod, G::AntiAliasing, "AntiAliasing.Method", 0,
-               static_cast<ParameterValue>( AntiAliasingMethod::DLAA ), CL::AntiAliasingMethods,
+               LastOf( kAntiAliasingMethodNames.size() ), CL::AntiAliasingMethods,
                "SceneRenderer framebuffer setup + post AA pass" },
              { P::AntiAliasingSamples, G::AntiAliasing, "AntiAliasing.Samples", 1, 8, CL::MSAACounts,
                "SceneRenderer framebuffer sample count (MSAA)" },
              { P::RenderScalePercent, G::ResolutionScale, "Resolution.Percent", 50, 200, CL::RenderScale,
-               "RDG view-target size + upscaler pass" },
-             { P::Upscaler, G::ResolutionScale, "Resolution.Upscaler", 0,
-               static_cast<ParameterValue>( Upscaler::TSR ), CL::Upscalers, "upscaler pass" },
+               "RDG view-target size + the method's reconstruction pass (UpscalerForScale)" },
              { P::TextureFilter, G::Filtering, "Filtering.Texture", 0, 3, CL::None,
                "sampler cache (RenderConfig push)" },
              { P::Anisotropy, G::Filtering, "Filtering.Anisotropy", 1, 16, CL::AnisotropyLevels,
@@ -156,9 +154,9 @@ namespace Common::Scalability
              { P::ReflectionDownsampleFactor, G::Reflections, "Reflections.DownsampleFactor", 1, 2, CL::None,
                "SceneRenderer::BeginScene -> SSRRenderer::Prepare (trace resolution) + "
                "ScreenSpaceDenoiser::DenoiseReflections (2x2 block rotation)" },
-             { P::DlssPresetDLAA, G::AntiAliasing, "AntiAliasing.DLSSPreset.DLAA", 0,
+             { P::DlssPresetNative, G::AntiAliasing, "AntiAliasing.DLSSPreset.Native", 0,
                LastOf( kDlssPresetNames.size() ), CL::None,
-               "DLSSUpscaler (DLSS options of the view's DLAA mode)" },
+               "DLSSUpscaler (DLSS options of the view's 100 % mode, NVIDIA's DLAA)" },
              { P::DlssPresetUltraQuality, G::AntiAliasing, "AntiAliasing.DLSSPreset.UltraQuality", 0,
                LastOf( kDlssPresetNames.size() ), CL::None,
                "DLSSUpscaler (DLSS options of the view's Ultra Quality mode)" },
@@ -174,9 +172,9 @@ namespace Common::Scalability
              { P::DlssPresetUltraPerformance, G::AntiAliasing, "AntiAliasing.DLSSPreset.UltraPerformance", 0,
                LastOf( kDlssPresetNames.size() ), CL::None,
                "DLSSUpscaler (DLSS options of the view's Ultra Performance mode)" },
-             { P::DlssRRPresetDLAA, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.DLAA", 0,
+             { P::DlssRRPresetNative, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.Native", 0,
                LastOf( kDlssRRPresetNames.size() ), CL::None,
-               "DLSSUpscaler (Ray Reconstruction options of the view's DLAA mode)" },
+               "DLSSUpscaler (Ray Reconstruction options of the view's 100 % mode)" },
              { P::DlssRRPresetUltraQuality, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.UltraQuality", 0,
                LastOf( kDlssRRPresetNames.size() ), CL::None,
                "DLSSUpscaler (Ray Reconstruction options of the view's Ultra Quality mode)" },
@@ -192,9 +190,6 @@ namespace Common::Scalability
              { P::DlssRRPresetUltraPerformance, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.UltraPerformance", 0,
                LastOf( kDlssRRPresetNames.size() ), CL::None,
                "DLSSUpscaler (Ray Reconstruction options of the view's Ultra Performance mode)" },
-             { P::TemporalUpscaler, G::AntiAliasing, "AntiAliasing.TemporalUpscaler", 0,
-               LastOf( kEngineTemporalUpscalerNames.size() ), CL::None,
-               "Scalability UpscalerForScale (Resolve step 5) + SceneRenderer per-view resolution" },
              { P::TsrHistoryScreenPercentage, G::AntiAliasing, "AntiAliasing.TSR.HistoryScreenPercentage", 100,
                200, CL::None, "TemporalSuperResolution::HistoryDescs (history extent)" },
              { P::TsrHistoryUpdateQuality, G::AntiAliasing, "AntiAliasing.TSR.HistoryUpdateQuality", 0, 3,
@@ -252,10 +247,11 @@ namespace Common::Scalability
                CL::None,
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the clamp of one path's exposed "
                "contribution)" },
-             { P::PathTracingDenoiser, G::GlobalIllumination, "PathTracing.Denoiser", 0, 1, CL::None,
-               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the image denoised every frame: by "
-               "DLSS "
-               "Ray Reconstruction or the spatial denoiser)" },
+             { P::PathTracingDenoiser, G::GlobalIllumination, "PathTracing.Denoiser", 0, 3,
+               CL::PathTracingDenoisers,
+               "SceneRenderer::BeginScene -> System::PathTracer::KeepsDenoisingUpscaler / AddPasses (what "
+               "denoises "
+               "the path-traced view: none, the engine's ReLAX or DLSS Ray Reconstruction)" },
              { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,
                CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (pixels a uniform probe side: "
@@ -311,18 +307,17 @@ namespace Common::Scalability
                 return kReflectionMethodNames;
             if ( parameter == Parameter::ShadowsMethod )
                 return kShadowMethodNames;
-            if ( parameter >= Parameter::DlssPresetDLAA && parameter <= Parameter::DlssPresetUltraPerformance )
+            if ( parameter >= Parameter::DlssPresetNative && parameter <= Parameter::DlssPresetUltraPerformance )
                 return kDlssPresetNames;
-            if ( parameter >= Parameter::DlssRRPresetDLAA && parameter <= Parameter::DlssRRPresetUltraPerformance )
+            if ( parameter >= Parameter::DlssRRPresetNative &&
+                 parameter <= Parameter::DlssRRPresetUltraPerformance )
                 return kDlssRRPresetNames;
-            if ( parameter == Parameter::TemporalUpscaler )
-                return kEngineTemporalUpscalerNames;
             switch ( SpecOf( parameter ).NarrowedBy )
             {
                 case CatalogList::AntiAliasingMethods:
                     return kAntiAliasingMethodNames;
-                case CatalogList::Upscalers:
-                    return kUpscalerNames;
+                case CatalogList::PathTracingDenoisers:
+                    return kPathTracingDenoiserNames;
                 case CatalogList::None:
                 case CatalogList::MSAACounts:
                 case CatalogList::RenderScale:
@@ -699,6 +694,9 @@ namespace Common::Scalability
         };
 
         constexpr std::string_view kNotOffered = "not offered by this device";
+        // CapabilityCatalog::RefusedAtRuntime: the device offered it, its vendor runtime then refused it (the
+        // runtime's own reason is in its log line, e.g. "[Streamline] ... is not offered: ...").
+        constexpr std::string_view kRefusedAtRuntime = "refused by its runtime on this device";
 
         // A render-method ceiling (RenderMethods.hpp) down its ladder - the enum's order - past what this device
         // cannot run (no ray query) and what this build does not implement. The table cannot name an unimplemented
@@ -748,16 +746,6 @@ namespace Common::Scalability
             return best ? *best : static_cast<ParameterValue>( list.front() );
         }
 
-        // The engine temporal upscaler this resolution asks for, inside its spec's range. Read while the
-        // Upscaler row (narrowed before it, in spec order) falls back, so it clamps by the same spec the row's own
-        // range step uses.
-        EngineTemporalUpscaler EngineTemporalOf( const Resolution& r )
-        {
-            const ParameterSpec& spec = SpecOf( Parameter::TemporalUpscaler );
-            return static_cast<EngineTemporalUpscaler>(
-                 std::clamp( r.Get( Parameter::TemporalUpscaler ), spec.Min, spec.Max ) );
-        }
-
         void NarrowByCatalog( const ParameterSpec& spec, const CapabilityCatalog& catalog, Resolution& r )
         {
             const ParameterValue value = r.Get( spec.Id );
@@ -770,10 +758,21 @@ namespace Common::Scalability
                     const auto method = static_cast<AntiAliasingMethod>( value );
                     if ( CapabilityCatalog::Offers( catalog.AntiAliasingMethods, method ) )
                         return;
-                    // The upscalers' native passes fall back to our temporal AA, MSAA (no count > 1) to FXAA.
-                    const AntiAliasingMethod to =
-                         method == AntiAliasingMethod::MSAA ? AntiAliasingMethod::FXAA : AntiAliasingMethod::TAA;
-                    r.Set( spec.Id, static_cast<ParameterValue>( to ), kNotOffered );
+                    // MSAA (no count > 1) falls back to FXAA. A vendor temporal method falls back to the engine's
+                    // best temporal method, TSR (always offered), except Ray Reconstruction, which is DLSS with
+                    // the denoiser: a device without the RR runtime keeps DLSS Super Resolution when it has that,
+                    // as UE's plugin falls back from RR to DLSS-SR.
+                    AntiAliasingMethod to = AntiAliasingMethod::TSR;
+                    if ( method == AntiAliasingMethod::MSAA )
+                        to = AntiAliasingMethod::FXAA;
+                    else if ( method == AntiAliasingMethod::DLSSRayReconstruction &&
+                              CapabilityCatalog::Offers( catalog.AntiAliasingMethods, AntiAliasingMethod::DLSS ) )
+                        to = AntiAliasingMethod::DLSS;
+                    else if ( !CapabilityCatalog::Offers( catalog.AntiAliasingMethods, to ) )
+                        to = AntiAliasingMethod::TAA;
+                    r.Set( spec.Id, static_cast<ParameterValue>( to ),
+                           CapabilityCatalog::Offers( catalog.RefusedAtRuntime, method ) ? kRefusedAtRuntime
+                                                                                         : kNotOffered );
                     return;
                 }
                 case CatalogList::MSAACounts:
@@ -782,27 +781,50 @@ namespace Common::Scalability
                 case CatalogList::AnisotropyLevels:
                     r.Set( spec.Id, LargestOfferedAtMost( catalog.AnisotropyLevels, value ), kNotOffered );
                     return;
-                case CatalogList::Upscalers:
-                {
-                    const auto upscaler = static_cast<Upscaler>( value );
-                    if ( CapabilityCatalog::Offers( catalog.Upscalers, upscaler ) )
-                        return;
-                    // Ray Reconstruction is DLSS with the denoiser: a device without the RR runtime keeps DLSS
-                    // Super Resolution when it has that, as UE's plugin falls back from RR to DLSS-SR.
-                    const Upscaler to =
-                         upscaler == Upscaler::DLSSRayReconstruction &&
-                                   CapabilityCatalog::Offers( catalog.Upscalers, Upscaler::DLSS )
-                              ? Upscaler::DLSS
-                              : UpscalerOf( EngineTemporalOf( r ) );
-                    r.Set( spec.Id, static_cast<ParameterValue>( to ), kNotOffered );
-                    return;
-                }
                 case CatalogList::RenderScale:
                     r.Set( spec.Id,
                            std::clamp( value, catalog.RenderScale.MinPercent, catalog.RenderScale.MaxPercent ),
                            kNotOffered );
                     return;
+                case CatalogList::PathTracingDenoisers:
+                {
+                    // Ray Reconstruction is the one denoiser a device may lack; the engine's ReLAX runs
+                    // everywhere.
+                    const bool offersRR = CapabilityCatalog::Offers( catalog.AntiAliasingMethods,
+                                                                     AntiAliasingMethod::DLSSRayReconstruction );
+                    const bool refusedRR = CapabilityCatalog::Offers( catalog.RefusedAtRuntime,
+                                                                      AntiAliasingMethod::DLSSRayReconstruction );
+                    const auto method    = static_cast<PathTracingDenoiserMethod>( value );
+                    const auto rr        = static_cast<ParameterValue>( PathTracingDenoiserMethod::RR );
+                    const auto relax     = static_cast<ParameterValue>( PathTracingDenoiserMethod::ReLAX );
+                    // Auto is a request to settle, not a value that fell back: Resolve reports no Fallback for it
+                    // (SettlesUnreported). Except where the device offered RR and its runtime then refused it:
+                    // Auto settled to RR on that offer, so the request becomes RR and its lowering to ReLAX is a
+                    // Fallback like an explicit RR's, logged and shown, exactly as the runtime's refusal of an
+                    // offered method is everywhere else.
+                    if ( method == PathTracingDenoiserMethod::Auto )
+                    {
+                        if ( offersRR || !refusedRR )
+                        {
+                            r.Set( spec.Id, offersRR ? rr : relax, {} );
+                            return;
+                        }
+                        r.Requested[static_cast<std::size_t>( spec.Id )] = rr;
+                    }
+                    else if ( method != PathTracingDenoiserMethod::RR || offersRR )
+                        return;
+                    r.Set( spec.Id, relax, refusedRR ? kRefusedAtRuntime : kNotOffered );
+                    return;
+                }
             }
+        }
+
+        // A requested value Resolve settles by definition rather than lowers: PathTracing.Denoiser Auto becomes RR
+        // or ReLAX on every device, which is the meaning of Auto, not a fallback to log.
+        [[nodiscard]] bool SettlesUnreported( const Parameter parameter, const ParameterValue requested )
+        {
+            return parameter == Parameter::PathTracingDenoiser &&
+                   requested == static_cast<ParameterValue>( PathTracingDenoiserMethod::Auto );
         }
 
         // ---- QualityState storage --------------------------------------------------------------------------
@@ -1003,47 +1025,21 @@ namespace Common::Scalability
             NarrowMethod<ShadowMethod>( Parameter::ShadowsMethod, rayQuery, catalog.FragmentStores, r );
         }
 
-        // 5. The two axes are coupled (UE: below 100 % r.ScreenPercentage the AA method's temporal pass upscales,
-        // and without one the spatial upscale does). The upscaler follows UpscalerForScale, THE one rule (the
-        // renderer applies it again per view, to an editor viewport's Screen Percentage): below 100 % a temporal
-        // AA method upscales (TAA -> TAAU; DLAA / FSRNative are their own upscaler's pass, Resolution.Upscaler is
-        // a vendor override on top), and a method without history (None / FXAA / SMAA; MSAA becomes FXAA below)
-        // keeps its method and is brought to the output by the spatial upscaler.
+        // 5. The two axes meet in two places only (UE: r.AntiAliasingMethod is valid at any r.ScreenPercentage up
+        // to 100; the vendor plugins refuse supersampled input). A temporal method reconstructs the output itself
+        // at any percent <= 100 (Ray Reconstruction included), a method without history is brought to the output
+        // below 100 % by the spatial upscale (UpscalerForScale, not a parameter). Above 100 % the vendor networks
+        // and TSR are refused by name and TAA resolves the supersampled frame; MSAA renders at native scale only.
         const auto           aa    = static_cast<AntiAliasingMethod>( r.Get( Parameter::AntiAliasingMethod ) );
         const ParameterValue scale = r.Get( Parameter::RenderScalePercent );
-        const auto           up    = static_cast<Upscaler>( r.Get( Parameter::Upscaler ) );
         ResolvedQuality      resolved;
-        if ( scale < 100 )
-        {
-            resolved.Scale        = ScaleMode::Upscale;
-            const Upscaler chosen = UpscalerForScale( aa, scale, up, EngineTemporalOf( r ) );
-            if ( chosen != up )
-                r.Set( Parameter::Upscaler, static_cast<ParameterValue>( chosen ),
-                       chosen == Upscaler::Spatial
-                            ? "without temporal AA below 100 % the spatial upscaler runs"
-                            : "temporal AA below 100 % upscales with the engine's temporal upscaler" );
-            const auto upscaler = static_cast<Upscaler>( r.Get( Parameter::Upscaler ) );
-            const bool nativePassOfThisUpscaler =
-                 ( aa == AntiAliasingMethod::DLAA &&
-                   ( upscaler == Upscaler::DLSS || upscaler == Upscaler::DLSSRayReconstruction ) ) ||
-                 ( aa == AntiAliasingMethod::FSRNative && upscaler == Upscaler::FSR );
-            if ( upscaler != Upscaler::Spatial && !nativePassOfThisUpscaler )
+        resolved.Scale = scale < 100    ? ScaleMode::Upscale
+                         : scale == 100 ? ScaleMode::Native
+                                        : ScaleMode::Supersample;
+        if ( scale > 100 )
+            if ( const std::string_view refusal = SupersampleRefusal( aa ); !refusal.empty() )
                 r.Set( Parameter::AntiAliasingMethod, static_cast<ParameterValue>( AntiAliasingMethod::TAA ),
-                       "the upscaler anti-aliases below 100 %" );
-        }
-        else
-        {
-            resolved.Scale = scale == 100 ? ScaleMode::Native : ScaleMode::Supersample;
-            if ( up != Upscaler::None && !IsNativeRayReconstruction( aa, scale, up ) )
-                r.Set( Parameter::Upscaler, static_cast<ParameterValue>( Upscaler::None ),
-                       up == Upscaler::DLSSRayReconstruction
-                            ? "Ray Reconstruction at 100 % runs under DLAA only (above 100 % it does not run)"
-                            : "upscaler unused at native/supersampled scale" );
-            // An upscaler's native-AA pass is its network at exactly output size; supersampled input is not it.
-            if ( scale > 100 && ( aa == AntiAliasingMethod::DLAA || aa == AntiAliasingMethod::FSRNative ) )
-                r.Set( Parameter::AntiAliasingMethod, static_cast<ParameterValue>( AntiAliasingMethod::TAA ),
-                       "an upscaler's native AA runs at 100 % only" );
-        }
+                       refusal );
         if ( scale != 100 && aa == AntiAliasingMethod::MSAA )
             r.Set( Parameter::AntiAliasingMethod, static_cast<ParameterValue>( AntiAliasingMethod::FXAA ),
                    "MSAA renders at native scale only" );
@@ -1051,7 +1047,8 @@ namespace Common::Scalability
         resolved.Values     = r.Values;
         resolved.Overridden = r.Overridden;
         for ( std::size_t i = 0; i < kParameterCount; ++i )
-            if ( r.Values[i] != r.Requested[i] )
+            if ( r.Values[i] != r.Requested[i] &&
+                 !SettlesUnreported( static_cast<Parameter>( i ), r.Requested[i] ) )
                 resolved.Fallbacks.push_back(
                      { static_cast<Parameter>( i ), r.Requested[i], r.Values[i], r.Reasons[i] } );
         return resolved;
@@ -1059,29 +1056,84 @@ namespace Common::Scalability
 
     bool IsTemporalAntiAliasing( const AntiAliasingMethod method )
     {
-        return method == AntiAliasingMethod::TAA || method == AntiAliasingMethod::DLAA ||
-               method == AntiAliasingMethod::FSRNative;
+        return method == AntiAliasingMethod::TAA || method == AntiAliasingMethod::TSR ||
+               IsVendorTemporalMethod( method );
     }
 
-    Upscaler UpscalerOf( const EngineTemporalUpscaler engineTemporal )
+    bool IsVendorTemporalMethod( const AntiAliasingMethod method )
     {
-        return engineTemporal == EngineTemporalUpscaler::TSR ? Upscaler::TSR : Upscaler::TAAU;
+        switch ( method )
+        {
+            case AntiAliasingMethod::FSR:
+            case AntiAliasingMethod::DLSS:
+            case AntiAliasingMethod::DLSSRayReconstruction:
+            case AntiAliasingMethod::XeSS:
+            case AntiAliasingMethod::MetalFX:
+                return true;
+            case AntiAliasingMethod::None:
+            case AntiAliasingMethod::FXAA:
+            case AntiAliasingMethod::SMAA:
+            case AntiAliasingMethod::MSAA:
+            case AntiAliasingMethod::TAA:
+            case AntiAliasingMethod::TSR:
+                return false;
+        }
+        return false;
     }
 
-    Upscaler UpscalerForScale( const AntiAliasingMethod method, const int percent, const Upscaler vendorOverride,
-                               const EngineTemporalUpscaler engineTemporal )
+    std::string_view SupersampleRefusal( const AntiAliasingMethod method )
     {
-        if ( IsNativeRayReconstruction( method, percent, vendorOverride ) )
-            return Upscaler::DLSSRayReconstruction;
-        if ( percent >= 100 )
+        switch ( method )
+        {
+            case AntiAliasingMethod::FSR:
+                return "FSR does not run above 100 % (it takes no supersampled input)";
+            case AntiAliasingMethod::DLSS:
+                return "DLSS does not run above 100 % (it takes no supersampled input)";
+            case AntiAliasingMethod::DLSSRayReconstruction:
+                return "DLSS Ray Reconstruction does not run above 100 % (it takes no supersampled input)";
+            case AntiAliasingMethod::XeSS:
+                return "XeSS does not run above 100 % (it takes no supersampled input)";
+            case AntiAliasingMethod::MetalFX:
+                return "MetalFX does not run above 100 % (it takes no supersampled input)";
+            case AntiAliasingMethod::TSR:
+                return "TSR reconstructs at or below output size; above 100 % TAA resolves the supersampled frame";
+            case AntiAliasingMethod::None:
+            case AntiAliasingMethod::FXAA:
+            case AntiAliasingMethod::SMAA:
+            case AntiAliasingMethod::MSAA:
+            case AntiAliasingMethod::TAA:
+                return {};
+        }
+        return {};
+    }
+
+    Upscaler UpscalerForScale( const AntiAliasingMethod method, const int percent )
+    {
+        if ( percent > 100 )
             return Upscaler::None;
-        if ( !IsTemporalAntiAliasing( method ) )
-            return Upscaler::Spatial;
-        // A temporal method upscales temporally: Spatial (or nothing) asked for under it means the engine's own
-        // temporal upscaler of this quality level (TAAU or TSR).
-        return vendorOverride == Upscaler::None || vendorOverride == Upscaler::Spatial
-                    ? UpscalerOf( engineTemporal )
-                    : vendorOverride;
+        switch ( method )
+        {
+            case AntiAliasingMethod::TAA:
+                return percent < 100 ? Upscaler::TAAU : Upscaler::None;
+            case AntiAliasingMethod::TSR:
+                return Upscaler::TSR;
+            case AntiAliasingMethod::FSR:
+                return Upscaler::FSR;
+            case AntiAliasingMethod::DLSS:
+                return Upscaler::DLSS;
+            case AntiAliasingMethod::DLSSRayReconstruction:
+                return Upscaler::DLSSRayReconstruction;
+            case AntiAliasingMethod::XeSS:
+                return Upscaler::XeSS;
+            case AntiAliasingMethod::MetalFX:
+                return Upscaler::MetalFX;
+            case AntiAliasingMethod::None:
+            case AntiAliasingMethod::FXAA:
+            case AntiAliasingMethod::SMAA:
+            case AntiAliasingMethod::MSAA:
+                return percent < 100 ? Upscaler::Spatial : Upscaler::None;
+        }
+        return Upscaler::None;
     }
 
     PathAntiAliasing ResolveAntiAliasingForPath( const ResolvedQuality& resolved, bool pathSupportsMSAA )
@@ -1102,8 +1154,12 @@ namespace Common::Scalability
             case AntiAliasingMethod::SMAA:
                 return { method, 1, method, {} };
             case AntiAliasingMethod::TAA:
-            case AntiAliasingMethod::FSRNative:
-            case AntiAliasingMethod::DLAA:
+            case AntiAliasingMethod::TSR:
+            case AntiAliasingMethod::FSR:
+            case AntiAliasingMethod::DLSS:
+            case AntiAliasingMethod::DLSSRayReconstruction:
+            case AntiAliasingMethod::XeSS:
+            case AntiAliasingMethod::MetalFX:
                 return { method, 1, AntiAliasingMethod::None, {} };
         }
         return { AntiAliasingMethod::FXAA, 1, AntiAliasingMethod::FXAA, "unknown anti-aliasing method" };
@@ -1125,52 +1181,54 @@ namespace Common::Scalability
     std::span<const AntiAliasingPreset> AntiAliasingPresets()
     {
         using M = AntiAliasingMethod;
-        using U = Upscaler;
         // Scale figures are the vendors' published mode ratios (Quality 1/1.5, Balanced 1/1.7, Performance 1/2,
         // Ultra Performance 1/3).
         static constexpr AntiAliasingPreset kPresets[] = {
-             { "Native.TAA", M::TAA, 1, 100, U::None },
-             { "Native.SMAA", M::SMAA, 1, 100, U::None },
-             { "Native.FXAA", M::FXAA, 1, 100, U::None },
-             { "Native.None", M::None, 1, 100, U::None },
-             { "MSAA.2x", M::MSAA, 2, 100, U::None },
-             { "MSAA.4x", M::MSAA, 4, 100, U::None },
-             { "MSAA.8x", M::MSAA, 8, 100, U::None },
-             { "SSAA.150", M::TAA, 1, 150, U::None },
-             { "SSAA.200", M::TAA, 1, 200, U::None },
-             { "TAAU.Quality", M::TAA, 1, 67, U::TAAU },
-             { "TAAU.Balanced", M::TAA, 1, 58, U::TAAU },
-             { "TAAU.Performance", M::TAA, 1, 50, U::TAAU },
-             { "TSR.Quality", M::TAA, 1, 67, U::TSR },
-             { "TSR.Balanced", M::TAA, 1, 58, U::TSR },
-             { "TSR.Performance", M::TAA, 1, 50, U::TSR },
-             { "FSR.NativeAA", M::FSRNative, 1, 100, U::None },
-             { "FSR.Quality", M::FSRNative, 1, 67, U::FSR },
-             { "FSR.Balanced", M::FSRNative, 1, 58, U::FSR },
-             { "FSR.Performance", M::FSRNative, 1, 50, U::FSR },
-             { "FSR.UltraPerformance", M::FSRNative, 1, 33, U::FSR },
-             { "DLSS.DLAA", M::DLAA, 1, 100, U::None },
-             { "DLSS.Quality", M::DLAA, 1, 67, U::DLSS },
-             { "DLSS.Balanced", M::DLAA, 1, 58, U::DLSS },
-             { "DLSS.Performance", M::DLAA, 1, 50, U::DLSS },
-             { "DLSS.UltraPerformance", M::DLAA, 1, 33, U::DLSS },
-             { "XeSS.Quality", M::TAA, 1, 67, U::XeSS },
-             { "XeSS.Balanced", M::TAA, 1, 58, U::XeSS },
-             { "XeSS.Performance", M::TAA, 1, 50, U::XeSS },
-             { "MetalFX.Quality", M::TAA, 1, 67, U::MetalFX },
-             { "MetalFX.Performance", M::TAA, 1, 50, U::MetalFX },
+             { "Native.TAA", M::TAA, 1, 100 },
+             { "Native.TSR", M::TSR, 1, 100 },
+             { "Native.SMAA", M::SMAA, 1, 100 },
+             { "Native.FXAA", M::FXAA, 1, 100 },
+             { "Native.None", M::None, 1, 100 },
+             { "MSAA.2x", M::MSAA, 2, 100 },
+             { "MSAA.4x", M::MSAA, 4, 100 },
+             { "MSAA.8x", M::MSAA, 8, 100 },
+             { "SSAA.150", M::TAA, 1, 150 },
+             { "SSAA.200", M::TAA, 1, 200 },
+             { "TAA.Quality", M::TAA, 1, 67 },
+             { "TAA.Balanced", M::TAA, 1, 58 },
+             { "TAA.Performance", M::TAA, 1, 50 },
+             { "TSR.Quality", M::TSR, 1, 67 },
+             { "TSR.Balanced", M::TSR, 1, 58 },
+             { "TSR.Performance", M::TSR, 1, 50 },
+             { "FSR.Native", M::FSR, 1, 100 },
+             { "FSR.Quality", M::FSR, 1, 67 },
+             { "FSR.Balanced", M::FSR, 1, 58 },
+             { "FSR.Performance", M::FSR, 1, 50 },
+             { "FSR.UltraPerformance", M::FSR, 1, 33 },
+             { "DLSS.Native", M::DLSS, 1, 100 },
+             { "DLSS.Quality", M::DLSS, 1, 67 },
+             { "DLSS.Balanced", M::DLSS, 1, 58 },
+             { "DLSS.Performance", M::DLSS, 1, 50 },
+             { "DLSS.UltraPerformance", M::DLSS, 1, 33 },
+             { "DLSSRR.Native", M::DLSSRayReconstruction, 1, 100 },
+             { "DLSSRR.Quality", M::DLSSRayReconstruction, 1, 67 },
+             { "DLSSRR.Balanced", M::DLSSRayReconstruction, 1, 58 },
+             { "DLSSRR.Performance", M::DLSSRayReconstruction, 1, 50 },
+             { "XeSS.Quality", M::XeSS, 1, 67 },
+             { "XeSS.Balanced", M::XeSS, 1, 58 },
+             { "XeSS.Performance", M::XeSS, 1, 50 },
+             { "MetalFX.Quality", M::MetalFX, 1, 67 },
+             { "MetalFX.Performance", M::MetalFX, 1, 50 },
         };
         return kPresets;
     }
 
     std::vector<ParameterOverride> Decompose( const AntiAliasingPreset& preset )
     {
-        return {
-             { std::string( SpecOf( Parameter::AntiAliasingMethod ).Key ),
-               static_cast<ParameterValue>( preset.Method ) },
-             { std::string( SpecOf( Parameter::AntiAliasingSamples ).Key ), preset.Samples },
-             { std::string( SpecOf( Parameter::RenderScalePercent ).Key ), preset.RenderScalePercent },
-             { std::string( SpecOf( Parameter::Upscaler ).Key ), static_cast<ParameterValue>( preset.Upscale ) } };
+        return { { std::string( SpecOf( Parameter::AntiAliasingMethod ).Key ),
+                   static_cast<ParameterValue>( preset.Method ) },
+                 { std::string( SpecOf( Parameter::AntiAliasingSamples ).Key ), preset.Samples },
+                 { std::string( SpecOf( Parameter::RenderScalePercent ).Key ), preset.RenderScalePercent } };
     }
 
     std::vector<AntiAliasingPreset> OfferedPresets( const CapabilityCatalog& catalog )
@@ -1189,8 +1247,7 @@ namespace Common::Scalability
                                                      {
                                               return f.Id == Parameter::AntiAliasingMethod ||
                                                      f.Id == Parameter::AntiAliasingSamples ||
-                                                     f.Id == Parameter::RenderScalePercent ||
-                                                     f.Id == Parameter::Upscaler;
+                                                     f.Id == Parameter::RenderScalePercent;
                                           } );
             if ( !any )
                 offered.push_back( preset );

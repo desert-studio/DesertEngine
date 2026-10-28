@@ -167,35 +167,28 @@ TEST( TemporalViewContract, SplitNeverRendersBelowOnePixelAndRefusesAnUnallocata
 TEST( TemporalViewContract, MethodFollowsTheTwoAxes )
 {
     using M = Scal::AntiAliasingMethod;
-    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 100 ), Scal::Upscaler::None ) ),
-               TemporalMethod::TAA );
-    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 150 ), Scal::Upscaler::None ) ),
-               TemporalMethod::TAA );
-    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::FXAA ), Split( k1080p, 100 ), Scal::Upscaler::None ) ),
-               TemporalMethod::None );
-    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::SMAA ), Split( k1080p, 150 ), Scal::Upscaler::None ) ),
-               TemporalMethod::None );
-    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::TAAU ) ),
-               TemporalMethod::TAAU );
+    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 100 ) ) ), TemporalMethod::TAA );
+    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 150 ) ) ), TemporalMethod::TAA );
+    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::FXAA ), Split( k1080p, 100 ) ) ), TemporalMethod::None );
+    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::SMAA ), Split( k1080p, 150 ) ) ), TemporalMethod::None );
+    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::FXAA ), Split( k1080p, 67 ) ) ), TemporalMethod::None );
+    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ) ) ), TemporalMethod::TAAU );
+    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::TSR ), Split( k1080p, 67 ) ) ), TemporalMethod::TSR );
+    EXPECT_EQ( Value( SelectTemporalMethod( Path( M::TSR ), Split( k1080p, 100 ) ) ), TemporalMethod::TSR );
 }
 
 TEST( TemporalViewContract, MethodRefusesWhatScalabilityNeverProduces )
 {
     using M = Scal::AntiAliasingMethod;
-    // Below 100 % with no upscaler, and an upscaler at native scale: SCAL1's Resolve rule 5 removes both.
-    EXPECT_FALSE( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::None ).IsSuccess() );
-    EXPECT_FALSE( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 100 ), Scal::Upscaler::TAAU ).IsSuccess() );
-    // A vendor upscaler with no implementation in this build: an error naming it, not a quiet TAAU. FSR and DLSS
+    // A vendor method with no implementation in this build: an error naming it, not a quiet TAA. FSR and DLSS
     // have one exactly where their SDK is built (API/UpscalerBuild.hpp), XeSS and MetalFX nowhere yet.
-    for ( const Scal::Upscaler vendor : { Scal::Upscaler::XeSS, Scal::Upscaler::MetalFX } )
+    for ( const M vendor : { M::XeSS, M::MetalFX } )
     {
-        const auto chosen = SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), vendor );
+        const auto chosen = SelectTemporalMethod( Path( vendor ), Split( k1080p, 67 ) );
         EXPECT_FALSE( chosen.IsSuccess() );
     }
-    EXPECT_EQ( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::FSR ).IsSuccess(),
-               kFsrBuilt );
-    EXPECT_EQ( SelectTemporalMethod( Path( M::TAA ), Split( k1080p, 67 ), Scal::Upscaler::DLSS ).IsSuccess(),
-               kDlssBuilt );
+    EXPECT_EQ( SelectTemporalMethod( Path( M::FSR ), Split( k1080p, 67 ) ).IsSuccess(), kFsrBuilt );
+    EXPECT_EQ( SelectTemporalMethod( Path( M::DLSS ), Split( k1080p, 67 ) ).IsSuccess(), kDlssBuilt );
 }
 
 // ---- Jitter -------------------------------------------------------------------------------------------------

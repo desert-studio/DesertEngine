@@ -711,10 +711,17 @@ namespace Desert::Graphic::Streamline
     void Runtime::AmendCatalogProbe( API::Vulkan::CatalogProbe& probe ) const
     {
         const std::scoped_lock lock( m_Mutex );
-        probe.DlssAvailable = StateOf( DlssFeature::SuperResolution ).Candidate;
+        const FeatureState&    sr = StateOf( DlssFeature::SuperResolution );
+        const FeatureState&    rr = StateOf( DlssFeature::RayReconstruction );
+        probe.DlssAvailable       = sr.Candidate;
         // Ray Reconstruction is offered beside Super Resolution only: its refusal falls back to it.
-        probe.DlssRayReconstructionAvailable =
-             probe.DlssAvailable && StateOf( DlssFeature::RayReconstruction ).Candidate;
+        probe.DlssRayReconstructionAvailable = probe.DlssAvailable && rr.Candidate;
+        // A feature an earlier probe was offered and Refuse has withdrawn since (Candidate is never set again
+        // after a refusal): the catalog names the runtime's refusal instead of "not offered by this device".
+        probe.DlssRefused                  = sr.Offered && !sr.Candidate;
+        probe.DlssRayReconstructionRefused = rr.Offered && !probe.DlssRayReconstructionAvailable;
+        sr.Offered                         = sr.Offered || probe.DlssAvailable;
+        rr.Offered                         = rr.Offered || probe.DlssRayReconstructionAvailable;
     }
 
     void Runtime::OnDeviceCreated( const API::Vulkan::VulkanDeviceHandles& handles )

@@ -6,14 +6,15 @@
 //    in the trace, each with its own history, moments and filter, remodulated at the end ("Remodulate");
 //  - TEMPORAL ACCUMULATION ("Snapshot" + "Temporal", on the frames the camera moved): the previous frame's
 //    integrated signal is reprojected by the camera's motion (the specular lobe also by its virtual image's motion
-//    below roughness 0.5) with a plane-distance + normal disocclusion test per bilinear tap, a per-pixel history
+//    below roughness 0.5) with a plane-distance disocclusion test per bilinear tap (normals only within the diffuse
+//    lobe: one path's shading normals on a normal-mapped surface differ by tens of degrees), a per-pixel history
 //    length capped at 32 paths (diffuse) or 4..32 by roughness (specular), and the slow history clamped to the
 //    neighbourhood of a fast (6-path) one so a lighting change does not ghost;
 //  - VARIANCE from the integrated temporal moments (SVGF 4.2; a 7 x 7 spatial estimate while the history holds
 //    fewer than four paths), then a variance-guided a-trous ("Filter", SVGF 4.3, here an energy-conserving
 //    exchange) whose luminance width and normal lobe widen on young histories and whose iterations up to a
-//    spacing of 8 / L spread by geometry alone (30 pixels at one path, ReLAX's pre-pass radius) - the
-//    disocclusion pre-blur that makes the frame after a cut usable.
+//    spacing of 8 / sqrt(L) spread by geometry alone (30 pixels at one path, ReLAX's pre-pass radius), the chroma
+//    up to 16 / sqrt(L) - the disocclusion pre-blur that makes the frame after a cut usable.
 // THE STILL CAMERA: the path tracer's accumulation is the temporal integration (it sums every path while nothing
 // changes), so on a still frame the history is not touched: the integrated signal is the history (frozen at the
 // pose the camera stopped at, weight L) plus the accumulation (weight s), which wins as s grows - the converged
@@ -165,7 +166,7 @@ Shader "PathTracerDenoise"
     // MOVING FRAME, AFTER THE TRACE: the snapshot reprojected onto this frame's surfaces - the new base. Each pixel's
     // surface point (its camera ray at its mean camera distance) is projected by the previous view-projection; the
     // four bilinear taps around it count where they are the same surface (plane distance within kPlaneShare of the
-    // camera distance, normals within kNormalCos) and the history length is scaled by the share of the footprint
+    // camera distance, normals within the diffuse lobe) and the history length is scaled by the share of the footprint
     // that survived. Below roughness 0.5 the specular lobe is reprojected by its virtual image (the reflected point
     // seen behind the surface, at the camera distance + the first bounce's length), which is where a reflection
     // moves to, blended by roughness with the surface reprojection.
@@ -194,8 +195,17 @@ Shader "PathTracerDenoise"
             // ReLAX disocclusionThreshold: a tap is another surface when its plane lies farther than 1 % of the
             // camera distance from the reprojected point.
             const float kPlaneShare = 0.01;
-            // A tap whose normal turned by more than ~25 degrees is another surface.
-            const float kNormalCos = 0.9;
+            // A tap whose normal turned past the diffuse lobe's half-angle (PathTracingDenoiseLobeHalfAngle(1),
+            // ~72 degrees) is another surface. NOT a tight cone: on a moving frame both normals are ONE path's shading
+            // normal at a random sub-pixel point, and a normal-mapped surface (cobbles, bark, foliage) turns its
+            // shading normal by tens of degrees inside a pixel - the 25-degree test this replaces rejected a large
+            // share of every footprint there each frame, so the history length settled at ~2 paths and pan8 was
+            // noisier than one still path. The plane distance is the disocclusion test (ReLAX: plane distance only;
+            // the normal enters its spatial weights, as here in "Filter").
+            float DisocclusionNormalCos()
+            {
+                return cos(PathTracingDenoiseLobeHalfAngle(1.0));
+            }
             // The virtual image's taps also need the reflected path length within this share.
             const float kVirtualShare = 0.05;
             // The virtual-image reprojection fades out between these roughnesses (a rough lobe moves with the
@@ -240,6 +250,7 @@ Shader "PathTracerDenoise"
                 const float pointDistance = length(toPoint);
                 const float facing        = abs(dot(normal, toPoint / max(pointDistance, 1.0e-6)));
                 const float tolerance     = kPlaneShare * pointDistance;
+                const float normalCos     = DisocclusionNormalCos();
                 for (int i = 0; i < 4; ++i)
                 {
                     const ivec2 offset = ivec2(i & 1, i >> 1);
@@ -252,7 +263,7 @@ Shader "PathTracerDenoise"
                     // The tap's point along the same previous camera ray, its distance off our point's plane.
                     if (abs(guide.z - pointDistance) * facing > tolerance)
                         continue;
-                    if (dot(PathTracingDenoiseOctDecode(guide.xy), normal) < kNormalCos)
+                    if (dot(PathTracingDenoiseOctDecode(guide.xy), normal) < normalCos)
                         continue;
                     if (virtualDistance > 0.0 &&
                         abs(guide.z + guide.w - virtualDistance) > kVirtualShare * virtualDistance)
@@ -482,8 +493,11 @@ Shader "PathTracerDenoise"
     // Symmetric weights: normal; depth over both pixels' slopes and distances; colour over the pair's joint width,
     // widened on the pair's younger history (ReLAX: young histories are blurred harder); the specular lobe also by
     // its lobe - the pair's roughness narrows the normal weight and the tap radius, and a roughness change stops it.
-    // The iterations whose spacing is at most kPathTracingDenoiseSpreadRadius / L (L the pair's shorter history)
-    // drop the colour weight: the pre-blur that spreads a firefly's energy over its surface, 30 pixels at one path.
+    // The iterations whose spacing is at most kPathTracingDenoiseSpreadRadius / sqrt(L) (L the pair's shorter
+    // history) drop the colour weight: the pre-blur that spreads a firefly's energy over its surface, 30 pixels at one
+    // path; up to kPathTracingDenoiseChromaSpreadRadius / sqrt(L) the pair's chroma (hue at equal luminance) is
+    // exchanged by geometry alone while its luminance keeps the colour weight ("Exchange": energy-conserving per
+    // channel) - the young history's hue noise spread past the luminance edges' reach.
     // A young pair's normal weight is ReLAX's lobe (PathTracingDenoiseYoungNormalWeight) where it is wider than
     // SVGF's power: one path per pixel samples a normal-mapped surface's shading normal at a random sub-pixel point,
     // which max(0, n_p . n_q)^128 alone would read as a different surface at every pixel.
@@ -515,15 +529,35 @@ Shader "PathTracerDenoise"
             // The depth tolerance that remains on a plane facing the camera (zero depth gradient), as a share of
             // the camera distance: float noise in the averaged guide, not a surface boundary.
             const float kDepthFloorShare = 1.0e-3;
+            // The depth tolerance's width in the pair's slope x tap distance (SVGF's sigma_z = 1 here gave a plane
+            // exp(-1) along its depth gradient). The slope is the smaller one-sided difference of a ONE-path camera
+            // distance - a random sub-pixel point, half-float steps (0.5 cm at 10 m) - read low as often as not: on
+            // the flat Bistro cobbles the depth weight averaged 0.50 at spacing 1 (0.41 at 8), the geometry-only
+            // spread ran along the rows only (horizontal streaks, firefly dots kept at 2-5 % of their energy) and the
+            // shadow-side taps of every plane were cut. Measured on dn1 (PT-DENOISE-12, shader-only, r11 exe): sigma
+            // 1 -> 3 -> 10: Day cut8 2.92 -> 3.36 -> 3.53x, cutEdge 2.32 -> 2.47 -> 2.54x; Night 2.23 -> 2.64 ->
+            // 2.80x, cutEdge 1.82 -> 2.00 -> 2.07x; mean within 0.4 % per channel. A surface step stays many slopes
+            // deep (an object on the ground, a wall behind a post: tens of cm against a few cm per pixel).
+            const float kDepthSigma = 10.0;
             // ReLAX: the colour width of a history of no paths is (1 + kYoungWidth) x that of a full one.
             const float kYoungWidth = 2.0;
             // The specular lobe: its normal power is kNormalPower / max(roughness^2, kSpecularLobeFloor) (a
-            // mirror's lobe passes only its own plane), its tap radius 1 + kSpecularRadius x roughness pixels, and
-            // a roughness difference of kSpecularRoughnessWidth divides its weight by e.
+            // mirror's lobe passes only its own plane), its tap radius 1 + kSpecularRadius x roughness pixels -
+            // while the history is young the wider of that and ReLAX's specular pre-pass radius,
+            // kSpecularPrepassRadius x SpecularRadiusCurve(roughness) / sqrt(L) (the 1 / sqrt(L) of the spread
+            // reach) - and a roughness difference of kSpecularRoughnessWidth divides its weight by e.
             const float kSpecularLobeFloor = 0.0625;
             const float kSpecularRadius = 31.0;
+            const float kSpecularPrepassRadius = 50.0;
             const float kSpecularRoughnessWidth = 0.1;
             const float kKernel[3] = float[3](3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0);
+
+            // NRD GetSpecMagicCurve: the share of the pre-pass radius a lobe of @p roughness takes - ~0 for a mirror
+            // (its reflection is an image, not noise to blur), ~roughness^0.25 from roughness 0.2 on.
+            float SpecularRadiusCurve(float roughness)
+            {
+                return (1.0 - exp2(-200.0 * roughness * roughness)) * pow(roughness, 0.25);
+            }
 
             struct DenoiseSurface
             {
@@ -567,10 +601,17 @@ Shader "PathTracerDenoise"
                 return exp(-PathTracingDenoiseChannelDistance(centre.rgb, tap.rgb, width));
             }
 
-            // Whether the iteration of tap @p spacing spreads a pair of @p historyLength paths by geometry alone.
-            bool Spread(int spacing, float historyLength)
+            // What the centre @p centre gains from the tap @p tap: its luminance exchanged with weight @p luminanceWeight
+            // and its chroma (the rest of the colour difference, at equal luminance) with @p chromaWeight. The pair's
+            // joint hue (their sum over their summed luminance, lum = 1) carries the luminance part, so the term is
+            // antisymmetric in (centre, tap) - what one pixel gains the other loses, per channel - and its luminance is
+            // luminanceWeight x the luminance difference whatever @p chromaWeight is. Equal weights: the plain exchange.
+            vec3 Exchange(vec3 centre, vec3 tap, float luminanceWeight, float chromaWeight)
             {
-                return float(spacing) * max(historyLength, 1.0) <= kPathTracingDenoiseSpreadRadius;
+                const float centreLuminance = PathTracingDenoiseLuminance(centre);
+                const float tapLuminance    = PathTracingDenoiseLuminance(tap);
+                const vec3  hue = (centre + tap) / max(centreLuminance + tapLuminance, 1.0e-10);
+                return chromaWeight * (tap - centre) - (chromaWeight - luminanceWeight) * (tapLuminance - centreLuminance) * hue;
             }
 
             void main()
@@ -609,7 +650,7 @@ Shader "PathTracerDenoise"
                             // The depth tolerance over the larger of the two pixels' slopes and distances.
                             const float slope = max(depthSlope, DepthGradient(q, other.Depth));
                             const float wz    = exp(-abs(other.Depth - surface.Depth) /
-                                                 (slope * length(vec2(x, y)) * float(spacing) +
+                                                 (kDepthSigma * slope * length(vec2(x, y)) * float(spacing) +
                                                   kDepthFloorShare * max(surface.Depth, other.Depth)));
                             const float k        = kKernel[abs(x)] * kKernel[abs(y)];
                             const vec2  qLengths = imageLoad(HistoryLengthTexture, q).xy;
@@ -618,22 +659,32 @@ Shader "PathTracerDenoise"
                             const vec4  diffuseTap = imageLoad(IlluminationDiffuseTexture, q);
                             const float wnd        = max(pow(cosine, kNormalPower),
                                                          PathTracingDenoiseYoungNormalWeight(cosine, 1.0, pair.x));
-                            const float wd         = k * wnd * wz *
-                                             ColourWeight(diffuseCentre, diffuseTap, pair.x, Spread(spacing, pair.x));
-                            diffuseExchange += wd * (diffuseTap.rgb - diffuseCentre.rgb);
+                            const float gd         = k * wnd * wz;
+                            const float wd         = gd * ColourWeight(diffuseCentre, diffuseTap, pair.x,
+                                                                 PathTracingDenoiseSpreads(spacing, pair.x,
+                                                                                           kPathTracingDenoiseSpreadRadius));
+                            const bool  diffuseHue = PathTracingDenoiseSpreads(spacing, pair.x,
+                                                                               kPathTracingDenoiseChromaSpreadRadius);
+                            diffuseExchange += Exchange(diffuseCentre.rgb, diffuseTap.rgb, wd, diffuseHue ? gd : wd);
                             diffuseVariance += wd * wd * diffuseTap.a;
                             diffuseShare += wd;
 
                             const float roughness  = 0.5 * (surface.Roughness + other.Roughness);
-                            const float radius     = 1.0 + kSpecularRadius * roughness;
+                            const float radius     = 1.0 + max(kSpecularRadius * roughness,
+                                                               kSpecularPrepassRadius * SpecularRadiusCurve(roughness) /
+                                                                   sqrt(max(pair.y, 1.0)));
                             const float reach      = length(vec2(x, y)) * float(spacing) / radius;
                             const vec4  specularTap = imageLoad(IlluminationSpecularTexture, q);
                             const float wns = max(pow(cosine, kNormalPower / max(roughness * roughness, kSpecularLobeFloor)),
                                                   PathTracingDenoiseYoungNormalWeight(cosine, roughness, pair.y));
-                            const float ws = k * wns * wz * exp(-reach * reach) *
-                                             exp(-abs(surface.Roughness - other.Roughness) / kSpecularRoughnessWidth) *
-                                             ColourWeight(specularCentre, specularTap, pair.y, Spread(spacing, pair.y));
-                            specularExchange += ws * (specularTap.rgb - specularCentre.rgb);
+                            const float gs = k * wns * wz * exp(-reach * reach) *
+                                             exp(-abs(surface.Roughness - other.Roughness) / kSpecularRoughnessWidth);
+                            const float ws = gs * ColourWeight(specularCentre, specularTap, pair.y,
+                                                               PathTracingDenoiseSpreads(spacing, pair.y,
+                                                                                         kPathTracingDenoiseSpreadRadius));
+                            const bool  specularHue = PathTracingDenoiseSpreads(spacing, pair.y,
+                                                                                kPathTracingDenoiseChromaSpreadRadius);
+                            specularExchange += Exchange(specularCentre.rgb, specularTap.rgb, ws, specularHue ? gs : ws);
                             specularVariance += ws * ws * specularTap.a;
                             specularShare += ws;
                         }
@@ -676,7 +727,15 @@ Shader "PathTracerDenoise"
             // SVGF 4.3: sigma_l = 4 (the convergence fade's width, the edge-stop's).
             const float kLuminanceSigma = 4.0;
 
-            // THE FILTER FADES OUT AS THE ACCUMULATION CONVERGES: from kPathTracingDenoiseTemporalMomentPaths
+            // The accumulated surface paths from which the fade below holds. NOT kPathTracingDenoiseTemporalMomentPaths
+            // (4): the clamp is per pixel, so it is not energy-conserving, and a sum of a few heavy-tailed paths
+            // reads a small deviation on its dark majority - what those pixels gained from a firefly's spread was
+            // cut there (PT-DENOISE-11, Bistro Day dn4 PFM: mean R -3.1 % / G -1.8 % / B -1.6 %, cut8 2.30x; the
+            // fade off below this count: -0.5 / -0.2 / -0.3 %, cut8 2.72x). From 64 paths the deviation of the mean
+            // is a measured one and the clamp only keeps the converging image the tracer's own (dn1024 unchanged).
+            const float kFadePaths = 64.0;
+
+            // THE FILTER FADES OUT AS THE ACCUMULATION CONVERGES: from kFadePaths
             // accumulated surface paths on, a lobe's change is kept within kLuminanceSigma standard deviations of
             // the accumulation's mean - the width the edge-stop already calls noise - per channel in proportion to
             // the mean's colour. The variance of the mean is the 3 x 3 Gaussian average of the pixel's and its
@@ -684,7 +743,7 @@ Shader "PathTracerDenoise"
             // the image becomes the tracer's own: the converged frame is not blurred.
             vec3 FadedChange(vec3 change, vec3 meanIllumination, float paths, ivec2 pixel, ivec2 size, bool specular)
             {
-                if (paths < kPathTracingDenoiseTemporalMomentPaths)
+                if (paths < kFadePaths)
                     return change;
                 float meanVariance = 0.0;
                 for (int y = -1; y <= 1; ++y)
