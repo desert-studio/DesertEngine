@@ -343,7 +343,7 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void TerrainRenderer::PrepareFrame( const ViewFrame& frame, const SceneFrameBinding& scene )
+    void TerrainRenderer::PrepareFrame( const ViewFrame& frame )
     {
         m_FrameGroups.clear();
         m_FrameDraws.clear();
@@ -520,20 +520,25 @@ namespace Desert::Graphic::System
                         rows->SetRawData( group.ParamRows.data(),
                                           static_cast<uint32_t>( group.ParamRows.size() * sizeof( glm::vec4 ) ) );
             }
-
-            // The scene's part of the forward program, by the ONE applier every lit material gets it from
-            // (SceneFrameBinding::ApplyTo, the groups its layout declares): the cloud layer's shadow on the sun
-            // — a terrain is drawn by neither render path's mesh shaders, so while the map's only reader was the
-            // deferred composite a terrain never darkened under a cloud at all — the sun (DirectionLightsUB, the
-            // one statement of it the forward meshes read; TerrainUB no longer carries a copy), the point and spot
-            // lights, the cascades' ShadowUB and the sky look the ambient reads (Mesh/AmbientIBL.glslh). Forward
-            // only: in Deferred the composite lights the terrain's G-buffer texels with all of it, like every
-            // other surface. The maps (the cascade array, the environment cubes and BRDF LUT, the reflection
-            // captures, the cloud shadow map) and the light grid are pass parameters of the "TerrainPass" node
-            // (SceneViewInputs); the material carries the blocks.
-            if ( !deferred )
-                scene.ApplyTo( surface );
         }
+    }
+
+    void TerrainRenderer::ApplySceneFrame( const SceneFrameBinding& scene )
+    {
+        // The scene's part of the forward program, by the ONE applier every lit material gets it from
+        // (SceneFrameBinding::ApplyTo, the groups its layout declares): the cloud layer's shadow on the sun, the
+        // sun (DirectionLightsUB), the point and spot lights, the cascades' ShadowUB and the sky look the ambient
+        // reads (Mesh/AmbientIBL.glslh). Forward only: in Deferred the composite lights the terrain's G-buffer
+        // texels with all of it, like every other surface. The maps (the cascade array, the local shadow atlas and
+        // its views, the environment cubes and BRDF LUT, the reflection captures, the cloud shadow map) and the
+        // light grid are pass parameters of the "TerrainPass" node (SceneViewInputs); the material carries the
+        // blocks. Called after the lights got their ShadowView / ShadowMaskSlot (LOCAL-SHADOW-COVER: applied in
+        // PrepareFrame, the point/spot blocks went up with ShadowView -1 and the forward terrain received no
+        // local shadow at all), at the same point of the frame the meshes' forward materials take them.
+        if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
+            return;
+        for ( const auto& group : m_FrameGroups )
+            scene.ApplyTo( m_Materials.at( group.Key ).Forward.get() );
     }
 
     void TerrainRenderer::PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights )

@@ -1581,12 +1581,9 @@ namespace Desert::Graphic
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact
             // type
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
-            // With the scene's lit-material state (the forward terrain receives the point and spot lights the
-            // meshes do). The shadowed point/spot lights' draws follow UpdateLocalShadows below
-            // (PrepareLocalShadowViews): their views do not exist yet here.
-            const auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-            UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-                 ->PrepareFrame( frame, meshes->CaptureFrameState( &frame ) );
+            // The shadowed point/spot lights' draws and the scene's lit-material state follow UpdateLocalShadows
+            // below (PrepareLocalShadowViews, ApplySceneFrame): the lights' views do not exist yet here.
+            UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->PrepareFrame( frame );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
         if ( const Common::BoolResultStr physical =
@@ -1903,6 +1900,12 @@ namespace Desert::Graphic
                      ->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights() );
                 // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                 AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
+                // The forward terrain's lights now carry their ShadowView / ShadowMaskSlot: the scene's
+                // lit-material state goes onto its forward program here (the meshes' forward snapshot).
+                // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
+                     ->ApplySceneFrame( localShadowMeshes->CaptureFrameState( &frame ) );
+                // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                 // The per-light denoisers' histories: a frame off HardwareTraced parks every one (a method that
                 // comes back starts new histories), and the retire queue is drained EVERY frame - a parked history
                 // is released once every frame in flight that read it completed, whatever the method is now.
