@@ -193,12 +193,12 @@ namespace Desert::Graphic::SurfaceCache
                                                               RDG::TextureRef target );
         // "Lumen Scene": the scene drawn from its cards alone - every captured card's surface (its depth layer
         // placed back into the world) shaded with its albedo, or with its FinalLighting when @p lit ("Lumen Scene
-        // (Lit)"), depth-tested against the other cards.
+        // (Lit)", scaled by the view's @p preExposure as scene colour is), depth-tested against the other cards.
         [[nodiscard]] Common::BoolResultStr AddSceneViewPass( RDG::Builder& graph, const ImportImage& import,
                                                               RDG::TextureRef target, const SceneFrame& frame,
                                                               const FrameBuffers& buffers, bool lit,
                                                               const glm::mat4& viewProjection,
-                                                              const glm::vec3& cameraPosition );
+                                                              const glm::vec3& cameraPosition, float preExposure );
 
         // The direct lighting's program and pipeline for @p tracer's permutation (its shadow rays), built on the
         // first call for that tracer. Asked by the view before the frame's passes, so a permutation that does not

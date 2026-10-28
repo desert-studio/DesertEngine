@@ -149,8 +149,9 @@ namespace Desert::Graphic::SurfaceCache
             glm::mat4  ViewProjection{ 1.0f };
             glm::vec4  CameraPosition{ 0.0f };
             glm::uvec4 Counts{ 0u }; // x = atlas side, y = card count
+            glm::vec4  ColorScale{ 1.0f }; // x = the colour's scale: the view's pre-exposure for FinalLighting
         };
-        static_assert( sizeof( SceneViewPush ) == 96 );
+        static_assert( sizeof( SceneViewPush ) == 112 );
 
         // A graph buffer of @p data; an empty list is uploaded as one zero element nobody reads (an upload
         // refuses an empty payload).
@@ -457,7 +458,8 @@ namespace Desert::Graphic::SurfaceCache
                                                                   const SceneFrame&     frame,
                                                                   const FrameBuffers& buffers, const bool lit,
                                                                   const glm::mat4& viewProjection,
-                                                                  const glm::vec3& cameraPosition )
+                                                                  const glm::vec3& cameraPosition,
+                                                                  const float      preExposure )
     {
         const auto desc = graph.GetTextureDesc( target );
         if ( !desc )
@@ -490,6 +492,8 @@ namespace Desert::Graphic::SurfaceCache
         push.ViewProjection = viewProjection;
         push.CameraPosition = glm::vec4( cameraPosition, 1.0f );
         push.Counts         = glm::uvec4( m_AtlasSize, static_cast<uint32_t>( frame.Cards.size() ), 0u, 0u );
+        // FinalLighting is radiance; the target is scene colour, stored at radiance x pre-exposure. Albedo is shown as is.
+        push.ColorScale     = glm::vec4( lit ? preExposure : 1.0f, 0.0f, 0.0f, 0.0f );
         GraphicsPipeline* const raw   = pipeline.GetValue().get();
         const uint32_t          count = static_cast<uint32_t>( frame.Cards.size() );
         graph.AddPass(

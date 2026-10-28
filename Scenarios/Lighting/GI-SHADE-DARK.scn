@@ -10,7 +10,9 @@
 Когда run View "View mode: Indirect Lighting (GI)"
 Тогда-вид 1b_bistro_sw_indirect the traced indirect alone: the shade carries the sky
 Когда run View "View mode: Lumen Scene (Lit)"
-Тогда-вид 1c_bistro_lumen_lit the surface cache's lit cards: shaded walls not black
+Тогда-вид 1c_bistro_lumen_lit the surface cache's lit cards (pre-exposed as scene colour): shaded walls neither black nor white, the sunlit wall brighter than the shaded one
+Тогда-вид 1c2_bistro_lumen_lit the next frame of the same view: its mean not above 1c's (no energy growth)
+Тогда-вид 1c3_bistro_lumen_lit the frame after: its mean not above 1c2's
 Когда run View "View mode: Lit"
 Когда run Quality "Quality: GlobalIllumination.Method Off"
 Тогда-вид 2_bistro_off the same street without GI: the skylight ambient reference
