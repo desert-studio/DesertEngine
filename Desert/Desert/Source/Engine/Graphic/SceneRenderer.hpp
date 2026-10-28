@@ -395,6 +395,9 @@ namespace Desert::Graphic
 
         /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).
         [[nodiscard]] uint32_t GetIsmInstancesDrawn() const;
+        /// Draws the last frame gave to the default surface while their own pipeline compiled
+        /// (MeshRenderer::GetStandInDraws): the control gate's PendingWork::MaterialPipelines.
+        [[nodiscard]] uint32_t GetStandInDraws() const;
         /// Triangles the last frame's view pass drew, at the LOD each mesh was drawn with
         /// (MeshRenderer::GetViewTrianglesDrawn).
         [[nodiscard]] uint64_t GetViewTrianglesDrawn() const;

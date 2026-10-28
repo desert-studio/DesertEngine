@@ -532,7 +532,8 @@ namespace Desert::Editor
     }
 
     std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled,
-                                                             const bool subsurfaceHistoryConverging )
+                                                             const bool subsurfaceHistoryConverging,
+                                                             const bool materialPipelinesCompiling )
     {
         ++m_FrameIndex;
         // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
@@ -545,6 +546,11 @@ namespace Desert::Editor
         // read a full history window (SSS-PROFILE 3_scale4: a shot right after `SubsurfaceScale 4` saw fresh
         // texels).
         m_FrameQuiescence.Set( Control::PendingWork::SubsurfaceHistory, subsurfaceHistoryConverging );
+        // Also decided by the frame itself (GRASS-SETTLE): a draw whose pipeline was still on a worker was drawn
+        // with the default surface, so the frame is not the scene. UE's automated screenshot calls
+        // FinishAllCompilation first; here the reply/shot waits for a frame with no stand-in (FIELD_Barn
+        // 1_first: a grey-blue foliage patch with a straight edge, its GBuffer_TwoSided cell compiling).
+        m_FrameQuiescence.Set( Control::PendingWork::MaterialPipelines, materialPipelinesCompiling );
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;

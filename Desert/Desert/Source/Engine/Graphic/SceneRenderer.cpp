@@ -3275,6 +3275,14 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
     }
 
+    uint32_t SceneRenderer::GetStandInDraws() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return 0;
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetStandInDraws();
+    }
+
     uint64_t SceneRenderer::GetViewTrianglesDrawn() const
     {
         const auto found = m_RenderSystems.find( "MeshSystem" );

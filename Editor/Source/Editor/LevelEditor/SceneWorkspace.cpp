@@ -68,6 +68,19 @@ namespace Desert::Editor
         return false;
     }
 
+    bool SceneWorkspace::MaterialPipelinesCompiling() const
+    {
+        if ( m_SceneRenderer && m_SceneRenderer->GetStandInDraws() > 0 )
+            return true;
+        for ( const auto& document : m_ExtraScenes )
+            if ( document->Renderer && document->Renderer->GetStandInDraws() > 0 )
+                return true;
+        for ( const auto& viewport : m_ExtraViewports )
+            if ( viewport->Renderer && viewport->Renderer->GetStandInDraws() > 0 )
+                return true;
+        return false;
+    }
+
     void SceneWorkspace::RebuildRenderRegistry()
     {
         m_RenderRegistry.reset();
