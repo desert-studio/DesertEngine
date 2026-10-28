@@ -9,5 +9,7 @@
 Тогда-вид 1_open сцена открылась, сарай вдали в Lit; пик < 6144 МБ; в логе «[TextureStreaming] pool resident … / budget …»
 Когда --subject viewport set Camera.Position 1800,700,-2500
 Когда --subject viewport set Camera.Direction 0,-0.08,-1
-Когда advance 3
+Когда run Action Simulate
+Когда advance 2
+Когда advance 1
 Тогда-вид 2_settled через 3 с у сарая: доски и крыша резкие, без мыла вблизи (мипы подгрузились по экрану)
