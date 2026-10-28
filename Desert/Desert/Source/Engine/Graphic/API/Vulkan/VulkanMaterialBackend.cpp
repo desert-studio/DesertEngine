@@ -68,10 +68,14 @@ namespace Desert::Graphic::API::Vulkan
                          ->GetVulkanAllocator()
                          ->RT_ZeroBuffer();
         if ( !zero.IsSuccess() )
+        {
             LOG_ERROR( "[Material] shader '{}': the zero buffer for unbound bindings is missing: {}",
                        m_VulkanShader ? m_VulkanShader->GetName() : std::string( "<null>" ), zero.GetError() );
+        }
         else
+        {
             m_DummyBuffer = zero.GetValue();
+        }
     }
 
     // The zero buffer is the device's (VulkanAllocator::RT_ZeroBuffer), alive until the device goes: the sets
