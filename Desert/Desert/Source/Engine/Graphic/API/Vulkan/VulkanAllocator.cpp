@@ -5,6 +5,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Common/Core/DevInstruments.hpp>
+#include <Common/Utilities/ProcessMemory.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <array>
@@ -261,7 +262,9 @@ namespace Desert::Graphic::API::Vulkan
         // graph's transient heaps and resources, VulkanRdgTransient / VulkanRenderGraph), the owners
         // (ResourceLedger) and the process/device readout - all at one moment, so they subtract.
         constexpr uint64_t kCensusPeakStep = 256ull * 1024ull * 1024ull;
-        if ( const uint64_t peak = MemoryWatch::PeakProcessResident();
+        // The process's own resident set, read here (one syscall a second): MemoryWatch samples only inside its
+        // watch windows after a scene load, and the Bistro peak comes minutes later, at the hand-over.
+        if ( const uint64_t peak = Common::Utils::ReadProcessFootprint().Resident;
              peak >= m_CensusPeakReported + kCensusPeakStep )
         {
             m_CensusPeakReported = peak;
