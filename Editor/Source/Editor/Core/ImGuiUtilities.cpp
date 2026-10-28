@@ -334,21 +334,49 @@ namespace Desert::Editor::Utils
         const float each =
              ( total - kSpacing * static_cast<float>( components - 1 ) ) / static_cast<float>( components );
 
+        const ImGuiStyle& style = ImGui::GetStyle();
+
         bool changed = false;
         ImGui::PushID( id );
         for ( int i = 0; i < components; ++i )
         {
             ImGui::PushID( i );
             ImGui::SetNextItemWidth( each );
+
+            // ImGui's DragFloat centres its value in the WHOLE frame and, when the text is wider than the
+            // frame, starts it at the frame's very left pixel -- under the axis edge painted below, which
+            // hid the minus sign ("-253.2" read as "253.2"). Like UE's numeric entry, the value is drawn
+            // here instead: inside the edge and the frame padding, centred while it fits, otherwise from
+            // its first character and cut on the right. The drag's own text is hidden for that, except
+            // while the field is a text input (double/ctrl-click), which draws its own padded text.
+            const bool typing = ImGui::TempInputIsActive( ImGui::GetID( "##v" ) );
+            if ( !typing )
+                ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.0f, 0.0f, 0.0f, 0.0f ) );
             if ( ImGui::DragFloat( "##v", &values[i], speed, 0.0f, 0.0f, format ) )
                 changed = true;
+            if ( !typing )
+                ImGui::PopStyleColor();
 
             // Painted after the field, so it sits ON the frame instead of being covered by it.
             const ImVec2 mn = ImGui::GetItemRectMin();
             const ImVec2 mx = ImGui::GetItemRectMax();
-            ImGui::GetWindowDrawList()->AddRectFilled(
-                 mn, ImVec2( mn.x + kEdge, mx.y ), ImGui::GetColorU32( ThemeManager::GetAxisColor( i ) ),
-                 ImGui::GetStyle().FrameRounding, ImDrawFlags_RoundCornersLeft );
+            ImDrawList*  drawList = ImGui::GetWindowDrawList();
+            drawList->AddRectFilled( mn, ImVec2( mn.x + kEdge, mx.y ),
+                                     ImGui::GetColorU32( ThemeManager::GetAxisColor( i ) ), style.FrameRounding,
+                                     ImDrawFlags_RoundCornersLeft );
+
+            if ( !ImGui::TempInputIsActive( ImGui::GetItemID() ) )
+            {
+                char         text[64];
+                const int    length = ImFormatString( text, sizeof( text ), format, values[i] );
+                const char*  end    = text + length;
+                const ImVec2 size   = ImGui::CalcTextSize( text, end );
+                const ImVec4 clip( mn.x + kEdge + style.FramePadding.x, mn.y, mx.x - style.FramePadding.x, mx.y );
+                const float  room = clip.z - clip.x;
+                const float  x    = size.x <= room ? clip.x + ( room - size.x ) * 0.5f : clip.x;
+                drawList->AddText( nullptr, 0.0f, ImVec2( x, mn.y + ( mx.y - mn.y - size.y ) * 0.5f ),
+                                   ImGui::GetColorU32( ImGuiCol_Text ), text, end, 0.0f, &clip );
+            }
             ImGui::PopID();
 
             if ( i + 1 < components )

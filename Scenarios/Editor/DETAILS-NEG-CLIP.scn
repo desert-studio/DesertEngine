@@ -1,0 +1,7 @@
+# DETAILS-NEG-CLIP: a vector field in Details (ImGuiUtilities::VectorField -- Location/Rotation/Scale and every reflected
+# vec2/3/4) shows its number from the FIRST character, minus sign included, like UE's numeric entry: centred while it fits,
+# otherwise cut on the right. Before: DragFloat started an overflowing value at the frame's left pixel, under the axis edge.
+Дано run Scene "Add shape: Cube"
+Дано run View "View mode: Lit"
+Когда --subject selection set Translation -253.2,-868.0,-12345.6
+Тогда 1_neg_loc Details: Location reads "-253.2", "-868.0", "-12345.6", each with its minus sign
