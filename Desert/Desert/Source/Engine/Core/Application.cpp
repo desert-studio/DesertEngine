@@ -276,6 +276,7 @@ namespace Desert::Engine
             // Textures whose cook finished on a worker get their GPU image here, within the per-frame upload
             // budget (TextureUploadSettings), before any command buffer of this frame is open.
             Runtime::ResourceRegistry::GetTextureService()->PumpUploads();
+            Runtime::ResourceRegistry::GetTextureService()->UpdateStreaming();
 
             // 3. Start recording commands for this frame
             const auto frameBegun = Graphic::Renderer::GetInstance().BeginFrame();

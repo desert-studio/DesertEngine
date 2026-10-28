@@ -67,6 +67,7 @@ namespace Desert::Graphic::API::Vulkan
 
         [[nodiscard]] Common::ResultStr<BindlessTextureSlot> Register( const Image2D& image ) override;
         void                                                 Release( BindlessTextureSlot slot ) override;
+        void                   Rewrite( BindlessTextureSlot slot, const Image2D& image ) override;
         void                   EndFrame( uint64_t frame, uint32_t framesInFlight ) override;
         [[nodiscard]] uint32_t LiveSlots() const override;
         [[nodiscard]] uint32_t Capacity() const override;
@@ -116,6 +117,7 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<RetiringSet>                          m_Retiring;
         std::shared_ptr<Image2D>                          m_Missing;
         uint64_t                                          m_Frame = 0;
+        bool m_RewritePending                                     = false; // Rewrite -> new set at EndFrame
         mutable std::mutex                                m_Mutex;
     };
 

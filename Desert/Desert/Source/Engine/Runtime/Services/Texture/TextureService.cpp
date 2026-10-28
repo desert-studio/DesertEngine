@@ -3,10 +3,12 @@
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/TextureFactory.hpp>
+#include <Engine/Graphic/TextureStreamingDemand.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Settings/Scalability.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -92,15 +94,18 @@ namespace Desert::Runtime
             uint64_t                        Ticket = 0;
             std::filesystem::path           Asset;
             std::shared_ptr<TextureUploads> Uploads;
+            uint32_t                        FirstMip = 0;
+            uint32_t                        TailSize = 0;
         };
-        auto job = std::make_shared<CookJob>(
-             CookJob{ handle, entry.CookTicket, entry.Source->GetMetadata().Filepath, m_Uploads } );
+        auto job = std::make_shared<CookJob>( CookJob{ handle, entry.CookTicket,
+                                                       entry.Source->GetMetadata().Filepath, m_Uploads,
+                                                       entry.RequestedFirstMip, m_StreamingSettings.TailSize } );
         Common::JobSystem::Get().Submit(
              [job]
              {
                  TextureCookOutcome outcome;
                  const auto         began  = std::chrono::steady_clock::now();
-                 auto               cooked = Graphic::Texture2D::ReadCooked( job->Asset );
+                 auto cooked = Graphic::Texture2D::ReadCookedMips( job->Asset, job->FirstMip, job->TailSize );
                  LOG_DEBUG( "[TextureService] '{}' platform data read on a worker in {:.1f} ms",
                             job->Asset.filename().string(),
                             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began )
@@ -120,20 +125,56 @@ namespace Desert::Runtime
     void TextureService::FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome )
     {
         entry.Cooking = false;
+        // A STREAMING READ (TEX-STREAMING) finishes over a texture that is already drawn: its new levels go INTO
+        // the same texture (Texture2D::ReplaceLevels -- the Image2D every material slot and override points at
+        // keeps its address and bindless slot, UE's RHIUpdateTextureReference), so no holder is rebuilt or left
+        // with a released image. A read that fails leaves the resident levels drawing.
+        const bool streamed = entry.Built != nullptr;
+        bool       replaced = false;
         if ( outcome.Cooked )
         {
-            const auto     began = std::chrono::steady_clock::now();
-            const uint64_t bytes = outcome.Cooked->UploadBytes();
-            auto           built = Graphic::Texture2D::CreateFromCooked( std::move( *outcome.Cooked ) );
-            if ( built.IsSuccess() )
-                entry.Built = built.ExtractValue();
+            const auto     began    = std::chrono::steady_clock::now();
+            const uint64_t bytes    = outcome.Cooked->UploadBytes();
+            const uint32_t firstMip = outcome.Cooked->FirstMip;
+            entry.FullWidth         = outcome.Cooked->FullWidth;
+            entry.FullHeight        = outcome.Cooked->FullHeight;
+            entry.LevelBytes        = outcome.Cooked->FullLevelBytes;
+            if ( streamed )
+            {
+                const auto swapped = entry.Built->ReplaceLevels( std::move( *outcome.Cooked ) );
+                replaced           = swapped.IsSuccess();
+                if ( !replaced )
+                    outcome.Error = swapped.GetError();
+            }
             else
-                outcome.Error = built.GetError();
+            {
+                auto built = Graphic::Texture2D::CreateFromCooked( std::move( *outcome.Cooked ) );
+                if ( built.IsSuccess() )
+                {
+                    entry.Built = built.ExtractValue();
+                    replaced    = true;
+                }
+                else
+                    outcome.Error = built.GetError();
+            }
+            if ( replaced )
+                entry.ResidentFirstMip = firstMip;
             LOG_DEBUG(
-                 "[TextureService] '{}' uploaded on the main thread in {:.1f} ms ({} bytes)",
+                 "[TextureService] '{}' uploaded on the main thread in {:.1f} ms ({} bytes, from mip {})",
                  entry.Source->GetMetadata().Filepath.filename().string(),
                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count(),
-                 bytes );
+                 bytes, firstMip );
+        }
+        if ( streamed )
+        {
+            if ( !replaced )
+            {
+                LOG_WARN( "[TextureStreaming] '{}' could not move to mip {}: {}. Its resident mips stay drawn.",
+                          entry.Source->GetMetadata().Filepath.filename().string(), entry.RequestedFirstMip,
+                          outcome.Error );
+                entry.RequestedFirstMip = entry.ResidentFirstMip;
+            }
+            return;
         }
         if ( !entry.Built )
         {
@@ -261,6 +302,8 @@ namespace Desert::Runtime
         m_Retiring.Park( std::move( it->second.Built ),
                          Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
         it->second.Built.reset();
+        // Read back from its tail, like any texture asked for the first time.
+        it->second.RequestedFirstMip = Graphic::Texture2D::kStreamingTail;
         return true;
     }
 
@@ -302,6 +345,135 @@ namespace Desert::Runtime
                 continue;
             }
             SubmitCook( *next, it->second );
+        }
+    }
+
+    namespace
+    {
+        uint64_t BytesFrom( const std::vector<uint64_t>& levels, const uint32_t firstMip )
+        {
+            uint64_t bytes = 0;
+            for ( std::size_t level = firstMip; level < levels.size(); ++level )
+                bytes += levels[level];
+            return bytes;
+        }
+    } // namespace
+
+    void TextureService::UpdateStreaming()
+    {
+        ++m_StreamingFrame;
+        const TextureStreamingSettings& settings = m_StreamingSettings;
+        for ( const auto& [asset, pixels] : Graphic::TextureStreamingDemand::Get().TakeFrame() )
+        {
+            if ( const auto it = m_Entries.find( asset ); it != m_Entries.end() )
+            {
+                it->second.LastAskedFrame = m_StreamingFrame;
+                it->second.AskedPixels    = pixels;
+            }
+        }
+
+        // WANTED MIPS (UE FRenderAssetStreamingManager / FStreamingRenderAsset::GetWantedMips): the smallest level
+        // that still gives the screen the texels it covers; the tail for a texture no draw asked for lately.
+        struct Want
+        {
+            Assets::AssetHandle Handle;
+            Entry*              Row   = nullptr;
+            uint32_t            First = 0;
+            uint32_t            Tail  = 0;
+        };
+        std::vector<Want> wants;
+        uint64_t          resident = 0, full = 0, wanted = 0;
+        uint32_t          streaming = 0;
+        for ( auto& [handle, entry] : m_Entries )
+        {
+            if ( !entry.Built || !entry.Source || entry.LevelBytes.empty() )
+                continue;
+            if ( entry.Cooking )
+                ++streaming;
+            const auto levels = static_cast<uint32_t>( entry.LevelBytes.size() );
+            uint32_t   tail   = 0;
+            while ( std::max( entry.FullWidth >> tail, entry.FullHeight >> tail ) > settings.TailSize &&
+                    tail + 1 < levels )
+                ++tail;
+            uint32_t first = tail;
+            if ( entry.AskedPixels > 0.0f && m_StreamingFrame - entry.LastAskedFrame <= settings.UnseenFrames )
+            {
+                const float    needed = entry.AskedPixels * settings.TexelsPerPixel;
+                const uint32_t top    = std::max( entry.FullWidth, entry.FullHeight );
+                first                 = 0;
+                while ( first < tail && static_cast<float>( top >> ( first + 1 ) ) >= needed )
+                    ++first;
+            }
+            resident += BytesFrom( entry.LevelBytes, entry.ResidentFirstMip );
+            full += BytesFrom( entry.LevelBytes, 0 );
+            wanted += BytesFrom( entry.LevelBytes, first );
+            wants.push_back( { handle, &entry, first, tail } );
+        }
+
+        // THE POOL (r.Streaming.PoolSize): over budget, the least asked-for textures give up a level first, one
+        // level per texture per pass, until the wanted set fits (UE drops the lowest-priority mips first).
+        const uint64_t budget = static_cast<uint64_t>( Common::Scalability::QualityState::Resolved().As<uint32_t>(
+                                     Common::Scalability::Parameter::TextureStreamingPoolMiB ) ) *
+                                1024ull * 1024ull;
+        const bool overBudget = wanted > budget;
+        if ( overBudget )
+        {
+            std::sort( wants.begin(), wants.end(),
+                       []( const Want& a, const Want& b ) { return a.Row->AskedPixels < b.Row->AskedPixels; } );
+            for ( bool dropped = true; wanted > budget && dropped; )
+            {
+                dropped = false;
+                for ( Want& want : wants )
+                {
+                    if ( wanted <= budget )
+                        break;
+                    if ( want.First >= want.Tail )
+                        continue;
+                    wanted -= want.Row->LevelBytes[want.First];
+                    ++want.First;
+                    dropped = true;
+                }
+            }
+        }
+
+        // START THE MOVES, nearest first: a texture short of its wanted level reads it now; one holding more than
+        // it wants gives it back when it is two levels over (one level of hysteresis keeps a texture at the edge
+        // of two sizes from being read every frame) or when the pool is over budget.
+        std::sort( wants.begin(), wants.end(),
+                   []( const Want& a, const Want& b ) { return a.Row->AskedPixels > b.Row->AskedPixels; } );
+        for ( Want& want : wants )
+        {
+            Entry& entry = *want.Row;
+            if ( entry.Cooking || want.First == entry.ResidentFirstMip )
+                continue;
+            const bool up = want.First < entry.ResidentFirstMip;
+            const bool down =
+                 want.First >= entry.ResidentFirstMip + 2 || ( overBudget && want.First > entry.ResidentFirstMip );
+            if ( !up && !down )
+                continue;
+            entry.RequestedFirstMip = want.First;
+            BeginCook( want.Handle, entry );
+            ++streaming;
+        }
+
+        auto& pool = Graphic::TextureStreamingDemand::Get().Pool();
+        pool.ResidentBytes.store( resident, std::memory_order_relaxed );
+        pool.WantedBytes.store( wanted, std::memory_order_relaxed );
+        pool.BudgetBytes.store( budget, std::memory_order_relaxed );
+        pool.FullChainBytes.store( full, std::memory_order_relaxed );
+        pool.Textures.store( static_cast<uint32_t>( wants.size() ), std::memory_order_relaxed );
+        pool.Streaming.store( streaming, std::memory_order_relaxed );
+        if ( m_StreamingFrame % settings.LogEveryFrames == 0 &&
+             ( resident != m_LoggedResident || wanted != m_LoggedWanted ) )
+        {
+            m_LoggedResident    = resident;
+            m_LoggedWanted      = wanted;
+            constexpr double MB = 1024.0 * 1024.0;
+            LOG_INFO(
+                 "[TextureStreaming] pool resident {:.1f} MB / budget {:.1f} MB (wanted {:.1f} MB, full chains "
+                 "{:.1f} MB, {} textures, {} streaming)",
+                 static_cast<double>( resident ) / MB, static_cast<double>( budget ) / MB,
+                 static_cast<double>( wanted ) / MB, static_cast<double>( full ) / MB, wants.size(), streaming );
         }
     }
 

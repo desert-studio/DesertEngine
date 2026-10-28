@@ -24,6 +24,16 @@ namespace Desert::Graphic
         Core::Formats::TextureColorSpace         ColorSpace = Core::Formats::TextureColorSpace::Linear;
         Core::Formats::ImagePixelData            Pixels;
         std::vector<Core::Formats::MipLevelSpan> Levels;
+        /// MIP STREAMING (TEX-STREAMING): the whole chain the asset holds, of which `Levels` is the resident part
+        /// from `FirstMip` down. Width/Height above are the resident top level's; these are the asset's.
+        uint32_t              FullWidth  = 0;
+        uint32_t              FullHeight = 0;
+        uint32_t              FirstMip   = 0;
+        std::vector<uint64_t> FullLevelBytes;
+
+        /// Drops the levels above @p firstMip (clamped to the last level): the pixels of the kept levels are
+        /// compacted into a blob of their own, so the dropped ones are freed here, before the upload waits.
+        void KeepFromMip( uint32_t firstMip );
 
         /// The bytes the upload copies to staging: what the per-frame upload budget counts.
         [[nodiscard]] uint64_t UploadBytes() const
@@ -99,6 +109,16 @@ namespace Desert::Graphic
             return m_Height;
         }
 
+        /// The asset's whole chain's top size (TEX-STREAMING): GetWidth/GetHeight are the resident top level's.
+        [[nodiscard]] uint32_t GetFullWidth() const
+        {
+            return m_FullWidth;
+        }
+        [[nodiscard]] uint32_t GetFullHeight() const
+        {
+            return m_FullHeight;
+        }
+
         virtual const Runtime::ImageHandle& GetImageHandle() const override
         {
             return m_Handle;
@@ -125,8 +145,22 @@ namespace Desert::Graphic
         /// `ReadCooked` is CPU only -- the DDC read, and the cook on a DDC miss, then the container decode -- and
         /// is safe on a worker. `CreateFromCooked` creates the GPU image and uploads it, on the main thread.
         static Common::ResultStr<CookedTexture2D>            ReadCooked( const std::filesystem::path& cookedPath );
+        /// The streaming read (TEX-STREAMING): `ReadCooked`, then only the levels from @p firstMip down are kept
+        /// (CookedTexture2D::KeepFromMip). @p firstMip = kStreamingTail keeps the mip tail: the first level no
+        /// larger than @p tailSize on its longer side, which is all a texture holds before the frame asks.
+        static constexpr uint32_t                 kStreamingTail = UINT32_MAX;
+        static Common::ResultStr<CookedTexture2D> ReadCookedMips( const std::filesystem::path& cookedPath,
+                                                                  uint32_t firstMip, uint32_t tailSize );
         static Common::ResultStr<std::shared_ptr<Texture2D>>
         CreateFromCooked( CookedTexture2D cooked, const TextureBackend& backend = TextureBackend::Device() );
+
+        /// THE STREAMED MIP CHANGE (TEX-STREAMING; UE FTexture2DUpdate + RHIUpdateTextureReference): @p cooked --
+        /// this texture's own asset read from another first level (ReadCookedMips) -- is uploaded to a new device
+        /// image, which the texture's EXISTING Image2D takes (Image2D::TakeDeviceImageFrom). The texture, its
+        /// image handle and the Image2D pointer every material slot and override holds all stay; the old levels
+        /// are released past the frames in flight. Refused, and the resident levels kept, when the upload fails.
+        Common::BoolResultStr ReplaceLevels( CookedTexture2D       cooked,
+                                             const TextureBackend& backend = TextureBackend::Device() );
 
         // Creates the texture from CPU-generated pixel data (no file involved) — e.g. the runtime
         // BRDF LUT. `data` layout must match `format` (RGBA32F -> vector<float>, RGBA8F -> vector<uchar>).
@@ -148,6 +182,7 @@ namespace Desert::Graphic
         // "CONSTRUCTED FIRST"); a test's service outlives the textures the test makes.
         Runtime::ImageService* m_Service = nullptr;
         uint32_t               m_Width = 0, m_Height = 0;
+        uint32_t               m_FullWidth = 0, m_FullHeight = 0;
     };
 
 } // namespace Desert::Graphic
