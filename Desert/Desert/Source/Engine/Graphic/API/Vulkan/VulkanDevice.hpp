@@ -94,6 +94,13 @@ namespace Desert::Graphic::API::Vulkan
         // before any window surface exists, so the constructor's catalog lists FIFO alone; the first swapchain
         // calls this with its surface and the catalog is rebuilt from both halves, once.
         void ProbeSurface( VkSurfaceKHR surface );
+        // Once a frame, on the main thread before the views begin (VulkanRendererAPI::BeginFrame): a vendor
+        // runtime that refused a method after the catalog offered it (Streamline at device creation, or an
+        // evaluation that faulted) changes what the device offers, so the catalog is rebuilt and published
+        // (QualityState::ReplaceCatalog) - Resolve then lowers the method as refused, in the one place every
+        // fallback is decided, logged and shown. Asks only the runtimes (IVulkanDeviceExtension::
+        // AmendCatalogProbe) unless their answer changed.
+        void RefreshRuntimeOffers();
 
         [[nodiscard]] const DeviceCaps& GetDeviceCaps() const
         {
@@ -123,6 +130,22 @@ namespace Desert::Graphic::API::Vulkan
 
         Engine::DeviceCapabilities m_Capabilities;
         bool                       m_SurfaceProbed = false;
+        VkSurfaceKHR               m_ProbedSurface = VK_NULL_HANDLE; // the surface the catalog was completed with
+        // What the vendor runtimes answered when the catalog was last built (RefreshRuntimeOffers).
+        struct RuntimeOffers
+        {
+            bool Dlss                         = false;
+            bool DlssRayReconstruction        = false;
+            bool DlssRefused                  = false;
+            bool DlssRayReconstructionRefused = false;
+            bool Xess                         = false;
+            bool MetalFx                      = false;
+
+            bool operator==( const RuntimeOffers& ) const = default;
+        };
+        RuntimeOffers m_RuntimeOffers;
+        // The runtimes' answer alone: a CatalogProbe amended by IVulkanDeviceExtension::AmendCatalogProbe only.
+        [[nodiscard]] static RuntimeOffers AskRuntimeOffers();
 
         std::shared_ptr<vkb::PhysicalDevice> m_Bootstrap;
         DeviceCaps                           m_DeviceCaps;

@@ -1,0 +1,23 @@
+{
+    "id": 200996,
+    "Tag": "Foliage Bush 1_-2",
+    "Translation": [3750.0, -404.1875, -3750.0],
+    "Rotation": [0.0, 0.0, 0.0],
+    "Scale": [1.5, 1.5, 1.5],
+    "StaticMesh": {
+        "MaterialSlots": [
+            {
+                "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                "Path": "assets:Materials/CB_Orange.demat"
+            }
+        ],
+        "Primitive": "Cube",
+        "MeshHandle": {
+            "Guid": "",
+            "Path": ""
+        }
+    },
+    "RuntimeGrid": {
+        "Grid": "Foliage"
+    }
+}

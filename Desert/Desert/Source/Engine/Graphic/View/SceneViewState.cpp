@@ -391,7 +391,7 @@ namespace Desert::Graphic
         const auto split = MakeResolutionSplit( inputs.Output, inputs.RenderScalePercent );
         if ( !split.IsSuccess() )
             return Common::MakeError<ViewFrame>( split.GetError() );
-        const auto method = SelectTemporalMethod( inputs.AntiAliasing, split.GetValue(), inputs.Upscaler );
+        const auto method = SelectTemporalMethod( inputs.AntiAliasing, split.GetValue() );
         if ( !method.IsSuccess() )
             return Common::MakeError<ViewFrame>( method.GetError() );
 

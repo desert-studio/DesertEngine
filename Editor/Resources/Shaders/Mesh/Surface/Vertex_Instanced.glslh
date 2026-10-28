@@ -1,19 +1,11 @@
 // Surface cell vertex path: instanced static mesh, one transform per instance in InstanceTransforms (binding 17),
 // bent by the foliage wind the push block carries — the vertex stage of Programs/Surface/StaticMeshLit_Instanced.shader,
 // StaticMeshGBuffer_Instanced.shader and Programs/Shadow/Shadow_Instanced.shader (which share one push block).
-layout( location = 0 ) in vec3 a_Position;
-layout( location = 1 ) in vec3 a_Normal;
-layout( location = 2 ) in vec3 a_Tangent;
-layout( location = 3 ) in vec3 a_Bitangent;
-layout( location = 4 ) in vec2 a_TextureCoord;
-// Binding 1, the optional streams (MeshVertexLayout.hpp): a mesh without them binds the shared
-// white / (0,0) buffer at the same stride.
-// Declared only where the stages talk: an opaque depth cell reads the position alone, binds exactly where
-// Programs/Shadow/Shadow*.shader bind, and leaves the pipeline's locations 7/8 unconsumed (legal Vulkan).
-#ifdef DESERT_SURFACE_HAS_VARYINGS
-layout( location = 7 ) in vec4 a_Color;
-layout( location = 8 ) in vec2 a_TexCoord1;
-#endif
+// The vertex inputs — binding 0 (position, normal, tangent, bitangent, UV0) and the optional streams at binding 1
+// (vertex colour, UV1; a mesh without them binds the shared white / (0,0) buffer at the same stride) — and
+// DesertMeshTextureUV, GENERATED from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp). The full
+// set in every pass: an input a depth cell does not read costs nothing, a subset would be a second list.
+#include <Mesh/MeshVertexInputs.glslh>
 
 #include <Common/CameraUB.glslh>
 #ifdef DESERT_SURFACE_CASTER_PASS
@@ -46,8 +38,6 @@ layout( std430, binding = 49 ) restrict readonly buffer VsmInstanceRemap
 DESERT_SURFACE_VARYINGS( out )
 #endif
 
-#include <Common/MeshTextureCoord.glslh>
-
 void main()
 {
     const mat4 model = transforms[DESERT_INSTANCE_INDEX];
@@ -77,9 +67,13 @@ void main()
                                                            vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPosition, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPosition, 1.0 );
+    // The object-motion flag (Common/Velocity.glslh DesertVelocity w): the INSTANCE moved (a producer whose
+    // instances move states their previous transforms); the wind bends the vertices of a still instance and leaves it 0.
+    v_Surface.ObjectMoved = prevModel != model ? 1.0 : 0.0;
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved = 0.0;
 #endif
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.

@@ -115,28 +115,18 @@ Shader "TemporalAA"
         }
 
         // Whether render pixel p shows an object that moves on its own (UE: the velocity texture's "dynamic"
-        // encoding, written only by objects with their own motion). Our geometry writes velocity for every
-        // surface, the camera's motion included, so the object's own motion is the written velocity minus the
-        // camera's reprojection of the same depth (both unjittered: the surface at p's centre sits at
-        // uv - jitter). Measured in OUTPUT pixels (the real on-screen motion), dynamic above a tenth of a pixel
-        // plus the RGBA16F rounding of the written velocity (2^-11 relative per component). The sky (depth 0) never
-        // moves on its own.
-        const float kDynamicPixels = 0.1;
-
+        // encoding, written only by primitives that moved, TemporalAA.usf AA_DYNAMIC_ANTIGHOST). Our geometry writes
+        // velocity for every surface (motion blur and the reprojection want the foliage wind's motion too), so the
+        // object's own motion is not the velocity but its OBJECT-MOTION FLAG, the velocity's w (Common/Velocity.glslh
+        // DesertVelocity; each vertex stage sets v_Surface.ObjectMoved: Vertex_Static the transform changed,
+        // Vertex_Instanced the instance moved, Vertex_Skinned the skeleton, particles always, the wind and the grass
+        // blades never). A crown swaying in the wind is therefore not dynamic, so the static pixels around its leaves
+        // keep their history (FOLIAGE-WIND-POP: the leaf edge flickered as the anti-ghost dropped it every frame). The
+        // sky (cleared to 0) never moves on its own.
         bool IsDynamicPixel(ivec2 p)
         {
-            p                   = clamp(p, ivec2(0), ivec2(RenderSize) - 1);
-            const float depth   = texelFetch(SceneDepthTexture, p, 0).r;
-            if (depth <= 0.0)
-                return false;
-            const vec2  written = texelFetch(VelocityTexture, p, 0).xy;
-            const vec2  ndc     = ScreenUVToNdc((vec2(p) + 0.5) / RenderSize - JitterUv);
-            const vec4  world   = InverseViewProjection * vec4(ndc, depth, 1.0);
-            const vec4  prev    = PreviousViewProjection * world;
-            const vec2  camera  = ndc - prev.xy / prev.w;
-            const vec2  own     = (written - camera) * 0.5 * OutputSize;
-            const float limit   = kDynamicPixels + length(written * 0.5 * OutputSize) * (1.0 / 1024.0);
-            return dot(own, own) > limit * limit;
+            p = clamp(p, ivec2(0), ivec2(RenderSize) - 1);
+            return texelFetch(VelocityTexture, p, 0).w > 0.5;
         }
 
         vec3 FetchRender(ivec2 p)
@@ -252,7 +242,13 @@ Shader "TemporalAA"
             const bool dynamicAny = dynamicK || IsDynamicPixel(renderPixel + ivec2(0, -1)) ||
                                     IsDynamicPixel(renderPixel + ivec2(-1, 0)) ||
                                     IsDynamicPixel(renderPixel + ivec2(1, 0)) || IsDynamicPixel(renderPixel + ivec2(0, 1));
-            if (!ignoreHistory && !dynamicAny && textureLod(PreviousResolvedColorTexture, historyUv, 0.0).a > 0.0)
+            // The flag of the ONE history texel the reprojection lands in, never a bilinear blend of four: a blend
+            // is above 0 wherever ANY of four texels was dynamic, which dropped the history of every static pixel
+            // bordering a swaying leaf or blade every frame -- that edge then showed the jittered, aliased current
+            // frame alone and blinked (FOLIAGE-WIND-POP: half the frame-to-frame flicker of a windy field).
+            const ivec2 historyTexel = clamp(ivec2(historyUv * vec2(textureSize(PreviousResolvedColorTexture, 0))),
+                                             ivec2(0), textureSize(PreviousResolvedColorTexture, 0) - 1);
+            if (!ignoreHistory && !dynamicAny && texelFetch(PreviousResolvedColorTexture, historyTexel, 0).a > 0.5)
                 ignoreHistory = true;
             const float historyFlag = dynamicK ? 1.0 : 0.0;
         #else

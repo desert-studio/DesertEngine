@@ -69,16 +69,19 @@ namespace Desert::Editor
 
         /// UE's Build > Build HLODs (WP-FAR-6B, lead D1): every cell's HLOD of the world SAVED at the scene's
         /// file (scene + entity files, as WorldCook reads it), built by MakeHLODBuilders and written to
-        /// `<Scene>_HLOD/` (WorldCells::WriteBuiltHLODs); read back and checked stale-free. Refused, by name, for
-        /// a scene not opened from a file or a world the build refuses. Two phases: this call checks the world
-        /// and starts the landscape tiles' BaseColor bake (LandscapeHLODBake, over the next editor frames);
-        /// TickBuild finishes it — the HLODs are built with each landscape HLOD bound to its baked material,
-        /// written and read back. A world without landscape HLODs is built here at once.
+        /// `<Scene>_HLOD/` (WorldCells::BuiltHLODWriter, cell by cell); read back and checked stale-free. Refused,
+        /// by name, for a scene not opened from a file or a world the build refuses. Two phases: this call checks
+        /// the world and starts the landscape tiles' BaseColor bake (LandscapeHLODBake, over the next editor
+        /// frames); TickBuild finishes it — the HLODs are built with each landscape HLOD bound to its baked
+        /// material, written and read back. A world without landscape HLODs is built here at once.
         [[nodiscard]] Common::BoolResultStr BuildHLODs();
 
         /// Advances a running Build HLODs (its bake) by one editor frame; called every frame by EditorLayer,
         /// whether the panel's window is open or not.
         void TickBuild();
+
+        /// A Build HLODs is running: its landscape bake has not finished, so its cell files are not written yet.
+        [[nodiscard]] bool IsBuildingHLODs() const noexcept { return m_Bake != nullptr; }
 
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
@@ -152,6 +155,9 @@ namespace Desert::Editor
         bool                    m_Fitted       = false; // the view is the last fit: a resize refits it
         glm::dvec2              m_MapSize{ 0.0 };       // the canvas size the view was last drawn at
         bool                    m_Follow       = true; // Play: keep the streaming source centred (UE's default)
+        // A wheel while following keeps the follow and its own scale (UE re-fits PlayerExtent = 100 m every tick
+        // and drops the follow on a wheel, so a 200 m loading range with look-ahead never fits). Focus clears it.
+        bool                    m_FollowZoomed = false;
         int                     m_Level        = -1;   // -1 shows every level
         // The runtime grid the map, the header and the source circles show (index into the partition's Grids):
         // UE's World Partition editor shows one runtime hash grid at a time; every grid is reachable by the

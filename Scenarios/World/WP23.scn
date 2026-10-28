@@ -1,0 +1,5 @@
+# WP23 (09688682c): pak chunks by world region - WP_Protocol states ChunkRegionSize = 100000 cm (1 km).
+# DRAFT, NOT PLAYED YET (REMAINDER): Package Game's report path and the cooked run are to be found live.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Когда run Build "Package Game"
+Тогда wp23_chunks отчёт кука: по одному чанку на регион 1x1 км (4 региона на 2x2 км), ячейки каждого региона в своём паке; в логе нет «missing chunk»

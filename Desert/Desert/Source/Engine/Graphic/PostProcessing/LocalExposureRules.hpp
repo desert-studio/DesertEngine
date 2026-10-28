@@ -25,6 +25,7 @@ namespace Desert::Graphic
     // The resolved, shader-facing values of one view.
     struct LocalExposureParams
     {
+        Core::LocalExposureMethod Method                     = Core::LocalExposureMethod::Bilateral;
         float HighlightContrast          = 1.0f;
         float ShadowContrast             = 1.0f;
         float DetailStrength             = 1.0f;
@@ -40,6 +41,7 @@ namespace Desert::Graphic
     [[nodiscard]] inline LocalExposureParams ResolveLocalExposure( const Core::PostProcessSettings& post )
     {
         return LocalExposureParams{
+             .Method                     = post.LocalExposureMethod,
              .HighlightContrast          = std::clamp( post.LocalExposureHighlightContrastScale, 0.0f, 1.0f ),
              .ShadowContrast             = std::clamp( post.LocalExposureShadowContrastScale, 0.0f, 1.0f ),
              .DetailStrength             = std::clamp( post.LocalExposureDetailStrength, 0.0f, 4.0f ),
@@ -56,15 +58,19 @@ namespace Desert::Graphic
     // UE's enable test (PostProcessing.cpp:799-805): contrast 1/1 and detail 1 give every pixel exactly 1 whatever
     // the thresholds and the blend (with contrast 1 the threshold offset cancels, PostProcessHistogramCommon.ush:
     // 287-307: LogLocalLum = MG + (Base - MG) + (Lum - Base) = Lum).
+    // Fusion ignores the detail strength: contrast 1/1 makes the three exposures one and the pyramid rebuilds it.
     [[nodiscard]] inline bool IsLocalExposureIdentity( const LocalExposureParams& p )
     {
+        if ( p.Method == Core::LocalExposureMethod::Fusion )
+            return p.HighlightContrast == 1.0f && p.ShadowContrast == 1.0f;
         return p.HighlightContrast == 1.0f && p.ShadowContrast == 1.0f && p.DetailStrength == 1.0f;
     }
 
     // The blur nodes run only when the base layer uses them (UE PostProcessing.cpp:870).
     [[nodiscard]] inline bool LocalExposureNeedsBlur( const LocalExposureParams& p )
     {
-        return !IsLocalExposureIdentity( p ) && p.BlurredLumBlend > 0.0f;
+        return !IsLocalExposureIdentity( p ) && p.Method == Core::LocalExposureMethod::Bilateral &&
+               p.BlurredLumBlend > 0.0f;
     }
 
     // log2 of the EXPOSED middle grey the base layer is pulled toward. Auto: log2(key) + bias (our key is UE's
@@ -125,6 +131,45 @@ namespace Desert::Graphic
     {
         const float exposure = lastExposure > 0.0f && lastExposure < 3.0e38f ? lastExposure : 1.0f;
         return logMiddleGrey - kLocalExposureSliceHalfWindowEV - std::log2( exposure );
+    }
+
+    // ── FUSION (UE 5.4 Local Exposure Method = Fusion; PostProcessLocalExposure.cpp GetLocalExposureParameters,
+    // AddLocalExposureFusionPass). The same Highlight / Shadow Contrast Scale fields, read as how far apart the
+    // synthetic exposures are: contrast 1 -> 0 EV (identity), 0 -> 6 EV.
+    inline constexpr float kLocalExposureFusionMaxEV = 6.0f;
+    inline constexpr float kLocalExposureFusionTargetLuminance =
+         0.5f;                                                    // r.LocalExposure.ExposureFusion.TargetLuminance
+    inline constexpr uint32_t kLocalExposureFusionMaxLevels = 16; // r.LocalExposure.ExposureFusion.NumLevels
+
+    [[nodiscard]] inline bool IsLocalExposureFusion( const LocalExposureParams& p )
+    {
+        return p.Method == Core::LocalExposureMethod::Fusion;
+    }
+    // The highlight exposure's scale, 2^-lerp(6, 0, contrast) (< 1: pulls the highlights into range).
+    [[nodiscard]] inline float LocalExposureFusionHighlightScale( const LocalExposureParams& p )
+    {
+        return std::exp2( -kLocalExposureFusionMaxEV * ( 1.0f - p.HighlightContrast ) );
+    }
+    // The shadow exposure's scale, 2^+lerp(6, 0, contrast) (> 1: lifts the shade).
+    [[nodiscard]] inline float LocalExposureFusionShadowScale( const LocalExposureParams& p )
+    {
+        return std::exp2( kLocalExposureFusionMaxEV * ( 1.0f - p.ShadowContrast ) );
+    }
+    // UE: clamp(NumLevels, 1, log2(min(w, h)) + 1) — the pyramid runs down to a texel or two.
+    [[nodiscard]] inline uint32_t LocalExposureFusionLevels( uint32_t width, uint32_t height )
+    {
+        const uint32_t smaller = std::max( 1u, std::min( width, height ) );
+        const auto     maxMips = static_cast<uint32_t>( std::floor( std::log2( float( smaller ) ) ) ) + 1u;
+        return std::clamp( kLocalExposureFusionMaxLevels, 1u, maxMips );
+    }
+    // Level @p level's size: each level halves, rounding up (a texel j of level i covers 2j, 2j+1 of level i-1).
+    [[nodiscard]] inline glm::uvec2 LocalExposureFusionLevelExtent( uint32_t width, uint32_t height,
+                                                                    uint32_t level )
+    {
+        glm::uvec2 size{ std::max( 1u, width ), std::max( 1u, height ) };
+        for ( uint32_t i = 0; i < level; ++i )
+            size = { LocalExposureDivUp( size.x, 2u ), LocalExposureDivUp( size.y, 2u ) };
+        return size;
     }
 
     // CPU mirror of the shader's LocalExposureLogExposure (Common/LocalExposure.glslh; UE

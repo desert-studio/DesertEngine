@@ -490,6 +490,14 @@ namespace Desert::Editor
         return m_Model.AllFiles();
     }
 
+    std::string FileExplorerPanel::ContentLabelPath( const std::string& path ) const
+    {
+        const DirectoryInformation* root = m_Model.Root();
+        if ( root == nullptr )
+            return path;
+        return std::filesystem::path( path ).lexically_relative( root->AssetPath ).generic_string();
+    }
+
     Common::BoolResultStr FileExplorerPanel::GoToFolder( const std::string& path )
     {
         if ( !NavigateToPath( path ) )

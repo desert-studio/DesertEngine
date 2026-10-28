@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/SkyRules.hpp>
 #include <Engine/Runtime/ImageHandle.hpp>
@@ -177,6 +178,11 @@ namespace Desert::Graphic::System
         /// (logged), and the environment the scene reads is kept.
         [[nodiscard]] std::optional<Environment> Settle( bool accepted );
 
+        /// THE LAST COMPLETED CAPTURE'S HORIZONTAL ILLUMINANCE (lux, rgb): E about +Y of its irradiance cube, what
+        /// the sky light gives an unoccluded upward surface. Returned once, on the frame its copy is readable
+        /// (FramesInFlight after the capture completed, called by the view that recorded it); nullopt otherwise.
+        [[nodiscard]] std::optional<glm::vec3> ReadBackZenithIlluminance();
+
         /// What the running capture is, for the landing line: its face size.
         [[nodiscard]] const SkyEnvironmentSize& GetSize() const
         {
@@ -206,9 +212,17 @@ namespace Desert::Graphic::System
         void AddRadianceMips( RDG::Builder& graph, FrameTextures& textures );
         void AddIrradiance( RDG::Builder& graph, FrameTextures& textures );
         void AddPrefilter( RDG::Builder& graph, FrameTextures& textures );
+        // One texel of the finished irradiance cube, the zenith's, into a host-readable buffer (the log's number).
+        void AddIrradianceReadback( RDG::Builder& graph, FrameTextures& textures );
 
         Program m_Downsample;
         Program m_Irradiance;
+        Program m_IrradianceReadback;
+        // The completed capture's horizontal illuminance on its way to the CPU: the per-frame buffer, its graph
+        // import, and the frame whose copy holds it (cleared once read).
+        std::shared_ptr<ShaderResources::StorageBuffer> m_IrradianceReadbackBuffer;
+        RDG::ExternalBuffer                             m_IrradianceReadbackImport;
+        std::optional<uint64_t>                         m_IrradianceReadbackFrame;
         Program m_Prefilter;
         Program m_Faces;
         // Faces programs replaced by a medium change, kept for a few captures: the dispatches of a frame still in

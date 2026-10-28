@@ -717,9 +717,10 @@ TEST( ShippedShaderPasses, SomeShippedSceneActuallyDrawsABoundNormalMap )
 }
 
 // Every vertex-path header of a surface cell (Mesh/Surface/Vertex_<Path>.glslh — one per MeshVertexPath)
-// declares the two optional streams at the locations MeshVertexLayout.hpp feeds them from, and hands them
-// to the pass through the varyings: a new path written without them would give its materials no
-// VertexColor / UV1 while the pipeline still binds the buffer. The reflected relation, location by location,
+// takes its inputs, the two optional streams among them, from the include GENERATED from the C++ vertex format
+// (Graphic/ShaderProtocols/VertexInputs.hpp — the shader includer refuses a header that spells one by hand), and
+// hands the streams to the pass through the varyings: a new path written without them would give its materials
+// no VertexColor / UV1 while the pipeline still binds the buffer. The reflected relation, location by location,
 // is Desert/Tests/Engine/MeshVertexPath's EveryMeshCellsVertexInputsAreTheOneLayoutsElements.
 TEST( ShippedShaderPasses, EverySurfaceVertexPathDeclaresTheColourAndUV1Streams )
 {
@@ -734,8 +735,7 @@ TEST( ShippedShaderPasses, EverySurfaceVertexPathDeclaresTheColourAndUV1Streams 
         if ( file.filename() == "Vertex_ParticleSprite.glslh" )
             continue;
         const std::string source = ReadFile( file );
-        EXPECT_NE( source.find( "layout( location = 7 ) in vec4 a_Color;" ), std::string::npos ) << file;
-        EXPECT_NE( source.find( "layout( location = 8 ) in vec2 a_TexCoord1;" ), std::string::npos ) << file;
+        EXPECT_NE( source.find( "#include <Mesh/MeshVertexInputs" ), std::string::npos ) << file;
         EXPECT_NE( source.find( "v_Surface.VertexColor" ), std::string::npos ) << file;
         EXPECT_NE( source.find( "v_Surface.UV1" ), std::string::npos ) << file;
     }

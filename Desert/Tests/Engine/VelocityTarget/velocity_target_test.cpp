@@ -194,7 +194,7 @@ TEST( VelocityTarget, ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface )
 
     const std::string forward = noWs( ReadFile( root / "Pass_Forward.glslh" ) );
     EXPECT_NE( forward.find( "layout(location=1)outvec4oVelocity;" ), std::string::npos );
-    EXPECT_NE( forward.find( "oVelocity=DesertVelocity(v_Surface.Clip,v_Surface.PrevClip);" ), std::string::npos );
+    EXPECT_NE( forward.find( "oVelocity=DesertVelocity(v_Surface.Clip,v_Surface.PrevClip,v_Surface.ObjectMoved);" ), std::string::npos );
     EXPECT_EQ( ReadFile( root / "Pass_Forward_Translucent.glslh" ).find( "oVelocity" ), std::string::npos );
 }
 
@@ -207,7 +207,7 @@ namespace VelocityTargetTest
     {
         return std::format( "Shader \"SceneReadRangeProbe\"\n{{\n    Domain Surface\n\n    {}"
                             "\n    State {{ Cull Back ZTest LEqual ZWrite On }}\n"
-                            "    Vertex\n    {{\n        In(0) vec3 a_Position;\n"
+                            "    Vertex\n    {{\n        #include <Mesh/MeshVertexInputs.glslh>\n"
                             "        void main() {{ gl_Position = vec4( a_Position, 1.0 ); }}\n    }}\n"
                             "    Fragment\n    {{\n        Out(0) vec4 o_Color;\n"
                             "        void main() {{ o_Color = vec4( 1.0 ); }}\n    }}\n}}\n",
@@ -347,7 +347,7 @@ TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )
 {
     const std::string source =
          ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/Velocity.glslh" );
-    EXPECT_NE( source.find( "return vec4( clip.xyz / clip.w - prevClip.xyz / prevClip.w, 0.0 );" ),
+    EXPECT_NE( source.find( "return vec4( clip.xyz / clip.w - prevClip.xyz / prevClip.w, objectMoved );" ),
                std::string::npos );
 }
 
@@ -612,7 +612,7 @@ TEST( VelocityTarget, EveryDepthWritingViewProgramWritesVelocity )
     EXPECT_NE( ReadFile( terrain / "Terrain.shader" ).find( "Out(1) vec4 oVelocity" ), std::string::npos );
     EXPECT_NE( ReadFile( terrain / "TerrainGBuffer.shader" ).find( "Out(4) vec4 oVelocity" ), std::string::npos );
     const std::string surface = ReadFile( terrain / "TerrainSurface.glslh" );
-    EXPECT_NE( surface.find( "DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world )" ),
+    EXPECT_NE( surface.find( "DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world, 0.0 )" ),
                std::string::npos );
 
     // EXCLUDED: TextSDF, with its reason held true.

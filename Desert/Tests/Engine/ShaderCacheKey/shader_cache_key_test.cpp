@@ -1521,7 +1521,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TwoSmallParametersInARowStillLandOnTheirOwnSlo
 
     Vertex
     {
-        In(0) vec3 a_Position;
+        #include <Mesh/MeshVertexInputs.glslh>
         #include <Common/CameraUB.glslh>
         #include <Common/MaterialTransport.glslh>
         void main()

@@ -33,6 +33,42 @@ namespace Desert::Graphic::System
                                           RDG::Erase( OutputTexture ) };
     };
 
+    // Fusion (UE 5.4 FusionSetupCS / FTextureDownsampleChain / FusionBlendCS): the three shaders' parameters.
+    struct LocalExposureFusionSetupShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Texture, AverageLuminanceTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, OutExposures );
+        DESERT_SHADER_PARAMETER( StorageTexture, OutWeights );
+        static constexpr std::array kAll{ RDG::Erase( SceneColorTexture ), RDG::Erase( AverageLuminanceTexture ),
+                                          RDG::Erase( PointClampSampler ), RDG::Erase( OutExposures ),
+                                          RDG::Erase( OutWeights ) };
+    };
+    struct LocalExposureFusionDownsampleShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, InputExposures );
+        DESERT_SHADER_PARAMETER( Texture, InputWeights );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, OutExposures );
+        DESERT_SHADER_PARAMETER( StorageTexture, OutWeights );
+        static constexpr std::array kAll{ RDG::Erase( InputExposures ), RDG::Erase( InputWeights ),
+                                          RDG::Erase( LinearClampSampler ), RDG::Erase( OutExposures ),
+                                          RDG::Erase( OutWeights ) };
+    };
+    struct LocalExposureFusionBlendShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, InputExposures );
+        DESERT_SHADER_PARAMETER( Texture, InputWeights );
+        DESERT_SHADER_PARAMETER( Texture, CoarserExposures );
+        DESERT_SHADER_PARAMETER( Texture, PrevResult );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, OutResult );
+        static constexpr std::array kAll{ RDG::Erase( InputExposures ),     RDG::Erase( InputWeights ),
+                                          RDG::Erase( CoarserExposures ),   RDG::Erase( PrevResult ),
+                                          RDG::Erase( LinearClampSampler ), RDG::Erase( OutResult ) };
+    };
+
     // UE's Local Exposure, Bilateral method (Graphic/PostProcessing/LocalExposureRules.hpp): compute nodes of the
     // frame graph after the auto exposure (SceneRendererFramePostFX.cpp "PostFX: LocalExposure*"). Setup writes
     // the bilateral grid (sum log luminance, count per 128 px cell x 32 one-EV slices) and the 1/32 log luminance;
@@ -89,6 +125,41 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr RecordBlur( const RDG::PassContext& context, bool horizontal,
                                                         float radius, uint32_t blurWidth, uint32_t blurHeight );
 
+        // ── Fusion. Exposures / weights of pyramid level @p level (RGBA16F: three display values / three weights)
+        // and the blend's result at that level (R32F; level 0 is what the composite reads).
+        [[nodiscard]] static RDG::TextureDesc GetFusionLevelDesc( uint32_t width, uint32_t height,
+                                                                  uint32_t level );
+        [[nodiscard]] static RDG::TextureDesc GetFusionResultDesc( uint32_t width, uint32_t height,
+                                                                   uint32_t level );
+        [[nodiscard]] bool                    IsFusionReady() const
+        {
+            return m_FusionSetupPipeline && m_FusionDownsamplePipeline && m_FusionBlendPipeline;
+        }
+        // The composite's exposure inputs (TonemapRenderer), so the setup exposes exactly as the apply does.
+        struct FusionExposure
+        {
+            float ManualExposure = 1.0f;
+            float ExposureKey    = 0.18f;
+            bool  AutoExposure   = false;
+            bool  Reinhard       = false; // the scene operator (Core::TonemapOperator::Reinhard)
+        };
+        void DeclareFusionSetupBindings( RDG::PassBuilder& pass, RDG::TextureRef scene, RDG::TextureRef adapted,
+                                         RDG::TextureRef exposures, RDG::TextureRef weights ) const;
+        [[nodiscard]] Common::BoolResultStr RecordFusionSetup( const RDG::PassContext& context,
+                                                               const FusionExposure& exposure, uint32_t width,
+                                                               uint32_t height );
+        void DeclareFusionDownsampleBindings( RDG::PassBuilder& pass, RDG::TextureRef inExposures,
+                                              RDG::TextureRef inWeights, RDG::TextureRef outExposures,
+                                              RDG::TextureRef outWeights ) const;
+        [[nodiscard]] Common::BoolResultStr RecordFusionDownsample( const RDG::PassContext& context,
+                                                                    glm::uvec2 inputSize, glm::uvec2 outputSize );
+        void DeclareFusionBlendBindings( RDG::PassBuilder& pass, RDG::TextureRef exposures,
+                                         RDG::TextureRef weights, RDG::TextureRef coarserExposures,
+                                         RDG::TextureRef prevResult, RDG::TextureRef result ) const;
+        [[nodiscard]] Common::BoolResultStr RecordFusionBlend( const RDG::PassContext& context,
+                                                               glm::uvec2 outputSize, glm::uvec2 coarserSize,
+                                                               bool laplacian );
+
         void Resize( uint32_t, uint32_t )
         {
         } // everything is a graph transient
@@ -98,6 +169,12 @@ namespace Desert::Graphic::System
         std::shared_ptr<ComputePipeline> m_BlurPipeline;
         mutable ShaderBindingLayoutCache m_SetupLayout;
         mutable ShaderBindingLayoutCache m_BlurLayout;
+        std::shared_ptr<ComputePipeline> m_FusionSetupPipeline;
+        std::shared_ptr<ComputePipeline> m_FusionDownsamplePipeline;
+        std::shared_ptr<ComputePipeline> m_FusionBlendPipeline;
+        mutable ShaderBindingLayoutCache m_FusionSetupLayout;
+        mutable ShaderBindingLayoutCache m_FusionDownsampleLayout;
+        mutable ShaderBindingLayoutCache m_FusionBlendLayout;
 
         LocalExposureParams m_Params;
         float               m_LogMiddleGrey = -2.4739312f; // log2(0.18)

@@ -275,6 +275,33 @@ float AtmosphereStarPeakLuminance()
     return 3.0 * ATMOSPHERE_STAR_MAG0_ILLUMINANCE_LUX / solidAngle;
 }
 
+// HOW THE SKY HIDES A STAR (DAY-STARS). Adding the star behind the in-scattering is not enough on its own: the sum
+// only hides a star when the scene's sun is the real one (~1.28e5 lux, a day sky of thousands of cd/m^2). Scenes
+// author the sun in UE's convention (FIELD_Barn: 16 lux at EV100 0), where the day sky is ~1 cd/m^2 - the
+// luminance of a deep-twilight sky - and a magnitude-0 star of 1.8 cd/m^2 peak stood out at noon.
+// The sky is linear in its atmosphere light, so the light fixes the scene's photometric scale: the background
+// behind the star is carried to real units by realSun / sceneSun, and the eye's point-source threshold
+// against that background (Schaefer 1993, after Hecht: I = c1 (1 + sqrt(c2 B))^2, B in nL, I in foot-candles;
+// rods and cones are two branches and the eye uses the more sensitive one) decides how much of the star is
+// seen. The star then keeps its own luminance, so the night exposure shows it. Nothing reads the sun's
+// elevation: twilight, a moonlit sky and a dim day all hide or show stars by their own brightness.
+// Schaefer's thresholds are the 50% detection of an observer who knows where to look and is searching; one who
+// is not needs about a magnitude more, so a star fades in from one magnitude above the threshold and is
+// fully seen at two (a magnitude-0 star under FIELD_Barn's noon zenith sits ~0.4 above: hidden, as Vega is).
+#define ATMOSPHERE_REAL_SUN_ILLUMINANCE_LUX 1.28e5
+float AtmosphereStarVisibility( float backgroundLuminance, float sceneSunIlluminanceLux, float starIlluminanceLux )
+{
+    const float toReal  = sceneSunIlluminanceLux > 0.0 ? ATMOSPHERE_REAL_SUN_ILLUMINANCE_LUX / sceneSunIlluminanceLux
+                                                       : 1.0; // no atmosphere light: the sky is in its own units
+    const float bNl     = max( backgroundLuminance, 0.0 ) * toReal / 3.183e-4; // cd/m^2 -> nanolamberts
+    const float night   = 1.585e-10 * pow( 1.0 + sqrt( 1.259e-2 * bNl ), 2.0 ); // 10^-9.8, 10^-1.9 (rods)
+    const float day     = 4.467e-9 * pow( 1.0 + sqrt( 1.259e-6 * bNl ), 2.0 );  // 10^-8.35, 10^-5.9 (cones)
+    const float thrLux  = min( night, day ) * 10.764;                            // foot-candles -> lux
+    // The star is already in real units (a magnitude-0 star's real illuminance times Star Intensity).
+    const float aboveMag = 2.5 * log( max( starIlluminanceLux, 1e-30 ) / thrLux ) / log( 10.0 );
+    return smoothstep( 1.0, 2.0, aboveMag );
+}
+
 vec3 EvaluateSky( vec3 dir, vec3 sunDir, float sunIntensity, float sunDiskRadius, SkyConfig cfg )
 {
     dir    = normalize( dir );

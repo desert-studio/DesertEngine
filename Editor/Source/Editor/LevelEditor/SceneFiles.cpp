@@ -438,7 +438,7 @@ namespace Desert::Editor
         {
             const Desert::Core::SceneSerializer         held( m_Workspace.ActiveScene().get(), m_Assets.get() );
             const std::vector<Desert::Core::LiveEntity> live = held.LiveEntities();
-            m_Workspace.ActiveScene()->Packages()->AdoptRegion( live, opened.NotLoaded );
+            m_Workspace.ActiveScene()->Packages()->AdoptRegion( live, opened.NotLoaded, {} );
             const std::size_t readCount = opened.Selection.Records.size();
             const std::size_t total     = readCount + opened.NotLoaded.size();
             if ( heldWhole )

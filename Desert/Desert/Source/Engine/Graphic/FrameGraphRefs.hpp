@@ -5,6 +5,7 @@
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Shader.hpp>
+#include <Engine/Graphic/View/PathTracedGuides.hpp>
 
 #include <glm/glm.hpp>
 
@@ -70,10 +71,15 @@ namespace Desert::Graphic
         // LocalExposureRenderer: the bilateral grid (3D) and the blurred 1/32 log luminance -> Bloom mip 0, Tonemap
         RDG::TextureRef LocalExposureGrid;
         RDG::TextureRef BlurredLogLuminance;
+        // LocalExposureRenderer, Fusion: level 0 of the blended pyramid (fused display value, R32F) -> Tonemap
+        RDG::TextureRef ExposureFusion;
         RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
         // SSR's full-resolution trace ray (xyz the point each pixel's reflection came from, w log2 pdf, -126 no
         // ray), set only when the temporal upscaler takes the reflection raw  -> TemporalUpscalerInputs
         RDG::TextureRef ReflectionRay;
+        // The path tracer's own surface guides of this frame's raw paths, set only when it handed them to the
+        // upscaler that denoises (System::PathTracer::AddPasses)              -> TemporalUpscalerInputs
+        PathTracedGuides PathGuides;
         RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
         // The opaque scene's device depth (the G-buffer depth, reversed-Z), set by the deferred composite; invalid
         // on the forward path, which has no depth before its meshes draw   -> contact shadows of the forward

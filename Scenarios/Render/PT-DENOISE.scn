@@ -10,3 +10,7 @@
 Дано: GI_Bistro_Night, same settings.
 Тогда 4_night_dn_f1 / 5_night_dn_f4 / 6_night_raw_f1 / 7_night_ref_1024 the same criteria at night (lamps, emissive windows: no smeared halos, no fireflies left)
 Тогда-вид 8_rr Upscaler DLSSRayReconstruction: the PT view keeps the upscaler, the image is clean on frame 1 and stays clean while the camera moves (no restart blur)
+# PT-DENOISE-16: PathTracing.Denoiser = Off(0) | ReLAX(1) | RR(2) | Auto(3, the default at every level: RR where DLSS Ray Reconstruction is offered, else ReLAX). RR keeps DLSS-RR on the PT view whatever AntiAliasing.Method says; its guides are the paths' own (DLSS-RR: Path Guides).
+Дано: F:/BistroFoliageProj, GI_Bistro_Day, GlobalIllumination.Method PathTraced, Lit, camera on the cobblestone street.
+Когда: run Quality "Quality: PathTracing.Denoiser 2"; shoot after 1 frame and after 8 frames of a pan.
+Тогда 9_rr_day 0 VUID; the log says DLSS Ray Reconstruction runs (no '[SceneRenderer] ... engine's temporal method instead'); HDR error vs 3_day_ref_1024 below 0_day_dn_f1 (r13 ReLAX) on the same frame

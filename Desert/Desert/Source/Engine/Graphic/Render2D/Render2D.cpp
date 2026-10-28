@@ -85,10 +85,9 @@ namespace Desert::Graphic::Render2D
         if ( !m_Shader )
             return Common::MakeError( "Render2D::Init: missing shader 'UI2D'" );
 
-        // Pixel-space quads: pos(vec2) + uv(vec2) + straight RGBA(vec4). Matches DrawList2D::Vertex2D.
-        const VertexBufferLayout layout( { VertexBufferElement( ShaderDataType::Float2, "a_Position" ),
-                                           VertexBufferElement( ShaderDataType::Float2, "a_TexCoord" ),
-                                           VertexBufferElement( ShaderDataType::Float4, "a_Color" ) } );
+        // Pixel-space quads: pos(vec2) + uv(vec2) + straight RGBA(vec4), DrawList2D::Vertex2D — the format the
+        // UI shaders' inputs are generated from (ShaderProtocols/VertexInputs.hpp, Common/UIVertexInputs.glslh).
+        const VertexBufferLayout layout = VertexBufferLayout::FromVertexInputs( ShaderProtocols::kUIVertexInputs );
 
         GraphicsPipelineSpecification spec;
         spec.DebugName         = "UI2DPipeline";

@@ -7,21 +7,12 @@
 // this frame by "SkinCache: Skin" and this stage only FETCHES the posed position (and, where it needs them, last
 // frame's posed position and the posed tangent frame) by vertex index (UE FGPUSkinPassthroughVertexFactory).
 // Without one (skin cache off, or the entry refused) it skins here from the palettes.
-layout( location = 0 ) in vec3 a_Position;
-layout( location = 1 ) in vec3 a_Normal;
-layout( location = 2 ) in vec3 a_Tangent;
-layout( location = 3 ) in vec3 a_Bitangent;
-layout( location = 4 ) in vec2 a_TextureCoord;
-layout( location = 5 ) in ivec4 a_BoneIndices;
-layout( location = 6 ) in vec4 a_BoneWeights;
-// Binding 1, the optional streams (MeshVertexLayout.hpp): a mesh without them binds the shared
-// white / (0,0) buffer at the same stride.
-// Declared only where the stages talk: an opaque depth cell reads the position alone, binds exactly where
-// Programs/Shadow/Shadow*.shader bind, and leaves the pipeline's locations 7/8 unconsumed (legal Vulkan).
-#ifdef DESERT_SURFACE_HAS_VARYINGS
-layout( location = 7 ) in vec4 a_Color;
-layout( location = 8 ) in vec2 a_TexCoord1;
-#endif
+// The vertex inputs — binding 0 (position, normal, tangent, bitangent, UV0, bone indices / weights) and the
+// optional streams at binding 1 (vertex colour, UV1; a mesh without them binds the shared white / (0,0) buffer at
+// the same stride) — and DesertMeshTextureUV, GENERATED from the C++ vertex format
+// (Graphic/ShaderProtocols/VertexInputs.hpp). The full set in every pass: an input a depth cell does not read costs
+// nothing, a subset would be a second list.
+#include <Mesh/MeshVertexInputsSkinned.glslh>
 
 #include <Common/CameraUB.glslh>
 #ifdef DESERT_SURFACE_CASTER_PASS
@@ -66,8 +57,6 @@ m_PushConstants;
 #include <Mesh/SkinnedBones.glslh>
 #define DESERT_SKIN_MATRIX( base, i ) bones.BoneMatrices[( base ) + ( i )].Matrix
 #endif
-
-#include <Common/MeshTextureCoord.glslh>
 
 void main()
 {
@@ -180,9 +169,13 @@ void main()
 #ifdef DESERT_SURFACE_VIEW_PASS
     v_Surface.Clip     = cameraUB.ViewProjection * worldPos;
     v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevModel * vec4( prevPosed, 1.0 ) );
+    // The object-motion flag (Common/Velocity.glslh DesertVelocity w): an animated skeleton is the object's own
+    // motion (UE: a skeletal mesh writes velocity, so TemporalAA counts it dynamic), not a vertex deformation.
+    v_Surface.ObjectMoved = 1.0;
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved = 0.0;
 #endif
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.

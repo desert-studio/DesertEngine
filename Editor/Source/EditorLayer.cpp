@@ -2,6 +2,7 @@
 
 #include <Editor/Panels/Scalability/AntiAliasingPaletteCommands.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
+#include <Engine/Graphic/DisplayOutput.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
@@ -404,6 +405,9 @@ namespace Desert::Editor
         Core::ControlNudgeRequests::Tick();
 
         m_Control.ServiceChannel();
+        // HDR-OUTPUT p3: an HDR output renders its SDR rendition while a window shot waits (the shot's PNG is the
+        // SDR frame; the tonemap's HDR rendition carries the peak). Set before the scene renders this frame.
+        Graphic::SetSdrCaptureRendition( m_Control.WindowShotPending() );
         m_ScriptDebug.Service();
 
         // THE EDITOR'S FRAME BOUNDARY FOR Core::OpenLevel (UEngine::TickWorldTravel for the PIE world context).
@@ -635,7 +639,8 @@ namespace Desert::Editor
     {
         m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling(),
                                          m_Startup.ReflectionCapturesFilling(),
-                                         Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0 );
+                                         Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0,
+                                         m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingHLODs() );
     }
 
     bool EditorLayer::AdmitShotFrame()

@@ -13,10 +13,15 @@
 
 // xyz = current minus previous NDC (z: the device depth, as UE's velocity carries it with VELOCITY_ENCODE_DEPTH, so
 // a reprojection knows where the surface sat in depth last frame: the screen probe gather's history test,
-// Common/ScreenProbeTemporal.glslh); w = 0.
-vec4 DesertVelocity( vec4 clip, vec4 prevClip )
+// Common/ScreenProbeTemporal.glslh); w = THE OBJECT-MOTION FLAG, the draw's v_Surface.ObjectMoved: 1 when the object
+// itself moves (its transform or its skeleton changed since the previous frame, a moving instance producer), 0 for a
+// still object, whatever its vertices do (the foliage wind, a pixel depth offset) and for the sky the clear leaves.
+// UE4 kept the same distinction by WHO wrote velocity: a moved primitive did, a WPO-only one did not, and TemporalAA's
+// AA_DYNAMIC_ANTIGHOST reads only that ("dynamic"); here every surface writes its xy (motion blur and TSR want the
+// wind), so the flag travels beside it. The one reader is TemporalAA.shader's IsDynamicPixel.
+vec4 DesertVelocity( vec4 clip, vec4 prevClip, float objectMoved )
 {
-    return vec4( clip.xyz / clip.w - prevClip.xyz / prevClip.w, 0.0 );
+    return vec4( clip.xyz / clip.w - prevClip.xyz / prevClip.w, objectMoved );
 }
 
 #endif // DESERT_VELOCITY_GLSLH

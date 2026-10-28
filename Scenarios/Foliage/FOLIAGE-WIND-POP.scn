@@ -1,0 +1,20 @@
+# FOLIAGE-WIND-POP: the edge of a crown swaying in the wind, against the sky, under TAA - four frames in a row must
+# show the same leaf coverage (the owner 10-27: "the leaf edge is there, then it is not"), and the Velocity view
+# must show the wind's motion on the crown (the wind is evaluated at the previous frame's time too).
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.FOV 40
+Дано --subject viewport set Camera.Position -1500,700,-3900
+Дано --subject viewport set Camera.Direction 0,0.05,-1
+Когда run Action Simulate
+Когда advance 1
+Тогда-вид 1_taa_a crown edge against the sky: leaves dense along the outline
+Когда advance 0.02
+Тогда-вид 2_taa_b the same outline as 1_taa_a, no leaves gone
+Когда advance 0.02
+Тогда-вид 3_taa_c the same outline as 1_taa_a, no leaves gone
+Когда advance 0.02
+Тогда-вид 4_taa_d the same outline as 1_taa_a, no leaves gone
+Когда run View "View mode: Velocity"
+Когда advance 0.02
+Тогда-вид 5_vel the crown shows the wind's velocity (not zero) while the ground and the barn are still

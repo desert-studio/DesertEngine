@@ -647,7 +647,8 @@ namespace Desert::Editor
                 ImGui::SetTooltip( "Distance between stamps along a stroke, as a share of the brush size." );
             ImGui::Checkbox( "Invert", &s.Invert );
             if ( ImGui::IsItemHovered() )
-                ImGui::SetTooltip( "Standard pulls the surface in instead of pushing it out (Ctrl held flips it)." );
+                ImGui::SetTooltip( "Standard / Inflate push in instead of out, Pinch spreads instead of gathering "
+                                   "(Ctrl held flips it)." );
             if ( s.Brush == Geometry::SculptBrushType::Move )
                 ImGui::TextDisabled(
                      "Move drags the surface on the plane through the first hit, facing the view." );

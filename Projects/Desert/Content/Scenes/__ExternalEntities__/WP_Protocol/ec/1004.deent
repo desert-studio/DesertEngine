@@ -1,0 +1,47 @@
+{
+    "id": 1004,
+    "Tag": "Landscape",
+    "Translation": [-102000.0, 0.0, -102000.0],
+    "Rotation": [0.0, 0.0, 0.0],
+    "Scale": [1.0, 1.0, 1.0],
+    "Landscape": {
+        "QuadsPerTile": 255,
+        "SpacingCm": 200.0,
+        "ZScale": 4.0,
+        "EditLayers": [
+            {
+                "Guid": "4774188636615749681",
+                "Name": "Base",
+                "Visible": true,
+                "Locked": false,
+                "HeightAlpha": 1.0,
+                "WeightAlpha": 1.0,
+                "Kind": "Manual"
+            }
+        ],
+        "Layers": [
+            {
+                "Guid": "f1310680ea846d17141c59441b901b55",
+                "Path": "Landscape/Layers/FieldBarn/FieldDirt.delayerinfo"
+            },
+            {
+                "Guid": "0e67a9bfdff1b3cd7ed50e27dadc465e",
+                "Path": "Landscape/Layers/FieldBarn/FieldGrass.delayerinfo"
+            },
+            {
+                "Guid": "c39ddb7d5965f1c080b50b71c51a6db6",
+                "Path": "Landscape/Layers/FieldBarn/FieldDry.delayerinfo"
+            }
+        ],
+        "Splines": {
+            "ControlPoints": [],
+            "Segments": []
+        }
+    },
+    "LandscapeMaterial": {
+        "Material": {
+            "Guid": "3484bb954b28686f2f2c225c75dd9798",
+            "Path": "assets:Materials/FieldBarn/M_FieldBarn_Landscape.demat"
+        }
+    }
+}

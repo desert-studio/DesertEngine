@@ -1025,6 +1025,11 @@ namespace Desert::Graphic::API::Vulkan
             case Core::Formats::ImageFormat::RGBA32F:
                 source = Graphic::PackedPixelSource::RGBA32F;
                 break;
+            // The tonemap / FXAA targets (ViewTargetFormats kTonemap, kFXAA; HDR-OUTPUT): display-encoded values,
+            // clamped and quantised like RGBA32F — on an HDR output the clamp is the SDR rendition.
+            case Core::Formats::ImageFormat::RGBA16F:
+                source = Graphic::PackedPixelSource::RGBA16F;
+                break;
             default:
                 return Common::MakeFormattedError<Result>(
                      "BeginReadbackRGBA8: image format {} has no RGBA8 packing",

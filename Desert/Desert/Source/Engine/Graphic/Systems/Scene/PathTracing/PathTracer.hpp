@@ -15,6 +15,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/View/PassHistory.hpp>
+#include <Engine/Graphic/View/PathTracedGuides.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -210,17 +211,19 @@ namespace Desert::Graphic::System
     // RayTracing::kMaskTranslucent, plus kMaskTranslucentShadowCaster with CastShadows, so only these rays meet
     // them). Light rays trace the shadow-caster bits only: CastShadows off never occludes a path-traced light.
     //
-    // THE DENOISER (PathTracing.Denoiser; UE r.PathTracing.Denoiser): the image is clean from the first frame, not
-    // after the sum converges, and while the camera moves. Each path that meets a surface also adds its first
+    // THE DENOISER (PathTracing.Denoiser = Off | ReLAX | RR | Auto, PathTracingDenoiserMethod; UE
+    // r.PathTracing.Denoiser): the image is clean from the first frame, not after the sum converges, and while the
+    // camera moves. Each path that meets a surface also adds its first
     // surface's guides - diffuse and specular reflectance, world normal, camera distance, roughness, the first
     // bounce's length - and the light that surface reflects split by lobe, each lobe divided by its reflectance
     // per path, with their squared luminances (Common/PathTracingDenoise.glslh; UE's denoiser reads the radiance,
     // albedo and normal per pixel; the lobe split is NRD ReLAX's). Two consumers:
-    //  - an upscaler that denoises (ITemporalUpscaler::TakesRawLightingSignals: DLSS Ray Reconstruction, the
-    //    real-time path tracers' way): the view traces PathsPerFrame paths through each jittered pixel centre
-    //    every frame and hands that raw estimate to it - no accumulation, the upscaler's history is the
-    //    integration and its guides are the G-buffer's, which the camera rays' first hits match;
-    //  - otherwise the ReLAX-style denoiser (PathTracerDenoise.shader) runs on every frame before the resolve:
+    //  - RR, an upscaler that denoises (ITemporalUpscaler::TakesRawLightingSignals: DLSS Ray Reconstruction, the
+    //    real-time path tracers' way): the view keeps that upscaler whatever AntiAliasing.Method says, traces
+    //    PathsPerFrame paths through each jittered pixel centre every frame and hands that raw estimate to it -
+    //    no accumulation, the upscaler's history is the integration - with this frame's guide sums
+    //    (PathTracedGuides, AddPasses' result), the factors the colour was made with, in place of the G-buffer's;
+    //  - ReLAX, and RR whose runtime refused: the ReLAX-style denoiser (PathTracerDenoise.shader) runs on every frame before the resolve:
     //    per lobe, a temporal history reprojected by the camera's motion on the frames the camera moved (THE
     //    DENOISER'S HISTORY below), the variance of the integrated signal, an energy-conserving variance-guided
     //    a-trous, and the remodulation. Its edge-stopping width is the estimate's standard deviation, so it fades
@@ -260,21 +263,26 @@ namespace Desert::Graphic::System
             // the image's white); a brighter one is scaled down to it with its hue kept (PathTracer.shader
             // PathTracingAccumulate). 0 = no clamp.
             float MaxPathIntensity = 24.0f;
-            bool  Denoise          = true; // PathTracing.Denoiser (THE DENOISER above)
+            // PathTracing.Denoiser as resolved (THE DENOISER above): never Auto, Resolve settles it.
+            Common::Scalability::PathTracingDenoiserMethod Denoiser =
+                 Common::Scalability::PathTracingDenoiserMethod::ReLAX;
         };
 
-        // Whether a path-traced view keeps its temporal upscaler to hand the paths to it raw: the requested
-        // upscaler is the one that denoises (DLSS Ray Reconstruction) and PathTracing.Denoiser is on. Otherwise
-        // the view renders at 100 % with no temporal method (SceneRenderer::BeginScene / OnUpdate: the
-        // accumulation is its own anti-aliasing). The frame itself asks the upscaler that was made
-        // (FrameInputs::RawToUpscaler): a runtime that refused Ray Reconstruction leaves the view on the
-        // accumulation and the spatial denoiser.
+        // Whether a path-traced view renders under DLSS Ray Reconstruction to hand the paths to it raw: the
+        // resolved PathTracing.Denoiser is RR (Auto settled to it on a device that offers it). The view then runs
+        // that temporal method at its render scale whatever AntiAliasing.Method says (SceneRenderer::BeginScene /
+        // OnUpdate); otherwise it renders at 100 % with no temporal method (the accumulation is its own
+        // anti-aliasing). A runtime that refused Ray Reconstruction after the catalog offered it is not RR here:
+        // the device withdraws it (VulkanPhysicalDevice::RefreshRuntimeOffers, CapabilityCatalog::
+        // RefusedAtRuntime) and Resolve settles the denoiser to ReLAX with a Fallback, so the view is exactly a
+        // device without RR (100 %, no jitter, ReLAX). The frame still asks the upscaler that was made
+        // (FrameInputs::RawToUpscaler) for the one frame between a refusal and the next resolution.
         [[nodiscard]] static bool KeepsDenoisingUpscaler( const Common::Scalability::ResolvedQuality& quality )
         {
             using Common::Scalability::Parameter;
-            return quality.As<uint32_t>( Parameter::PathTracingDenoiser ) != 0u &&
-                   quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler ) ==
-                        Common::Scalability::Upscaler::DLSSRayReconstruction;
+            using Common::Scalability::PathTracingDenoiserMethod;
+            return quality.As<PathTracingDenoiserMethod>( Parameter::PathTracingDenoiser ) ==
+                   PathTracingDenoiserMethod::RR;
         }
 
         // What one frame's paths read, all of this frame's graph (SceneRenderer::AddFramePathTracing).
@@ -299,7 +307,7 @@ namespace Desert::Graphic::System
             uint64_t SceneHash       = 0;
             bool     DynamicGeometry = false;
             // The view's temporal upscaler denoises (ITemporalUpscaler::TakesRawLightingSignals) and
-            // Settings::Denoise is on: this frame's paths go to it raw (THE DENOISER above).
+            // Settings::Denoiser is RR: this frame's paths go to it raw (THE DENOISER above).
             bool RawToUpscaler = false;
         };
 
@@ -436,31 +444,36 @@ namespace Desert::Graphic::System
         // GRAPH BUILD: this frame's path tracing into @p sceneColor (the scene target's colour 0, single-sampled;
         // native scale, or the render extent under a denoising upscaler): the restart decision, the sky and the
         // trace when paths are still owed, the denoiser and the resolve, which run every frame. An error names
-        // what was refused; nothing is declared then.
-        [[nodiscard]] Common::BoolResultStr AddPasses( RDG::Builder& graph, const RDG::TextureRef sceneColor,
-                                                       const ViewFrame& frame, const FrameInputs& inputs,
-                                                       const Settings& settings )
+        // what was refused; nothing is declared then. The result is this frame's guide sums when the paths went
+        // to the upscaler raw (FrameInputs::RawToUpscaler; the upscaler demodulates with them), else invalid.
+        [[nodiscard]] Common::ResultStr<PathTracedGuides> AddPasses( RDG::Builder&         graph,
+                                                                     const RDG::TextureRef sceneColor,
+                                                                     const ViewFrame& frame, const FrameInputs& inputs,
+                                                                     const Settings& settings )
         {
+            using Refused = PathTracedGuides;
             if ( !m_TracePipeline || !m_ResolvePipeline )
-                return Common::MakeError( "PathTracer: the pipelines were not made (Initialize, EnsurePipeline)" );
+                return Common::MakeFormattedError<Refused>(
+                     "PathTracer: the pipelines were not made (Initialize, EnsurePipeline)" );
             if ( inputs.HitGroups == nullptr )
-                return Common::MakeError( "PathTracer: the frame has no hit group table" );
+                return Common::MakeFormattedError<Refused>( "PathTracer: the frame has no hit group table" );
             if ( !inputs.Emissive.Valid )
-                return Common::MakeError( "PathTracer: the frame has no emissive triangle list" );
+                return Common::MakeFormattedError<Refused>( "PathTracer: the frame has no emissive triangle list" );
             const auto sceneDesc = graph.GetTextureDesc( sceneColor );
             if ( !sceneDesc )
-                return Common::MakeError( sceneDesc.GetError() );
+                return Common::MakeFormattedError<Refused>( "{}", sceneDesc.GetError() );
             if ( sceneDesc.GetValue().Samples != 1 )
-                return Common::MakeFormattedError( "PathTracer: the scene colour has {} samples; the path tracer "
-                                                   "writes one value per pixel and refuses a multisampled target",
-                                                   sceneDesc.GetValue().Samples );
+                return Common::MakeFormattedError<Refused>(
+                     "PathTracer: the scene colour has {} samples; the path tracer writes one value per pixel and "
+                     "refuses a multisampled target",
+                     sceneDesc.GetValue().Samples );
             const uint32_t width  = sceneDesc.GetValue().Size.Width;
             const uint32_t height = sceneDesc.GetValue().Size.Height;
             if ( width == 0u || height == 0u )
-                return Common::MakeError( "PathTracer: the scene colour has no pixels" );
+                return Common::MakeFormattedError<Refused>( "PathTracer: the scene colour has no pixels" );
             const auto envDesc = graph.GetTextureDesc( inputs.EnvSpecular );
             if ( !envDesc )
-                return Common::MakeError( envDesc.GetError() );
+                return Common::MakeFormattedError<Refused>( "{}", envDesc.GetError() );
 
             m_TraceFailed = false;
             const bool resized =
@@ -476,7 +489,8 @@ namespace Desert::Graphic::System
                                  !inputs.RawToUpscaler && !m_RawToUpscaler;
             const bool cameraMoved = frame.ViewProjection != frame.PrevViewProjection;
             const bool restart     = !sumKept || cameraMoved;
-            const bool denoise     = settings.Denoise && !inputs.RawToUpscaler;
+            const bool denoise     = settings.Denoiser != Common::Scalability::PathTracingDenoiserMethod::Off &&
+                                 !inputs.RawToUpscaler;
             // The previous frame's sum is folded into the history and reprojected (THE DENOISER'S HISTORY).
             // A history made in this graph (the denoiser just turned on) is written by the combine before any read.
             const bool reproject = denoise && sumKept && cameraMoved && m_Summed > 0u && m_History.Built &&
@@ -514,7 +528,14 @@ namespace Desert::Graphic::System
             const RDG::TextureRef image =
                  denoise ? AddDenoisePasses( graph, accumulation, history, width, height ) : accumulation.Radiance;
             AddResolvePass( graph, image, sceneColor, frame.FrameIndex, frame.PreExposure );
-            return BOOLSUCCESS;
+            // Raw to the upscaler the sum is this frame's paths alone (sumKept is false), so its guide sums are this
+            // frame's - the ones the colour just resolved was made with.
+            if ( !inputs.RawToUpscaler )
+                return Common::MakeSuccess( PathTracedGuides{} );
+            return Common::MakeSuccess( PathTracedGuides{ .Albedo   = accumulation.GuideAlbedo,
+                                                          .Normal   = accumulation.GuideNormal,
+                                                          .Specular = accumulation.GuideSpecular,
+                                                          .Hit      = accumulation.GuideHit } );
         }
 
         // Paths per pixel summed in the view's accumulation (the overlay's progress).

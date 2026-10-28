@@ -117,6 +117,8 @@ void main()
     v_Surface.TBN           = mat3( tangent, -side, facing );
     v_Surface.Clip          = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
     v_Surface.PrevClip      = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
+    // The object-motion flag (Common/Velocity.glslh DesertVelocity w): a particle moves on its own.
+    v_Surface.ObjectMoved = 1.0;
 
     v_ParticleColor      = colour;
     v_ParticleTimeRandom = vec2( relative, VFXRandomFloat4( uvec4( at + DrawLayoutData.Range.y,

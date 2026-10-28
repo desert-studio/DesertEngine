@@ -362,11 +362,10 @@ namespace Desert::Core::WorldCells
     DESERT_JSON_STRUCT( BuiltHLODIndex, "BuiltHLODIndex", 6 )
     static_assert( Common::Json::FormatOf<BuiltHLODIndex>.Version == kWorldFormatVersion );
 
-    struct BuiltHLODs
-    {
-        BuiltHLODIndex          Index;
-        std::vector<CookedFile> Files; // the per-cell record files (CellPayload, kind WorldCell); not the index
-    };
+    // Where BuildWorldHLODs hands each cell's record file (CellPayload, kind WorldCell) the moment the cell is
+    // built; the build keeps none, so a world's HLODs never sit in memory all at once (UE builds and saves its
+    // HLOD actors cell by cell). An error stops the build by name.
+    using BuiltHLODSink = std::function<Common::BoolResultStr( CookedFile file )>;
 
     // What an HLOD is built from: the cell's records (Json::Write of each member without its outliner sort key
     // `siblingIndex`, in member order; the one form Build, Cook and Play hash) and the
@@ -378,18 +377,24 @@ namespace Desert::Core::WorldCells
     // BUILD HLODs: the HLOD of every cell unit of @p scene by the world's default HLOD layer, planned from
     // @p descriptors as CookWorld plans. Refused, by name, as CookWorld refuses: no WorldPartition block, no
     // default HLOD layer, a record without an id or with a taken one, descriptors that are not the records'.
-    [[nodiscard]] Common::ResultStr<BuiltHLODs>
+    // Each cell's file goes to @p sink as soon as it is built and is freed with the cell; the index is returned.
+    [[nodiscard]] Common::ResultStr<BuiltHLODIndex>
     BuildWorldHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
                      std::span<const Common::Utils::AssetRegistry> registries,
-                     const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape );
+                     const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
+                     const BuiltHLODSink& sink );
 
     // `<dir>/<stem>_HLOD/` of the scene file @p scenePath (beside `<stem>_Landscape/`).
     [[nodiscard]] std::filesystem::path BuiltHLODDirectory( const std::filesystem::path& scenePath );
 
-    // Writes @p built into BuiltHLODDirectory(scenePath), each file atomically, the index last; every other
-    // .dhlod in the directory is removed (a cell that no longer batches anything keeps no file).
-    [[nodiscard]] Common::BoolResultStr WriteBuiltHLODs( const std::filesystem::path& scenePath,
-                                                         const BuiltHLODs&            built );
+    // The sink that writes each built cell file into BuiltHLODDirectory(scenePath) atomically (the directory is
+    // made on the first file).
+    [[nodiscard]] BuiltHLODSink BuiltHLODWriter( const std::filesystem::path& scenePath );
+
+    // Writes @p index into BuiltHLODDirectory(scenePath) atomically, after its cell files (BuiltHLODWriter); every
+    // other .dhlod in the directory is removed (a cell that no longer batches anything keeps no file).
+    [[nodiscard]] Common::BoolResultStr WriteBuiltHLODIndex( const std::filesystem::path& scenePath,
+                                                             const BuiltHLODIndex&        index );
 
     struct StoredHLODs
     {
@@ -400,9 +405,6 @@ namespace Desert::Core::WorldCells
     // The saved HLODs of the scene file @p scenePath (disk, then a mounted pak). Missing is an error naming the
     // scene and the step that makes them.
     [[nodiscard]] Common::ResultStr<StoredHLODs> ReadBuiltHLODs( const std::filesystem::path& scenePath );
-
-    // The same over memory, for a build that was not written.
-    [[nodiscard]] StoredHLODs StoredFrom( BuiltHLODs built );
 
     // The records of @p cell's file: envelope, kind, format version, units and ids checked against the row.
     // Empty when the row has no file.

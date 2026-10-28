@@ -251,6 +251,7 @@ namespace Desert::Editor
         {
             m_FocusPending = true;
             m_Follow       = false;
+            m_FollowZoomed = false;
         }
 
         const WorldPartitionPlan*                       plan      = nullptr;
@@ -604,8 +605,10 @@ namespace Desert::Editor
                 areas.push_back( LandscapeHLODBakeTile{ area.GetValue(), *mesh.GetValue().EditMesh } );
                 return mesh;
             };
-        if ( auto probe =
-                  WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, builders.Mesh, collect );
+        if ( auto probe = WC::BuildWorldHLODs(
+                  scene.GetValue().Scene, planned, registries, builders.Mesh, collect,
+                  // The probe only gathers the landscape tiles to bake: its files are dropped.
+                  []( WC::CookedFile ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
              !probe )
             return Common::MakeError( "Build HLODs: " + probe.GetError() );
         if ( areas.empty() )
@@ -680,18 +683,25 @@ namespace Desert::Editor
                     }
                 return mesh;
             };
-        auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, builders.Mesh, landscape );
+        // Each cell's file is written the moment it is built and freed with it (UE builds and saves its HLOD
+        // actors cell by cell), so the world's HLODs are never in memory at once.
+        const std::filesystem::path dir    = WC::BuiltHLODDirectory( path );
+        const WC::BuiltHLODSink     writer = WC::BuiltHLODWriter( path );
+        std::size_t                 bytes  = 0;
+        std::size_t                 files  = 0;
+        auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, builders.Mesh, landscape,
+                                          [&]( WC::CookedFile file ) -> Common::BoolResultStr
+                                          {
+                                              bytes += file.Bytes.size();
+                                              ++files;
+                                              LOG_INFO( "[Build HLODs] {0}: {1} bytes",
+                                                        ( dir / file.Name ).string(), file.Bytes.size() );
+                                              return writer( std::move( file ) );
+                                          } );
         if ( !built )
             return Common::MakeError( "Build HLODs: " + built.GetError() );
-        if ( auto written = WC::WriteBuiltHLODs( path, built.GetValue() ); !written )
+        if ( auto written = WC::WriteBuiltHLODIndex( path, built.GetValue() ); !written )
             return Common::MakeError( written.GetError() );
-        const std::filesystem::path dir   = WC::BuiltHLODDirectory( path );
-        std::size_t                 bytes = 0;
-        for ( const WC::CookedFile& file : built.GetValue().Files )
-        {
-            bytes += file.Bytes.size();
-            LOG_INFO( "[Build HLODs] {0}: {1} bytes", ( dir / file.Name ).string(), file.Bytes.size() );
-        }
         // Read back what was written and check it against the world it was built from.
         auto stored = WC::ReadBuiltHLODs( path );
         if ( !stored )
@@ -712,8 +722,8 @@ namespace Desert::Editor
         LOG_INFO(
              "[Build HLODs] '{0}': {1} cell(s), {2} file(s), {3} bytes, {4} HLOD record(s) in {5}; read back: "
              "{6} stale cell(s)",
-             m_Scene->GetSceneName(), stored.GetValue().Index.Cells.size(), built.GetValue().Files.size(), bytes,
-             records, dir.string(), stale.GetValue().size() );
+             m_Scene->GetSceneName(), stored.GetValue().Index.Cells.size(), files, bytes, records, dir.string(),
+             stale.GetValue().size() );
         if ( !stale.GetValue().empty() )
             return Common::MakeError(
                  std::format( "Build HLODs: {} cell(s) read back stale", stale.GetValue().size() ) );
@@ -788,6 +798,14 @@ namespace Desert::Editor
              sources.empty() ? std::nullopt : std::optional<glm::vec3>( sources.front().Position );
 
         // ── view: focus, follow, wheel, drag ──
+        // Follow centres the source; its scale is UE's PlayerExtent until a wheel sets one (m_FollowZoomed).
+        const auto FollowView = [&]( glm::dvec2 mapSize, const glm::vec3& source )
+        {
+            Map::View followed = Map::Follow( mapSize, { source.x, source.z } );
+            if ( m_FollowZoomed )
+                followed.Scale = m_View.Scale;
+            return followed;
+        };
         // The map grows with the window: a resize refits a view nobody has zoomed or dragged since the last
         // fit. The scale stays uniform, so a cell stays square at every size.
         if ( size != m_MapSize )
@@ -801,17 +819,17 @@ namespace Desert::Editor
             m_FocusPending = false;
             m_Fitted       = true;
             if ( streamer != nullptr && m_Follow && sourcePos )
-                m_View = Map::Follow( size, { sourcePos->x, sourcePos->z } );
+                m_View = FollowView( size, *sourcePos );
             else if ( const auto bounds = Map::PlanBounds( plan, m_Grid ) )
                 Map::Focus( m_View, size, *bounds );
         }
         if ( streamer != nullptr && m_Follow && sourcePos )
-            m_View = Map::Follow( size, { sourcePos->x, sourcePos->z } );
+            m_View = FollowView( size, *sourcePos );
         if ( hovered && io.MouseWheel != 0.0f )
         {
             Map::Zoom( m_View, size, { io.MousePos.x - origin.x, io.MousePos.y - origin.y }, io.MouseWheel );
-            m_Follow = false;
-            m_Fitted = false;
+            m_FollowZoomed = m_Follow;
+            m_Fitted       = false;
         }
         if ( ImGui::IsItemActive() && ( ImGui::IsMouseDragging( ImGuiMouseButton_Right ) ||
                                         ImGui::IsMouseDragging( ImGuiMouseButton_Middle ) ) )

@@ -316,8 +316,8 @@ namespace Desert::Graphic::API::Vulkan
         // location the shader does not declare, no binding 1 when none of its streams is read.
         const auto* vulkanShader =
              std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
-        m_VertexInput = ShaderReflection::BuildVertexInput( m_Specification.Layout.value(),
-                                                            vulkanShader->GetVertexInputLocations() );
+        m_VertexInput =
+             ShaderReflection::BuildVertexInput( m_Specification.Layout.value(), vulkanShader->GetVertexInputs() );
         if ( const auto refusal = ShaderReflection::VertexInputRefusal( m_VertexInput ) )
         {
             LOG_ERROR( "[Pipeline] '{}' not created: shader '{}' does not match its vertex layout ({}). The "

@@ -1,0 +1,14 @@
+# WIREFRAME-ISM: Wireframe view draws instanced static meshes (the S1 scattered trees/shrubs) through the same
+# path as plain meshes, as UE does. FIELD_Barn has 16 ISM entities; before the fix they vanished in Wireframe
+# while their shadows were still drawn. View from FOLIAGE-PROOF 1_field_grass.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.FOV 70
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Когда run View "View mode: Wireframe"
+Тогда-вид 1_wire wireframes of the scattered trees and shrubs visible like the barn's wireframe; editor.log has no ISM render error
+Когда run View "View mode: Lit"
+Тогда-вид 2_lit the same view lit: the trees are in place (no regression)

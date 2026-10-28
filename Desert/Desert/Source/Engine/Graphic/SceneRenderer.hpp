@@ -122,6 +122,11 @@ namespace Desert::Graphic
     struct FrameValues;
     class ReflectionCaptureRenderer;
     class LocalShadowCache;
+    namespace System
+    {
+        class LocalExposureRenderer;
+        class TonemapRenderer;
+    } // namespace System
 
     /**
      * What one view holds and what the scene it draws shares, READ FROM THE RESOURCE LEDGER (RT-LEDGER-3): the
@@ -312,6 +317,9 @@ namespace Desert::Graphic
         // The view's HDR scene colour as its last frame left it (the resolved image at MSAA > 1): what a
         // reflection capture resamples into its cube. Null before the targets exist.
         [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const;
+        // HDR-OUTPUT p3: the tonemap's HDR rendition of its last capture frame
+        // (TonemapRenderer::GetHdrRenditionImage); null before the first window capture of an HDR output.
+        [[nodiscard]] std::shared_ptr<Image2D> GetHdrRenditionImage() const;
 
         void Resize( const uint32_t width, const uint32_t height );
         // The Render set (ViewTargetSet::Render) to @p render: the scene target, G-buffer, scene depth resolve,
@@ -1341,6 +1349,12 @@ namespace Desert::Graphic
         // FrameTransients::LocalExposureGrid / BlurredLogLuminance. Nothing is added at identity settings.
         void AddFrameLocalExposure( RDG::Builder& graph, FrameTextures& textures,
                                     const std::vector<RDG::TextureRef>& sceneColor );
+        // Fusion half of AddFrameLocalExposure (UE 5.4 AddLocalExposureFusionPass): sets
+        // Transients.ExposureFusion.
+        void AddFrameLocalExposureFusion( RDG::Builder& graph, FrameTextures& textures,
+                                          System::LocalExposureRenderer& le,
+                                          const System::TonemapRenderer& tonemap, RDG::TextureRef scene,
+                                          uint32_t width, uint32_t height );
         void AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
                             const std::vector<RDG::TextureRef>& sceneColor );
         void AddFrameLightShafts( RDG::Builder& graph, FrameTextures& textures,

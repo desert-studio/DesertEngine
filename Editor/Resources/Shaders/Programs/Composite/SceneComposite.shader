@@ -24,6 +24,10 @@ Shader "SceneComposite"
         #define LumBilateralGrid sampler3D(LumBilateralGrid, LinearClampSampler)
         Uniform(9) texture2D BlurredLogLuminance;
         #define BlurredLogLuminance sampler2D(BlurredLogLuminance, LinearClampSampler)
+        // Local exposure, Fusion: the blended pyramid's level 0 (fused display value), full resolution; System.Black
+        // when the fusion did not run (then LocalExposureMethod is 0 and it is not read).
+        Uniform(10) texture2D ExposureFusionTexture;
+        #define ExposureFusionTexture sampler2D(ExposureFusionTexture, LinearClampSampler)
         Out(0) vec4 oColor;
 
         Uniform(0) TonemapUB
@@ -42,6 +46,11 @@ Shader "SceneComposite"
             vec4  LocalExposureThreshold;  // highlight / shadow threshold (EV), highlight / shadow strength
             vec4  LocalExposureUV;         // grid UV scale xy, blurred UV scale xy
             vec4  LocalExposureSlice;      // log2 middle grey (exposed), slice log min, 1 / EV per slice, mode
+            float LocalExposureMethod;     // 1: Fusion (ExposureFusionTexture), 0: Bilateral (grid + blur)
+            // HDR-OUTPUT (Graphic::CurrentDisplayOutput): 0 SDR, 2 scRGB (Common::Scalability::DisplayOutput's
+            // numbering), and the output transform's ceiling in paper-white units (1 on SDR).
+            float DisplayOutput;
+            float DisplayHeadroom;
         };
 
         #include <Common/TonemapACES.glslh>
@@ -58,6 +67,15 @@ Shader "SceneComposite"
         {
             const vec3 c = clamp(linearColor, 0.0, 1.0);
             return min(c * 12.92, pow(max(c, vec3(0.00313067)), vec3(1.0 / 2.4)) * 1.055 - 0.055);
+        }
+
+        // The same OETF without the clamp above 1 (Apple's extended sRGB, IEC 61966-2-1 continued past white):
+        // the encoding the HDR output carries until DisplayEncodeScRGB linearises it.
+        vec3 LinearToSrgbExtended(vec3 linearColor)
+        {
+            const vec3 c = max(linearColor, vec3(0.0));
+            return mix(c * 12.92, pow(max(c, vec3(0.00313067)), vec3(1.0 / 2.4)) * 1.055 - 0.055,
+                       step(vec3(0.0031308), c));
         }
 
         // Extended Reinhard, on luminance, preserving the colour's ratio to it.
@@ -127,7 +145,15 @@ Shader "SceneComposite"
             // 3 visualised at identity (no passes ran: exposure 1 everywhere).
             float localExposure = 1.0;
             const float leMode  = LocalExposureSlice.w;
-            if (leMode > 0.5 && leMode < 2.5)
+            if (leMode > 0.5 && leMode < 2.5 && LocalExposureMethod > 0.5)
+            {
+                // FUSION (UE 5.4 PostProcessTonemap.usf:424-435): the fused display value back through the inverse
+                // fusion curve, over this pixel's own exposed luminance.
+                float fused = textureLod(ExposureFusionTexture, v_TexCoord, 0.0).r;
+                float lum   = LocalExposureLuminance(scene) * InversePreExposure * exposure;
+                localExposure = LocalExposureFusionExposure(lum, fused, TonemapOperator >= 0.5);
+            }
+            else if (leMode > 0.5 && leMode < 2.5)
             {
                 float logLum      = log2(max(LocalExposureLuminance(scene) * InversePreExposure, 1.0e-10));
                 float logExposure = log2(max(exposure, 1.0e-10));
@@ -148,6 +174,23 @@ Shader "SceneComposite"
         	                                             : TonemapReinhard(color, WhitePoint);
 
         	vec3 mapped = LinearToSrgb(mappedColor);
+
+            // THE HDR OUTPUT TRANSFORM (HDR-OUTPUT p1). Below the knee the HDR picture IS the SDR one (the
+            // SDR rendition of an HDR frame — clamp to paper white — equals the SDR frame there, so captures
+            // stay comparable); above it the highlights the SDR curve crushed into white are lifted toward the
+            // display's headroom over HdrSpanStops, hue kept (one scale on all three channels). The written
+            // value is the EXTENDED sRGB encoding (sign-free, unclamped): the UI composites over it in the same
+            // encoded space it always did, and the display encode (DisplayEncodeScRGB) linearises the lot.
+            if (DisplayOutput > 0.5 && DisplayHeadroom > 1.0)
+            {
+                const float HdrKnee      = 2.0;  // exposed linear: ACES has rolled past ~0.8 here
+                const float HdrSpanStops = 5.0;  // stops above the knee to reach the headroom
+                float peak  = max(max(color.r, color.g), color.b);
+                float lift  = clamp(log2(max(peak, 1.0e-6) / HdrKnee) / HdrSpanStops, 0.0, 1.0);
+                lift        = lift * lift * (3.0 - 2.0 * lift);
+                vec3 hdr    = mappedColor * mix(1.0, DisplayHeadroom, lift);
+                mapped      = LinearToSrgbExtended(hdr);
+            }
 
             // The Local Exposure view mode (UE VisualizeLocalExposure, "Local Exposure"): the picture's own grey
             // tinted green where local exposure lifts it, red where it pulls it down, saturating at +-2 EV.
