@@ -1,8 +1,13 @@
-# WP-FAR-2 (5b1f134b6): LOD by projected screen size including FOV. DRAFT, NOT PLAYED YET (REMAINDER): WP-FAR-2
-# landed without a live LOD readout (its own REMAINDER), so there is no LOD view mode; the frames use Wireframe.
+# WP-FAR-2 (5b1f134b6): LOD by projected screen size including FOV (LODSelection.hpp BoundsScreenRadiusSquared
+# reads Projection[0][0]/[1][1]; the landscape's TerrainRenderer uses the same function). WP_Protocol's buildings
+# and bushes are primitives without an LOD chain, so the measured mesh is the landscape: the same camera point
+# and direction, FOV 90 then FOV 20, in Wireframe; the status bar's "(N drawn)" counts the triangles of the LOD
+# actually submitted (StatusBar.cpp, GetViewTrianglesDrawn). The patch under the viewport centre is the witness.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Wireframe"
+Дано --subject viewport set Camera.Position -95000,4000,0
+Дано --subject viewport set Camera.Direction 1,-0.08,0
 Когда --subject viewport set Camera.FOV 90
-Тогда-вид far2_fov90 меш с цепочкой LOD в 150 м на дальнем LOD (редкая сетка)
+Тогда far2_fov90 FOV 90: участок ландшафта в центре вьюпорта (~400 м) — редкая сетка дальнего LOD; число в строке состояния «(N drawn)» записать
 Когда --subject viewport set Camera.FOV 20
-Тогда-вид far2_fov20 тот же меш с той же точки на LOD0/1 (плотная сетка) — зум повышает детализацию
+Тогда far2_fov20 FOV 20, та же точка и направление: тот же участок в центре — плотная сетка (LOD ниже); у ландшафта треугольников больше, чем на FOV 90
