@@ -50,6 +50,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -220,14 +221,20 @@ namespace Desert::Core
         void StampVelocities( std::vector<Rules::StreamingSource>& sources,
                               std::span<const std::uint32_t> entities, double nowSeconds );
 
-        // One HLOD as the streamer takes it: the cell unit it stands in for and its records.
+        // One HLOD as the streamer takes it: the cell unit it stands in for and the read of its records.
+        // A READ, NOT THE RECORDS (WP22-LIT): a landscape HLOD record carries its built mesh inline (four
+        // 65 536-vertex tiles, 84 MB of text per G0L5 file), and holding every HLOD's parsed records until all
+        // of them were entities put ~2 GB on top of the world the editor held - Play from Here after Load All
+        // was killed at 6146 MB. BeginHLODs reads one HLOD, makes it entities and drops its records before the
+        // next is read (UE streams HLOD cells the same way: one cell's package at a time).
         struct CellHLOD
         {
-            std::size_t                     Unit = 0;
-            std::vector<Assets::EntityData> Records;
+            std::size_t                                                         Unit = 0;
+            std::function<Common::ResultStr<std::vector<Assets::EntityData>>()> Read;
         };
-        // Makes every HLOD's records entities, then shows the ones whose cell is not visible now — before the
-        // first frame, so the first frame already has no hole and no double. @p holes are said once, by reason.
+        // Makes every HLOD's records entities, one HLOD at a time, then shows the ones whose cell is not visible
+        // now — before the first frame, so the first frame already has no hole and no double. @p holes are said
+        // once, by reason.
         [[nodiscard]] Common::BoolResultStr BeginHLODs( std::vector<CellHLOD>                 hlods,
                                                         std::span<const Rules::HLODExclusion> holes );
 

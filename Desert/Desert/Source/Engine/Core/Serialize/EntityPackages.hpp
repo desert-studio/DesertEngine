@@ -108,8 +108,10 @@ namespace Desert::Core
         // WP19, UE's editor loader adapter: the scene now holds `live` of the baseline's world, and the records
         // `notLoaded` stay on disk. An entity new to the baseline was just read from its file (clean); one of the
         // baseline that is no longer live was unloaded, NOT deleted - its file is kept and the header lists it.
-        // Forget clears the set; a save keeps it.
-        void AdoptRegion( std::span<const LiveEntity> live, std::span<const Common::UUID> notLoaded );
+        // Forget clears the set; a save keeps it. `unsaved`: live entities the files do not hold (made since the
+        // open or last save) - kept through the region change, they get no saved revision and stay unsaved.
+        void AdoptRegion( std::span<const LiveEntity> live, std::span<const Common::UUID> notLoaded,
+                          std::span<const Common::UUID> unsaved );
 
         [[nodiscard]] bool IsLoaded( Common::UUID record ) const
         {

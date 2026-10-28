@@ -3,6 +3,7 @@
 #include <Editor/Core/EditorPreferences.hpp>
 #include <Editor/Core/GizmoState.hpp>
 #include <Editor/Core/Selection/AuthoringContext.hpp>
+#include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
 #include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
 
@@ -54,6 +55,14 @@ namespace Desert::Editor
         commands.push_back( { "Snap", "Toggle snapping", []
                               {
                                   Core::GizmoState::SetPersistentSnap( !Core::GizmoState::PersistentSnap() );
+                                  return PaletteCommandDone();
+                              } } );
+
+        // UE's Select Mode (the mode toolbar's first button): leaves Foliage / Modeling / Landscape / Fracture
+        // mode the way the toolbar's Select does, so a scenario can close a mode's panel before its frame.
+        commands.push_back( { "Mode", "Select mode", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Select );
                                   return PaletteCommandDone();
                               } } );
 
