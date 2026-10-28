@@ -5,4 +5,4 @@
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position -440,300,-230
 Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
-Тогда-вид 1_lit улица в Lit, плющ и кусты видны; редактор не убит лимитом памяти (пик < 6144 МБ); в логе «[Memory] census at footprint peak» со строками «render graph transient heaps (RDG)» и «render graph extracted resources (RDG)», «not in any ledger» < 100 МБ
+Тогда-вид 1_lit улица в Lit, плющ и кусты видны; редактор не убит лимитом памяти, пик < 5500 МБ; в логе «[Memory] census at footprint peak» строка «render graph transient heaps (RDG)» < 500 МБ, «not in any ledger» < 100 МБ

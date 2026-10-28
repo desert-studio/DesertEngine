@@ -522,6 +522,10 @@ namespace Desert::Graphic::API::Vulkan
         VulkanRdgTransientAllocator* m_Transients  = nullptr;
         VulkanRdgPassDescriptors*    m_Descriptors = nullptr;
         std::string                  m_GraphName; // the graph between BeginGraph and EndGraph / AbandonGraph
+        // The graph holds the shared transient heaps after an earlier graph
+        // (VulkanRdgTransientAllocator::ReserveGraphHeaps): its first command buffer opens with a memory barrier.
+        bool m_SharedHeapBarrierPending = false;
+        void RecordSharedHeapBarrier( VkCommandBuffer commandBuffer );
 
         std::vector<std::shared_ptr<VulkanRdgTexture>> m_Textures; // by resource index, this graph only
         std::vector<std::shared_ptr<VulkanRdgBuffer>>  m_Buffers;
