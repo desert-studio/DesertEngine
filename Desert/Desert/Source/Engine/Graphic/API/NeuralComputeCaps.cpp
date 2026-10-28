@@ -98,6 +98,8 @@ namespace Desert::Engine
 
         std::vector<std::string>              coopMissing = fp16Missing;
         std::optional<CooperativeMatrixShape> tile;
+        if ( !caps.VulkanMemoryModel )
+            coopMissing.emplace_back( "vulkanMemoryModel" );
         if ( !caps.CooperativeMatrix )
             coopMissing.emplace_back( "cooperativeMatrix" );
         else
