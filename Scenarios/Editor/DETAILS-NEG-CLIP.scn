@@ -1,7 +1,28 @@
 # DETAILS-NEG-CLIP: a vector field in Details (ImGuiUtilities::VectorField -- Location/Rotation/Scale and every reflected
 # vec2/3/4) shows its number from the FIRST character, minus sign included, like UE's numeric entry: centred while it fits,
 # otherwise cut on the right. Before: DragFloat started an overflowing value at the frame's left pixel, under the axis edge.
-Дано run Scene "Add shape: Cube"
+Дано run Entity Cube
 Дано run View "View mode: Lit"
 Когда --subject selection set Translation -253.2,-868.0,-12345.6
-Тогда 1_neg_loc Details: Location reads "-253.2", "-868.0", "-12345.6", each with its minus sign
+Тогда 1_neg_loc Details at its default width: Location starts "-253", "-868", "-123" - minus sign and first digits visible, the end cut on the right (the default value column is ~55 points a field)
+# Widen Details: drag the viewport|Details dock splitter (window point x=1727) left to x=1500.
+Когда input move - 1727,411
+Когда input press - 1727,411
+Когда input move - 1600,411
+Когда input move - 1500,411
+Когда input release - 1500,411
+Тогда 1b_wide Details widened: Location reads "-253.2", "-868.0", "-12345.6" whole, each with its minus sign
+# Narrow Details: the splitter from x=1500 to x=1800.
+Когда input move - 1500,411
+Когда input press - 1500,411
+Когда input move - 1650,411
+Когда input move - 1800,411
+Когда input release - 1800,411
+Тогда 2_narrow Details narrowed: each Location field shows its minus sign and first digits, the END of the number is cut
+# Put the splitter back where the run found it: ImGui saves the dock sizes to Saved/Config/EditorLayout.ini, and the
+# next run's drags start at x=1727.
+Когда input move - 1800,411
+Когда input press - 1800,411
+Когда input move - 1760,411
+Когда input move - 1727,411
+Когда input release - 1727,411
