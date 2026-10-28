@@ -246,12 +246,12 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `.` — 8 files, 2,782 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
-- `Common` — 99 files, 14,850 lines
+- `Common` — 99 files, 14,855 lines
 - `Editor` — 1 files, 147 lines
 - `Generated` — 2 files, 81 lines
 - `Mesh` — 15 files, 1,535 lines
 - `Mesh/Generic` — 1 files, 19 lines
-- `Mesh/Surface` — 19 files, 2,142 lines
+- `Mesh/Surface` — 19 files, 2,161 lines
 - `Programs/AutoExposure` — 3 files, 218 lines
 - `Programs/Bloom` — 2 files, 216 lines
 - `Programs/Clouds` — 5 files, 1,953 lines
@@ -288,7 +288,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/Subsurface` — 2 files, 262 lines
 - `Programs/Surface` — 7 files, 633 lines
 - `Programs/SurfaceCache` — 5 files, 748 lines
-- `Programs/TemporalAA` — 6 files, 841 lines
+- `Programs/TemporalAA` — 6 files, 831 lines
 - `Programs/TemporalSuperResolution` — 10 files, 1,882 lines
 - `Programs/Terrain` — 11 files, 1,229 lines
 - `Programs/Text` — 3 files, 158 lines
