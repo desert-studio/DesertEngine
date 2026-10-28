@@ -868,7 +868,6 @@ namespace Desert::Graphic::System
             }
             auto& set  = *m_ScratchMaskedSets[maskedSetCount++];
             set.Caster = caster;
-            set.Rows.clear();
             set.Transforms.clear();
             return set;
         };
@@ -898,6 +897,13 @@ namespace Desert::Graphic::System
             {
                 continue; // refused by name, once
             }
+            // The caster's row is the lit draw's, from the scene material table (SyncGpuScene: the receiving
+            // row; a caster never reads ReceiveSunShadows).
+            const std::optional<uint32_t> row = FindMaterialRow( mat, inst );
+            if ( !row )
+            {
+                continue;
+            }
             auto&            set = maskedSetFor( caster );
             MaskedCasterDraw draw;
             draw.Set       = &set;
@@ -905,7 +911,7 @@ namespace Desert::Graphic::System
             draw.Mesh      = rd.Mesh;
             draw.Transform = rd.Transform;
             draw.Instance  = inst;
-            draw.Row       = AppendRow( set.Rows, EffectiveRow( mat, inst ) );
+            draw.Row       = *row;
             draw.LodLevel  = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
             draw.HiddenSubmeshMask = rd.HiddenSubmeshes;
             m_ScratchMaskedDraws.push_back( draw );
@@ -1006,8 +1012,12 @@ namespace Desert::Graphic::System
                     {
                         continue; // refused by name, once
                     }
-                    auto&          set = maskedSetFor( caster );
-                    const uint32_t row = AppendRow( set.Rows, EffectiveRow( ismMat, ismInst ) );
+                    const std::optional<uint32_t> row = FindMaterialRow( ismMat, ismInst );
+                    if ( !row )
+                    {
+                        continue;
+                    }
+                    auto& set = maskedSetFor( caster );
                     for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                     {
                         const auto first = static_cast<uint32_t>( set.Transforms.size() );
@@ -1024,7 +1034,7 @@ namespace Desert::Graphic::System
                         draw.Mesh     = ism.Mesh;
                         draw.HiddenSubmeshMask = ism.HiddenSubmeshes;
                         draw.Instance = ismInst;
-                        draw.Row      = row;
+                        draw.Row      = *row;
                         draw.Count    = static_cast<uint32_t>( set.Transforms.size() ) - first;
                         draw.First    = first;
                         draw.LodLevel = level;
@@ -1138,6 +1148,11 @@ namespace Desert::Graphic::System
                     {
                         continue; // refused by name, once
                     }
+                    const std::optional<uint32_t> row = FindMaterialRow( section.Material, section.Instance );
+                    if ( !row )
+                    {
+                        continue;
+                    }
                     auto&            set = maskedSetFor( caster );
                     MaskedCasterDraw draw;
                     draw.Set       = &set;
@@ -1145,9 +1160,9 @@ namespace Desert::Graphic::System
                     draw.Mesh      = sd.Mesh;
                     draw.Transform = sd.Transform;
                     draw.Instance  = section.Instance;
-                    draw.Row       = AppendRow( set.Rows, EffectiveRow( section.Material, section.Instance ) );
+                    draw.Row       = *row;
                     draw.First     = static_cast<uint32_t>( set.Transforms.size() );
-                    draw.MotionRow = sd.MotionRow;
+                    draw.GpuPrimitive = sd.GpuPrimitive;
                     draw.HiddenSubmeshMask = section.HiddenSubmeshes;
                     if ( IsVirtualShadowView( c ) )
                         draw.WorldBounds = SkinnedPoseBounds( *sd.Mesh, sd.Transform, sd.BoneMatrices );
@@ -1162,12 +1177,13 @@ namespace Desert::Graphic::System
             if ( !opaqueCasters.empty() )
             {
                 skinMat->UploadBones( skinBones );
-                const std::span<const GpuObjectMotion> rows = m_ScratchMotionRows.Rows;
                 for ( const OpaqueCaster& caster : opaqueCasters )
                 {
                     // The cached pose when the skin cache holds this primitive (one skinning per frame).
-                    const GpuObjectMotion row =
-                         caster.Data->MotionRow < rows.size() ? rows[caster.Data->MotionRow] : GpuObjectMotion{};
+                    const GpuDriven::GpuScenePrimitive row =
+                         m_GpuScene != nullptr && m_GpuScene->IsValid( caster.Data->GpuPrimitive )
+                              ? m_GpuScene->Primitive( caster.Data->GpuPrimitive )
+                              : GpuDriven::GpuScenePrimitive{};
                     const uint64_t address =
                          ( static_cast<uint64_t>( row.SkinCacheAddressHi ) << 32u ) | row.SkinCacheAddressLo;
                     // A virtual shadow map level culls the caster by its posed box (CollectVirtualShadowCull).
@@ -1226,11 +1242,10 @@ namespace Desert::Graphic::System
             auto& set = *m_ScratchMaskedSets[i];
             WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                               m_CascadeCasterBias[c], m_ParallaxQuality );
-            // Find: a masked caster whose surface has no parameters (or whose mask reads none) declares no row
-            // block.
-            if ( auto* sb = set.Caster->Find<StorageBufferProperty>( kMaterialRowBlock ) )
+            // The draws' rows are the scene material table's (SyncGpuScene); a refusal was said by name.
+            if ( !LendMaterialTable( *set.Caster ) )
             {
-                sb->SetRawData( set.Rows.data(), static_cast<uint32_t>( set.Rows.size() * sizeof( glm::vec4 ) ) );
+                continue;
             }
             if ( set.Transforms.empty() )
             {
@@ -1238,13 +1253,14 @@ namespace Desert::Graphic::System
             }
             // The one binding the path adds (MeshPathOwnBinding): instance matrices or bone poses.
             const auto path = MeshCellPath( set.Caster->GetShaderName() );
-            // A skinned caster also reads its row's skin-cache fields from the view's rows (Vertex_Skinned.glslh).
+            // A skinned caster also reads its primitive's skin-cache fields from the scene's GpuScene
+            // (Vertex_Skinned.glslh).
             if ( path == MeshVertexPath::Skinned )
             {
-                auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kObjectMotions );
-                const bool bound = rows != nullptr && m_ObjectMotions != nullptr;
-                DESERT_VERIFY( bound, "a skinned masked caster reads ObjectMotions but the view carries none" );
-                rows->LendViewBuffer( m_ObjectMotions );
+                auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kGpuScenePrimitives );
+                const bool bound = rows != nullptr && m_GpuScene != nullptr && m_GpuScene->GetPrimitivesBuffer();
+                DESERT_VERIFY( bound, "a skinned masked caster reads GpuScenePrimitives but the view carries none" );
+                rows->LendViewBuffer( m_GpuScene->GetPrimitivesBuffer() );
             }
             const std::optional<RDG::StorageBufferParameter> own =
                  path ? MeshPathOwnBuffer( *path ) : std::nullopt;
@@ -1298,7 +1314,7 @@ namespace Desert::Graphic::System
                        if ( draw.Path == MeshVertexPath::Skinned )
                        {
                            material->SetSkinnedBoneOffset( draw.First );
-                           material->SetPrimitiveIndex( draw.MotionRow );
+                           material->SetPrimitiveIndex( draw.GpuPrimitive );
                        }
                        material->Bind( draw.Instance );
                    },

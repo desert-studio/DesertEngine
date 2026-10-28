@@ -81,8 +81,8 @@ namespace Desert::Graphic::DistanceField
     {
         std::shared_ptr<const Assets::MeshDistanceFieldVolume> Field;
         glm::mat4                                            World = glm::mat4( 1.0f );
-        // Where the view drew the object last frame (its MotionHistory transform; World when it has no motion
-        // record): a near-field hit's previous position (DF_OBJECT_ROW_TO_PREVIOUS_WORLD). Not part of the
+        // Where the object was last frame (its GpuScene row's PrevLocalToWorld; World when it has no GpuScene
+        // primitive): a near-field hit's previous position (DF_OBJECT_ROW_TO_PREVIOUS_WORLD). Not part of the
         // object's identity - the clipmaps hold this frame's surface only.
         glm::mat4 PrevWorld = glm::mat4( 1.0f );
         // The instance-table row (SurfaceCache.hpp, contract B3) of the mesh instance this volume belongs to, or

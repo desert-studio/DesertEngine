@@ -856,7 +856,7 @@ namespace Desert::Graphic
         // first view's camera, and "several viewports" could only ever mean "several worlds". The scene
         // holds a LIST of views now and each one carries its own camera; the view says which.
         m_SceneInfo.ActiveCamera = camera;
-        // The world this frame draws and its clock (ViewInputs::SceneIdentity / TimeSeconds, OnUpdate).
+        // The world this frame draws and its clock (its generation keys CameraIdentity; TimeSeconds, OnUpdate).
         m_SceneGeneration  = scene.GetGeneration();
         m_SceneTimeSeconds = scene.GetWorldTime().GetGameTimeSeconds();
         // The world's parameters, snapshotted once for every pass of this view's frame (per-frame state).
@@ -884,6 +884,8 @@ namespace Desert::Graphic
         m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
         // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
         m_FrameRayTracingCache = &scene.GetRayTracingCache();
+        // The scene's GPU scene (primitives, instances, palettes), synced and read by this frame's views.
+        m_FrameGpuScene = &scene.GetGpuScene();
         m_SceneLedgerInstance  = scene.GetLedgerInstance();
         // The scene's local-light shadow cache, which this view's lights draw into and read (UpdateLocalShadows).
         m_FrameLocalShadows = &scene.GetLocalShadows();
@@ -1438,7 +1440,6 @@ namespace Desert::Graphic
             inputs.CameraIdentity = MakeViewCameraIdentity( m_SceneGeneration, cam->GetSourceId() );
         }
         inputs.CameraCut                         = m_CameraCutPending;
-        inputs.SceneIdentity                     = m_SceneGeneration;
         inputs.Output                            = m_ViewExtent;
         // THE ONE PER-VIEW RESOLUTION (ResolveViewResolution): the resolved RenderScalePercent and AA method,
         // the temporal method they select, clamped to a split the method's upscaler supports. Its refusal refuses
@@ -1639,9 +1640,8 @@ namespace Desert::Graphic
         }
         const auto values = std::make_shared<FrameValues>();
 
-        // The view's per-primitive motion rows (current + previous world, both bone palettes) from the view's
-        // MotionHistory, built once before any pass is declared: every view pass of this frame reads the same
-        // rows.
+        // The scene's GPU scene (current + previous world, both bone palettes of every primitive this view
+        // queues), synced once before any pass is declared: every view pass of this frame reads the same rows.
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
@@ -1677,16 +1677,23 @@ namespace Desert::Graphic
                          Geometry::LODView{ viewCamera->GetPosition(), viewCamera->GetProjectionMatrix() },
                          static_cast<float>( m_ViewExtent.Height ), frameNumber, !m_ViewProfile.SceneCapture );
             }
-            if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions(
-                      m_ViewState.Motion(), m_ScratchTileMotions, skinCache, frameNumber );
+            if ( m_FrameGpuScene == nullptr )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: no scene's GPU scene (BeginScene was not handed a scene); nothing "
+                           "is drawn this frame",
+                           m_ViewResources.GetName() );
+                return;
+            }
+            if ( const Common::BoolResultStr rows =
+                      meshes->SyncGpuScene( *m_FrameGpuScene, m_ScratchTileMotions, skinCache, frameNumber );
                  !rows )
             {
-                LOG_ERROR( "[SceneRenderer] {}: the view's motion rows could not be built; nothing is drawn this "
+                LOG_ERROR( "[SceneRenderer] {}: the scene's GPU scene could not be synced; nothing is drawn this "
                            "frame: {}",
                            m_ViewResources.GetName(), rows.GetError() );
                 return;
             }
-            // The skin step already ran in BuildObjectMotions (its own graph, submitted before this view graph):
+            // The skin step already ran in SyncGpuScene (its own graph, submitted before this view graph):
             // this graph only reads the streams, barriered by their carried state.
             meshes->SkinCacheReads().clear();
             if ( skinCache != nullptr )
@@ -1744,9 +1751,9 @@ namespace Desert::Graphic
             std::span<const System::TerrainDrawData>       queue     = terrain->GetQueue();
             const std::span<const System::TerrainInstance> instances = terrain->GetFrameInstances();
             const std::span<const System::TerrainFrameMaterial> materials = terrain->GetFrameMaterials();
-            const std::span<const uint32_t>                rows      = meshes->GetOtherMotionRows();
-            // Parallel by construction (PrepareFrame packs one row per queued tile, BuildObjectMotions one motion
-            // row per tile record); a mismatch is a broken invariant, said and not traced, never truncated.
+            const std::span<const uint32_t>                rows      = meshes->GetOtherGpuInstances();
+            // Parallel by construction (PrepareFrame packs one row per queued tile, SyncGpuScene one GpuScene
+            // instance per tile record); a mismatch is a broken invariant, said and not traced, never truncated.
             std::vector<RayTracing::LandscapeRayTracingTile> tiles;
             if ( instances.size() != queue.size() || materials.size() != queue.size() ||
                  rows.size() != queue.size() )
@@ -2051,12 +2058,16 @@ namespace Desert::Graphic
                 // "Shadows: Ray Traced Sun" in place of the cascades (SunShadowIsRayTraced): the composite's
                 // DESERT_SUN_SHADOW_SCREEN_MASK permutation reads this mask.
                 // "VSM: Project" likewise: the same mask, the same permutations.
+                m_FrameVsmPages.reset();
                 const RDG::TextureRef sunShadowMask =
                      SunShadowIsVirtual()
                           ? AddFrameVirtualSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                      : SunShadowIsRayTraced()
                           ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                           : RDG::TextureRef{};
+                // GPU-DRIVEN CULL validation: the GPU's visible sets beside the CPU's, after the VSM pages exist.
+                if ( m_DebugView.ValidateGpuCulling )
+                    AddFrameGpuCull( graph, textures, frame );
                 // Shadows Stochastic: the local lights sampled, traced and denoised by MegaLights, which the
                 // composite's MegaLights program reads in place of its light-grid loop.
                 const System::MegaLightsLighting megaLights =
@@ -2294,7 +2305,13 @@ namespace Desert::Graphic
         // previous. A frame that executed commits as previous with what its report says it lost.
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: ExecuteGraph" );
         if ( Renderer::ExecuteGraph( graph ).IsSuccess() )
+        {
             m_ViewState.EndFrame( graph.GetExecuteReport() );
+            // The scene's GPU scene keeps this frame's transforms: a frame no view executed is discarded by the
+            // next sync (GpuSceneRegistry::BeginFrame), as the view's own history ignores it.
+            if ( m_FrameGpuScene != nullptr )
+                m_FrameGpuScene->CommitFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+        }
         textures.ResetInvalidatedHistories();
     }
 
@@ -2322,6 +2339,8 @@ namespace Desert::Graphic
 #endif
         m_FrameReflectionCaptures = nullptr;
         m_FrameRayTracingCache    = nullptr;
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ForgetGpuScene();
+        m_FrameGpuScene           = nullptr;
         m_FrameLocalShadows       = nullptr;
         m_FrameDistanceFields     = nullptr;
 
@@ -2605,6 +2624,7 @@ namespace Desert::Graphic
                        pages.GetError() );
             return {};
         }
+        m_FrameVsmPages = pages.GetValue();
         // "VSM: Raster": every caster into the dirty pages, before the projection reads the pool. A refusal is
         // a missing caster program or pipeline, which no later frame repairs: said once, and the method stays
         // dark.

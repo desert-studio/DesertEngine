@@ -93,11 +93,11 @@ namespace Desert::Graphic::System
             if ( !instance )
                 instance = cell->CreateInstance( "GpuInstanced" );
             BindGpuInstancedBuffers( *cell, gpu );
-            std::vector<glm::vec4> rows;
-            const uint32_t         row = AppendRow( rows, EffectiveRow( parent, gpu.Material.get() ) );
-            // Find: a surface template with no parameters declares no Materials row block.
-            if ( auto* sb = cell->Find<StorageBufferProperty>( kMaterialRowBlock ) )
-                sb->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( glm::vec4 ) ) );
+            // The section's row is the scene material table's (SyncGpuScene), read by the cell of its template.
+            const std::optional<uint32_t> materialRow = FindMaterialRow( parent, gpu.Material.get() );
+            if ( !materialRow || !LendMaterialTable( *cell ) )
+                continue;
+            const uint32_t row = *materialRow;
             frameState.ApplyTo( instance.get() );
             cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
 
@@ -158,12 +158,11 @@ namespace Desert::Graphic::System
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
                               m_CascadeCasterBias[shadowView], m_ParallaxQuality );
             BindGpuInstancedBuffers( *caster, gpu );
-            std::vector<glm::vec4> rows;
-            const uint32_t         row = AppendRow( rows, EffectiveRow( parent, gpu.Material.get() ) );
-            // Find: a masked caster whose surface has no parameters (or whose mask reads none) declares no row
-            // block.
-            if ( auto* sb = caster->Find<StorageBufferProperty>( kMaterialRowBlock ) )
-                sb->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( glm::vec4 ) ) );
+            // The section's row is the scene material table's (SyncGpuScene), read by its masked caster cell.
+            const std::optional<uint32_t> materialRow = FindMaterialRow( parent, gpu.Material.get() );
+            if ( !materialRow || !LendMaterialTable( *caster ) )
+                continue;
+            const uint32_t row = *materialRow;
 
             list.Add( { .Pipeline          = pipeline,
                         .Mesh              = gpu.Mesh,

@@ -51,6 +51,11 @@ namespace Desert::Graphic::RayTracing
     class RayTracingSceneCache;
 }
 
+namespace Desert::Graphic::GpuDriven
+{
+    class GpuSceneRegistry;
+}
+
 namespace Desert::Graphic
 {
     class SceneRenderer;
@@ -652,6 +657,15 @@ namespace Desert::Core
             return *m_RayTracingCache;
         }
 
+        // THE SCENE'S GPU SCENE (UE FScene::GPUScene, GpuDriven/GpuSceneRegistry.hpp): the persistent primitive /
+        // instance / palette tables every view of this scene reads (velocity, skin cache, TLAS custom index, GI
+        // card rows), synced by each view's MeshRenderer::SyncGpuScene. Renderer state cached on the scene, like
+        // the ray-tracing cache.
+        [[nodiscard]] Graphic::GpuDriven::GpuSceneRegistry& GetGpuScene() const
+        {
+            return *m_GpuScene;
+        }
+
         // THE SCENE'S SKY LIGHT (UE: FScene's SkyLight and its real-time capture): one capture of the procedural
         // sky's light, shared by every view of this scene and every face view of its reflection captures. Renderer
         // state cached on the scene, like the captures above; a view holds it weakly (SkyboxRenderer).
@@ -810,6 +824,8 @@ namespace Desert::Core
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
         // See GetRayTracingCache. Never null: made by both constructors.
         std::unique_ptr<Graphic::RayTracing::RayTracingSceneCache> m_RayTracingCache;
+        // See GetGpuScene. Never null: made by both constructors.
+        std::unique_ptr<Graphic::GpuDriven::GpuSceneRegistry> m_GpuScene;
         // See GetSkyLight. Never null: made by both constructors. Shared so a view can hold it weakly.
         std::shared_ptr<Graphic::SceneSkyLight> m_SkyLight;
         // See GetLocalShadows. Never null: made by both constructors.

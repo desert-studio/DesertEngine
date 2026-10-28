@@ -43,7 +43,8 @@
 #include <string_view>
 #include <string>
 #include <unordered_map>
-#include <vector>
+#include <vector>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert
 {

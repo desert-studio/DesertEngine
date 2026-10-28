@@ -1,0 +1,27 @@
+// The velocity a geometry pass writes (TAA1 step 4). The world and previous world of the draw come from its
+// GpuScene primitive row (Common/GpuScene.glslh, GpuScenePrimitive::LocalToWorld / PrevLocalToWorld):
+// PrevLocalToWorld == LocalToWorld for a primitive that did not move since the scene's previous frame or was not
+// drawn then, so it carries camera motion only.
+//
+// DesertVelocity is the GLSL twin of Graphic::VelocityNdc (Engine/Graphic/View/Velocity.hpp). Both clip
+// positions are UNJITTERED — the vertex stage computes them with ViewProjection / PrevViewProjection, never with
+// the jittered matrix gl_Position uses (ViewFrame rule: velocity never carries the jitter). They travel to the
+// fragment stage as clip positions, not as NDC: the w-divide must happen per pixel, after interpolation.
+
+#ifndef DESERT_VELOCITY_GLSLH
+#define DESERT_VELOCITY_GLSLH
+
+// xyz = current minus previous NDC (z: the device depth, as UE's velocity carries it with VELOCITY_ENCODE_DEPTH, so
+// a reprojection knows where the surface sat in depth last frame: the screen probe gather's history test,
+// Common/ScreenProbeTemporal.glslh); w = THE OBJECT-MOTION FLAG, the draw's v_Surface.ObjectMoved: 1 when the object
+// itself moves (its transform or its skeleton changed since the previous frame, a moving instance producer), 0 for a
+// still object, whatever its vertices do (the foliage wind, a pixel depth offset) and for the sky the clear leaves.
+// UE4 kept the same distinction by WHO wrote velocity: a moved primitive did, a WPO-only one did not, and TemporalAA's
+// AA_DYNAMIC_ANTIGHOST reads only that ("dynamic"); here every surface writes its xy (motion blur and TSR want the
+// wind), so the flag travels beside it. The one reader is TemporalAA.shader's IsDynamicPixel.
+vec4 DesertVelocity( vec4 clip, vec4 prevClip, float objectMoved )
+{
+    return vec4( clip.xyz / clip.w - prevClip.xyz / prevClip.w, objectMoved );
+}
+
+#endif // DESERT_VELOCITY_GLSLH

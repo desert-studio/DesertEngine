@@ -55,12 +55,12 @@ namespace Desert::Graphic
             CloudShadowUpload( material, CloudShadow );
         }
         // A view-pass vertex stage with no rows would read an unbound buffer: the producer always fills them.
-        if ( Reads( groups, SceneRead::ObjectMotion ) )
+        if ( Reads( groups, SceneRead::GpuScenePrimitives ) )
         {
-            auto*      rows  = material->Get<StorageBufferProperty>( SceneResources::kObjectMotions );
-            const bool bound = rows != nullptr && ObjectMotions != nullptr;
-            DESERT_VERIFY( bound, "a view-pass material reads ObjectMotions but the frame carries none" );
-            rows->LendViewBuffer( ObjectMotions );
+            auto*      rows  = material->Get<StorageBufferProperty>( SceneResources::kGpuScenePrimitives );
+            const bool bound = rows != nullptr && GpuScenePrimitives != nullptr;
+            DESERT_VERIFY( bound, "a view-pass material reads GpuScenePrimitives but the frame carries none" );
+            rows->LendViewBuffer( GpuScenePrimitives );
         }
         if ( Reads( groups, SceneRead::ObjectBones ) )
         {

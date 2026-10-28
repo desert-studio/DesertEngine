@@ -13,7 +13,7 @@
 // SkinnedBone and into kSkinnedBoneFields, from which the includer GENERATES Mesh/SkinnedBones.glslh (`struct
 // SkinnedBone` + the Bones storage buffer at binding 1; no file on disk), included by
 // Mesh/Surface/Vertex_Skinned.glslh (light views) and Programs/Silhouette/Silhouette_Skinned.shader. A view pass
-// skins from the view's ObjectBones instead (Common/ObjectMotion.glslh). Material::UploadSkinnedBones writes the
+// skins from the view's ObjectBones instead (Common/Velocity.glslh). Material::UploadSkinnedBones writes the
 // pass's packed palette.
 //
 // FIELD( C++ type, member, GLSL name, initialiser )
