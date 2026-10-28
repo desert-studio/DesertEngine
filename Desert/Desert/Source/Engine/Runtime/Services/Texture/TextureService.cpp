@@ -125,8 +125,10 @@ namespace Desert::Runtime
     void TextureService::FinishCook( const Assets::AssetHandle& handle, Entry& entry, TextureCookOutcome outcome )
     {
         entry.Cooking = false;
-        // A STREAMING READ (TEX-STREAMING) finishes over a texture that is already drawn: the new image replaces
-        // it, and a read that fails leaves the old one drawing rather than failing the texture.
+        // A STREAMING READ (TEX-STREAMING) finishes over a texture that is already drawn: its new levels go INTO
+        // the same texture (Texture2D::ReplaceLevels -- the Image2D every material slot and override points at
+        // keeps its address and bindless slot, UE's RHIUpdateTextureReference), so no holder is rebuilt or left
+        // with a released image. A read that fails leaves the resident levels drawing.
         const bool streamed = entry.Built != nullptr;
         bool       replaced = false;
         if ( outcome.Cooked )
@@ -137,44 +139,40 @@ namespace Desert::Runtime
             entry.FullWidth         = outcome.Cooked->FullWidth;
             entry.FullHeight        = outcome.Cooked->FullHeight;
             entry.LevelBytes        = outcome.Cooked->FullLevelBytes;
-            auto built              = Graphic::Texture2D::CreateFromCooked( std::move( *outcome.Cooked ) );
-            if ( built.IsSuccess() )
+            if ( streamed )
             {
-                // The old image may still be sampled by frames in flight: parked like an eviction.
-                if ( streamed )
-                    m_Retiring.Park( std::move( entry.Built ),
-                                     Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
-                entry.Built            = built.ExtractValue();
-                entry.ResidentFirstMip = firstMip;
-                replaced               = true;
+                const auto swapped = entry.Built->ReplaceLevels( std::move( *outcome.Cooked ) );
+                replaced           = swapped.IsSuccess();
+                if ( !replaced )
+                    outcome.Error = swapped.GetError();
             }
             else
-                outcome.Error = built.GetError();
+            {
+                auto built = Graphic::Texture2D::CreateFromCooked( std::move( *outcome.Cooked ) );
+                if ( built.IsSuccess() )
+                {
+                    entry.Built = built.ExtractValue();
+                    replaced    = true;
+                }
+                else
+                    outcome.Error = built.GetError();
+            }
+            if ( replaced )
+                entry.ResidentFirstMip = firstMip;
             LOG_DEBUG(
-                 "[TextureService] '{}' uploaded on the main thread in {:.1f} ms ({} bytes)",
+                 "[TextureService] '{}' uploaded on the main thread in {:.1f} ms ({} bytes, from mip {})",
                  entry.Source->GetMetadata().Filepath.filename().string(),
                  std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - began ).count(),
-                 bytes );
-        }
-        if ( streamed && !replaced )
-        {
-            LOG_WARN( "[TextureStreaming] '{}' could not move to mip {}: {}. Its resident mips stay drawn.",
-                      entry.Source->GetMetadata().Filepath.filename().string(), entry.RequestedFirstMip,
-                      outcome.Error );
-            entry.RequestedFirstMip = entry.ResidentFirstMip;
-            return;
+                 bytes, firstMip );
         }
         if ( streamed )
         {
-            ClaimTextureImage( entry.Built, handle );
-            // Every material that bound the old image is rebuilt and binds the new one (as a Pending texture's
-            // are).
-            if ( const auto users = m_BoundBy.find( handle ); users != m_BoundBy.end() )
+            if ( !replaced )
             {
-                auto* materials = ResourceRegistry::GetMaterialService();
-                for ( const Assets::AssetHandle& material : users->second )
-                    materials->Invalidate( material );
-                m_BoundBy.erase( users );
+                LOG_WARN( "[TextureStreaming] '{}' could not move to mip {}: {}. Its resident mips stay drawn.",
+                          entry.Source->GetMetadata().Filepath.filename().string(), entry.RequestedFirstMip,
+                          outcome.Error );
+                entry.RequestedFirstMip = entry.ResidentFirstMip;
             }
             return;
         }
@@ -350,12 +348,6 @@ namespace Desert::Runtime
         }
     }
 
-    void TextureService::NoteBoundBy( const Assets::AssetHandle& texture,
-                                      const Assets::AssetHandle& material ) const
-    {
-        m_BoundBy[texture].insert( material );
-    }
-
     namespace
     {
         uint64_t BytesFrom( const std::vector<uint64_t>& levels, const uint32_t firstMip )
@@ -506,7 +498,6 @@ namespace Desert::Runtime
         m_CookAdmission.DropWaiting();
         m_Retiring.Clear();
         m_Entries.clear();
-        m_BoundBy.clear();
         m_ReportedMissing.clear();
         m_Waiters.Clear();
     }

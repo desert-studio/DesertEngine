@@ -402,9 +402,11 @@ namespace Desert::Graphic
         // `Mesh*` AND NOT `const Mesh*`, and that removes a const_cast rather than adding a hazard: the
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
         /// TEX-STREAMING: tells Graphic::TextureStreamingDemand how many screen pixels the nearest of
-        /// @p transforms covers with @p mesh, for every texture @p materials bind.
-        void NoteTextureDemand( const Mesh& mesh, std::span<const glm::mat4> transforms,
-                                std::span<MaterialInstance* const> materials ) const;
+        /// @p transforms covers with @p mesh, for every texture @p materials bind and every texture asset
+        /// @p overrides name; answers that size (0 when there is no main camera or the mesh has no bounds).
+        float NoteTextureDemand( const Mesh& mesh, std::span<const glm::mat4> transforms,
+                                 std::span<const Material* const> materials,
+                                 const MaterialOverrides*         overrides = nullptr ) const;
 
         void SubmitInstancedMesh( uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
                                   uint64_t                                             hiddenSubmeshes,

@@ -36,6 +36,9 @@ namespace Desert::Graphic
         /// One draw of @p material covering @p screenPixels: every 2D texture the material binds that an asset
         /// owns (Image::GetOwningAsset) is asked for at least that size this frame.
         void Note( const Material* material, float screenPixels );
+        /// One draw covering @p screenPixels that samples texture asset @p asset directly (a per-draw texture
+        /// override -- MaterialOverrides::Textures -- or a landscape layer). 0 = no asset: nothing.
+        void NoteAsset( const Common::AssetHandle& asset, float screenPixels );
 
         /// The frame's demand per texture asset (largest screen size in pixels), handed over and cleared.
         [[nodiscard]] std::unordered_map<Common::AssetHandle, float> TakeFrame();

@@ -222,6 +222,18 @@ namespace Desert::Graphic::API::Vulkan
         m_Slots.Release( slot.Index, m_Frame );
     }
 
+    void VulkanBindlessTextureTable::Rewrite( BindlessTextureSlot slot, const Image2D& image )
+    {
+        const auto* vulkanImage = dynamic_cast<const VulkanImage2D*>( &image );
+        DESERT_VERIFY( vulkanImage != nullptr && vulkanImage->GetResource().ImageView != VK_NULL_HANDLE,
+                       "bindless table: slot {} rewritten from an image without a Vulkan view", slot.Index );
+        const std::scoped_lock lock( m_Mutex );
+        DESERT_VERIFY( slot.Index < m_Views.size() && m_Views[slot.Index].View != VK_NULL_HANDLE,
+                       "bindless table: slot {} rewritten but not live", slot.Index );
+        m_Views[slot.Index] = { vulkanImage->GetResource().ImageView, vulkanImage->GetDefaultLayout() };
+        m_RewritePending    = true;
+    }
+
     void VulkanBindlessTextureTable::EndFrame( uint64_t frame, uint32_t framesInFlight )
     {
         const std::scoped_lock lock( m_Mutex );
@@ -244,8 +256,9 @@ namespace Desert::Graphic::API::Vulkan
             changed                 = changed || sampler != m_Samplers[index];
             m_Samplers[index]       = sampler;
         }
-        if ( changed )
+        if ( changed || m_RewritePending )
         {
+            m_RewritePending   = false;
             const auto rebuilt = Rebuild( m_Slots.Capacity() );
             DESERT_VERIFY( rebuilt.IsSuccess(), "{}", rebuilt.IsSuccess() ? std::string{} : rebuilt.GetError() );
         }

@@ -117,12 +117,9 @@ namespace Desert::Runtime
         /// frame, main thread, after PumpUploads: takes the frame's screen demand
         /// (Graphic::TextureStreamingDemand), turns it into the first mip each texture wants, fits the wanted set
         /// into the pool budget by dropping the least asked-for mips first, and starts the reads that move a
-        /// texture to its wanted mips. The new image replaces the old one when its upload runs; the materials that
-        /// bound it are rebuilt then.
+        /// texture to its wanted mips. The new levels go into the same texture when their upload runs
+        /// (Texture2D::ReplaceLevels): no material is rebuilt.
         void UpdateStreaming();
-
-        /// @p material bound @p texture's built image: it is rebuilt when streaming replaces that image.
-        void NoteBoundBy( const Assets::AssetHandle& texture, const Assets::AssetHandle& material ) const;
 
         /// Cooked results still waiting for their upload (tests, diagnostics).
         std::size_t PendingUploads() const;
@@ -181,8 +178,6 @@ namespace Desert::Runtime
         mutable uint64_t                m_NextCookTicket = 0;
         TextureUploadSettings           m_UploadSettings;
         TextureStreamingSettings        m_StreamingSettings;
-        /// Materials that bound each texture's built image, rebuilt when streaming replaces it.
-        mutable std::unordered_map<Assets::AssetHandle, std::unordered_set<Assets::AssetHandle>> m_BoundBy;
         uint64_t m_StreamingFrame = 0;
         uint64_t m_LoggedResident = 0, m_LoggedWanted = 0;
         /// Main thread: which asked-for cooks may run now; the rest wait as keys (SHOT-SETTLE-c).

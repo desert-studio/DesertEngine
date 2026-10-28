@@ -184,6 +184,35 @@ namespace Desert::Graphic
         return Common::MakeSuccess( texture );
     }
 
+    Common::BoolResultStr Texture2D::ReplaceLevels( CookedTexture2D cooked, const TextureBackend& backend )
+    {
+        auto* current = m_Service != nullptr ? dynamic_cast<Image2D*>( m_Service->Resolve( m_Handle ) ) : nullptr;
+        if ( current == nullptr )
+            return Common::MakeFormattedError<bool>( "texture '{}' has no resident image to replace", cooked.Tag );
+        const uint32_t width = cooked.Width, height = cooked.Height;
+        const std::size_t                         levelCount = cooked.Levels.size();
+        const Core::Formats::Image2DSpecification imageSpec  = { .Tag        = cooked.Tag,
+                                                                 .Width      = cooked.Width,
+                                                                 .Height     = cooked.Height,
+                                                                 .Format     = cooked.Format,
+                                                                 .Data       = std::move( cooked.Pixels ),
+                                                                 .Usage      = Core::Formats::Image2DUsage::Image2D,
+                                                                 .Properties = Core::Formats::Sample,
+                                                                 .MipLevels  = std::move( cooked.Levels ),
+                                                                 .ColorSpace = cooked.ColorSpace };
+        const std::shared_ptr<Image2D> staged = backend.Images.CreateImage2D( imageSpec );
+        if ( !staged )
+            return Common::MakeFormattedError<bool>( "the GPU image for texture '{}' ({}x{}, {} levels) was not created",
+                                                     imageSpec.Tag, width, height, levelCount );
+        // The ledger row moves with the pixels: the staged image is the asset's until it dies holding the old ones.
+        staged->ClaimOwnership( current->GetResourceOwner(), current->GetOwningAsset() );
+        if ( auto taken = current->TakeDeviceImageFrom( *staged ); !taken.IsSuccess() )
+            return taken;
+        m_Width  = width;
+        m_Height = height;
+        return Common::MakeSuccess( true );
+    }
+
     Common::ResultStr<std::shared_ptr<Texture2D>>
     Texture2D::Create( const std::string& tag, uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
                        Core::Formats::ImagePixelData&& data, const TextureBackend& backend )

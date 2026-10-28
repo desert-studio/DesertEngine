@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 
 #include <algorithm>
@@ -38,9 +39,15 @@ namespace Desert::Graphic
         auto [it, first] = m_MaterialTextures.try_emplace( material );
         if ( first )
         {
-            for ( const IProperty* property : material->GetRegisteredProperties() )
+            // The cell's 2D slots live on its executor (MaterialExecutor::GetTexture2DProperties); the
+            // registered properties are the reflected MPROPERTY fields only and never name a texture (p1 found
+            // nothing through them: 3.9 MB wanted of 992 MB).
+            const MaterialExecutor* executor = material->GetMaterialExecutor();
+            if ( executor == nullptr )
+                return;
+            for ( const auto& [name, index] : executor->GetTexture2DProperties() )
             {
-                const auto* slot = dynamic_cast<const Texture2DProperty*>( property );
+                const auto slot = executor->GetTexture2DProperty( name );
                 if ( slot == nullptr || slot->GetImage() == nullptr )
                     continue;
                 const Common::AssetHandle asset = slot->GetImage()->GetOwningAsset();
@@ -49,10 +56,15 @@ namespace Desert::Graphic
             }
         }
         for ( const Common::AssetHandle& asset : it->second )
-        {
-            float& wanted = m_Demand[asset];
-            wanted        = std::max( wanted, screenPixels );
-        }
+            NoteAsset( asset, screenPixels );
+    }
+
+    void TextureStreamingDemand::NoteAsset( const Common::AssetHandle& asset, const float screenPixels )
+    {
+        if ( static_cast<uint64_t>( asset ) == 0 || !( screenPixels > 0.0f ) )
+            return;
+        float& wanted = m_Demand[asset];
+        wanted        = std::max( wanted, screenPixels );
     }
 
     std::unordered_map<Common::AssetHandle, float> TextureStreamingDemand::TakeFrame()

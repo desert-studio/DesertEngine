@@ -3053,15 +3053,16 @@ namespace Desert::Graphic
         }
     } // namespace
 
-    void SceneRenderer::NoteTextureDemand( const Mesh& mesh, const std::span<const glm::mat4> transforms,
-                                           const std::span<MaterialInstance* const> materials ) const
+    float SceneRenderer::NoteTextureDemand( const Mesh& mesh, const std::span<const glm::mat4> transforms,
+                                            const std::span<const Material* const> materials,
+                                            const MaterialOverrides*               overrides ) const
     {
         const auto* camera = GetMainCamera();
         if ( camera == nullptr || transforms.empty() || GetViewExtent().Height == 0 )
-            return;
+            return 0.0f;
         const Common::Math::AABB local = Geometry::LocalBounds( mesh.GetSubmeshes() );
         if ( Geometry::IsEmpty( local ) )
-            return;
+            return 0.0f;
         const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
         // The largest any instance covers: the nearest instance decides what the shared textures must hold.
         float pixels = 0.0f;
@@ -3072,9 +3073,12 @@ namespace Desert::Graphic
                  pixels, TextureStreamingDemand::ScreenPixels( center, radius, view, GetViewExtent().Height ) );
         }
         auto& demand = TextureStreamingDemand::Get();
-        for ( MaterialInstance* instance : materials )
-            if ( instance != nullptr )
-                demand.Note( instance->GetParentMaterial(), pixels );
+        for ( const Material* material : materials )
+            demand.Note( material, pixels );
+        if ( overrides != nullptr )
+            for ( const auto& [slot, asset] : overrides->Textures )
+                demand.NoteAsset( Common::AssetHandle( asset ), pixels );
+        return pixels;
     }
 
     bool SceneRenderer::IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
@@ -3118,7 +3122,14 @@ namespace Desert::Graphic
         auto* drawnMesh = const_cast<Mesh*>( mesh );
         if ( !ReadyForDraw( *drawnMesh ) )
             return;
-        NoteTextureDemand( *drawnMesh, std::span<const glm::mat4>( &transform, 1 ), materialSlots->Slots );
+        {
+            // Main thread only (the submit path): one scratch list of the slots' parents, reused per draw.
+            static std::vector<const Material*> parents;
+            parents.clear();
+            for ( const MaterialInstance* slot : materialSlots->Slots )
+                parents.push_back( slot != nullptr ? slot->GetParentMaterial() : nullptr );
+            NoteTextureDemand( *drawnMesh, std::span<const glm::mat4>( &transform, 1 ), parents );
+        }
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitMesh( { .Entity                   = extra.Entity,
                              .MotionPart               = extra.MotionPart,
@@ -3144,6 +3155,22 @@ namespace Desert::Graphic
                                              const MaterialOverrides&           overrides,
                                              const System::LandscapeWeightDraw& weights )
     {
+        // TEX-STREAMING: the tile's layer textures are asked for at the size the tile covers; its sphere spans the
+        // tile's square around its base height, so a camera over the tile asks for everything.
+        if ( const auto* camera = GetMainCamera(); camera != nullptr && GetViewExtent().Height != 0 )
+        {
+            const float     side   = static_cast<float>( tile.QuadsPerTile ) * tile.SpacingCm;
+            const glm::vec3 center = { tile.OriginX + ( static_cast<float>( tile.FirstSampleX ) + 0.5f *
+                                                         static_cast<float>( tile.QuadsPerTile ) ) * tile.SpacingCm,
+                                       tile.BaseY,
+                                       tile.OriginZ + ( static_cast<float>( tile.FirstSampleZ ) + 0.5f *
+                                                         static_cast<float>( tile.QuadsPerTile ) ) * tile.SpacingCm };
+            const float pixels = TextureStreamingDemand::ScreenPixels(
+                 center, side * 0.70710678f, { camera->GetPosition(), camera->GetProjectionMatrix() },
+                 GetViewExtent().Height );
+            for ( const auto& [slot, asset] : overrides.Textures )
+                TextureStreamingDemand::Get().NoteAsset( Common::AssetHandle( asset ), pixels );
+        }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
@@ -3170,6 +3197,10 @@ namespace Desert::Graphic
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
+        if ( const float pixels =
+                  NoteTextureDemand( *mesh, std::span<const glm::mat4>( &transform, 1 ), {}, &overrides );
+             directTexture != nullptr )
+            TextureStreamingDemand::Get().NoteAsset( directTexture->GetOwningAsset(), pixels );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity               = entity,
                                     .Mesh                 = mesh,
@@ -3190,6 +3221,10 @@ namespace Desert::Graphic
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
+        {
+            const Material* const drawn[] = { material };
+            NoteTextureDemand( *mesh, std::span<const glm::mat4>( &transform, 1 ), drawn );
+        }
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity      = entity,
                                     .MotionPart  = motionPart,
@@ -3230,7 +3265,8 @@ namespace Desert::Graphic
             return;
         if ( transforms )
         {
-            MaterialInstance* const drawn[] = { material.get(), displacedMaterial.get() };
+            const Material* const drawn[] = { material ? material->GetParentMaterial() : nullptr,
+                                               displacedMaterial ? displacedMaterial->GetParentMaterial() : nullptr };
             NoteTextureDemand( *mesh, *transforms, drawn );
         }
         // NO CAST, AND THAT IS THE POINT. This used to read

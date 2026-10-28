@@ -144,6 +144,11 @@ namespace Desert::Graphic
         [[nodiscard]] virtual Common::ResultStr<BindlessTextureSlot> Register( const Image2D& image ) = 0;
         // Gives @p slot back; it is reused only after the frames in flight have retired (BindlessSlotAllocator).
         virtual void Release( BindlessTextureSlot slot ) = 0;
+        // @p slot names @p image's CURRENT view from the next frame on (Image2D::TakeDeviceImageFrom: the image kept
+        // its slot and changed its device image). The live set may be read by frames in flight, so the change
+        // lands in a NEW set made at EndFrame, as a sampler change does; this frame still reads the old view,
+        // which lives until its frames have completed.
+        virtual void Rewrite( BindlessTextureSlot slot, const Image2D& image ) = 0;
         // Once per frame, after the frame counter advanced: retires released slots and the descriptor sets that
         // growth or a sampler change replaced.
         virtual void EndFrame( uint64_t frame, uint32_t framesInFlight ) = 0;

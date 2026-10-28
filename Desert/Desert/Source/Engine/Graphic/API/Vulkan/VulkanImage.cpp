@@ -1081,6 +1081,52 @@ namespace Desert::Graphic::API::Vulkan
         return m_MipViews[level];
     }
 
+    Common::BoolResultStr VulkanImage2D::TakeDeviceImageFrom( Image2D& replacement )
+    {
+        auto* other = dynamic_cast<VulkanImage2D*>( &replacement );
+        if ( other == nullptr || other == this )
+            return Common::MakeFormattedError<bool>( "image '{}': TakeDeviceImageFrom needs another Vulkan 2D image",
+                                                     m_Specification.Tag );
+        const auto plain = []( const Core::Formats::Image2DSpecification& spec )
+        {
+            return spec.Usage == Core::Formats::Image2DUsage::Image2D &&
+                   ( spec.Properties & Core::Formats::Storage ) == 0 && spec.Samples <= 1 && spec.ArrayLayers == 0;
+        };
+        if ( !plain( m_Specification ) || !plain( other->m_Specification ) )
+            return Common::MakeFormattedError<bool>(
+                 "image '{}': TakeDeviceImageFrom swaps plain sampled 2D images only ('{}' or this one is an "
+                 "attachment, storage, multisampled or array image)",
+                 m_Specification.Tag, other->m_Specification.Tag );
+        if ( m_Specification.Format != other->m_Specification.Format )
+            return Common::MakeFormattedError<bool>( "image '{}': TakeDeviceImageFrom across formats ({} <- {})",
+                                                     m_Specification.Tag, static_cast<int>( m_Specification.Format ),
+                                                     static_cast<int>( other->m_Specification.Format ) );
+        if ( !other->m_IsLoaded || other->m_Resource.Image == VK_NULL_HANDLE )
+            return Common::MakeFormattedError<bool>( "image '{}': TakeDeviceImageFrom an image with no device image",
+                                                     m_Specification.Tag );
+
+        // The graph's cached handles name each side's own VkImage: both are retired, and remade on next import.
+        DropGraphTexture();
+        other->DropGraphTexture();
+        std::swap( m_Specification, other->m_Specification );
+        std::swap( m_Resource, other->m_Resource );
+        std::swap( m_MipViews, other->m_MipViews );
+        std::swap( m_EncodedView, other->m_EncodedView );
+        std::swap( m_IsLoaded, other->m_IsLoaded );
+        m_ResourceGeneration        = NextResourceGeneration();
+        other->m_ResourceGeneration = NextResourceGeneration();
+        RecordDeviceBytes( VulkanAllocator::AllocationSize( m_Resource.Allocation ) );
+        other->RecordDeviceBytes( VulkanAllocator::AllocationSize( other->m_Resource.Allocation ) );
+
+        // The bindless slot is this image's for its life (rows and layer tables hold its index): it is pointed at
+        // the new view. An image that had none takes the replacement's, which then has nothing to release.
+        if ( m_BindlessSlot.IsValid() )
+            GetBindlessTextureTable().Rewrite( m_BindlessSlot, *this );
+        else
+            std::swap( m_BindlessSlot, other->m_BindlessSlot );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr VulkanImage2D::CopyLayersFrom( std::span<const Image2D* const> sources )
     {
         if ( !m_IsLoaded || m_Resource.Image == VK_NULL_HANDLE )

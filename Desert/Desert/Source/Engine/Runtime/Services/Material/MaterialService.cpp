@@ -56,8 +56,6 @@ namespace Desert::Runtime
                                       "schema default instead.",
                                       asset.GetMetadata().Filepath.string(), handle, param.Name, shaderName );
                              setSlot( param.Name, img );
-                             // TEX-STREAMING: a streamed texture's image is replaced; this material rebinds then.
-                             textures->NoteBoundBy( Common::UUID( handle ), asset.GetMetadata().Handle );
                              return;
                          }
                      }
