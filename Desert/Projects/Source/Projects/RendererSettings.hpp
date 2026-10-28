@@ -14,6 +14,13 @@ namespace Desert::Project
         // TSR.DetectThinGeometry). A project setting in UE too, not a scalability row: it costs a pass and a
         // history, and only a project with such content wants it.
         bool TsrThinGeometryDetection = false;
+        // UE's high-DPI game viewport switch (r.SecondaryScreenPercentage.GameViewport, auto mode, off unless the
+        // project opts in): false -- the GAME's view renders at the window's logical (point) resolution, the
+        // display's pixels / Window::GetContentScale, and the present blit upscales it to the swapchain; on a
+        // Retina panel that is half the pixels per side, a quarter of every resolution-proportional target and
+        // history. true -- the view renders at the native pixels. The quality's Resolution.Percent applies on top
+        // of either (the temporal upscaler reconstructs up to this extent). The editor's viewports ignore it.
+        bool GameViewportHighDPI = false;
     };
 
     // The open project's Config/Engine.json, read once per project directory. A project without the file gets

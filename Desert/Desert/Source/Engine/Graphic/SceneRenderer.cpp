@@ -373,11 +373,9 @@ namespace Desert::Graphic
             }
             case 5:
             {
-                const auto& jumpFloodSystem =
-                     SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
-                // Tonemap consumes the Jump Flood output (the outlined scene).
-                RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this,
-                                                         jumpFloodSystem->GetSystemFramebuffer() );
+                // The tonemap reads the frame's post input, or the outline's transient output when something is
+                // outlined (AddFrameJumpFlood); its own image is sized from the scene target here.
+                RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this, m_TargetFramebuffer );
                 const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
                 if ( !tonemapSystem->Initialize() )
                     LOG_ERROR(
@@ -3047,9 +3045,7 @@ namespace Desert::Graphic
             overdrawFb->Resize( width, height );
 #endif
 
-        // The outline's composite reads the scene target: the scene's extent.
-        UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] )
-             ->OnResize( width, height );
+        // The outline keeps no image: its seeds and output are the frame's transients at the scene's extent.
     }
 
     namespace
