@@ -14,8 +14,8 @@ namespace Desert::Editor
     // The Scalability panel's anti-aliasing choice as palette commands, so the control channel (DesertCtl
     // `run`) and the keyboard reach the SAME apply point the combo uses: QualityState::SetOverride, which
     // resolves, logs a fallback once and saves machine.json. One entry per value the device's CapabilityCatalog
-    // offers: None, FXAA, SMAA and MSAA at each catalog sample count > 1. The temporal methods are left out until
-    // a pass runs them (TAA1), as in the panel.
+    // offers: every method by its name (the temporal ones too: TAA, TSR, DLSS, DLSS Ray Reconstruction, FSR) and
+    // MSAA once per catalog sample count > 1.
     //
     // MSAA entries stay in the list in every scene (AA2): they STORE the machine's choice, which applies in
     // forward scenes; a deferred scene runs FXAA (Scalability::ResolveAntiAliasingForPath).
@@ -54,16 +54,15 @@ namespace Desert::Editor
         std::vector<PaletteCommand> commands;
         for ( const AntiAliasingMethod method : catalog.AntiAliasingMethods )
         {
-            if ( method == AntiAliasingMethod::None || method == AntiAliasingMethod::FXAA ||
-                 method == AntiAliasingMethod::SMAA )
-                commands.push_back( { "Anti-Aliasing",
-                                      std::format( "Anti-Aliasing: {}", rfl::enum_to_string( method ) ),
-                                      choose( method, 0 ) } );
-            else if ( method == AntiAliasingMethod::MSAA )
+            if ( method == AntiAliasingMethod::MSAA )
                 for ( const int samples : catalog.MSAACounts )
                     if ( samples > 1 )
                         commands.push_back( { "Anti-Aliasing", std::format( "Anti-Aliasing: MSAA {}x", samples ),
                                               choose( AntiAliasingMethod::MSAA, samples ) } );
+            else
+                commands.push_back( { "Anti-Aliasing",
+                                      std::format( "Anti-Aliasing: {}", rfl::enum_to_string( method ) ),
+                                      choose( method, 0 ) } );
         }
         return commands;
     }
