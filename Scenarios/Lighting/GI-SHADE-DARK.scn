@@ -1,6 +1,6 @@
 # GI-SHADE-DARK: under SoftwareTraced GI the shade of Bistro's street must not be darker than with GI Off. UE Lumen:
 # the sky reaches the shade through the traced rays' misses (and the bounce), so a shaded street is never darker than
-# the GI-less skylight ambient. FIELD_Barn (on SoftwareTraced since 941628e4a): tree shadows carry the sky's colour.
+# the GI-less skylight ambient. The field is GI-SHADE-DARK-FIELD.scn (FIELD_Barn lives in the default project).
 Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
 Дано run Quality "Quality: GlobalIllumination.Method SoftwareTraced"
 Дано run View "View mode: Lit"
@@ -16,13 +16,3 @@
 Тогда-вид 2_bistro_off the same street without GI: the skylight ambient reference
 Когда run View "View mode: Indirect Lighting (GI)"
 Тогда-вид 2b_bistro_off_indirect the skylight ambient alone (GI Off)
-Когда run View "View mode: Lit"
-Когда run Quality "Quality: GlobalIllumination.Method Level"
-Когда run Scene "Open Scene FIELD_Barn.desce"
-Когда run View "View mode: Lit"
-Когда run Entity "Sun"
-Когда --subject selection set SunElevation 40
-Когда --subject selection set SunAzimuth 20
-Когда --subject viewport set Camera.Position 0,900,2500
-Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
-Тогда-вид 3_field the field on dev's GI (SoftwareTraced): tree shadows carry the sky's colour, not black

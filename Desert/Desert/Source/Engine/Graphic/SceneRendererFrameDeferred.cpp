@@ -552,7 +552,7 @@ namespace Desert::Graphic
         textures.Transients.RadianceCacheIrradiance  = cache.GetValue().Irradiance;
         textures.Transients.RadianceCacheDepth       = cache.GetValue().Depth;
 
-        // The cards' indirect light off this update (the radiosity slot): the frame's relit pages - by the view
+        // The cards' radiosity (UE LumenRadiosity, this frame's tracer): the frame's relit pages - by the view
         // that updated the cache this frame (a lent cache already updated this frame is read, not relit).
         SurfaceCache::SurfaceCacheRenderer* const surfaceCache = ReadSurfaceCache();
         if ( surfaceCache != nullptr && m_SurfaceCacheFrame && m_SurfaceCacheFrame->Updated )
@@ -560,11 +560,22 @@ namespace Desert::Graphic
             const GlobalIllumination::RadianceCacheFrame& rc = cache.GetValue();
             if ( const auto lit = surfaceCache->AddIndirectLightingPass(
                       graph, import, m_SurfaceCacheFrame->Scene, m_SurfaceCacheFrame->Buffers,
-                      { .Params      = rc.Params,
-                        .Indirection = rc.Indirection,
-                        .Probes      = rc.Probes,
-                        .Irradiance  = rc.Irradiance,
-                        .Depth       = rc.Depth } );
+                      { .Params          = rc.Params,
+                        .Indirection     = rc.Indirection,
+                        .Probes          = rc.Probes,
+                        .Irradiance      = rc.Irradiance,
+                        .Depth           = rc.Depth,
+                        .Tracer          = inputs.Tracer,
+                        .Hits            = inputs.SurfaceCache,
+                        .GIFrame         = inputs.GIFrame,
+                        .PointLights     = inputs.PointLights,
+                        .SpotLights      = inputs.SpotLights,
+                        .WorldGridParams = inputs.WorldGridParams,
+                        .WorldGridCells  = inputs.WorldGridCells,
+                        .EnvSpecular     = inputs.EnvSpecular,
+                        .GBufferDepth    = inputs.GBufferDepth,
+                        .GBufferA        = inputs.GBufferA,
+                        .GBufferEmissive = inputs.GBufferEmissive } );
                  !lit )
                 LOG_ERROR( "[SceneRenderer] Surface Cache: {}", lit.GetError() );
         }

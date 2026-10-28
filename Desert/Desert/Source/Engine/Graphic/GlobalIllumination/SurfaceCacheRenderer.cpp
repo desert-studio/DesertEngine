@@ -74,6 +74,31 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, RadianceCacheDepthTexture );
         DESERT_SHADER_PARAMETER( Texture, AtlasDirectLightingTexture );
         DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, RadiosityTraceTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp). The cards a hit reads (and the
+    // probes stand on) are GlobalIllumination::DeclareSurfaceCacheReads', the tracer's DeclareTracerReads'.
+    struct SurfaceCacheRadiosityTraceShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, SurfaceLightingPages );
+        DESERT_SHADER_PARAMETER( Texture, AtlasNormalTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PointLightsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SpotLightsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LightGridParamsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LightGridWorldCellsUB );
+        DESERT_SHADER_PARAMETER( Texture, EnvironmentSpecularTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferEmissiveTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheParamsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheIndirectionUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheProbesUB );
+        DESERT_SHADER_PARAMETER( Texture, RadianceCacheIrradianceTexture );
+        DESERT_SHADER_PARAMETER( Texture, RadianceCacheDepthTexture );
     };
 } // namespace
 
@@ -105,6 +130,19 @@ namespace Desert::Graphic::SurfaceCache
             glm::uvec4 Flags{ 0u }; // x = 1: the pages keep their IndirectLighting (it runs this frame)
         };
         static_assert( sizeof( DirectLightingPush ) == 80 );
+
+        // Programs/SurfaceCache/SurfaceCacheRadiosityTrace.shader SurfaceRadiosityPush.
+        struct RadiosityTracePush
+        {
+            glm::uvec4 Frame{ 0u };     // x = frame index (the strata's jitter), y = 1: no history
+            glm::vec4  Weights{ 0.0f }; // x = the new sample's weight against the history
+        };
+        static_assert( sizeof( RadiosityTracePush ) == 32 );
+
+        // UE r.LumenScene.Radiosity.Temporal.MaxFramesAccumulated: a relit texel's new sample weighs 1 / this.
+        constexpr float    kRadiosityMaxFramesAccumulated = 4.0f;
+        constexpr std::string_view kRadiosityTraceName    = "SurfaceCache.RadiosityTrace";
+        constexpr std::string_view kRadiosityShaderName   = "SurfaceCacheRadiosityTrace";
 
         struct SceneViewPush
         {
@@ -236,6 +274,25 @@ namespace Desert::Graphic::SurfaceCache
                 return Common::MakeFormattedError<bool>( "surface cache: atlas layer {} ({}²) not created",
                                                          kLitLayerNames[i], budget.AtlasSize );
         }
+        {
+            // The radiosity trace atlas: a colour target of the radiosity trace, sampled by its integration.
+            const Core::Formats::Image2DSpecification spec{
+                 .Tag        = std::string( kRadiosityTraceName ),
+                 .Width      = budget.AtlasSize,
+                 .Height     = budget.AtlasSize,
+                 .Format     = Core::Formats::ImageFormat::R11G11B10F,
+                 .Mips       = 1,
+                 .Samples    = 1,
+                 .Data       = Core::Formats::EmptyPixelData{},
+                 .Usage      = Core::Formats::Image2DUsage::Attachment,
+                 .Properties = Core::Formats::Storage | Core::Formats::Sample,
+            };
+            m_RadiosityTrace = Image2D::Create( spec );
+            if ( !m_RadiosityTrace )
+                return Common::MakeFormattedError<bool>( "surface cache: atlas layer {} ({}²) not created",
+                                                         kRadiosityTraceName, budget.AtlasSize );
+            m_ResetRadiosity = true;
+        }
         m_AtlasSize = budget.AtlasSize;
         return BOOLSUCCESS;
     }
@@ -270,7 +327,8 @@ namespace Desert::Graphic::SurfaceCache
         {
             if ( m_LitBy )
                 m_Scene.InvalidateLighting();
-            m_LitBy = lighting;
+            m_LitBy          = lighting;
+            m_ResetRadiosity = true;
         }
         SceneFrame scene = m_Scene.Update( instances, camera );
         m_FrameUpdate    = FrameUpdate{ .Frame = engineFrame, .Camera = camera, .Instances = inputs, .Scene = scene };
@@ -501,7 +559,44 @@ namespace Desert::Graphic::SurfaceCache
 
     std::vector<Core::CookedProgramVariant> SurfaceCacheRenderer::ProgramVariants()
     {
-        return GlobalIllumination::TracerProgramVariants( kDirectLightingShaderName );
+        std::vector<Core::CookedProgramVariant> variants =
+             GlobalIllumination::TracerProgramVariants( kDirectLightingShaderName );
+        for ( auto& variant : GlobalIllumination::TracerProgramVariants( kRadiosityShaderName ) )
+            variants.push_back( std::move( variant ) );
+        return variants;
+    }
+
+    Common::BoolResultStr SurfaceCacheRenderer::EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer )
+    {
+        if ( m_RadiosityPipeline && tracer == m_RadiosityProgramFor )
+            return BOOLSUCCESS;
+        auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+             std::string( kRadiosityShaderName ), GlobalIllumination::TracerVariant( tracer ) );
+        if ( !shader )
+            return Common::MakeFormattedError<bool>( "surface cache: shader {} ({}) did not compile",
+                                                     kRadiosityShaderName,
+                                                     GlobalIllumination::TracerDefine( tracer.Tracer ) );
+        // One quad per relit page into the trace atlas, blended with the history by the sample's weight
+        // (src alpha; the target keeps no alpha of its own).
+        GraphicsPipelineSpecification spec;
+        spec.DebugName =
+             std::format( "{} ({})", kRadiosityShaderName, GlobalIllumination::TracerDefine( tracer.Tracer ) );
+        spec.TargetLayout        = RenderTargetLayout{ .ColorFormats = { Core::Formats::ImageFormat::R11G11B10F },
+                                                       .DepthFormat  = std::nullopt,
+                                                       .Samples      = 1 };
+        spec.Shader              = shader;
+        spec.DepthTestEnabled    = false;
+        spec.DepthWriteEnabled   = false;
+        spec.BlendEnable         = true;
+        spec.SrcColorBlendFactor = BlendFactor::SrcAlpha;
+        spec.DstColorBlendFactor = BlendFactor::OneMinusSrcAlpha;
+        const auto pipeline      = GraphicsPipeline::Create( spec );
+        if ( !pipeline )
+            return Common::MakeError<bool>( pipeline.GetError() );
+        m_RadiosityShader     = std::move( shader );
+        m_RadiosityPipeline   = pipeline.GetValue();
+        m_RadiosityProgramFor = tracer;
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr SurfaceCacheRenderer::EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer )
@@ -645,6 +740,18 @@ namespace Desert::Graphic::SurfaceCache
              !inputs.Irradiance.IsValid() || !inputs.Depth.IsValid() )
             return Common::MakeError<bool>(
                  "surface cache indirect lighting: the world radiance cache was not updated this frame" );
+        if ( const std::string_view missing = GlobalIllumination::TracerFrameMissing( inputs.Tracer );
+             !missing.empty() )
+            return Common::MakeFormattedError<bool>( "surface cache radiosity: {}", missing );
+        if ( const std::string_view missing = GlobalIllumination::SurfaceCacheFrameMissing( inputs.Hits );
+             !missing.empty() )
+            return Common::MakeFormattedError<bool>( "surface cache radiosity: {}", missing );
+        if ( !inputs.GIFrame.IsValid() || !inputs.PointLights.IsValid() || !inputs.SpotLights.IsValid() ||
+             !inputs.WorldGridParams.IsValid() || !inputs.WorldGridCells.IsValid() || !inputs.EnvSpecular.IsValid() ||
+             !inputs.GBufferDepth.IsValid() || !inputs.GBufferA.IsValid() || !inputs.GBufferEmissive.IsValid() )
+            return Common::MakeError<bool>( "surface cache radiosity: the GI ray contract's reads are incomplete" );
+        if ( const auto program = EnsureRadiosityProgram( inputs.Tracer.Pipeline ); !program )
+            return program;
         std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
         for ( std::size_t i = 0; i < layers.size(); ++i )
             layers[i] = import( m_Layers[i], kLayerNames[i] );
@@ -654,6 +761,54 @@ namespace Desert::Graphic::SurfaceCache
         GraphicsPipeline* const raw      = m_IndirectPipeline.get();
         const uint32_t          count    = static_cast<uint32_t>( frame.LightingPages.size() );
         const auto              all      = RDG::SubresourceRange::All();
+        const RDG::TextureRef   trace    = import( m_RadiosityTrace, kRadiosityTraceName );
+
+        // The radiosity probes' trace (UE LumenRadiosity's trace), one ray per atlas texel of the relit pages.
+        RadiosityTracePush tracePush;
+        tracePush.Frame.x   = m_FrameUpdate ? static_cast<uint32_t>( m_FrameUpdate->Frame ) : 0u;
+        tracePush.Frame.y   = m_ResetRadiosity ? 1u : 0u;
+        tracePush.Weights.x = 1.0f / kRadiosityMaxFramesAccumulated;
+        m_ResetRadiosity    = false;
+        GraphicsPipeline* const traceRaw = m_RadiosityPipeline.get();
+        graph.AddPass(
+             std::format( "SurfaceCache: Radiosity Trace ({} pages)", count ), RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 using P            = SurfaceCacheRadiosityTraceShaderParameters;
+                 const auto& layout = m_RadiosityLayout.Get( m_RadiosityShader );
+                 auto        block  = pass.Bindings( layout, RDG::OtherRouteFill{} );
+                 constexpr RDG::Access kR = RDG::Access::StorageRead;
+                 constexpr RDG::Access kS = RDG::Access::SampledGraphics;
+                 block.Storage( P::SurfaceLightingPages, buffers.LightingPages, kR )
+                      .Storage( P::GIFrameUB, inputs.GIFrame, kR )
+                      .Storage( P::PointLightsUB, inputs.PointLights, kR )
+                      .Storage( P::SpotLightsUB, inputs.SpotLights, kR )
+                      .Storage( P::LightGridParamsUB, inputs.WorldGridParams, kR )
+                      .Storage( P::LightGridWorldCellsUB, inputs.WorldGridCells, kR )
+                      .Storage( P::RadianceCacheParamsUB, inputs.Params, kR )
+                      .Storage( P::RadianceCacheIndirectionUB, inputs.Indirection, kR )
+                      .Storage( P::RadianceCacheProbesUB, inputs.Probes, kR )
+                      .Texture( P::RadianceCacheIrradianceTexture, inputs.Irradiance, kS, all )
+                      .Sampler( P::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                      .Texture( P::RadianceCacheDepthTexture, inputs.Depth, kS, all )
+                      .Texture( P::EnvironmentSpecularTexture, inputs.EnvSpecular, kS, all )
+                      .Texture( P::GBufferDepthTexture, inputs.GBufferDepth, kS, all )
+                      .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                      .Texture( P::GBufferATexture, inputs.GBufferA, kS, all )
+                      .Texture( P::GBufferEmissiveTexture, inputs.GBufferEmissive, kS, all )
+                      .Texture( P::AtlasNormalTexture, layers[3], kS, all )
+                      .PushConstantBytes( static_cast<uint32_t>( sizeof( RadiosityTracePush ) ) );
+                 GlobalIllumination::DeclareSurfaceCacheReads( block, inputs.Hits, kS );
+                 GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
+                 pass.ColorTarget( 0, trace, RDG::LoadOp::Load() );
+             },
+             [traceRaw, tracePush, count]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 bindings.PushConstants( &tracePush, static_cast<uint32_t>( sizeof( tracePush ) ) );
+                 return Renderer::DrawProcedural( bindings, *traceRaw, nullptr, 6u, count );
+             } );
+
         graph.AddPass(
              std::format( "SurfaceCache: Indirect Lighting ({} pages)", count ), RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -681,7 +836,9 @@ namespace Desert::Graphic::SurfaceCache
                       .Texture( SurfaceCacheIndirectLightingShaderParameters::AtlasDirectLightingTexture, direct,
                                 RDG::Access::SampledGraphics, all )
                       .Sampler( SurfaceCacheIndirectLightingShaderParameters::PointClampSampler,
-                                RDG::SamplerDesc::PointClamp() );
+                                RDG::SamplerDesc::PointClamp() )
+                      .Texture( SurfaceCacheIndirectLightingShaderParameters::RadiosityTraceTexture, trace,
+                                RDG::Access::SampledGraphics, all );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      block.Texture( kLayerTextures[i], layers[i], RDG::Access::SampledGraphics, all )
                           .Sampler( SurfaceCacheIndirectLightingShaderParameters::PointClampSampler,
