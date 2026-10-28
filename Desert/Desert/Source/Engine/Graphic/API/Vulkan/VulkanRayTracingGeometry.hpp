@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanGeometryAddress.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingBuildInput.hpp>
 
 #include <VulkanAllocator/vk_mem_alloc.h>
@@ -38,9 +39,12 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_Ledger.GetBytes();
         }
+        // The hit's attribute streams at their CURRENT addresses (VulkanGeometryAddress.hpp: a pool arena that grew
+        // since the build moved them).
         [[nodiscard]] RayTracing::RayTracingGeometryLayout GetMetadataLayout() const override
         {
-            return RayTracing::MeshAttributeLayout( m_VertexAddress, m_IndexAddress, m_Segments, false );
+            return RayTracing::MeshAttributeLayout( CurrentGeometryAddress( m_Vertices ),
+                                                    CurrentGeometryAddress( m_Indices ), m_Segments, false );
         }
         [[nodiscard]] VkAccelerationStructureKHR GetHandle() const
         {
@@ -67,7 +71,7 @@ namespace Desert::Graphic::API::Vulkan
         ResourceOwnership                     m_Ledger; // the storage's row; released with this object
         // What the BLAS was built from (GetMetadataLayout); the mesh holds the buffers as long as it holds this.
         std::vector<RayTracing::RayTracingGeometrySegment> m_Segments;
-        VkDeviceAddress                                    m_VertexAddress = 0;
-        VkDeviceAddress                                    m_IndexAddress  = 0;
+        VertexBufferRange                                  m_Vertices;
+        IndexBufferRange                                   m_Indices;
     };
 } // namespace Desert::Graphic::API::Vulkan
