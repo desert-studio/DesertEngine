@@ -231,19 +231,21 @@ namespace Desert::Graphic::System
 
         // Every variant the renderer can acquire, cooked by the package (PackageCook CookShaderVariants): the
         // untraced front layer (FrontLayerVariant); "SSR" under each tracer permutation
-        // (GlobalIllumination::kTracerPermutations) from either surface, and on the hardware tracer the hit-lit
-        // permutation with its ray generation ("SSR/HitLighting").
+        // (GlobalIllumination::kTracerPermutations) from either surface. A permutation is hit-lit exactly when its
+        // hits are lit in place (SceneRenderer::ReflectionsTracer: Hits = InPlace iff ReflectionsHitLit), and only
+        // then does it carry the ray generation ("SSR/HitLighting"). Like UE's ShouldCompilePermutation, a
+        // combination the renderer can never select (hit-lit over the surface cache: SSRTrace.glslh's #error) is
+        // not cooked at all.
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
         {
             std::vector<Core::CookedProgramVariant> variants{ { "SSR", FrontLayerVariant() } };
             for ( const ReflectingSurface surface : { ReflectingSurface::Opaque, ReflectingSurface::TranslucentFrontLayer } )
                 for ( const GlobalIllumination::Pipeline& pipeline : GlobalIllumination::kTracerPermutations )
                 {
-                    variants.push_back( { "SSR", TracedVariant( pipeline, false, surface ) } );
-                    if ( pipeline.Tracer != GlobalIllumination::Tracer::HardwareRayQuery )
-                        continue;
-                    variants.push_back( { "SSR", TracedVariant( pipeline, true, surface ) } );
-                    variants.push_back( { "SSR/HitLighting", TracedVariant( pipeline, true, surface ) } );
+                    const bool hitLit = pipeline.Hits == GlobalIllumination::HitLighting::InPlace;
+                    variants.push_back( { "SSR", TracedVariant( pipeline, hitLit, surface ) } );
+                    if ( hitLit )
+                        variants.push_back( { "SSR/HitLighting", TracedVariant( pipeline, true, surface ) } );
                 }
             return variants;
         }
