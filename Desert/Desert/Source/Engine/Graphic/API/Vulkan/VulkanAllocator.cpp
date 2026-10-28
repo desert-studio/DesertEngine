@@ -154,9 +154,56 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( s_VmaAllocator != VK_NULL_HANDLE )
         {
+            // The device is idle here (VulkanContext::Shutdown drained the queues first): the zero buffer no
+            // longer has a reader.
+            if ( m_ZeroBufferAllocation != VK_NULL_HANDLE )
+            {
+                vmaDestroyBuffer( s_VmaAllocator, m_ZeroBuffer, m_ZeroBufferAllocation );
+                m_Ledger.Release( LedgerKey( m_ZeroBufferAllocation ) );
+                m_ZeroBuffer           = VK_NULL_HANDLE;
+                m_ZeroBufferAllocation = VK_NULL_HANDLE;
+            }
             vmaDestroyAllocator( s_VmaAllocator );
             s_VmaAllocator = VK_NULL_HANDLE;
         }
+    }
+
+    Common::ResultStr<VkBuffer> VulkanAllocator::RT_ZeroBuffer()
+    {
+        const std::scoped_lock lock( m_ZeroBufferMutex );
+        if ( m_ZeroBuffer != VK_NULL_HANDLE )
+            return Common::MakeSuccess( m_ZeroBuffer );
+        constexpr VkDeviceSize kBytes = 65536;
+        const VkBufferCreateInfo info{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                       .size  = kBytes,
+                                       .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+                                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
+        VkBuffer   buffer    = VK_NULL_HANDLE;
+        const auto allocated = RT_AllocateBuffer( "ZeroBuffer", info, VMA_MEMORY_USAGE_CPU_TO_GPU, buffer );
+        if ( !allocated.IsSuccess() )
+            return Common::MakeError<VkBuffer>( allocated.GetError() );
+        const VmaAllocation allocation = allocated.GetValue();
+        {
+            MappedMemory mapped = MapMemory( allocation );
+            if ( const auto filled = mapped.Fill( 0, kBytes ); !filled.IsSuccess() )
+            {
+                vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
+                m_Ledger.Release( LedgerKey( allocation ) );
+                return Common::MakeFormattedError<VkBuffer>( "zeroing the zero buffer failed: {}",
+                                                             filled.GetError() );
+            }
+        }
+        if ( const VkResult flushed = vmaFlushAllocation( s_VmaAllocator, allocation, 0, VK_WHOLE_SIZE );
+             flushed != VK_SUCCESS )
+        {
+            vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
+            m_Ledger.Release( LedgerKey( allocation ) );
+            return Common::MakeFormattedError<VkBuffer>( "flushing the zero buffer failed: {}",
+                                                         VkResultToString( flushed ) );
+        }
+        m_ZeroBuffer           = buffer;
+        m_ZeroBufferAllocation = allocation;
+        return Common::MakeSuccess( m_ZeroBuffer );
     }
 
     VmaAllocator& VulkanAllocator::GetVMAAllocator()

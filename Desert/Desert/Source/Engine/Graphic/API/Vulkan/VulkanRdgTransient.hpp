@@ -16,25 +16,21 @@ namespace Desert::Graphic::API::Vulkan
 {
     // RDG-CONTRACTS A(1). The Vulkan ITransientAllocator; REPLACES VulkanRdgPool for every non-extracted
     // transient (the pool survives only for extracted transients, which need a dedicated allocation).
-    // Responsibility: per graph, one VkDeviceMemory block per TransientHeapDesc (vmaAllocateMemory
+    // Responsibility: per frame slot and graph, one VkDeviceMemory block per TransientHeapDesc (vmaAllocateMemory
     // with MemoryTypeBits = the heap's intersection, size = Bytes, alignment = Alignment), and images / buffers
     // created with the same create info VulkanRdgMemoryRequirements measured (so the plan's size is the size
-    // bound) and bound with vmaBindImageMemory2 / vmaBindBufferMemory2 at the allocation's offset.
-    // THE HEAP CACHE (BISTRO-MEM-2 p3, UE FRHITransientHeapCache + FRHITransientResourceAllocator): a graph holds
-    // its heaps only from ReserveHeaps to EndGraph, then forfeits them to ONE cache shared by every graph and
-    // frame slot; the next graph takes the smallest cached heap that fits without wasting more than half of it.
-    // Transient memory is therefore the largest graph's plan (plus what is in flight), not the sum over every
-    // graph of every slot (p2: 29 heaps, 770 MB on Bistro). A heap whose last user may still be executing is
-    // taken only by a graphics-only graph, after its last user in queue submission order: the backend records
-    // one full memory barrier before that graph's first command (TakeCrossGraphBarrier), as UE's aliasing
-    // barrier against the previous graph. A graph with an async-compute segment, and a heap an async-compute
-    // graph gave up, wait for the fence (another queue is not ordered by that barrier). Placed images/buffers
-    // are cached ON THE HEAP by (offset, desc, usage), so a stable sequence of graphs reuses its VkImages; a
-    // placed resource unused for kGarbageCollectLatency frames, and a heap no graph took for as long, are
-    // destroyed once fenced.
+    // bound) and bound with vmaBindImageMemory2 / vmaBindBufferMemory2 at the allocation's offset. Placed
+    // resources are cached per (slot, graph, heap, offset, desc, usage) so an unchanged plan reuses its VkImage
+    // objects; a changed plan destroys the stale ones at the slot's next BeginFrameSlot.
+    // THE HEAP POOL (BISTRO-MEM-2, UE FRHITransientHeapCache): a heap a graph gives up - grown out, no longer in
+    // its plan, its graph not recorded, or kept oversized for kGarbageCollectLatency of the slot's frames - goes
+    // to the slot's pool, not to the driver; the next graph of the slot asking for that class and memory type
+    // takes the smallest pooled heap that fits without wasting more than half of it, and a heap idle in the pool
+    // for kGarbageCollectLatency frames is freed. Pooled heaps were last used by this slot's previous frame
+    // (fenced at BeginFrameSlot) and nothing of this frame used them before: reusing their bytes needs no barrier.
     // Who calls it: VulkanRdgBackend::BeginGraph / EndGraph / AbandonGraph, and the renderer's frame loop
     // (BeginFrameSlot, right after the frames-in-flight fence wait - where VulkanRdgPool::BeginFrame is called
-    // today). Never: free memory a submitted, unwaited frame may use; bind two live resources of the
+    // today). Never: free or rebind memory a submitted, unwaited frame may use; bind two live resources of the
     // same graph to intersecting bytes unless the plan's lifetimes are disjoint.
     class VulkanRdgTransientAllocator final : public RDG::ITransientAllocator
     {
@@ -58,78 +54,78 @@ namespace Desert::Graphic::API::Vulkan
         void                                                      EndGraph( std::string_view graph ) override;
         [[nodiscard]] RDG::TransientAllocatorStats                GetStats() const override;
 
-        // ReserveHeaps for a graph whose compile result is known: @p asyncCompute = it has an AsyncCompute
-        // segment (it may then take only fenced heaps). The interface's ReserveHeaps assumes it does.
-        Common::BoolResultStr ReserveGraphHeaps( std::string_view                        graph,
-                                                 std::span<const RDG::TransientHeapDesc> heaps,
-                                                 bool                                    asyncCompute );
-        // True once after a ReserveGraphHeaps that took a heap an unfenced graph used: the caller records a full
-        // memory barrier (all commands, memory write -> read/write) before the graph's first command.
-        [[nodiscard]] bool TakeCrossGraphBarrier() noexcept
-        {
-            const bool needed   = m_CrossGraphBarrier;
-            m_CrossGraphBarrier = false;
-            return needed;
-        }
-
     private:
-        // UE RHI transient allocator's GarbageCollectLatency: frames a cached heap or a placed resource may stay
-        // unused before it is destroyed.
-        static constexpr uint64_t kGarbageCollectLatency = 16;
-        struct PlacedTexture
-        {
-            uint64_t                          Offset     = 0;
-            uint32_t                          AccessMask = 0;
-            std::shared_ptr<VulkanRdgTexture> Resource;
-            uint64_t                          LastGraph = 0; // m_GraphSerial of its last hand-out
-            uint64_t                          LastFrame = 0;
-        };
-        struct PlacedBuffer
-        {
-            uint64_t                         Offset     = 0;
-            uint32_t                         AccessMask = 0;
-            RDG::BufferDesc                  Desc;
-            std::shared_ptr<VulkanRdgBuffer> Resource;
-            uint64_t                         LastGraph = 0;
-            uint64_t                         LastFrame = 0;
-        };
         struct Heap
         {
             RDG::TransientHeapDesc Desc; // what was allocated (Bytes / Alignment may exceed the plan's)
             VmaAllocation          Memory     = nullptr;
             uint32_t               MemoryType = 0;
             // The heap's ledger row (TransientHeap, owner Device): opened with the memory, closed when it is
-            // freed.
-            ResourceOwnership          Ledger;
-            uint64_t                   LastFrame = 0;     // frame counter of its last graph
-            bool                       AsyncUser = false; // its last graph had an AsyncCompute segment
+            // freed — a heap given up carries its row into the slot's pool until the pool frees it.
+            ResourceOwnership Ledger;
+            uint32_t          OversizedFrames = 0; // consecutive frames the plan wanted at most half of Bytes
+        };
+        // UE RHI transient allocator's GarbageCollectLatency: frames of a slot a pooled heap may stay idle,
+        // and a graph's heap may stay at least twice its plan's size, before its bytes go back to the driver.
+        static constexpr uint32_t kGarbageCollectLatency = 16;
+        struct PooledHeap
+        {
+            Heap     Pooled;
+            uint32_t IdleFrames = 0;
+        };
+        struct PlacedTexture
+        {
+            uint32_t                          Heap       = 0;
+            uint64_t                          Offset     = 0;
+            uint32_t                          AccessMask = 0;
+            RDG::TextureDesc                  Desc;
+            std::shared_ptr<VulkanRdgTexture> Resource;
+            bool                              UsedThisFrame = false;
+        };
+        struct PlacedBuffer
+        {
+            uint32_t                         Heap       = 0;
+            uint64_t                         Offset     = 0;
+            uint32_t                         AccessMask = 0;
+            RDG::BufferDesc                  Desc;
+            std::shared_ptr<VulkanRdgBuffer> Resource;
+            bool                             UsedThisFrame = false;
+        };
+        // One graph's heaps in one slot. A graph name recorded twice in one frame gets a second entry: its
+        // heaps must not be the first recording's (the second's acquire barriers cannot see the first's accesses).
+        struct GraphHeaps
+        {
+            std::string                Graph;
+            bool                       UsedThisFrame = false;
+            std::vector<Heap>          Heaps;
             std::vector<PlacedTexture> Textures;
             std::vector<PlacedBuffer>  Buffers;
         };
-
-        [[nodiscard]] bool Fenced( uint64_t frame ) const noexcept
+        struct Slot
         {
-            return frame + m_SlotCount <= m_Frame;
-        }
-        void Free( Heap& heap ) const;
-        // The smallest cached heap fitting @p want (same class, an allowed memory type, at most twice its bytes)
-        // that this graph may take, moved out of the cache into @p out; false if none.
-        [[nodiscard]] bool TakeCached( const RDG::TransientHeapDesc& want, bool asyncCompute, Heap& out );
+            std::vector<GraphHeaps> Graphs;
+            // Heaps no graph holds, reusable by any graph of this slot (see THE HEAP POOL above).
+            std::vector<PooledHeap>                        Pool;
+            // Resources bound to heaps that went to the pool, destroyed at this slot's next BeginFrameSlot.
+            std::vector<std::shared_ptr<VulkanRdgTexture>> RetiredTextures;
+            std::vector<std::shared_ptr<VulkanRdgBuffer>>  RetiredBuffers;
+        };
+
+        static void                           Retire( Slot& slot, GraphHeaps& graph, uint32_t heap );
+        static void                           Release( Slot& slot, GraphHeaps& graph );
+        static void                           DestroyRetired( Slot& slot );
+        void                                  FreePool( Slot& slot ) const;
+        // A pooled heap fitting @p want (same class, an allowed memory type, at most twice its bytes), else none.
+        [[nodiscard]] static bool TakePooled( Slot& slot, const RDG::TransientHeapDesc& want, Heap& out );
         // Fills @p out (a heap is move-only: it holds its ledger row).
-        [[nodiscard]] Common::BoolResultStr AllocateHeap( std::string_view graph, const RDG::TransientHeapDesc& desc,
-                                                          Heap& out ) const;
-        [[nodiscard]] Common::ResultStr<Heap*> OpenHeap( const RDG::Allocation& allocation,
-                                                         RDG::MemoryClass memoryClass, std::string_view name );
+        [[nodiscard]] Common::BoolResultStr AllocateHeap( const RDG::TransientHeapDesc& desc, Heap& out ) const;
+        [[nodiscard]] Common::ResultStr<const Heap*>
+        OpenHeap( const RDG::Allocation& allocation, RDG::MemoryClass memoryClass, std::string_view name ) const;
 
         const VulkanRdgDevice& m_Device;
-        uint64_t               m_SlotCount = 1;
-        std::vector<Heap>      m_Cache;                     // heaps no graph holds
-        std::vector<Heap>      m_Open;                      // the open graph's heaps, by the plan's heap index
-        bool                   m_Begun             = false; // BeginFrameSlot was called at least once
-        bool                   m_GraphOpen         = false; // between ReserveHeaps and EndGraph
-        bool                   m_OpenAsync         = false; // the open graph has an AsyncCompute segment
-        bool                   m_CrossGraphBarrier = false;
-        uint64_t               m_Frame             = 0; // BeginFrameSlot count
-        uint64_t               m_GraphSerial       = 0; // ReserveHeaps count
+        std::vector<Slot>      m_Slots;
+        uint32_t               m_Slot    = 0;
+        bool                   m_Begun   = false; // BeginFrameSlot was called at least once
+        int32_t                m_Current = -1;    // the open graph's index in the slot's Graphs, -1 between graphs
     };
 } // namespace Desert::Graphic::API::Vulkan

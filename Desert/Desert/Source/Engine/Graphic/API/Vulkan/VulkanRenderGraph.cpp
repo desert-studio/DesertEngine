@@ -1233,24 +1233,8 @@ namespace Desert::Graphic::API::Vulkan
         // Every used, non-extracted transient is PLACED at its planned heap offset, in plan order. Two that share
         // bytes are two resources over the same memory; the AliasAcquire barrier alone orders them.
         const RDG::AliasingPlan& plan = graph.Result->Aliasing;
-        const bool asyncCompute       = std::any_of( graph.Result->Segments.begin(), graph.Result->Segments.end(),
-                                                     []( const RDG::PipeSegment& segment )
-                                                     { return segment.OnPipe == RDG::Pipe::AsyncCompute; } );
-        if ( auto reserved = m_Transients->ReserveGraphHeaps(
-                  graph.Name, plan.Heaps, asyncCompute || first.GetValue() == VK_NULL_HANDLE ); !reserved )
+        if ( auto reserved = m_Transients->ReserveHeaps( graph.Name, plan.Heaps ); !reserved )
             return reserved;
-        // A heap an earlier, unfenced graph used (this frame's, or a frame still in flight - same queue, earlier
-        // in submission order): its last accesses complete before this graph's first one touches the bytes.
-        // (A graph with no command buffer before its first segment took fenced heaps only: nothing to order.)
-        if ( m_Transients->TakeCrossGraphBarrier() )
-        {
-            VkMemoryBarrier barrier{};
-            barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-            barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-            barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
-            vkCmdPipelineBarrier( first.GetValue(), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                                  VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr );
-        }
         m_GraphName = graph.Name;
         for ( const RDG::Allocation& allocation : plan.Allocations )
         {

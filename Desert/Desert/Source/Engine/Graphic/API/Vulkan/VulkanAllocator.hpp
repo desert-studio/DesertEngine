@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstddef>
 #include <functional>
+#include <mutex>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -196,6 +197,11 @@ namespace Desert::Graphic::API::Vulkan
 
         void Shutdown();
 
+        /// THE DEVICE'S ZERO BUFFER: 64 KB of zeros, host-visible, usable as a uniform or storage buffer, made on
+        /// first use and destroyed by Shutdown. A binding nothing has filled yet points here (UE's global null
+        /// resources), so a read before the real resource arrives is defined. One per device, never per user.
+        [[nodiscard]] Common::ResultStr<VkBuffer> RT_ZeroBuffer();
+
         static VmaAllocator& GetVMAAllocator();
 
         VulkanAllocator() = default;
@@ -230,6 +236,9 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<HostObjectDeletionEntry>     m_HostObjectDeletionQueue;
 
         AllocationLedger m_Ledger;
+        std::mutex       m_ZeroBufferMutex;
+        VkBuffer         m_ZeroBuffer           = VK_NULL_HANDLE;
+        VmaAllocation    m_ZeroBufferAllocation = VK_NULL_HANDLE;
         std::chrono::steady_clock::time_point m_LastCensus{};
         // The previous census's bytes per tag: the census names the tags that GREW since it, because a
         // steady growth spread over tags below the largest six is otherwise invisible.
