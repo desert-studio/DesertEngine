@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/API/NeuralComputeCaps.hpp>
 
 #include <vulkan/vulkan_core.h>
 
@@ -53,6 +54,14 @@ namespace Desert::Graphic::API::Vulkan
         AccelerationStructure,
         RayQuery,
         RayTracingPipeline,
+        // The NN layer's kernel paths (NN-RUNTIME, Engine/Graphic/API/NeuralComputeCaps.hpp): optional for good,
+        // SelectNeuralKernelPath branches on them (coopmat fp16 / fp16 / fp32).
+        StorageBuffer16BitAccess,
+        ShaderFloat16,
+        ShaderInt8,
+        StorageBuffer8BitAccess,
+        SubgroupSizeControl,
+        CooperativeMatrix,
 
         Count
     };
@@ -167,6 +176,9 @@ namespace Desert::Graphic::API::Vulkan
         std::array<CapabilityRow, kCapabilityCount> Rows{};
         DescriptorIndexingLimits                    DescriptorIndexing{};
         PerStageDescriptorLimits                    PerStage{};
+        // The NN layer's features (from the rows above), limits and cooperative-matrix shapes, with the kernel
+        // path selected from them. Filled by the probe after every row is settled.
+        ::Desert::Engine::NeuralComputeCaps Neural{};
 
         [[nodiscard]] bool Has( Capability capability ) const
         {
