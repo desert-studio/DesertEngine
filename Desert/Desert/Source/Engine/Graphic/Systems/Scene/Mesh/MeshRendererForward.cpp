@@ -1177,14 +1177,16 @@ namespace Desert::Graphic::System
         // line, in the render path most of this repository's scenes state. The G-buffer pass has its own
         // instanced cell now, so the gate asks whether THIS pass has one instead of asking which pass it
         // is.
-        auto* instancedPipeline =
-             m_DeferredGeometry ? m_InstancedGBufferPipeline.get() : m_StaticInstancedPipeline.get();
+        // Forward: the Wireframe view's twin when it is on, exactly as the per-object statics below — one path,
+        // the pass state is the only difference (WIREFRAME-ISM: a `!WireframeView()` here dropped every ISM).
+        auto* instancedPipeline = m_DeferredGeometry ? m_InstancedGBufferPipeline.get()
+                                                     : WireframePipelineOr( m_StaticInstancedPipeline.get() );
         auto* instancedMaterial =
              m_DeferredGeometry ? m_InstancedGBufferMaterial.get() : m_StaticInstancedMaterial.get();
         auto* instancedInstance =
              m_DeferredGeometry ? m_InstancedGBufferInstance.get() : m_StaticInstancedInstance.get();
-        const bool instancingOn = instancedPipeline != nullptr && instancedMaterial != nullptr &&
-                                  instancedInstance != nullptr && !WireframeView();
+        const bool instancingOn =
+             instancedPipeline != nullptr && instancedMaterial != nullptr && instancedInstance != nullptr;
         const MeshPass instancedPass = m_DeferredGeometry ? MeshPass::GBuffer : MeshPass::Forward;
 
         // ONE ACCUMULATOR PER RECORDING MATERIAL, and that is Г28's change. There used to be a single
@@ -1633,11 +1635,11 @@ namespace Desert::Graphic::System
                 s_WarnedNoInstancedCell = true;
                 LOG_ERROR( "[MeshRenderer] {} Instanced Static Mesh entit(ies) are NOT drawn in the {} "
                            "pass: it has no usable instanced cell (pipeline {}, material {}, instance {}"
-                           "{}). An ISM is one entity holding N transforms and has no per-object path to "
+                           "). An ISM is one entity holding N transforms and has no per-object path to "
                            "fall back to, so nothing of it reaches the frame.",
                            m_InstancedQueue.size(), m_DeferredGeometry ? "G-buffer" : "forward",
                            instancedPipeline ? "ok" : "MISSING", instancedMaterial ? "ok" : "MISSING",
-                           instancedInstance ? "ok" : "MISSING", WireframeView() ? ", wireframe view on" : "" );
+                           instancedInstance ? "ok" : "MISSING" );
             }
         }
 
@@ -2001,6 +2003,21 @@ namespace Desert::Graphic::System
                 m_StaticInstancedPipeline = instanced.GetValue();
             else
                 LOG_ERROR( "[MeshRenderer] instanced static drawing is off: {}", instanced.GetError() );
+
+#if DESERT_DEV_INSTRUMENTS
+            // Its Wireframe-view twin, as StaticMeshWireframe is the per-object pipeline's: an Instanced Static
+            // Mesh has no per-object path, so without it the Wireframe view had no way to draw one at all.
+            if ( m_StaticInstancedPipeline )
+            {
+                ispec.DebugName   = "StaticMeshInstancedWireframe";
+                ispec.PolygonMode = PrimitivePolygonMode::Wireframe;
+                if ( const auto wireframe = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
+                    m_StaticInstancedWireframePipeline = wireframe.GetValue();
+                else
+                    LOG_ERROR( "[MeshRenderer] the wireframe view draws no instanced meshes: {}",
+                               wireframe.GetError() );
+            }
+#endif // DESERT_DEV_INSTRUMENTS
         }
 
         return true;
