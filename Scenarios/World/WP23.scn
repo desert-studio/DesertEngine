@@ -10,6 +10,8 @@
 #                 log "[VFS] Mounted ..._R.." as the plane enters a region, "Unmounted ... (on demand again)" after.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run View "View mode: Lit"
+# A partitioned world saves as a copy only whole (594 of 601 entities live in unloaded cells otherwise).
+Дано run Scene "World Partition: Load All"
 Дано save-as WP23_Protocol
 Дано set 9000001 StreamingSourceData.Enabled false
 Дано set 9000002 StreamingSourceData.Enabled true
