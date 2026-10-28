@@ -1,11 +1,13 @@
 # WP-SRC-VELOCITY (167136e77): look-ahead by speed. Plane 9000002 (LookAheadTime 2 s, MaxLookAhead 500 m,
-# Scripts/World/WPFly.lua: 250 m/s along +X for 8 s, then stops; Play runs in wall time, so 4 s
-# were spent by the time the first frame was taken); the Player's source is switched off.
+# Scripts/World/WPFly.lua: 125 m/s along +X for 8 s - a 250 m look-ahead -, then stops; Play
+# starting and the two wheel steps spend ~5 s of its time before the first frame); the Player's source is switched off.
+# The editor keeps its last view mode (it came up in Velocity: a black viewport) - the scenario sets Lit.
 # The sources live in Main cells not loaded in Edit: the palette's "World Partition: Load All" first (as WP22-REST).
 # Play from Here: Play alone refuses (no pawn); the WP panel map shows the streaming zone of every source.
-# The map follows the plane at UE's 100 m PlayerExtent - too close for a 200 m range + 500 m look-ahead: two wheel
+# The map follows the plane at UE's 100 m PlayerExtent - too close for a 200 m range + 250 m look-ahead: two wheel
 # steps out over the map (window point 144,482) keep the follow at ~9x the extent (WorldPartitionPanel m_FollowZoomed).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
 Дано set 9000001 StreamingSourceData.Enabled false
@@ -17,8 +19,9 @@
 Когда input scroll - 144,482 -16
 Когда advance 2
 Тогда wp_vel_ahead на карте WP зона загрузки вытянута по +X (по движению); впереди ячейки загружены до подлёта, дыры перед камерой нет
-Когда advance 4
-Когда advance 4
+Когда advance 2
+Когда advance 2
+Когда advance 2
 Когда advance 2
 Тогда wp_vel_stop самолёт стоит: зона снова круг, лишние впереди выгрузились
 Когда run Action "Stop"
