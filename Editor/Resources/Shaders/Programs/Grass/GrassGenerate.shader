@@ -258,7 +258,15 @@ Shader "GrassGenerate"
             else
                 scale = vec3( mix( p.ScaleX.x, p.ScaleX.y, rx ), mix( p.ScaleZ.x, p.ScaleZ.y, rz ),
                               mix( p.ScaleX.x, p.ScaleX.y, rx ) );
-            scale *= 1.0 - faded;
+            // Coverage kept through the thinning (GoT / UE-style distance thinning): a survivor stands for the
+            // 1/share blades dropped around it, so its footprint grows by 1/sqrt(share) and the field's covered
+            // area stays the same; the height drops only over the last 20 % of the range, so the far edge melts
+            // into the ground instead of the whole band shrinking.
+            float share = max( 1.0 - faded, 0.05 );
+            float widen = inversesqrt( share );
+            scale.x *= widen;
+            scale.z *= widen;
+            scale.y *= 1.0 - clamp( ( faded - 0.8 ) / 0.2, 0.0, 1.0 );
 
             // Inside the view's side planes, by the instance's bounding sphere.
             float radius = p.Range.w * max( scale.x, max( scale.y, scale.z ) );

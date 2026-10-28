@@ -1,0 +1,12 @@
+# FIELD-GRASS-FAR: the field's blades reach 60 m (start thinning at 20 m) and the meshes 80 m; a thinned-out blade
+# widens by 1/sqrt(share) so the cover holds, and shrinks only over the last 20 % (owner 10-28: "the field looks 2000s").
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1_first lower third of the frame: a solid cover of blades
+Когда --subject viewport set Camera.Position 0,350,2500
+Тогда-вид 2_low grass solid out to 30 m, thinning smoothly beyond, no visible edge

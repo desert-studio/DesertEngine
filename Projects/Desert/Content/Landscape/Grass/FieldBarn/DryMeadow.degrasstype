@@ -59,8 +59,8 @@
             },
             "Density": 26000.0,
             "PlacementJitter": 1.0,
-            "StartCullDistance": 500,
-            "EndCullDistance": 3000,
+            "StartCullDistance": 2000,
+            "EndCullDistance": 6000,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -130,8 +130,8 @@
             },
             "Density": 650.0,
             "PlacementJitter": 1.0,
-            "StartCullDistance": 1500,
-            "EndCullDistance": 4000,
+            "StartCullDistance": 2000,
+            "EndCullDistance": 6000,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -169,7 +169,7 @@
             "Density": 60.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
-            "EndCullDistance": 4000.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -207,7 +207,7 @@
             "Density": 60.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
-            "EndCullDistance": 4000.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -245,7 +245,7 @@
             "Density": 20.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2100.0,
-            "EndCullDistance": 3500.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -283,7 +283,7 @@
             "Density": 30.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2700.0,
-            "EndCullDistance": 4500.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -321,7 +321,7 @@
             "Density": 15.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
-            "EndCullDistance": 4000.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
