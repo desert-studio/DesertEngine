@@ -197,7 +197,8 @@ namespace Desert::Graphic
         std::vector<SurfaceCache::SceneInstance> instances;
         meshRenderer->GatherSurfaceCacheInstances( instances );
         auto update = cache->UpdateScene( instances, frame.CameraPosition,
-                                          Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+                                          Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
+                                          GetFrameDirectionalLighting() );
         if ( !update )
         {
             LOG_ERROR( "[SceneRenderer] Surface Cache: {}", update.GetError() );

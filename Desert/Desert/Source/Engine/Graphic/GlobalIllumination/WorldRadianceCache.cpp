@@ -70,13 +70,14 @@ namespace Desert::Graphic::GlobalIllumination
             uint32_t Height       = 0;
             float    History      = RadianceCache::kHistoryWeight;
             float    DirtyHistory = RadianceCache::kDirtyHistoryWeight;
+            uint32_t LightingFrame = 0; // the last full update's FrameIndex (WorldRadianceCache::m_LightingFrame)
         };
-        static_assert( sizeof( RadianceCachePush ) == 32 );
+        static_assert( sizeof( RadianceCachePush ) == 36 );
 
         // The schedule: the priority histogram, the traced count, the cut bucket's taken count, the trace list.
-        constexpr uint32_t ScheduleEntries( const RadianceCache::RadianceCacheInputs& shape )
+        constexpr uint32_t ScheduleEntries( const uint32_t traced )
         {
-            return RadianceCache::kPriorityBuckets + 2u + shape.ProbesPerFrame;
+            return RadianceCache::kPriorityBuckets + 2u + traced;
         }
 
         std::shared_ptr<Image2D> CreateAtlas( const std::string_view tag, const uint32_t side,
@@ -217,9 +218,21 @@ namespace Desert::Graphic::GlobalIllumination
         const RDG::TextureRef irradiance = import( m_IrradianceAtlas, "RadianceCache.Irradiance" );
         const RDG::TextureRef depth      = import( m_DepthAtlas, "RadianceCache.Depth" );
 
+        // THE FULL UPDATE (UE r.Lumen.RadianceCache.ForceFullUpdate): the directional lights changed significantly
+        // since the last one, so every probe this frame uses is traced in it with no history - the cache's cells
+        // would otherwise hold the old sun for as many frames as the budget takes to reach them, blended at
+        // HistoryWeight after that (a straight-edged patch fading over ~10 s, GRASS-SETTLE). The frame after a
+        // reset has no probes to trace yet: it only records the lighting. The probes it does not use this frame
+        // keep the old sun until a view reads them: push.LightingFrame drops their history on that trace.
+        const bool fullUpdate = !m_Reset && m_LitBy && InvalidatesLightingHistory( *m_LitBy, inputs.Lighting );
+        if ( m_Reset || fullUpdate || !m_LitBy )
+            m_LitBy = inputs.Lighting;
+        const uint32_t traced = fullUpdate ? RadianceCache::MaxProbes( shape ) : shape.ProbesPerFrame;
+
         const auto clipmaps = RadianceCache::MakeClipmaps( inputs.CameraPosition, shape );
-        const RadianceCache::RadianceCacheParamsPayload paramsPayload =
+        RadianceCache::RadianceCacheParamsPayload paramsPayload =
              RadianceCache::MakeRadianceCacheParams( clipmaps, shape );
+        paramsPayload.Atlas.z = traced; // the Select pass's budget
         const RDG::BufferRef params =
              graph.CreateBuffer( RDG::BufferDesc{ sizeof( paramsPayload ) }, "RadianceCache.Params" );
         graph.QueueBufferUpload( params, std::as_bytes( std::span( &paramsPayload, 1 ) ) );
@@ -236,7 +249,7 @@ namespace Desert::Graphic::GlobalIllumination
              RDG::BufferDesc{ markPoints.size() * sizeof( glm::vec4 ) }, "RadianceCache.MarkPoints" );
         graph.QueueBufferUpload( markPointsBuffer, std::as_bytes( std::span( markPoints ) ) );
         const RDG::BufferRef schedule =
-             graph.CreateBuffer( RDG::BufferDesc{ ScheduleEntries( shape ) * 4ull }, "RadianceCache.Schedule" );
+             graph.CreateBuffer( RDG::BufferDesc{ ScheduleEntries( traced ) * 4ull }, "RadianceCache.Schedule" );
 
         RadianceCachePush push;
         push.FrameIndex = ++m_FrameIndex;
@@ -244,7 +257,12 @@ namespace Desert::Graphic::GlobalIllumination
         push.MaxProbes  = RadianceCache::MaxProbes( shape );
         push.Width      = inputs.Extent.x;
         push.Height     = inputs.Extent.y;
-        m_Reset         = false;
+        // Every probe last traced before the full update - this frame's and the ones it did not use, traced when
+        // a view next reads them - is traced again without history (RadianceCacheTrace's "fresh").
+        if ( fullUpdate )
+            m_LightingFrame = push.FrameIndex;
+        push.LightingFrame = m_LightingFrame;
+        m_Reset            = false;
 
         const uint32_t   grid      = shape.GridResolution;
         const uint32_t   clipCount = shape.Clipmaps;
@@ -256,8 +274,8 @@ namespace Desert::Graphic::GlobalIllumination
              entryGroups,
              entryGroups,
              glm::uvec3( DivideRoundUp( push.MaxProbes, 64u ), 1u, 1u ),
-             glm::uvec3( shape.ProbesPerFrame, 1u, 1u ),
-             glm::uvec3( shape.ProbesPerFrame, 1u, 1u ) };
+             glm::uvec3( traced, 1u, 1u ),
+             glm::uvec3( traced, 1u, 1u ) };
         constexpr std::array<std::string_view, PassCount> kPassNames{
              "RadianceCache: Mark",   "RadianceCache: Update", "RadianceCache: Allocate",
              "RadianceCache: Select", "RadianceCache: Trace",  "RadianceCache: Filter" };

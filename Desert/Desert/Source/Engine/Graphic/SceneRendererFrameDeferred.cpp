@@ -527,6 +527,7 @@ namespace Desert::Graphic
         inputs.WorldGridParams = t.Lights.WorldGridParams;
         inputs.WorldGridCells  = t.Lights.WorldGridCells;
         inputs.CameraPosition  = frame.CameraPosition;
+        inputs.Lighting        = GetFrameDirectionalLighting();
         // The captures' points are readers of this cache too: their stored diffuse is measured from it.
         if ( m_FrameReflectionCaptures && ReadsReflectionCaptures() )
             inputs.MarkPoints = m_FrameReflectionCaptures->CapturePoints();

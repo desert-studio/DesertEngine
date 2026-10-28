@@ -242,7 +242,8 @@ namespace Desert::Graphic::SurfaceCache
 
     Common::ResultStr<SurfaceCacheRenderer::SceneUpdate>
     SurfaceCacheRenderer::UpdateScene( const std::vector<SceneInstance>& instances, const glm::vec3& camera,
-                                       const uint64_t engineFrame )
+                                       const uint64_t                                 engineFrame,
+                                       const GlobalIllumination::DirectionalLighting& lighting )
     {
         // What this call asks for: the camera and the instance list's identity (key, placement, surface and
         // capture readiness of each, in order) - the once-per-frame rule compares it with the frame's update.
@@ -265,6 +266,12 @@ namespace Desert::Graphic::SurfaceCache
             return Common::MakeSuccess( SceneUpdate{ .Scene = m_FrameUpdate->Scene, .Updated = false } );
         }
 
+        if ( !m_LitBy || GlobalIllumination::InvalidatesLightingHistory( *m_LitBy, lighting ) )
+        {
+            if ( m_LitBy )
+                m_Scene.InvalidateLighting();
+            m_LitBy = lighting;
+        }
         SceneFrame scene = m_Scene.Update( instances, camera );
         m_FrameUpdate    = FrameUpdate{ .Frame = engineFrame, .Camera = camera, .Instances = inputs, .Scene = scene };
         return Common::MakeSuccess( SceneUpdate{ .Scene = std::move( scene ), .Updated = true } );
