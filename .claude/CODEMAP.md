@@ -186,8 +186,8 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Import` — 44 files, 8,932 lines: AsyncMeshLoader, DdsBlockChain, DdsSourceImage, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedLight, ImportedMaterial, … (+16)
 - `Import/Assimp` — 12 files, 2,244 lines: AssimpImporter, SceneVertexStreams, SourceAlpha, SourceMaterialRead, SourceTextureFile
 - `Import/Blend` — 2 files, 236 lines: BlendImporter
-- `LevelEditor` — 53 files, 14,951 lines: AssetCompiling, ControlService, DockLayout, DocumentHost, EditorImGuiHost, EditorPanelHandles, EditorStartup, EntityCommands, LevelEditorCommands, LevelToolbar, MainMenu, MainMenuActions, … (+19)
-- `Packaging` — 8 files, 2,749 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
+- `LevelEditor` — 53 files, 14,974 lines: AssetCompiling, ControlService, DockLayout, DocumentHost, EditorImGuiHost, EditorPanelHandles, EditorStartup, EntityCommands, LevelEditorCommands, LevelToolbar, MainMenu, MainMenuActions, … (+19)
+- `Packaging` — 8 files, 2,756 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
 - `Panels` — 1 files, 41 lines
 - `Panels/Animation` — 10 files, 4,146 lines: AnimGraphCanvas, AnimGraphPanel, ControlRigPanel, PoseFieldEdit, PoseGraphCanvas, PoseGraphTarget, PosePinRef, PoseWireRef, StatePosition, TransitionRef, WarningTarget
 - `Panels/AnimationEditor` — 9 files, 3,802 lines: AnimationEditorBase, AnimationEditorDocument, AnimationTransport, BoneTransformRows, NamedFrameRate, SkeletonTreeRow
@@ -315,7 +315,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `DShaderTool` — 1 files, 47 lines
 - `DShaderTool/Source` — 1 files, 125 lines
 - `DesertCtl` — 1 files, 65 lines
-- `DesertCtl/Source` — 1 files, 637 lines
+- `DesertCtl/Source` — 1 files, 640 lines
 - `DesertCtl/mcp` — 1 files, 371 lines
 - `DesertHeaderTool` — 2 files, 1,779 lines
 - `DesertHeaderTool/Source` — 8 files, 1,246 lines: ComponentBlock, Diagnostic, HeaderModel, ModuleInfo, ModulePlacement, ModuleTable, ReflectedTypeName, RoutedEventName, ScannedFile, SubsystemDeclaration
