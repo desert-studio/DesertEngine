@@ -219,7 +219,8 @@ TOOLS = [
         "description": (
             "The editor's state as JSON. Sections: scene, selection, documents (open in most-recently-"
             "used order, plus recently closed), panels, views (live count, bytes held, pending bytes, device-local budget and usage), log "
-            "(counts and tail), quiescence. Omit sections for all of them."
+            "(counts and tail), device (GPU name and the NN layer's kernel path, features and limits), "
+            "quiescence. Omit sections for all of them."
         ),
         "inputSchema": {
             "type": "object",

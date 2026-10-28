@@ -93,6 +93,35 @@ namespace Desert::Editor::Control
         bool        PreviewsBindPose = false; ///< Skeleton only — 07 §1.3; the scene render shows it
     };
 
+    /// THE GPU AND WHAT ITS NEURAL-NETWORK KERNELS RUN ON (NN-RUNTIME): Engine::DeviceCapabilities::Neural as
+    /// plain values, so a scenario reads the kernel path and the fields it was chosen from beside the "[nn_caps]"
+    /// log line, not from a log tail that may have scrolled past it.
+    struct DeviceSnapshot
+    {
+        std::string Name;
+
+        std::string NnPath;   ///< NeuralKernelPathName: "coopmat_fp16" | "fp16" | "fp32"
+        std::string NnTile;   ///< the coopmat tile the path uses; empty off coopmat_fp16
+        std::string NnReason; ///< why a faster path was not taken; empty when the fastest one was
+
+        bool NnShaderFloat16               = false;
+        bool NnShaderInt8                  = false;
+        bool NnStorageBuffer16BitAccess    = false;
+        bool NnStorageBuffer8BitAccess     = false;
+        bool NnSubgroupSizeControl         = false;
+        bool NnCooperativeMatrix           = false;
+        bool NnCooperativeMatrixCompute    = false;
+        bool NnComputeRequiredSubgroupSize = false;
+
+        uint32_t NnSubgroupSize               = 0;
+        uint32_t NnMinSubgroupSize            = 0;
+        uint32_t NnMaxSubgroupSize            = 0;
+        uint32_t NnMaxPushConstantsSize       = 0;
+        uint32_t NnMaxComputeSharedMemorySize = 0;
+
+        std::vector<std::string> NnCooperativeMatrixShapes; ///< FormatCooperativeMatrixShape, driver order
+    };
+
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
     /// the documents most-recently-used first, exactly as Ctrl+Tab walks them — so a client reading this
     /// and a person reading the screen are reading the same sequence.
@@ -128,6 +157,8 @@ namespace Desert::Editor::Control
 
         AuthoringSnapshot Authoring;
 
+        DeviceSnapshot Device;
+
         EditorQuiescence Quiescence;
     };
 
@@ -135,7 +166,7 @@ namespace Desert::Editor::Control
     /// actually honoured — the same rule the command line follows for its flags, and for the same reason:
     /// a list written out by hand drifts, and the drift shows up as a section that silently returns nothing.
     inline constexpr const char* kStateSections[] = {
-         "scene", "selection", "authoring", "documents", "panels", "views", "log", "quiescence",
+         "scene", "selection", "authoring", "documents", "panels", "views", "log", "device", "quiescence",
     };
 
     [[nodiscard]] inline std::string KnownSectionList()
@@ -319,6 +350,38 @@ namespace Desert::Editor::Control
             log["error"]   = Num( static_cast<double>( snapshot.LogErrorCount ) );
             log["tail"]    = Common::Json::Value( tail );
             root["log"]    = Common::Json::Value( log );
+        }
+
+        if ( Wanted( sections, "device" ) )
+        {
+            const DeviceSnapshot&      device = snapshot.Device;
+            Common::Json::Value::Array shapes;
+            for ( const std::string& shape : device.NnCooperativeMatrixShapes )
+                shapes.push_back( Str( shape ) );
+
+            Common::Json::Object nn;
+            nn["path"]                        = Str( device.NnPath );
+            nn["tile"]                        = Str( device.NnTile );
+            nn["reason"]                      = Str( device.NnReason );
+            nn["shaderFloat16"]               = Common::Json::Value( device.NnShaderFloat16 );
+            nn["shaderInt8"]                  = Common::Json::Value( device.NnShaderInt8 );
+            nn["storageBuffer16BitAccess"]    = Common::Json::Value( device.NnStorageBuffer16BitAccess );
+            nn["storageBuffer8BitAccess"]     = Common::Json::Value( device.NnStorageBuffer8BitAccess );
+            nn["subgroupSizeControl"]         = Common::Json::Value( device.NnSubgroupSizeControl );
+            nn["cooperativeMatrix"]           = Common::Json::Value( device.NnCooperativeMatrix );
+            nn["cooperativeMatrixCompute"]    = Common::Json::Value( device.NnCooperativeMatrixCompute );
+            nn["computeRequiredSubgroupSize"] = Common::Json::Value( device.NnComputeRequiredSubgroupSize );
+            nn["subgroupSize"]                = Num( device.NnSubgroupSize );
+            nn["minSubgroupSize"]             = Num( device.NnMinSubgroupSize );
+            nn["maxSubgroupSize"]             = Num( device.NnMaxSubgroupSize );
+            nn["maxPushConstantsSize"]        = Num( device.NnMaxPushConstantsSize );
+            nn["maxComputeSharedMemorySize"]  = Num( device.NnMaxComputeSharedMemorySize );
+            nn["cooperativeMatrixShapes"]     = Common::Json::Value( shapes );
+
+            Common::Json::Object section;
+            section["name"] = Str( device.Name );
+            section["nn"]   = Common::Json::Value( nn );
+            root["device"]  = Common::Json::Value( section );
         }
 
         if ( Wanted( sections, "quiescence" ) )

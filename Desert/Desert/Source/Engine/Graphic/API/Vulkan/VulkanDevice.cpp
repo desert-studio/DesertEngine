@@ -65,6 +65,8 @@ namespace Desert::Graphic::API::Vulkan
         m_Capabilities.SupportsTextureCompressionBC = m_DeviceCaps.Has( Capability::TextureCompressionBC );
         m_Capabilities.SupportsMultiDrawIndirect    = m_DeviceCaps.Has( Capability::MultiDrawIndirect );
         m_Capabilities.MaxDrawIndirectCount         = deviceProperties.limits.maxDrawIndirectCount;
+        // The NN layer's features, limits and kernel path, probed and selected once (DeviceCapsProbe).
+        m_Capabilities.Neural = m_DeviceCaps.Neural;
 
         // --- Identity ---
         m_Capabilities.Name = deviceProperties.deviceName;
@@ -261,6 +263,8 @@ namespace Desert::Graphic::API::Vulkan
         // DeviceCaps as core / ext / no ("!" marks the required set).
         LOG_INFO( "[Vulkan] {}", FormatCapsTable( probed.GetValue().Caps ) );
         LOG_INFO( "[Vulkan] {}", FormatDescriptorLimits( probed.GetValue().Caps ) );
+        // The NN layer's line (NeuralComputeCaps.hpp): the kernel path chosen and every field it was chosen from.
+        LOG_INFO( "[Vulkan] {}", Engine::FormatNeuralComputeCaps( probed.GetValue().Caps.Neural ) );
 
         // A platform runtime enables what it needs on the chosen device before the catalog is probed from it and
         // before vkCreateDevice (VulkanDeviceExtensions.hpp).
