@@ -63,6 +63,7 @@ namespace Desert::Editor::Control
         ModelingAccept,     ///< a modeling tool's Accept is raised and waits for its background compute to land
         Displacement, ///< the frame drew a displaced primitive's base mesh while its twin was still tessellating
         SubsurfaceHistory, ///< a view's subsurface scatter has not yet averaged its full history window
+        HLODBuild, ///< a Build HLODs is still baking its landscape tiles; its cell files are not written yet
         Count
     };
 
@@ -85,6 +86,7 @@ namespace Desert::Editor::Control
          "a modeling tool's Accept is waiting for its background compute",
          "displaced geometry is still being tessellated (the frame drew the base mesh)",
          "the subsurface scatter's history is still converging (a Scale change, a camera cut or the first frames)",
+         "Build HLODs is still baking its landscape tiles (its HLOD files are not written yet)",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),

@@ -171,7 +171,7 @@ namespace Desert::WorldGen
 
     struct LandscapeContent
     {
-        std::string                 Material; // assets: key of the landscape material
+        MaterialRef                 Material; // the landscape material, written as its {Guid, Path} handle
         LandscapeLayerRef           Dirt;     // slopes
         LandscapeLayerRef           Grass;    // everywhere else: its GrassTypes grow around the camera
         LandscapeLayerRef           Dry;      // hollows

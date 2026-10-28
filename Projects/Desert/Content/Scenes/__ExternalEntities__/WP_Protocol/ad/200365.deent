@@ -1,0 +1,20 @@
+{
+    "id": 200365,
+    "Tag": "Main C09_07_B02",
+    "Translation": [26413.0, 295.8125, -3979.0],
+    "Rotation": [0.0, 0.0, 0.0],
+    "Scale": [4.0, 36.0, 7.0],
+    "StaticMesh": {
+        "MaterialSlots": [
+            {
+                "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                "Path": "assets:Materials/CB_Orange.demat"
+            }
+        ],
+        "Primitive": "Cube",
+        "MeshHandle": {
+            "Guid": "",
+            "Path": ""
+        }
+    }
+}

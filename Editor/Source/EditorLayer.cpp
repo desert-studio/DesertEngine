@@ -639,7 +639,8 @@ namespace Desert::Editor
     {
         m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling(),
                                          m_Startup.ReflectionCapturesFilling(),
-                                         Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0 );
+                                         Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0,
+                                         m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingHLODs() );
     }
 
     bool EditorLayer::AdmitShotFrame()

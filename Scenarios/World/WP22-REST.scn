@@ -1,0 +1,23 @@
+# WP22-REST (83688f54f): several runtime grids (Main 25 m, Foliage 12.8 m, LandscapeTiles 50 m), each with its HLOD
+# layer; the Player source (9000001, TargetGrids Main+Foliage, Scripts/World/WPWalk.lua walks 200 m along +X).
+# Play from Here looks through Camera 1003 (Auto Activate for Player, a child of the Player cube). In Play the
+# viewport subject IS that view target: `--subject viewport set Camera.*` moves camera 1003 (world pose -> its
+# local transform under the walking Player), so the view stays 400 m above the Player while it walks.
+# WP_Protocol_HLOD/ is a build product (not in git): the first step builds it (the reply waits for the bake).
+# Paint (Foliage grid), VELOCITY and FAR-2 are separate scenarios (see the brief's REMAINDER).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Scene "Build HLODs"
+Дано run Panel "Open World Partition"
+Дано run Action "Play from Here"
+Когда advance 2
+Когда --subject viewport set Camera.Position 0,40000,40000
+Когда --subject viewport set Camera.Direction 0,-1,-1
+Когда advance 2
+Когда advance 2
+Когда advance 1
+Тогда wp22_grids сверху (400 м, вниз 45°) видна застройка вокруг игрока (загруженные ячейки Main, карта WP: Resident > 0) и дальние HLOD до края мира без дыр
+Тогда-вид wp22_grids_view тот же вид, только вьюпорт
+Когда --subject viewport set Camera.Position 40000,40000,40000
+Когда advance 1
+Тогда-вид wp22_cam_moved камера на 400 м восточнее: кадр отличается от wp22_grids_view (застройка сдвинута влево) - камера реально двигается
+Когда run Action "Stop"
