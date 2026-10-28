@@ -200,6 +200,30 @@ namespace Desert::Editor
                                       return PaletteCommandDone();
                                   } } );
         }
+        // The two directional-shadow views under names, for the same reason: a cascade cache that lags a sun
+        // change is proved only by a Shadow Factor / Shadow Cascades frame taken right after the change.
+        constexpr struct
+        {
+            const char*              Label;
+            Graphic::ShadowDebugMode Mode;
+        } kShadowViews[] = {
+             { "View mode: Shadow Factor", Graphic::ShadowDebugMode::ShadowFactor },
+             { "View mode: Shadow Cascades", Graphic::ShadowDebugMode::Cascades },
+        };
+        static_assert( std::size( kShadowViews ) == static_cast<size_t>( Graphic::ShadowDebugMode::Cascades ),
+                       "a ShadowDebugMode without a View mode command cannot be photographed over the channel" );
+        for ( const auto& row : kShadowViews )
+        {
+            const Graphic::ShadowDebugMode mode = row.Mode;
+            commands.push_back( { "View", row.Label, [mode]
+                                  {
+                                      auto& view = EditorPreferences::Get().DebugView;
+                                      view.ClearViewMode();
+                                      view.ShadowDebug = mode;
+                                      EditorPreferences::Save();
+                                      return PaletteCommandDone();
+                                  } } );
+        }
         // Lit and Wireframe under names (the dropdown's first two entries): the CubeGrid seam check is "no
         // interior faces", which only a wireframe frame shows, and a mode reachable only by the toolbar
         // combo could not be photographed over the channel. Same channel reset as the dropdown
