@@ -22,6 +22,12 @@ namespace Desert::Graphic::API::Vulkan
     // bound) and bound with vmaBindImageMemory2 / vmaBindBufferMemory2 at the allocation's offset. Placed
     // resources are cached per (slot, graph, heap, offset, desc, usage) so an unchanged plan reuses its VkImage
     // objects; a changed plan destroys the stale ones at the slot's next BeginFrameSlot.
+    // THE HEAP POOL (BISTRO-MEM-2, UE FRHITransientHeapCache): a heap a graph gives up - grown out, no longer in
+    // its plan, its graph not recorded, or kept oversized for kGarbageCollectLatency of the slot's frames - goes
+    // to the slot's pool, not to the driver; the next graph of the slot asking for that class and memory type
+    // takes the smallest pooled heap that fits without wasting more than half of it, and a heap idle in the pool
+    // for kGarbageCollectLatency frames is freed. Pooled heaps were last used by this slot's previous frame
+    // (fenced at BeginFrameSlot) and nothing of this frame used them before: reusing their bytes needs no barrier.
     // Who calls it: VulkanRdgBackend::BeginGraph / EndGraph / AbandonGraph, and the renderer's frame loop
     // (BeginFrameSlot, right after the frames-in-flight fence wait - where VulkanRdgPool::BeginFrame is called
     // today). Never: free or rebind memory a submitted, unwaited frame may use; bind two live resources of the
@@ -55,13 +61,17 @@ namespace Desert::Graphic::API::Vulkan
             VmaAllocation          Memory     = nullptr;
             uint32_t               MemoryType = 0;
             // The heap's ledger row (TransientHeap, owner Device): opened with the memory, closed when it is
-            // freed — a retired heap carries its row into RetiredHeap until its slot frees it.
+            // freed — a heap given up carries its row into the slot's pool until the pool frees it.
             ResourceOwnership Ledger;
+            uint32_t          OversizedFrames = 0; // consecutive frames the plan wanted at most half of Bytes
         };
-        struct RetiredHeap
+        // UE RHI transient allocator's GarbageCollectLatency: frames of a slot a pooled heap may stay idle,
+        // and a graph's heap may stay at least twice its plan's size, before its bytes go back to the driver.
+        static constexpr uint32_t kGarbageCollectLatency = 16;
+        struct PooledHeap
         {
-            VmaAllocation     Memory = nullptr;
-            ResourceOwnership Ledger;
+            Heap     Pooled;
+            uint32_t IdleFrames = 0;
         };
         struct PlacedTexture
         {
@@ -94,15 +104,19 @@ namespace Desert::Graphic::API::Vulkan
         struct Slot
         {
             std::vector<GraphHeaps> Graphs;
-            // Grown-out heaps and the resources bound to them, destroyed at this slot's next BeginFrameSlot.
-            std::vector<RetiredHeap>                       RetiredHeaps;
+            // Heaps no graph holds, reusable by any graph of this slot (see THE HEAP POOL above).
+            std::vector<PooledHeap>                        Pool;
+            // Resources bound to heaps that went to the pool, destroyed at this slot's next BeginFrameSlot.
             std::vector<std::shared_ptr<VulkanRdgTexture>> RetiredTextures;
             std::vector<std::shared_ptr<VulkanRdgBuffer>>  RetiredBuffers;
         };
 
         static void                           Retire( Slot& slot, GraphHeaps& graph, uint32_t heap );
-        void                                  Destroy( GraphHeaps& graph ) const;
-        static void                           DestroyRetired( VmaAllocator allocator, Slot& slot );
+        static void                           Release( Slot& slot, GraphHeaps& graph );
+        static void                           DestroyRetired( Slot& slot );
+        void                                  FreePool( Slot& slot ) const;
+        // A pooled heap fitting @p want (same class, an allowed memory type, at most twice its bytes), else none.
+        [[nodiscard]] static bool TakePooled( Slot& slot, const RDG::TransientHeapDesc& want, Heap& out );
         // Fills @p out (a heap is move-only: it holds its ledger row).
         [[nodiscard]] Common::BoolResultStr AllocateHeap( const RDG::TransientHeapDesc& desc, Heap& out ) const;
         [[nodiscard]] Common::ResultStr<const Heap*>

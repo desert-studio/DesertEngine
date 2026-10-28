@@ -52,6 +52,12 @@ namespace Common::Utils
             out.Resident = static_cast<uint64_t>( counters.WorkingSetSize );
             out.Peak     = static_cast<uint64_t>( counters.PeakWorkingSetSize );
         }
+        PROCESS_MEMORY_COUNTERS_EX extended{};
+        extended.cb = sizeof( extended );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) - the _EX struct is the API's own extension
+        if ( ::GetProcessMemoryInfo( ::GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>( &extended ),
+                                     sizeof( extended ) ) )
+            out.Physical = static_cast<uint64_t>( extended.PrivateUsage );
 #elif defined( __APPLE__ )
         // MACH_TASK_BASIC_INFO and not TASK_BASIC_INFO: the older flavour's `resident_size` is a 32-bit
         // `vm_size_t` on some ABIs and its `resident_size_max` does not exist at all, so the peak — the
@@ -70,6 +76,14 @@ namespace Common::Utils
             out.Resident = static_cast<uint64_t>( info.resident_size );
             out.Peak     = static_cast<uint64_t>( info.resident_size_max );
         }
+        // phys_footprint lives in TASK_VM_INFO only; it is what the kernel's memory pressure (and jetsam)
+        // charges, Metal's GPU memory included.
+        task_vm_info_data_t    vm{};
+        mach_msg_type_number_t vmCount = TASK_VM_INFO_COUNT;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) - see task_info above
+        if ( ::task_info( ::mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>( &vm ), &vmCount ) ==
+             KERN_SUCCESS )
+            out.Physical = static_cast<uint64_t>( vm.phys_footprint );
 #elif defined( __linux__ )
         // VmHWM before VmRSS in /proc/self/status, and both in kB. Parsed rather than taken from
         // /proc/self/statm because statm carries no high-water mark.
@@ -92,6 +106,7 @@ namespace Common::Utils
                 out.Known    = true;
                 out.Resident = static_cast<uint64_t>( rssKb ) * 1024u;
                 out.Peak     = static_cast<uint64_t>( hwmKb ) * 1024u;
+                out.Physical = out.Resident;
             }
         }
 #endif

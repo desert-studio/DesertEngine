@@ -33,6 +33,11 @@ namespace Common::Utils
         bool     Known    = false;
         uint64_t Resident = 0; ///< bytes in physical RAM right now
         uint64_t Peak     = 0; ///< high-water mark of the same quantity since process start
+        /// What the OS charges the process for (macOS `phys_footprint`: dirty + compressed memory INCLUDING
+        /// the GPU allocations of unified memory, the number jetsam and run_capped kill on; Windows
+        /// `PrivateUsage`; Linux = `Resident`). `Resident` misses Metal device memory entirely, so a census
+        /// keyed on it never fires at a GPU-memory peak (BISTRO-MEM-2: resident 1.7 GB at a 6.4 GB kill).
+        uint64_t Physical = 0;
 
         /// One line for the log. Says "unknown" rather than "0" when `Known` is false.
         [[nodiscard]] std::string Describe() const;
