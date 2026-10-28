@@ -222,8 +222,8 @@ Shader "InstanceCull"
             int       base     = 0;
             for ( int level = coarsest; level > 0; --level )
             {
-                const float half = 0.5 * LodScreenSizes[primitive.FirstLodScreenSize + uint( level )];
-                if ( half * half > screenRadiusSq )
+                const float halfSize = 0.5 * LodScreenSizes[primitive.FirstLodScreenSize + uint( level )];
+                if ( halfSize * halfSize > screenRadiusSq )
                 {
                     base = level;
                     break;
