@@ -61,11 +61,11 @@ namespace Desert::Graphic::GpuDriven
 
     // What a pass draws with after one phase. The views of one mesh pass share the phase's buffers: this view's
     // records are IndirectDraws[FirstIndirectDraw, +bins) and their firstInstance already points into its range of
-    // VisibleInstances. GroupDrawCounts is written by "GPUDriven: Compact" (phase PASSES, the count path).
+    // VisibleInstances. A bin the cull left empty keeps its record with InstanceCount 0 (decision 10-28: one fixed
+    // table, no compaction, no GPU draw count).
     struct CulledDraws
     {
         RDG::BufferRef IndirectDraws;    // GpuIndirectDraw[views x Bins] — Access::IndirectArgs
-        RDG::BufferRef GroupDrawCounts;  // uint[Groups] — Access::IndirectArgs; invalid on the fixed path
         RDG::BufferRef VisibleInstances; // GpuVisibleInstance[views x VisibleCapacity]
         // uint[views x VisibleCapacity]: VisibleInstances[i].Instance at the same index - the binned draws'
         // per-instance vertex stream (4 B per visible instance, read at gl_InstanceIndex).

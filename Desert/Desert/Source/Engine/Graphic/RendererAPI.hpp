@@ -39,17 +39,15 @@ namespace Desert::Graphic
 
     // One IndirectGroup of a binned mesh pass (GpuDriven/IndirectDrawSubmission.hpp): MaxDraws records of
     // VkDrawIndexedIndirectCommand at Stride from ArgsOffset of Args, every one an indexed draw of the group's
-    // mesh. Counts valid = the drawIndirectCount read (the GPU's count of the group at CountOffset, at most
-    // MaxDraws); invalid = MaxDraws records read as they are, MaxDrawsPerCall per vkCmdDrawIndexedIndirect (1 =
-    // one call per record: a device without multiDrawIndirect). Both buffers are declared Access::IndirectArgs.
+    // mesh. The MaxDraws records are read as they are (a culled bin's InstanceCount is 0), MaxDrawsPerCall per
+    // vkCmdDrawIndexedIndirect (1 = one call per record: a device without multiDrawIndirect). Args is declared
+    // Access::IndirectArgs.
     struct MeshIndirectGroupDraw
     {
         RDG::BufferRef Args{};
         uint64_t       ArgsOffset      = 0;
         uint32_t       MaxDraws        = 0;
         uint32_t       Stride          = 0;
-        RDG::BufferRef Counts{};
-        uint64_t       CountOffset     = 0;
         uint32_t       MaxDrawsPerCall = 1;
     };
 

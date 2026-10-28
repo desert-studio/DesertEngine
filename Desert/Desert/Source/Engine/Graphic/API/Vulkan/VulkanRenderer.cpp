@@ -1051,11 +1051,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( draw.MaxDraws == 0u )
             return Common::MakeSuccess( true );
         if ( draw.Stride < sizeof( VkDrawIndexedIndirectCommand ) || draw.Stride % 4u != 0u ||
-             draw.ArgsOffset % 4u != 0u || draw.CountOffset % 4u != 0u )
+             draw.ArgsOffset % 4u != 0u )
             return Common::MakeFormattedError(
-                 "{}: indirect group of stride {} at byte {} (count at {}): the stride holds a "
-                 "VkDrawIndexedIndirectCommand and all three are multiples of four",
-                 pass, draw.Stride, draw.ArgsOffset, draw.CountOffset );
+                 "{}: indirect group of stride {} at byte {}: the stride holds a VkDrawIndexedIndirectCommand "
+                 "and both are multiples of four",
+                 pass, draw.Stride, draw.ArgsOffset );
         if ( !mesh.GetIndexBuffer() )
             return Common::MakeFormattedError( "{}: an indirect group's mesh has no index buffer", pass );
         const auto declared = context.GetBuffer( draw.Args, RDG::Access::IndirectArgs );
@@ -1071,21 +1071,7 @@ namespace Desert::Graphic::API::Vulkan
                  "{}: {} indirect records at byte {} (stride {}) pass the end of '{}' ({} bytes)", pass,
                  draw.MaxDraws, draw.ArgsOffset, draw.Stride, declared.GetValue().Name,
                  declared.GetValue().Desc->Bytes );
-        VkBuffer vkCounts = VK_NULL_HANDLE;
-        if ( draw.Counts.IsValid() )
-        {
-            const auto counts = context.GetBuffer( draw.Counts, RDG::Access::IndirectArgs );
-            if ( !counts )
-                return Common::MakeFormattedError( "{}: indirect draw counts: {}", pass, counts.GetError() );
-            if ( draw.CountOffset + sizeof( uint32_t ) > counts.GetValue().Desc->Bytes )
-                return Common::MakeFormattedError( "{}: the draw count at byte {} passes the end of '{}'", pass,
-                                                   draw.CountOffset, counts.GetValue().Name );
-            const auto countBuffer = VulkanRdgBackend::BufferOf( counts.GetValue() );
-            if ( !countBuffer )
-                return Common::MakeFormattedError( "{}: indirect draw counts: {}", pass, countBuffer.GetError() );
-            vkCounts = countBuffer.GetValue()->GetBuffer();
-        }
-        else if ( draw.MaxDrawsPerCall == 0u )
+        if ( draw.MaxDrawsPerCall == 0u )
             return Common::MakeFormattedError( "{}: an indirect group of zero draws per call", pass );
 
         if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, nullptr );
@@ -1097,13 +1083,8 @@ namespace Desert::Graphic::API::Vulkan
             return buffers;
 
         // Not counted by DrawCounter: the instance counts are the GPU's (RenderMeshIndirect likewise).
+        // One fixed table (decision 10-28): every bin's record is drawn, a culled one with InstanceCount 0.
         const VkBuffer vkArgs = args.GetValue()->GetBuffer();
-        if ( vkCounts != VK_NULL_HANDLE )
-        {
-            vkCmdDrawIndexedIndirectCount( m_CurrentCommandBuffer, vkArgs, draw.ArgsOffset, vkCounts,
-                                           draw.CountOffset, draw.MaxDraws, draw.Stride );
-            return Common::MakeSuccess( true );
-        }
         for ( uint32_t first = 0; first < draw.MaxDraws; first += draw.MaxDrawsPerCall )
         {
             const uint32_t count = std::min( draw.MaxDraws - first, draw.MaxDrawsPerCall );

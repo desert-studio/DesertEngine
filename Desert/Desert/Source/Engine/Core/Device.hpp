@@ -84,9 +84,6 @@ namespace Desert::Engine
         // --- Indirect draws (GPU-DRIVEN; read only by GpuDriven::SelectIndirectSubmission) --------------
         /// VK multiDrawIndirect: one vkCmdDrawIndexedIndirect with drawCount > 1 (an IndirectGroup in one call).
         bool SupportsMultiDrawIndirect = false;
-        /// VK drawIndirectCount (1.2 core / VK_KHR_draw_indirect_count): the draw count read from a buffer, so
-        /// a group's bins are compacted. MoltenVK 1.4.3 on M1 Pro: 0 (multiDrawIndirect 1).
-        bool SupportsDrawIndirectCount = false;
 
         // --- Feature flags the renderer branches on -------------------------------------------------
         bool SupportsTimestampQueries    = false; ///< GPU-side profiling; the profiler is CPU-only without it.
