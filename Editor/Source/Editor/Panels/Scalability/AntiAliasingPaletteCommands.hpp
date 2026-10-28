@@ -55,10 +55,14 @@ namespace Desert::Editor
         for ( const AntiAliasingMethod method : catalog.AntiAliasingMethods )
         {
             if ( method == AntiAliasingMethod::MSAA )
+            {
                 for ( const int samples : catalog.MSAACounts )
+                {
                     if ( samples > 1 )
                         commands.push_back( { "Anti-Aliasing", std::format( "Anti-Aliasing: MSAA {}x", samples ),
                                               choose( AntiAliasingMethod::MSAA, samples ) } );
+                }
+            }
             else
                 commands.push_back( { "Anti-Aliasing",
                                       std::format( "Anti-Aliasing: {}", rfl::enum_to_string( method ) ),
