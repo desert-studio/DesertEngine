@@ -217,6 +217,9 @@ namespace Desert::Editor
         // view the control channel's camera commands address. Refuses when no viewport is live.
         static Common::BoolResultStr DropMeshIntoActiveViewport( const std::string&       path,
                                                                  const ActorDrop::Target& target );
+        // Any live viewport's dropped mesh still importing on its worker, or cooked and not yet spawned (the
+        // "Loading meshes" overlay). The control channel's reply gate waits for it (PendingWork::MeshDrops).
+        static bool AnyMeshDropLoading();
         // The palette's door to DropPrefabAsset (below), into the ACTIVE viewport, as DropMeshIntoActiveViewport.
         static Common::BoolResultStr DropPrefabIntoActiveViewport( const std::string&              path,
                                                                    const std::optional<glm::vec3>& surface );
