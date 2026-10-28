@@ -931,6 +931,13 @@ namespace Desert::Graphic::System
         {
             return m_IsmInstancesDrawn;
         }
+        /// Draws (cells or generic materials) the last frame gave to the default surface, or left out, because
+        /// their own pipeline was still compiling: the picture is not the scene yet. UE's automated screenshot
+        /// waits for FinishAllCompilation; the control gate's PendingWork::MaterialPipelines waits on this.
+        [[nodiscard]] uint32_t GetStandInDraws() const
+        {
+            return m_StandInDraws;
+        }
         /// Triangles the last frame's VIEW pass sent to the GPU (forward geometry, or the deferred G-buffer +
         /// forward generic), at the LOD each draw was built with: UE's stat "Triangles drawn" for the base pass.
         /// Shadow and debug passes are not counted.
@@ -979,6 +986,7 @@ namespace Desert::Graphic::System
         // or the pipeline is refused — the caller skips that draw rather than binding another template's program.
         [[nodiscard]] GraphicsPipeline* CellPipeline( GraphicsPipeline*         passState,
                                                       const DataDrivenMaterial& cell );
+        [[nodiscard]] GraphicsPipeline* CellPipeline( GraphicsPipeline* passState, const std::string& cellShader );
         std::unordered_map<MeshCellPipelineKey, std::shared_ptr<GraphicsPipeline>, MeshCellPipelineKeyHash>
              m_CellPipelines; // null = refused
 
@@ -1290,6 +1298,10 @@ namespace Desert::Graphic::System
         [[nodiscard]] static GraphicsPipelineSpecification
              GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
         void PrecacheRequestedMaterials();
+        // The mesh-table cells requested on load (MaterialPipelineRequests::RequestCell), compiled through the
+        // same CellPipeline/CullPermutation the draw uses, so the draw finds them in m_CellPipelines. A cell whose
+        // pass state is not built yet waits in m_PendingCellPrecache for the frame that has it.
+        void PrecacheRequestedCells();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
     public:
         // THE ONE PERMUTATION FUNCTION of a generic forward program on the deferred path, asked by every place
@@ -1721,6 +1733,9 @@ namespace Desert::Graphic::System
         // read the process-wide on-load request list; the stand-in every not-yet-ready material draws with.
         MaterialPipelineTracker             m_MaterialPipelines;
         size_t                              m_MaterialRequestCursor = 0;
+        size_t                                             m_CellRequestCursor     = 0;
+        std::vector<MaterialPipelineRequests::CellRequest> m_PendingCellPrecache;
+        uint32_t m_StandInDraws = 0; // see GetStandInDraws; reset per frame in DeclareGenericDraws
         std::unique_ptr<DataDrivenMaterial> m_DefaultSurfaceMaterial;
 
         // AL1-12 INSIDE THE GRAPH (RDG-PSO). A graph pass records only pipelines it can bind: binding a content

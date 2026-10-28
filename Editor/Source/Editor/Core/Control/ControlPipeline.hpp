@@ -65,6 +65,7 @@ namespace Desert::Editor::Control
         SubsurfaceHistory, ///< a view's subsurface scatter has not yet averaged its full history window
         HLODBuild, ///< a Build HLODs is still baking its landscape tiles; its cell files are not written yet
         MeshDrops, ///< a dropped mesh is still being imported on a worker, or is cooked but not yet spawned
+        MaterialPipelines, ///< the frame drew a material's default surface while its own pipeline compiled
         Count
     };
 
@@ -89,6 +90,7 @@ namespace Desert::Editor::Control
          "the subsurface scatter's history is still converging (a Scale change, a camera cut or the first frames)",
          "Build HLODs is still baking its landscape tiles (its HLOD files are not written yet)",
          "a dropped mesh is still being imported (the viewport shows 'Loading meshes' and an empty entity)",
+         "a material's pipeline is still compiling (the frame drew the default surface in its place)",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),
