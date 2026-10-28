@@ -6,4 +6,4 @@
 Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
 Дано run View "View mode: Lit"
 Когда run Build "Package Game"
-Тогда 2_whole пакет Bistro собран: в логе нет «would not cook», PackageCook 0 failure(s); вьюпорт - улица Bistro; packaged Runtime на B16_Bistro_Street: «not in the package» = 0
+Тогда bistro_whole пакет Bistro собран: в логе нет «would not cook», PackageCook 0 failure(s); вьюпорт - улица Bistro; packaged Runtime на B16_Bistro_Street: «not in the package» = 0
