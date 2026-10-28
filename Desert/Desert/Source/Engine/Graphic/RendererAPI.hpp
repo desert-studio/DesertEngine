@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
+#include <span>
 #include <Engine/Core/Window.hpp>
 #include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -35,6 +36,20 @@ namespace Desert::Graphic
     // One triangle covering the viewport (Common/FullscreenTriangle.glslh): the vertex stage builds it from
     // gl_VertexIndex with no vertex buffer, so every fullscreen draw is Draw(3, 1, 0, 0).
     inline constexpr uint32_t kFullscreenTriangleVertexCount = 3;
+
+    // One IndirectGroup of a binned mesh pass (GpuDriven/IndirectDrawSubmission.hpp): MaxDraws records of
+    // VkDrawIndexedIndirectCommand at Stride from ArgsOffset of Args, every one an indexed draw of the group's
+    // mesh. The MaxDraws records are read as they are (a culled bin's InstanceCount is 0), MaxDrawsPerCall per
+    // vkCmdDrawIndexedIndirect (1 = one call per record: a device without multiDrawIndirect). Args is declared
+    // Access::IndirectArgs.
+    struct MeshIndirectGroupDraw
+    {
+        RDG::BufferRef Args{};
+        uint64_t       ArgsOffset      = 0;
+        uint32_t       MaxDraws        = 0;
+        uint32_t       Stride          = 0;
+        uint32_t       MaxDrawsPerCall = 1;
+    };
 
     enum class RendererAPIType : uint8_t
     {
@@ -161,12 +176,19 @@ namespace Desert::Graphic
         [[nodiscard]] virtual Common::BoolResultStr
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
-                    uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel ) = 0;
+                    uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel,
+                    std::span<const uint32_t> submeshFirstRows ) = 0;
         // RenderMesh with its counts in a graph buffer (see Renderer::RenderMeshIndirect).
         [[nodiscard]] virtual Common::BoolResultStr
         RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                             const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
                             uint64_t offset, uint64_t hiddenSubmeshMask, MeshDrawArgumentsOrder order ) = 0;
+        // One IndirectGroup of a binned pass: @p pipeline's pass state (no material: binned materials are bindless
+        // rows), @p mesh's vertex / stream / index buffers, then the indirect draws @p draw names. No push block
+        // is written: a binned draw reads its per-draw state from GpuScene through gl_InstanceIndex.
+        [[nodiscard]] virtual Common::BoolResultStr
+        RenderMeshIndirectGroup( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                 const Mesh& mesh, const MeshIndirectGroupDraw& draw ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.

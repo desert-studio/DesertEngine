@@ -78,6 +78,12 @@ namespace Desert::Core
             m_Planes[plane] = Plane{};
         }
 
+        // One plane as Rebuild / Open left it: the GPU cull (GpuDriven::InstanceCulling) tests these same six.
+        [[nodiscard]] const Plane& GetPlane( const FrustumPlane plane ) const
+        {
+            return m_Planes[plane];
+        }
+
     private:
         std::array<Plane, 6> m_Planes;
     };

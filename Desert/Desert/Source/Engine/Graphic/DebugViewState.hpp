@@ -174,6 +174,13 @@ namespace Desert::Graphic
         // Costs GPU time only, never the picture of a correct graph.
         bool DisablePassCulling = false;
 
+        // GPU-DRIVEN CULL validation (GpuDriven::InstanceCullValidation): the frame also runs the GPU instance cull
+        // for the main view, the sun's cascades and the VSM levels, reads its per (view, instance) words back and
+        // logs, per view, how many disagree with the CPU rules (frustum, ISM distance, VSM page mask, LOD). Draws
+        // nothing and changes no picture; costs the cull passes and a readback. Set from a scenario through the
+        // viewport subject's 'Debug.ValidateGpuCulling'.
+        bool ValidateGpuCulling = false;
+
         // The viewport's Screen Percentage override (UE: the viewport's "Screen Percentage" menu, an
         // EditorViewportClient setting). Absent = the view renders at the game's RenderScalePercent
         // (Scalability); present = THIS view renders at that percent instead. The viewport menu writes only

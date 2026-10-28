@@ -18,7 +18,7 @@
 //   * static + generic records: ONE primitive per GPU-scene row; the records sharing a row (the lit draw and the
 //     per-slot material draws of one mesh) OR their visible submeshes, so a mesh split over material slots traces
 //     whole. A row hiding some submeshes traces its (mesh, mask) variant BLAS; hiding all is NothingVisible.
-//   * ISM / foliage: one primitive per instance, its own row (InstancedMeshRenderData::FirstMotionRow), sharing
+//   * ISM / foliage: one primitive per instance, its own row (InstancedMeshRenderData::FirstGpuInstance), sharing
 //     the mesh's BLAS. Wind / WPO is not evaluated: the instance transform as authored (UE default).
 //   * GPU-instanced (the landscape grass): one primitive per producer (its sections merged) holding the mesh's
 //     BLAS and segment run; the TLAS rows are written on the GPU from the transforms and the drawn count the
@@ -34,7 +34,7 @@ namespace Desert::Graphic::RayTracing
         std::span<const System::MeshRenderer::StaticMeshRenderData>    Static;
         std::span<const System::MeshRenderer::GenericMeshRenderData>   Generic; // only VisibleInRayTracing enter
         std::span<const System::MeshRenderer::InstancedMeshRenderData> Instanced;
-        std::span<const uint32_t>                                      InstancedMotionRows;
+        std::span<const uint32_t>                                      InstancedGpuInstances;
         std::span<const System::MeshRenderer::SkinnedMeshRenderData>   Skinned;
         std::span<const System::MeshRenderer::GpuInstancedRenderData>  GpuInstanced; // the landscape grass
         glm::vec3 ViewOrigin{};             // cm; for the ISM distance cull only

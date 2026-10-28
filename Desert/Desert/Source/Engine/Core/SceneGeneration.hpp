@@ -9,7 +9,7 @@
 // address. Views key their history by it (Graphic::MakeViewCameraIdentity), never by an address.
 namespace Desert::Core
 {
-    // Never 0 (0 is "no scene" in Graphic::ViewInputs::SceneIdentity).
+    // Never 0 (0 is "no scene").
     [[nodiscard]] inline uint64_t NextSceneGeneration()
     {
         static std::atomic<uint64_t> counter{ 0 };

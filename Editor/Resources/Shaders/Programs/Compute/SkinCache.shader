@@ -8,11 +8,11 @@ Shader "SkinCache"
         // palette and writes them, in MESH space, into the entry's streams (RayTracingSkinCache.hpp layout): current
         // positions [0,3V) (the BLAS input), previous positions [3V,6V), normal/tangent/bitangent [6V,15V). The
         // raster view passes fetch them (Mesh/Surface/Vertex_Skinned.glslh); the TLAS instance carries the world. The skin is the
-        // same four-influence sum Mesh/Surface/Vertex_Skinned.glslh evaluates, from the same palette (the view's
-        // ObjectBones at the row's BoneOffset), so a ray and the raster see one pose.
+        // same four-influence sum Mesh/Surface/Vertex_Skinned.glslh evaluates, from the same palette (the scene's
+        // ObjectBones at the GpuScene row's BoneOffset), so a ray and the raster see one pose.
         LocalSize(64, 1, 1);
 
-        // The view's ObjectBones: both frames' palettes of every skinned primitive, end to end (ObjectMotion.glslh).
+        // The scene's ObjectBones: both frames' palettes of every skinned primitive, end to end (Common/GpuScene.glslh).
         Buffer(0) SkinCacheBones
         {
             mat4 Palettes[];

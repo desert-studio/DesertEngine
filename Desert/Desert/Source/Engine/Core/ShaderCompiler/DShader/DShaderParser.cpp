@@ -2749,12 +2749,12 @@ namespace Desert::Core::Preprocess
         result.Meta.LayoutBindings  = MaterialLayoutBindings{ propInfo.UBBinding, propInfo.TextureBinding };
         result.Layout               = BuildMaterialLayout( result.Meta );
         // The reserved scene-read range (Core::kSceneReadBindingFirst, ShaderGraphBindings.hpp) is declared into
-        // every view-pass cell by Common/ObjectMotion.glslh; a material row or texture numbered into it would
+        // every view-pass cell by Common/GpuScene.glslh; a material row or texture numbered into it would
         // share a descriptor slot with the view's motion rows, which GLSL accepts without a word.
         if ( result.Layout.RowBinding && Core::IsSceneReadBinding( *result.Layout.RowBinding ) )
         {
             err = { c.Line, std::format( "Properties Binding({}) is inside the reserved scene-read range [{}, {}) "
-                                         "(ObjectMotions / ObjectBones); number the material row elsewhere",
+                                         "(GpuScenePrimitives / ObjectBones); number the material row elsewhere",
                                          *result.Layout.RowBinding, Core::kSceneReadBindingFirst,
                                          Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
             return fail();
@@ -2766,7 +2766,7 @@ namespace Desert::Core::Preprocess
                     err = { c.Line,
                             std::format(
                                  "texture property '{}' (or its sampler state) lands on binding {}, inside "
-                                 "the reserved scene-read range [{}, {}) (ObjectMotions / ObjectBones); move "
+                                 "the reserved scene-read range [{}, {}) (GpuScenePrimitives / ObjectBones); move "
                                  "TextureBinding() so the run of textures and their samplers stays clear of it",
                                  texture.Name, binding, Core::kSceneReadBindingFirst,
                                  Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };

@@ -117,7 +117,7 @@ Shader "TemporalAA"
         // Whether render pixel p shows an object that moves on its own (UE: the velocity texture's "dynamic"
         // encoding, written only by primitives that moved, TemporalAA.usf AA_DYNAMIC_ANTIGHOST). Our geometry writes
         // velocity for every surface (motion blur and the reprojection want the foliage wind's motion too), so the
-        // object's own motion is not the velocity but its OBJECT-MOTION FLAG, the velocity's w (Common/ObjectMotion.glslh
+        // object's own motion is not the velocity but its OBJECT-MOTION FLAG, the velocity's w (Common/Velocity.glslh
         // DesertVelocity; each vertex stage sets v_Surface.ObjectMoved: Vertex_Static the transform changed,
         // Vertex_Instanced the instance moved, Vertex_Skinned the skeleton, particles always, the wind and the grass
         // blades never). A crown swaying in the wind is therefore not dynamic, so the static pixels around its leaves
