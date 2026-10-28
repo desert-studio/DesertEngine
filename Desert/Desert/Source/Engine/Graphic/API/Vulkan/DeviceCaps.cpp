@@ -46,6 +46,9 @@ namespace Desert::Graphic::API::Vulkan
              // MoltenVK has no wide lines; the debug-line path clamps the width instead.
              { C::WideLines, "wideLines", N::Optional, V10, {} },
              { C::FillModeNonSolid, "fillModeNonSolid", N::Optional, V10, {} },
+             // GPU-DRIVEN (GpuDriven/IndirectDrawSubmission.hpp): one vkCmdDrawIndexedIndirect over an IndirectGroup's
+             // bins. Optional (decision 10-27, no device refused): without it the group's records go one call each.
+             { C::MultiDrawIndirect, "multiDrawIndirect", N::Optional, V10, {} },
              { C::SamplerAnisotropy, "samplerAnisotropy", N::Optional, V10, {} },
              { C::TextureCompressionBC, "textureCompressionBC", N::Optional, V10, {} },
              // A storage image declared without a format and written (OpTypeImage Unknown + OpImageWrite): the FSR
@@ -59,6 +62,10 @@ namespace Desert::Graphic::API::Vulkan
              { C::MemoryBudget, "memory_budget", N::Optional, 0, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME },
              { C::TimelineSemaphore, "timelineSemaphore", N::Available, V12,
                VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME },
+             // GPU-DRIVEN: vkCmdDrawIndexedIndirectCount over a group's compacted bins. Optional (decision 10-27):
+             // without it (MoltenVK 1.4.3) the group's uncompacted records draw, empty bins with InstanceCount 0.
+             { C::DrawIndirectCount, "drawIndirectCount", N::Optional, V12,
+               VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME },
              // Required: the bindless texture table (runtime array of sampled images, update-after-bind,
              // partially bound, variable count, non-uniform indexing). Core in 1.2; every desktop GPU and
              // MoltenVK (argument buffers) carries it, and there is no non-bindless second path.

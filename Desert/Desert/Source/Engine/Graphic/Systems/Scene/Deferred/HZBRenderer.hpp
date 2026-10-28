@@ -25,6 +25,14 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, DestinationMipTexture );
     };
 
+    // Which hierarchy a build makes: the CLOSEST depth (screen traces) or the FURTHEST (occlusion culling, UE
+    // FurthestHZB). Reversed-Z: closest = max, furthest = min.
+    enum class HZBKind : uint32_t
+    {
+        Closest  = 0,
+        Furthest = 1,
+    };
+
     // THE CLOSEST-DEPTH HIERARCHICAL Z-BUFFER of the view (UE: BuildHZB's ClosestHZB), built from the scene depth
     // once per frame as a transient of the frame graph: mip 0 the depth at full resolution, each mip above it the
     // closest depth of the texels it covers (Programs/Deferred/HZB.shader, one dispatch per mip). Screen tracing
@@ -47,10 +55,12 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        // GRAPH BUILD: the hierarchy of @p depth (the scene depth, @p width x @p height) as a new transient of
-        // @p graph, and the passes that fill it ("HZB: Mip n"). An invalid ref when the pipeline is missing.
+        // GRAPH BUILD: the @p kind hierarchy of @p depth (the scene depth, @p width x @p height) as a new transient
+        // of @p graph, and the passes that fill it ("HZB: Mip n" / "HZB Furthest: Mip n"). An invalid ref when the
+        // pipeline is missing.
         [[nodiscard]] RDG::TextureRef AddPasses( RDG::Builder& graph, const RDG::TextureRef depth,
-                                                 const uint32_t width, const uint32_t height )
+                                                 const uint32_t width, const uint32_t height,
+                                                 const HZBKind kind = HZBKind::Closest )
         {
             if ( !m_Pipeline || !depth.IsValid() || width == 0u || height == 0u )
                 return {};
@@ -59,10 +69,12 @@ namespace Desert::Graphic::System
                  graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = width, .Height = height },
                                                         .Format = ViewTargetFormats::kHZB,
                                                         .Mips   = mips },
-                                      "HZB" );
+                                      kind == HZBKind::Furthest ? "HZB.Furthest" : "HZB" );
+            const glm::uvec4 push( static_cast<uint32_t>( kind ), 0u, 0u, 0u );
             for ( uint32_t mip = 0; mip < mips; ++mip )
                 graph.AddPass(
-                     std::format( "HZB: Mip {}", mip ), RDG::PassFlags::Compute,
+                     std::format( "{}: Mip {}", kind == HZBKind::Furthest ? "HZB Furthest" : "HZB", mip ),
+                     RDG::PassFlags::Compute,
                      [&, mip]( RDG::PassBuilder& pass )
                      {
                          // Mip 0 reads the depth; every other mip the one below it, as a single-mip view.
@@ -75,13 +87,15 @@ namespace Desert::Graphic::System
                               .Sampler( HZBBuildShaderParameters::PointClampSampler,
                                         RDG::SamplerDesc::PointClamp() )
                               .Storage( HZBBuildShaderParameters::DestinationMipTexture, hzb,
-                                        RDG::Access::StorageWrite, mip );
+                                        RDG::Access::StorageWrite, mip )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
                      },
-                     [pipeline = m_Pipeline, mip, width,
-                      height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     [pipeline = m_Pipeline, mip, width, height,
+                      push]( RDG::PassContext& context ) -> Common::BoolResultStr
                      {
                          DESERT_PROFILE_PASS( "HZB" );
-                         const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                         bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                          return Renderer::GetInstance().DispatchCompute(
                               bindings, *pipeline, GroupCount( std::max( 1u, width >> mip ) ),
                               GroupCount( std::max( 1u, height >> mip ) ), 1 );

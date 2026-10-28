@@ -156,6 +156,30 @@ namespace Desert::Graphic::GpuDriven
         // ordered after the scatter by that final state, the next frame's scatter after their reads.
         [[nodiscard]] Common::ResultStr<GpuSceneBuffers> AddUploadPass( RDG::Builder& graph );
 
+        // The tables as they stand after the last upload, registered in @p graph (a view graph: the upload runs in
+        // its own graph ahead of it, MeshRenderer::SyncGpuScene), every one left in StorageRead. Refused before the
+        // first upload (no device table yet) or while rows wait for one.
+        [[nodiscard]] Common::ResultStr<GpuSceneBuffers> ImportTables( RDG::Builder& graph ) const;
+
+        // The CPU images the device tables were uploaded from (the debug readback's reference, InstanceCulling
+        // validation): equal to the device content whenever HasPendingUpload() is false.
+        [[nodiscard]] std::span<const GpuScenePrimitive> AllPrimitives() const
+        {
+            return m_Primitives;
+        }
+        [[nodiscard]] std::span<const GpuSceneInstance> AllInstances() const
+        {
+            return m_Instances;
+        }
+        [[nodiscard]] std::span<const float> LodScreenSizes() const
+        {
+            return m_LodScreenSizes;
+        }
+        [[nodiscard]] std::span<const GpuSceneWorldBounds> WorldBounds() const
+        {
+            return m_WorldBounds;
+        }
+
         [[nodiscard]] const GpuScenePrimitive&          Primitive( PrimitiveIndex primitive ) const;
         [[nodiscard]] std::span<const GpuSceneInstance> Instances( PrimitiveIndex primitive ) const;
         [[nodiscard]] uint32_t                          PrimitiveCount() const // high-water mark

@@ -1,12 +1,14 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Graphic/GpuDriven/GpuScene.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -15,31 +17,26 @@ namespace Desert::Graphic::RDG
     class Builder;
 }
 
-// GPU-DRIVEN contract (C0) — InstanceCulling: WHICH INSTANCES EACH (VIEW x PASS) DRAWS, DECIDED ON THE GPU
+// GPU-DRIVEN phase CULL — InstanceCulling: WHICH INSTANCES EACH (VIEW x PASS) DRAWS, DECIDED ON THE GPU
 // (UE FInstanceCullingContext + the two-pass occlusion of InstanceCulling/BuildInstanceDrawCommands and
 // HZB occlusion, Renderer/Private/InstanceCulling/*.cpp, Renderer/Private/HZB.cpp).
 //
-// Responsibility, per instance per view, in one compute pass ("GPUDriven: Cull Phase 1/2",
-// Programs/GpuDriven/InstanceCull.shader, reading Common/GpuScene.glslh):
-//  1. frustum test of LocalBounds x InstanceToWorld (or the pose box) against GpuCullView::ViewProjection —
-//     replaces the CPU IsVisibleInView per draw (VisibilityCulling.hpp:23-31; MeshRendererForward.cpp:156,658,
-//     680,887,1019,1156; MeshRendererShadow.cpp:336,353,768,973) and the ISM CPU pass CollectIsmInstances
-//     (InstanceCullDistance.hpp:97), distance cull included;
-//  2. TWO-PHASE HZB occlusion for EVERY mesh: phase 1 tests against the PREVIOUS frame's HZB through
-//     PrevViewProjection; survivors are drawn, the rejected go to OccludedInstances; the pass builds this
-//     frame's HZB from that depth (SceneRenderer::AddFrameHZB, SceneRendererFrameDeferred.cpp:1133-1162, moved
-//     between the phases); phase 2 re-tests the rejected against it and draws the newly visible. A view without
-//     an HZB (CSM cascade today) runs phase 1 with frustum only and no phase 2;
-//  3. LOD on the GPU: the GLSL twin of Geometry::SelectLODFromBounds (Engine/Geometry/LODSelection.hpp:177 and
-//     BoundsScreenRadiusSquared :68) — replaces MeshRenderer::ComputeLOD (MeshRenderer.cpp:193-209);
-//  4. for each submesh slot of (primitive, pass, lod): atomically reserve a place in the slot's bin, write
-//     GpuVisibleInstance there and count it into the bin's GpuIndirectDraw::InstanceCount.
-// Then "GPUDriven: Compact" writes the pass's IndirectDraws (IndirectDrawSubmission.hpp decides the shape).
+// Programs/GpuDriven/InstanceCull.shader (reading Common/GpuScene.glslh), per instance per view:
+//  1. shadow-caster filter, ISM distance fade (KeepsInstanceAtDistance), frustum test of the instance's world box
+//     against the caller's Core::Frustum planes (GpuCullView::FrustumPlanes) — replaces the CPU IsVisibleInView
+//     per draw (VisibilityCulling.hpp:23-31; MeshRendererForward.cpp, MeshRendererShadow.cpp) and
+//     CollectIsmInstances (InstanceCullDistance.hpp:97);
+//  2. a VSM level (CullViewFlags::kVsmPageMask) adds the "VSM: Cull Casters" drawn-page test: the virtual shadow
+//     map's caster cull (VirtualShadowMap.hpp AddCasterCulling) is a CullView flavour of this pass, not a culler;
+//  3. LOD on the GPU: the GLSL twin of Geometry::SelectLODFromBounds after MeshRenderer::ComputeLOD's order;
+//  4. TWO-PHASE FURTHEST-HZB occlusion: phase 1 against the PREVIOUS frame's HZB through PrevViewProjection,
+//     the rejected go to OcclusionCarry; phase 2 re-tests them against this frame's HZB. A view without an HZB
+//     (CSM, VSM) has no phase 2;
+//  5. each survivor is counted into the bins of its (primitive, pass, LOD) slots and written to VisibleInstances.
 //
-// The virtual shadow map's caster cull (Systems/Scene/Shadows/VirtualShadowMap.hpp:95-235, AddCasterCulling) is
-// the same job with a page-mask test instead of a frustum: it becomes a CullView flavour of this pass (its
-// VsmCullInstanceGpu / VsmCullDrawGpu records are GpuSceneInstance / GpuDrawBin), not a second culler.
-// Grass (GpuInstances.hpp) and SDF near-field keep their own generators; their output lands in bins too.
+// One dispatch per MESH PASS over all instances x that pass's views: a pass's bins are its own buffers
+// (DrawCommandCache::PassDrawBuffers), so one dispatch binds one pass table. At most one HZB and one VSM dirty
+// mask per dispatch (the main view's; every VSM level shares the frame's mask): refused otherwise.
 namespace Desert::Graphic::GpuDriven
 {
     enum class CullPhase : uint32_t
@@ -50,29 +47,41 @@ namespace Desert::Graphic::GpuDriven
         PostOcclusion,
     };
 
-    // One view x pass the cull serves this frame. Hzb / PrevHzb are graph textures of the view's HZB chain
-    // (SceneRenderer::AddFrameHZB); invalid = no occlusion test for this view.
+    // One view x pass the cull serves this frame. View's FrustumPlanes / ViewIndex are filled from Frustum and the
+    // view's position in the list. PrevHzb / Hzb: the view's FURTHEST-depth HZB of the previous / this frame
+    // (invalid = no occlusion test). VsmDirtyMask: VirtualShadowMapFrame::DirtyMask for a kVsmPageMask view.
     struct CullViewInput
     {
         GpuCullView     View{};
+        Core::Frustum   Frustum{};
         RDG::TextureRef PrevHzb{};
         RDG::TextureRef Hzb{};
+        RDG::BufferRef  VsmDirtyMask{};
     };
 
-    // What a pass draws with after one phase: the args table (+ the per-group counts on the count path) and the
-    // visible list gl_InstanceIndex indexes. Each phase has its own; phase 2's draws LOAD phase 1's targets.
+    // What a pass draws with after one phase. The views of one mesh pass share the phase's buffers: this view's
+    // records are IndirectDraws[FirstIndirectDraw, +bins) and their firstInstance already points into its range of
+    // VisibleInstances. GroupDrawCounts is written by "GPUDriven: Compact" (phase PASSES, the count path).
     struct CulledDraws
     {
-        RDG::BufferRef IndirectDraws;    // GpuIndirectDraw[Bins] — Access::IndirectArgs
+        RDG::BufferRef IndirectDraws;    // GpuIndirectDraw[views x Bins] — Access::IndirectArgs
         RDG::BufferRef GroupDrawCounts;  // uint[Groups] — Access::IndirectArgs; invalid on the fixed path
-        RDG::BufferRef VisibleInstances; // GpuVisibleInstance[VisibleCapacity]
+        RDG::BufferRef VisibleInstances; // GpuVisibleInstance[views x VisibleCapacity]
+        // uint[views x VisibleCapacity]: VisibleInstances[i].Instance at the same index - the binned draws'
+        // per-instance vertex stream (4 B per visible instance, read at gl_InstanceIndex).
+        RDG::BufferRef VisibleInstanceIds;
+        uint32_t       FirstIndirectDraw = 0;
     };
 
-    // Phase 1's left-overs that phase 2 consumes.
+    // Phase 1's left-overs that phase 2 consumes, and the per (view, instance) Visibility words both write.
     struct OcclusionCarry
     {
-        RDG::BufferRef OccludedInstances; // GpuOccludedInstance[]
-        RDG::BufferRef OccludedCount;     // uint + VkDispatchIndirectCommand of phase 2
+        RDG::BufferRef OccludedInstances; // GpuOccludedInstance[views x instances]
+        RDG::BufferRef OccludedCount;     // uint count, uint capacity, 2 x pad
+        RDG::BufferRef DispatchArgs;      // VkDispatchIndirectCommand of phase 2 (+ pad)
+        RDG::BufferRef Visibility;        // uint[views x InstanceCount] — CullVisibility words
+        uint32_t       ViewCount     = 0;
+        uint32_t       InstanceCount = 0;
     };
 
     struct MainPhaseResult
@@ -84,17 +93,32 @@ namespace Desert::Graphic::GpuDriven
     class InstanceCulling
     {
     public:
-        // Phase 1 for every view in @p views: one dispatch over the scene's instances x views. Refused for an
-        // empty @p views (the caller adds no draw then).
-        [[nodiscard]] Common::ResultStr<MainPhaseResult>
-        AddMainPhase( RDG::Builder& graph, const GpuSceneBuffers& scene, std::span<const PassDrawBuffers> passes,
-                      std::span<const CullViewInput> views ) const;
+        InstanceCulling();
+        ~InstanceCulling();
+        InstanceCulling( const InstanceCulling& )            = delete;
+        InstanceCulling& operator=( const InstanceCulling& ) = delete;
 
-        // Phase 2: re-tests @p carry against each view's (this frame's) Hzb; one indirect dispatch sized by the
-        // occluded count. Views with no Hzb get an empty CulledDraws (their draws are all in phase 1).
+        // Phase 1 for every view in @p views: per mesh pass, one dispatch over the scene's instances x its views.
+        // @p passes: indexed by MeshPass (kMeshPassCount entries; a pass with no bins has invalid refs).
+        // Refused for an empty @p views (the caller adds no draw then), a missing pipeline, or a pass whose views
+        // name more than one HZB / dirty mask. @p neutralHzb: a 1-texel texture any graph pass wrote (SceneRenderer
+        // System.Black), bound for a pass none of whose views has an HZB (the HZB flag is then off in the push).
+        [[nodiscard]] Common::ResultStr<MainPhaseResult>
+        AddMainPhase( RDG::Builder& graph, const GpuSceneBuffers& scene, std::span<const PassDrawTable> tables,
+                      std::span<const PassDrawBuffers> passes, std::span<const CullViewInput> views,
+                      RDG::TextureRef neutralHzb ) const;
+
+        // Phase 2: re-tests @p carry against each view's (this frame's) Hzb; one indirect dispatch per mesh pass
+        // sized by the occluded count. Views with no Hzb get an empty CulledDraws (their draws are all in phase
+        // 1).
         [[nodiscard]] Common::ResultStr<std::vector<CulledDraws>>
         AddPostOcclusionPhase( RDG::Builder& graph, const GpuSceneBuffers& scene,
-                               std::span<const PassDrawBuffers> passes, std::span<const CullViewInput> views,
-                               const OcclusionCarry& carry ) const;
+                               std::span<const PassDrawTable> tables, std::span<const PassDrawBuffers> passes,
+                               std::span<const CullViewInput> views, const OcclusionCarry& carry ) const;
+
+        struct Program;
+
+    private:
+        std::unique_ptr<Program> m_Program;
     };
 } // namespace Desert::Graphic::GpuDriven

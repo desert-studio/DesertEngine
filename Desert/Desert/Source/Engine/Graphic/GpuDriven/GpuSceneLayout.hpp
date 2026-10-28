@@ -230,28 +230,47 @@ namespace Desert::Graphic::GpuDriven
     };
     static_assert( sizeof( GpuOccludedInstance ) == 8, "std430 twin in Common/GpuScene.glslh" );
 
-    // ONE ROW PER (VIEW x PASS) a cull dispatch serves (main view, each CSM cascade, a reflection-capture
-    // face...).
+    // ONE ROW PER (VIEW x PASS) a cull dispatch serves (main view, each CSM cascade, each VSM level...).
+    // FrustumPlanes are the CPU Core::Frustum's six normalised planes as the view's caller built them (a zero plane
+    // accepts: the VSM levels open their sun-side one), so the GPU test and the CPU IsVisibleInView test the same
+    // half-spaces rather than two extractions of one matrix.
     struct GpuCullView
     {
-        glm::mat4  ViewProjection{ 1.0f };     // 0   unjittered; frustum planes are extracted from it
+        glm::mat4  ViewProjection{ 1.0f };     // 0   unjittered; HZB phase 2 and the VSM page footprint project with it
         glm::mat4  PrevViewProjection{ 1.0f }; // 64  phase 1 projects into the previous frame's HZB with it
         glm::mat4  LodProjection{ 1.0f };      // 128 Geometry::LODView::Projection (the main view's for shadows)
-        glm::vec4  LodOrigin{ 0.0f };          // 192 xyz = Geometry::LODView::Origin, w = LOD distance scale
-        glm::vec4  CullOrigin{ 0.0f };         // 208 xyz = origin of the ISM cull distance, w = 0
-        glm::uvec4 HzbExtent{ 0u };            // 224 xy = HZB mip-0 size, z = mip count, w = 0 (no HZB: z = 0)
-        uint32_t   Pass  = 0;                  // 240 — MeshPass
-        uint32_t   Flags = 0;                  // 244 — CullViewFlags
-        uint32_t   Pad0  = 0;                  // 248
-        uint32_t   Pad1  = 0;                  // 252
+        glm::vec4  FrustumPlanes[6]{};         // 192 xyz = normal, w = distance (Core::Frustum::Plane), zero = open
+        glm::vec4  LodOrigin{ 0.0f };          // 288 xyz = Geometry::LODView::Origin, w = 0
+        glm::vec4  CullOrigin{ 0.0f };         // 304 xyz = ISM distance-cull origin (main camera), w = its lens scale
+                                               //     (Graphic::DrawDistanceScale of the main view)
+        glm::uvec4 HzbExtent{ 0u };            // 320 xy = HZB mip-0 size, z = mip count, w = 0 (no HZB: z = 0)
+        uint32_t   Pass      = 0;              // 336 — MeshPass
+        uint32_t   Flags     = 0;              // 340 — CullViewFlags
+        uint32_t   VsmLevel  = 0;              // 344 — the clipmap level (kVsmPageMask)
+        uint32_t   ViewIndex = 0;              // 348 — the view's index in the caller's CullViewInput list
     };
-    static_assert( sizeof( GpuCullView ) == 256, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( sizeof( GpuCullView ) == 352, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuCullView, FrustumPlanes ) == 192, "Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuCullView, HzbExtent ) == 320, "Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuCullView, ViewIndex ) == 348, "Common/GpuScene.glslh" );
 
     namespace CullViewFlags
     {
-        inline constexpr uint32_t kOrthographic = 1u
-                                                  << 0; // CSM / VSM: no near-plane perspective divide in HZB test
-        inline constexpr uint32_t kTestHzb = 1u << 1;   // the view has an HZB (prev for phase 1, this for phase 2)
-        inline constexpr uint32_t kShadowCaster = 1u << 2; // only kCastsShadow primitives
+        inline constexpr uint32_t kOrthographic  = 1u << 0; // CSM / VSM projection
+        inline constexpr uint32_t kTestHzb       = 1u << 1; // the view has an HZB (prev for phase 1, this for phase 2)
+        inline constexpr uint32_t kShadowCaster  = 1u << 2; // only kCastsShadow primitives
+        inline constexpr uint32_t kLodDisabled   = 1u << 3; // MeshRenderer::IsLODEnabled() == false: auto LOD is 0
+        inline constexpr uint32_t kVsmPageMask   = 1u << 4; // VSM level: also the "VSM: Dirty Mask" cell test
     } // namespace CullViewFlags
+
+    // One word per (view, instance) the cull writes (InstanceCull.shader Visibility[]; GLSL
+    // DESERT_GPU_CULL_VISIBILITY_*): 0 = culled before occlusion. The debug readback compares kInView + LOD with
+    // the CPU rules.
+    namespace CullVisibility
+    {
+        inline constexpr uint32_t kLodMask     = 0xFFu;
+        inline constexpr uint32_t kPostVisible = 1u << 29; // phase 2 found it visible in this frame's HZB
+        inline constexpr uint32_t kOccluded    = 1u << 30; // phase 1 rejected it by last frame's HZB
+        inline constexpr uint32_t kInView      = 1u << 31; // passed caster filter, distance, frustum (+ VSM page mask)
+    } // namespace CullVisibility
 } // namespace Desert::Graphic::GpuDriven

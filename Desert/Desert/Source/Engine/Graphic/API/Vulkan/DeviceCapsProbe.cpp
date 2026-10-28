@@ -51,6 +51,8 @@ namespace Desert::Graphic::API::Vulkan
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::wideLines );
                 case Capability::FillModeNonSolid:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::fillModeNonSolid );
+                case Capability::MultiDrawIndirect:
+                    return EnableCore10( device, &VkPhysicalDeviceFeatures::multiDrawIndirect );
                 case Capability::SamplerAnisotropy:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::samplerAnisotropy );
                 case Capability::TextureCompressionBC:
@@ -77,6 +79,18 @@ namespace Desert::Graphic::API::Vulkan
                          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES };
                     f.timelineSemaphore = VK_TRUE;
                     return EnableExtensionFeatures( device, f, spec );
+                }
+                case Capability::DrawIndirectCount:
+                {
+                    // VK_KHR_draw_indirect_count has no feature struct; in 1.2 core it is a Vulkan12Features bit.
+                    if ( core )
+                    {
+                        VkPhysicalDeviceVulkan12Features f{
+                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+                        f.drawIndirectCount = VK_TRUE;
+                        return device.enable_extension_features_if_present( f );
+                    }
+                    return device.enable_extension_if_present( std::string( spec.Extension ).c_str() );
                 }
                 case Capability::DescriptorIndexing:
                 {

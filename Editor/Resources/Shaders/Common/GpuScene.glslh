@@ -28,6 +28,14 @@
 #define DESERT_GPU_CULL_VIEW_ORTHOGRAPHIC  1u
 #define DESERT_GPU_CULL_VIEW_TEST_HZB      2u
 #define DESERT_GPU_CULL_VIEW_SHADOW_CASTER 4u
+#define DESERT_GPU_CULL_VIEW_LOD_DISABLED  8u
+#define DESERT_GPU_CULL_VIEW_VSM_PAGE_MASK 16u
+
+// GpuDriven::CullVisibility (one word per view x instance of the cull's Visibility[])
+#define DESERT_GPU_CULL_VISIBILITY_LOD_MASK     0xFFu
+#define DESERT_GPU_CULL_VISIBILITY_POST_VISIBLE 0x20000000u
+#define DESERT_GPU_CULL_VISIBILITY_OCCLUDED     0x40000000u
+#define DESERT_GPU_CULL_VISIBILITY_IN_VIEW      0x80000000u
 
 #define DESERT_GPU_INVALID_INDEX 0xFFFFFFFFu
 
@@ -159,19 +167,20 @@ struct GpuOccludedInstance
     uint View;     // offset 4
 };
 
-// Per (view x pass) the cull serves. 256 bytes.
+// Per (view x pass) the cull serves. 352 bytes.
 struct GpuCullView
 {
     mat4  ViewProjection;     // offset 0   — unjittered
     mat4  PrevViewProjection; // offset 64
     mat4  LodProjection;      // offset 128 — Geometry::LODView::Projection
-    vec4  LodOrigin;          // offset 192 — xyz = LODView::Origin, w = LOD distance scale
-    vec4  CullOrigin;         // offset 208 — xyz = ISM distance-cull origin
-    uvec4 HzbExtent;          // offset 224 — xy = mip-0 size, z = mip count (0 = no HZB)
-    uint  Pass;               // offset 240 — GpuDriven::MeshPass
-    uint  Flags;              // offset 244 — DESERT_GPU_CULL_VIEW_*
-    uint  Pad0;               // offset 248
-    uint  Pad1;               // offset 252
+    vec4  FrustumPlanes[6];   // offset 192 — Core::Frustum planes, xyz normal / w distance, zero = open
+    vec4  LodOrigin;          // offset 288 — xyz = LODView::Origin
+    vec4  CullOrigin;         // offset 304 — xyz = ISM distance-cull origin, w = lens scale (DrawDistanceScale)
+    uvec4 HzbExtent;          // offset 320 — xy = mip-0 size, z = mip count (0 = no HZB)
+    uint  Pass;               // offset 336 — GpuDriven::MeshPass
+    uint  Flags;              // offset 340 — DESERT_GPU_CULL_VIEW_*
+    uint  VsmLevel;           // offset 344
+    uint  ViewIndex;          // offset 348 — the caller's view index
 };
 
 // THE SCENE'S PRIMITIVE TABLE (GpuDriven::GpuScene, one per scene, stable rows): a view-pass draw reads its row

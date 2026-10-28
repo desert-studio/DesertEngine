@@ -30,6 +30,8 @@
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
+#include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
+#include <Engine/Graphic/GpuDriven/InstanceCullValidation.hpp>
 #include <Engine/Graphic/View/DepthOfField.hpp>
 #include <Engine/Graphic/View/MotionBlur.hpp>
 #include <Engine/Graphic/View/SpatialUpscale.hpp>
@@ -46,6 +48,8 @@
 #include <Common/Core/Units.hpp>
 #include <unordered_map>
 #include <functional>
+#include <optional>
+#include <string>
 #include <span>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
@@ -1007,6 +1011,11 @@ namespace Desert::Graphic
                                                   const std::vector<RDG::TextureRef>& gbuffer,
                                                   const glm::vec3& directionToSun, const ViewFrame& frame );
         bool            EnsureVirtualShadowResources();
+        // GPU-DRIVEN CULL, only under DebugViewState::ValidateGpuCulling (the drawing stays on the CPU path): the
+        // InstanceCulling phases over the main view (two-phase FURTHEST-HZB occlusion against m_CullHzbHistory),
+        // the sun's cascades (m_FrameCascades) and the VSM clipmap levels (m_FrameVsmPages), then this frame's
+        // furthest HZB extracted into m_CullHzbHistory. A refusal is logged once per message and skips the frame.
+        void AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
         // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
@@ -1622,6 +1631,17 @@ namespace Desert::Graphic
         // which nothing drew them.
         bool m_FrameCascades          = true;
         bool m_CascadesDrawnLastFrame = false;
+        // GPU-DRIVEN CULL (DebugViewState::ValidateGpuCulling): last frame's FURTHEST HZB of the main view, phase 1's
+        // occlusion input (registered only when its size is this frame's depth size).
+        RDG::ExternalTexture m_CullHzbHistory;
+        GpuDriven::InstanceCulling m_GpuCull;
+        // The CPU recount of the cull's Visibility words, logged per view (one frame-in-flight late).
+        GpuDriven::InstanceCullValidation m_GpuCullValidation;
+        // This frame's VSM page passes (AddFrameVirtualSunShadow), for the cull's VSM level views; reset before
+        // the sun shadow is declared each frame, so a frame without VSM culls no level.
+        std::optional<System::VirtualShadowMapFrame> m_FrameVsmPages;
+        // The last cull refusal logged (AddFrameGpuCull): the same message is not logged again every frame.
+        std::string m_GpuCullLastError;
         // The sun path the cascade budget was taken for (ShadowQualityOf): a ray-traced sun's cascades are the
         // low-detail ones. Re-budgeted when it or the quality generation moves.
         bool m_ShadowBudgetSunRayTraced = false;

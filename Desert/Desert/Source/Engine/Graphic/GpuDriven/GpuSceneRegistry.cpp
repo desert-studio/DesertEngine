@@ -19,6 +19,7 @@ namespace Desert::Graphic::GpuDriven
                 return;
             desc.LocalBoundsMin = box.Min;
             desc.LocalBoundsMax = box.Max;
+            desc.LodScreenSizes = mesh->GetLODScreenSizes();
         }
 
         bool SameInstances( const std::span<const GpuSceneInstance> held,
@@ -154,20 +155,25 @@ namespace Desert::Graphic::GpuDriven
         fresh                     = inserted || entry.Frame != m_Frame;
         if ( !fresh )
             return entry; // an earlier view of this frame synced it
-        if ( inserted || entry.Mesh != record.Mesh || entry.Flags != record.Flags )
+        if ( inserted || entry.Mesh != record.Mesh || entry.Flags != record.Flags ||
+             entry.ForcedLod != record.ForcedLod || entry.LodBias != record.LodBias )
         {
             PrimitiveDesc desc;
             desc.Mesh         = record.Mesh;
             desc.LocalToWorld = record.World;
             desc.Flags        = record.Flags;
             desc.Entity       = record.Entity;
+            desc.ForcedLod    = record.ForcedLod;
+            desc.LodBias      = record.LodBias;
             FillBounds( desc, record.Mesh );
             if ( inserted )
                 entry.Primitive = m_Scene.AddPrimitive( desc );
             else
                 m_Scene.UpdatePrimitive( entry.Primitive, desc );
-            entry.Mesh  = record.Mesh;
-            entry.Flags = record.Flags;
+            entry.Mesh      = record.Mesh;
+            entry.Flags     = record.Flags;
+            entry.ForcedLod = record.ForcedLod;
+            entry.LodBias   = record.LodBias;
         }
         else
             m_Scene.SetTransform( entry.Primitive, record.World );
@@ -281,6 +287,8 @@ namespace Desert::Graphic::GpuDriven
             if ( inserted || entry.Frame != m_Frame )
             {
                 const bool changed = inserted || entry.Mesh != field.Mesh || entry.Flags != field.Flags ||
+                                     entry.BoundsPad != field.BoundsPad || entry.CullStart != field.CullDistanceStart ||
+                                     entry.CullEnd != field.CullDistanceEnd ||
                                      !SameInstances( m_Scene.Instances( entry.Primitive ), field.Transforms );
                 if ( changed )
                 {
@@ -291,13 +299,17 @@ namespace Desert::Graphic::GpuDriven
                     desc.CullDistanceEnd     = field.CullDistanceEnd;
                     desc.Flags               = field.Flags;
                     desc.Entity              = field.Entity;
+                    desc.BoundsPad           = field.BoundsPad; // ISM rows: ForcedLod -1, LodBias 0 (defaults)
                     FillBounds( desc, field.Mesh );
                     if ( inserted )
                         entry.Primitive = m_Scene.AddPrimitive( desc );
                     else
                         m_Scene.UpdatePrimitive( entry.Primitive, desc );
-                    entry.Mesh  = field.Mesh;
-                    entry.Flags = field.Flags;
+                    entry.Mesh      = field.Mesh;
+                    entry.Flags     = field.Flags;
+                    entry.BoundsPad = field.BoundsPad;
+                    entry.CullStart = field.CullDistanceStart;
+                    entry.CullEnd   = field.CullDistanceEnd;
                 }
                 Queued( entry );
             }

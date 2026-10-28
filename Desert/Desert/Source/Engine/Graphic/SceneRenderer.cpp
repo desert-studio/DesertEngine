@@ -2043,12 +2043,16 @@ namespace Desert::Graphic
                 // "Shadows: Ray Traced Sun" in place of the cascades (SunShadowIsRayTraced): the composite's
                 // DESERT_SUN_SHADOW_SCREEN_MASK permutation reads this mask.
                 // "VSM: Project" likewise: the same mask, the same permutations.
+                m_FrameVsmPages.reset();
                 const RDG::TextureRef sunShadowMask =
                      SunShadowIsVirtual()
                           ? AddFrameVirtualSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                      : SunShadowIsRayTraced()
                           ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                           : RDG::TextureRef{};
+                // GPU-DRIVEN CULL validation: the GPU's visible sets beside the CPU's, after the VSM pages exist.
+                if ( m_DebugView.ValidateGpuCulling )
+                    AddFrameGpuCull( graph, textures, frame );
                 // Shadows Stochastic: the local lights sampled, traced and denoised by MegaLights, which the
                 // composite's MegaLights program reads in place of its light-grid loop.
                 const System::MegaLightsLighting megaLights =
@@ -2321,6 +2325,7 @@ namespace Desert::Graphic
 #endif
         m_FrameReflectionCaptures = nullptr;
         m_FrameRayTracingCache    = nullptr;
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ForgetGpuScene();
         m_FrameGpuScene           = nullptr;
         m_FrameLocalShadows       = nullptr;
         m_FrameDistanceFields     = nullptr;
@@ -2605,6 +2610,7 @@ namespace Desert::Graphic
                        pages.GetError() );
             return {};
         }
+        m_FrameVsmPages = pages.GetValue();
         // "VSM: Raster": every caster into the dirty pages, before the projection reads the pool. A refusal is
         // a missing caster program or pipeline, which no later frame repairs: said once, and the method stays
         // dark.
