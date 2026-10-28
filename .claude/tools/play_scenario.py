@@ -50,7 +50,7 @@ def project_line(tree, lines):
         words = shlex.split(rest)
         if not words:
             sys.exit("SCENARIO: «Проект» needs a .deproj path")
-        for base in ("", tree, os.path.dirname(tree)):
+        for base in (tree, os.path.dirname(tree)):  # an absolute path ignores the base; never cwd (main tree -> "New Scene", 10-28)
             cand = os.path.abspath(os.path.join(base, os.path.expanduser(words[0])))
             if os.path.isfile(cand):
                 return cand, words[1:]
