@@ -63,9 +63,9 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Geometry/MeshCore/Selections` — 4 files, 411 lines: Component, MeshConnectedComponents, QuadGridPatch
 - `Geometry/MeshCore/Solvers` — 2 files, 528 lines: SparseLDLT, SparseMatrixD, SpectralConformalMeshUVSolver, Triplet
 - `Geometry/MeshCore/Spatial` — 3 files, 1,208 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
-- `Graphic` — 125 files, 26,263 lines: ActiveViewScope, AllocationLedger, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, BlockDeclaration, … (+193)
+- `Graphic` — 125 files, 26,293 lines: ActiveViewScope, AllocationLedger, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, BlockDeclaration, … (+193)
 - `Graphic/API` — 2 files, 31 lines
-- `Graphic/API/Vulkan` — 86 files, 24,521 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CatalogProbe, CommandBufferAllocator, DescriptorIndexingLimits, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, … (+103)
+- `Graphic/API/Vulkan` — 86 files, 24,638 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CatalogProbe, CommandBufferAllocator, DescriptorIndexingLimits, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, … (+103)
 - `Graphic/API/Vulkan/FidelityFX` — 2 files, 225 lines: DeviceRequirements
 - `Graphic/API/Vulkan/Streamline` — 2 files, 1,374 lines: DlssEvaluation, DlssImage, DlssOptions, DlssRenderRange, FeatureState, Runtime
 - `Graphic/API/Vulkan/VulkanUtils` — 4 files, 565 lines: DescriptorSetBuilder
@@ -139,7 +139,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Runtime/Services/Shader` — 2 files, 586 lines: MediumEntry, ShaderService, VariantEntry
 - `Runtime/Services/Skybox` — 2 files, 161 lines: SkyboxService
 - `Runtime/Services/Subsurface` — 2 files, 85 lines: SubsurfaceProfileService
-- `Runtime/Services/Texture` — 4 files, 906 lines: CookAdmission, Entry, Item, TextureCookOutcome, TextureService, TextureStreamingSettings, TextureUploadQueue, TextureUploadSettings, TextureWaiters
+- `Runtime/Services/Texture` — 4 files, 928 lines: CookAdmission, Entry, Item, TextureCookOutcome, TextureService, TextureStreamingSettings, TextureUploadQueue, TextureUploadSettings, TextureWaiters
 - `Runtime/Services/UITheme` — 2 files, 247 lines: Entry, UIThemeService
 - `Runtime/Services/VFX` — 2 files, 220 lines: VFXSystemService
 - `Runtime/Services/Video` — 2 files, 233 lines: SoundRequest, VideoPlayback, VideoService
