@@ -30,7 +30,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Assets/Shader` — 2 files, 325 lines: ShaderAsset
 - `Assets/Skybox` — 2 files, 123 lines: SkyboxAsset
 - `Assets/StaticLighting` — 3 files, 258 lines: AtlasPlacement, BakedLightRecord, BakedPrimitiveRecord, LightingBuildDataAsset, MeshLightmapUVSettings, StaticLightingInput, StaticLightingInputs, VolumetricLightmapData
-- `Core` — 73 files, 12,130 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CameraSourceTicket, CellHLOD, CookedWorldStart, DebugDrawCanvasLine, DebugDrawLine, DebugDrawPanelStyle, … (+65)
+- `Core` — 73 files, 12,136 lines: Application, ApplicationInfo, AxisRow, BootTimeline, Camera, CameraEntityView, CameraSourceTicket, CellHLOD, CookedWorldStart, DebugDrawCanvasLine, DebugDrawLine, DebugDrawPanelStyle, … (+65)
 - `Core/Formats` — 11 files, 3,598 lines: BC6HCeilingCensus, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MaterialLayout, MaterialLayoutBindings, MaterialLayoutParam, MaterialLayoutPushField, MaterialLayoutTexture, MipLevelSpan, ReflectedLayoutMember, … (+8)
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
 - `Core/Serialize` — 47 files, 14,595 lines: AxisSpan, BuiltHLODCell, BuiltHLODIndex, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, … (+88)
@@ -63,7 +63,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Geometry/MeshCore/Selections` — 4 files, 411 lines: Component, MeshConnectedComponents, QuadGridPatch
 - `Geometry/MeshCore/Solvers` — 2 files, 528 lines: SparseLDLT, SparseMatrixD, SpectralConformalMeshUVSolver, Triplet
 - `Geometry/MeshCore/Spatial` — 3 files, 1,208 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
-- `Graphic` — 127 files, 27,150 lines: ActiveViewScope, AllocationLedger, Arena, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, … (+203)
+- `Graphic` — 127 files, 27,146 lines: ActiveViewScope, AllocationLedger, Arena, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, … (+203)
 - `Graphic/API` — 4 files, 295 lines: CooperativeMatrixShape, NeuralComputeCaps
 - `Graphic/API/Vulkan` — 88 files, 25,695 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, BoundGeometry, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CatalogProbe, CommandBufferAllocator, DescriptorIndexingLimits, DescriptorPoolDeletionEntry, DescriptorSetInfo, … (+106)
 - `Graphic/API/Vulkan/FidelityFX` — 2 files, 225 lines: DeviceRequirements
@@ -101,10 +101,10 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/Systems/Scene/Deferred` — 13 files, 3,254 lines: CompositeProgram, CopyBindingShaderParameters, CopyRenderer, DeferredCompositeInputs, DeferredCompositeLights, DeferredLightingCompositeShaderParameters, DeferredLightingRenderer, DeferredLightingWorldViewShaderParameters, DenoiserSceneTextures, DepthExpandBindingShaderParameters, DepthExpandRenderer, DiffuseIndirectDenoiserInputs, … (+43)
 - `Graphic/Systems/Scene/Fog` — 2 files, 419 lines: HeightFogApplyShaderParameters, HeightFogFogShaderParameters, HeightFogRenderer
 - `Graphic/Systems/Scene/Grass` — 4 files, 1,195 lines: BladeKey, Desert, FieldGpu, GrassBladeDraw, GrassBladeRayTracing, GrassBladeShapeGpu, GrassBladeStripLevel, GrassFieldData, GrassFieldDraw, GrassPlacement, GrassRenderer, GrassSectionDraw, … (+4)
-- `Graphic/Systems/Scene/Mesh` — 18 files, 11,838 lines: Block, BuildKey, CardCaptureSection, CardCaptureSource, CascadeCacheCopy, CascadeCacheState, CasterPipelines, Desert, DirectionalShadowSlot, DisplacementCache, DisplacementMaterialRecord, DisplacementQuality, … (+40)
+- `Graphic/Systems/Scene/Mesh` — 18 files, 11,856 lines: Block, BuildKey, CardCaptureSection, CardCaptureSource, CascadeCacheCopy, CascadeCacheState, CasterPipelines, Desert, DirectionalShadowSlot, DisplacementCache, DisplacementMaterialRecord, DisplacementQuality, … (+40)
 - `Graphic/Systems/Scene/Particles` — 9 files, 3,451 lines: EmitterMaterial, MeshInstances, ParticleArgsPush, ParticleChannelSpawnGpu, ParticleCompactPush, ParticleDebugPush, ParticleDebugRequest, ParticleDrawLayoutGpu, ParticleDrawSlotGpu, ParticleEmitterDebug, ParticleEmitterGpu, ParticleFrameEmitter, … (+26)
 - `Graphic/Systems/Scene/PathTracing` — 1 files, 1,210 lines: AccumulationRefs, AccumulationTarget, DenoiseProgram, DenoisePush, FrameInputs, HistoryRefs, HistoryTarget, PathTracer, PathTracingDenoiseAntiFireflyShaderParameters, PathTracingDenoiseCombineShaderParameters, PathTracingDenoiseFilterShaderParameters, PathTracingDenoiseRemodulateShaderParameters, … (+13)
-- `Graphic/Systems/Scene/PostProcessing` — 21 files, 18,485 lines: AutoExposureAverageShaderParameters, AutoExposureClearShaderParameters, AutoExposureHistogramShaderParameters, AutoExposureRenderer, BackdropBlurDownsampleShaderParameters, BackdropBlurRenderer, BloomDownsampleShaderParameters, BloomRenderer, BloomUpsampleShaderParameters, DownsamplePush, FXAARenderer, FXAAShaderParameters, … (+27)
+- `Graphic/Systems/Scene/PostProcessing` — 21 files, 18,459 lines: AutoExposureAverageShaderParameters, AutoExposureClearShaderParameters, AutoExposureHistogramShaderParameters, AutoExposureRenderer, BackdropBlurDownsampleShaderParameters, BackdropBlurRenderer, BloomDownsampleShaderParameters, BloomRenderer, BloomUpsampleShaderParameters, DownsamplePush, FXAARenderer, FXAAShaderParameters, … (+27)
 - `Graphic/Systems/Scene/Shadows` — 6 files, 2,071 lines: HistorySlot, KernelProgram, MegaLightsInputs, MegaLightsLighting, MegaLightsQuality, MegaLightsRenderer, MegaLightsShaderParameters, MegaLightsViewUniforms, MegaLightsVolumeInputs, MegaLightsVolumeQuality, MegaLightsVolumeReadParams, MegaLightsVolumeRenderer, … (+29)
 - `Graphic/Systems/Scene/Skybox` — 6 files, 2,834 lines: AtmosphereLutFingerprint, Program, SceneSkyLight, SkyCapture, SkyCaptureFaceSlice, SkyCaptureFrameReads, SkyCaptureSource, SkyDraw, SkyLightStamps, SkyboxProceduralShaderParameters, SkyboxRenderer
 - `Graphic/Systems/Scene/Terrain` — 7 files, 2,437 lines: BuildKey, FrameDraw, FrameGroup, LandscapeLodSettings, LandscapeMaterialValues, LandscapeRayTracing, LandscapeRayTracingFrame, LandscapeRayTracingGrid, LandscapeRayTracingMaterial, LandscapeRayTracingTile, LandscapeTileDraw, LandscapeTileLod, … (+10)
@@ -211,7 +211,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Panels/NodeGraph` — 8 files, 3,061 lines: NodeGraphPanel, NodeSpec, PinSpec, ShadowRayScope, VolumeParam, VolumeParamOutOfScope
 - `Panels/Photogrammetry` — 2 files, 1,265 lines: PhotogrammetryPanel
 - `Panels/PhysicsAssetEditor` — 5 files, 1,273 lines: PhysicsAssetEditCommand, PhysicsAssetEditorBase, PhysicsAssetEditorDocument, PhysicsAssetPreviewSimulation
-- `Panels/ProjectSettings` — 2 files, 284 lines: ProjectSettingsPanel
+- `Panels/ProjectSettings` — 2 files, 292 lines: ProjectSettingsPanel
 - `Panels/PropertyEditor` — 10 files, 3,004 lines: ComponentEditContext, ComponentEditorEntry, ComponentWidgetRegistry, PropertyEditSignals, PropertyEditorBuilder, ReflectedFieldRow
 - `Panels/Retarget` — 4 files, 1,183 lines: RetargetDocument, RetargetDocumentModel, Side
 - `Panels/Scalability` — 5 files, 825 lines: ScalabilityPanel
@@ -244,7 +244,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Widgets/UIHelper` — 5 files, 352 lines: Entry, ImageTextureIds, UICacheTextureImGui, UIHelper
 
 ## Runtime — `Runtime/Source`
-- `.` — 8 files, 2,782 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
+- `.` — 8 files, 2,809 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
 - `Common` — 100 files, 15,159 lines
