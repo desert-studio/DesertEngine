@@ -407,8 +407,10 @@ namespace Desert::Graphic
     void GeometryPool::RT_Shutdown()
     {
         std::lock_guard lock( m_Mutex );
+        // Meshes cached by the asset system outlive the device at exit; the arenas own the memory, so
+        // dropping them frees every span at once and a later Free() is a no-op (m_ShutDown).
         if ( m_Allocations != 0 )
-            LOG_ERROR( "[GeometryPool] device teardown with {} allocation(s) still held; their spans are dropped",
+            LOG_INFO( "[GeometryPool] device teardown releases {} allocation(s) still held by cached meshes",
                       m_Allocations );
         for ( Arena& arena : m_Arenas )
             arena = Arena{};

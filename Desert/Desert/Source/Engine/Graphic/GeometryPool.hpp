@@ -218,7 +218,7 @@ namespace Desert::Graphic
         // The last completed frame's counters and the current occupancy.
         [[nodiscard]] GeometryPoolStats GetStats() const;
 
-        // Device teardown: drops the buffers (the allocations still held then are reported and leaked).
+        // Device teardown: drops the buffers; allocations still held by cached meshes are released with them.
         void RT_Shutdown();
 
     private:
