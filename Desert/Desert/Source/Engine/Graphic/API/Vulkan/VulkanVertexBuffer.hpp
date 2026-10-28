@@ -33,7 +33,7 @@ namespace Desert::Graphic::API::Vulkan
             return m_Size;
         }
 
-        VkBuffer GetVulkanBuffer()
+        [[nodiscard]] VkBuffer GetVulkanBuffer() const
         {
             return m_VulkanBuffer;
         }

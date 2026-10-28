@@ -184,11 +184,12 @@ namespace Desert::Graphic
                             const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
                             uint64_t offset, uint64_t hiddenSubmeshMask, MeshDrawArgumentsOrder order ) = 0;
         // One IndirectGroup of a binned pass: @p pipeline's pass state (no material: binned materials are bindless
-        // rows), @p mesh's vertex / stream / index buffers, then the indirect draws @p draw names. No push block
-        // is written: a binned draw reads its per-draw state from GpuScene through gl_InstanceIndex.
+        // rows), @p geometry's vertex / stream / index buffers (the group's shared binding: one bind per pipeline
+        // switch), then the indirect draws @p draw names. No push block is written: a binned draw reads its
+        // per-draw state from GpuScene through gl_InstanceIndex.
         [[nodiscard]] virtual Common::BoolResultStr
         RenderMeshIndirectGroup( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
-                                 const Mesh& mesh, const MeshIndirectGroupDraw& draw ) = 0;
+                                 const MeshGeometryBinding& geometry, const MeshIndirectGroupDraw& draw ) = 0;
 
         // Transition a storage image to GENERAL for compute writes in the current frame command buffer,
         // making prior graphics (color/shader) writes visible to compute. Pair with ComputeImageEndWrite.

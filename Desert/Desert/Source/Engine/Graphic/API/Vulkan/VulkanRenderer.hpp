@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 
 #include <vulkan/vulkan.h>
 
@@ -89,8 +90,9 @@ namespace Desert::Graphic::API::Vulkan
                                                   const glm::mat4& transform, const MaterialExecutor& material,
                                                   RDG::BufferRef args, uint64_t offset, uint64_t hiddenSubmeshMask,
                                                   MeshDrawArgumentsOrder order ) override;
-        Common::BoolResultStr RenderMeshIndirectGroup( const RDG::PassBindings& bindings,
-                                                       const GraphicsPipeline& pipeline, const Mesh& mesh,
+        Common::BoolResultStr RenderMeshIndirectGroup( const RDG::PassBindings&     bindings,
+                                                       const GraphicsPipeline&      pipeline,
+                                                       const MeshGeometryBinding&   geometry,
                                                        const MeshIndirectGroupDraw& draw ) override;
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
@@ -140,12 +142,30 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr BindGraphicsPassState( const RDG::PassBindings& bindings,
                                                      const GraphicsPipeline&  pipeline,
                                                      const MaterialExecutor*  material );
-        // Binds @p mesh's vertex buffer (binding 0), its optional streams or the shared default (binding 1, when
-        // @p pipeline's vertex input has it), the instance id stream @p visibleRows (binding 2, when the pipeline
-        // reads a_VisibleRow; refused when it does and none is given) and its index buffer on the current command
-        // buffer.
+        // Binds @p geometry's vertex buffer (binding 0), its streams or the shared default (binding 1, when
+        // @p pipeline's vertex input has it) and its index buffer, each at its byte offset, unless exactly those
+        // are bound already for this pipeline on this command buffer (m_BoundGeometry); then the instance id
+        // stream @p visibleRows (binding 2, when the pipeline reads a_VisibleRow; refused when it does and none
+        // is given). A real bind is counted (GeometryPool::RecordBind, @p shared: the binned group path).
         Common::BoolResultStr BindMeshBuffers( std::string_view pass, const GraphicsPipeline& pipeline,
-                                               const Mesh& mesh, VkBuffer visibleRows );
+                                               const MeshGeometryBinding& geometry, VkBuffer visibleRows,
+                                               bool shared );
+        // What BindMeshBuffers last bound on m_CurrentCommandBuffer; reset whenever a buffer is (re)armed and when
+        // another path binds binding 0 / the index buffer (DrawIndexed).
+        struct BoundGeometry
+        {
+            VkCommandBuffer         CommandBuffer = VK_NULL_HANDLE;
+            const GraphicsPipeline* Pipeline      = nullptr;
+            VkBuffer                Vertices      = VK_NULL_HANDLE;
+            VkDeviceSize            VertexOffset  = 0;
+            VkBuffer                Streams       = VK_NULL_HANDLE;
+            VkDeviceSize            StreamOffset  = 0;
+            VkBuffer                Indices       = VK_NULL_HANDLE;
+            VkDeviceSize            IndexOffset   = 0;
+
+            [[nodiscard]] bool operator==( const BoundGeometry& ) const = default;
+        };
+        std::optional<BoundGeometry> m_BoundGeometry;
         // The CPU-recorded binned draw's id stream: rows[i] = i, at least @p rows of them (GpuScene.glslh
         // a_VisibleRow; the unculled VisibleInstances list is indexed by firstInstance + instance). Grown, never
         // shrunk, released through the allocator's per-frame deletion queue like DefaultVertexStreams.
@@ -153,9 +173,9 @@ namespace Desert::Graphic::API::Vulkan
         std::shared_ptr<VertexBuffer> m_VisibleRowIdentity;
         uint32_t                      m_VisibleRowIdentityRows = 0;
         // Records one drawn submesh: its index among the drawn ones, its index in the mesh, the submesh, the
-        // mesh's index buffer (null: a mesh without indices).
+        // mesh's index count (0: a mesh without indices).
         using SubmeshDraw = std::function<Common::BoolResultStr(
-             uint32_t drawn, size_t index, const Submesh& submesh, const IndexBuffer* indexBuffer )>;
+             uint32_t drawn, size_t index, const Submesh& submesh, uint32_t indexCount )>;
         // RenderMesh's walk, shared by the direct and the indirect mesh draw: the pass state, the mesh's vertex,
         // stream and index buffers, then for every submesh the hidden mask leaves its push block (the material's,
         // transform * submesh.Transform over the first mat4) before @p draw records it.

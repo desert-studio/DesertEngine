@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/GpuDriven/GpuScene.hpp>
+#include <Engine/Graphic/GeometryPool.hpp>
 
 #include <glm/glm.hpp>
 
@@ -189,6 +190,9 @@ namespace Desert::Graphic::GpuDriven
             uint64_t               Frame      = kNoFrame; // the last frame that queued it
             uint64_t               PrevFrame  = kNoFrame; // the one before (DiscardFrame restores it)
             const Mesh*            Mesh       = nullptr;
+            // Where the mesh's geometry sat when the row was written (MeshGeometry::MeshBinding): the bins carry
+            // its pool base, so a re-upload into a new allocation (DynamicMesh::Update) rebins like a mesh change.
+            MeshGeometryBinding    Geometry;
             uint32_t               Flags      = 0;
             // The row's LOD and cull inputs as last written: a change rewrites the row like a mesh change.
             int32_t                ForcedLod = -1;

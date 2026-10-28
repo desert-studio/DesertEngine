@@ -241,6 +241,33 @@ namespace Desert
         // THE CPU DATA WAITING FOR ITS UPLOAD (StaticMesh / SkinnedMesh: the constructor's arrays, kept until the
         // renderer uploads them into the pool and then released, as the per-mesh buffers released their host
         // copy). Vertices are raw bytes of the arena's vertex type.
+        // The pool's index layout: three uint32 per triangle, mesh-relative.
+        [[nodiscard]] static std::vector<uint32_t> FlattenIndices( const std::vector<Index>& triangles )
+        {
+            std::vector<uint32_t> flat;
+            flat.reserve( triangles.size() * 3 );
+            for ( const Index& t : triangles )
+            {
+                flat.push_back( t.V1 );
+                flat.push_back( t.V2 );
+                flat.push_back( t.V3 );
+            }
+            return flat;
+        }
+        template <typename TVertex>
+        [[nodiscard]] static std::vector<std::byte> VertexBytes( const std::vector<TVertex>& vertices )
+        {
+            const auto* first = reinterpret_cast<const std::byte*>( vertices.data() );
+            return std::vector<std::byte>( first, first + vertices.size() * sizeof( TVertex ) );
+        }
+        // A twin over buffers it does not own in the pool (GPU-written by a displacement / morph pass).
+        void SetUnpooledGeometry( Graphic::MeshGeometry geometry )
+        {
+            m_PoolAllocation.reset();
+            m_Staged   = false;
+            m_Geometry = std::move( geometry );
+        }
+
         void StageGeometry( Graphic::GeometryArena arena, std::vector<std::byte> vertices,
                             std::vector<MeshVertexStreams> streams, std::vector<uint32_t> indices )
         {
@@ -251,14 +278,18 @@ namespace Desert
             m_Staged         = true;
         }
         // Uploads the staged data into a new pool allocation (the previous one released on the frame rule) and
-        // drops the staged copy once it landed. Refused when nothing is staged (a second upload after the host
-        // copy was released).
+        // drops the staged copy once it landed. Nothing staged: the geometry already on the GPU stands (a twin
+        // built over GPU-written buffers, or a mesh whose staged copy already landed); refused when there is none.
         [[nodiscard]] Common::BoolResultWithCodes<MeshError> UploadStagedGeometry()
         {
             if ( !m_Staged )
+            {
+                if ( m_Geometry.IsResident() )
+                    return Common::MakeSuccessWithCodes<bool, MeshError>( true );
                 return Common::MakeErrorWithCodes<bool, MeshError>(
                      { MeshError::GpuUploadFailed },
                      "mesh geometry uploaded again after its host copy was released" );
+            }
             const bool authored = !m_StagedStreams.empty();
             auto       uploaded = Graphic::GeometryPool::Get().RT_Upload( m_StagedArena, m_StagedVertices,
                                                                           m_StagedStreams, m_StagedIndices );
