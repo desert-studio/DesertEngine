@@ -478,10 +478,10 @@ Shader "DeferredLighting"
         	// a directional occlusion into an omnidirectional term would darken the shaded side of every
         	// object under a cloud by an amount nothing in the world justifies.
         	vec3  L        = normalize(-LightDirection.xyz);
-        	// `cascade` is the chosen cascade index, which this pass has no debug view for — the forward
-        	// mesh shaders tint by it under Scene Settings -> Debug -> Cascades and the deferred composite's
-        	// debug modes are a different, G-buffer-driven set. Read and dropped rather than given a second
-        	// ShadowFactor overload, because a second overload is how the four copies started.
+        	// `cascade` is the sun's chosen cascade index (-1 = past the cascades, or the screen-mask program), read by
+        	// the Shadow Cascades view below (ShadowDebugMode, ShadowUB DebugParams.z — the slot the forward mesh
+        	// shaders read it from), not by a second ShadowFactor overload: a second overload is how the four copies
+        	// started.
         	int   cascade  = -1;
         	// The cascades skip a surface whose material does not receive them (the shading word's NO_SUN_SHADOWS bit), then the
         	// cloud layer — the cloud factor AFTER the toggle, exactly as the forward pass assembles it.
@@ -495,6 +495,12 @@ Shader "DeferredLighting"
         	float shadow   = receivesSun ? DESERT_SUN_SHADOW(worldPos, N, L, cascade) * sunContact : 1.0;
         	// The relief's own shadow (parallax occlusion, the word's SUN_SELF_SHADOW field): geometry, always applied.
         	shadow        *= DesertSunSelfShadow(word);
+        	// SHADOW VIEWS (UE's CSM visualization in the lighting pass; ShadowDebugMode, DebugParams.z):
+        	// 1 = Shadow Factor - the sun's geometry occlusion alone (cascades or screen mask, contact, relief; the
+        	// cloud layer is a separate occluder and stays out), grey with no albedo, pre-exposed like every channel.
+        	// 2 = Shadow Cascades - the lit colour tinted by `cascade` at the end of main().
+        	const int shadowView = int(DebugParams.z + 0.5);
+        	if (shadowView == 1) { oColor = vec4(vec3(shadow), 1.0); oColor.rgb *= ScreenSpaceGi.y; return; }
         	// The light a subsurface receiver lets through takes its own occlusion (DesertLight::TransmissionShadow):
         	// the cascades' thickness transmittance, not ShadowFactor, whose normal offset puts a leaf's far side
         	// behind the leaf. 1 for every other model (none reads it).
@@ -687,6 +693,14 @@ Shader "DeferredLighting"
 
         	// Stored pre-exposed (ViewFrame::PreExposure): a 100 000 lx sun stays inside RGBA16F.
         	oColor = vec4((result + ambient + emissive) * ScreenSpaceGi.y, 1.0);
+        	// Shadow Cascades: red / green / blue / yellow front to back (the forward mesh shaders' order); a pixel
+        	// no cascade covers keeps its lit colour.
+        	if (shadowView == 2 && cascade >= 0)
+        	{
+        		const vec3 kCascadeTint[4] = vec3[4](vec3(1.0, 0.25, 0.25), vec3(0.25, 1.0, 0.25),
+        		                                     vec3(0.25, 0.25, 1.0), vec3(1.0, 1.0, 0.25));
+        		oColor.rgb *= kCascadeTint[min(cascade, 3)];
+        	}
         }
     }
 }
