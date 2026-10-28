@@ -1,6 +1,6 @@
 # WP22-REST (83688f54f): several runtime grids (Main 25 m, Foliage 12.8 m, LandscapeTiles 50 m), each with its HLOD
 # layer; the Player source (9000001, TargetGrids Main+Foliage, Scripts/World/WPWalk.lua walks 200 m along +X).
-# The Play view: Camera 1003 (inside the Player cube at the origin) is switched off for this run, so Play
+# The Play view: Camera 1003 (inside the Player cube at the origin) is switched off for this run, so Play from Here
 # looks through the editor camera placed 250 m above, 150 m behind the Player. The world is frozen: the paint step does NOT save (Load All = the panel button at window point 237,166).
 # WP_Protocol_HLOD/ is a build product (not in git): the first step builds it (the reply waits for the bake).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
@@ -9,7 +9,7 @@
 Дано set 1003 Camera.AutoActivateForPlayer false
 Дано --subject viewport set Camera.Position -15000,25000,-15000
 Дано --subject viewport set Camera.Direction 1,-0.55,0.55
-Когда run Action "Play"
+Когда run Action "Play from Here"
 Когда advance 2
 Когда advance 2
 Когда advance 2
