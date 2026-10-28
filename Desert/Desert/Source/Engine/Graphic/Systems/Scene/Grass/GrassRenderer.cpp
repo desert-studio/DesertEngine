@@ -6,6 +6,7 @@
 // instead of a HISM component.
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
@@ -258,6 +259,20 @@ namespace Desert::Graphic::System
         }
         if ( gpu.LowFrames.size() != buckets )
             gpu.LowFrames.assign( buckets, 0u );
+        // A count is of the view it was generated for, FramesInFlight frames ago. A view that jumped since - the
+        // first frames of a field, a teleport, a lens change - is counted by no copy yet: the floor below it keeps
+        // flat ground only, and every cell the terrain keeps beyond it is dropped whole by GrassFinalize's clamp,
+        // a variety missing from a block of cells with a straight edge (GRASS-SETTLE, the first frame of
+        // FIELD_Barn). Until the view has held still for FramesInFlight frames each bucket is sized by its bound,
+        // every cell kept; the shrink's hysteresis brings it back down to the count afterwards.
+        const bool jumped = gpu.SizedLens <= 0.0f ||
+                            glm::distance( gpu.SizedCamera, frame.CameraPosition ) > cell ||
+                            std::abs( lens - gpu.SizedLens ) > 1.0e-3f * gpu.SizedLens;
+        gpu.SizedCamera     = frame.CameraPosition;
+        gpu.SizedLens       = lens;
+        gpu.FramesSinceJump = jumped ? 0u : gpu.FramesSinceJump + 1u;
+        const bool countFits =
+             fedBack && gpu.FramesSinceJump > Engine::FrameManager::GetInstance().GetMaxFramesInFlight();
 
         // Per bucket: every cell whose jittered instance can lie within its ring of the cull radius - and, through
         // a perspective lens, within what that lens can see of the ring - bounds the capacity (`bound`, every cell
@@ -288,8 +303,9 @@ namespace Desert::Graphic::System
                      needed, static_cast<uint32_t>( std::ceil( mean + 4.0 * std::sqrt( mean ) + 64.0 ) ) );
             }
             uint32_t target = needed;
-            if ( fedBack && keepShare < 1.0f )
-                target = std::max( target, std::min( bound, counted[b] + counted[b] / 4u + 64u ) );
+            if ( keepShare < 1.0f )
+                target =
+                     countFits ? std::max( target, std::min( bound, counted[b] + counted[b] / 4u + 64u ) ) : bound;
             const uint32_t step = CapacityStep( target );
             const uint32_t held = gpu.BucketCapacities.size() == buckets ? gpu.BucketCapacities[b] : 0u;
             if ( step >= held || held > CapacityStep( bound ) )

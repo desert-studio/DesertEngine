@@ -163,6 +163,12 @@ namespace Desert::Graphic::System
             // capacity has been at least two steps above what the counts ask for (the shrink's hysteresis).
             std::shared_ptr<ShaderResources::StorageBuffer> Feedback;
             std::vector<uint32_t>                           LowFrames;
+            // The view the last frame sized for (camera position, lens) and the frames since it last jumped: a
+            // count read back is of a view FramesInFlight frames old, and it sizes nothing until the view has held
+            // still that long (GRASS-SETTLE).
+            glm::vec3                                       SizedCamera{ 0.0f };
+            float                                           SizedLens       = 0.0f;
+            uint32_t                                        FramesSinceJump = 0;
             RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
             RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
