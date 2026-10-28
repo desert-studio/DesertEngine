@@ -1,0 +1,9 @@
+# PAWN-NO-CONTROLLER: a pawn with no controller (no Player Controller, no AI controller) stands on the floor in Play.
+# PawnNoController_Demo (PlayerController_Demo without the Script and Enhanced Input on the pawn): floor 3002 (top at Y=-8), pawn 4000 (CharacterController, capsule centre authored at Y=100);
+# the level names no Default Pawn and no Player Controller. Play, 3 s of game time, frame.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/PawnNoController_Demo.desce
+Дано run View "View mode: Lit"
+Когда run Action "Play"
+Когда advance 1.5
+Когда advance 1.5
+Тогда 1_stands пешка стоит на полу (Z пешки в логе не ниже пола), кадр показывает её на полу
