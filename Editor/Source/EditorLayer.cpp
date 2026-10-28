@@ -681,7 +681,8 @@ namespace Desert::Editor
         const bool  displacementUnsettled =
              scene && scene->GetRayTracingCache().GetDisplacement().GetStats().Unsettled > 0;
         if ( const auto quit =
-                  m_Control.OnFramePresented( displacementUnsettled, m_Workspace.SubsurfaceHistoryConverging() ) )
+                  m_Control.OnFramePresented( displacementUnsettled, m_Workspace.SubsurfaceHistoryConverging(),
+                                              m_Workspace.MaterialPipelinesCompiling() ) )
             m_Application->Close( *quit );
     }
 

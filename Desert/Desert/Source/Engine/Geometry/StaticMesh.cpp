@@ -18,11 +18,9 @@ namespace Desert
         m_Submeshes                     = std::move( subs );
         ResolveLODScreenSizes();
 
-        m_VertexBuffer =
-             Graphic::VertexBuffer::Create( (void*)vertices.data(), vertices.size() * sizeof( Vertex ) );
-        CreateStreamBuffer( streams );
-        m_IndexBuffer =
-             Graphic::IndexBuffer::Create( gpuIndices.data(), gpuIndices.size() * sizeof( Index ) );
+        // Uploaded into the pool's static arena by Invalidate (the renderer thread), the host copy released then.
+        StageGeometry( Graphic::GeometryArena::Static, VertexBytes( vertices ), streams,
+                       FlattenIndices( gpuIndices ) );
     }
 
     std::shared_ptr<StaticMesh> StaticMesh::MakeDisplacedTwin( const StaticMesh& base, std::shared_ptr<Graphic::VertexBuffer> vertices,
@@ -46,9 +44,16 @@ namespace Desert
             sm.BoundingBox.Min -= glm::vec3( boundsGrowthCm );
             sm.BoundingBox.Max += glm::vec3( boundsGrowthCm );
         }
-        twin->m_VertexBuffer = std::move( vertices );
-        twin->m_StreamBuffer = std::move( streams );
-        twin->m_IndexBuffer  = std::move( indices );
+        // The displacement pass's own buffers, data from offset 0 (not pooled: GPU-written, per-mesh bind).
+        Graphic::MeshGeometry geometry;
+        geometry.AuthoredStreams = streams != nullptr;
+        geometry.IndexCount      = indices ? indices->GetCount() : 0u;
+        geometry.Vertices        = std::move( vertices );
+        geometry.Streams         = std::move( streams );
+        geometry.Indices         = std::move( indices );
+        geometry.VertexStride    = static_cast<uint32_t>( sizeof( Vertex ) );
+        geometry.VertexCount     = vertexCount;
+        twin->SetUnpooledGeometry( std::move( geometry ) );
         twin->m_DistanceField = base.m_DistanceField;
         twin->m_Cards         = base.m_Cards;
         twin->ResolveLODScreenSizes();
@@ -82,17 +87,7 @@ namespace Desert
 
     Common::BoolResultWithCodes<Desert::MeshError> StaticMesh::Invalidate()
     {
-        const auto vertices = m_VertexBuffer->RT_Invalidate();
-        if ( !vertices.IsSuccess() )
-            return Common::MakeErrorWithCodes<bool, MeshError>( { MeshError::GpuUploadFailed },
-                                                                vertices.GetError() );
-
-        const auto indices = m_IndexBuffer->RT_Invalidate();
-        if ( !indices.IsSuccess() )
-            return Common::MakeErrorWithCodes<bool, MeshError>( { MeshError::GpuUploadFailed },
-                                                                indices.GetError() );
-
-        return InvalidateStreamBuffer();
+        return UploadStagedGeometry();
     }
 
 } // namespace Desert

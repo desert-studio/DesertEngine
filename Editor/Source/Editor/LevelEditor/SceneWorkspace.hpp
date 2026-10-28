@@ -104,6 +104,9 @@ namespace Desert::Editor
         // Any view's subsurface scatter still averaging its history (SceneRenderer::SubsurfaceHistoryConverging):
         // the control gate's PendingWork::SubsurfaceHistory, asked after the frame like Displacement.
         [[nodiscard]] bool SubsurfaceHistoryConverging() const;
+        // Any view's last frame drew a material's default-surface stand-in while its own pipeline compiled
+        // (SceneRenderer::GetStandInDraws): the control gate's PendingWork::MaterialPipelines.
+        [[nodiscard]] bool MaterialPipelinesCompiling() const;
 
         // THE ACTIVE SCENE'S WORLD WAS REPLACED (Open, New, Stop's snapshot restore): its entities were torn down
         // and rebuilt. Everything keyed by the old entities follows the world, in ONE place for all three paths:

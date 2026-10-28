@@ -187,10 +187,11 @@ namespace Desert::Graphic::GpuDriven
         if ( desc.Mesh == nullptr )
             return Common::MakeFormattedError( "DrawCommands: primitive {} has no mesh", primitive );
         const Mesh& mesh = *desc.Mesh;
-        if ( !mesh.GetVertexBuffer() || !mesh.GetIndexBuffer() )
+        const MeshGeometry& geometry = mesh.GetGeometry();
+        if ( !geometry.IsResident() || geometry.IndexCount == 0u )
             return Common::MakeFormattedError(
-                 "DrawCommands: primitive {}: the mesh has no {} buffer (a binned draw is indexed)", primitive,
-                 mesh.GetVertexBuffer() ? "index" : "vertex" );
+                 "DrawCommands: primitive {}: the mesh has no {} on the GPU (a binned draw is indexed)", primitive,
+                 geometry.IsResident() ? "indices" : "vertices" );
         const auto& submeshes = mesh.GetSubmeshes();
         if ( submeshes.empty() )
             return Common::MakeFormattedError( "DrawCommands: primitive {}: the mesh has no submesh", primitive );
@@ -211,7 +212,7 @@ namespace Desert::Graphic::GpuDriven
         record.HiddenSubmeshMask = desc.HiddenSubmeshMask;
         record.PrimitiveFlags    = desc.PrimitiveFlags;
         record.MaterialRows.resize( submeshes.size() );
-        const uint32_t indexCount = mesh.GetIndexBuffer()->GetCount();
+        const uint32_t indexCount = geometry.IndexCount;
         for ( size_t si = 0; si < submeshes.size(); ++si )
         {
             record.MaterialRows[si] = desc.MaterialRows[SectionMaterialSlot( si, desc.MaterialRows.size() )];
@@ -287,20 +288,29 @@ namespace Desert::Graphic::GpuDriven
         table                    = PassDrawTable{};
         table.PrimitiveDraws.assign( m_Primitives.size(), GpuPrimitivePassDraws{} );
 
-        // A bin is one index range of one mesh under one PSO: every slot that draws exactly that shares it, across
-        // primitives (the instancing of the binned path) and across LOD levels a submesh clamps to the same range.
-        using BinKey = std::tuple<const GraphicsPipeline*, const Mesh*, uint32_t, uint32_t, uint32_t>;
+        // A bin is one index range of the bound geometry under one PSO: every slot that draws exactly that shares
+        // it, across primitives (the instancing of the binned path) and across LOD levels a submesh clamps to the
+        // same range. The range is pool-absolute (the mesh's span base added), so two pooled meshes never share a
+        // bin while all of them share their arena's group.
+        using BindingKey = std::tuple<const VertexBuffer*, uint64_t, const VertexBuffer*, uint64_t,
+                                      const IndexBuffer*, uint64_t>;
+        const auto keyOf = []( const MeshGeometryBinding& binding )
+        {
+            return BindingKey{ binding.Vertices, binding.VertexOffset, binding.Streams,
+                               binding.StreamOffset, binding.Indices, binding.IndexOffset };
+        };
+        using BinKey = std::tuple<const GraphicsPipeline*, BindingKey, uint32_t, uint32_t, uint32_t>;
         struct BinDraft
         {
             GpuDrawBin              Row{};
-            uint32_t                GroupOrdinal = 0; // order of first appearance of its (pipeline, mesh)
+            uint32_t                GroupOrdinal = 0; // order of first appearance of its (pipeline, binding)
             uint32_t                Ordinal      = 0; // order of first appearance of the bin
             const GraphicsPipeline* Pipeline     = nullptr;
-            const Mesh*             Geometry     = nullptr;
+            MeshGeometryBinding     Binding;
             uint64_t                Capacity     = 0;
         };
-        std::map<BinKey, uint32_t>                                          binOf;
-        std::map<std::pair<const GraphicsPipeline*, const Mesh*>, uint32_t> groupOf;
+        std::map<BinKey, uint32_t>                                         binOf;
+        std::map<std::pair<const GraphicsPipeline*, BindingKey>, uint32_t> groupOf;
         std::vector<BinDraft>                                               drafts;
         std::vector<const PrimitiveRecord*>                                 slotRecord; // per DrawSlot
 
@@ -331,22 +341,26 @@ namespace Desert::Graphic::GpuDriven
                     slot.SubmeshTransform = transforms + si;
                     if ( const GraphicsPipeline* pipeline = pipelines[si]; pipeline != nullptr )
                     {
-                        const Submesh&          submesh = submeshes[si];
-                        const SubmeshIndexRange range   = SubmeshIndices( submesh, lod );
-                        const BinKey key{ pipeline, record->Mesh, range.First, range.Count, submesh.VertexOffset };
+                        const Submesh&            submesh    = submeshes[si];
+                        const SubmeshIndexRange   range      = SubmeshIndices( submesh, lod );
+                        const MeshGeometry&       geometry   = record->Mesh->GetGeometry();
+                        const MeshGeometryBinding binding    = geometry.SharedBinding();
+                        const uint32_t            firstIndex = range.First + geometry.SharedFirstIndex();
+                        const uint32_t vertexOffset = submesh.VertexOffset + geometry.SharedBaseVertex();
+                        const BinKey   key{ pipeline, keyOf( binding ), firstIndex, range.Count, vertexOffset };
                         auto [it, added] = binOf.try_emplace( key, static_cast<uint32_t>( drafts.size() ) );
                         if ( added )
                         {
                             const auto [group, newGroup] = groupOf.try_emplace(
-                                 std::pair{ pipeline, record->Mesh }, static_cast<uint32_t>( groupOf.size() ) );
+                                 std::pair{ pipeline, keyOf( binding ) }, static_cast<uint32_t>( groupOf.size() ) );
                             BinDraft draft;
                             draft.Row.IndexCount   = range.Count;
-                            draft.Row.FirstIndex   = range.First;
-                            draft.Row.VertexOffset = static_cast<int32_t>( submesh.VertexOffset );
+                            draft.Row.FirstIndex   = firstIndex;
+                            draft.Row.VertexOffset = static_cast<int32_t>( vertexOffset );
                             draft.GroupOrdinal     = group->second;
                             draft.Ordinal          = static_cast<uint32_t>( drafts.size() );
                             draft.Pipeline         = pipeline;
-                            draft.Geometry         = record->Mesh;
+                            draft.Binding          = binding;
                             drafts.push_back( draft );
                         }
                         drafts[it->second].Capacity += record->InstanceCount;
@@ -377,9 +391,9 @@ namespace Desert::Graphic::GpuDriven
             BinDraft& draft   = drafts[order[row]];
             rowOf[order[row]] = row;
             if ( table.Groups.empty() || table.Groups.back().Pipeline != draft.Pipeline ||
-                 table.Groups.back().Geometry != draft.Geometry )
+                 table.Groups.back().Binding != draft.Binding )
                 table.Groups.push_back( IndirectGroup{
-                     .Pipeline = draft.Pipeline, .Geometry = draft.Geometry, .FirstBin = row, .BinCount = 0 } );
+                     .Pipeline = draft.Pipeline, .Binding = draft.Binding, .FirstBin = row, .BinCount = 0 } );
             ++table.Groups.back().BinCount;
             draft.Row.Group        = static_cast<uint32_t>( table.Groups.size() - 1u );
             draft.Row.FirstVisible = static_cast<uint32_t>( visible );

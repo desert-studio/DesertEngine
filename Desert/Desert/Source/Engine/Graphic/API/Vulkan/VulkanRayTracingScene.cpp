@@ -148,11 +148,11 @@ namespace Desert::Graphic::API::Vulkan
         const VkDevice                   device    = logical->GetVulkanLogicalDevice();
 
         const VkAccelerationStructureGeometryKHR geometry =
-             TlasGeometry( functions.BufferAddress( device, instanceBuffer.GetValue()->GetBuffer() ) );
+             TlasGeometry( ( functions.BufferAddress( device, instanceBuffer.GetValue()->GetBuffer() ) + instanceBuffer.GetValue()->GetOffset() ) );
         VkAccelerationStructureBuildGeometryInfoKHR build = TlasBuildInfo( geometry );
         build.dstAccelerationStructure                    = m_Handle;
         build.scratchData.deviceAddress =
-             AlignScratchAddress( functions.BufferAddress( device, scratchBuffer.GetValue()->GetBuffer() ) );
+             AlignScratchAddress( ( functions.BufferAddress( device, scratchBuffer.GetValue()->GetBuffer() ) + scratchBuffer.GetValue()->GetOffset() ) );
 
         VkAccelerationStructureBuildRangeInfoKHR range{};
         range.primitiveCount                                   = instanceCount;

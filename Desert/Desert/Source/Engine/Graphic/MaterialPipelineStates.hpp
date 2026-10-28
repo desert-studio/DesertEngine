@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
+
 // Material pipelines ON DEMAND (AL1-12), the pattern of UE 5.8's PSO precache (PipelineStateCache.cpp,
 // FMaterialPSOPrecacheRequest): global shaders and the engine's system passes are built at startup and the
 // reveal waits for them; a content material's pipeline is REQUESTED when the material loads, compiled on a
@@ -76,9 +78,44 @@ namespace Desert::Graphic
             return fresh;
         }
 
+        // A MESH-TABLE CELL's pipeline (GRASS-SETTLE): a cell is drawn on the batched path, whose pipeline is the
+        // pass state x the cell x the cull permutation (MeshRenderer::CellPipeline / CullPermutation), so it is
+        // precached per (vertex path x pass) with the material's two-sidedness, as UE's FMaterialPSOPrecacheParams
+        // carry the vertex factory and the pass. Without it a cell's pipeline was first asked for by the frame
+        // that saw its mesh, which then drew the default surface for seconds (FIELD_Barn: a pale grey-blue
+        // patch of foliage with a straight edge on the first frame after the camera moved).
+        struct CellRequest
+        {
+            std::string    Shader; ///< the cell program, "<Template>/<Path>.<Pass>" (MaterialService CellShaderOf)
+            MeshVertexPath Path     = MeshVertexPath::Static;
+            MeshPass       Pass     = MeshPass::GBuffer;
+            bool           TwoSided = false;
+
+            bool operator==( const CellRequest& ) const = default;
+        };
+
+        void RequestCell( CellRequest request )
+        {
+            const std::lock_guard lock( m_Mutex );
+            for ( const auto& cell : m_Cells )
+                if ( cell == request )
+                    return;
+            m_Cells.push_back( std::move( request ) );
+        }
+
+        std::vector<CellRequest> CellsSince( size_t& cursor ) const
+        {
+            const std::lock_guard    lock( m_Mutex );
+            std::vector<CellRequest> fresh;
+            for ( ; cursor < m_Cells.size(); ++cursor )
+                fresh.push_back( m_Cells[cursor] );
+            return fresh;
+        }
+
     private:
         mutable std::mutex       m_Mutex;
         std::vector<std::string> m_Names;
+        std::vector<CellRequest> m_Cells;
     };
 
     // One renderer's view: which material pipelines it has asked for and what they are doing, and the draw's
