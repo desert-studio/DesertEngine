@@ -175,6 +175,7 @@ namespace Desert::Graphic::DistanceField
         ++m_Revision;
         m_Pending.clear();
         m_Atlas.reset();
+        m_AtlasSlices = 0;
         m_PoolMiB = poolMiB;
         const uint64_t slices =
              std::clamp<uint64_t>( static_cast<uint64_t>( poolMiB ) * 1024u * 1024u / kDfBytesPerSlice, 1u,
@@ -409,15 +410,24 @@ namespace Desert::Graphic::DistanceField
 
     Common::BoolResultStr DistanceFieldSceneData::EnsureAtlas()
     {
-        if ( m_Atlas )
-            return BOOLSUCCESS;
         if ( m_CapacityBricks == 0 )
             return Common::MakeError<bool>( "the distance-field pool was never sized (SetPoolMiB)" );
+        // THE ATLAS GROWS BY NEED (BISTRO-MEM-2, UE FDistanceFieldSceneData::ResizeBrickAtlasIfNeeded): the pool
+        // (GlobalIllumination.DistanceFieldPoolMiB) is the ceiling the streaming plans against, the texture holds
+        // the slices the bricks ever resident at once reach - Bistro filled 239 of a 396 MiB atlas. It grows by
+        // half again (never past the pool), so a district streaming in re-creates it a handful of times, not per
+        // brick; it does not shrink (UE neither: a shrink would move bricks every records row points at).
+        const uint32_t maxSlices = m_CapacityBricks / kDfBricksPerSlice;
+        const uint32_t needed =
+             std::clamp( ( m_BrickSlots.HighWater() + kDfBricksPerSlice - 1 ) / kDfBricksPerSlice, 1u, maxSlices );
+        if ( m_Atlas && m_AtlasSlices >= needed )
+            return BOOLSUCCESS;
+        const uint32_t slices = std::min( maxSlices, std::max( needed, m_AtlasSlices + m_AtlasSlices / 2 ) );
         const Core::Formats::Image3DSpecification spec{
              .Tag        = "DistanceFieldBrickAtlas",
              .Width      = kDfAtlasBricksX * kDfBrick,
              .Height     = kDfAtlasBricksY * kDfBrick,
-             .Depth      = ( m_CapacityBricks / kDfBricksPerSlice ) * kDfBrick,
+             .Depth      = slices * kDfBrick,
              .Format     = Core::Formats::ImageFormat::R8_UNORM,
              .Data       = Core::Formats::EmptyPixelData{},
              .Properties = Core::Formats::Sample,
@@ -427,12 +437,33 @@ namespace Desert::Graphic::DistanceField
             return Common::MakeFormattedError<bool>(
                  "the {}x{}x{} R8 distance-field brick atlas ({} MiB pool) could not be created", spec.Width,
                  spec.Height, spec.Depth, m_PoolMiB );
-        m_Atlas = std::move( atlas );
-        LOG_INFO( "[DistanceField] brick atlas {}x{}x{} R8: {} brick(s), {} MiB (GlobalIllumination."
-                  "DistanceFieldPoolMiB)",
-                  spec.Width, spec.Height, spec.Depth, m_CapacityBricks,
-                  static_cast<uint64_t>( m_CapacityBricks ) * Assets::kDistanceFieldBrickVoxels /
-                       ( 1024u * 1024u ) );
+        const bool grown = m_Atlas != nullptr;
+        m_Atlas          = std::move( atlas );
+        m_AtlasSlices    = slices;
+        if ( grown )
+        {
+            // The new texture starts empty: every resident brick is written again from its field's bytes (an
+            // Image3D has no GPU copy; the queue already holds this frame's new bricks, rebuilt here in full).
+            m_Pending.clear();
+            for ( const auto& [key, resident] : m_Resident )
+            {
+                const std::shared_ptr<const Assets::MeshDistanceFieldVolume> held = resident.Field.lock();
+                if ( !held )
+                    continue; // ReleaseUnused returns its slots; nothing reads them
+                for ( uint32_t r = 0; r < resident.NumMips; ++r )
+                {
+                    const uint32_t source = Assets::kDistanceFieldNumMips - 1 - r;
+                    for ( uint32_t b = 0; b < resident.Mips[r].Bricks.size(); ++b )
+                        m_Pending.push_back( { resident.Mips[r].Bricks[b], held, source, b } );
+                }
+            }
+        }
+        const auto mib = []( uint64_t bricks ) { return bricks * Assets::kDistanceFieldBrickVoxels / ( 1024u * 1024u ); };
+        LOG_INFO( "[DistanceField] brick atlas {}x{}x{} R8: {} brick(s), {} MiB for {} brick(s) in use ({} MiB pool, "
+                  "GlobalIllumination.DistanceFieldPoolMiB){}",
+                  spec.Width, spec.Height, spec.Depth, slices * kDfBricksPerSlice,
+                  mib( static_cast<uint64_t>( slices ) * kDfBricksPerSlice ), m_BrickSlots.HighWater(), m_PoolMiB,
+                  grown ? std::format( ", grown: {} brick(s) written again", m_Pending.size() ) : std::string{} );
         return BOOLSUCCESS;
     }
 

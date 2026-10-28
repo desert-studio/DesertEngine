@@ -262,9 +262,11 @@ namespace Desert::Graphic::API::Vulkan
         // graph's transient heaps and resources, VulkanRdgTransient / VulkanRenderGraph), the owners
         // (ResourceLedger) and the process/device readout - all at one moment, so they subtract.
         constexpr uint64_t kCensusPeakStep = 256ull * 1024ull * 1024ull;
-        // The process's own resident set, read here (one syscall a second): MemoryWatch samples only inside its
-        // watch windows after a scene load, and the Bistro peak comes minutes later, at the hand-over.
-        if ( const uint64_t peak = Common::Utils::ReadProcessFootprint().Resident;
+        // The process's own footprint, read here (one syscall a second): MemoryWatch samples only inside its
+        // watch windows after a scene load, and the Bistro peak comes minutes later, at the hand-over. The
+        // PHYSICAL footprint, not the resident set: on unified memory the resident set leaves out every Metal
+        // allocation (1.7 GB resident at a 6.4 GB kill), and phys_footprint is the number the process is killed on.
+        if ( const uint64_t peak = Common::Utils::ReadProcessFootprint().Physical;
              peak >= m_CensusPeakReported + kCensusPeakStep )
         {
             m_CensusPeakReported = peak;
@@ -332,15 +334,23 @@ namespace Desert::Graphic::API::Vulkan
             for ( const VmaBudget& budget : budgets )
                 allocated += static_cast<std::size_t>( budget.statistics.allocationBytes );
             const std::size_t ledgered = m_Ledger.LiveBytes();
-            bySubsystem += std::format( "\n  {:<40} {:<7} {:9.1f} MB (VMA allocations {:.1f} MB - ledger {:.1f} MB)",
-                                        "not in the ledger (render graph)", "",
-                                        static_cast<double>( allocated > ledgered ? allocated - ledgered : 0 ) / MB,
+            // The render graph's transient heaps are VMA allocations outside the tag ledger: their own row, from
+            // the ResourceLedger rows VulkanRdgTransientAllocator opens with each heap (retired heaps included).
+            const ResourceCensus owners = ResourceLedger::Take();
+            const auto transient = static_cast<std::size_t>( owners.BytesFor( ResourceOwner::Device, ResourceKind::TransientHeap ) );
+            const std::size_t untagged = allocated > ledgered ? allocated - ledgered : 0;
+            bySubsystem += std::format( "\n  {:<40} x{:<6} {:9.1f} MB", "render graph transient heaps (RDG)",
+                                        owners.KnownFor( ResourceOwner::Device, ResourceKind::TransientHeap ),
+                                        static_cast<double>( transient ) / MB );
+            bySubsystem += std::format( "\n  {:<40} {:<7} {:9.1f} MB (VMA allocations {:.1f} MB - ledger {:.1f} MB - RDG heaps)",
+                                        "not in any ledger", "",
+                                        static_cast<double>( untagged > transient ? untagged - transient : 0 ) / MB,
                                         static_cast<double>( allocated ) / MB, static_cast<double>( ledgered ) / MB );
             std::string largest;
             for ( std::size_t i = 0; i < byTag.size() && i < 25; ++i )
                 largest += std::format( "\n  {:<56} x{:<6} {:9.1f} MB", byTag[i].Tag, byTag[i].Count,
                                         static_cast<double>( byTag[i].Bytes ) / MB );
-            LOG_INFO( "[Memory] census at resident peak {:.1f} MB, device memory by subsystem:{}\n largest tags:{}",
+            LOG_INFO( "[Memory] census at footprint peak {:.1f} MB, device memory by subsystem:{}\n largest tags:{}",
                       static_cast<double>( peak ) / MB, bySubsystem, largest );
             LOG_INFO( "[Memory] {}", MemoryReadout::Take().Report() );
             LOG_INFO( "[Resources] {}", ResourceLedger::Report() );

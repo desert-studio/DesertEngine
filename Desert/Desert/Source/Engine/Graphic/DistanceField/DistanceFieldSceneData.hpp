@@ -104,6 +104,12 @@ namespace Desert::Graphic::DistanceField
         {
             return m_Capacity - Available();
         }
+        // One past the highest slot ever handed out since Reset: what the atlas must hold (freed slots are
+        // reused before new ones, so it is the most bricks ever resident at once).
+        [[nodiscard]] uint32_t HighWater() const
+        {
+            return m_Next;
+        }
 
     private:
         uint32_t              m_Capacity = 0;
@@ -259,8 +265,9 @@ namespace Desert::Graphic::DistanceField
         uint64_t                                                             m_Revision = 0;
 
         uint32_t                    m_PoolMiB        = 0;
-        uint32_t                    m_CapacityBricks = 0;
+        uint32_t                    m_CapacityBricks = 0; // the pool's ceiling; the atlas grows toward it
         std::shared_ptr<Image3D> m_Atlas;
+        uint32_t                    m_AtlasSlices = 0; // the atlas's depth in brick slices
         uint32_t                    m_UploadedThisFrame = 0;
         DistanceFieldStreamingStats m_Stats;
         // Bricks waiting for the atlas: (slot, the field that holds the bytes, mip, brick within the mip).
