@@ -401,6 +401,9 @@ def main():
                     s["board"][code] = {"status": props.get("Статус") or "Бэклог", "zone": props.get("Зона"),
                                         "prio": props.get("Приоритет"), "who": str(props.get("Кто ведёт") or "")[:60], "new": now}
         elif tool.endswith("notion-update-page"):
+            renamed = (tin.get("properties") or {}).get("Код")
+            if renamed:  # a card re-coded by update_properties is that code from now on (BISTRO-MEM → -2, 10-28)
+                s["pages"][norm(tin.get("page_id"))] = renamed
             code = s["pages"].get(norm(tin.get("page_id")))
             if code:
                 s["writes"][code] = now
