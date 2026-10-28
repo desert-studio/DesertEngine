@@ -70,8 +70,9 @@ namespace Desert::Graphic::GlobalIllumination
             uint32_t Height       = 0;
             float    History      = RadianceCache::kHistoryWeight;
             float    DirtyHistory = RadianceCache::kDirtyHistoryWeight;
+            uint32_t LightingFrame = 0; // the last full update's FrameIndex (WorldRadianceCache::m_LightingFrame)
         };
-        static_assert( sizeof( RadianceCachePush ) == 32 );
+        static_assert( sizeof( RadianceCachePush ) == 36 );
 
         // The schedule: the priority histogram, the traced count, the cut bucket's taken count, the trace list.
         constexpr uint32_t ScheduleEntries( const uint32_t traced )
@@ -221,7 +222,8 @@ namespace Desert::Graphic::GlobalIllumination
         // since the last one, so every probe this frame uses is traced in it with no history - the cache's cells
         // would otherwise hold the old sun for as many frames as the budget takes to reach them, blended at
         // HistoryWeight after that (a straight-edged patch fading over ~10 s, GRASS-SETTLE). The frame after a
-        // reset has no probes to trace yet: it only records the lighting.
+        // reset has no probes to trace yet: it only records the lighting. The probes it does not use this frame
+        // keep the old sun until a view reads them: push.LightingFrame drops their history on that trace.
         const bool fullUpdate = !m_Reset && m_LitBy && InvalidatesLightingHistory( *m_LitBy, inputs.Lighting );
         if ( m_Reset || fullUpdate || !m_LitBy )
             m_LitBy = inputs.Lighting;
@@ -255,12 +257,12 @@ namespace Desert::Graphic::GlobalIllumination
         push.MaxProbes  = RadianceCache::MaxProbes( shape );
         push.Width      = inputs.Extent.x;
         push.Height     = inputs.Extent.y;
+        // Every probe last traced before the full update - this frame's and the ones it did not use, traced when
+        // a view next reads them - is traced again without history (RadianceCacheTrace's "fresh").
         if ( fullUpdate )
-        {
-            push.History      = 0.0f;
-            push.DirtyHistory = 0.0f;
-        }
-        m_Reset = false;
+            m_LightingFrame = push.FrameIndex;
+        push.LightingFrame = m_LightingFrame;
+        m_Reset            = false;
 
         const uint32_t   grid      = shape.GridResolution;
         const uint32_t   clipCount = shape.Clipmaps;

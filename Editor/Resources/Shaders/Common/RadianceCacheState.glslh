@@ -52,6 +52,7 @@ PushConstant RadianceCachePush
     uint  Height;
     float HistoryWeight;          // RadianceCache::kHistoryWeight
     float DirtyHistory;     // RadianceCache::kDirtyHistoryWeight
+    uint  LightingFrame;    // the frame of the last full update: a probe last traced before it has no history
 };
 
 #endif // RADIANCE_CACHE_STATE_GLSLH

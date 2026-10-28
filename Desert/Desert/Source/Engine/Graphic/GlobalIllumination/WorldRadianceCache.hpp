@@ -169,5 +169,6 @@ namespace Desert::Graphic::GlobalIllumination
         uint32_t                           m_FrameIndex = 0;
         // The directional lighting of the last full update (empty until the first update after a reset).
         std::optional<DirectionalLighting> m_LitBy;
+        uint32_t                           m_LightingFrame = 0; // FrameIndex of the last full update (0 = none)
     };
 } // namespace Desert::Graphic::GlobalIllumination
