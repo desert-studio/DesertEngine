@@ -1,0 +1,24 @@
+# TEX-STREAMING: texture mips stream by screen size in a budgeted pool (UE FRenderAssetStreamingManager, r.Streaming.PoolSize
+# = Scalability Textures.StreamingPoolMiB). FIELD_Barn opens under the run_capped 6144 MB cap (its .detex chains are 1.0-1.2 GB
+# whole); the log carries "[TextureStreaming] pool resident X MB / budget Y MB" and the census row "texture streaming pool".
+# New mips go INTO the same texture (Texture2D::ReplaceLevels -> Image2D::TakeDeviceImageFrom): no holder rebinds.
+# Barn entity: Translation 1800,560,-3500 (FIELD_Barn.desce).
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 1800,900,-1200
+Дано --subject viewport set Camera.Direction 0,-0.12,-1
+Тогда-вид 1_open сцена открылась, сарай вдали в Lit; пик < 6144 МБ; в логе «[TextureStreaming] pool resident … / budget …»
+Когда run Action Simulate
+Когда advance 2
+Когда advance 2
+Тогда-вид 2_settled доски сарая и кора деревьев резкие (полные мипы), белых деревьев нет; лог pool resident > 100 МБ, 0 streaming
+Когда --subject viewport set Camera.Position 1800,800,-2000
+Когда --subject viewport set Camera.Direction 0,-0.1,-1
+Когда advance 2
+Когда advance 2
+Тогда-вид 3_close дверь сарая снаружи вплотную резкая (доски видны), бюджет не превышен
+Когда --subject viewport set Camera.Position 1800,800,-1600
+Когда --subject viewport set Camera.Direction 0,-1,-0.3
+Когда advance 2
+Когда advance 2
+Тогда-вид 4_ground камера к земле: ландшафт в текстурах слоёв (не плоский цвет), в логе нет «[Terrain] … array is not built»

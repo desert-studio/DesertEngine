@@ -1,6 +1,7 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Graphic/TextureStreamingDemand.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
@@ -3058,6 +3059,48 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    namespace
+    {
+        // TEX-STREAMING: a draw's world bounding sphere (the LOD rule's: box centre, half-diagonal x largest
+        // scale) through @p transform.
+        std::pair<glm::vec3, float> WorldSphere( const Common::Math::AABB& local, const glm::mat4& transform )
+        {
+            const float scale = glm::max(
+                 glm::length( glm::vec3( transform[0] ) ),
+                 glm::max( glm::length( glm::vec3( transform[1] ) ), glm::length( glm::vec3( transform[2] ) ) ) );
+            return { glm::vec3( transform * glm::vec4( 0.5f * ( local.Min + local.Max ), 1.0f ) ),
+                     glm::length( local.Max - local.Min ) * 0.5f * scale };
+        }
+    } // namespace
+
+    float SceneRenderer::NoteTextureDemand( const Mesh& mesh, const std::span<const glm::mat4> transforms,
+                                            const std::span<const Material* const> materials,
+                                            const MaterialOverrides*               overrides ) const
+    {
+        const auto* camera = GetMainCamera();
+        if ( camera == nullptr || transforms.empty() || GetViewExtent().Height == 0 )
+            return 0.0f;
+        const Common::Math::AABB local = Geometry::LocalBounds( mesh.GetSubmeshes() );
+        if ( Geometry::IsEmpty( local ) )
+            return 0.0f;
+        const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
+        // The largest any instance covers: the nearest instance decides what the shared textures must hold.
+        float pixels = 0.0f;
+        for ( const glm::mat4& transform : transforms )
+        {
+            const auto [center, radius] = WorldSphere( local, transform );
+            pixels                      = std::max(
+                 pixels, TextureStreamingDemand::ScreenPixels( center, radius, view, GetViewExtent().Height ) );
+        }
+        auto& demand = TextureStreamingDemand::Get();
+        for ( const Material* material : materials )
+            demand.Note( material, pixels );
+        if ( overrides != nullptr )
+            for ( const auto& [slot, asset] : overrides->Textures )
+                demand.NoteAsset( Common::AssetHandle( asset ), pixels );
+        return pixels;
+    }
+
     bool SceneRenderer::IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
                                                  float maxDrawDistance ) const
     {
@@ -3099,6 +3142,14 @@ namespace Desert::Graphic
         auto* drawnMesh = const_cast<Mesh*>( mesh );
         if ( !ReadyForDraw( *drawnMesh ) )
             return;
+        {
+            // Main thread only (the submit path): one scratch list of the slots' parents, reused per draw.
+            static std::vector<const Material*> parents;
+            parents.clear();
+            for ( const MaterialInstance* slot : materialSlots->Slots )
+                parents.push_back( slot != nullptr ? slot->GetParentMaterial() : nullptr );
+            NoteTextureDemand( *drawnMesh, std::span<const glm::mat4>( &transform, 1 ), parents );
+        }
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitMesh( { .Entity                   = extra.Entity,
                              .MotionPart               = extra.MotionPart,
@@ -3124,6 +3175,24 @@ namespace Desert::Graphic
                                              const MaterialOverrides&           overrides,
                                              const System::LandscapeWeightDraw& weights )
     {
+        // TEX-STREAMING: the tile's layer textures are asked for at the size the tile covers; its sphere spans the
+        // tile's square around its base height, so a camera over the tile asks for everything.
+        if ( const auto* camera = GetMainCamera(); camera != nullptr && GetViewExtent().Height != 0 )
+        {
+            const float     side   = static_cast<float>( tile.QuadsPerTile ) * tile.SpacingCm;
+            const glm::vec3 center = { tile.OriginX + ( static_cast<float>( tile.FirstSampleX ) +
+                                                        0.5f * static_cast<float>( tile.QuadsPerTile ) ) *
+                                                           tile.SpacingCm,
+                                       tile.BaseY,
+                                       tile.OriginZ + ( static_cast<float>( tile.FirstSampleZ ) +
+                                                        0.5f * static_cast<float>( tile.QuadsPerTile ) ) *
+                                                           tile.SpacingCm };
+            const float     pixels = TextureStreamingDemand::ScreenPixels(
+                 center, side * 0.70710678f, { camera->GetPosition(), camera->GetProjectionMatrix() },
+                 GetViewExtent().Height );
+            for ( const auto& [slot, asset] : overrides.Textures )
+                TextureStreamingDemand::Get().NoteAsset( Common::AssetHandle( asset ), pixels );
+        }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
@@ -3150,6 +3219,10 @@ namespace Desert::Graphic
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
+        if ( const float pixels =
+                  NoteTextureDemand( *mesh, std::span<const glm::mat4>( &transform, 1 ), {}, &overrides );
+             directTexture != nullptr )
+            TextureStreamingDemand::Get().NoteAsset( directTexture->GetOwningAsset(), pixels );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity               = entity,
                                     .Mesh                 = mesh,
@@ -3170,6 +3243,10 @@ namespace Desert::Graphic
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
+        {
+            const Material* const drawn[] = { material };
+            NoteTextureDemand( *mesh, std::span<const glm::mat4>( &transform, 1 ), drawn );
+        }
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity      = entity,
                                     .MotionPart  = motionPart,
@@ -3208,6 +3285,13 @@ namespace Desert::Graphic
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
+        if ( transforms )
+        {
+            const Material* const drawn[] = { material ? material->GetParentMaterial() : nullptr,
+                                              displacedMaterial ? displacedMaterial->GetParentMaterial()
+                                                                : nullptr };
+            NoteTextureDemand( *mesh, *transforms, drawn );
+        }
         // NO CAST, AND THAT IS THE POINT. This used to read
         // `static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) )`, and the downcast was a lie
         // the type told: an ISM's mesh is very often a DynamicMesh — every primitive one is, and the

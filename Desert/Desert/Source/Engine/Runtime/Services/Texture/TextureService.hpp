@@ -30,6 +30,23 @@ namespace Desert::Runtime
         std::size_t CooksInFlight = 8;
     };
 
+    /// MIP STREAMING (TEX-STREAMING), the code defaults of UE's r.Streaming.* that are not a quality choice. The
+    /// pool's budget is one (r.Streaming.PoolSize): it is the Scalability row Textures.StreamingPoolMiB.
+    struct TextureStreamingSettings
+    {
+        /// The mip tail: what a texture holds before any frame asked for it (UE's non-streamed mips), the first
+        /// level no larger than this on its longer side. A texture this small or smaller is never streamed.
+        uint32_t TailSize = 128;
+        /// Texels a texture needs across the screen pixels its draw covers. Bounds are not UVs: one texture
+        /// repeat across the object is assumed, and 2 keeps a texture tiled twice across its mesh sharp (UE reads
+        /// the mesh's own UV density, FStreamingTextureBuildInfo::TexelFactor -- not carried by our meshes yet).
+        float TexelsPerPixel = 2.0f;
+        /// Frames a texture may go without any draw asking for it before it falls back to its tail.
+        uint32_t UnseenFrames = 120;
+        /// Frames between two pool lines in the log (only when the pool changed).
+        uint32_t LogEveryFrames = 120;
+    };
+
     /// What a cook worker hands the frame loop: the decoded texture, or why there is none.
     struct TextureCookOutcome
     {
@@ -96,6 +113,14 @@ namespace Desert::Runtime
         /// the frame loop, main thread. Returns how many results were taken (built, failed or stale).
         std::size_t PumpUploads();
 
+        /// THE STREAMING STEP (TEX-STREAMING; UE FRenderAssetStreamingManager::UpdateResourceStreaming). Every
+        /// frame, main thread, after PumpUploads: takes the frame's screen demand
+        /// (Graphic::TextureStreamingDemand), turns it into the first mip each texture wants, fits the wanted set
+        /// into the pool budget by dropping the least asked-for mips first, and starts the reads that move a
+        /// texture to its wanted mips. The new levels go into the same texture when their upload runs
+        /// (Texture2D::ReplaceLevels): no material is rebuilt.
+        void UpdateStreaming();
+
         /// Cooked results still waiting for their upload (tests, diagnostics).
         std::size_t PendingUploads() const;
 
@@ -121,6 +146,15 @@ namespace Desert::Runtime
             bool Cooking = false;
             /// Latched so a corrupt file is not re-read every frame.
             bool Failed = false;
+            /// Streaming: the asset's level 0 size and every level's bytes (known after the first read), the
+            /// level the built image starts at, the level the running read will start at, and the last frame a
+            /// draw asked for the texture with how many screen pixels.
+            uint32_t              FullWidth = 0, FullHeight = 0;
+            std::vector<uint64_t> LevelBytes;
+            uint32_t              ResidentFirstMip  = 0;
+            uint32_t              RequestedFirstMip = Graphic::Texture2D::kStreamingTail;
+            uint64_t              LastAskedFrame    = 0;
+            float                 AskedPixels       = 0.0f;
         };
 
         Entry*      FindOrDiscover( const Assets::AssetHandle& handle ) const;
@@ -143,6 +177,9 @@ namespace Desert::Runtime
         std::shared_ptr<TextureUploads> m_Uploads        = std::make_shared<TextureUploads>();
         mutable uint64_t                m_NextCookTicket = 0;
         TextureUploadSettings           m_UploadSettings;
+        TextureStreamingSettings        m_StreamingSettings;
+        uint64_t m_StreamingFrame = 0;
+        uint64_t m_LoggedResident = 0, m_LoggedWanted = 0;
         /// Main thread: which asked-for cooks may run now; the rest wait as keys (SHOT-SETTLE-c).
         mutable CookAdmission<Assets::AssetHandle> m_CookAdmission{ m_UploadSettings.CooksInFlight };
     };

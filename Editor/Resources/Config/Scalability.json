@@ -113,7 +113,9 @@
             "High": {
                 "Textures.StreamingPoolMiB": 2048
             },
-            "Epic": {},
+            "Epic": {
+                "Textures.StreamingPoolMiB": 2048
+            },
             "Cinematic": {
                 "Textures.StreamingPoolMiB": 8192
             }

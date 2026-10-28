@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
+#include <Engine/Graphic/TextureStreamingDemand.hpp>
 
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
@@ -346,6 +347,19 @@ namespace Desert::Graphic::API::Vulkan
                                         "not in any ledger", "",
                                         static_cast<double>( untagged > transient ? untagged - transient : 0 ) / MB,
                                         static_cast<double>( allocated ) / MB, static_cast<double>( ledgered ) / MB );
+            // The texture streaming pool (TEX-STREAMING): what its textures hold against r.Streaming.PoolSize.
+            {
+                const auto& pool = TextureStreamingDemand::Get().Pool();
+                bySubsystem += std::format(
+                     "\n  {:<40} x{:<6} {:9.1f} MB resident / budget {:.1f} MB (wanted {:.1f} MB, full chains "
+                     "{:.1f} MB, {} streaming)",
+                     "texture streaming pool", pool.Textures.load( std::memory_order_relaxed ),
+                     static_cast<double>( pool.ResidentBytes.load( std::memory_order_relaxed ) ) / MB,
+                     static_cast<double>( pool.BudgetBytes.load( std::memory_order_relaxed ) ) / MB,
+                     static_cast<double>( pool.WantedBytes.load( std::memory_order_relaxed ) ) / MB,
+                     static_cast<double>( pool.FullChainBytes.load( std::memory_order_relaxed ) ) / MB,
+                     pool.Streaming.load( std::memory_order_relaxed ) );
+            }
             std::string largest;
             for ( std::size_t i = 0; i < byTag.size() && i < 25; ++i )
                 largest += std::format( "\n  {:<56} x{:<6} {:9.1f} MB", byTag[i].Tag, byTag[i].Count,
