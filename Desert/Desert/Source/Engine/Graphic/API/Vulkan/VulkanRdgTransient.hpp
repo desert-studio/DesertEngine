@@ -44,15 +44,18 @@ namespace Desert::Graphic::API::Vulkan
         // A graph through this interface keeps heaps of its own (ReserveGraphHeaps with share = false).
         Common::BoolResultStr                                     ReserveHeaps( std::string_view                        graph,
                                                                                 std::span<const RDG::TransientHeapDesc> heaps ) override;
-        // THE SLOT'S SHARED HEAPS (BISTRO-MEM-2 p5, UE FRHITransientHeapCache: every graph of a frame takes its
-        // heaps from one cache, they hold the bytes only while they execute). With @p share, the graph's heap i
-        // is the slot's shared heap keyed (class, memory types, ordinal of that key in the plan), sized for the
-        // largest graph wanting it: graphs recorded one after another in a frame slot hold the same bytes in
-        // turn instead of each its own. Allowed only for a graph whose every segment runs on the graphics queue
-        // (submission order + one memory barrier order it after the slot's earlier graphs); a graph with an
-        // async-compute segment passes share = false and keeps heaps of its own.
+        // THE SHARED HEAPS (BISTRO-MEM-2 p5, UE FRHITransientHeapCache: graphs take their heaps from one cache
+        // and hold the bytes only while they execute). With @p share, the graph's heap i is the shared heap keyed
+        // (class, memory types, ordinal of that key in the plan), sized for the largest graph wanting it: every
+        // graph-on-the-graphics-queue of every frame slot holds the same bytes in turn instead of each graph, in
+        // each slot, its own. Allowed only for a graph whose every segment runs on the graphics queue: one queue
+        // executes in submission order, and one memory barrier at the graph's start orders it after every earlier
+        // graph, this frame's or a frame still in flight. A graph with an async-compute segment passes share =
+        // false and keeps heaps of its own, per slot. A shared heap that grows or shrinks is freed, and what was
+        // placed in it destroyed, at the current slot's next BeginFrameSlot: every frame up to this one is then
+        // complete, and no later frame used them.
         // Returns true when the caller must record, before the graph's first access, a full memory barrier
-        // (ALL_COMMANDS -> ALL_COMMANDS, writes -> reads and writes): an earlier graph of this frame used the bytes.
+        // (ALL_COMMANDS -> ALL_COMMANDS, writes -> reads and writes): an earlier graph used the bytes.
         Common::ResultStr<bool> ReserveGraphHeaps( std::string_view graph, std::span<const RDG::TransientHeapDesc> heaps,
                                                    bool share );
         Common::ResultStr<std::shared_ptr<RDG::IPhysicalTexture>> PlaceTexture( const RDG::Allocation&  allocation,
@@ -88,7 +91,7 @@ namespace Desert::Graphic::API::Vulkan
             // no graph of this frame takes it (no barrier would order them).
             bool GivenUpThisFrame = true;
         };
-        // One of the slot's shared heaps (see ReserveGraphHeaps). Memory == nullptr: emptied (shrunk or unused),
+        // One of the shared heaps (see ReserveGraphHeaps). Memory == nullptr: emptied (shrunk or unused),
         // the index stays so the graphs' SharedIndex stay valid.
         struct SharedHeap
         {
@@ -123,9 +126,9 @@ namespace Desert::Graphic::API::Vulkan
         {
             std::string                Graph;
             bool                       UsedThisFrame = false;
-            bool                       Shared        = false; // heaps are the slot's (SharedIndex), not Heaps
+            bool                       Shared        = false; // heaps are the shared ones (SharedIndex), not Heaps
             std::vector<Heap>          Heaps;
-            std::vector<uint32_t>      SharedIndex; // Shared: the plan's heap i -> the slot's Shared[SharedIndex[i]]
+            std::vector<uint32_t>      SharedIndex; // Shared: the plan's heap i -> m_Shared[SharedIndex[i]]
             std::vector<PlacedTexture> Textures;
             std::vector<PlacedBuffer>  Buffers;
         };
@@ -134,8 +137,9 @@ namespace Desert::Graphic::API::Vulkan
             std::vector<GraphHeaps> Graphs;
             // Heaps no graph holds, reusable by any graph of this slot (see THE HEAP POOL above).
             std::vector<PooledHeap> Pool;
-            std::vector<SharedHeap> Shared;
-            bool                    SharedUsedThisFrame = false; // a graph of this frame held the shared heaps
+            // Shared heaps this slot's frame gave up (grown or shrunk): freed at its next BeginFrameSlot, after
+            // the resources placed in them (every frame that used them has then completed).
+            std::vector<Heap> RetiredHeaps;
             // Resources bound to heaps that went to the pool, destroyed at this slot's next BeginFrameSlot.
             std::vector<std::shared_ptr<VulkanRdgTexture>> RetiredTextures;
             std::vector<std::shared_ptr<VulkanRdgBuffer>>  RetiredBuffers;
@@ -143,7 +147,7 @@ namespace Desert::Graphic::API::Vulkan
 
         static void Retire( Slot& slot, GraphHeaps& graph, uint32_t heap );
         // Retires every graph's resources placed in the slot's shared heap @p index; its bytes go to the pool.
-        static void RetireShared( Slot& slot, uint32_t index );
+        void RetireShared( uint32_t index );
         static void RetirePlaced( Slot& slot, GraphHeaps& graph, uint32_t heap );
         static void Release( Slot& slot, GraphHeaps& graph );
         static void DestroyRetired( Slot& slot );
@@ -152,7 +156,7 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] static bool TakePooled( Slot& slot, const RDG::TransientHeapDesc& want, Heap& out );
         // ReserveGraphHeaps with share: maps the plan's heaps onto the slot's shared heaps, growing them.
         [[nodiscard]] Common::BoolResultStr ReserveShared( Slot& slot, GraphHeaps& entry,
-                                                           std::span<const RDG::TransientHeapDesc> heaps ) const;
+                                                           std::span<const RDG::TransientHeapDesc> heaps );
         // Fills @p out (a heap is move-only: it holds its ledger row).
         [[nodiscard]] Common::BoolResultStr AllocateHeap( const RDG::TransientHeapDesc& desc, Heap& out ) const;
         [[nodiscard]] Common::ResultStr<const Heap*>
@@ -162,6 +166,9 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<Slot>      m_Slots;
         uint32_t               m_Slot    = 0;
         bool                   m_Begun   = false; // BeginFrameSlot was called at least once
+        // The shared heaps: one set for every graphics-only graph of every frame slot (see ReserveGraphHeaps).
+        std::vector<SharedHeap> m_Shared;
+        bool                    m_SharedUsed = false; // a graph held them: the next one needs the barrier
         int32_t                m_Current = -1;    // the open graph's index in the slot's Graphs, -1 between graphs
     };
 } // namespace Desert::Graphic::API::Vulkan

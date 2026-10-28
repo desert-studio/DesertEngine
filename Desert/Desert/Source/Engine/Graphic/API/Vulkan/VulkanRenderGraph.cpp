@@ -1242,7 +1242,7 @@ namespace Desert::Graphic::API::Vulkan
         const Common::ResultStr<bool> reserved = m_Transients->ReserveGraphHeaps( graph.Name, plan.Heaps, graphicsOnly );
         if ( !reserved )
             return Common::MakeFormattedError( "{}", reserved.GetError() );
-        // An earlier graph of this frame used the bytes (same queue, earlier in submission order): its last
+        // An earlier graph used the bytes (this frame or one in flight; same queue, earlier in submission order): its last
         // accesses complete before this graph's first one, recorded into the first command buffer the graph opens
         // (BeginGraph returns one only for a graph without segments).
         m_SharedHeapBarrierPending = reserved.GetValue();
