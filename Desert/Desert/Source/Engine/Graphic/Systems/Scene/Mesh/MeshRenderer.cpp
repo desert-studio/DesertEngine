@@ -3,6 +3,7 @@
 
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -134,8 +135,27 @@ namespace Desert::Graphic::System
         }
     } // namespace MeshRendererDetail
 
+    static_assert( kCountedMeshPasses == GpuDriven::kMeshPassCount,
+                   "DrawCounters' per-pass table is indexed by GpuDriven::MeshPass" );
+
     Common::BoolResultStr MeshRenderer::Initialize()
     {
+        // The lists of the binned passes, counted per pass (DesertCtl `state views.meshPasses`): the G-buffer,
+        // the deferred path's depth/normal prepass, the forward opaque passes (the forward path's geometry pass
+        // and the deferred path's forward-shaded generic pass), the sun's cascades (cached static and movable)
+        // and the virtual shadow map's levels.
+        m_GBufferDraws.CountAs( GpuDriven::MeshPass::GBuffer );
+        m_DepthNormalDraws.CountAs( GpuDriven::MeshPass::DepthPrepass );
+        m_ForwardDraws.CountAs( GpuDriven::MeshPass::Forward );
+        m_GenericDraws.CountAs( GpuDriven::MeshPass::Forward );
+        for ( uint32_t view = 0; view < kCascadeViews; ++view )
+        {
+            m_CascadeDraws[view].CountAs( GpuDriven::MeshPass::ShadowCascade );
+            m_CascadeMovableDraws[view].CountAs( GpuDriven::MeshPass::ShadowCascade );
+        }
+        for ( auto& level : m_VsmDraws )
+            level.CountAs( GpuDriven::MeshPass::VirtualShadow );
+
         const auto& targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb )
             return Common::MakeError( "Target framebuffer is not available" );
@@ -385,6 +405,9 @@ namespace Desert::Graphic::System
         {
             if ( m_Error )
                 return Common::MakeFormattedError( "{}", *m_Error );
+            std::optional<MeshPassScope> counted;
+            if ( m_CountedPass )
+                counted.emplace( static_cast<uint32_t>( *m_CountedPass ) );
             std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
             blocks.reserve( m_Blocks.size() );
             for ( uint32_t index = 0; index < m_Blocks.size(); ++index )

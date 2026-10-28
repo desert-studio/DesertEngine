@@ -34,6 +34,8 @@
 #include "Editor/Core/CommandHistory.hpp"
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Graphic/DrawCounters.hpp>
+#include <array>
 #include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -1332,6 +1334,18 @@ namespace Desert::Editor
             const Graphic::GeometryPoolStats pool = Graphic::GeometryPool::Get().GetStats();
             snapshot.GeometryPoolBinds            = pool.Binds;
             snapshot.GeometryPoolMeshBinds        = pool.MeshBinds;
+            // GpuDriven::MeshPass order (DrawCounters.hpp kCountedMeshPasses).
+            static constexpr std::array<const char*, Graphic::kCountedMeshPasses> kMeshPassNames{
+                 "depthPrepass", "gbuffer", "forward", "shadowCascade", "virtualShadow" };
+            snapshot.MeshPasses.clear();
+            for ( uint32_t pass = 0; pass < Graphic::kCountedMeshPasses; ++pass )
+            {
+                const Graphic::MeshPassDrawCounters counted = Graphic::DrawCounter::LastFrameMeshPass( pass );
+                snapshot.MeshPasses.push_back( { .Name          = kMeshPassNames[pass],
+                                                 .CpuDraws      = counted.CpuDraws,
+                                                 .IndirectCalls = counted.IndirectCalls,
+                                                 .BinsIssued    = counted.BinsIssued } );
+            }
         }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();

@@ -1066,6 +1066,8 @@ namespace Desert::Graphic::API::Vulkan
                      return Common::MakeFormattedError(
                           "{}: indirect arguments of drawn submesh {} at byte {} past the end of '{}' ({} bytes)",
                           context.GetPassName(), drawn, at, declared.GetValue().Name, bytes );
+                 // Not in the frame's draw count (its instances are the GPU's), but a CPU draw of its mesh pass.
+                 DrawCounter::RecordCpuIndirect();
                  if ( indexCount == 0u )
                      vkCmdDrawIndirect( m_CurrentCommandBuffer, vkArgs, at, 1,
                                         static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
@@ -1124,6 +1126,9 @@ namespace Desert::Graphic::API::Vulkan
         // Not counted by DrawCounter: the instance counts are the GPU's (RenderMeshIndirect likewise).
         // One fixed table (decision 10-28): every bin's record is drawn, a culled one with InstanceCount 0.
         const VkBuffer vkArgs = args.GetValue()->GetBuffer();
+        // The mesh pass's issued bins and calls (DrawCounter::LastFrameMeshPass).
+        // MaxDraws > 0 here; maxDrawIndirectCount may be 2^32 - 1, so no rounding-up sum.
+        DrawCounter::RecordBins( draw.MaxDraws, ( ( draw.MaxDraws - 1u ) / draw.MaxDrawsPerCall ) + 1u );
         for ( uint32_t first = 0; first < draw.MaxDraws; first += draw.MaxDrawsPerCall )
         {
             const uint32_t count = std::min( draw.MaxDraws - first, draw.MaxDrawsPerCall );

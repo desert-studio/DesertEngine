@@ -27,6 +27,7 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheScene.hpp>
+#include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -171,6 +172,13 @@ namespace Desert::Graphic::System
             // command i's first record is record @p firstRecords[i] of @p arguments, which the node declares
             // Access::IndirectArgs. Until the next Clear.
             void SetIndirect( RDG::BufferRef arguments, std::vector<uint32_t> firstRecords );
+            // The GPU-driven mesh pass Record's draws are counted under (DrawCounter::LastFrameMeshPass, DesertCtl
+            // `state views.meshPasses`); set once by the owner (MeshRenderer::Initialize), kept across Clear.
+            // Unset: a list outside the binned passes (glass, debug, card capture), counted only globally.
+            void CountAs( GpuDriven::MeshPass pass )
+            {
+                m_CountedPass = pass;
+            }
 
         private:
             // One declared block: the executor whose route fills it and the pipeline of its first draw, whose
@@ -194,6 +202,7 @@ namespace Desert::Graphic::System
             uint64_t                     m_Triangles = 0; // Add's count of the commands' triangles (Triangles)
             // Kept across frames (Clear drops only the layouts of destroyed shaders). Mutable: Declare is const.
             mutable ShaderBindingLayoutSet m_Layouts;
+            std::optional<GpuDriven::MeshPass> m_CountedPass;
         };
     } // namespace MeshRendererDetail
 
