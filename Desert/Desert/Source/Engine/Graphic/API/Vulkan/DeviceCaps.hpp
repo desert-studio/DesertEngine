@@ -34,6 +34,7 @@ namespace Desert::Graphic::API::Vulkan
         Swapchain,
         WideLines,
         FillModeNonSolid,
+        MultiDrawIndirect,
         SamplerAnisotropy,
         TextureCompressionBC,
         StorageImageWriteWithoutFormat,

@@ -302,8 +302,8 @@ namespace Desert::Graphic::RayTracing
     class RayTracingSceneRenderer
     {
     public:
-        // Called once per frame per view, after MeshRenderer::BuildObjectMotions (the rows are the instances'
-        // custom indices) and before any pass that reads the TLAS is declared.
+        // Called once per frame per view, after MeshRenderer::SyncGpuScene (the GpuScene instance indices are
+        // the instances' custom indices) and before any pass that reads the TLAS is declared.
         // @p viewOrigin (cm) and @p drawDistanceScale (Graphic::DrawDistanceScale of the lens) feed the ISM
         // distance cull only: the TLAS is never frustum-culled (RayTracingGather.hpp).
         // @p cache is the scene's (Core::Scene::GetRayTracingCache): skinned BLASes and variants shared by its

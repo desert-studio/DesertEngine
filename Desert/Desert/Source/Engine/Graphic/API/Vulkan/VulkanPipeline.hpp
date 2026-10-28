@@ -15,6 +15,7 @@
 #include <optional>
 #include <string_view>
 #include <future>
+#include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -89,6 +90,12 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] bool HasVertexStreams() const
         {
             return m_VertexInput.HasBinding( 1 );
+        }
+        // The vertex stage reads the binned draw's instance id (a_VisibleRow, binding 2 at instance rate):
+        // every draw with this pipeline binds the id stream there (VulkanRendererAPI::BindMeshBuffers).
+        [[nodiscard]] bool ReadsVisibleRow() const
+        {
+            return m_VertexInput.HasBinding( GpuDriven::kVisibleRowVertexBinding );
         }
 
         // THE PIPELINE FOR THE RENDER PASS THE DRAW IS RECORDED IN, passed by the caller as that pass's

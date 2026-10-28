@@ -74,9 +74,16 @@ namespace Desert::Graphic::System
         // (two draws share a material only with the same textures), and its overrides written into it. @p
         // logRefused: false for a program that declares only what it reads (the deferred depth-normal slice),
         // where a texture the program lacks is no refusal.
+        //
+        // ApplyGenericOverrides (defaults, parameter overrides, textures) builds the draw's ROW and is called by
+        // SyncGpuScene only, which puts that row in the scene material table. A recording material takes the
+        // textures alone (ApplyGenericTextures): its descriptor set holds the TextureBinding textures, and its
+        // parameters are never read — the draw reads its row from the table.
         std::string GenericTextureKey( const MeshRenderer::GenericMeshRenderData& g );
         void ApplyGenericOverrides( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
                                     std::string_view shaderName, bool logRefused );
+        void ApplyGenericTextures( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
+                                   std::string_view shaderName, bool logRefused );
 
         static_assert( SceneResources::kMaxCascadeViews == kSceneViewShadowCascades,
                        "the lit materials' cascade count is the scene/view inputs' cascade count" );
@@ -89,6 +96,7 @@ namespace Desert::Graphic::System
 
     using MeshRendererDetail::AppendRow;
     using MeshRendererDetail::ApplyGenericOverrides;
+    using MeshRendererDetail::ApplyGenericTextures;
     using MeshRendererDetail::CreateCellMaterial;
     using MeshRendererDetail::DefaultSurfaceProgram;
     using MeshRendererDetail::DefaultSurfaceShaderName;

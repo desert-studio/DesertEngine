@@ -1,6 +1,7 @@
 #include "Editor/LevelEditor/ControlService.hpp"
 
 #include "Editor/Core/AssetOpen.hpp"
+#include "Editor/Core/EditorPreferences.hpp"
 #include "Editor/Core/Commands/CommandRegistry.hpp"
 #include "Editor/Panels/Landscape/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
@@ -724,7 +725,8 @@ namespace Desert::Editor
                          Control::PropertiesToJson(
                               Control::kSubjects[static_cast<std::size_t>( Control::Subject::Viewport )].Name,
                               DescribeViewportCamera( viewCamera->GetPosition(), forward,
-                                                      viewCamera->GetFOV() ) ) );
+                                                      viewCamera->GetFOV(),
+                                                      EditorPreferences::Get().DebugView.ValidateGpuCulling ) ) );
                 }
 
                 if ( request.Whose == Control::Subject::Tool )
@@ -1144,6 +1146,13 @@ namespace Desert::Editor
         const auto which = ValidateViewportCameraWrite( request.Property, request.Value );
         if ( !which )
             return Control::Response::Failure( request.Id, which.GetError() );
+
+        // The viewport's "Validate GPU Culling" checkbox: the user's DebugView, pushed to the renderer each frame.
+        if ( which.GetValue() == ViewportCameraWrite::ValidateGpuCulling )
+        {
+            EditorPreferences::Get().DebugView.ValidateGpuCulling = request.Value[0] != 0.0f;
+            return Control::Response::Success( request.Id );
+        }
 
         ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera();
         if ( camera == nullptr )

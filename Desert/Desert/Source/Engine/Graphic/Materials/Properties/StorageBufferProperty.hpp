@@ -40,11 +40,23 @@ namespace Desert::Graphic
             // SetData returned void. The refusal names the buffer itself (BaseBuffer has no GetName and
             // does not need one for this), which is what turns "the lighting looked wrong for one frame"
             // into a grep.
+            //
+            // A LENT buffer is never written through the property: it is its owner's (the scene material table,
+            // a view's ObjectMotions), shared by every material it is lent to, and a write here would overwrite
+            // rows other draws of the frame name. The owner writes it (GpuScene::UpdateMaterialRow, the view's
+            // upload); a material that has its own data to upload takes its own buffer back with SetBuffer.
+            if ( m_IsLent )
+            {
+                LOG_ERROR( "[SSBO] binding {}: {} byte(s) refused: this property reads a buffer lent by its owner "
+                           "(LendViewBuffer: the scene material table or a view's per-frame buffer), which only "
+                           "its owner writes",
+                           m_Binding, size );
+                return;
+            }
             const auto buffer = GetStorageBuffer();
             if ( !buffer )
             {
-                LOG_ERROR( "[SSBO] {} byte(s) were not uploaded: the view that lent this property its buffer "
-                           "has closed",
+                LOG_ERROR( "[SSBO] binding {}: {} byte(s) were not uploaded: the property has no buffer", m_Binding,
                            size );
                 return;
             }
@@ -65,6 +77,7 @@ namespace Desert::Graphic
         {
             m_Buffer = buffer;
             m_Lent.reset();
+            m_IsLent  = false;
             m_Written = true;
             NoteWritten();
         }
@@ -77,6 +90,7 @@ namespace Desert::Graphic
         {
             m_Buffer.reset();
             m_Lent    = buffer;
+            m_IsLent  = true;
             m_Written = true;
             NoteWritten();
         }
@@ -107,5 +121,6 @@ namespace Desert::Graphic
         std::weak_ptr<ShaderResources::StorageBuffer>   m_Lent; // LendViewBuffer: the view owns it, not this
         uint32_t                                        m_Binding = 0;
         bool                                            m_Written = false;
+        bool                                            m_IsLent  = false; // LendViewBuffer until SetBuffer
     };
 } // namespace Desert::Graphic

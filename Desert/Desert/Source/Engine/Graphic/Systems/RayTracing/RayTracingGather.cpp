@@ -40,7 +40,7 @@ namespace Desert::Graphic::RayTracing
         };
 
         // The records of one ISM field: every section group of one entity's mesh over one transform snapshot. The
-        // groups share the instances' rows (BuildObjectMotions keys them {Entity, instance}), so the field is one
+        // groups share the instances' GpuScene instances (SyncGpuScene: one per placed instance), so the field is one
         // primitive per instance whose BLAS holds every group's sections.
         struct FieldRecord
         {
@@ -170,7 +170,7 @@ namespace Desert::Graphic::RayTracing
             rows.push_back( { mesh, world, row, castShadows, kind, { section } } );
         };
         for ( const MeshRenderer::StaticMeshRenderData& data : inputs.Static )
-            add( data.Mesh, data.Transform, data.MotionRow,
+            add( data.Mesh, data.Transform, data.GpuInstance,
                  SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ), data.CastShadows,
                  RayTracingPrimitiveKind::Static );
         // A generic record's material is its own program (a per-slot data-driven material, or a shader override
@@ -181,7 +181,7 @@ namespace Desert::Graphic::RayTracing
             if ( data.VisibleInRayTracing )
             {
                 const bool program = !data.RayHit.Template.empty();
-                add( data.Mesh, data.Transform, data.MotionRow,
+                add( data.Mesh, data.Transform, data.GpuInstance,
                      { .Visible    = data.VisibleSubmeshMask,
                        .Surface    = data.SlotMaterial,
                        .Masked     = program && data.RayHit.Opacity.has_value(),
@@ -265,7 +265,7 @@ namespace Desert::Graphic::RayTracing
                 RayTracingPrimitive& primitive = out.Primitives.emplace_back();
                 primitive.Geometry             = geometry;
                 primitive.World                = transforms[instance];
-                primitive.GpuSceneRow          = inputs.InstancedMotionRows[data.FirstMotionRow + instance];
+                primitive.GpuSceneRow          = inputs.InstancedGpuInstances[data.FirstGpuInstance + instance];
                 primitive.SourceMesh           = data.Mesh;
                 primitive.CastShadows          = field.CastShadows;
                 primitive.Translucent          = AllTranslucent( field.Sections );
@@ -378,7 +378,7 @@ namespace Desert::Graphic::RayTracing
         {
             RayTracingPrimitive& primitive = out.Primitives.emplace_back();
             primitive.World                = data.Transform;
-            primitive.GpuSceneRow          = data.MotionRow;
+            primitive.GpuSceneRow          = data.GpuInstance;
             primitive.Kind                 = RayTracingPrimitiveKind::Skinned;
             primitive.DeformedMesh         = data.Mesh;
             if ( data.Mesh == nullptr )

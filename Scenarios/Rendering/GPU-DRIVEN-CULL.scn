@@ -1,0 +1,9 @@
+# GPU-DRIVEN-CULL: the GPU instance cull (InstanceCull.shader) agrees with the CPU rules on Bistro, per view.
+# DebugViewState::ValidateGpuCulling runs the cull for the main view, the sun's cascades and the VSM levels beside
+# the CPU draw path and logs one line per view: "[GPUDriven] Cull validation <view>: GPU n, CPU m, mismatches k".
+# It draws nothing: the frame must equal dev's (<= 1/255), with 0 VUID.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Day.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Debug.ValidateGpuCulling 1
+Тогда кадр_bistro_day Bistro днём, как на dev (diff <= 1/255); editor.log: по строке на вид, mismatches 0; 0 VUID
+Дано --subject viewport set Debug.ValidateGpuCulling 0

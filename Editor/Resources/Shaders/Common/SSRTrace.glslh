@@ -48,8 +48,8 @@ layout(binding = 9, rgba32f) writeonly uniform image2D TraceRayTexture;  // the 
 // surface the rays leave from is the nearest translucent surface of the pixel (Mesh/Surface/Pass_FrontLayer.glslh,
 // "Translucency: Front Layer G-buffer"); the screen walk, its hits and every world leg still read the OPAQUE scene
 // (GBufferNormalTexture / GBufferDepthTexture at a hit, HzbTexture, VelocityTexture): what glass reflects is the world, not itself.
-layout(binding = 42) uniform texture2D FrontLayerNormalTexture; // rgb = world normal, a = roughness (cleared: zero)
-layout(binding = 43) uniform texture2D FrontLayerDepthTexture;  // device depth of the front layer (cleared: far)
+layout(binding = 50) uniform texture2D FrontLayerNormalTexture; // rgb = world normal, a = roughness (cleared: zero)
+layout(binding = 51) uniform texture2D FrontLayerDepthTexture;  // device depth of the front layer (cleared: far)
 #endif
 
 // THE REFLECTING SURFACE at G-buffer pixel @p p - where the rays leave from, never where they land: rgb = world

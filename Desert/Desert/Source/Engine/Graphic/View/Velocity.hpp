@@ -5,7 +5,7 @@
 namespace Desert::Graphic
 {
     // The velocity a geometry pass writes for one surface point, the CPU twin of DesertVelocity in
-    // Editor/Resources/Shaders/Common/ObjectMotion.glslh (same expression, so a test can pin what the shader
+    // Editor/Resources/Shaders/Common/Velocity.glslh (same expression, so a test can pin what the shader
     // writes). Both clip positions are UNJITTERED (ViewFrame rule: velocity never carries the jitter):
     //   clip     = ViewProjection     * World     * p
     //   prevClip = PrevViewProjection * PrevWorld * p

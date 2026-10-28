@@ -1,5 +1,5 @@
 // TEMPORAL VIEW CONTRACT (TAA1-C0): the per-view temporal foundation — the resolution split, the temporal method
-// of a frame, the jitter, SceneViewState's frame protocol and its history resets, MotionHistory, and the
+// of a frame, the jitter, SceneViewState's frame protocol and its history resets, and the
 // RDG-FAULT1 policies of velocity and history — pinned BEFORE the implementation exists. Written against the
 // headers only; it does not link until TAA1's implementation step lands, and that step is done when this suite
 // passes unchanged. No GPU: the graph is a bare RDG::Builder that is never executed, and the upscaler is a fixture
@@ -111,7 +111,6 @@ namespace
         in.NearPlane      = 10.0f;
         in.FarPlane       = 5'000'000.0f;
         in.CameraIdentity = 7;
-        in.SceneIdentity  = 1;
         in.Output         = k1080p;
         in.Scalability    = &kResolvedQuality;
         in.AntiAliasing   = Path( Scal::AntiAliasingMethod::TAA );
@@ -441,85 +440,6 @@ TEST( TemporalViewContract, HistoryShapeComesFromTheUpscalerAndResizeRecreatesIt
     EXPECT_EQ( state.History().Descs()[0].Desc.Size.Height, 720u );
 }
 
-// ---- MotionHistory ------------------------------------------------------------------------------------------
-
-TEST( TemporalViewContract, AnObjectWithNoPreviousFrameHasNoObjectMotion )
-{
-    MotionHistory   motion;
-    const glm::mat4 a = glm::translate( glm::mat4( 1.0f ), glm::vec3( 10, 0, 0 ) );
-    const glm::mat4 b = glm::translate( glm::mat4( 1.0f ), glm::vec3( 20, 0, 0 ) );
-    EXPECT_EQ( motion.PreviousTransform( { 1, 0 }, a ), a );
-    motion.EndFrame();
-    EXPECT_EQ( motion.PreviousTransform( { 1, 0 }, b ), a );
-    EXPECT_EQ( motion.PreviousTransform( { 1, 0 }, glm::mat4( 3.0f ) ),
-               a ); // second record in a frame: first kept
-    motion.EndFrame();
-    // Not drawn for a frame -> dropped: it reappears without a stale transform.
-    motion.EndFrame();
-    EXPECT_EQ( motion.PreviousTransform( { 1, 0 }, a ), a );
-    EXPECT_EQ( motion.TrackedTransforms(), 0u ); // nothing committed yet this frame
-}
-
-TEST( TemporalViewContract, SlotsAreDistinctObjects )
-{
-    MotionHistory   motion;
-    const glm::mat4 a( 2.0f );
-    const glm::mat4 b( 4.0f );
-    (void)motion.PreviousTransform( { 1, 0 }, a );
-    (void)motion.PreviousTransform( { 1, 1 }, b );
-    motion.EndFrame();
-    EXPECT_EQ( motion.TrackedTransforms(), 2u );
-    EXPECT_EQ( motion.PreviousTransform( { 1, 1 }, a ), b );
-    EXPECT_EQ( motion.PreviousTransform( { 1, 0 }, b ), a );
-}
-
-TEST( TemporalViewContract, BonePaletteOfAnotherSizeIsNotAPreviousPalette )
-{
-    MotionHistory                motion;
-    const std::vector<glm::mat4> three( 3, glm::mat4( 2.0f ) );
-    const std::vector<glm::mat4> threeMoved( 3, glm::mat4( 5.0f ) );
-    const std::vector<glm::mat4> four( 4, glm::mat4( 7.0f ) );
-
-    const auto first = motion.PreviousBones( { 9, 0 }, three );
-    EXPECT_TRUE( std::equal( first.begin(), first.end(), three.begin(), three.end() ) );
-    motion.EndFrame();
-    const auto second = motion.PreviousBones( { 9, 0 }, threeMoved );
-    EXPECT_TRUE( std::equal( second.begin(), second.end(), three.begin(), three.end() ) );
-    motion.EndFrame();
-    const auto swapped = motion.PreviousBones( { 9, 0 }, four ); // mesh swap
-    EXPECT_TRUE( std::equal( swapped.begin(), swapped.end(), four.begin(), four.end() ) );
-}
-
-TEST( TemporalViewContract, ASceneChangeClearsMotion )
-{
-    SceneViewState        state;
-    const FixtureUpscaler taa( TemporalMethod::TAA );
-    (void)state.BeginFrame( Inputs( 1.0 ), &taa );
-    (void)state.Motion().PreviousTransform( { 1, 0 }, glm::mat4( 2.0f ) );
-    state.EndFrame( RDG::ExecuteReport{} );
-    EXPECT_EQ( state.Motion().TrackedTransforms(), 1u );
-
-    ViewInputs other    = Inputs( 1.25 );
-    other.SceneIdentity = 2;
-    (void)state.BeginFrame( other, &taa );
-    EXPECT_EQ( state.Motion().TrackedTransforms(), 0u );
-    EXPECT_EQ( state.Motion().PreviousTransform( { 1, 0 }, glm::mat4( 6.0f ) ), glm::mat4( 6.0f ) );
-}
-
-// The row is the two world matrices plus the two palette offsets TAA1-VEL added (skinned primitives skin every
-// view pass from the view's one ObjectBones buffer, so the row names both frames' palette slices), padded to a
-// 16-byte std430 stride. VelocityTarget.GpuObjectMotionHasAStd430TwinInGlsl pins the GLSL twin member by member.
-TEST( TemporalViewContract, GpuObjectMotionIsTwoMatricesAndTwoPaletteOffsets )
-{
-    EXPECT_EQ( sizeof( GpuObjectMotion ), 160u );
-    EXPECT_EQ( offsetof( GpuObjectMotion, SkinCacheAddressLo ), 136u );
-    EXPECT_EQ( offsetof( GpuObjectMotion, SkinCacheVertexCount ), 144u );
-    EXPECT_EQ( offsetof( GpuObjectMotion, PrevWorld ), 64u );
-    EXPECT_EQ( offsetof( GpuObjectMotion, BoneOffset ), 128u );
-    EXPECT_EQ( offsetof( GpuObjectMotion, PrevBoneOffset ), 132u );
-    EXPECT_EQ( sizeof( GpuObjectMotion ) % 16u, 0u );
-}
-
 // ---- TAA1-I2: the contract-header fixes -----------------------------------------------------------------------
 
 namespace
@@ -711,25 +631,6 @@ TEST( TemporalViewContract, AnUnendedCutDoesNotResetTheCommittedCamera )
     other.CameraIdentity = 8;
     (void)state.BeginFrame( other, &taa ); // unended
     EXPECT_EQ( Value( state.BeginFrame( Inputs( 1.5 ), &taa ) ).HistoryReset, HistoryResetReason::None );
-}
-
-// Fix 3: an unended frame drops only its own motion records.
-TEST( TemporalViewContract, PreviousTransformsSurviveAnUnendedFrame )
-{
-    SceneViewState        state;
-    const FixtureUpscaler taa( TemporalMethod::TAA );
-    const MotionKey       key{ 3, 0 };
-    const glm::mat4       t1 = glm::translate( glm::mat4( 1.0f ), glm::vec3( 100.0f, 0.0f, 0.0f ) );
-    const glm::mat4       t2 = glm::translate( glm::mat4( 1.0f ), glm::vec3( 200.0f, 0.0f, 0.0f ) );
-    const glm::mat4       t3 = glm::translate( glm::mat4( 1.0f ), glm::vec3( 300.0f, 0.0f, 0.0f ) );
-    (void)state.BeginFrame( Inputs( 1.0 ), &taa );
-    (void)state.Motion().PreviousTransform( key, t1 );
-    state.EndFrame( RDG::ExecuteReport{} );
-    (void)state.BeginFrame( Inputs( 1.25 ), &taa );
-    (void)state.Motion().PreviousTransform( key, t2 ); // FrameFault: no EndFrame
-    ASSERT_EQ( Value( state.BeginFrame( Inputs( 1.5 ), &taa ) ).HistoryReset, HistoryResetReason::None );
-    EXPECT_EQ( state.Motion().PreviousTransform( key, t3 ), t1 )
-         << "the committed frame's transform was lost (or the unended frame's leaked in)";
 }
 
 // Fix 4: the two sides are told apart by name in the graph.
