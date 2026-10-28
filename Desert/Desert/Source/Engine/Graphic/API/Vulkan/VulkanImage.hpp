@@ -175,6 +175,7 @@ namespace Desert::Graphic::API::Vulkan
                                                         const Core::Formats::ImagePixelData& data ) override;
         NO_DISCARD Common::BoolResultStr CopyLayersFrom( std::span<const Image2D* const> sources ) override;
         NO_DISCARD Common::BoolResultStr TakeDeviceImageFrom( Image2D& replacement ) override;
+        NO_DISCARD Common::BoolResultStr StreamOutLevels( uint32_t droppedLevels ) override;
 
         // --- IVulkanImage Interface ---
         [[nodiscard]] const VulkanImageResource& GetResource() const override { return m_Resource; }

@@ -162,6 +162,12 @@ namespace Desert::Graphic
         Common::BoolResultStr ReplaceLevels( CookedTexture2D       cooked,
                                              const TextureBackend& backend = TextureBackend::Device() );
 
+        /// THE STREAMED MIP DROP (TEX-STREAMING; UE FTexture2DStreamOut): the texture gives up its
+        /// @p droppedLevels top levels by a GPU copy of the ones it keeps (Image2D::StreamOutLevels) -- nothing is
+        /// read from disk; only a RAISE reads the asset (ReplaceLevels). The texture and its Image2D stay, as in
+        /// ReplaceLevels. Refused, and the resident levels kept, when the image cannot stream out.
+        Common::BoolResultStr StreamOutLevels( uint32_t droppedLevels );
+
         // Creates the texture from CPU-generated pixel data (no file involved) — e.g. the runtime
         // BRDF LUT. `data` layout must match `format` (RGBA32F -> vector<float>, RGBA8F -> vector<uchar>).
         static Common::ResultStr<std::shared_ptr<Texture2D>>

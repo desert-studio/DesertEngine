@@ -214,6 +214,18 @@ namespace Desert::Graphic
             return Common::MakeError<bool>( "Image2D::TakeDeviceImageFrom not supported by this backend" );
         }
 
+        // THE STREAM-OUT (TEX-STREAMING; UE FTexture2DStreamOut): this image gives up its @p droppedLevels top
+        // levels WITHOUT reading anything from disk. A new, smaller device image is made, the levels this image
+        // keeps are copied into it on the GPU (vkCmdCopyImage, submitted without a wait), and this image takes it
+        // (TakeDeviceImageFrom: same object, same bindless slot, a new resource generation). The old device image
+        // is released once that copy has finished and past the frames in flight. Only a plain sampled 2D image
+        // may stream out, and it must keep at least one level; anything else is refused naming why, and the
+        // resident levels stay drawn. Default: unsupported.
+        NO_DISCARD virtual Common::BoolResultStr StreamOutLevels( uint32_t /*droppedLevels*/ )
+        {
+            return Common::MakeError<bool>( "Image2D::StreamOutLevels not supported by this backend" );
+        }
+
         // Which device image (view + sampler) a descriptor written from this image names: minted anew whenever
         // the backend replaces them (creation, a sampler change, TakeDeviceImageFrom). A holder that caches what
         // it wrote compares this, never a recyclable view handle. 0 for a backend without device images.

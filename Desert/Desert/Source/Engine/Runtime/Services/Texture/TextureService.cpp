@@ -451,6 +451,28 @@ namespace Desert::Runtime
                  want.First >= entry.ResidentFirstMip + 2 || ( overBudget && want.First > entry.ResidentFirstMip );
             if ( !up && !down )
                 continue;
+            const std::string name = entry.Source->GetMetadata().Filepath.filename().string();
+            if ( down )
+            {
+                // A DROP READS NOTHING (UE FTexture2DStreamOut): the kept levels are copied on the GPU into a
+                // smaller image the same Image2D takes; the .detex is read only to raise a texture again.
+                const uint32_t from    = entry.ResidentFirstMip;
+                const auto     dropped = entry.Built->StreamOutLevels( want.First - from );
+                if ( !dropped.IsSuccess() )
+                {
+                    LOG_WARN( "[TextureStreaming] '{}' could not stream out from mip {} to {}: {}. Its resident "
+                              "mips stay drawn.",
+                              name, from, want.First, dropped.GetError() );
+                    continue;
+                }
+                entry.ResidentFirstMip = entry.RequestedFirstMip = want.First;
+                resident -= BytesFrom( entry.LevelBytes, from ) - BytesFrom( entry.LevelBytes, want.First );
+                LOG_INFO( "[TextureStreaming] '{}' streamed out mip {} -> {} by a GPU copy (no read)", name, from,
+                          want.First );
+                continue;
+            }
+            LOG_INFO( "[TextureStreaming] '{}' reads mip {} -> {} from its asset", name, entry.ResidentFirstMip,
+                      want.First );
             entry.RequestedFirstMip = want.First;
             BeginCook( want.Handle, entry );
             ++streaming;
