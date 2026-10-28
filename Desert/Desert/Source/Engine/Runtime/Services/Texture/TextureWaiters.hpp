@@ -47,7 +47,8 @@ namespace Desert::Runtime
             m_Waiting.erase( it );
             for ( const auto& material : waiting )
             {
-                if ( const auto pending = m_Pending.find( material ); pending != m_Pending.end() && --pending->second == 0 )
+                if ( const auto pending = m_Pending.find( material );
+                     pending != m_Pending.end() && --pending->second == 0 )
                     m_Pending.erase( pending );
                 invalidate( material );
             }
