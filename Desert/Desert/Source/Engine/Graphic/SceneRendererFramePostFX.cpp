@@ -51,20 +51,21 @@ namespace Desert::Graphic
         jfa->SetOutlineActive(
              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
              UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->HasOutline() );
+        // NOTHING OUTLINED, NO NODE AND NO TARGET: the composite would only copy the scene (width 0), so the tonemap
+        // reads the scene itself (the caller's fallback for an invalid result). This is every frame of a game and
+        // every editor frame without a selection; the seeds and the output exist only while something is outlined.
+        if ( !jfa->RunsSteps() )
+            return {};
         if ( !jfa->Prepare() )
             return {};
-        // The seeds live within this graph: transients of the scene's size, created only when a pass writes them.
-        // Init writes seed[0]; the steps ping-pong between seed[0] and seed[1].
+        // The seeds and the output live within this graph: transients of the scene's size. Init writes seed[0];
+        // the steps ping-pong between seed[0] and seed[1]; the composite writes the output the tonemap reads.
+        const std::optional<RDG::TextureDesc> desc = jfa->GetSeedDesc();
+        if ( !desc )
+            return {};
         RDG::TextureRef seeds[2];
-        if ( jfa->RunsInit() )
-        {
-            const std::optional<RDG::TextureDesc> desc = jfa->GetSeedDesc();
-            if ( !desc )
-                return {};
-            seeds[0] = graph.CreateTexture( *desc, "JumpFlood.Seed0" );
-            if ( jfa->RunsSteps() )
-                seeds[1] = graph.CreateTexture( *desc, "JumpFlood.Seed1" );
-        }
+        seeds[0] = graph.CreateTexture( *desc, "JumpFlood.Seed0" );
+        seeds[1] = graph.CreateTexture( *desc, "JumpFlood.Seed1" );
         // The old passes cleared every target (RenderPassSpecification's default clear, black); kept.
         const RDG::LoadOp clear = RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
 
@@ -97,11 +98,9 @@ namespace Desert::Graphic
                      [jfa, step]( RDG::PassContext& context ) -> Common::BoolResultStr
                      { return jfa->RecordStep( context, step ); } );
             }
-        // The composite runs on every frame, outlined or not: it is what hands the scene colour to the tonemap
-        // (TonemapRenderer::Inputs::Source is GetOutputImage()). Without Init no seed exists this frame: the
-        // composite samples the engine's black texture and passes the scene through (width 0).
-        const RDG::TextureRef output = textures.Import( jfa->GetOutputImage(), "Tonemap.Source" );
-        const RDG::TextureRef seed   = jfa->RunsInit() ? seeds[jfa->GetFinalSeedIndex()] : textures.System.Black;
+        // The composite: the outlined scene, which the tonemap reads in place of the scene.
+        const RDG::TextureRef output = graph.CreateTexture( *desc, "Tonemap.Source" );
+        const RDG::TextureRef seed   = seeds[jfa->GetFinalSeedIndex()];
         graph.AddPass(
              "PostFX: JumpFloodFinal", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )

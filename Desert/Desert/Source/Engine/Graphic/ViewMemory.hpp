@@ -352,7 +352,8 @@ namespace Desert::Graphic
 
         // Post stack, all built in Init.
         add( { "SilhouetteMask", "MeshRenderer.cpp", F::kSilhouetteMask, width, height } );
-        add( { "JFA.Seed+Output", "JumpFloodOutlineRenderer.cpp", F::kJFASeed, width, height, 1, 3 } );
+        // Graph transients of a frame that outlines a selection (editor); the pool keeps them while the view is open.
+        add( { "JFA.Seed+Output", "SceneRendererFramePostFX.cpp", F::kJFASeed, width, height, 1, 3 } );
         add( { "Tonemap", "TonemapRenderer.cpp", F::kTonemap, width, height } );
         add( { "FXAA", "FXAARenderer.cpp", F::kFXAA, width, height } );
         add( { "SMAA.Edges+Weights", "SMAARenderer.cpp", F::kSMAAEdges, width, height, 1, 2 } );

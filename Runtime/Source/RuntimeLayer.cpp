@@ -10,6 +10,7 @@
 #include <Engine/Media/MediaTexture.hpp>
 #include <Engine/Media/StartupMoviePlayer.hpp>
 #include <Projects/GameSettings.hpp>
+#include <Projects/RendererSettings.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
 
@@ -21,6 +22,7 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/LevelTravel.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/Window.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
@@ -168,6 +170,31 @@ namespace
         if ( Keyboard::IsKeyPressed( KeyCode::LeftSuper ) || Keyboard::IsKeyPressed( KeyCode::RightSuper ) )
             mods = mods | UIKeyMods::Super;
         return mods;
+    }
+
+    /// THE GAME VIEW'S EXTENT for a @p width x @p height present target (UE FSceneViewFamily secondary screen
+    /// percentage of the game viewport, auto mode): the window's LOGICAL resolution -- its pixels divided by the
+    /// display's content scale -- unless the project renders the game at native pixels
+    /// (RendererSettings::GameViewportHighDPI). The present blit stretches the view's final image over the whole
+    /// target, so the upscale costs one bilinear sample; every resolution-proportional target, history and RDG
+    /// heap of the view follows this extent. A movie (@p windowTarget false) renders at the size it asked for.
+    std::pair<uint32_t, uint32_t> GameViewExtent( const uint32_t width, const uint32_t height,
+                                                  const bool windowTarget )
+    {
+        if ( !windowTarget || Desert::Project::CurrentRendererSettings().GameViewportHighDPI )
+            return { width, height };
+        const float    scale = Desert::EngineContext::GetInstance().GetWindow()->GetContentScale();
+        const uint32_t w     = std::max( 1u, static_cast<uint32_t>( static_cast<float>( width ) / scale + 0.5f ) );
+        const uint32_t h     = std::max( 1u, static_cast<uint32_t>( static_cast<float>( height ) / scale + 0.5f ) );
+        static std::pair<uint32_t, uint32_t> said{};
+        if ( said != std::pair{ w, h } )
+        {
+            LOG_INFO( "[Runtime] game view {}x{} for a {}x{} window (content scale {:.2f}; "
+                      "Config/Engine.json GameViewportHighDPI renders at native pixels)",
+                      w, h, width, height, scale );
+            said = { w, h };
+        }
+        return { w, h };
     }
 } // namespace
 
@@ -1045,7 +1072,7 @@ namespace Desert::Player
             {
                 m_LastWidth     = width;
                 m_LastHeight    = height;
-                m_PendingResize = { width, height };
+                m_PendingResize = GameViewExtent( width, height, composeTarget == renderer.GetCompositeFramebuffer() );
             }
             const float w = static_cast<float>( width );
             const float h = static_cast<float>( height );

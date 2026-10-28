@@ -898,6 +898,10 @@ namespace Desert::Graphic::System
         {
             return m_OverdrawFB;
         }
+        // The overdraw view's pipelines and accumulation target, made on the first frame the Overdraw debug mode
+        // is chosen (SceneRenderer::AddFrameOverdraw) and kept after. False (said once) when its shaders are
+        // missing: the mode then draws the scene without the heat map.
+        [[nodiscard]] bool EnsureOverdrawPass();
 #endif // DESERT_DEV_INSTRUMENTS
 
         // True if any queued mesh is flagged for the selection outline this frame. The Jump Flood pass
@@ -1674,6 +1678,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>                  m_OverdrawShader;
         std::unique_ptr<MaterialOverdraw>        m_OverdrawMaterial;
         std::shared_ptr<Framebuffer>             m_OverdrawFB;
+        bool                                     m_OverdrawRefused = false; // EnsureOverdrawPass said it once
         std::shared_ptr<GraphicsPipeline>        m_OverdrawResolvePipeline;
         // The resolve block's layout, keyed on m_OverdrawResolvePipeline's shader.
         ShaderBindingLayoutCache                 m_OverdrawResolveLayout;
