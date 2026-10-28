@@ -1144,8 +1144,12 @@ namespace Desert::Graphic::API::Vulkan
 
         // Every source is checked before anything is recorded, so a refusal leaves the array and every source
         // as they were. The error names the layer, the source and the field: this is the only place that has
-        // all three, and a mismatch is an authoring error (a 1k map among 2k ones, a normal map cooked as BC7).
+        // all three. A source may hold MORE levels on top than the array (TEX-STREAMING: its streamed mips came
+        // in, its neighbour's did not yet); the array is then filled from the source's level whose size is the
+        // array's, as UE streams a texture array whole at one mip level. A source with no level of the array's
+        // size, or too few levels below it, is refused.
         std::vector<VulkanImage2D*> vk( sources.size(), nullptr );
+        std::vector<uint32_t>       firstLevel( sources.size(), 0 );
         for ( size_t i = 0; i < sources.size(); ++i )
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): the copy moves the source's layout and back
@@ -1153,24 +1157,28 @@ namespace Desert::Graphic::API::Vulkan
             if ( src == nullptr || src->m_Resource.Image == VK_NULL_HANDLE )
                 return Common::MakeFormattedError<bool>( "CopyLayersFrom: layer {} of '{}' has no created image",
                                                          i, m_Specification.Tag );
-            const auto& ss    = src->m_Specification;
-            const char* field = ss.ArrayLayers != 0                           ? "its being an array itself"
-                                : ss.Width != m_Specification.Width           ? "width"
-                                : ss.Height != m_Specification.Height         ? "height"
-                                : ss.Format != m_Specification.Format         ? "format"
-                                : ss.ColorSpace != m_Specification.ColorSpace ? "colour space (sRGB / linear)"
-                                : src->m_Resource.MipLevels != m_Resource.MipLevels ? "mip count"
-                                                                                    : nullptr;
+            const auto& ss  = src->m_Specification;
+            uint32_t    off = 0;
+            while ( off + 1 < src->m_Resource.MipLevels && std::max( 1u, ss.Width >> off ) > m_Specification.Width )
+                ++off;
+            const bool  sized = std::max( 1u, ss.Width >> off ) == m_Specification.Width &&
+                               std::max( 1u, ss.Height >> off ) == m_Specification.Height;
+            const char* field = ss.ArrayLayers != 0                                 ? "its being an array itself"
+                                : !sized                                            ? "size"
+                                : ss.Format != m_Specification.Format               ? "format"
+                                : ss.ColorSpace != m_Specification.ColorSpace       ? "colour space (sRGB / linear)"
+                                : src->m_Resource.MipLevels - off < m_Resource.MipLevels ? "mip count"
+                                                                                         : nullptr;
             if ( field != nullptr )
                 return Common::MakeFormattedError<bool>(
                      "CopyLayersFrom: layer {} of '{}' is '{}' ({}x{}, format {}, {} mips), which differs from "
-                     "the "
-                     "array ({}x{}, format {}, {} mips) in {}. Every layer of a texture array must be cooked at "
-                     "one size and one format.",
+                     "the array ({}x{}, format {}, {} mips) in {}. Every layer of a texture array must be cooked "
+                     "at one size and one format.",
                      i, m_Specification.Tag, ss.Tag, ss.Width, ss.Height, static_cast<uint32_t>( ss.Format ),
                      src->m_Resource.MipLevels, m_Specification.Width, m_Specification.Height,
                      static_cast<uint32_t>( m_Specification.Format ), m_Resource.MipLevels, field );
-            vk[i] = src;
+            vk[i]         = src;
+            firstLevel[i] = off;
         }
 
         const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
@@ -1197,7 +1205,7 @@ namespace Desert::Graphic::API::Vulkan
             for ( uint32_t level = 0; level < m_Resource.MipLevels; ++level )
             {
                 regions.push_back( VkImageCopy{ .srcSubresource = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                                                                    .mipLevel       = level,
+                                                                    .mipLevel       = firstLevel[i] + level,
                                                                     .baseArrayLayer = 0,
                                                                     .layerCount     = 1 },
                                                 .dstSubresource = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,

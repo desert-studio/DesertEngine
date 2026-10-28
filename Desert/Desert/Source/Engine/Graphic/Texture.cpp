@@ -158,8 +158,10 @@ namespace Desert::Graphic
                                                                                const TextureBackend& backend )
     {
         auto texture      = std::make_shared<Texture2D>();
-        texture->m_Width  = cooked.Width;
-        texture->m_Height = cooked.Height;
+        texture->m_Width      = cooked.Width;
+        texture->m_Height     = cooked.Height;
+        texture->m_FullWidth  = cooked.FullWidth;
+        texture->m_FullHeight = cooked.FullHeight;
 
         const std::size_t                         levelCount = cooked.Levels.size();
         const Core::Formats::Image2DSpecification imageSpec  = { .Tag        = cooked.Tag,
@@ -220,8 +222,10 @@ namespace Desert::Graphic
                        Core::Formats::ImagePixelData&& data, const TextureBackend& backend )
     {
         auto texture      = std::make_shared<Texture2D>();
-        texture->m_Width  = width;
-        texture->m_Height = height;
+        texture->m_Width      = width;
+        texture->m_Height     = height;
+        texture->m_FullWidth  = width;
+        texture->m_FullHeight = height;
 
         const Core::Formats::Image2DSpecification imageSpec = {
             .Tag        = tag,

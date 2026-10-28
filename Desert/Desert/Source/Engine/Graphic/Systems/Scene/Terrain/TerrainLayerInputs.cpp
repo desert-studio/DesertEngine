@@ -33,16 +33,26 @@ namespace Desert::Graphic::System
             return handle;
         }
 
-        // The image a texture handle names, or null while it is loading / when it is not registered.
-        const Image2D* ImageOf( uint64_t handle )
+        // A layer map: the texture's image and its asset's whole-chain size (the image holds the resident levels).
+        struct LayerMap
+        {
+            const Image2D* Image      = nullptr;
+            uint32_t       FullWidth  = 0;
+            uint32_t       FullHeight = 0;
+        };
+
+        // The map a texture handle names; no image while it is loading / when it is not registered.
+        LayerMap MapOf( uint64_t handle )
         {
             if ( handle == 0 )
-                return nullptr;
+                return {};
             auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
             if ( tex == nullptr )
-                return nullptr;
-            return dynamic_cast<const Image2D*>(
-                 Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) );
+                return {};
+            return { .Image      = dynamic_cast<const Image2D*>(
+                          Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) ),
+                     .FullWidth  = tex->GetFullWidth(),
+                     .FullHeight = tex->GetFullHeight() };
         }
 
     } // namespace
@@ -91,20 +101,36 @@ namespace Desert::Graphic::System
 
     namespace
     {
-        // An array of @p sources' layers in their order, sized and formatted as the first: CopyLayersFrom
-        // refuses any source that differs, naming it.
+        // An array of @p sources' layers in their order. The sources are one asset size (@p full checks it),
+        // but streamed to different first mips; the array is built at the SMALLEST resident top among them and
+        // takes every source from its level of that size (UE streams a texture array whole, at one mip level).
+        // When the others' mips come in, the generations change and the array is rebuilt one level up.
+        // CopyLayersFrom refuses any source of another format or colour space, naming it.
         Common::ResultStr<std::shared_ptr<Image2D>> BuildArray( const std::string&                 tag,
-                                                                const std::vector<const Image2D*>& sources )
+                                                                const std::vector<const Image2D*>& sources,
+                                                                const std::vector<LayerMap>&       full )
         {
+            for ( size_t i = 1; i < full.size(); ++i )
+                if ( full[i].FullWidth != full[0].FullWidth || full[i].FullHeight != full[0].FullHeight )
+                    return Common::MakeFormattedError<std::shared_ptr<Image2D>>(
+                         "layer {} of '{}' is cooked {}x{} and layer 0 {}x{}. Every layer of a texture array must "
+                         "be cooked at one size and one format.",
+                         i, tag, full[i].FullWidth, full[i].FullHeight, full[0].FullWidth, full[0].FullHeight );
+            const Image2D* smallest = sources.front();
+            for ( const Image2D* s : sources )
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): reads the specification only
+                if ( const_cast<Image2D*>( s )->GetImageSpecification().Width <
+                     const_cast<Image2D*>( smallest )->GetImageSpecification().Width )
+                    smallest = s;
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): reads the specification only
-            auto& first = const_cast<Image2D*>( sources.front() )->GetImageSpecification();
+            auto& first = const_cast<Image2D*>( smallest )->GetImageSpecification();
             const ResourceAttributionScope      owned( ResourceOwner::SceneRenderer );
             Core::Formats::Image2DSpecification spec = {
                  .Tag         = tag,
                  .Width       = first.Width,
                  .Height      = first.Height,
                  .Format      = first.Format,
-                 .Mips        = sources.front()->GetMipmapLevels(),
+                 .Mips        = smallest->GetMipmapLevels(),
                  .Samples     = 1,
                  .Data        = Core::Formats::EmptyPixelData{},
                  .Usage       = Core::Formats::Image2DUsage::Image2D,
@@ -134,7 +160,7 @@ namespace Desert::Graphic::System
             if ( p.IsArrayTexture && kinds < kTerrainLayerMapKinds )
                 inputs.ArrayNames[kinds++] = p.Name;
 
-        std::array<std::array<const Image2D*, kInputs>, kTerrainLayerMapKinds> maps{};
+        std::array<std::array<LayerMap, kInputs>, kTerrainLayerMapKinds> maps{};
         inputs.Names.fill( {} );
         auto* layerInfos = Runtime::ResourceRegistry::GetLandscapeLayerInfoService();
         for ( const auto& p : schema.Params )
@@ -158,7 +184,7 @@ namespace Desert::Graphic::System
             }
             for ( uint32_t kind = 0; kind < kinds; ++kind )
                 if ( p.IsTexture && p.ElementOf == inputs.ArrayNames[kind] )
-                    maps[kind][k] = ImageOf( HandleOf( overrides, p.Name ) );
+                    maps[kind][k] = MapOf( HandleOf( overrides, p.Name ) );
         }
 
         // Two inputs naming one layer: the first wins, as UE's LayerBlend takes the first matching input.
@@ -177,25 +203,31 @@ namespace Desert::Graphic::System
         for ( uint32_t kind = 0; kind < kTerrainLayerMapKinds; ++kind )
         {
             std::vector<const Image2D*>  sources;
+            std::vector<LayerMap>        layerMaps;
+            std::vector<uint64_t>        generations;
             std::array<int32_t, kInputs> slice{};
             slice.fill( -1 );
             for ( size_t k = 0; k < kInputs; ++k )
-                if ( maps[kind][k] != nullptr )
+                if ( maps[kind][k].Image != nullptr )
                 {
                     slice[k] = static_cast<int32_t>( sources.size() );
-                    sources.push_back( maps[kind][k] );
+                    sources.push_back( maps[kind][k].Image );
+                    layerMaps.push_back( maps[kind][k] );
+                    generations.push_back( maps[kind][k].Image->GetResourceGeneration() );
                 }
 
-            // Rebuilt only when what it is copied from changes; a refused build keeps its sources too, so it is
-            // retried when a texture changes and not on every frame.
-            if ( sources != inputs.Sources[kind] || !inputs.Arrays[kind] )
+            // Rebuilt only when what it is copied from changes -- another texture, or a streamed mip change
+            // inside one (its generation); a refused build keeps its sources too, so it is retried when a
+            // texture changes and not on every frame.
+            if ( sources != inputs.Sources[kind] || generations != inputs.Generations[kind] || !inputs.Arrays[kind] )
             {
-                inputs.Sources[kind] = sources;
+                inputs.Sources[kind]     = sources;
+                inputs.Generations[kind] = generations;
                 inputs.Filled[kind]  = false;
                 inputs.Arrays[kind]  = emptyArray;
                 if ( !sources.empty() )
                 {
-                    auto built = BuildArray( materialTag + "/" + inputs.ArrayNames[kind], sources );
+                    auto built = BuildArray( materialTag + "/" + inputs.ArrayNames[kind], sources, layerMaps );
                     if ( built.IsSuccess() )
                     {
                         inputs.Arrays[kind] = built.GetValue();

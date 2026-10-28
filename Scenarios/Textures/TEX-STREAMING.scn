@@ -12,7 +12,13 @@
 Когда advance 2
 Когда advance 2
 Тогда-вид 2_settled доски сарая и кора деревьев резкие (полные мипы), белых деревьев нет; лог pool resident > 100 МБ, 0 streaming
-Когда --subject viewport set Camera.Position 1800,450,-2350
+Когда --subject viewport set Camera.Position 1800,450,-1900
 Когда --subject viewport set Camera.Direction 0,-0.05,-1
 Когда advance 2
-Тогда-вид 3_close дверь сарая вплотную резкая, бюджет не превышен
+Когда advance 2
+Тогда-вид 3_close дверь сарая снаружи вплотную резкая (доски видны), бюджет не превышен
+Когда --subject viewport set Camera.Position 1400,250,-1500
+Когда --subject viewport set Camera.Direction 0,-1,-0.35
+Когда advance 2
+Когда advance 2
+Тогда-вид 4_ground камера к земле: ландшафт в текстурах слоёв (не плоский цвет), в логе нет «[Terrain] … array is not built»

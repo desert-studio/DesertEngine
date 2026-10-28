@@ -48,6 +48,9 @@ namespace Desert::Graphic::System
         std::array<std::shared_ptr<Image2D>, kTerrainLayerMapKinds> Arrays{};
         /// What each array was copied from, slice order: the rebuild key.
         std::array<std::vector<const Image2D*>, kTerrainLayerMapKinds> Sources{};
+        /// Each source's Image2D::GetResourceGeneration when its array was copied: a streamed mip change swaps a
+        /// source's levels inside the same Image2D (TEX-STREAMING), so the pointers alone miss it.
+        std::array<std::vector<uint64_t>, kTerrainLayerMapKinds> Generations{};
         /// Whether each array holds its sources (false: none, or the copy was refused - the kind draws flat).
         std::array<bool, kTerrainLayerMapKinds> Filled{};
         /// The names of the four array properties, from the template.

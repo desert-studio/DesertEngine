@@ -190,8 +190,10 @@ namespace Desert::Graphic
 
         // FILLS A 2D ARRAY (Image2DSpecification::ArrayLayers) FROM 2D IMAGES: layer i is @p sources[i], every
         // mip level, copied on the GPU (block-compressed formats included: a copy needs no blit support). The
-        // sources must all be plain 2D images of this array's width, height, format, colour space and mip
-        // count, and there must be exactly ArrayLayers of them; anything else is refused naming the source
+        // sources must all be plain 2D images of this array's format and colour space, each holding a level of
+        // the array's size with at least the array's mip count from it down (a streamed source with more levels
+        // on top is copied from that level), and there must be exactly ArrayLayers of them; anything else is
+        // refused naming the source
         // and the field (UE's UTexture2DArray build refuses the same mismatches). The copy is flushed before
         // this returns, and every source is handed back in its own layout. Default: unsupported.
         NO_DISCARD virtual Common::BoolResultStr CopyLayersFrom( std::span<const Image2D* const> /*sources*/ )

@@ -109,6 +109,10 @@ namespace Desert::Graphic
             return m_Height;
         }
 
+        /// The asset's whole chain's top size (TEX-STREAMING): GetWidth/GetHeight are the resident top level's.
+        [[nodiscard]] uint32_t GetFullWidth() const { return m_FullWidth; }
+        [[nodiscard]] uint32_t GetFullHeight() const { return m_FullHeight; }
+
         virtual const Runtime::ImageHandle& GetImageHandle() const override
         {
             return m_Handle;
@@ -172,6 +176,7 @@ namespace Desert::Graphic
         // "CONSTRUCTED FIRST"); a test's service outlives the textures the test makes.
         Runtime::ImageService* m_Service = nullptr;
         uint32_t               m_Width = 0, m_Height = 0;
+        uint32_t               m_FullWidth = 0, m_FullHeight = 0;
     };
 
 } // namespace Desert::Graphic
