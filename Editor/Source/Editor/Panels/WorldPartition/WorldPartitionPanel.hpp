@@ -155,6 +155,9 @@ namespace Desert::Editor
         bool                    m_Fitted       = false; // the view is the last fit: a resize refits it
         glm::dvec2              m_MapSize{ 0.0 };       // the canvas size the view was last drawn at
         bool                    m_Follow       = true; // Play: keep the streaming source centred (UE's default)
+        // A wheel while following keeps the follow and its own scale (UE re-fits PlayerExtent = 100 m every tick
+        // and drops the follow on a wheel, so a 200 m loading range with look-ahead never fits). Focus clears it.
+        bool                    m_FollowZoomed = false;
         int                     m_Level        = -1;   // -1 shows every level
         // The runtime grid the map, the header and the source circles show (index into the partition's Grids):
         // UE's World Partition editor shows one runtime hash grid at a time; every grid is reachable by the
