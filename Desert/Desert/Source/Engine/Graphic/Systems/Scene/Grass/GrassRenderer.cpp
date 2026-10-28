@@ -140,8 +140,8 @@ namespace Desert::Graphic::System
         void NoteVarietyTextureDemand( const GrassVarietyDraw& variety, const Desert::Mesh& mesh,
                                        const GrassFieldData& field, const ViewFrame& frame )
         {
-            const std::vector<uint32_t>& w = field.Words;
-            const uint32_t viewHeight      = frame.Split.Output.Height;
+            const std::vector<uint32_t>& w          = field.Words;
+            const uint32_t               viewHeight = frame.Split.Output.Height;
             if ( w.size() < 8 || w[0] == 0 || w[1] == 0 || viewHeight == 0 )
                 return;
             const glm::vec3 eye     = frame.CameraPosition;
@@ -156,12 +156,12 @@ namespace Desert::Graphic::System
             };
             const uint32_t sx     = sampleOf( eye.x, origin.x, w[0] );
             const uint32_t sz     = sampleOf( eye.z, origin.y, w[1] );
-            const float    height = std::bit_cast<float>( w[8 + static_cast<size_t>( sz ) * w[0] + sx ] );
+            const float    height = std::bit_cast<float>( w[8 + static_cast<size_t>( sz ) * w[0] + sx] );
             // No tile loaded under the nearest sample: the ground is not known, so the eye's own height stands for
             // it (the nearest an instance can be is then the camera itself - all the mips, never too few).
-            const glm::vec3 ground = { origin.x + static_cast<float>( sx ) * spacing,
+            const glm::vec3         ground = { origin.x + static_cast<float>( sx ) * spacing,
                                        height == kGrassNoHeight ? eye.y : height,
-                                       origin.y + static_cast<float>( sz ) * spacing };
+                                               origin.y + static_cast<float>( sz ) * spacing };
             const Geometry::LODView view{ eye, frame.Projection };
             if ( glm::length( ground - eye ) > variety.Placement.EndCullDistance * DrawDistanceScale( view ) )
                 return;
