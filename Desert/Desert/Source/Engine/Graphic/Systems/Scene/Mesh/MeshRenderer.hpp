@@ -949,10 +949,20 @@ namespace Desert::Graphic::System
         std::unordered_map<MeshCellPipelineKey, std::shared_ptr<GraphicsPipeline>, MeshCellPipelineKeyHash>
              m_CellPipelines; // null = refused
 
+        // THE WIREFRAME TWIN OF A FORWARD PASS PIPELINE (UE draws every mesh kind in its wireframe view through
+        // the same pass it is drawn in otherwise): @p fallback's line-polygon twin while the view is on, else
+        // @p fallback. Static and Instanced each have one, so an ISM is drawn in wireframe by the same recording
+        // as in Lit — only the pass state differs. A pipeline with no twin answers itself.
         [[nodiscard]] GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback ) const
         {
 #if DESERT_DEV_INSTRUMENTS
-            return ( m_Wireframe && m_StaticWireframePipeline ) ? m_StaticWireframePipeline.get() : fallback;
+            if ( !m_Wireframe || fallback == nullptr )
+                return fallback;
+            if ( fallback == m_StaticPipeline.get() && m_StaticWireframePipeline )
+                return m_StaticWireframePipeline.get();
+            if ( fallback == m_StaticInstancedPipeline.get() && m_StaticInstancedWireframePipeline )
+                return m_StaticInstancedWireframePipeline.get();
+            return fallback;
 #else
             return fallback;
 #endif
@@ -1330,6 +1340,9 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_StaticWireframePipeline; // same spec, PolygonMode::Wireframe
 #endif
         std::shared_ptr<GraphicsPipeline> m_StaticInstancedPipeline; // reads per-instance transform from SSBO
+#if DESERT_DEV_INSTRUMENTS
+        std::shared_ptr<GraphicsPipeline> m_StaticInstancedWireframePipeline; // same spec, PolygonMode::Wireframe
+#endif
 #if DESERT_DEV_INSTRUMENTS
         bool m_Wireframe = false;
 #endif

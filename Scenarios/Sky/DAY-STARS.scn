@@ -1,0 +1,17 @@
+# DAY-STARS: the physical sky's stars are hidden by the sky's own brightness, as the eye's threshold against it
+# (Common/Atmosphere.glslh AtmosphereStarVisibility), with the background carried to real units by the sun's
+# scale. FIELD_Barn authors a 16 lux sun at EV100 0 (UE's convention): its noon sky is ~1 cd/m^2, and the
+# magnitude-0 stars (1.8 cd/m^2 peak) stood out on it (FOLIAGE-PROOF 2_field_wind). No sun-elevation switch.
+# The view looks up 60 deg so the zenith is in frame; El 40 / Az 20 as FOLIAGE-PROOF.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.FOV 70
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0,0.866,-0.5
+Тогда-вид 1_day the sun high: blue sky with no stars, clear patches between the clouds included
+Когда run Entity "Sun"
+Когда --subject selection set SunElevation -25
+Тогда-вид 2_night the sun below the horizon: dark night sky, stars visible
