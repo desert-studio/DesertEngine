@@ -252,7 +252,13 @@ Shader "TemporalAA"
             const bool dynamicAny = dynamicK || IsDynamicPixel(renderPixel + ivec2(0, -1)) ||
                                     IsDynamicPixel(renderPixel + ivec2(-1, 0)) ||
                                     IsDynamicPixel(renderPixel + ivec2(1, 0)) || IsDynamicPixel(renderPixel + ivec2(0, 1));
-            if (!ignoreHistory && !dynamicAny && textureLod(PreviousResolvedColorTexture, historyUv, 0.0).a > 0.0)
+            // The flag of the ONE history texel the reprojection lands in, never a bilinear blend of four: a blend
+            // is above 0 wherever ANY of four texels was dynamic, which dropped the history of every static pixel
+            // bordering a swaying leaf or blade every frame -- that edge then showed the jittered, aliased current
+            // frame alone and blinked (FOLIAGE-WIND-POP: half the frame-to-frame flicker of a windy field).
+            const ivec2 historyTexel = clamp(ivec2(historyUv * vec2(textureSize(PreviousResolvedColorTexture, 0))),
+                                             ivec2(0), textureSize(PreviousResolvedColorTexture, 0) - 1);
+            if (!ignoreHistory && !dynamicAny && texelFetch(PreviousResolvedColorTexture, historyTexel, 0).a > 0.5)
                 ignoreHistory = true;
             const float historyFlag = dynamicK ? 1.0 : 0.0;
         #else
