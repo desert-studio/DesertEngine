@@ -1,0 +1,13 @@
+# GRASS-SETTLE: the first frame after opening FIELD_Barn must not show a grass cell of another colour with a straight
+# edge (FOLIAGE-PROOF 10-28, 1_field_grass lower left), and three seconds later the same view must not jump.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.FOV 70
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1_first the first frame after opening: no grass cell of another colour with a straight edge (lower left)
+Когда advance 3
+Тогда-вид 2_settled the same view three seconds later: the same grass as 1_first, no jump
