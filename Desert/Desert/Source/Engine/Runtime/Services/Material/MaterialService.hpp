@@ -207,6 +207,13 @@ namespace Desert::Runtime
         // straight edge (GRASS-SETTLE). False for a material the service does not own.
         bool AwaitsTextures( const Graphic::Material* built ) const;
 
+        // How many times the asset behind this built material has been rebuilt (Invalidate: a texture that
+        // landed, a shader swap, a live edit). A cache keyed by a built material — a surface-cache card set —
+        // keys by this and not by the material's address: a rebuilt material may land at the address its
+        // predecessor was freed from, and a key of addresses then never sees the rebuild (GRASS-SETTLE: a card
+        // captured in Pending defaults never recaptured). 0 for a material the service does not own.
+        uint32_t BuildRevision( const Graphic::Material* built ) const;
+
         // Every runtime material ALREADY BUILT for this handle, one per (path, pass) cell that has been
         // asked for. Live editing has to reach all of them: a parameter edit that updated only the static
         // forward material would leave the character wearing the old value — and would leave a deferred
@@ -407,6 +414,8 @@ namespace Desert::Runtime
         }
 
         mutable uint32_t                                              m_InvalidationVersion = 0;
+        // Per asset: bumped by every Invalidate of it (BuildRevision).
+        std::unordered_map<Assets::AssetHandle, uint32_t>             m_BuildRevisions;
         mutable std::unordered_map<Assets::AssetHandle, PathVariants> m_Materials;
         // GetViewVariant's and the permutation GetVariant's materials: per asset, one per (cell slot x view x
         // defines), built on first ask. A permutation sibling is shared by every view (kEveryView).

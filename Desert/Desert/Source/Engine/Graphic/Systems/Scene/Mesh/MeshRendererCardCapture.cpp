@@ -72,10 +72,14 @@ namespace Desert::Graphic::System
             ready                        = pass != nullptr;
             if ( materials == nullptr || !materials->Owns( surface ) )
                 return;
+            // The asset's build revision, not the cell's address: a material rebuilt bound (its texture landed)
+            // may reuse its predecessor's address, and the card captured in the slot defaults would never
+            // recapture (GRASS-SETTLE). Not ready while a texture is in flight — as UE's card capture waits for
+            // the material's textures to stream — the same gate the scene's own draw asks (AwaitsTextures).
             DataDrivenMaterial* const cell = materials->GetVariant( surface, path, MeshPass::GBuffer );
-            key                            = HashCombine( key, PointerBits( cell ) );
-            const bool twoSided            = instance != nullptr ? instance->IsTwoSided() : surface->IsTwoSided();
-            ready                          = cell != nullptr && pass != nullptr &&
+            key                 = HashCombine( key, static_cast<uint64_t>( materials->BuildRevision( surface ) ) );
+            const bool twoSided = instance != nullptr ? instance->IsTwoSided() : surface->IsTwoSided();
+            ready               = cell != nullptr && pass != nullptr && !materials->AwaitsTextures( surface ) &&
                     ChooseCellDraw( pass, *cell, twoSided, nullptr ) == MaterialPipelineTracker::CellDraw::Own;
         };
         // ONE CARD SET PER MESH INSTANCE (UE FLumenCardRenderer): a section joins the instance of its key when

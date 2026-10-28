@@ -1640,6 +1640,21 @@ namespace Desert::Graphic
         }
         const auto values = std::make_shared<FrameValues>();
 
+        // The landscape grass of this view, before every node that draws it (the cascades, the geometry) and
+        // before the view's TLAS, whose GPU-written grass rows read its transforms and drawn counts
+        // (RayTracingGpuInstanceSource). A face view grows none, as it simulates no particles. Before the GPU
+        // scene's sync too: AddFrame submits the grass sections (MeshRenderer::SubmitGpuInstanced), and
+        // SyncGpuScene registers the material rows of exactly the sections queued by then — a section queued
+        // after it has no row in the scene material table and is refused at draw.
+        if ( !m_ViewProfile.SceneCapture )
+        {
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
+                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ),
+                             RayTracing::RayTracingSceneRequired( m_RenderMethods ) );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        }
+
         // The scene's GPU scene (current + previous world, both bone palettes of every primitive this view
         // queues), synced once before any pass is declared: every view pass of this frame reads the same rows.
         {
@@ -1709,18 +1724,6 @@ namespace Desert::Graphic
 
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Grass, TLAS, shadow plan" );
         AddFrameClearMainFramebuffer( graph, textures );
-
-        // The landscape grass of this view, before every node that draws it (the cascades, the geometry) and
-        // before the view's TLAS, whose GPU-written grass rows read its transforms and drawn counts
-        // (RayTracingGpuInstanceSource). A face view grows none, as it simulates no particles.
-        if ( !m_ViewProfile.SceneCapture )
-        {
-            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
-                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ),
-                             RayTracing::RayTracingSceneRequired( m_RenderMethods ) );
-            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-        }
 
         // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
         // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
