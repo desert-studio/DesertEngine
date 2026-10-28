@@ -2127,7 +2127,6 @@ namespace Desert::Graphic
         // editor's passes at the extension points still draw. The clouds reach its paths through the sky
         // capture (the environment) and the cloud shadow map (the sun), so the layer's sky-occlusion volume,
         // which the capture marches through, is still written.
-        const bool pathTraced = PathTraced( m_RenderMethods );
         if ( !pathTraced )
         {
             AddFrameAtmosphericFog( graph, textures );
