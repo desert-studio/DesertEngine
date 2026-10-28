@@ -353,13 +353,14 @@ namespace Desert::Editor
         {
             for ( const std::string& folder : Explorer()->ContentFolders() )
                 commands.push_back( { std::string( Editor::kContentBrowserContext ),
-                                      Editor::ContentBrowserPathLabel( Editor::kGoToFolderLabel, folder ),
+                                      Editor::ContentBrowserPathLabel( Editor::kGoToFolderLabel,
+                                                                                      Explorer()->ContentLabelPath( folder ) ),
                                       std::bind_front( &FileExplorerPanel::GoToFolder,
                                                        std::to_address( Explorer() ), folder ) } );
             for ( const std::string& file : Explorer()->ContentFiles() )
                 commands.push_back(
                      { std::string( Editor::kContentBrowserContext ),
-                       Editor::ContentBrowserPathLabel( Editor::kSyncToAssetLabel, file ),
+                       Editor::ContentBrowserPathLabel( Editor::kSyncToAssetLabel, Explorer()->ContentLabelPath( file ) ),
                        std::bind_front( &FileExplorerPanel::SyncToAsset, std::to_address( Explorer() ), file ) } );
         }
         for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )

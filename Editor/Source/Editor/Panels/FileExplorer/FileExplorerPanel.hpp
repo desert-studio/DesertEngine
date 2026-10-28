@@ -147,6 +147,10 @@ namespace Desert::Editor
         // hidden-file rule applied): the palette offers one Go to Folder / Sync to Asset per entry.
         std::vector<std::string> ContentFolders() const;
         std::vector<std::string> ContentFiles() const;
+        // How a palette label spells a folder / file of ContentFolders / ContentFiles: relative to the browser's
+        // root ("Foliage/boulder_01.defoliage", as UE's /Game/... paths do), so a command name is the same in
+        // every checkout of the project; the path itself stays the one the command runs on.
+        std::string ContentLabelPath( const std::string& path ) const;
         // The Content Browser commands (ContentBrowserCommands.hpp) on the selection: the item context menu
         // draws them through CommandMenuItem and the palette offers them; both land here. Refused, with the
         // reason, when the selection does not fit the command.

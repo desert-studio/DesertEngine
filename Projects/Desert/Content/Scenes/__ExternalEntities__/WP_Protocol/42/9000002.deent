@@ -3,7 +3,7 @@
     "Tag": "Plane",
     "Translation": [-90000.0, 5000.0, 0.0],
     "Rotation": [0.0, 0.0, 0.0],
-    "Scale": [200.0, 200.0, 200.0],
+    "Scale": [20.0, 3.0, 20.0],
     "StaticMesh": {
         "MaterialSlots": [
             {
