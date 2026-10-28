@@ -120,6 +120,11 @@ namespace Desert::Editor::Control
         // ISM instances the main view's last geometry pass drew, after the frustum and the foliage cull
         // distance (FO-5): what a CullDistance edit is measured by.
         uint32_t IsmInstancesDrawn = 0;
+        // The last completed frame's GeometryPool counters (Graphic/GeometryPool.hpp GeometryPoolStats): Binds,
+        // the shared (binned) geometry binds, equal to the binned passes' pipeline switches; MeshBinds, the
+        // per-mesh binds, counted apart.
+        uint32_t GeometryPoolBinds     = 0;
+        uint32_t GeometryPoolMeshBinds = 0;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -304,6 +309,8 @@ namespace Desert::Editor::Control
             views["budgetBytes"]  = Num( static_cast<double>( snapshot.BudgetBytes ) );
             views["usageBytes"]   = Num( static_cast<double>( snapshot.UsageBytes ) );
             views["ismInstancesDrawn"] = Num( snapshot.IsmInstancesDrawn );
+            views["geometryPoolBinds"]     = Num( snapshot.GeometryPoolBinds );
+            views["geometryPoolMeshBinds"] = Num( snapshot.GeometryPoolMeshBinds );
             root["views"]         = Common::Json::Value( views );
         }
 

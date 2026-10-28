@@ -54,6 +54,13 @@ namespace Desert::Graphic::API::Vulkan
                                             RDG::ExternalBuffer&                                   into ) override;
         Common::BoolResultStr ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                   RDG::ExternalBuffer&                 into ) override;
+        Common::BoolResultStr ImportVertexBufferRange( const std::shared_ptr<VertexBuffer>& buffer, uint64_t offset,
+                                                       uint64_t bytes, RDG::ExternalBuffer& into ) override;
+
+        void InvalidateGeometryBinding() override
+        {
+            m_BoundGeometry.reset();
+        }
 
         virtual void SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                    const MaterialExecutor* materialExecutor ) override;

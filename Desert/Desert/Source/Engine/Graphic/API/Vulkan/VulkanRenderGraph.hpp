@@ -200,8 +200,11 @@ namespace Desert::Graphic::API::Vulkan
                       VmaAllocation memory, uint64_t offset, std::string_view name );
         // The graph's handle on an engine buffer it does not own (Renderer::ImportBuffer): it records the
         // barriers and binds @p buffer, and never destroys it; the engine buffer outlives every graph that
-        // imports it because its own frames-in-flight release waits for them.
-        static std::shared_ptr<VulkanRdgBuffer> Wrap( VkBuffer buffer, uint64_t size );
+        // imports it because its own frames-in-flight release waits for them. @p offset: the wrapped range
+        // begins @p offset bytes into @p buffer (a mesh's span of a GeometryPool buffer,
+        // VulkanRendererAPI::ImportVertexBufferRange); every descriptor, barrier, copy and device address the
+        // graph derives from the handle is of [offset, offset + size).
+        static std::shared_ptr<VulkanRdgBuffer> Wrap( VkBuffer buffer, uint64_t size, uint64_t offset = 0 );
         // Wrap of the buffer backing @p accelerationStructure (a view's TLAS): a block entry of kind
         // AccelerationStructure on it binds @p accelerationStructure.
         static std::shared_ptr<VulkanRdgBuffer>
@@ -221,6 +224,12 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] uint64_t GetSize() const
         {
             return m_Size;
+        }
+        // Where this resource begins in GetBuffer() (0 except for a wrapped sub-range): every address or
+        // descriptor of the resource adds it.
+        [[nodiscard]] uint64_t GetOffset() const
+        {
+            return m_Offset;
         }
         [[nodiscard]] uint32_t GetAccessMask() const
         {
@@ -253,6 +262,7 @@ namespace Desert::Graphic::API::Vulkan
         VmaAllocation m_Allocation = nullptr;
         VkBuffer      m_Buffer     = VK_NULL_HANDLE;
         uint64_t      m_Size       = 0;
+        uint64_t      m_Offset     = 0;
         uint32_t      m_AccessMask = 0;
         // The dedicated allocation's ledger row (Create only), as VulkanRdgTexture's.
         ResourceOwnership m_Ledger;

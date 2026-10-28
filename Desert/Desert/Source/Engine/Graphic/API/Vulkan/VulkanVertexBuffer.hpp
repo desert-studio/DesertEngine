@@ -37,6 +37,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_VulkanBuffer;
         }
+        [[nodiscard]] BufferUsage GetUsage() const
+        {
+            return m_Usage;
+        }
 
         // What the last render graph that imported this buffer left it in (VulkanRendererAPI::ImportVertexBuffer),
         // so the next graph starts from the truth - the same record VulkanStorageBuffer keeps. Physical is the

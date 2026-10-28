@@ -640,7 +640,7 @@ namespace Desert::Graphic::API::Vulkan
         VkCommandBuffer cmd = VK_NULL_HANDLE;
         if ( const Common::BoolResultStr bound = BindComputePassState( bindings, pipeline, cmd ); !bound )
             return bound;
-        vkCmdDispatchIndirect( cmd, buffer.GetValue()->GetBuffer(), offset );
+        vkCmdDispatchIndirect( cmd, buffer.GetValue()->GetBuffer(), buffer.GetValue()->GetOffset() + offset );
         return Common::MakeSuccess( true );
     }
 
@@ -794,7 +794,7 @@ namespace Desert::Graphic::API::Vulkan
                                                buffer.GetError() );
         if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound || !bound.GetValue() )
             return bound;
-        vkCmdDrawIndirect( m_CurrentCommandBuffer, buffer.GetValue()->GetBuffer(), offset, 1,
+        vkCmdDrawIndirect( m_CurrentCommandBuffer, buffer.GetValue()->GetBuffer(), buffer.GetValue()->GetOffset() + offset, 1,
                            static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
         return Common::MakeSuccess( true );
     }
@@ -1729,6 +1729,40 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr VulkanRendererAPI::ImportVertexBufferRange( const std::shared_ptr<VertexBuffer>& buffer,
+                                                                      const uint64_t offset, const uint64_t bytes,
+                                                                      RDG::ExternalBuffer& into )
+    {
+        const std::shared_ptr<VulkanVertexBuffer> vulkanBuffer =
+             std::dynamic_pointer_cast<VulkanVertexBuffer>( buffer );
+        if ( !vulkanBuffer )
+            return Common::MakeError( "ImportVertexBufferRange: not a Vulkan vertex buffer" );
+        const VkBuffer handle = vulkanBuffer->GetVulkanBuffer();
+        const uint64_t size   = vulkanBuffer->GetSize();
+        if ( handle == VK_NULL_HANDLE || size == 0 )
+            return Common::MakeError( "ImportVertexBufferRange: the vertex buffer has not been built" );
+        if ( bytes == 0 || offset > size || bytes > size - offset )
+            return Common::MakeFormattedError( "ImportVertexBufferRange: the span [{}, +{}) is outside the {}-byte "
+                                               "buffer",
+                                               offset, bytes, size );
+        if ( vulkanBuffer->GetUsage() != BufferUsage::Pooled )
+        {
+            // A mesh's own buffer (a GPU-written twin) holds that mesh alone from byte 0: the whole buffer, with
+            // its state record, since a graph may write it.
+            if ( offset != 0 )
+                return Common::MakeError( "ImportVertexBufferRange: a span at a non-zero offset of a buffer a "
+                                          "graph may write (only a GeometryPool buffer is imported by span)" );
+            return ImportVertexBuffer( buffer, into );
+        }
+        // A storage descriptor of the span needs minStorageBufferOffsetAlignment (<= 256 by the spec): the pool
+        // starts every span on a 256-byte boundary of each of its buffers (GeometryPool.cpp kSpanByteAlignment).
+        into.Desc.Bytes       = bytes;
+        into.Physical         = VulkanRdgBuffer::Wrap( handle, bytes, offset );
+        into.State            = RDG::GetAccessState( RDG::Access::None );
+        into.RecordFinalState = []( const RDG::AccessState& ) -> Common::BoolResultStr { return BOOLSUCCESS; };
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr VulkanRendererAPI::CopyDepthImage( Image2D* src, Image2D* dst )
     {
         if ( !IsRecording() )
@@ -1837,7 +1871,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // The graph's Copy node put the buffer in TRANSFER_READ and the texture in TRANSFER_DST.
         VkBufferImageCopy region{};
-        region.bufferOffset      = 0;
+        region.bufferOffset      = fromBuffer.GetValue()->GetOffset();
         region.bufferRowLength   = 0; // tightly packed
         region.bufferImageHeight = 0;
         region.imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };

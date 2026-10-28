@@ -3054,7 +3054,7 @@ namespace Desert::Graphic
             if ( const auto uploaded = mesh.EnsureGpuResources(); !uploaded.IsSuccess() )
                 LOG_ERROR( "[SceneRenderer] a mesh could not be uploaded and is not drawn: {}",
                            uploaded.GetError() );
-            return mesh.GetVertexBuffer() != nullptr;
+            return mesh.GetGeometry().IsResident();
         }
     } // namespace
 

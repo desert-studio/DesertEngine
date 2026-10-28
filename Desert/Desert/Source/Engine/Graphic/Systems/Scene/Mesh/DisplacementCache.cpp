@@ -402,10 +402,10 @@ namespace Desert::Graphic::System
                  "displacement: {} vertices from {} overflow the pool of {}", vertexCount, firstVertex, pool.Capacity );
 
         RDG::ExternalBuffer baseVertices, baseStreams, poolVertices, poolStreams;
-        if ( const auto in = Renderer::ImportVertexBuffer( base.GetVertexBuffer(), baseVertices ); !in )
+        if ( const auto in = Renderer::ImportMeshVertices( base.GetGeometry(), baseVertices ); !in )
             return Common::MakeError<bool>( in.GetError() );
         if ( streams )
-            if ( const auto in = Renderer::ImportVertexBuffer( base.GetStreamBuffer(), baseStreams ); !in )
+            if ( const auto in = Renderer::ImportMeshStreams( base.GetGeometry(), baseStreams ); !in )
                 return Common::MakeError<bool>( in.GetError() );
         if ( const auto in = Renderer::ImportVertexBuffer( pool.Vertices, poolVertices ); !in )
             return Common::MakeError<bool>( in.GetError() );
@@ -560,7 +560,7 @@ namespace Desert::Graphic::System
             total += piece.Source->Vertices.size();
             pieces.emplace( key, std::move( piece ) );
         }
-        const bool     streams  = pool.Mesh->GetStreamBuffer() != nullptr;
+        const bool     streams  = pool.Mesh->GetGeometry().AuthoredStreams;
         const uint64_t capacity = std::max<uint64_t>( 2 * total, 4096 );
         if ( capacity > std::numeric_limits<uint32_t>::max() / PoolStride( streams ) )
             return Common::MakeFormattedError<bool>( "displacement: a vertex pool of {} vertices exceeds a buffer",
@@ -667,7 +667,7 @@ namespace Desert::Graphic::System
         geometry->Key  = key;
         geometry->Pool = PoolFor( key );
         VertexPool& pool = *geometry->Pool;
-        const bool  streams = key.Mesh->GetStreamBuffer() != nullptr;
+        const bool  streams = key.Mesh->GetGeometry().AuthoredStreams;
 
         // The pieces this geometry draws: the pool's, or appended.
         geometry->Pieces.resize( t.Clusters.size() );

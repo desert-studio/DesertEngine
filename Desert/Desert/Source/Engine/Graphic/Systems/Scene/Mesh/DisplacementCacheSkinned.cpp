@@ -261,7 +261,7 @@ namespace Desert::Graphic::System
         using Result                                           = std::shared_ptr<SkinnedGeometry>;
         const SkinnedMesh&                            base     = *key.Mesh;
         const Desert::Geometry::DisplacementTopology& topology = *key.Topology;
-        const bool                                    streams  = base.GetStreamBuffer() != nullptr;
+        const bool                                    streams  = base.GetGeometry().AuthoredStreams;
 
         // The tessellation as one dispatch pair (EmitPieces' layout, every cluster once, at its own offset).
         std::vector<Desert::Geometry::DisplacementPoint>  points;
@@ -323,7 +323,7 @@ namespace Desert::Graphic::System
         }
 
         RDG::ExternalBuffer baseVertices, baseStreams, restVertices, restStreams;
-        if ( const auto in = Renderer::ImportVertexBuffer( base.GetVertexBuffer(), baseVertices ); !in )
+        if ( const auto in = Renderer::ImportMeshVertices( base.GetGeometry(), baseVertices ); !in )
             return Common::MakeError<Result>( in.GetError() );
         if ( const auto in = Renderer::ImportVertexBuffer( geometry->RestVertices, restVertices ); !in )
             return Common::MakeError<Result>( in.GetError() );
@@ -332,7 +332,7 @@ namespace Desert::Graphic::System
             return Common::MakeError<Result>( in.GetError() );
         if ( streams )
         {
-            if ( const auto in = Renderer::ImportVertexBuffer( base.GetStreamBuffer(), baseStreams ); !in )
+            if ( const auto in = Renderer::ImportMeshStreams( base.GetGeometry(), baseStreams ); !in )
                 return Common::MakeError<Result>( in.GetError() );
             if ( const auto in = Renderer::ImportVertexBuffer( geometry->Streams, restStreams ); !in )
                 return Common::MakeError<Result>( in.GetError() );
@@ -545,7 +545,7 @@ namespace Desert::Graphic::System
                 }
                 const Tessellation& t     = done.GetValue();
                 const uint64_t      bytes = SkinnedGeometryBytes( t.VertexCount(), t.IndexCount(),
-                                                                  entry.Mesh->GetStreamBuffer() != nullptr );
+                                                                  entry.Mesh->GetGeometry().AuthoredStreams );
                 const uint64_t      held  = entry.Current ? entry.Current->Bytes : 0;
                 if ( m_Quality.PoolBytes != 0 && liveBytes - held + bytes > m_Quality.PoolBytes )
                 {

@@ -477,7 +477,8 @@ namespace Desert::Graphic::System
             for ( const GrassVarietyDraw& variety : field.Varieties )
             {
                 Desert::Mesh* mesh = variety.Blade ? BladeStrip( variety.Blade->Segments ) : variety.Mesh;
-                if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetIndexBuffer() )
+                if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetGeometry().IsResident() ||
+                     mesh->GetGeometry().IndexCount == 0 )
                     continue;
                 VarietyGpu* gpu = PrepareVariety( variety, *mesh, frame );
                 if ( gpu == nullptr )

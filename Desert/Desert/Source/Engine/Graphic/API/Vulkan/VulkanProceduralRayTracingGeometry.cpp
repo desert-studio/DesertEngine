@@ -5,6 +5,7 @@
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanGeometryAddress.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
@@ -45,7 +46,9 @@ namespace Desert::Graphic::API::Vulkan
              indexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE )
             return Common::MakeError<Prepared>( "procedural BLAS: the mesh has no resident vertex/index buffer" );
 
-        if ( m_Handle != VK_NULL_HANDLE && vertices == m_SourceVertices && indices == m_Indices &&
+        const VertexBufferRange vertexRange{ vertices, input.VertexByteOffset };
+        const IndexBufferRange  indexRange{ indices, input.IndexByteOffset };
+        if ( m_Handle != VK_NULL_HANDLE && vertexRange == m_Vertices && indexRange == m_Indices &&
              input.Segments == m_Segments )
             return Common::MakeSuccess(
                  Prepared{ m_BuildScratch + kMaxAccelerationStructureScratchAlignment, !m_Built } );
@@ -59,10 +62,9 @@ namespace Desert::Graphic::API::Vulkan
         const auto&    allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
 
-        m_IndexAddress  = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
-        m_VertexAddress = functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() );
-        const VulkanBlasBuildInput buildInput =
-             TranslateBlasGeometry( m_Segments, m_VertexAddress, m_IndexAddress );
+        // The sizes do not depend on the addresses; the build reads them again when it records.
+        const VulkanBlasBuildInput buildInput = TranslateBlasGeometry(
+             m_Segments, CurrentGeometryAddress( vertexRange ), CurrentGeometryAddress( indexRange ) );
         VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( buildInput );
         build.flags                                       = kProceduralBlasFlags;
         VkAccelerationStructureBuildSizesInfoKHR sizes{
@@ -111,8 +113,8 @@ namespace Desert::Graphic::API::Vulkan
                  "vkGetAccelerationStructureDeviceAddressKHR answered 0 for a procedural BLAS" );
         }
 
-        m_SourceVertices = vertices;
-        m_Indices        = indices;
+        m_Vertices = vertexRange;
+        m_Indices  = indexRange;
 
         m_StorageExternal = RDG::ExternalBuffer( RDG::BufferDesc{ m_StorageBytes }, RDG::Access::None );
         m_StorageExternal.Physical =
@@ -148,18 +150,27 @@ namespace Desert::Graphic::API::Vulkan
         const VkDevice                   device    = logical->GetVulkanLogicalDevice();
 
         const VulkanBlasBuildInput input = TranslateBlasGeometry(
-             m_Segments, functions.BufferAddress( device, vertexBuffer.GetValue()->GetBuffer() ), m_IndexAddress );
+             m_Segments,
+             functions.BufferAddress( device, vertexBuffer.GetValue()->GetBuffer() ) +
+                  vertexBuffer.GetValue()->GetOffset(),
+             CurrentGeometryAddress( m_Indices ) );
         VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( input );
         build.flags                                       = kProceduralBlasFlags;
         build.mode                                        = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
         build.dstAccelerationStructure                    = m_Handle;
         build.scratchData.deviceAddress                   = AlignScratchAddress(
-             functions.BufferAddress( device, scratchBuffer.GetValue()->GetBuffer() ) + scratchOffset );
+             ( functions.BufferAddress( device, scratchBuffer.GetValue()->GetBuffer() ) + scratchBuffer.GetValue()->GetOffset() ) + scratchOffset );
 
         const VkAccelerationStructureBuildRangeInfoKHR* ranges = input.Ranges.data();
         functions.CmdBuildAccelerationStructures( command.GetValue(), 1, &build, &ranges );
         m_Built = true;
         return BOOLSUCCESS;
+    }
+
+    RayTracing::RayTracingGeometryLayout VulkanProceduralRayTracingGeometry::GetMetadataLayout() const
+    {
+        return RayTracing::MeshAttributeLayout( CurrentGeometryAddress( m_Vertices ),
+                                                CurrentGeometryAddress( m_Indices ), m_Segments, false );
     }
 
     void VulkanProceduralRayTracingGeometry::Release()
@@ -178,12 +189,10 @@ namespace Desert::Graphic::API::Vulkan
         m_DeviceAddress   = 0;
         m_StorageLedger   = ResourceOwnership{};
         m_StorageExternal = RDG::ExternalBuffer{};
-        m_SourceVertices.reset();
-        m_Indices.reset();
+        m_Vertices = VertexBufferRange{};
+        m_Indices  = IndexBufferRange{};
         m_Segments.clear();
-        m_IndexAddress  = 0;
-        m_VertexAddress = 0;
-        m_BuildScratch  = 0;
+        m_BuildScratch = 0;
         m_Built         = false;
     }
 

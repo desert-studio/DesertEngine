@@ -176,7 +176,7 @@ namespace Desert::Graphic::RayTracing
                 entry.Mesh   = record.Mesh;
                 entry.Source = source;
                 if ( const auto imported =
-                          Renderer::ImportVertexBuffer( source->GetVertexBuffer(), entry.VerticesImport );
+                          Renderer::ImportMeshVertices( source->GetGeometry(), entry.VerticesImport );
                      !imported )
                 {
                     if ( !entry.RefusalLogged )
