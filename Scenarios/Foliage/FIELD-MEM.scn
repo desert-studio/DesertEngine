@@ -1,0 +1,8 @@
+# FIELD-MEM: FIELD_Barn opens under the editor's memory limit (was killed at 6189 MB > 6144: GrassInstances x8 932 MB
+# sized by density x area, and the geometry pool's resize-and-copy peak). Proof: the frame, and editor.log's
+# [Memory] census peak < 5000 MB with the GrassInstances / Pooled* rows.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда 1_first the scene opened: the field is drawn (grass to the far edge), the editor alive; log census peak < 5000 MB

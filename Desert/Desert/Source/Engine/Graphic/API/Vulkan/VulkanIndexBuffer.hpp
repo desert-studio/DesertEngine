@@ -23,7 +23,6 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] virtual Common::BoolResultStr Invalidate() override;
         [[nodiscard]] virtual Common::BoolResultStr RT_Invalidate() override;
         [[nodiscard]] Common::BoolResultStr RT_WriteRange( uint64_t offset, const void* data, uint64_t size ) override;
-        [[nodiscard]] Common::BoolResultStr RT_Grow( uint32_t newSize ) override;
         [[nodiscard]] virtual Common::BoolResultStr Release() override;
 
         [[nodiscard]] virtual unsigned int GetSize() const override

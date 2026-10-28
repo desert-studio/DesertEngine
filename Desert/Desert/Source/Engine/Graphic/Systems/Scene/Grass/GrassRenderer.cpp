@@ -311,12 +311,16 @@ namespace Desert::Graphic::System
         if ( gpu.LowFrames.size() != buckets )
             gpu.LowFrames.assign( buckets, 0u );
 
-        // Per bucket: every cell whose jittered instance can lie within its ring of the cull radius - and, through
-        // a perspective lens, within what that lens can see of the ring - bounds the capacity (`bound`, every cell
-        // kept); the lens share's floor gives the fewest it can keep (`floor`, flat ground everywhere). Between
-        // them only the terrain decides, and the GPU's own count of last frames says what it decided: the capacity
-        // follows that count (UE-style GPU feedback rather than a CPU guess of the slopes), growing at once to
-        // the count plus a quarter, shrinking only after kShrinkFrames frames in a row two steps (half) above it.
+        // Per bucket the capacity holds what the generator ACTUALLY keeps, not what it could (UE grass: a
+        // component's instance buffer is sized by the instances its builder produced, never by density x area).
+        // Every cell whose jittered instance can lie within the bucket's ring of the cull radius - and, through
+        // a perspective lens, within what that lens can see of the ring - only BOUNDS it (`bound`, every cell
+        // kept): the layer's weight, the density range, slopes and the lens share drop most of those cells, and
+        // sizing for the bound held 932 MB of instances on FIELD_Barn (FIELD-MEM) for a fraction drawn. The
+        // GPU's own uncapped count of last frames (GrassFinalize) says what was kept: the capacity follows it,
+        // growing at once to the count plus a quarter, shrinking only after kShrinkFrames frames in a row two
+        // steps (half) above it. Until the first count comes back (FramesInFlight frames after the variety
+        // appears) the capacity is zero: those frames only count, and the field appears once it is measured.
         constexpr uint32_t    kShrinkFrames = 60;
         std::vector<uint32_t> capacities( buckets );
         uint32_t              capacity = 0;
@@ -330,18 +334,8 @@ namespace Desert::Graphic::System
                 needed = std::min<uint32_t>(
                      needed, static_cast<uint32_t>( std::ceil( ViewFootprintArea( outer, tanX, tanY, margin ) /
                                                                ( static_cast<double>( cell ) * cell ) ) ) );
-            const uint32_t bound = needed;
-            // The floor's count is a binomial draw over the cells: four standard deviations above its mean (and a
-            // floor for the smallest rings) before GrassFinalize's clamp would drop one.
-            if ( keepShare < 1.0f && needed > 0u )
-            {
-                const double mean = static_cast<double>( needed ) * keepShare;
-                needed            = std::min<uint32_t>(
-                     needed, static_cast<uint32_t>( std::ceil( mean + 4.0 * std::sqrt( mean ) + 64.0 ) ) );
-            }
-            uint32_t target = needed;
-            if ( fedBack && keepShare < 1.0f )
-                target = std::max( target, std::min( bound, counted[b] + counted[b] / 4u + 64u ) );
+            const uint32_t bound  = needed;
+            const uint32_t target = fedBack ? std::min( bound, counted[b] + counted[b] / 4u + 64u ) : 0u;
             const uint32_t step = CapacityStep( target );
             const uint32_t held = gpu.BucketCapacities.size() == buckets ? gpu.BucketCapacities[b] : 0u;
             if ( step >= held || held > CapacityStep( bound ) )
@@ -372,8 +366,9 @@ namespace Desert::Graphic::System
             gpu.BucketCapacities = capacities;
             if ( gpu.Index == 0 )
                 gpu.Index = ++m_NextIndex;
-            gpu.Instances           = ShaderResources::StorageBuffer::Create( "GrassInstances",
-                                                                              capacity * sizeof( glm::mat4 ), 2, true );
+            // One instance's room even at zero capacity: a counting-only frame still binds the buffer.
+            gpu.Instances           = ShaderResources::StorageBuffer::Create(
+                 "GrassInstances", std::max( capacity, 1u ) * sizeof( glm::mat4 ), 2, true );
             const auto submeshCount = static_cast<uint32_t>( submeshes.size() );
             const auto tableWord    = static_cast<uint32_t>( GpuInstanceArgsOffset( submeshCount ) / 4u );
             const auto argBytes     = ( tableWord + buckets * kBucketWords ) * 4u;
