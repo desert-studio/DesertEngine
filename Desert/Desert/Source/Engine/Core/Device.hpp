@@ -3,6 +3,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Settings/CapabilityCatalog.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Graphic/API/NeuralComputeCaps.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -97,6 +98,12 @@ namespace Desert::Engine
         /// Sampling + blending into 32-bit float colour targets. Every screen-space pass that accumulates
         /// (SSR trace/resolve, GI resolve, bloom) writes RGBA32F, so this gates them.
         bool SupportsFloatRenderTargets = false;
+
+        // --- Neural-network compute (NN-RUNTIME) ------------------------------------------------------
+        /// fp16 / int8 / 16- and 8-bit storage, subgroup size range, push-constant and shared-memory limits,
+        /// cooperative-matrix shapes, and the kernel path the NN layer runs (coopmat fp16 / fp16 / fp32), chosen
+        /// once by the backend. Readers: the NN layer (kernel selection) and the editor's control channel.
+        NeuralComputeCaps Neural;
 
         // --- The selectable lists (SCAL1) -------------------------------------------------------------
         /// What this device OFFERS per quality setting — AA methods, upscalers, RT modes, MSAA counts,
