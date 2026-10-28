@@ -758,6 +758,7 @@ namespace Desert::Graphic
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
         DeferredShadowInput shadow;
+        shadow.Debug = m_DebugView.ShadowDebug;
         if ( SunShadowIsScreenMask() )
         {
             // AddFrameRayTracedSunShadow logged why a mask is missing; the sun is then unshadowed (System.White),
@@ -866,6 +867,9 @@ namespace Desert::Graphic
         // The debug channels return before the split: only the Lit view (and the post view modes drawn Lit).
         if ( static_cast<int>( m_DebugView.DeferredDebug ) != 0 &&
              m_DebugView.DeferredDebug != DeferredDebugMode::LocalExposure )
+            return false;
+        // The shadow views write a grey occlusion / a cascade-tinted colour: no scattered texel to split off.
+        if ( m_DebugView.ShadowDebug != ShadowDebugMode::Off )
             return false;
         const auto it = m_RenderSystems.find( "SubsurfaceSystem" );
         if ( it == m_RenderSystems.end() )
