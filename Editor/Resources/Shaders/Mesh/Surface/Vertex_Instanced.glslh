@@ -67,9 +67,13 @@ void main()
                                                            vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPosition, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPosition, 1.0 );
+    // The object-motion flag (Common/ObjectMotion.glslh DesertVelocity w): the INSTANCE moved (a producer whose
+    // instances move states their previous transforms); the wind bends the vertices of a still instance and leaves it 0.
+    v_Surface.ObjectMoved = prevModel != model ? 1.0 : 0.0;
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved = 0.0;
 #endif
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.

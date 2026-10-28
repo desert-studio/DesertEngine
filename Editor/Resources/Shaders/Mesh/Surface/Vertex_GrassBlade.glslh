@@ -68,9 +68,12 @@ void main()
                                          vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( blade.Position, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( previous.Position, 1.0 );
+    // The object-motion flag (Common/ObjectMotion.glslh DesertVelocity w): a blade never moves, only the wind bends it.
+    v_Surface.ObjectMoved = 0.0;
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved = 0.0;
 #endif
     gl_Position = cameraUB.JitteredViewProjection * vec4( blade.Position, 1.0 );
 #ifdef DESERT_SURFACE_PASS_ShadowDepth

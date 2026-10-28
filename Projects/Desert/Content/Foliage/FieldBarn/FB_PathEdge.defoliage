@@ -44,7 +44,7 @@
         "Max": 4500
     },
     "Wind": {
-        "Strength": 0.35,
+        "Strength": 35.0,
         "Speed": 0.8,
         "Height": 60.0
     },
