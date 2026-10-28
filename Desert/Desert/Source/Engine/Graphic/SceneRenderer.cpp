@@ -3160,12 +3160,14 @@ namespace Desert::Graphic
         if ( const auto* camera = GetMainCamera(); camera != nullptr && GetViewExtent().Height != 0 )
         {
             const float     side   = static_cast<float>( tile.QuadsPerTile ) * tile.SpacingCm;
-            const glm::vec3 center = { tile.OriginX + ( static_cast<float>( tile.FirstSampleX ) + 0.5f *
-                                                         static_cast<float>( tile.QuadsPerTile ) ) * tile.SpacingCm,
+            const glm::vec3 center = { tile.OriginX + ( static_cast<float>( tile.FirstSampleX ) +
+                                                        0.5f * static_cast<float>( tile.QuadsPerTile ) ) *
+                                                           tile.SpacingCm,
                                        tile.BaseY,
-                                       tile.OriginZ + ( static_cast<float>( tile.FirstSampleZ ) + 0.5f *
-                                                         static_cast<float>( tile.QuadsPerTile ) ) * tile.SpacingCm };
-            const float pixels = TextureStreamingDemand::ScreenPixels(
+                                       tile.OriginZ + ( static_cast<float>( tile.FirstSampleZ ) +
+                                                        0.5f * static_cast<float>( tile.QuadsPerTile ) ) *
+                                                           tile.SpacingCm };
+            const float     pixels = TextureStreamingDemand::ScreenPixels(
                  center, side * 0.70710678f, { camera->GetPosition(), camera->GetProjectionMatrix() },
                  GetViewExtent().Height );
             for ( const auto& [slot, asset] : overrides.Textures )
@@ -3266,7 +3268,8 @@ namespace Desert::Graphic
         if ( transforms )
         {
             const Material* const drawn[] = { material ? material->GetParentMaterial() : nullptr,
-                                               displacedMaterial ? displacedMaterial->GetParentMaterial() : nullptr };
+                                              displacedMaterial ? displacedMaterial->GetParentMaterial()
+                                                                : nullptr };
             NoteTextureDemand( *mesh, *transforms, drawn );
         }
         // NO CAST, AND THAT IS THE POINT. This used to read

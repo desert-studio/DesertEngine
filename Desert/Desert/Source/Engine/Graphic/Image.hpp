@@ -200,12 +200,13 @@ namespace Desert::Graphic
         }
 
         // THE STREAMING SWAP (TEX-STREAMING; UE RHIUpdateTextureReference / FTexture2DUpdate): this image takes
-        // @p replacement's device image -- its levels, size, views and sampler -- and @p replacement leaves holding
-        // the one this image had, released through its destructor when the caller drops it (deferred past the
-        // frames in flight, as every release is). THE IMAGE OBJECT STAYS: every holder of its pointer (a material's
-        // slot, a landscape override, a layer array source) keeps it and reads the new levels from its next
-        // descriptor write, which GetResourceGeneration tells it to make; the bindless slot keeps its index. Both
-        // images must be plain sampled 2D images of the same format; anything else is refused naming the field.
+        // @p replacement's device image -- its levels, size, views and sampler -- and @p replacement leaves
+        // holding the one this image had, released through its destructor when the caller drops it (deferred past
+        // the frames in flight, as every release is). THE IMAGE OBJECT STAYS: every holder of its pointer (a
+        // material's slot, a landscape override, a layer array source) keeps it and reads the new levels from its
+        // next descriptor write, which GetResourceGeneration tells it to make; the bindless slot keeps its index.
+        // Both images must be plain sampled 2D images of the same format; anything else is refused naming the
+        // field.
         NO_DISCARD virtual Common::BoolResultStr TakeDeviceImageFrom( Image2D& /*replacement*/ )
         {
             return Common::MakeError<bool>( "Image2D::TakeDeviceImageFrom not supported by this backend" );

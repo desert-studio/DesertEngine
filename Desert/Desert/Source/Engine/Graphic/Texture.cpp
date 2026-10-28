@@ -189,7 +189,7 @@ namespace Desert::Graphic
         auto* current = m_Service != nullptr ? dynamic_cast<Image2D*>( m_Service->Resolve( m_Handle ) ) : nullptr;
         if ( current == nullptr )
             return Common::MakeFormattedError<bool>( "texture '{}' has no resident image to replace", cooked.Tag );
-        const uint32_t width = cooked.Width, height = cooked.Height;
+        const uint32_t                            width = cooked.Width, height = cooked.Height;
         const std::size_t                         levelCount = cooked.Levels.size();
         const Core::Formats::Image2DSpecification imageSpec  = { .Tag        = cooked.Tag,
                                                                  .Width      = cooked.Width,
@@ -200,11 +200,13 @@ namespace Desert::Graphic
                                                                  .Properties = Core::Formats::Sample,
                                                                  .MipLevels  = std::move( cooked.Levels ),
                                                                  .ColorSpace = cooked.ColorSpace };
-        const std::shared_ptr<Image2D> staged = backend.Images.CreateImage2D( imageSpec );
+        const std::shared_ptr<Image2D>            staged     = backend.Images.CreateImage2D( imageSpec );
         if ( !staged )
-            return Common::MakeFormattedError<bool>( "the GPU image for texture '{}' ({}x{}, {} levels) was not created",
-                                                     imageSpec.Tag, width, height, levelCount );
-        // The ledger row moves with the pixels: the staged image is the asset's until it dies holding the old ones.
+            return Common::MakeFormattedError<bool>(
+                 "the GPU image for texture '{}' ({}x{}, {} levels) was not created", imageSpec.Tag, width, height,
+                 levelCount );
+        // The ledger row moves with the pixels: the staged image is the asset's until it dies holding the old
+        // ones.
         staged->ClaimOwnership( current->GetResourceOwner(), current->GetOwningAsset() );
         if ( auto taken = current->TakeDeviceImageFrom( *staged ); !taken.IsSuccess() )
             return taken;

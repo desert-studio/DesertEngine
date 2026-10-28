@@ -146,9 +146,9 @@ namespace Desert::Graphic
 
         /// THE STREAMED MIP CHANGE (TEX-STREAMING; UE FTexture2DUpdate + RHIUpdateTextureReference): @p cooked --
         /// this texture's own asset read from another first level (ReadCookedMips) -- is uploaded to a new device
-        /// image, which the texture's EXISTING Image2D takes (Image2D::TakeDeviceImageFrom). The texture, its image
-        /// handle and the Image2D pointer every material slot and override holds all stay; the old levels are
-        /// released past the frames in flight. Refused, and the resident levels kept, when the upload fails.
+        /// image, which the texture's EXISTING Image2D takes (Image2D::TakeDeviceImageFrom). The texture, its
+        /// image handle and the Image2D pointer every material slot and override holds all stay; the old levels
+        /// are released past the frames in flight. Refused, and the resident levels kept, when the upload fails.
         Common::BoolResultStr ReplaceLevels( CookedTexture2D       cooked,
                                              const TextureBackend& backend = TextureBackend::Device() );
 

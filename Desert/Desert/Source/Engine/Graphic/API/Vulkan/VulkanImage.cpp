@@ -1085,8 +1085,8 @@ namespace Desert::Graphic::API::Vulkan
     {
         auto* other = dynamic_cast<VulkanImage2D*>( &replacement );
         if ( other == nullptr || other == this )
-            return Common::MakeFormattedError<bool>( "image '{}': TakeDeviceImageFrom needs another Vulkan 2D image",
-                                                     m_Specification.Tag );
+            return Common::MakeFormattedError<bool>(
+                 "image '{}': TakeDeviceImageFrom needs another Vulkan 2D image", m_Specification.Tag );
         const auto plain = []( const Core::Formats::Image2DSpecification& spec )
         {
             return spec.Usage == Core::Formats::Image2DUsage::Image2D &&
@@ -1098,12 +1098,12 @@ namespace Desert::Graphic::API::Vulkan
                  "attachment, storage, multisampled or array image)",
                  m_Specification.Tag, other->m_Specification.Tag );
         if ( m_Specification.Format != other->m_Specification.Format )
-            return Common::MakeFormattedError<bool>( "image '{}': TakeDeviceImageFrom across formats ({} <- {})",
-                                                     m_Specification.Tag, static_cast<int>( m_Specification.Format ),
-                                                     static_cast<int>( other->m_Specification.Format ) );
+            return Common::MakeFormattedError<bool>(
+                 "image '{}': TakeDeviceImageFrom across formats ({} <- {})", m_Specification.Tag,
+                 static_cast<int>( m_Specification.Format ), static_cast<int>( other->m_Specification.Format ) );
         if ( !other->m_IsLoaded || other->m_Resource.Image == VK_NULL_HANDLE )
-            return Common::MakeFormattedError<bool>( "image '{}': TakeDeviceImageFrom an image with no device image",
-                                                     m_Specification.Tag );
+            return Common::MakeFormattedError<bool>(
+                 "image '{}': TakeDeviceImageFrom an image with no device image", m_Specification.Tag );
 
         // The graph's cached handles name each side's own VkImage: both are retired, and remade on next import.
         DropGraphTexture();

@@ -177,6 +177,6 @@ namespace Desert::Graphic
         Core::Formats::SamplerState                      m_Sampler;
         bool                                             m_SamplesEncoded = false;
         uint64_t                                         m_UniformVersion = PropertyVersion::kNeverWritten;
-        uint64_t                                         m_UniformGeneration = 0; // the image's, at the last re-point
+        uint64_t m_UniformGeneration                                      = 0; // the image's, at the last re-point
     };
 } // namespace Desert::Graphic
