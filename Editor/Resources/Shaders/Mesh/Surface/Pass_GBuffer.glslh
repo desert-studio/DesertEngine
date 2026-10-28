@@ -61,6 +61,6 @@ void main()
          DesertMarkSunSelfShadow( DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ), s.SunSelfShadow ),
          ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
     oGBufferEmissive = vec4( s.Emissive, s.AmbientOcclusion );
-    oVelocity             = DesertVelocity( clip, prevClip );
+    oVelocity             = DesertVelocity( clip, prevClip, v_Surface.ObjectMoved );
     oThinGeometryCoverage = DesertThinGeometryCoverage( DESERT_SHADING_MODEL_INDEX );
 }
