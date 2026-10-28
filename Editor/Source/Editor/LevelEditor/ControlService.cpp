@@ -1332,29 +1332,30 @@ namespace Desert::Editor
         }
 
         {
-            // The NN layer's device facts and kernel path (Engine::DeviceCapabilities::Neural), as chosen at start-up.
+            // The NN layer's device facts and kernel path (Engine::DeviceCapabilities::Neural), as chosen at
+            // start-up.
             const Engine::DeviceCapabilities& capabilities = EngineContext::GetInstance().GetCapabilities();
             const Engine::NeuralComputeCaps&  neural       = capabilities.Neural;
             Control::DeviceSnapshot&          device       = snapshot.Device;
-            device.Name                          = capabilities.Name;
-            device.NnPath                        = Engine::NeuralKernelPathName( neural.Path );
-            device.NnTile                        = neural.Path == Engine::NeuralKernelPath::CoopMatFp16
-                                                        ? Engine::FormatCooperativeMatrixShape( neural.Tile )
-                                                        : std::string{};
-            device.NnReason                      = neural.Reason;
-            device.NnShaderFloat16               = neural.ShaderFloat16;
-            device.NnShaderInt8                  = neural.ShaderInt8;
-            device.NnStorageBuffer16BitAccess    = neural.StorageBuffer16BitAccess;
-            device.NnStorageBuffer8BitAccess     = neural.StorageBuffer8BitAccess;
-            device.NnSubgroupSizeControl         = neural.SubgroupSizeControl;
-            device.NnCooperativeMatrix           = neural.CooperativeMatrix;
-            device.NnCooperativeMatrixCompute    = neural.CooperativeMatrixInCompute;
-            device.NnComputeRequiredSubgroupSize = neural.ComputeSubgroupSizeRequirable;
-            device.NnSubgroupSize                = neural.SubgroupSize;
-            device.NnMinSubgroupSize             = neural.MinSubgroupSize;
-            device.NnMaxSubgroupSize             = neural.MaxSubgroupSize;
-            device.NnMaxPushConstantsSize        = neural.MaxPushConstantsSize;
-            device.NnMaxComputeSharedMemorySize  = neural.MaxComputeSharedMemorySize;
+            device.Name                                    = capabilities.Name;
+            device.NnPath                                  = Engine::NeuralKernelPathName( neural.Path );
+            device.NnTile                                  = neural.Path == Engine::NeuralKernelPath::CoopMatFp16
+                                                                  ? Engine::FormatCooperativeMatrixShape( neural.Tile )
+                                                                  : std::string{};
+            device.NnReason                                = neural.Reason;
+            device.NnShaderFloat16                         = neural.ShaderFloat16;
+            device.NnShaderInt8                            = neural.ShaderInt8;
+            device.NnStorageBuffer16BitAccess              = neural.StorageBuffer16BitAccess;
+            device.NnStorageBuffer8BitAccess               = neural.StorageBuffer8BitAccess;
+            device.NnSubgroupSizeControl                   = neural.SubgroupSizeControl;
+            device.NnCooperativeMatrix                     = neural.CooperativeMatrix;
+            device.NnCooperativeMatrixCompute              = neural.CooperativeMatrixInCompute;
+            device.NnComputeRequiredSubgroupSize           = neural.ComputeSubgroupSizeRequirable;
+            device.NnSubgroupSize                          = neural.SubgroupSize;
+            device.NnMinSubgroupSize                       = neural.MinSubgroupSize;
+            device.NnMaxSubgroupSize                       = neural.MaxSubgroupSize;
+            device.NnMaxPushConstantsSize                  = neural.MaxPushConstantsSize;
+            device.NnMaxComputeSharedMemorySize            = neural.MaxComputeSharedMemorySize;
             for ( const Engine::CooperativeMatrixShape& shape : neural.CooperativeMatrixShapes )
                 device.NnCooperativeMatrixShapes.push_back( Engine::FormatCooperativeMatrixShape( shape ) );
         }

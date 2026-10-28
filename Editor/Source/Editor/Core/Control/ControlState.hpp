@@ -93,9 +93,9 @@ namespace Desert::Editor::Control
         bool        PreviewsBindPose = false; ///< Skeleton only — 07 §1.3; the scene render shows it
     };
 
-    /// THE GPU AND WHAT ITS NEURAL-NETWORK KERNELS RUN ON (NN-RUNTIME): Engine::DeviceCapabilities::Neural as plain
-    /// values, so a scenario reads the kernel path and the fields it was chosen from beside the "[nn_caps]" log
-    /// line, not from a log tail that may have scrolled past it.
+    /// THE GPU AND WHAT ITS NEURAL-NETWORK KERNELS RUN ON (NN-RUNTIME): Engine::DeviceCapabilities::Neural as
+    /// plain values, so a scenario reads the kernel path and the fields it was chosen from beside the "[nn_caps]"
+    /// log line, not from a log tail that may have scrolled past it.
     struct DeviceSnapshot
     {
         std::string Name;
@@ -104,13 +104,13 @@ namespace Desert::Editor::Control
         std::string NnTile;   ///< the coopmat tile the path uses; empty off coopmat_fp16
         std::string NnReason; ///< why a faster path was not taken; empty when the fastest one was
 
-        bool NnShaderFloat16            = false;
-        bool NnShaderInt8               = false;
-        bool NnStorageBuffer16BitAccess = false;
-        bool NnStorageBuffer8BitAccess  = false;
-        bool NnSubgroupSizeControl      = false;
-        bool NnCooperativeMatrix        = false;
-        bool NnCooperativeMatrixCompute = false;
+        bool NnShaderFloat16               = false;
+        bool NnShaderInt8                  = false;
+        bool NnStorageBuffer16BitAccess    = false;
+        bool NnStorageBuffer8BitAccess     = false;
+        bool NnSubgroupSizeControl         = false;
+        bool NnCooperativeMatrix           = false;
+        bool NnCooperativeMatrixCompute    = false;
         bool NnComputeRequiredSubgroupSize = false;
 
         uint32_t NnSubgroupSize               = 0;
@@ -354,29 +354,29 @@ namespace Desert::Editor::Control
 
         if ( Wanted( sections, "device" ) )
         {
-            const DeviceSnapshot& device = snapshot.Device;
+            const DeviceSnapshot&      device = snapshot.Device;
             Common::Json::Value::Array shapes;
             for ( const std::string& shape : device.NnCooperativeMatrixShapes )
                 shapes.push_back( Str( shape ) );
 
             Common::Json::Object nn;
-            nn["path"]                       = Str( device.NnPath );
-            nn["tile"]                       = Str( device.NnTile );
-            nn["reason"]                     = Str( device.NnReason );
-            nn["shaderFloat16"]              = Common::Json::Value( device.NnShaderFloat16 );
-            nn["shaderInt8"]                 = Common::Json::Value( device.NnShaderInt8 );
-            nn["storageBuffer16BitAccess"]   = Common::Json::Value( device.NnStorageBuffer16BitAccess );
-            nn["storageBuffer8BitAccess"]    = Common::Json::Value( device.NnStorageBuffer8BitAccess );
-            nn["subgroupSizeControl"]        = Common::Json::Value( device.NnSubgroupSizeControl );
-            nn["cooperativeMatrix"]          = Common::Json::Value( device.NnCooperativeMatrix );
-            nn["cooperativeMatrixCompute"]   = Common::Json::Value( device.NnCooperativeMatrixCompute );
+            nn["path"]                        = Str( device.NnPath );
+            nn["tile"]                        = Str( device.NnTile );
+            nn["reason"]                      = Str( device.NnReason );
+            nn["shaderFloat16"]               = Common::Json::Value( device.NnShaderFloat16 );
+            nn["shaderInt8"]                  = Common::Json::Value( device.NnShaderInt8 );
+            nn["storageBuffer16BitAccess"]    = Common::Json::Value( device.NnStorageBuffer16BitAccess );
+            nn["storageBuffer8BitAccess"]     = Common::Json::Value( device.NnStorageBuffer8BitAccess );
+            nn["subgroupSizeControl"]         = Common::Json::Value( device.NnSubgroupSizeControl );
+            nn["cooperativeMatrix"]           = Common::Json::Value( device.NnCooperativeMatrix );
+            nn["cooperativeMatrixCompute"]    = Common::Json::Value( device.NnCooperativeMatrixCompute );
             nn["computeRequiredSubgroupSize"] = Common::Json::Value( device.NnComputeRequiredSubgroupSize );
-            nn["subgroupSize"]               = Num( device.NnSubgroupSize );
-            nn["minSubgroupSize"]            = Num( device.NnMinSubgroupSize );
-            nn["maxSubgroupSize"]            = Num( device.NnMaxSubgroupSize );
-            nn["maxPushConstantsSize"]       = Num( device.NnMaxPushConstantsSize );
-            nn["maxComputeSharedMemorySize"] = Num( device.NnMaxComputeSharedMemorySize );
-            nn["cooperativeMatrixShapes"]    = Common::Json::Value( shapes );
+            nn["subgroupSize"]                = Num( device.NnSubgroupSize );
+            nn["minSubgroupSize"]             = Num( device.NnMinSubgroupSize );
+            nn["maxSubgroupSize"]             = Num( device.NnMaxSubgroupSize );
+            nn["maxPushConstantsSize"]        = Num( device.NnMaxPushConstantsSize );
+            nn["maxComputeSharedMemorySize"]  = Num( device.NnMaxComputeSharedMemorySize );
+            nn["cooperativeMatrixShapes"]     = Common::Json::Value( shapes );
 
             Common::Json::Object section;
             section["name"] = Str( device.Name );

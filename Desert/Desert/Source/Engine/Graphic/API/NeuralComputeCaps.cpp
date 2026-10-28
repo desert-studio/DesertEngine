@@ -82,10 +82,10 @@ namespace Desert::Engine
 
     std::string FormatCooperativeMatrixShape( const CooperativeMatrixShape& shape )
     {
-        return std::format(
-             "{}x{}x{} {}*{}+{}->{}{}{}", shape.M, shape.N, shape.K, NeuralScalarName( shape.A ),
-             NeuralScalarName( shape.B ), NeuralScalarName( shape.C ), NeuralScalarName( shape.Result ),
-             shape.SaturatingAccumulation ? " sat" : "", shape.SubgroupScope ? "" : " non-subgroup" );
+        return std::format( "{}x{}x{} {}*{}+{}->{}{}{}", shape.M, shape.N, shape.K, NeuralScalarName( shape.A ),
+                            NeuralScalarName( shape.B ), NeuralScalarName( shape.C ),
+                            NeuralScalarName( shape.Result ), shape.SaturatingAccumulation ? " sat" : "",
+                            shape.SubgroupScope ? "" : " non-subgroup" );
     }
 
     void SelectNeuralKernelPath( NeuralComputeCaps& caps )

@@ -19,8 +19,8 @@ namespace Desert::Graphic::API::Vulkan
 
         // The feature struct goes first: an extension is only worth enabling when the device also reports
         // the feature bit behind it, and enable_extension_features_if_present asks exactly that.
-        // Two rows may share one extension (shaderFloat16 and shaderInt8: VK_KHR_shader_float16_int8); vk-bootstrap
-        // lists an extension once per call, and vkCreateDevice must not see it twice.
+        // Two rows may share one extension (shaderFloat16 and shaderInt8: VK_KHR_shader_float16_int8);
+        // vk-bootstrap lists an extension once per call, and vkCreateDevice must not see it twice.
         bool EnableExtensionOnce( vkb::PhysicalDevice& device, std::string_view extension )
         {
             for ( const std::string& enabled : device.get_extensions() )
@@ -192,7 +192,8 @@ namespace Desert::Graphic::API::Vulkan
                         f.storageBuffer16BitAccess = VK_TRUE;
                         return device.enable_extension_features_if_present( f );
                     }
-                    VkPhysicalDevice16BitStorageFeatures f{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES };
+                    VkPhysicalDevice16BitStorageFeatures f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES };
                     f.storageBuffer16BitAccess = VK_TRUE;
                     return EnableExtensionFeatures( device, f, spec );
                 }
@@ -227,7 +228,8 @@ namespace Desert::Graphic::API::Vulkan
                         f.storageBuffer8BitAccess = VK_TRUE;
                         return device.enable_extension_features_if_present( f );
                     }
-                    VkPhysicalDevice8BitStorageFeatures f{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES };
+                    VkPhysicalDevice8BitStorageFeatures f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES };
                     f.storageBuffer8BitAccess = VK_TRUE;
                     return EnableExtensionFeatures( device, f, spec );
                 }
@@ -330,8 +332,8 @@ namespace Desert::Graphic::API::Vulkan
 
         // The NN layer's half of the probe, after every row is settled: the features from the rows, the limits
         // and subgroup properties, and the cooperative-matrix shapes. Then the kernel path, once.
-        ::Desert::Engine::NeuralComputeCaps NeuralComputeCapsOf( VkInstance instance, const vkb::PhysicalDevice& device,
-                                                       const DeviceCaps& caps )
+        ::Desert::Engine::NeuralComputeCaps
+        NeuralComputeCapsOf( VkInstance instance, const vkb::PhysicalDevice& device, const DeviceCaps& caps )
         {
             ::Desert::Engine::NeuralComputeCaps neural;
             neural.ShaderFloat16              = caps.Has( Capability::ShaderFloat16 );
@@ -350,7 +352,7 @@ namespace Desert::Graphic::API::Vulkan
             VkPhysicalDeviceCooperativeMatrixPropertiesKHR coopmat{
                  VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_PROPERTIES_KHR };
             VkPhysicalDeviceSubgroupProperties subgroup{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES };
-            void** tail = &subgroup.pNext;
+            void**                             tail = &subgroup.pNext;
             if ( neural.SubgroupSizeControl )
             {
                 *tail = &sizeControl;

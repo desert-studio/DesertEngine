@@ -47,8 +47,9 @@ namespace Desert::Graphic::API::Vulkan
              // MoltenVK has no wide lines; the debug-line path clamps the width instead.
              { C::WideLines, "wideLines", N::Optional, V10, {} },
              { C::FillModeNonSolid, "fillModeNonSolid", N::Optional, V10, {} },
-             // GPU-DRIVEN (GpuDriven/IndirectDrawSubmission.hpp): one vkCmdDrawIndexedIndirect over an IndirectGroup's
-             // bins. Optional (decision 10-27, no device refused): without it the group's records go one call each.
+             // GPU-DRIVEN (GpuDriven/IndirectDrawSubmission.hpp): one vkCmdDrawIndexedIndirect over an
+             // IndirectGroup's bins. Optional (decision 10-27, no device refused): without it the group's records
+             // go one call each.
              { C::MultiDrawIndirect, "multiDrawIndirect", N::Optional, V10, {} },
              { C::SamplerAnisotropy, "samplerAnisotropy", N::Optional, V10, {} },
              { C::TextureCompressionBC, "textureCompressionBC", N::Optional, V10, {} },
@@ -101,20 +102,21 @@ namespace Desert::Graphic::API::Vulkan
                V12,
                { C::AccelerationStructure, C::Count, C::Count } },
              // The NN layer (NN-RUNTIME; NeuralComputeCaps.hpp). Optional: SelectNeuralKernelPath chooses the
-             // coopmat fp16 / fp16 / fp32 kernels from them, and every device runs fp32. The 8-bit pair is recorded
-             // for int8 weights, which no kernel uses yet.
+             // coopmat fp16 / fp16 / fp32 kernels from them, and every device runs fp32. The 8-bit pair is
+             // recorded for int8 weights, which no kernel uses yet.
              { C::StorageBuffer16BitAccess, "storageBuffer16BitAccess", N::Optional, V11,
                VK_KHR_16BIT_STORAGE_EXTENSION_NAME },
              { C::ShaderFloat16, "shaderFloat16", N::Optional, V12, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME },
              { C::ShaderInt8, "shaderInt8", N::Available, V12, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME },
              { C::StorageBuffer8BitAccess, "storageBuffer8BitAccess", N::Available, V12,
                VK_KHR_8BIT_STORAGE_EXTENSION_NAME },
-             // subgroupSizeControl + computeFullSubgroups: a kernel that names its subgroup size (a coopmat tile is
-             // one subgroup) and needs every lane of it. The size range is read with it (DeviceCapsProbe).
+             // subgroupSizeControl + computeFullSubgroups: a kernel that names its subgroup size (a coopmat tile
+             // is one subgroup) and needs every lane of it. The size range is read with it (DeviceCapsProbe).
              { C::SubgroupSizeControl, "subgroupSizeControl", N::Available, V13,
                VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME },
              // Tensor cores / WMMA / XMX. Never core in 1.3. Its shapes are listed by the probe.
-             { C::CooperativeMatrix, "cooperative_matrix", N::Optional, 0, VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME },
+             { C::CooperativeMatrix, "cooperative_matrix", N::Optional, 0,
+               VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME },
         } };
 
         // Row i describes enum value i, so SpecOf() and DeviceCaps::Rows index the same thing; and every
