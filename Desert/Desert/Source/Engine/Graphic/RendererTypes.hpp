@@ -16,7 +16,7 @@ namespace Desert::Graphic
         // (MeshRendererMorph.cpp, UE FMorphVertexBuffer) are the one producer.
         GpuWritten = 3,
         // A GeometryPool arena (GeometryPool.hpp): device-local, created empty at a capacity, written in ranges
-        // (RT_WriteRange) and grown in place (RT_Grow: same object, new device buffer, contents copied).
+        // (RT_WriteRange); never grown (the pool adds a page instead).
         Pooled = 4
     };
 
