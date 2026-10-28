@@ -60,14 +60,18 @@ namespace Desert::Core
         m_NotLoaded.clear();
     }
 
-    void EntityPackages::AdoptRegion( std::span<const LiveEntity> live, std::span<const Common::UUID> notLoaded )
+    void EntityPackages::AdoptRegion( std::span<const LiveEntity> live, std::span<const Common::UUID> notLoaded,
+                                      std::span<const Common::UUID> unsaved )
     {
+        std::unordered_set<std::uint64_t> notOfFiles;
+        for ( const Common::UUID id : unsaved )
+            notOfFiles.insert( Bits( id ) );
         std::unordered_set<std::uint64_t> alive;
         for ( const LiveEntity& entity : live )
         {
             const std::uint64_t id = Bits( entity.Id );
             alive.insert( id );
-            if ( m_SavedRevision.contains( id ) )
+            if ( m_SavedRevision.contains( id ) || notOfFiles.contains( id ) )
                 continue;
             // Just read from its file: what the file holds is what the entity is.
             m_SavedRevision[id] = CurrentOf( id );

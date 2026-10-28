@@ -89,11 +89,21 @@ namespace Desert::Core::EditorRegions
             // is read or destroyed.
             SceneSerializer const             serializer( &scene, assets );
             const std::vector<LiveEntity>     live = serializer.LiveEntities();
-            std::unordered_set<std::uint64_t> held;
-            std::vector<Common::UUID>         leaving;
+            // An entity whose record the world's files do not hold (made since the open or last save, e.g. the
+            // foliage entity a palette edit creates) has no file to go back to and no region of the files: it stays
+            // as it is, unsaved, whatever the regions (UE: an unsaved new actor is not the loader's to unload).
+            const std::unordered_set<std::uint64_t> onDisk( rowIds.begin(), rowIds.end() );
+            std::unordered_set<std::uint64_t>       held;
+            std::vector<Common::UUID>               leaving;
+            std::vector<Common::UUID>               unsaved;
             for ( const LiveEntity& entity : live )
             {
                 const auto record = static_cast<std::uint64_t>( entity.Record );
+                if ( !onDisk.contains( record ) )
+                {
+                    unsaved.push_back( entity.Id );
+                    continue;
+                }
                 if ( static_cast<std::uint64_t>( entity.Id ) == record )
                     held.insert( record );
                 if ( wanted.contains( record ) )
@@ -141,7 +151,7 @@ namespace Desert::Core::EditorRegions
             // The document a save merges foreign keys from is the held part's, as an open of it would have made.
             scene.SetLoadedDocument( std::move( parsed.Document ) );
             const std::vector<LiveEntity> after = serializer.LiveEntities();
-            scene.Packages()->AdoptRegion( after, notLoaded );
+            scene.Packages()->AdoptRegion( after, notLoaded, unsaved );
             outcome.NotLoaded = notLoaded.size();
             return Common::MakeSuccess( std::move( outcome ) );
         }
