@@ -64,6 +64,7 @@ namespace Desert::Editor::Control
         Displacement, ///< the frame drew a displaced primitive's base mesh while its twin was still tessellating
         SubsurfaceHistory, ///< a view's subsurface scatter has not yet averaged its full history window
         HLODBuild, ///< a Build HLODs is still baking its landscape tiles; its cell files are not written yet
+        MeshDrops, ///< a dropped mesh is still being imported on a worker, or is cooked but not yet spawned
         Count
     };
 
@@ -87,6 +88,7 @@ namespace Desert::Editor::Control
          "displaced geometry is still being tessellated (the frame drew the base mesh)",
          "the subsurface scatter's history is still converging (a Scale change, a camera cut or the first frames)",
          "Build HLODs is still baking its landscape tiles (its HLOD files are not written yet)",
+         "a dropped mesh is still being imported (the viewport shows 'Loading meshes' and an empty entity)",
     };
 
     static_assert( std::size( kPendingWorkNames ) == static_cast<std::size_t>( PendingWork::Count ),
