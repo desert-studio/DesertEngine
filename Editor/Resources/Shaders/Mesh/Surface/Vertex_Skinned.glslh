@@ -168,9 +168,13 @@ void main()
 #ifdef DESERT_SURFACE_VIEW_PASS
     v_Surface.Clip     = cameraUB.ViewProjection * worldPos;
     v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevModel * vec4( prevPosed, 1.0 ) );
+    // The object-motion flag (Common/ObjectMotion.glslh DesertVelocity w): an animated skeleton is the object's own
+    // motion (UE: a skeletal mesh writes velocity, so TemporalAA counts it dynamic), not a vertex deformation.
+    v_Surface.ObjectMoved = 1.0;
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved = 0.0;
 #endif
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.

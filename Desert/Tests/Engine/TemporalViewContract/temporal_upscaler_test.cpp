@@ -132,9 +132,8 @@ namespace
     TEST( TemporalUpscalerResolution, AtFiftyPercentTheRenderSetIsHalfAndTheOutputSetFull )
     {
         const auto taau     = CreateTemporalUpscaler( TemporalMethod::TAAU );
-        const auto resolved = ResolveViewResolution(
-             ViewExtent{ 1920, 1080 }, 50, std::nullopt, TemporalPath(), ::Common::Scalability::Upscaler::TAAU,
-             ::Common::Scalability::EngineTemporalUpscaler::TAAU, [&]( TemporalMethod ) { return taau.get(); } );
+        const auto resolved = ResolveViewResolution( ViewExtent{ 1920, 1080 }, 50, std::nullopt, TemporalPath(),
+                                                     [&]( TemporalMethod ) { return taau.get(); } );
         ASSERT_TRUE( resolved ) << resolved.GetError();
         EXPECT_EQ( resolved.GetValue().Method, TemporalMethod::TAAU );
         EXPECT_TRUE( resolved.GetValue().Clamped.empty() );
@@ -150,9 +149,8 @@ namespace
     TEST( TemporalUpscalerResolution, AViewportOverrideBelowTheSettingUpscalesByResolvesRule )
     {
         const auto taau     = CreateTemporalUpscaler( TemporalMethod::TAAU );
-        const auto resolved = ResolveViewResolution(
-             ViewExtent{ 1000, 1000 }, 100, 50, TemporalPath(), ::Common::Scalability::Upscaler::None,
-             ::Common::Scalability::EngineTemporalUpscaler::TAAU, [&]( TemporalMethod ) { return taau.get(); } );
+        const auto resolved = ResolveViewResolution( ViewExtent{ 1000, 1000 }, 100, 50, TemporalPath(),
+                                                     [&]( TemporalMethod ) { return taau.get(); } );
         ASSERT_TRUE( resolved ) << resolved.GetError();
         EXPECT_EQ( resolved.GetValue().Split.Render, ( ViewExtent{ 500, 500 } ) );
         EXPECT_EQ( resolved.GetValue().Method, TemporalMethod::TAAU );
@@ -165,9 +163,8 @@ namespace
     TEST( TemporalUpscalerResolution, AViewportOverrideAtNativeDropsTheSettingsUpscaler )
     {
         const auto taa      = CreateTemporalUpscaler( TemporalMethod::TAA );
-        const auto resolved = ResolveViewResolution(
-             ViewExtent{ 1000, 1000 }, 50, 100, TemporalPath(), ::Common::Scalability::Upscaler::TAAU,
-             ::Common::Scalability::EngineTemporalUpscaler::TAAU, [&]( TemporalMethod ) { return taa.get(); } );
+        const auto resolved = ResolveViewResolution( ViewExtent{ 1000, 1000 }, 50, 100, TemporalPath(),
+                                                     [&]( TemporalMethod ) { return taa.get(); } );
         ASSERT_TRUE( resolved ) << resolved.GetError();
         EXPECT_EQ( resolved.GetValue().Split.Render, ( ViewExtent{ 1000, 1000 } ) );
         EXPECT_EQ( resolved.GetValue().Method, TemporalMethod::TAA );
@@ -183,8 +180,7 @@ namespace
              .Samples     = 1,
              .PostProcess = ::Common::Scalability::AntiAliasingMethod::FXAA };
         const auto resolved =
-             ResolveViewResolution( ViewExtent{ 1920, 1080 }, 100, 50, fxaa, ::Common::Scalability::Upscaler::None,
-                                    ::Common::Scalability::EngineTemporalUpscaler::TAAU,
+             ResolveViewResolution( ViewExtent{ 1920, 1080 }, 100, 50, fxaa,
                                     []( TemporalMethod ) -> const ITemporalUpscaler* { return nullptr; } );
         ASSERT_TRUE( resolved ) << resolved.GetError();
         EXPECT_EQ( resolved.GetValue().Split.Mode, ScaleMode::Upscale );

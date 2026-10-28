@@ -96,6 +96,9 @@ namespace Desert::Editor
                                      out.push_back( std::move( command ) );
                                  for ( PaletteCommand& command : QualityMethodOverridePaletteCommands() )
                                      out.push_back( std::move( command ) );
+                                 for ( PaletteCommand& command : QualityRenderScalePaletteCommands(
+                                            Common::Scalability::QualityState::Catalog() ) )
+                                     out.push_back( std::move( command ) );
                              } );
         // Display output (HDR-OUTPUT): the Scalability panel's Display Output combo, reachable from the control channel.
         m_Commands.Register( "Display",

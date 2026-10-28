@@ -166,6 +166,7 @@ namespace Desert::Graphic::API::Vulkan
 
             // The selectable lists, built once from probed facts (VulkanCapabilityCatalog.hpp). The surface half
             // (display outputs, present modes beyond FIFO) is probed when the first swapchain's surface exists.
+            m_RuntimeOffers = AskRuntimeOffers();
             m_Capabilities.Catalog =
                  BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, VK_NULL_HANDLE, m_DeviceCaps ) );
             LOG_INFO( "[Vulkan] {}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
@@ -179,8 +180,38 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_SurfaceProbed || surface == VK_NULL_HANDLE )
             return;
         m_SurfaceProbed        = true;
+        m_ProbedSurface        = surface;
+        m_RuntimeOffers        = AskRuntimeOffers();
         m_Capabilities.Catalog = BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, surface, m_DeviceCaps ) );
         LOG_INFO( "[Vulkan] with the surface: {}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
+        Common::Scalability::QualityState::ReplaceCatalog( m_Capabilities.Catalog );
+    }
+
+    VulkanPhysicalDevice::RuntimeOffers VulkanPhysicalDevice::AskRuntimeOffers()
+    {
+        CatalogProbe runtimes;
+        for ( const IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->AmendCatalogProbe( runtimes );
+        return { .Dlss                         = runtimes.DlssAvailable,
+                 .DlssRayReconstruction        = runtimes.DlssRayReconstructionAvailable,
+                 .DlssRefused                  = runtimes.DlssRefused,
+                 .DlssRayReconstructionRefused = runtimes.DlssRayReconstructionRefused,
+                 .Xess                         = runtimes.XessAvailable,
+                 .MetalFx                      = runtimes.MetalFxAvailable };
+    }
+
+    void VulkanPhysicalDevice::RefreshRuntimeOffers()
+    {
+        // The driver's half of the probe cannot change while the device lives; the runtimes' half can.
+        const RuntimeOffers now = AskRuntimeOffers();
+        if ( now == m_RuntimeOffers )
+            return;
+        // Rebuilt whole from the probe, as at the surface, so the one builder's rules (DLSS NVIDIA-only, RR
+        // beside DLSS) hold; the surface is the one the catalog was completed with (none on a windowless host).
+        m_RuntimeOffers        = now;
+        m_Capabilities.Catalog = BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, m_ProbedSurface, m_DeviceCaps ) );
+        LOG_WARN( "[Vulkan] a vendor runtime changed what it offers: {}",
+                  Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
         Common::Scalability::QualityState::ReplaceCatalog( m_Capabilities.Catalog );
     }
 

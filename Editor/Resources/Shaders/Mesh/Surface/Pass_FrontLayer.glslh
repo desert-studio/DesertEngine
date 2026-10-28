@@ -29,5 +29,5 @@ void main()
     if ( s.Opacity <= 0.0 )
         discard;
     oFrontLayerNormal   = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, 0.04 ) );
-    oFrontLayerVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
+    oFrontLayerVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );
 }

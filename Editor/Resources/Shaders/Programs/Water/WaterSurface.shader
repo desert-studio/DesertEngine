@@ -110,7 +110,7 @@ Shader "WaterSurface"
 
             o_Color   = vec4( ( mix( body, skyCol, fres ) + glint ) * u.Exposure.x, 1.0 );
             vec4 world = vec4( v_WorldPos, 1.0 );
-            oVelocity  = DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world );
+            oVelocity  = DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world, 0.0 ); // waves deform, the water does not move (ObjectMotion.glslh)
             oThinGeometryCoverage = kThinGeometryCoverageSurface;
         }
     }

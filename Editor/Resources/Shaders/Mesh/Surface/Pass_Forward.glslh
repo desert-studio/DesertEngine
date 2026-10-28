@@ -127,7 +127,7 @@ layout( depth_less ) out float gl_FragDepth;
 void main()
 {
     // First, before any debug view returns early: a debug colour is still the same surface at the same depth.
-    oVelocity             = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
+    oVelocity             = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );
     oThinGeometryCoverage = DesertThinGeometryCoverage( DESERT_SHADING_MODEL_INDEX );
     SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
@@ -147,7 +147,7 @@ void main()
         vec4 clip     = v_Surface.Clip;
         vec4 prevClip = v_Surface.PrevClip;
         DesertPixelDepthOffsetVelocity( i, s, clip, prevClip );
-        oVelocity       = DesertVelocity( clip, prevClip );
+        oVelocity       = DesertVelocity( clip, prevClip, v_Surface.ObjectMoved );
         i.WorldPosition = DesertPixelDepthOffsetPosition( i, s );
     }
 #endif

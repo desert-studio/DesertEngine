@@ -1,0 +1,12 @@
+# SCAL-TEMPORAL-ONE: one temporal method x render percent. DLSS Ray Reconstruction runs at 100 % AND below it
+# (one AntiAliasing.Method, the percent its own override); TAA at 100 % renders as dev did.
+Проект F:/BistroFoliageProj/Desert.deproj
+Дано run Scene "Open Scene GI_Bistro_Day.desce"
+Дано run View "View mode: Lit"
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+Тогда taa_100 Bistro днём под TAA на 100 %: отличие от кадра dev <= 1/255, 0 VUID
+Когда run Anti-Aliasing "Anti-Aliasing: DLSSRayReconstruction"
+Тогда rr_100 тот же кадр под DLSS Ray Reconstruction на 100 %: в логе RR выполнился (нет "ignored"/"resets"), 0 VUID
+Когда run Quality "Quality: Resolution.Percent 67"
+Тогда rr_67 DLSS Ray Reconstruction на 67 %: в логе RR выполнился (нет "ignored"/"resets"), 0 VUID

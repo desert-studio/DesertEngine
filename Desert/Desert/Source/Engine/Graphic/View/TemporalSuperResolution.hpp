@@ -29,7 +29,8 @@ namespace Desert::Graphic
 
     // TSR — THE ENGINE'S TEMPORAL SUPER RESOLUTION (UE: TemporalSuperResolution.cpp / TSR*.usf), the
     // vendor-neutral temporal upscaler (TemporalMethod::TSR, Upscaler::TSR): Mac (MoltenVK), non-RTX, non-AMD.
-    // Resolves Upscale splits only (at 100 % the native method is TAA). Pure compute, the same pass chain as UE:
+    // Resolves Upscale and Native splits (AntiAliasingMethod::TSR at any percent <= 100). Pure compute, the same
+    // pass chain as UE:
     //
     //   TSR.MeasureFlickeringLuma Render (AddOpaquePasses, before the translucency) with thin geometry's
     //                                    intensity lines: the opaque scene's luma (UE

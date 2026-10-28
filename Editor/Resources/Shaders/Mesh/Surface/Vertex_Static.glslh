@@ -57,9 +57,12 @@ void main()
     // Velocity's two clip positions, both UNJITTERED (Common/ObjectMotion.glslh DesertVelocity).
     v_Surface.Clip     = cameraUB.ViewProjection * worldPos;
     v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevWorld * vec4( a_Position, 1.0 ) );
+    // The object-motion flag (Common/ObjectMotion.glslh DesertVelocity w): the transform changed since last frame.
+    v_Surface.ObjectMoved = world != prevWorld ? 1.0 : 0.0;
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved = 0.0;
 #endif
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.

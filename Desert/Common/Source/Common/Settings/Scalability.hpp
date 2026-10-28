@@ -62,6 +62,8 @@ namespace Common::Scalability
         AntiAliasing,    // sg.AntiAliasingQuality — axis 1
         ResolutionScale, // sg.ResolutionQuality — axis 2
         Shading,         // sg.ShadingQuality — material shader cost: parallax occlusion steps
+        PathTracing, // the path tracer's cost (UE r.PathTracing.*): a render MODE, not part of GI quality, so it
+                     // has its own level (SCAL-UX); appended so the other groups keep their index
         Count
     };
     inline constexpr std::size_t kGroupCount = static_cast<std::size_t>( Group::Count );
@@ -92,8 +94,8 @@ namespace Common::Scalability
     {
         AntiAliasingMethod = 0, // SceneRenderer framebuffer setup + post AA pass. Values: AntiAliasingMethod
         AntiAliasingSamples,    // SceneRenderer framebuffer sample count; read only under MSAA. Values: 1/2/4/8
-        RenderScalePercent,     // view-target size (RDG) and the upscaler pass. Values: RenderScaleRange
-        Upscaler,               // upscaler pass. Values: Upscaler
+        RenderScalePercent,     // view-target size (RDG) and the method's reconstruction pass. Values:
+                                // RenderScaleRange
         TextureFilter,          // sampler cache (RenderConfig push). Values: MachineSettings TextureFilter 0..3
         Anisotropy,             // sampler cache. Values: CapabilityCatalog::AnisotropyLevels
         MeshLOD,                // mesh LOD selection. Values: 0/1
@@ -209,24 +211,21 @@ namespace Common::Scalability
         ReflectionDownsampleFactor,
         // The DLSS preset of each DLSS mode (DLSSUpscaler: the mode its split selects reads its row). Values:
         // DlssPreset (CapabilityCatalog.hpp). Read only while DLSS runs.
-        DlssPresetDLAA,
+        DlssPresetNative, // the 100 % mode (NVIDIA's DLAA)
         DlssPresetUltraQuality,
         DlssPresetQuality,
         DlssPresetBalanced,
         DlssPresetPerformance,
         DlssPresetUltraPerformance,
-        // The Ray Reconstruction preset of each DLSS mode (DLSSUpscaler under Upscaler::DLSSRayReconstruction: the
-        // mode its split selects reads its row). Values: DlssRRPreset (CapabilityCatalog.hpp). Read only while
-        // Ray Reconstruction runs.
-        DlssRRPresetDLAA,
+        // The Ray Reconstruction preset of each DLSS mode (DLSSUpscaler under
+        // AntiAliasingMethod::DLSSRayReconstruction: the mode its split selects reads its row). Values:
+        // DlssRRPreset (CapabilityCatalog.hpp). Read only while Ray Reconstruction runs.
+        DlssRRPresetNative, // the 100 % mode
         DlssRRPresetUltraQuality,
         DlssRRPresetQuality,
         DlssRRPresetBalanced,
         DlssRRPresetPerformance,
         DlssRRPresetUltraPerformance,
-        // The engine's own temporal upscaler below 100 % when no vendor one is asked for, and the fallback of a
-        // vendor upscaler the device does not offer. Values: EngineTemporalUpscaler (TAAU / TSR).
-        TemporalUpscaler,
         // TSR (Graphic::TemporalSuperResolution), UE's sg.AntiAliasingQuality rows of r.TSR.*. Read only while
         // TSR runs.
         TsrHistoryScreenPercentage,    // r.TSR.History.ScreenPercentage: history extent, % of output. 100..200
@@ -276,9 +275,10 @@ namespace Common::Scalability
         PathTracingMaxPathIntensity, // the brightest one path's contribution may be, in exposed units (1 ~ the
                                      // image's white), 0 = no clamp, 0..65536 (UE r.PathTracing.MaxPathIntensity /
                                      // PostProcessSettings.PathTracingMaxPathIntensity, default 24)
-        // 0/1: the path-traced image is denoised on every frame (UE r.PathTracing.Denoiser) - raw into the upscaler
-        // when it is DLSS Ray Reconstruction, otherwise by the path tracer's spatial denoiser over its accumulation
-        // (System::PathTracer).
+        // What denoises the path-traced view (UE r.PathTracing.Denoiser): PathTracingDenoiserMethod
+        // (CapabilityCatalog.hpp) - Off, ReLAX (System::PathTracer's own denoiser), RR (DLSS Ray Reconstruction,
+        // the paths raw with their own guides), Auto (RR where offered, else ReLAX; never left in a resolved
+        // quality).
         PathTracingDenoiser,
         // GI SoftwareTraced / HardwareTraced screen probe layout, read by SceneRenderer::BeginScene into
         // ScreenProbeGatherInputs: the gather compiles its programs under it (ScreenProbeLayout, the shaders'
@@ -335,14 +335,25 @@ namespace Common::Scalability
         None = 0, // a closed range in the spec is the whole truth (MeshLOD, TextureFilter, CloudQuality)
         AntiAliasingMethods,
         MSAACounts,
-        Upscalers,
         RenderScale,
         AnisotropyLevels,
+        // PathTracingDenoiserMethod: RR needs DLSSRayReconstruction in AntiAliasingMethods; an RR the device does
+        // not offer falls back to ReLAX ("not offered by this device"); Auto settles to RR or ReLAX, unreported.
+        PathTracingDenoisers,
+    };
+
+    // WHO A PARAMETER IS SHOWN TO (SCAL-UX, owner 10-27 "too many switches"). Basic: what a game's graphics menu
+    // offers a player (the method, the scale, the filter, the ceilings, the path tracer's budget). Advanced: an
+    // internal cost knob (UE's r.* under sg.*) — tuned by the level, shown only in a selector's advanced section.
+    enum class ParameterVisibility : int
+    {
+        Basic = 0,
+        Advanced,
     };
 
     // ONE ROW PER PARAMETER, the single list every check is driven by: the JSON key, its group, its legal range
-    // (before the device), and which catalog list narrows it. The census in ScalabilityContract asserts one row
-    // per enum value, in enum order, with unique keys.
+    // (before the device), which catalog list narrows it, its default and who it is shown to. The census in
+    // ScalabilityContract asserts one row per enum value, in enum order, with unique keys.
     struct ParameterSpec
     {
         Parameter        Id;
@@ -354,10 +365,19 @@ namespace Common::Scalability
         // WHO READS THE RESOLVED VALUE (file / system), or std::nullopt for a placeholder: a reserved parameter
         // with no reader, hidden from every selector (see PLACEHOLDERS above).
         std::optional<std::string_view> Reader;
+        // THE VALUE AT A LEVEL THAT DOES NOT NAME THIS PARAMETER. Scalability.json lists, per level, only the
+        // values that differ from it (a line restating it is refused), so a knob that is the same at every level
+        // lives here once. Inside [Min, Max] (static_assert in Scalability.cpp). Set to the Epic value (SCAL-UX).
+        ParameterValue      Default    = 0;
+        ParameterVisibility Visibility = ParameterVisibility::Advanced;
     };
     [[nodiscard]] constexpr bool IsPlaceholder( const ParameterSpec& spec )
     {
         return !spec.Reader.has_value();
+    }
+    [[nodiscard]] constexpr bool IsBasic( const ParameterSpec& spec )
+    {
+        return spec.Visibility == ParameterVisibility::Basic;
     }
     [[nodiscard]] std::span<const ParameterSpec> ParameterSpecs();
     [[nodiscard]] const ParameterSpec&           SpecOf( Parameter parameter );
@@ -366,10 +386,16 @@ namespace Common::Scalability
     // What a selector (editor panel, palette, game menu, console listing) may show: the parameters that have a
     // reader, and the groups owning at least one of them.
     [[nodiscard]] std::vector<Parameter> ListedParameters();
+    // The listed parameters shown to @p visibility (a menu: Basic; a selector's advanced section: Advanced).
+    [[nodiscard]] std::vector<Parameter> ListedParameters( ParameterVisibility visibility );
+    // The names a by-name parameter's values are written with (Scalability.json, a selector's combo), index =
+    // value; empty for a numeric parameter.
+    [[nodiscard]] std::span<const std::string_view> ParameterValueNames( Parameter parameter );
     [[nodiscard]] bool                   IsGroupListed( Group group );
 
     // A full set of values, one per parameter, indexed by Parameter. Unset slots do not exist: the table loader
     // refuses a level that does not set every parameter of its group.
+    // A level that does not name one fills it with the spec Default.
     using ParameterValues = std::array<ParameterValue, kParameterCount>;
 
     // ---- The data file (UE BaseScalability.ini) ----------------------------------------------------------
@@ -377,13 +403,13 @@ namespace Common::Scalability
     // `Editor/Resources/Config/Scalability.json`, shipped by the packager in its Config tree, read with the
     // engine's own Common/Json (no third-party parser). Shape:
     //
-    //   { "Version": 1,
+    //   { "Version": 2,
     //     "Groups": {
     //       "AntiAliasing": {
-    //         "Low":       { "AntiAliasing.Method": "FXAA", "AntiAliasing.Samples": 1, ... },   // Samples > 1
-    //         only under MSAA
+    //         "Low":       { "AntiAliasing.Method": "FXAA", ... },   // only what differs from the spec Default
     //         ...
-    //         "Cinematic": { "AntiAliasing.Method": "MSAA", "AntiAliasing.Samples": 8, ... } }, ... },
+    //         "Epic":      { },                                     // every parameter at its Default
+    //         "Cinematic": { } }, ... },
     //     "Recommend": {
     //       "Thresholds": { "Shadows": [ 40, 110, 250 ] },   // index >= t[i] -> level i+1; never Cinematic
     //       "MinVideoMemoryMiB": { "Textures": [ 0, 2048, 4096, 6144, 8192 ] }, // per level; VRAM gate
@@ -395,7 +421,7 @@ namespace Common::Scalability
     {
         uint32_t Version = 0;
         // Values[group][level] — only the slots of that group's parameters are meaningful; the rest are the
-        // spec Min and never read (Resolve takes each parameter from its own group's level).
+        // spec Default and never read (Resolve takes each parameter from its own group's level).
         std::array<std::array<ParameterValues, kLevelCount>, kGroupCount> Values{};
         // Recommend thresholds per group: kLevelCount - 2 ascending perf-index boundaries (Low|Medium|High|Epic).
         std::array<std::array<float, kLevelCount - 2>, kGroupCount> RecommendThresholds{};
@@ -408,7 +434,7 @@ namespace Common::Scalability
 
         // PURE. Refuses, naming file position and the offending key/value, on: unknown group, level or parameter
         // key; a parameter listed under a group that does not own it; a level missing for a group that has
-        // parameters; a level missing one of its group's parameters; a value outside the spec range; an enum
+        // parameters; a value that restates the parameter's spec Default; a value outside the spec range; an enum
         // name that is not a value; a group WITHOUT parameters given levels (dead group); thresholds not strictly
         // ascending; a DeviceClass entry missing. Every error found, not the first.
         [[nodiscard]] static Common::ResultStr<ScalabilityTable> Parse( std::string_view jsonText );
@@ -471,9 +497,9 @@ namespace Common::Scalability
     // How axis 2 renders this frame.
     enum class ScaleMode : int
     {
-        Upscale,     // RenderScalePercent < 100: the Upscaler (never None) reconstructs output size
+        Upscale,     // RenderScalePercent < 100: the method's pass (UpscalerForScale, never None) reconstructs
         Native,      // == 100
-        Supersample, // > 100: SSAA, fixed downsample filter; Upscaler None
+        Supersample, // > 100: SSAA, fixed downsample filter; UpscalerForScale None
     };
 
     // WHAT EVERY RENDERER READS. The only product of the scalability system the renderer may see.
@@ -506,14 +532,12 @@ namespace Common::Scalability
     //   3. A value outside its spec range is clamped ("outside the parameter's range").
     //   4. A value its catalog list does not offer walks DOWN the list to the nearest offered value below it;
     //      if none, the list's front ("not offered by this device"). MSAACounts/AnisotropyLevels: largest offered
-    //      <= requested. Upscalers: DLSS/XeSS/MetalFX/FSR -> TAAU; DLSSRayReconstruction -> DLSS where offered,
-    //      else TAAU. AA methods: DLAA/FSRNative -> TAA.
-    //   5. Axis coupling: RenderScale < 100 and Upscaler None -> TAAU ("an upscaler is required below 100 %");
-    //      RenderScale >= 100 and Upscaler != None -> None ("upscaler unused at native/supersampled scale"),
-    //      except Ray Reconstruction under DLAA at exactly 100 % (IsNativeRayReconstruction);
-    //      RenderScale < 100 -> AntiAliasingMethod effective = TAA unless it is DLAA/FSRNative matching the
-    //      upscaler, which become that upscaler's temporal pass ("the upscaler anti-aliases below 100 %");
-    //      AntiAliasingMethod MSAA with RenderScale != 100 -> FXAA ("MSAA renders at native scale only").
+    //      <= requested. AA methods: DLSSRayReconstruction -> DLSS where offered, else TSR; FSR / DLSS / XeSS /
+    //      MetalFX -> TSR (always offered; TAA if a catalog lacks it); MSAA -> FXAA.
+    //   5. Axis coupling — two rules only, every temporal method is valid at any percent <= 100:
+    //      RenderScale > 100 and a vendor method or TSR -> TAA, the reason naming the method ("DLSS does not run
+    //      above 100 %", SupersampleRefusal); AntiAliasingMethod MSAA with RenderScale != 100 -> FXAA ("MSAA
+    //      renders at native scale only"). The reconstruction pass is not a parameter: UpscalerForScale.
     //   6. The render-path rule of MachineSettings' EffectiveAntiAliasing table (MSAA on a path that cannot
     //      multisample) is NOT here: it is per path, and stays a pure function of (ResolvedQuality, path) —
     //      ResolveAntiAliasingForPath below.
@@ -521,31 +545,25 @@ namespace Common::Scalability
     [[nodiscard]] ResolvedQuality Resolve( const QualitySelection& selection, const ScalabilityTable& table,
                                            const CapabilityCatalog& catalog );
 
-    // TAA, DLAA and FSRNative: the methods whose temporal pass can also upscale.
+    // TAA, TSR and the vendor methods: the methods with a history, which reconstruct the output themselves at
+    // any render scale <= 100 %.
     [[nodiscard]] bool IsTemporalAntiAliasing( AntiAliasingMethod method );
 
-    // THE coupling rule of Resolve step 5, the one place the upscaler follows from (AA method, render scale):
-    // below 100 % a temporal method upscales temporally (@p vendorOverride kept; None and Spatial -> the engine's
-    // own temporal upscaler @p engineTemporal: TAAU or TSR), and a
-    // method without history (None / FXAA / SMAA / MSAA) is upscaled by Spatial whatever the override; at or
-    // above 100 % nothing upscales (None). Total: every (method, percent) has an upscaler. Shared by Resolve (the
-    // game setting) and the renderer's per-view resolution (an editor viewport's Screen Percentage), so the two
-    // cannot disagree.
-    // Ray Reconstruction is a DLSS network with the denoiser in it, so at 100 % it is DLAA's: the one case an
-    // upscaler value stays at native scale is Upscaler::DLSSRayReconstruction under AntiAliasingMethod::DLAA at
-    // exactly 100 % (UE: r.NGX.DLSS.DenoiserMode on top of DLAA). Above 100 % it never runs (DLSS takes no
-    // supersampled input). Read by Resolve step 5, UpscalerForScale and Graphic::SelectTemporalMethod.
-    [[nodiscard]] constexpr bool IsNativeRayReconstruction( const AntiAliasingMethod method, const int percent,
-                                                            const Upscaler upscaler )
-    {
-        return percent == 100 && method == AntiAliasingMethod::DLAA && upscaler == Upscaler::DLSSRayReconstruction;
-    }
+    // FSR, DLSS, DLSSRayReconstruction, XeSS, MetalFX: a third-party network (UE: an upscaler plugin).
+    [[nodiscard]] bool IsVendorTemporalMethod( AntiAliasingMethod method );
 
-    [[nodiscard]] Upscaler UpscalerForScale( AntiAliasingMethod method, int percent, Upscaler vendorOverride,
-                                             EngineTemporalUpscaler engineTemporal );
+    // Why @p method does not run on a supersampled (> 100 %) frame — the vendor networks take no input larger than
+    // their output, and TSR reconstructs at or below output size — or empty when it does (TAA, the post AA
+    // methods, MSAA whose own rule is separate). The Fallback reason of Resolve step 5.
+    [[nodiscard]] std::string_view SupersampleRefusal( AntiAliasingMethod method );
 
-    // The Upscaler value of an EngineTemporalUpscaler (TAAU -> Upscaler::TAAU, TSR -> Upscaler::TSR).
-    [[nodiscard]] Upscaler UpscalerOf( EngineTemporalUpscaler engineTemporal );
+    // THE RECONSTRUCTION PASS of (method, percent), the one place it is derived (Resolve's game setting and the
+    // renderer's per-view resolution of an editor viewport's Screen Percentage both ask it, so they cannot
+    // disagree). Total: a temporal method at <= 100 % is its own pass (TAA: None at 100 %, TAAU below; TSR, FSR,
+    // DLSS, DLSSRayReconstruction, XeSS, MetalFX: the pass of that name at any percent <= 100); a method without
+    // history (None / FXAA / SMAA / MSAA) below 100 % is brought to the output by Spatial; above 100 % nothing
+    // reconstructs (None: the supersample resolve). Resolve has already refused the methods that cannot run there.
+    [[nodiscard]] Upscaler UpscalerForScale( AntiAliasingMethod method, int percent );
 
     // Per-path AA: what the scene framebuffer and the post pass run on a path that can / cannot multisample.
     struct PathAntiAliasing
@@ -560,24 +578,23 @@ namespace Common::Scalability
     [[nodiscard]] PathAntiAliasing ResolveAntiAliasingForPath( const ResolvedQuality& resolved,
                                                                bool                   pathSupportsMSAA );
 
-    // "[Scalability] AntiAliasing.Method: DLAA -> TAA (not offered by this device)"
+    // "[Scalability] AntiAliasing.Method: DLSS -> TSR (not offered by this device)"
     [[nodiscard]] std::string FormatFallback( const Fallback& fallback );
 
     // ---- Menu presets: one entry of a game's AA menu, decomposed into the two axes -----------------------
     struct AntiAliasingPreset
     {
-        std::string_view   Key; // "DLSS.Quality", "FSR.Balanced", "Native.TAA", "MSAA.4x", "SSAA.150", ...
+        std::string_view   Key; // "DLSS.Quality", "FSR.Native", "Native.TAA", "MSAA.4x", "SSAA.150", ...
         AntiAliasingMethod Method             = AntiAliasingMethod::TAA;
         int                Samples            = 1;
         int                RenderScalePercent = 100;
-        Upscaler           Upscale            = Upscaler::None;
     };
     // The engine's preset list (UE's DLSS/FSR mode names: Quality 67 %, Balanced 58 %, Performance 50 %).
     [[nodiscard]] std::span<const AntiAliasingPreset> AntiAliasingPresets();
     // The presets this device can run unchanged — what a menu lists. A preset that would resolve with a
     // fallback is not offered (a menu entry that silently becomes another one is a dead setting).
     [[nodiscard]] std::vector<AntiAliasingPreset> OfferedPresets( const CapabilityCatalog& catalog );
-    // The preset as four overrides (AntiAliasing.Method, .Samples, Resolution.Percent, Resolution.Upscaler).
+    // The preset as three overrides (AntiAliasing.Method, .Samples, Resolution.Percent).
     [[nodiscard]] std::vector<ParameterOverride> Decompose( const AntiAliasingPreset& preset );
 
     // ---- THE ONE APPLY POINT, and the game-facing API ----------------------------------------------------

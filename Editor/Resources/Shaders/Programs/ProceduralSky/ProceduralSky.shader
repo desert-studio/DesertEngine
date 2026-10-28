@@ -101,6 +101,8 @@ Shader "ProceduralSky"
             }
 
             vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
+            // What stands between the eye and a star: the in-scattering of both atmosphere lights (DAY-STARS).
+            const float starBackground = dot(sky, vec3(0.2126f, 0.7152f, 0.0722f));
 
             // BELOW THE HORIZON THIS PASS DRAWS ONLY AIR — never a lit ground, which is what it used to
             // do and what made the lower half of an empty scene a flat beige plate that no scene setting
@@ -143,10 +145,19 @@ Shader "ProceduralSky"
                 }
 
                 // The stars (Star Intensity): outer-space sources like the disc, so they too reach the eye
-                // through the view path's transmittance, behind the in-scattering already in `sky` - which
-                // is what hides them by day. Common/Atmosphere.glslh states their luminance.
-                sky += AtmosphereStarField(dir) * UnpackStarIntensity(s) * AtmosphereStarPeakLuminance() *
-                       ATMOSPHERE_STAR_TINT * viewT;
+                // through the view path's transmittance, behind the in-scattering already in `sky`. The sky's
+                // brightness hides them through the eye's threshold against it, carried to real units by the
+                // sun's scale (AtmosphereStarVisibility) - no day/night switch. Common/Atmosphere.glslh states
+                // their luminance.
+                const float starShape = AtmosphereStarField(dir);
+                if (starShape > 0.0f)
+                {
+                    const vec3  luma    = vec3(0.2126f, 0.7152f, 0.0722f);
+                    const float starLux = ATMOSPHERE_STAR_MAG0_ILLUMINANCE_LUX * UnpackStarIntensity(s) * dot(viewT, luma);
+                    const float seen    = AtmosphereStarVisibility(starBackground, dot(sunIlluminance, luma), starLux);
+                    sky += starShape * UnpackStarIntensity(s) * AtmosphereStarPeakLuminance() *
+                           ATMOSPHERE_STAR_TINT * viewT * seen;
+                }
 
                 // Light 1's disc (the moon): the same law at its own direction and its own Source Angle.
                 if (light1)

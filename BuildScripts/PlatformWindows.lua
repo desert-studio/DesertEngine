@@ -19,4 +19,12 @@ filter "system:windows"
     -- showed on MSVC.
     buildoptions { "/utf-8" }
 
+-- /utf-8 makes the BUILD UTF-8; this manifest makes the RUNNING process UTF-8 (Windows 10 1903+): the
+-- process's ANSI codepage becomes CP_UTF8, so argv, getenv, fopen and every Win32 *A function speak the
+-- same UTF-8 the engine's strings already are. Without it argv arrives in the machine's ANSI codepage:
+-- DesertCtl forwarded a scenario's Cyrillic frame name «кадр_bistro_day» as invalid UTF-8 and the editor
+-- refused the request as "not JSON". Every executable gets it, so no tool or editor reads argv differently.
+filter { "system:windows", "kind:ConsoleApp or WindowedApp" }
+    files { path.join( _MAIN_SCRIPT_DIR, "BuildScripts/Windows/Utf8CodePage.manifest" ) }
+
 filter {}
