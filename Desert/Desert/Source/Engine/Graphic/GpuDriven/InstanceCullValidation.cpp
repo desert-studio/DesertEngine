@@ -222,7 +222,7 @@ namespace Desert::Graphic::GpuDriven
                          ( primitive.Flags & PrimitiveFlags::kCastsShadow ) == 0u )
                         return 0u;
 
-                    const glm::mat4            world = primitive.LocalToWorld * instance.InstanceToPrimitive;
+                    const glm::mat4            world = UnpackAffine( primitive.LocalToWorld ) * UnpackAffine( instance.InstanceToPrimitive );
                     const InstanceCullDistance cull  = ScaledByLens(
                          { instance.CullDistanceStart, instance.CullDistanceEnd }, view.Gpu.CullOrigin.w );
                     if ( !KeepsInstanceAtDistance( cull, row - primitive.FirstInstance, glm::vec3( world[3] ),
