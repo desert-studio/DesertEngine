@@ -1236,15 +1236,16 @@ namespace Desert::Graphic::API::Vulkan
         // A graph only on the graphics queue holds the slot's shared heaps in turn with the slot's other graphs
         // (BISTRO-MEM-2 p5); one with an async-compute segment keeps its own (a compute submission is ordered
         // after the earlier graphs only by the semaphores it waits on).
-        const bool graphicsOnly =
-             std::none_of( graph.Result->Segments.begin(), graph.Result->Segments.end(),
-                           []( const RDG::PipeSegment& segment ) { return segment.OnPipe == RDG::Pipe::AsyncCompute; } );
-        const Common::ResultStr<bool> reserved = m_Transients->ReserveGraphHeaps( graph.Name, plan.Heaps, graphicsOnly );
+        const bool graphicsOnly = std::none_of( graph.Result->Segments.begin(), graph.Result->Segments.end(),
+                                                []( const RDG::PipeSegment& segment )
+                                                { return segment.OnPipe == RDG::Pipe::AsyncCompute; } );
+        const Common::ResultStr<bool> reserved =
+             m_Transients->ReserveGraphHeaps( graph.Name, plan.Heaps, graphicsOnly );
         if ( !reserved )
             return Common::MakeFormattedError( "{}", reserved.GetError() );
-        // An earlier graph used the bytes (this frame or one in flight; same queue, earlier in submission order): its last
-        // accesses complete before this graph's first one, recorded into the first command buffer the graph opens
-        // (BeginGraph returns one only for a graph without segments).
+        // An earlier graph used the bytes (this frame or one in flight; same queue, earlier in submission order):
+        // its last accesses complete before this graph's first one, recorded into the first command buffer the
+        // graph opens (BeginGraph returns one only for a graph without segments).
         m_SharedHeapBarrierPending = reserved.GetValue();
         if ( first.GetValue() != VK_NULL_HANDLE )
             RecordSharedHeapBarrier( first.GetValue() );
@@ -1705,8 +1706,8 @@ namespace Desert::Graphic::API::Vulkan
         barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
         barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
-        vkCmdPipelineBarrier( commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                              0, 1, &barrier, 0, nullptr, 0, nullptr );
+        vkCmdPipelineBarrier( commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                              VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr );
     }
 
     Common::BoolResultStr VulkanRdgBackend::EndPipeSegment( const RDG::PipeSegment& segment )

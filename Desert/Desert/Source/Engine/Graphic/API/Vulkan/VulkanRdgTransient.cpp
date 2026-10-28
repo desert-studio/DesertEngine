@@ -112,7 +112,8 @@ namespace Desert::Graphic::API::Vulkan
         RetirePlaced( slot, graph, heap );
         if ( graph.Heaps[heap].Memory != nullptr )
         {
-            slot.Pool.push_back( PooledHeap{ .Pooled = std::move( graph.Heaps[heap] ), .IdleFrames = 0, .GivenUpThisFrame = true } );
+            slot.Pool.push_back( PooledHeap{
+                 .Pooled = std::move( graph.Heaps[heap] ), .IdleFrames = 0, .GivenUpThisFrame = true } );
             slot.Pool.back().Pooled.OversizedFrames = 0;
         }
         graph.Heaps[heap].Memory = nullptr;
@@ -125,9 +126,10 @@ namespace Desert::Graphic::API::Vulkan
         for ( auto it = slot.Pool.begin(); it != slot.Pool.end(); ++it )
         {
             const RDG::TransientHeapDesc& have = it->Pooled.Desc;
-            const bool                    fits =
-                 !it->GivenUpThisFrame && have.Class == want.Class && ( want.MemoryTypeBits & ( 1u << it->Pooled.MemoryType ) ) != 0 &&
-                 have.Bytes >= want.Bytes && have.Bytes / 2 <= want.Bytes && have.Alignment >= want.Alignment;
+            const bool                    fits = !it->GivenUpThisFrame && have.Class == want.Class &&
+                              ( want.MemoryTypeBits & ( 1u << it->Pooled.MemoryType ) ) != 0 &&
+                              have.Bytes >= want.Bytes && have.Bytes / 2 <= want.Bytes &&
+                              have.Alignment >= want.Alignment;
             if ( fits && ( best == slot.Pool.end() || have.Bytes < best->Pooled.Desc.Bytes ) )
                 best = it;
         }
@@ -245,8 +247,9 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError<bool>( "graph '{}': graph '{}' did not end (EndGraph)", graph,
                                                      m_Slots[m_Slot].Graphs[m_Current].Graph );
         Slot&        slot  = m_Slots[m_Slot];
-        const auto   found = std::find_if( slot.Graphs.begin(), slot.Graphs.end(), [&]( const GraphHeaps& entry )
-                                           { return entry.Graph == graph && !entry.UsedThisFrame && entry.Shared == share; } );
+        const auto   found =
+             std::find_if( slot.Graphs.begin(), slot.Graphs.end(), [&]( const GraphHeaps& entry )
+                           { return entry.Graph == graph && !entry.UsedThisFrame && entry.Shared == share; } );
         const size_t index = static_cast<size_t>( found - slot.Graphs.begin() );
         if ( found == slot.Graphs.end() )
             slot.Graphs.push_back(
@@ -260,7 +263,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( auto reserved = ReserveShared( slot, entry, heaps ); !reserved )
                 return Common::MakeFormattedError<bool>( "{}", reserved.GetError() );
             m_SharedUsed = true;
-            m_Current                = static_cast<int32_t>( index );
+            m_Current    = static_cast<int32_t>( index );
             return Common::MakeSuccess( barrier );
         }
 
@@ -310,8 +313,9 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( false );
     }
 
-    Common::BoolResultStr VulkanRdgTransientAllocator::ReserveShared( Slot& slot, GraphHeaps& entry,
-                                                                     std::span<const RDG::TransientHeapDesc> heaps )
+    Common::BoolResultStr
+    VulkanRdgTransientAllocator::ReserveShared( Slot& slot, GraphHeaps& entry,
+                                                std::span<const RDG::TransientHeapDesc> heaps )
     {
         // The plan has fewer heaps than last time: what was placed in the others goes.
         for ( auto extra = static_cast<uint32_t>( heaps.size() ); extra < entry.SharedIndex.size(); ++extra )
@@ -338,12 +342,12 @@ namespace Desert::Graphic::API::Vulkan
                                        } );
             if ( found == m_Shared.end() )
             {
-                m_Shared.push_back( SharedHeap{ .Class          = want.Class,
-                                                   .MemoryTypeBits = want.MemoryTypeBits,
-                                                   .Ordinal        = ordinal,
-                                                   .Held           = {},
-                                                   .WantThisFrame   = 0,
-                                                   .OversizedFrames = 0 } );
+                m_Shared.push_back( SharedHeap{ .Class           = want.Class,
+                                                .MemoryTypeBits  = want.MemoryTypeBits,
+                                                .Ordinal         = ordinal,
+                                                .Held            = {},
+                                                .WantThisFrame   = 0,
+                                                .OversizedFrames = 0 } );
                 found = m_Shared.end() - 1;
             }
             const auto  shared = static_cast<uint32_t>( found - m_Shared.begin() );

@@ -56,8 +56,8 @@ namespace Desert::Graphic::API::Vulkan
         // complete, and no later frame used them.
         // Returns true when the caller must record, before the graph's first access, a full memory barrier
         // (ALL_COMMANDS -> ALL_COMMANDS, writes -> reads and writes): an earlier graph used the bytes.
-        Common::ResultStr<bool> ReserveGraphHeaps( std::string_view graph, std::span<const RDG::TransientHeapDesc> heaps,
-                                                   bool share );
+        Common::ResultStr<bool>                                   ReserveGraphHeaps( std::string_view                        graph,
+                                                                                     std::span<const RDG::TransientHeapDesc> heaps, bool share );
         Common::ResultStr<std::shared_ptr<RDG::IPhysicalTexture>> PlaceTexture( const RDG::Allocation&  allocation,
                                                                                 const RDG::TextureDesc& desc,
                                                                                 uint32_t                accessMask,
@@ -147,7 +147,7 @@ namespace Desert::Graphic::API::Vulkan
 
         static void Retire( Slot& slot, GraphHeaps& graph, uint32_t heap );
         // Retires every graph's resources placed in the slot's shared heap @p index; its bytes go to the pool.
-        void RetireShared( uint32_t index );
+        void        RetireShared( uint32_t index );
         static void RetirePlaced( Slot& slot, GraphHeaps& graph, uint32_t heap );
         static void Release( Slot& slot, GraphHeaps& graph );
         static void DestroyRetired( Slot& slot );
