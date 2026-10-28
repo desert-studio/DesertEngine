@@ -368,6 +368,14 @@ namespace Desert::Editor
         return viewport->DropMeshAsset( path, target );
     }
 
+    bool ViewportPanel::AnyMeshDropLoading()
+    {
+        for ( const ViewportPanel* viewport : s_Live )
+            if ( viewport->m_AsyncLoader && viewport->m_AsyncLoader->IsBusy() )
+                return true;
+        return false;
+    }
+
     Common::BoolResultStr ViewportPanel::DropPrefabIntoActiveViewport( const std::string&              path,
                                                                        const std::optional<glm::vec3>& surface )
     {
