@@ -53,7 +53,8 @@ namespace Desert::Graphic
                                       { "DiffuseAlbedoTexture", Kind::StorageTexture },
                                       { "SpecularAlbedoTexture", Kind::StorageTexture },
                                       { "NormalRoughnessTexture", Kind::StorageTexture },
-                                      { "SpecularHitDistanceTexture", Kind::StorageTexture } } } );
+                                      { "SpecularHitDistanceTexture", Kind::StorageTexture } },
+                      .PushConstantBytes = static_cast<uint32_t>( sizeof( PathGuidesPush ) ) } );
             return layout;
         }
         // The slot names DLSSRRPathGuides.shader binds, spelled once (RDGShaderParameters.hpp).
@@ -91,7 +92,8 @@ namespace Desert::Graphic
                                       { "LinearClampSampler", Kind::Sampler },
                                       { "DiffuseAlbedoTexture", Kind::StorageTexture },
                                       { "SpecularAlbedoTexture", Kind::StorageTexture },
-                                      { "SpecularHitDistanceTexture", Kind::StorageTexture } } } );
+                                      { "SpecularHitDistanceTexture", Kind::StorageTexture } },
+                      .PushConstantBytes = static_cast<uint32_t>( sizeof( GuidesPush ) ) } );
             return layout;
         }
         // What the post chain reads after the temporal resolve (TemporalAA's output is the same).
