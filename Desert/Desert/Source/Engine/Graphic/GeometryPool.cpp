@@ -34,9 +34,11 @@ namespace Desert::Graphic
             return ( value + granule - 1 ) / granule * granule;
         }
 
-        constexpr uint64_t kInitialVertices = 256ull * 1024ull;
-        constexpr uint64_t kInitialIndices  = 1024ull * 1024ull;
-        constexpr uint64_t kMaxBufferBytes  = std::numeric_limits<uint32_t>::max();
+        // A page's vertex (or index) buffer: large enough that a scene binds a handful of pages per pipeline (the
+        // GPU-driven bins split by page), small enough that the last, partly filled page of each arena wastes
+        // little. A mesh larger than a page gets a page of its own size.
+        constexpr uint64_t kPageBytes      = 64ull * 1024ull * 1024ull;
+        constexpr uint64_t kMaxBufferBytes = std::numeric_limits<uint32_t>::max();
     } // namespace
 
     // ---------------------------------------------------------------------------------------------------------
@@ -137,95 +139,86 @@ namespace Desert::Graphic
 
     namespace
     {
-        // Creates (first use) or grows a Pooled vertex buffer to @p bytes.
-        Common::BoolResultStr RT_SizeVertexBuffer( std::shared_ptr<VertexBuffer>& buffer, const uint64_t bytes,
-                                                   const char* what )
+        // Creates a page's Pooled vertex buffer of @p bytes.
+        Common::ResultStr<std::shared_ptr<VertexBuffer>> RT_CreateVertexPage( const uint64_t bytes,
+                                                                               const char*    what )
         {
             if ( bytes > kMaxBufferBytes )
-                return Common::MakeFormattedError<bool>(
-                     "GeometryPool: the {} buffer would pass 2^32 bytes ({} bytes)", what, bytes );
-            if ( buffer == nullptr )
-            {
-                buffer = VertexBuffer::Create( static_cast<uint32_t>( bytes ), BufferUsage::Pooled );
-                buffer->ClaimOwnership( ResourceOwner::AssetService );
-                const auto built = buffer->RT_Invalidate();
-                if ( !built.IsSuccess() )
-                {
-                    buffer.reset();
-                    return Common::MakeFormattedError<bool>( "GeometryPool: the {} buffer was not created: {}",
-                                                             what, built.GetError() );
-                }
-            }
-            else if ( const auto grown = buffer->RT_Grow( static_cast<uint32_t>( bytes ) ); !grown.IsSuccess() )
-                return Common::MakeFormattedError<bool>(
-                     "GeometryPool: the {} buffer did not grow to {} bytes: {}", what, bytes, grown.GetError() );
+                return Common::MakeFormattedError<std::shared_ptr<VertexBuffer>>(
+                     "GeometryPool: a {} page would pass 2^32 bytes ({} bytes)", what, bytes );
+            auto buffer = VertexBuffer::Create( static_cast<uint32_t>( bytes ), BufferUsage::Pooled );
+            buffer->ClaimOwnership( ResourceOwner::AssetService );
+            if ( const auto built = buffer->RT_Invalidate(); !built.IsSuccess() )
+                return Common::MakeFormattedError<std::shared_ptr<VertexBuffer>>(
+                     "GeometryPool: a {} page was not created: {}", what, built.GetError() );
             buffer->RecordDeviceBytes( static_cast<std::size_t>( bytes ) );
-            return Common::MakeSuccess( true );
+            return Common::MakeSuccess( std::move( buffer ) );
         }
     } // namespace
 
-    Common::ResultStr<uint64_t> GeometryPool::RT_TakeVertices( Arena& arena, const GeometryArena which,
-                                                               const uint64_t count )
+    Common::ResultStr<GeometryPool::PageSpan> GeometryPool::RT_TakeVertices( Arena& arena, const GeometryArena which,
+                                                                             const uint64_t count )
     {
-        if ( const auto first = arena.Spans.Take( count ) )
-            return Common::MakeSuccess( *first );
-        const uint64_t granule     = VertexGranule( which );
-        const uint64_t newCapacity = RoundUp(
-             std::max( { kInitialVertices, arena.Spans.Capacity * 2, arena.Spans.Capacity + count } ), granule );
-        if ( const auto sized =
-                  RT_SizeVertexBuffer( arena.Vertices, newCapacity * GeometryArenaVertexStride( which ),
-                                       which == GeometryArena::Static ? "static vertex" : "skinned vertex" );
-             !sized.IsSuccess() )
-            return Common::MakeError<uint64_t>( sized.GetError() );
-        if ( const auto sized =
-                  RT_SizeVertexBuffer( arena.Streams, newCapacity * kGeometryStreamStride,
-                                       which == GeometryArena::Static ? "static stream" : "skinned stream" );
-             !sized.IsSuccess() )
-            return Common::MakeError<uint64_t>( sized.GetError() );
-        if ( arena.Spans.Capacity != 0 )
-            ++m_Growths;
-        arena.Spans.Extend( newCapacity );
-        const auto first = arena.Spans.Take( count );
+        for ( std::size_t page = 0; page < arena.Pages.size(); ++page )
+            if ( const auto first = arena.Pages[page].Spans.Take( count ) )
+                return Common::MakeSuccess( PageSpan{ static_cast<uint32_t>( page ), *first } );
+        const uint64_t stride   = GeometryArenaVertexStride( which );
+        const uint64_t granule  = VertexGranule( which );
+        const uint64_t capacity = RoundUp( std::max( kPageBytes / stride, count ), granule );
+        VertexPage     page;
+        auto           vertices =
+             RT_CreateVertexPage( capacity * stride, which == GeometryArena::Static ? "static vertex" : "skinned vertex" );
+        if ( !vertices.IsSuccess() )
+            return Common::MakeError<PageSpan>( vertices.GetError() );
+        auto streams = RT_CreateVertexPage( capacity * kGeometryStreamStride,
+                                            which == GeometryArena::Static ? "static stream" : "skinned stream" );
+        if ( !streams.IsSuccess() )
+            return Common::MakeError<PageSpan>( streams.GetError() );
+        page.Vertices = std::move( vertices.GetValue() );
+        page.Streams  = std::move( streams.GetValue() );
+        page.Spans.Extend( capacity );
+        const auto first = page.Spans.Take( count );
         if ( !first )
-            return Common::MakeFormattedError<uint64_t>(
-                 "GeometryPool: {} vertices do not fit an arena grown to {}", count, newCapacity );
-        return Common::MakeSuccess( *first );
+            return Common::MakeFormattedError<PageSpan>( "GeometryPool: {} vertices do not fit a page of {}", count,
+                                                         capacity );
+        arena.Pages.push_back( std::move( page ) );
+        return Common::MakeSuccess( PageSpan{ static_cast<uint32_t>( arena.Pages.size() - 1 ), *first } );
     }
 
-    Common::ResultStr<uint64_t> GeometryPool::RT_TakeIndices( const uint64_t count )
+    Common::ResultStr<GeometryPool::PageSpan> GeometryPool::RT_TakeIndices( const uint64_t count )
     {
-        if ( const auto first = m_IndexSpans.Take( count ) )
-            return Common::MakeSuccess( *first );
-        const uint64_t granule     = Granule( kGeometryIndexStride );
-        const uint64_t newCapacity = RoundUp(
-             std::max( { kInitialIndices, m_IndexSpans.Capacity * 2, m_IndexSpans.Capacity + count } ), granule );
-        const uint64_t bytes = newCapacity * kGeometryIndexStride;
+        for ( std::size_t page = 0; page < m_IndexPages.size(); ++page )
+            if ( const auto first = m_IndexPages[page].Spans.Take( count ) )
+                return Common::MakeSuccess( PageSpan{ static_cast<uint32_t>( page ), *first } );
+        const uint64_t capacity =
+             RoundUp( std::max( kPageBytes / kGeometryIndexStride, count ), Granule( kGeometryIndexStride ) );
+        const uint64_t bytes = capacity * kGeometryIndexStride;
         if ( bytes > kMaxBufferBytes )
-            return Common::MakeFormattedError<uint64_t>(
-                 "GeometryPool: the index buffer would pass 2^32 bytes ({} bytes)", bytes );
-        if ( m_Indices == nullptr )
-        {
-            m_Indices = IndexBuffer::Create( static_cast<uint32_t>( bytes ), BufferUsage::Pooled );
-            m_Indices->ClaimOwnership( ResourceOwner::AssetService );
-            if ( const auto built = m_Indices->RT_Invalidate(); !built.IsSuccess() )
-            {
-                m_Indices.reset();
-                return Common::MakeFormattedError<uint64_t>( "GeometryPool: the index buffer was not created: {}",
-                                                             built.GetError() );
-            }
-        }
-        else if ( const auto grown = m_Indices->RT_Grow( static_cast<uint32_t>( bytes ) ); !grown.IsSuccess() )
-            return Common::MakeFormattedError<uint64_t>(
-                 "GeometryPool: the index buffer did not grow to {} bytes: {}", bytes, grown.GetError() );
-        m_Indices->RecordDeviceBytes( static_cast<std::size_t>( bytes ) );
-        if ( m_IndexSpans.Capacity != 0 )
-            ++m_Growths;
-        m_IndexSpans.Extend( newCapacity );
-        const auto first = m_IndexSpans.Take( count );
+            return Common::MakeFormattedError<PageSpan>( "GeometryPool: an index page would pass 2^32 bytes ({} bytes)",
+                                                         bytes );
+        IndexPage page;
+        page.Indices = IndexBuffer::Create( static_cast<uint32_t>( bytes ), BufferUsage::Pooled );
+        page.Indices->ClaimOwnership( ResourceOwner::AssetService );
+        if ( const auto built = page.Indices->RT_Invalidate(); !built.IsSuccess() )
+            return Common::MakeFormattedError<PageSpan>( "GeometryPool: an index page was not created: {}",
+                                                         built.GetError() );
+        page.Indices->RecordDeviceBytes( static_cast<std::size_t>( bytes ) );
+        page.Spans.Extend( capacity );
+        const auto first = page.Spans.Take( count );
         if ( !first )
-            return Common::MakeFormattedError<uint64_t>(
-                 "GeometryPool: {} indices do not fit an index buffer grown to {}", count, newCapacity );
-        return Common::MakeSuccess( *first );
+            return Common::MakeFormattedError<PageSpan>( "GeometryPool: {} indices do not fit a page of {}", count,
+                                                         capacity );
+        m_IndexPages.push_back( std::move( page ) );
+        return Common::MakeSuccess( PageSpan{ static_cast<uint32_t>( m_IndexPages.size() - 1 ), *first } );
+    }
+
+    void GeometryPool::GiveBack( const GeometryPoolRange& range )
+    {
+        m_Arenas[static_cast<std::size_t>( range.Arena )].Pages[range.VertexPage].Spans.Give(
+             range.BaseVertex, RoundUp( range.VertexCount, VertexGranule( range.Arena ) ) );
+        if ( range.IndexCount != 0 )
+            m_IndexPages[range.IndexPage].Spans.Give( range.FirstIndex,
+                                                      RoundUp( range.IndexCount, Granule( kGeometryIndexStride ) ) );
     }
 
     Common::BoolResultStr GeometryPool::RT_Write( const GeometryPoolRange&           range,
@@ -233,9 +226,9 @@ namespace Desert::Graphic
                                                   std::span<const MeshVertexStreams> streams,
                                                   std::span<const uint32_t>          indices )
     {
-        Arena&         arena  = m_Arenas[static_cast<std::size_t>( range.Arena )];
-        const uint64_t stride = GeometryArenaVertexStride( range.Arena );
-        if ( const auto wrote = arena.Vertices->RT_WriteRange( uint64_t{ range.BaseVertex } * stride,
+        const VertexPage& page   = m_Arenas[static_cast<std::size_t>( range.Arena )].Pages[range.VertexPage];
+        const uint64_t    stride = GeometryArenaVertexStride( range.Arena );
+        if ( const auto wrote = page.Vertices->RT_WriteRange( uint64_t{ range.BaseVertex } * stride,
                                                                vertices.data(), vertices.size() );
              !wrote.IsSuccess() )
             return Common::MakeFormattedError<bool>( "GeometryPool: vertex upload: {}", wrote.GetError() );
@@ -247,13 +240,13 @@ namespace Desert::Graphic
             defaults.resize( range.VertexCount );
             streams = defaults;
         }
-        if ( const auto wrote = arena.Streams->RT_WriteRange( uint64_t{ range.BaseVertex } * kGeometryStreamStride,
+        if ( const auto wrote = page.Streams->RT_WriteRange( uint64_t{ range.BaseVertex } * kGeometryStreamStride,
                                                               streams.data(), streams.size_bytes() );
              !wrote.IsSuccess() )
             return Common::MakeFormattedError<bool>( "GeometryPool: stream upload: {}", wrote.GetError() );
 
         if ( !indices.empty() )
-            if ( const auto wrote = m_Indices->RT_WriteRange( uint64_t{ range.FirstIndex } * kGeometryIndexStride,
+            if ( const auto wrote = m_IndexPages[range.IndexPage].Indices->RT_WriteRange( uint64_t{ range.FirstIndex } * kGeometryIndexStride,
                                                               indices.data(), indices.size_bytes() );
                  !wrote.IsSuccess() )
                 return Common::MakeFormattedError<bool>( "GeometryPool: index upload: {}", wrote.GetError() );
@@ -285,47 +278,28 @@ namespace Desert::Graphic
 
         GeometryPoolRange range;
         range.Arena       = arena;
-        range.BaseVertex  = static_cast<uint32_t>( base.GetValue() );
+        range.VertexPage  = base.GetValue().Page;
+        range.BaseVertex  = static_cast<uint32_t>( base.GetValue().First );
         range.VertexCount = static_cast<uint32_t>( vertexCount );
         if ( !indices.empty() )
         {
             const auto first = RT_TakeIndices( RoundUp( indices.size(), Granule( kGeometryIndexStride ) ) );
             if ( !first.IsSuccess() )
             {
-                target.Spans.Give( base.GetValue(), vertexSpan );
+                target.Pages[range.VertexPage].Spans.Give( range.BaseVertex, vertexSpan );
                 return Common::MakeError<GeometryPoolAllocation>( first.GetError() );
             }
-            range.FirstIndex = static_cast<uint32_t>( first.GetValue() );
+            range.IndexPage  = first.GetValue().Page;
+            range.FirstIndex = static_cast<uint32_t>( first.GetValue().First );
             range.IndexCount = static_cast<uint32_t>( indices.size() );
         }
         if ( const auto wrote = RT_Write( range, vertices, streams, indices ); !wrote.IsSuccess() )
         {
-            target.Spans.Give( base.GetValue(), vertexSpan );
-            if ( range.IndexCount != 0 )
-                m_IndexSpans.Give( range.FirstIndex,
-                                   RoundUp( range.IndexCount, Granule( kGeometryIndexStride ) ) );
+            GiveBack( range );
             return Common::MakeError<GeometryPoolAllocation>( wrote.GetError() );
         }
         ++m_Allocations;
         return Common::MakeSuccess( GeometryPoolAllocation( this, range ) );
-    }
-
-    std::shared_ptr<VertexBuffer> GeometryPool::GetVertexBuffer( const GeometryArena arena ) const
-    {
-        std::lock_guard lock( m_Mutex );
-        return m_Arenas[static_cast<std::size_t>( arena )].Vertices;
-    }
-
-    std::shared_ptr<VertexBuffer> GeometryPool::GetStreamBuffer( const GeometryArena arena ) const
-    {
-        std::lock_guard lock( m_Mutex );
-        return m_Arenas[static_cast<std::size_t>( arena )].Streams;
-    }
-
-    std::shared_ptr<IndexBuffer> GeometryPool::GetIndexBuffer() const
-    {
-        std::lock_guard lock( m_Mutex );
-        return m_Indices;
     }
 
     MeshGeometry GeometryPool::Describe( const GeometryPoolAllocation& allocation,
@@ -336,10 +310,10 @@ namespace Desert::Graphic
             return geometry;
         const GeometryPoolRange& range = allocation.Range();
         std::lock_guard          lock( m_Mutex );
-        const Arena&             arena = m_Arenas[static_cast<std::size_t>( range.Arena )];
-        geometry.Vertices              = arena.Vertices;
-        geometry.Streams               = arena.Streams;
-        geometry.Indices               = range.IndexCount != 0 ? m_Indices : nullptr;
+        const VertexPage&        page  = m_Arenas[static_cast<std::size_t>( range.Arena )].Pages[range.VertexPage];
+        geometry.Vertices              = page.Vertices;
+        geometry.Streams               = page.Streams;
+        geometry.Indices               = range.IndexCount != 0 ? m_IndexPages[range.IndexPage].Indices : nullptr;
         geometry.VertexStride          = GeometryArenaVertexStride( range.Arena );
         geometry.VertexByteOffset      = uint64_t{ range.BaseVertex } * geometry.VertexStride;
         geometry.StreamByteOffset      = uint64_t{ range.BaseVertex } * kGeometryStreamStride;
@@ -369,12 +343,7 @@ namespace Desert::Graphic
                        {
                            if ( retired.Frame + kRetireFrames > m_Frame )
                                return false;
-                           const GeometryPoolRange& range = retired.Range;
-                           m_Arenas[static_cast<std::size_t>( range.Arena )].Spans.Give(
-                                range.BaseVertex, RoundUp( range.VertexCount, VertexGranule( range.Arena ) ) );
-                           if ( range.IndexCount != 0 )
-                               m_IndexSpans.Give( range.FirstIndex,
-                                                  RoundUp( range.IndexCount, Granule( kGeometryIndexStride ) ) );
+                           GiveBack( retired.Range );
                            --m_Allocations;
                            return true;
                        } );
@@ -393,14 +362,19 @@ namespace Desert::Graphic
         stats.Binds       = m_LastBinds;
         stats.MeshBinds   = m_LastMeshBinds;
         stats.Allocations = m_Allocations;
-        stats.Growths     = m_Growths;
         for ( std::size_t i = 0; i < kGeometryArenaCount; ++i )
+            for ( const VertexPage& page : m_Arenas[i].Pages )
+            {
+                stats.VertexCapacity[i] += page.Spans.Capacity;
+                stats.VerticesUsed[i] += page.Spans.Used;
+                ++stats.Pages;
+            }
+        for ( const IndexPage& page : m_IndexPages )
         {
-            stats.VertexCapacity[i] = m_Arenas[i].Spans.Capacity;
-            stats.VerticesUsed[i]   = m_Arenas[i].Spans.Used;
+            stats.IndexCapacity += page.Spans.Capacity;
+            stats.IndicesUsed += page.Spans.Used;
+            ++stats.Pages;
         }
-        stats.IndexCapacity = m_IndexSpans.Capacity;
-        stats.IndicesUsed   = m_IndexSpans.Used;
         return stats;
     }
 
@@ -414,8 +388,7 @@ namespace Desert::Graphic
                       m_Allocations );
         for ( Arena& arena : m_Arenas )
             arena = Arena{};
-        m_Indices.reset();
-        m_IndexSpans = SpanList{};
+        m_IndexPages.clear();
         m_Retired.clear();
         m_Allocations = 0;
         m_ShutDown    = true;

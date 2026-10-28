@@ -13,7 +13,7 @@
 // queue, the pattern of the static mesh upload these buffers replace.
 namespace Desert::Graphic::API::Vulkan
 {
-    // A device-local buffer of the mesh role, also a transfer source so a growth can copy it.
+    // A device-local buffer of the mesh role, also a transfer source (a copy may read a mesh out of it).
     [[nodiscard]] inline Common::ResultStr<VmaAllocation> RT_CreatePooledBuffer( VulkanAllocator&     allocator,
                                                                                  const MeshBufferRole role,
                                                                                  const uint64_t       size,
@@ -75,45 +75,6 @@ namespace Desert::Graphic::API::Vulkan
         if ( flushed.GetValue() != VK_SUCCESS )
             return Common::MakeFormattedError<bool>( "pooled buffer copy failed (VkResult {})",
                                                      static_cast<int>( flushed.GetValue() ) );
-        return Common::MakeSuccess( true );
-    }
-
-    // Replaces @p buffer / @p memory (holding @p oldSize bytes) by a new buffer of @p newSize bytes holding the
-    // same first @p oldSize bytes; the old buffer is retired on the frame rule (RT_DestroyBuffer), so a frame
-    // still recording or in flight with it keeps reading valid memory.
-    [[nodiscard]] inline Common::BoolResultStr
-    RT_GrowPooledBuffer( VulkanAllocator& allocator, const MeshBufferRole role, const char* tag, VkBuffer& buffer,
-                         VmaAllocation& memory, const uint64_t oldSize, const uint64_t newSize )
-    {
-        if ( newSize <= oldSize )
-            return Common::MakeFormattedError<bool>( "pooled buffer growth from {} to {} bytes does not grow",
-                                                     oldSize, newSize );
-        VkBuffer   grown     = VK_NULL_HANDLE;
-        const auto allocated = RT_CreatePooledBuffer( allocator, role, newSize, tag, grown );
-        if ( !allocated.IsSuccess() )
-            return Common::MakeError<bool>( allocated.GetError() );
-        if ( buffer != VK_NULL_HANDLE && oldSize != 0 )
-        {
-            auto command = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
-            if ( !command.IsSuccess() )
-            {
-                allocator.RT_DestroyBuffer( grown, allocated.GetValue() );
-                return Common::MakeError<bool>( command.GetError() );
-            }
-            VkBufferCopy region{};
-            region.size = oldSize;
-            vkCmdCopyBuffer( command.GetValue(), buffer, grown, 1, &region );
-            const auto flushed =
-                 CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( command.GetValue() );
-            if ( !flushed.IsSuccess() || flushed.GetValue() != VK_SUCCESS )
-            {
-                allocator.RT_DestroyBuffer( grown, allocated.GetValue() );
-                return Common::MakeError<bool>( "pooled buffer growth copy failed; the buffer keeps its size" );
-            }
-        }
-        allocator.RT_DestroyBuffer( buffer, memory );
-        buffer = grown;
-        memory = allocated.GetValue();
         return Common::MakeSuccess( true );
     }
 } // namespace Desert::Graphic::API::Vulkan

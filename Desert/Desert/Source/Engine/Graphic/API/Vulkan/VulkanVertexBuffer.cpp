@@ -262,19 +262,4 @@ namespace Desert::Graphic::API::Vulkan
                               .get();
         return RT_WritePooledBuffer( *allocator, m_VulkanBuffer, offset, data, size );
     }
-
-    Common::BoolResultStr VulkanVertexBuffer::RT_Grow( const uint32_t newSize )
-    {
-        if ( m_Usage != BufferUsage::Pooled )
-            return Common::MakeError<bool>( "RT_Grow: not a Pooled buffer" );
-        auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
-                              ->GetVulkanAllocator()
-                              .get();
-        if ( const auto grown = RT_GrowPooledBuffer( *allocator, MeshBufferRole::Vertex, "PooledVertexBuffer",
-                                                     m_VulkanBuffer, m_MemoryAllocation, m_Size, newSize );
-             !grown.IsSuccess() )
-            return grown;
-        m_Size = newSize;
-        return Common::MakeSuccess( true );
-    }
 } // namespace Desert::Graphic::API::Vulkan
