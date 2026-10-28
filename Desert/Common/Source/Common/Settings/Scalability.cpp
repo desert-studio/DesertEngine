@@ -305,6 +305,10 @@ namespace Common::Scalability
                "denoises "
                "the path-traced view: none, the engine's ReLAX or DLSS Ray Reconstruction)",
                Of( PathTracingDenoiserMethod::Auto ), Vis::Basic },
+             { P::PathTracingDenoiserAntiFirefly, G::PathTracing, "PathTracing.Denoiser.AntiFirefly", 0, 1,
+               CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the ReLAX denoiser's firefly clamp before "
+               "the a-trous)", 1, Vis::Advanced },
              { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,
                CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (pixels a uniform probe side: "

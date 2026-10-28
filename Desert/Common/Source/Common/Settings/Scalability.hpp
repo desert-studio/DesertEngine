@@ -280,6 +280,10 @@ namespace Common::Scalability
         // the paths raw with their own guides), Auto (RR where offered, else ReLAX; never left in a resolved
         // quality).
         PathTracingDenoiser,
+        // 0/1: the ReLAX denoiser's anti-firefly (NRD ReLAX enableAntiFirefly, System::PathTracer "Denoise
+        // AntiFirefly"): a lobe's luminance above its 3 x 3 neighbourhood is handed to that neighbourhood before the
+        // a-trous, by at most two deviations of its mean (energy-conserving; the converged image is untouched)
+        PathTracingDenoiserAntiFirefly,
         // GI SoftwareTraced / HardwareTraced screen probe layout, read by SceneRenderer::BeginScene into
         // ScreenProbeGatherInputs: the gather compiles its programs under it (ScreenProbeLayout, the shaders'
         // SP_DOWNSAMPLE_LOG2 / SP_TRACED_TEXELS permutation) and resizes its atlases on a change.

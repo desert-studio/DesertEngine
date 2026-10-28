@@ -1070,7 +1070,8 @@ namespace Desert::Graphic
                              .MaxPathIntensity =
                                   quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
                              .Denoiser = quality.As<Common::Scalability::PathTracingDenoiserMethod>(
-                                  Parameter::PathTracingDenoiser ) };
+                                  Parameter::PathTracingDenoiser ),
+                             .AntiFirefly = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
