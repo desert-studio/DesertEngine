@@ -1,0 +1,9 @@
+# PKG-COOK-SSR [2_whole], Bistro half: the whole Bistro (its own content project beside the engine tree) is packaged and
+# runs from the package with 0 "is not in the package" lines (lead, for Windows METHOD-QUALITY: the ForwardShadowMask
+# sun/local/both permutations are cooked, dev 17dd8eae7). FIELD_Barn's half is Scenarios/Editor/PKG-COOK-SSR.scn.
+# After PASS, outside the editor: the packaged Runtime --scene Content/Scenes/B16_Bistro_Street.desce --shot <png>
+# --shot-frames 300; its log: 0 x "not in the package".
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Когда run Build "Package Game"
+Тогда 2_whole пакет Bistro собран: в логе нет «would not cook», PackageCook 0 failure(s); вьюпорт - улица Bistro; packaged Runtime на B16_Bistro_Street: «not in the package» = 0
