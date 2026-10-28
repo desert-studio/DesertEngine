@@ -84,6 +84,9 @@ namespace Desert::Engine
         // --- Indirect draws (GPU-DRIVEN; read only by GpuDriven::SelectIndirectSubmission) --------------
         /// VK multiDrawIndirect: one vkCmdDrawIndexedIndirect with drawCount > 1 (an IndirectGroup in one call).
         bool SupportsMultiDrawIndirect = false;
+        /// VkPhysicalDeviceLimits::maxDrawIndirectCount: the most records one indirect call may name (65535 on
+        /// KosmicKrisp, 2^30 on MoltenVK); a longer IndirectGroup is split into several calls at this count.
+        uint32_t MaxDrawIndirectCount = 1;
 
         // --- Feature flags the renderer branches on -------------------------------------------------
         bool SupportsTimestampQueries    = false; ///< GPU-side profiling; the profiler is CPU-only without it.

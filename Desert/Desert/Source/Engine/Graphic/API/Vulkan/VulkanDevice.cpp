@@ -64,6 +64,7 @@ namespace Desert::Graphic::API::Vulkan
         m_Capabilities.SupportsNonSolidFill         = m_DeviceCaps.Has( Capability::FillModeNonSolid );
         m_Capabilities.SupportsTextureCompressionBC = m_DeviceCaps.Has( Capability::TextureCompressionBC );
         m_Capabilities.SupportsMultiDrawIndirect    = m_DeviceCaps.Has( Capability::MultiDrawIndirect );
+        m_Capabilities.MaxDrawIndirectCount         = deviceProperties.limits.maxDrawIndirectCount;
 
         // --- Identity ---
         m_Capabilities.Name = deviceProperties.deviceName;
