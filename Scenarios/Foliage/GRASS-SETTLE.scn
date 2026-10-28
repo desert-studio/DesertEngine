@@ -2,6 +2,11 @@
 # edge (FOLIAGE-PROOF 10-28, 1_field_grass lower left: a variety drawn with its Pending textures' schema defaults).
 Дано run Scene "Open Scene FIELD_Barn.desce"
 Дано run View "View mode: Lit"
-Тогда-вид 1_first the first frame after opening, default camera: no grass cell of another colour with a straight edge (lower left)
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1_first the first frame after opening, default FOV: no grass cell of another colour with a straight edge (lower left)
 Когда --subject viewport set Camera.FOV 70
 Тогда-вид 2_fov70 FOV 70: the grass is uniform
