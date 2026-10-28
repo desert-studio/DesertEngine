@@ -33,6 +33,7 @@
 #include "Editor/Core/CommandHistory.hpp"
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -45,6 +46,8 @@
 #include <ImGui/imgui_internal.h>
 
 #include <charconv>
+#include <cmath>
+#include <glm/gtc/quaternion.hpp>
 #include <Common/Json/Json.hpp>
 #include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <format>
@@ -191,6 +194,65 @@ namespace Desert::Editor
                 }
             }
             return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
+        }
+
+        // ── THE VIEWPORT IN PLAY IS THE PLAYER'S VIEW TARGET ──────────────────────────────────────────
+        //
+        // In Play the viewport looks through the camera entity ResolveViewTarget chose (UE: the player
+        // controller's view target), driven into a GameplayCamera from that entity's WORLD transform every
+        // frame (Scene::UpdateActiveCameraSource). Moving "the viewport camera" there means moving that
+        // entity - the same write the Pilot mode makes (CameraPilot.cpp), world pose -> local transform
+        // under the parent chain - so the next frame's view is the pose asked for. Writing the
+        // GameplayCamera itself would be overwritten from the entity one frame later: the defect this
+        // replaces answered success and left the view where it was. Play's edits are discarded at Stop with
+        // the rest of the played world, so no undo step is recorded.
+        [[nodiscard]] Common::BoolResultStr WritePlayViewCamera( ::Desert::Core::Scene& scene,
+                                                                 const ViewportCameraWrite which,
+                                                                 const std::vector<float>& value )
+        {
+            const entt::entity target   = scene.GetViewTarget();
+            auto&              registry = scene.GetRegistry();
+            if ( target == entt::null || !registry.valid( target ) ||
+                 !registry.has<ECS::CameraComponent, ECS::TransformComponent>( target ) )
+                return Common::MakeError<bool>(
+                     "the scene is in Play and the view is not a camera entity, so there is no camera to move. "
+                     "Leave Play ('Action' / 'Stop') and place the editor camera instead." );
+
+            ECS::Entity entity( target, registry );
+            auto&       lens = entity.GetComponent<ECS::CameraComponent>().Data;
+            if ( which == ViewportCameraWrite::FOV )
+            {
+                lens.FOV = value[0];
+                return Common::MakeSuccess( true );
+            }
+
+            auto&           tc    = entity.GetComponent<ECS::TransformComponent>();
+            const glm::mat4 world = entity.GetWorldTransform();
+            const auto      now   = ::Desert::Core::CameraEntityViewOf( world, lens.FOV, lens.Near, lens.Far );
+
+            const glm::vec3 position = ( which == ViewportCameraWrite::Position )
+                                            ? glm::vec3( value[0], value[1], value[2] )
+                                            : now.Position;
+            ::Desert::Core::ViewBasis basis = now.Basis;
+            if ( which == ViewportCameraWrite::Direction )
+            {
+                // A named direction is an upright one, as SnapToDirection makes it for the editor camera;
+                // straight up or down has no upright, and there the view's top is world -Z (UE's Top view).
+                basis.Forward = glm::normalize( glm::vec3( value[0], value[1], value[2] ) );
+                basis.Up      = ( std::abs( basis.Forward.y ) > 0.9999f ) ? glm::vec3( 0.0f, 0.0f, -1.0f )
+                                                                          : glm::vec3( 0.0f, 1.0f, 0.0f );
+            }
+
+            const glm::mat4 parentWorld = world * glm::inverse( tc.GetTransform() );
+            const glm::vec3 worldScale( glm::length( glm::vec3( world[0] ) ), glm::length( glm::vec3( world[1] ) ),
+                                        glm::length( glm::vec3( world[2] ) ) );
+            const glm::mat4 local =
+                 glm::inverse( parentWorld ) * ::Desert::Core::CameraWorldTransformFor( position, basis, worldScale );
+            const glm::mat3 rotation( glm::normalize( glm::vec3( local[0] ) ), glm::normalize( glm::vec3( local[1] ) ),
+                                      glm::normalize( glm::vec3( local[2] ) ) );
+            tc.Translation = glm::vec3( local[3] );
+            tc.Rotation    = glm::eulerAngles( glm::quat_cast( rotation ) );
+            return Common::MakeSuccess( true );
         }
     } // namespace
     // =============================================================================================
@@ -642,16 +704,20 @@ namespace Desert::Editor
                 }
                 if ( request.Whose == Control::Subject::Viewport )
                 {
-                    ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera();
-                    if ( camera == nullptr )
+                    // The camera the viewport looks through: the editor's fly camera, or in Play the
+                    // GameplayCamera driven from the view target (what a write above moves).
+                    const auto viewCamera =
+                         m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->GetActiveCamera() : nullptr;
+                    if ( viewCamera == nullptr )
                         return Control::Response::Failure( request.Id, NoEditorCameraReason() );
+                    const glm::vec3 forward =
+                         -glm::normalize( glm::vec3( glm::inverse( viewCamera->GetViewMatrix() )[2] ) );
 
                     return Control::Response::Success(
                          request.Id,
                          Control::PropertiesToJson(
                               Control::kSubjects[static_cast<std::size_t>( Control::Subject::Viewport )].Name,
-                              DescribeViewportCamera( camera->GetPosition(), camera->GetDirection(),
-                                                      camera->GetFOV() ) ) );
+                              DescribeViewportCamera( viewCamera->GetPosition(), forward, viewCamera->GetFOV() ) ) );
                 }
 
                 if ( request.Whose == Control::Subject::Tool )
@@ -1008,9 +1074,8 @@ namespace Desert::Editor
     {
         if ( !m_Workspace.ActiveScene() )
             return "there is no scene, so there is no view to address.";
-        return "the active view is not the editor's fly camera — the scene is in Play and its own "
-               "CameraComponent is driving. Leave Play ('Action' / 'Stop' in the palette) and ask again; "
-               "moving the editor camera now would change a view nobody is looking through.";
+        return "the active view has no camera to address: it is neither the editor's fly camera nor, in Play, "
+               "a camera entity the player looks through. Open a scene view, or leave Play ('Action' / 'Stop').";
     }
 
     // `selection set SunElevation|SunAzimuth <deg>`: the Details direction widget's two numbers, through the same
@@ -1069,13 +1134,22 @@ namespace Desert::Editor
 
     Control::Response ControlService::SetViewportCameraProperty( const Control::Request& request )
     {
-        ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera();
-        if ( camera == nullptr )
-            return Control::Response::Failure( request.Id, NoEditorCameraReason() );
-
         const auto which = ValidateViewportCameraWrite( request.Property, request.Value );
         if ( !which )
             return Control::Response::Failure( request.Id, which.GetError() );
+
+        ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera();
+        if ( camera == nullptr )
+        {
+            if ( m_Workspace.ActiveScene() && m_Play.InPlayMode() )
+            {
+                const auto written = WritePlayViewCamera( *m_Workspace.ActiveScene(), which.GetValue(), request.Value );
+                if ( !written )
+                    return Control::Response::Failure( request.Id, written.GetError() );
+                return Control::Response::Success( request.Id );
+            }
+            return Control::Response::Failure( request.Id, NoEditorCameraReason() );
+        }
 
         // The lens, through the same setter the viewport's FOV slider calls.
         if ( which.GetValue() == ViewportCameraWrite::FOV )
