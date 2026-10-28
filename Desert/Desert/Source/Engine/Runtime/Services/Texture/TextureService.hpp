@@ -79,6 +79,12 @@ namespace Desert::Runtime
         /// on its next draw) when the texture lands.
         void RebuildWhenReady( const Assets::AssetHandle& texture, const Assets::AssetHandle& material ) const;
 
+        /// @p material still binds a slot default for a texture that has not settled (Ready or Failed).
+        bool AwaitedBy( const Assets::AssetHandle& material ) const
+        {
+            return m_Waiters.IsWaiting( material );
+        }
+
         // Original source file of a texture (e.g. ".../foo.gif"), empty when the handle is unknown. The one
         // synchronous door: an unread shell is finished NOW through AsyncAssetLoader::FlushOne, which the
         // SyncLoadLedger counts.

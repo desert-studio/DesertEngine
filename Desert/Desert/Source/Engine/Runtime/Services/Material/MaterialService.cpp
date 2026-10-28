@@ -728,6 +728,12 @@ namespace Desert::Runtime
         return material && m_BuiltToAsset.count( material ) != 0;
     }
 
+    bool MaterialService::AwaitsTextures( const Graphic::Material* built ) const
+    {
+        const auto it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
+        return it != m_BuiltToAsset.end() && ResourceRegistry::GetTextureService()->AwaitedBy( it->second );
+    }
+
     std::vector<Graphic::Material*> MaterialService::GetBuiltVariants( const Assets::AssetHandle& handle ) const
     {
         std::vector<Graphic::Material*> out;

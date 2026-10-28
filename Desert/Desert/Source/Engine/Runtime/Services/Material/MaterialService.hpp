@@ -201,6 +201,12 @@ namespace Desert::Runtime
         // any other pass. The caller now recognises that case and draws it with a material of its own.
         bool Owns( const Graphic::Material* material ) const;
 
+        // A service-built material whose asset bound a slot's schema default because a texture was still
+        // Pending (RebuildWhenReady). A renderer does not draw such a section — the same gate as a pipeline still
+        // in the driver: one frame of a grass variety in default textures is a cell of another colour with a
+        // straight edge (GRASS-SETTLE). False for a material the service does not own.
+        bool AwaitsTextures( const Graphic::Material* built ) const;
+
         // Every runtime material ALREADY BUILT for this handle, one per (path, pass) cell that has been
         // asked for. Live editing has to reach all of them: a parameter edit that updated only the static
         // forward material would leave the character wearing the old value — and would leave a deferred
