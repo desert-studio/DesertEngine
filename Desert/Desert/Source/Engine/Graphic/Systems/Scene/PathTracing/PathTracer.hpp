@@ -134,6 +134,17 @@ namespace Desert::Graphic::System
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PathTracingDenoiseAntiFireflyShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideAlbedoTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideNormalTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, IlluminationDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, IlluminationSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, FilteredDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, FilteredSpecularTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct PathTracingDenoiseFilterShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageTexture, GuideAlbedoTexture );
@@ -223,20 +234,20 @@ namespace Desert::Graphic::System
     //    PathsPerFrame paths through each jittered pixel centre every frame and hands that raw estimate to it -
     //    no accumulation, the upscaler's history is the integration - with this frame's guide sums
     //    (PathTracedGuides, AddPasses' result), the factors the colour was made with, in place of the G-buffer's;
-    //  - ReLAX, and RR whose runtime refused: the ReLAX-style denoiser (PathTracerDenoise.shader) runs on every
-    //  frame before the resolve:
+    //  - ReLAX, and RR whose runtime refused: the ReLAX-style denoiser (PathTracerDenoise.shader) runs on every frame before the resolve:
     //    per lobe, a temporal history reprojected by the camera's motion on the frames the camera moved (THE
-    //    DENOISER'S HISTORY below), the variance of the integrated signal, an energy-conserving variance-guided
-    //    a-trous, and the remodulation. Its edge-stopping width is the estimate's standard deviation, so it fades
+    //    DENOISER'S HISTORY below), the variance of the integrated signal, NRD ReLAX's anti-firefly
+    //    (PathTracing.Denoiser.AntiFirefly: an energy-conserving neighbourhood clamp whose reach is two deviations of
+    //    the mean), an energy-conserving variance-guided a-trous, and the remodulation. Its edge-stopping width is the estimate's standard deviation, so it fades
     //    as the paths add up and the converged image is the tracer's own.
     //
     // THE DENOISER'S HISTORY: the accumulation is the temporal integration of a still camera; a moving camera
     // restarts it every frame, and the history carries the integration across that restart instead - only that
     // restart: any other (a cut, a resize, the scene, the bounces, the clamp, the denoising upscaler) empties the
     // history, as it empties the sum. On a moving frame "Denoise Snapshot" folds the previous frame's sum into the
-    // history before the trace overwrites it and "Denoise Temporal" reprojects it after the trace; on a still
-    // frame the history stays as the camera left it and the sum grows beside it (PathTracerDenoise.shader). It is
-    // not IScreenSpaceDenoiser's work: that one reconstructs one lighting signal of the raster (diffuse,
+    // history before the trace overwrites it and "Denoise Temporal" reprojects it after the trace; on a still frame
+    // the history stays as the camera left it and the sum grows beside it (PathTracerDenoise.shader).
+    // It is not IScreenSpaceDenoiser's work: that one reconstructs one lighting signal of the raster (diffuse,
     // reflections, shadow visibility) with the raster's G-buffer; here the signal is the whole path-traced
     // radiance with guides from the paths themselves (glass looked through, sub-pixel averaged), as UE keeps its
     // path tracer's denoiser apart from the screen-space one.
@@ -267,6 +278,10 @@ namespace Desert::Graphic::System
             // PathTracing.Denoiser as resolved (THE DENOISER above): never Auto, Resolve settles it.
             Common::Scalability::PathTracingDenoiserMethod Denoiser =
                  Common::Scalability::PathTracingDenoiserMethod::ReLAX;
+            // PathTracing.Denoiser.AntiFirefly: ReLAX's "Denoise AntiFirefly" runs between the combine and the
+            // a-trous (PathTracerDenoise.shader). It reads the integrated signal only, so the sum and the history
+            // are the same with it on or off and a change restarts nothing.
+            bool AntiFirefly = true;
         };
 
         // Whether a path-traced view renders under DLSS Ray Reconstruction to hand the paths to it raw: the
@@ -368,7 +383,7 @@ namespace Desert::Graphic::System
             m_SkyReducePipeline  = reduce.GetValue();
 
             for ( DenoiseProgram* program : { &m_DenoiseSnapshot, &m_DenoiseTemporal, &m_DenoiseCombine,
-                                              &m_DenoiseFilter, &m_DenoiseRemodulate } )
+                                              &m_DenoiseAntiFirefly, &m_DenoiseFilter, &m_DenoiseRemodulate } )
             {
                 const std::string name = std::format( "PathTracerDenoise/{}", program->Name );
                 program->PassShader    = shaders->GetByName( name );
@@ -527,7 +542,8 @@ namespace Desert::Graphic::System
                 m_HistoryValid = true;
             }
             const RDG::TextureRef image =
-                 denoise ? AddDenoisePasses( graph, accumulation, history, width, height ) : accumulation.Radiance;
+                 denoise ? AddDenoisePasses( graph, accumulation, history, settings.AntiFirefly, width, height )
+                         : accumulation.Radiance;
             AddResolvePass( graph, image, sceneColor, frame.FrameIndex, frame.PreExposure );
             // Raw to the upscaler the sum is this frame's paths alone (sumKept is false), so its guide sums are this
             // frame's - the ones the colour just resolved was made with.
@@ -996,11 +1012,12 @@ namespace Desert::Graphic::System
                  } );
         }
 
-        // "PathTracing: Denoise Combine" + kDenoiseIterations "PathTracing: Denoise Filter" + "PathTracing:
-        // Denoise Remodulate" (PathTracerDenoise.shader), every frame: the denoised mean radiance (a = 1) the
-        // resolve reads in place of the accumulation.
+        // "PathTracing: Denoise Combine" + "PathTracing: Denoise AntiFirefly" (@p antiFirefly) + kDenoiseIterations
+        // "PathTracing: Denoise Filter" + "PathTracing: Denoise Remodulate" (PathTracerDenoise.shader), every frame:
+        // the denoised mean radiance (a = 1) the resolve reads in place of the accumulation.
         RDG::TextureRef AddDenoisePasses( RDG::Builder& graph, const AccumulationRefs& accumulation,
-                                          const HistoryRefs& history, const uint32_t width, const uint32_t height )
+                                          const HistoryRefs& history, const bool antiFirefly, const uint32_t width,
+                                          const uint32_t height )
         {
             constexpr RDG::Access  kR = RDG::Access::StorageRead;
             constexpr RDG::Access  kW = RDG::Access::StorageWrite;
@@ -1036,6 +1053,33 @@ namespace Desert::Graphic::System
                  } );
             // An empty history is cleared by the combine: from here on it is a defined one (of no paths).
             m_HistoryValid = true;
+
+            if ( antiFirefly )
+            {
+                const RDG::TextureRef diffuseTarget  = graph.CreateTexture( desc, "PathTracing.DenoiseDiffuse" );
+                const RDG::TextureRef specularTarget = graph.CreateTexture( desc, "PathTracing.DenoiseSpecular" );
+                graph.AddPass(
+                     "PathTracing: Denoise AntiFirefly", RDG::PassFlags::Compute,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         using P = PathTracingDenoiseAntiFireflyShaderParameters;
+                         pass.Bindings( m_DenoiseAntiFirefly.PassLayout.Get( m_DenoiseAntiFirefly.PassShader ),
+                                        Renderer::GetPipelineRouteFill( *m_DenoiseAntiFirefly.PassPipeline ) )
+                              .Storage( P::GuideAlbedoTexture, accumulation.GuideAlbedo, kR )
+                              .Storage( P::GuideNormalTexture, accumulation.GuideNormal, kR )
+                              .Storage( P::IlluminationDiffuseTexture, diffuse, kR )
+                              .Storage( P::IlluminationSpecularTexture, specular, kR )
+                              .Storage( P::FilteredDiffuseTexture, diffuseTarget, kW )
+                              .Storage( P::FilteredSpecularTexture, specularTarget, kW );
+                     },
+                     [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     {
+                         DESERT_PROFILE_PASS( "PathTracing: Denoise AntiFirefly" );
+                         return DispatchDenoise( context, m_DenoiseAntiFirefly, nullptr, width, height );
+                     } );
+                diffuse  = diffuseTarget;
+                specular = specularTarget;
+            }
 
             for ( uint32_t iteration = 0; iteration < kDenoiseIterations; ++iteration )
             {
@@ -1134,6 +1178,7 @@ namespace Desert::Graphic::System
         DenoiseProgram                      m_DenoiseSnapshot{ .Name = "Snapshot" };
         DenoiseProgram                      m_DenoiseTemporal{ .Name = "Temporal" };
         DenoiseProgram                      m_DenoiseCombine{ .Name = "Combine" };
+        DenoiseProgram                      m_DenoiseAntiFirefly{ .Name = "AntiFirefly" };
         DenoiseProgram                      m_DenoiseFilter{ .Name = "Filter" };
         DenoiseProgram                      m_DenoiseRemodulate{ .Name = "Remodulate" };
         std::shared_ptr<RayTracingPipeline> m_TracePipeline;
