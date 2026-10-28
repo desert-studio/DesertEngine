@@ -67,6 +67,18 @@ layout( binding = GI_SURFACE_CACHE_BINDING + 6 ) uniform texture2D SurfaceCacheO
 // EvaluateGlobalDistanceFieldHit: SampleWeightSum >= 0.9).
 #define SURFACE_CACHE_ENOUGH_HIT_WEIGHT 0.9
 
+// A mostly two-sided mesh's cards are captured from both faces of thin geometry, so a hit on either face lies far
+// from the depth one card captured: its bias grows by 50 cm (UE SampleLumenMeshCards, bMostlyTwoSided).
+#define SURFACE_CACHE_TWO_SIDED_EXTRA_BIAS 50.0
+
+// The bias a hit on the cards of @p meshCardsIndex is read with: the tracer's @p bias, grown for a mostly two-sided
+// mesh (UE: SurfaceCacheBias += 50 for bMostlyTwoSided).
+float SurfaceCacheMeshCardsBias( uint meshCardsIndex, float bias )
+{
+    return MeshCardsMostlyTwoSided( surfaceMeshCards[meshCardsIndex] ) ? bias + SURFACE_CACHE_TWO_SIDED_EXTRA_BIAS
+                                                                         : bias;
+}
+
 struct SurfaceCacheHitSample {
     vec3  lighting; // weighted FinalLighting
     float weight;
@@ -233,20 +245,23 @@ void SurfaceCacheSampleRow( uint row, vec3 position, vec3 normal, float bias, in
     const SurfaceCacheInstance instance = surfaceCacheInstances[row];
     if ( instance.cards.x == GI_NO_MESH_CARDS )
         return;
-    if ( any( lessThan( position, instance.boundsMin.xyz - bias ) ) ||
-         any( greaterThan( position, instance.boundsMax.xyz + bias ) ) )
+    const float meshBias = SurfaceCacheMeshCardsBias( instance.cards.x, bias );
+    if ( any( lessThan( position, instance.boundsMin.xyz - meshBias ) ) ||
+         any( greaterThan( position, instance.boundsMax.xyz + meshBias ) ) )
         return;
-    SurfaceCacheSampleMeshCards( instance.cards.x, position, normal, bias, acc );
+    SurfaceCacheSampleMeshCards( instance.cards.x, position, normal, meshBias, acc );
 }
 
 float SurfaceCacheBackFaceRow( uint row, vec3 position, vec3 normal, float bias )
 {
     const SurfaceCacheInstance instance = surfaceCacheInstances[row];
-    if ( instance.cards.x == GI_NO_MESH_CARDS ||
-         any( lessThan( position, instance.boundsMin.xyz - bias ) ) ||
-         any( greaterThan( position, instance.boundsMax.xyz + bias ) ) )
+    if ( instance.cards.x == GI_NO_MESH_CARDS )
         return 0.0;
-    return SurfaceCacheBackFaceMeshCards( instance.cards.x, position, normal, bias );
+    const float meshBias = SurfaceCacheMeshCardsBias( instance.cards.x, bias );
+    if ( any( lessThan( position, instance.boundsMin.xyz - meshBias ) ) ||
+         any( greaterThan( position, instance.boundsMax.xyz + meshBias ) ) )
+        return 0.0;
+    return SurfaceCacheBackFaceMeshCards( instance.cards.x, position, normal, meshBias );
 }
 
 // What the surface cache says of a hit (SurfaceCacheHitLighting).
