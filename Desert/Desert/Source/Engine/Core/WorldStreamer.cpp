@@ -10,6 +10,7 @@
 
 #include <Common/Content/ContentChunks.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Utilities/ProcessMemory.hpp>
 
 #include <Common/Json/Json.hpp>
 
@@ -240,18 +241,31 @@ namespace Desert::Core
                         }
                         for ( const WorldCells::IndexNotInstanced& missing : row->second->NotInstanced )
                             holes.push_back( missing.Reason );
-                        auto records = WorldCells::StoredCellRecords( stored.GetValue(), *row->second );
-                        if ( !records )
-                            return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
-                                                              "', " + name + ": " + records.GetError() );
-                        if ( records.GetValue().empty() )
+                        // A row without a file, or whose file lists no record, stands in for nothing.
+                        if ( !row->second->File.has_value() || row->second->Ids.empty() )
                             continue;
-                        for ( const Assets::EntityData& record : records.GetValue() )
-                            if ( byId.contains( *record.id ) )
-                                return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
-                                                                  "': an HLOD record of " + name +
-                                                                  " has a record's id; rename the world" );
-                        hlods.push_back( CellHLOD{ unit, records.ExtractValue() } );
+                        // Read when BeginHLODs makes it, not now (CellHLOD): `stored`, `byId` and `snapshot`
+                        // outlive that call, which is made in this scope.
+                        const WorldCells::BuiltHLODCell* cell = row->second;
+                        hlods.push_back( CellHLOD{
+                             unit,
+                             [&stored, &byId, &snapshot, cell,
+                              name]() -> Common::ResultStr<std::vector<Assets::EntityData>>
+                             {
+                                 using Records = std::vector<Assets::EntityData>;
+                                 auto records  = WorldCells::StoredCellRecords( stored.GetValue(), *cell );
+                                 if ( !records )
+                                     return Common::MakeError<Records>( "world streaming of '" +
+                                                                        snapshot->SceneName + "', " + name + ": " +
+                                                                        records.GetError() );
+                                 for ( const Assets::EntityData& record : records.GetValue() )
+                                     if ( byId.contains( *record.id ) )
+                                         return Common::MakeError<Records>(
+                                              "world streaming of '" + snapshot->SceneName +
+                                              "': an HLOD record of " + name +
+                                              " has a record's id; rename the world" );
+                                 return records;
+                             } } );
                     }
                     LOG_INFO( "[WorldPartition] Play of '{0}': {1} saved HLOD(s) from {2}, {3} stale cell(s)",
                               snapshot->SceneName, hlods.size(),
@@ -318,11 +332,18 @@ namespace Desert::Core
                     holes.push_back( missing.Reason );
                 if ( !row.File.has_value() )
                     continue;
-                auto records = WorldCells::HLODRecords( *world.Index, reader, hlod );
-                if ( !records )
-                    return Common::MakeError<Result>( "world streaming of '" + streamer->m_SceneName +
-                                                      "': " + records.GetError() );
-                hlods.push_back( { row.Unit, records.ExtractValue() } );
+                // Read when BeginHLODs makes it (CellHLOD); `world` and `reader` outlive that call, made below.
+                hlods.push_back( CellHLOD{ row.Unit,
+                                           [&world, &reader, hlod, &streamer]()
+                                                -> Common::ResultStr<std::vector<Assets::EntityData>>
+                                           {
+                                               auto records = WorldCells::HLODRecords( *world.Index, reader, hlod );
+                                               if ( !records )
+                                                   return Common::MakeError<std::vector<Assets::EntityData>>(
+                                                        "world streaming of '" + streamer->m_SceneName +
+                                                        "': " + records.GetError() );
+                                               return records;
+                                           } } );
             }
             if ( auto begun = streamer->BeginHLODs( std::move( hlods ), holes ); !begun )
                 return Common::MakeError<Result>( begun.GetError() );
@@ -594,14 +615,25 @@ namespace Desert::Core
     Common::BoolResultStr WorldStreamer::BeginHLODs( std::vector<CellHLOD>                 hlods,
                                                      std::span<const Rules::HLODExclusion> holes )
     {
-        std::vector<std::size_t>        units;
-        std::vector<Assets::EntityData> records;
+        std::vector<std::size_t> units;
+        units.reserve( hlods.size() );
+        for ( const CellHLOD& hlod : hlods )
+            units.push_back( hlod.Unit );
+        auto runtime = Rules::HLODRuntime::Make( Executor().Plan(), units );
+        if ( !runtime )
+            return Common::MakeError( "world streaming of '" + m_SceneName + "': " + runtime.GetError() );
+        m_HLODs = runtime.ExtractValue();
+        // ONE HLOD'S RECORDS ALIVE AT A TIME (CellHLOD): read, made entities, dropped before the next read.
+        const Common::Utils::ProcessFootprint before = Common::Utils::ReadProcessFootprint();
         m_HLODIds.clear();
+        std::size_t recordCount = 0;
         for ( CellHLOD& hlod : hlods )
         {
-            units.push_back( hlod.Unit );
-            std::vector<Common::UUID>& ids = m_HLODIds.emplace_back();
-            for ( Assets::EntityData& record : hlod.Records )
+            std::vector<Common::UUID>& ids     = m_HLODIds.emplace_back();
+            auto                       records = hlod.Read();
+            if ( !records )
+                return Common::MakeError( records.GetError() );
+            for ( const Assets::EntityData& record : records.GetValue() )
             {
                 if ( !record.id.has_value() || record.id->IsNull() )
                     return Common::MakeError( "world streaming of '" + m_SceneName +
@@ -609,17 +641,21 @@ namespace Desert::Core
                                               Rules::DescribeResidencyUnit( Executor().Plan(), hlod.Unit ) +
                                               " has no id, so it could not be shown or hidden" );
                 ids.push_back( *record.id );
-                records.push_back( std::move( record ) );
             }
+            recordCount += records.GetValue().size();
+            if ( auto made = SceneSerializer( m_Scene, m_Assets )
+                                  .InstantiateRecords( records.GetValue(), m_SceneName, nullptr );
+                 !made )
+                return Common::MakeError( "world streaming of '" + m_SceneName + "': making the HLOD of " +
+                                          Rules::DescribeResidencyUnit( Executor().Plan(), hlod.Unit ) +
+                                          " failed: " + made.GetError() );
+            hlod.Read = nullptr; // what the read holds goes with the records
         }
-        auto runtime = Rules::HLODRuntime::Make( Executor().Plan(), units );
-        if ( !runtime )
-            return Common::MakeError( "world streaming of '" + m_SceneName + "': " + runtime.GetError() );
-        m_HLODs = runtime.ExtractValue();
-        if ( auto made = SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( records, m_SceneName, nullptr );
-             !made )
-            return Common::MakeError( "world streaming of '" + m_SceneName +
-                                      "': making the HLODs failed: " + made.GetError() );
+        // The census the Play start is judged by: the process before and after every HLOD became entities.
+        LOG_INFO( "[WorldPartition] '{0}': {1} HLOD(s), {2} record(s) made one HLOD at a time; process before: "
+                  "{3}; after: {4}",
+                  m_SceneName, hlods.size(), recordCount, before.Describe(),
+                  Common::Utils::ReadProcessFootprint().Describe() );
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
         if ( auto synced = m_HLODs->Sync( Executor().State(), *this ); !synced )
             return Common::MakeError( "world streaming of '" + m_SceneName + "': " + synced.GetError() );
