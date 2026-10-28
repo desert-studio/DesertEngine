@@ -15,7 +15,8 @@
 #include <span>
 #include <string_view>
 #include <unordered_map>
-#include <vector>
+#include <vector>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert
 {
@@ -25,8 +26,12 @@ namespace Desert
 namespace Desert::Graphic
 {
     class ComputePipeline;
-    struct GpuObjectMotion;
 } // namespace Desert::Graphic
+
+namespace Desert::Graphic::GpuDriven
+{
+    class GpuScene;
+}
 
 namespace Desert::Graphic::System
 {
@@ -39,7 +44,7 @@ namespace Desert::Graphic::System
 // it) into its cached streams, and both consumers read those streams:
 //   * the raster view passes (Mesh/Surface/Vertex_Skinned.glslh) fetch the posed position, the PREVIOUS frame's
 //     posed position (velocity / TAA) and the posed tangent frame by vertex index, through the address the
-//     primitive's GpuObjectMotion row carries (UE FGPUSkinPassthroughVertexFactory) - no skinning in the vertex
+//     primitive's GpuScene row carries (UE FGPUSkinPassthroughVertexFactory) - no skinning in the vertex
 //     stage of a view pass;
 //   * the ray-tracing scene builds / refits the primitive's BLAS from the cached current positions: the cache
 //     appends one build request per primitive, and the RT scene's ONE "RayTracingScene.DynamicGeometry" pass
@@ -49,8 +54,8 @@ namespace Desert::Graphic::System
 // before and the TLAS gets no skinned geometry: said once in the log, and every skinned primitive is counted
 // RayTracingSkip::Skinned in the view's ray-tracing stats - never silent.
 //
-// ONE SOURCE OF THE POSE. The skin pass reads the bytes the raster would skin from: the view's ObjectBones palette
-// at the primitive's row BoneOffset (MeshRenderer::BuildObjectMotions) and the vertices of the mesh the queue
+// ONE SOURCE OF THE POSE. The skin pass reads the bytes the raster would skin from: the scene's ObjectBones palette
+// at the primitive's row BoneOffset (MeshRenderer::SyncGpuScene) and the vertices of the mesh the queue
 // record names - a morphed component's twin (MeshRendererMorph), so morph targets apply before skinning, as UE's
 // cache does.
 //
@@ -90,28 +95,28 @@ namespace Desert::Graphic::RayTracing
             m_Displacement = displacement;
         }
 
-        // RASTER, step 1 (MeshRenderer::BuildObjectMotions, before the rows are uploaded): makes an entry (keyed
+        // RASTER, step 1 (MeshRenderer::SyncGpuScene, before the scene's upload): makes an entry (keyed
         // {Entity, n-th skinned record of the entity this frame}, MotionKey's slot rule) fit each queued skinned
-        // record of @p meshes and writes its streams' address and vertex count into the record's row, so the view
-        // passes fetch instead of skinning. A record whose entry cannot be made keeps a row without an address
-        // (the raster skins it in the vertex stage), logged once per entry. Off: rows are left without addresses.
-        void PrepareRows( const System::MeshRenderer& meshes, std::span<GpuObjectMotion> rows, uint64_t frame );
+        // record of @p meshes and writes its streams' address and vertex count into the record's GpuScene
+        // primitive (GpuScene::SetSkinCache), so the view passes fetch instead of skinning. A record whose entry
+        // cannot be made keeps a primitive without an address (the raster skins it in the vertex stage), logged
+        // once per entry. Off: the primitives keep the frame's sync value, no address.
+        void PrepareRows( const System::MeshRenderer& meshes, GpuDriven::GpuScene& scene, uint64_t frame );
 
-        // RASTER, step 2 (MeshRenderer::BuildObjectMotions, after the view's ObjectBones are uploaded and before
-        // its rows are): the scene's skin step (UE FGPUSkinCache::DispatchUpdateSkinning, which runs once per
+        // RASTER, step 2 (MeshRenderer::SyncGpuScene, after the scene's ObjectBones are uploaded and before any
+        // view pass is declared): the scene's skin step (UE FGPUSkinCache::DispatchUpdateSkinning, which runs once per
         // FScene before any view renders). Builds its OWN graph declaring one "SkinCache: Skin" dispatch per entry
-        // PrepareRows addressed and no graph of @p frame has skinned yet (this view's ObjectBones imported through
+        // PrepareRows addressed and no graph of @p frame has skinned yet (the scene's ObjectBones imported through
         // @p viewBones, a morphed record's vertices through the morph twin's own external), and executes it at
         // once - so every view graph, built and submitted after, only reads the streams, and the streams'
         // carried state gives each reader its StorageWrite->StorageRead barrier whatever the views' order. A later
         // view whose primitives an earlier view did not queue runs a graph for just those: still one skinning per
-        // primitive per frame. A graph that fails to execute clears the addresses of the rows it was to fill
+        // primitive per frame. A graph that fails to execute clears the addresses of the primitives it was to fill
         // (those draws skin in the vertex stage this frame), logged.
-        [[nodiscard]] Common::BoolResultStr SkinFrame( System::MeshRenderer&      meshes,
-                                                       std::span<GpuObjectMotion> rows,
+        [[nodiscard]] Common::BoolResultStr SkinFrame( System::MeshRenderer& meshes, GpuDriven::GpuScene& scene,
                                                        RDG::ExternalBuffer& viewBones, uint64_t frame );
 
-        // RASTER, step 3 (SceneRenderer, after BuildObjectMotions, before any pass that draws a skinned primitive
+        // RASTER, step 3 (SceneRenderer, after SyncGpuScene, before any pass that draws a skinned primitive
         // or traces rays): registers the streams of every entry SkinFrame skinned in @p frame in the view graph
         // @p graph; their refs land in @p rasterReads, and each pass that draws skinned primitives through a
         // view-pass cell declares them StorageRead (MeshRenderer::DeclareSkinnedDraws). Declares no pass.

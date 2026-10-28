@@ -46,6 +46,9 @@ namespace Desert::Graphic::API::Vulkan
              // MoltenVK has no wide lines; the debug-line path clamps the width instead.
              { C::WideLines, "wideLines", N::Optional, V10, {} },
              { C::FillModeNonSolid, "fillModeNonSolid", N::Optional, V10, {} },
+             // GPU-DRIVEN (GpuDriven/IndirectDrawSubmission.hpp): one vkCmdDrawIndexedIndirect over an IndirectGroup's
+             // bins. Optional (decision 10-27, no device refused): without it the group's records go one call each.
+             { C::MultiDrawIndirect, "multiDrawIndirect", N::Optional, V10, {} },
              { C::SamplerAnisotropy, "samplerAnisotropy", N::Optional, V10, {} },
              { C::TextureCompressionBC, "textureCompressionBC", N::Optional, V10, {} },
              // A storage image declared without a format and written (OpTypeImage Unknown + OpImageWrite): the FSR

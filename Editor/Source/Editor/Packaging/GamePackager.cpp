@@ -1030,7 +1030,14 @@ namespace Desert::Editor
         // one rule on both sides. A plain folder: beside the player binary. A .app: Contents/Resources —
         // Apple's signing rule keeps Contents/MacOS for code only. The player needs no flag and no launcher
         // to find it; running the binary directly works.
-        const fs::path root    = fs::path( options.OutputDir ) / ( bundle ? safeName + ".app" : safeName );
+        // ONE BASE FOR EVERY WRITE UNDER OutputDir (WP23): the folder is relative to the editor cwd (the
+        // option's contract), and std::filesystem resolves it there — but FileSystem::WriteContentToFileAtomic
+        // resolves a relative path off the PROJECT, so the release manifest went to <project>/Build/Output,
+        // a folder nothing had created, and Package Game failed after the whole cook. Absolute once, here.
+        const fs::path outputDir = fs::absolute( fs::path( options.OutputDir ), ec );
+        if ( ec )
+            return { false, "Cannot resolve the output dir " + options.OutputDir + ": " + ec.message(), "" };
+        const fs::path root       = outputDir / ( bundle ? safeName + ".app" : safeName );
         const fs::path gameDir = bundle ? root / "Contents" / "MacOS" : root;
         const char*    binName = bundle ? kBundlePlayerBinary : host.RuntimeBinary;
         const fs::path contentDir = Common::Utils::FileSystem::PackagedContentDir( gameDir );
@@ -1151,7 +1158,7 @@ namespace Desert::Editor
         // EVERY ARCHIVE OF THE SET, not just the base. A manifest that described only the base would
         // report every chunked file as REMOVED the next time a patch was generated, and the patch
         // would re-ship the whole division to "restore" content that never left.
-        const fs::path manifestPath = fs::path( options.OutputDir ) / ( safeName + kContentManifestExtension );
+        const fs::path manifestPath = outputDir / ( safeName + kContentManifestExtension );
         {
             Common::Utils::ContentManifest release;
             for ( const fs::path& archive : writtenArchives.Archives )

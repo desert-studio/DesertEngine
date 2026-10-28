@@ -999,8 +999,8 @@ namespace Desert::Graphic
         // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
         // asynchronous queue) is not in it yet.
         // Each object also carries where the view drew it last frame (UE: the instance's PrevLocalToWorld, which
-        // a near-field hit's velocity reads): a static draw's motion row (BuildObjectMotions ran before any pass);
-        // an instanced batch's instances have no motion record of their own and did not move.
+        // a near-field hit's velocity reads): a static draw's GpuScene row (SyncGpuScene ran before any pass);
+        // an instanced batch's instances have no previous transform of their own and did not move.
         const auto place = [&objects, &rows]( const void*                                                 mesh,
                                               const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
                                               const glm::mat4& world, const glm::mat4& prevWorld,
@@ -1016,11 +1016,13 @@ namespace Desert::Graphic
                      .Row            = row,
                      .MostlyTwoSided = mostlyTwoSided } );
         };
-        const auto& motionRows = meshRenderer->GetObjectMotionRows().Rows;
+        // The previous world of each primitive is its GpuScene row's (MeshRenderer::SyncGpuScene ran this frame
+        // before any pass was declared: OnUpdate draws nothing without it).
+        const GpuDriven::GpuScene& gpuScene = *meshRenderer->GetGpuScene();
         for ( const auto& draw : meshRenderer->GetStaticQueue() )
             if ( draw.Mesh != nullptr )
                 if ( const auto field = draw.Mesh->GetDistanceField() )
-                    place( draw.Mesh, field, draw.Transform, motionRows[draw.MotionRow].PrevWorld,
+                    place( draw.Mesh, field, draw.Transform, GpuDriven::UnpackAffine( gpuScene.Primitive( draw.GpuPrimitive ).PrevLocalToWorld ),
                            draw.Mesh->IsDistanceFieldMostlyTwoSided() );
         for ( const auto& ism : meshRenderer->GetInstancedQueue() )
             if ( ism.Mesh != nullptr && ism.Transforms )

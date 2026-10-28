@@ -1,12 +1,12 @@
 // TAA1 step 4 — the velocity target: its format has one spelling, the per-draw motion record has a GLSL twin of
 // the same std430 layout, and the velocity the geometry passes write is current minus previous unjittered NDC
-// (CPU twin Graphic::VelocityNdc, GLSL DesertVelocity in Common/ObjectMotion.glslh).
+// (CPU twin Graphic::VelocityNdc, GLSL DesertVelocity in Common/Velocity.glslh).
 
 #include <Engine/Core/Projection.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
-#include <Engine/Graphic/View/ObjectMotionRows.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/View/Velocity.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
@@ -51,12 +51,6 @@ namespace VelocityTargetTest
 {
     using namespace Desert::Graphic;
 
-    // A matrix as its sixteen IEEE words: equal only when bit for bit equal (-0 and +0 differ, a NaN equals
-    // itself).
-    std::array<uint32_t, 16> Bits( const glm::mat4& m )
-    {
-        return std::bit_cast<std::array<uint32_t, 16>>( m );
-    }
 
     std::string ReadFile( const std::filesystem::path& path )
     {
@@ -92,6 +86,8 @@ namespace VelocityTargetTest
             return 64;
         if ( type == "vec4" )
             return 16;
+        if ( type == "GpuAffine3x4" ) // three vec4 rows (Common/GpuScene.glslh)
+            return 48;
         if ( type == "uint" || type == "float" || type == "int" )
             return 4;
         return 0; // unknown: the census fails on it by name
@@ -114,18 +110,19 @@ TEST( VelocityTarget, OneSpellingOfTheFormat )
     EXPECT_EQ( ViewTargetFormats::kVelocity, Desert::Core::Formats::ImageFormat::RGBA16F );
 }
 
-// Mutation: reorder World/PrevWorld (or add a member) in Common/ObjectMotion.glslh -> red.
-TEST( VelocityTarget, GpuObjectMotionHasAStd430TwinInGlsl )
+// Mutation: reorder LocalToWorld/PrevLocalToWorld (or add a member) in Common/GpuScene.glslh -> red.
+TEST( VelocityTarget, GpuScenePrimitiveHasAStd430TwinInGlsl )
 {
+    using GpuDriven::GpuScenePrimitive;
     const std::string source =
-         ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/ObjectMotion.glslh" );
+         ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/GpuScene.glslh" );
     ASSERT_FALSE( source.empty() );
-    const auto members = GlslStructMembers( source, "GpuObjectMotion" );
-    ASSERT_EQ( members.size(), 10u ); // World, PrevWorld, BoneOffset, PrevBoneOffset, SkinCache x3, Pad0-2
-    EXPECT_EQ( members[0].second, "World" );
-    EXPECT_EQ( members[1].second, "PrevWorld" );
-    EXPECT_EQ( members[2].second, "BoneOffset" );
-    EXPECT_EQ( members[3].second, "PrevBoneOffset" );
+    const auto members = GlslStructMembers( source, "GpuScenePrimitive" );
+    ASSERT_EQ( members.size(), 20u ); // 2 GpuAffine3x4, 2 vec4, 12 uint/int words, SkinCache x3 ... Pad0-2
+    EXPECT_EQ( members[0].second, "LocalToWorld" );
+    EXPECT_EQ( members[1].second, "PrevLocalToWorld" );
+    EXPECT_EQ( members[12].second, "BoneOffset" );
+    EXPECT_EQ( members[13].second, "PrevBoneOffset" );
 
     std::size_t offset     = 0;
     std::size_t prevAt     = 0;
@@ -135,7 +132,7 @@ TEST( VelocityTarget, GpuObjectMotionHasAStd430TwinInGlsl )
     {
         const std::size_t size = Std430Size( type );
         ASSERT_NE( size, 0u ) << "unknown GLSL type " << type << " of " << name;
-        if ( name == "PrevWorld" )
+        if ( name == "PrevLocalToWorld" )
             prevAt = offset;
         if ( name == "BoneOffset" )
             boneAt = offset;
@@ -143,16 +140,16 @@ TEST( VelocityTarget, GpuObjectMotionHasAStd430TwinInGlsl )
             prevBoneAt = offset;
         offset += size;
     }
-    EXPECT_EQ( offset, sizeof( GpuObjectMotion ) );
-    EXPECT_EQ( prevAt, offsetof( GpuObjectMotion, PrevWorld ) );
-    EXPECT_EQ( boneAt, offsetof( GpuObjectMotion, BoneOffset ) );
-    EXPECT_EQ( prevBoneAt, offsetof( GpuObjectMotion, PrevBoneOffset ) );
+    EXPECT_EQ( offset, sizeof( GpuScenePrimitive ) );
+    EXPECT_EQ( prevAt, offsetof( GpuScenePrimitive, PrevLocalToWorld ) );
+    EXPECT_EQ( boneAt, offsetof( GpuScenePrimitive, BoneOffset ) );
+    EXPECT_EQ( prevBoneAt, offsetof( GpuScenePrimitive, PrevBoneOffset ) );
 }
 
 // The view-pass vertex contract: the static and skinned surface templates read their world from the object's
-// motion row and hand the fragment stage both unjittered clip positions; the G-buffer pass writes velocity at
+// GpuScene row and hand the fragment stage both unjittered clip positions; the G-buffer pass writes velocity at
 // slot 4 except in its RSM permutation; the forward opaque pass writes it at slot 1; the translucent pass never.
-// Mutation: drop `row.PrevWorld` from a template / write oVelocity in the RSM permutation / give the translucent
+// Mutation: drop `row.PrevLocalToWorld` from a template / write oVelocity in the RSM permutation / give the translucent
 // pass a velocity output -> red.
 TEST( VelocityTarget, ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface )
 {
@@ -167,14 +164,14 @@ TEST( VelocityTarget, ViewPassSurfaceStagesWriteTheVelocityOfTheirOwnSurface )
     {
         const std::string src = noWs( ReadFile( root / vertex ) );
         ASSERT_FALSE( src.empty() ) << vertex;
-        EXPECT_NE( src.find( "objectMotions.Motions[m_PushConstants.PrimitiveIndex]" ), std::string::npos )
+        EXPECT_NE( src.find( "gpuScene.Primitives[m_PushConstants.PrimitiveIndex]" ), std::string::npos )
              << vertex;
-        EXPECT_NE( src.find( "row.World*m_PushConstants.Transform" ), std::string::npos ) << vertex;
-        EXPECT_NE( src.find( "row.PrevWorld*m_PushConstants.Transform" ), std::string::npos ) << vertex;
+        EXPECT_NE( src.find( "GpuScene_LocalToWorld(row)*m_PushConstants.Transform" ), std::string::npos ) << vertex;
+        EXPECT_NE( src.find( "GpuScene_PrevLocalToWorld(row)*m_PushConstants.Transform" ), std::string::npos ) << vertex;
         EXPECT_NE( src.find( "v_Surface.Clip=cameraUB.ViewProjection*" ), std::string::npos ) << vertex;
         EXPECT_NE( src.find( "v_Surface.PrevClip=cameraUB.PrevViewProjection*" ), std::string::npos ) << vertex;
     }
-    // Skinned view pass: BOTH palettes from the view's one ObjectBones buffer at the row's two offsets (lead
+    // Skinned view pass: BOTH palettes from the scene's one ObjectBones buffer at the row's two offsets (lead
     // decision: the row names them, so every pass drawing the primitive skins it from the same bytes).
     // Mutation: skin the view pass from the push BoneOffset / the material's Bones buffer -> red.
     {
@@ -255,10 +252,10 @@ TEST( VelocityTarget, AMaterialRowOrTextureCannotBeNumberedIntoTheSceneReadRange
 // Seam 2, the hand-numbered declarations (a template's own `layout( binding = n )` textures, a pass header's
 // lighting slots — none of which goes through the Properties block): over the WHOLE shipped shader tree, the
 // reserved numbers carry the three scene-read resources and nothing else, and their two declaring headers
-// (ObjectMotion.glslh, SurfaceTypes.glslh) spell exactly the C++ numbers they are reserved under. Text, not
+// (GpuScene.glslh, SurfaceTypes.glslh) spell exactly the C++ numbers they are reserved under. Text, not
 // reflection, because a resource that only collides inside one cell would need that cell compiled to be seen; the
 // after-compile half is ShaderReflection::ReflectStage, which refuses a slot claimed twice by name. Mutation: move
-// SpotLightsUB (or any texture) to 25 / spell ObjectMotions at 16 (where SpotLightsUB lives) -> red.
+// SpotLightsUB (or any texture) to 25 / spell GpuScenePrimitives at 16 (where SpotLightsUB lives) -> red.
 TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
 {
     const auto       shaders = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders";
@@ -266,7 +263,7 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
          R"(binding\s*=\s*(\d+)\s*\)\s*(?:readonly\s+|writeonly\s+)?(?:uniform|buffer)\s+(?:\w+\s+)?(\w+))"
          R"(|\b(?:Uniform|Buffer|ReadBuffer|WriteBuffer)\s*\(\s*(\d+)\s*\)\s*(?:\w+\s+)?(\w+))" );
 
-    std::map<std::string, uint32_t> sceneRead; // resource -> number, from ObjectMotion.glslh
+    std::map<std::string, uint32_t> sceneRead; // resource -> number, from GpuScene.glslh
     std::size_t                     files = 0;
     for ( const auto& entry : std::filesystem::recursive_directory_iterator( shaders ) )
     {
@@ -303,7 +300,7 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
              } );
         for ( const auto& [binding, name] : declared )
         {
-            const bool sceneReadHeader = entry.path().filename() == "ObjectMotion.glslh" ||
+            const bool sceneReadHeader = entry.path().filename() == "GpuScene.glslh" ||
                                          ( entry.path().filename() == "SurfaceTypes.glslh" &&
                                            ( name == "SceneDepthTexture" || name == "SceneShadingWordTexture" ) ) ||
                                          entry.path().filename() == "MegaLightsVolume.glslh";
@@ -322,12 +319,16 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             else
                 EXPECT_FALSE( Desert::Core::IsSceneReadBinding( binding ) )
                      << entry.path().string() << " declares '" << name << "' at binding " << binding
-                     << ", inside the reserved scene-read range — it would share a slot with the view's motion "
-                        "rows in every view-pass cell";
+                     << ", inside the reserved scene-read range — it would share a slot with the scene's "
+                        "GpuScene rows in every view-pass cell";
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-    ASSERT_EQ( sceneRead.size(), 13u );
+    ASSERT_EQ( sceneRead.size(), 17u );
+    EXPECT_EQ( sceneRead["GpuSceneInstances"], Desert::Core::kGpuSceneInstancesBinding );
+    EXPECT_EQ( sceneRead["GpuSceneVisibleInstances"], Desert::Core::kGpuSceneVisibleInstancesBinding );
+    EXPECT_EQ( sceneRead["GpuSceneDrawSlots"], Desert::Core::kGpuSceneDrawSlotsBinding );
+    EXPECT_EQ( sceneRead["GpuSceneSubmeshTransforms"], Desert::Core::kGpuSceneSubmeshTransformsBinding );
     EXPECT_EQ( sceneRead["LocalShadowAtlasTexture"], Desert::Core::kLocalShadowAtlasBinding );
     EXPECT_EQ( sceneRead["LocalShadowViewsUB"], Desert::Core::kLocalShadowViewsBinding );
     EXPECT_EQ( sceneRead["MegaLightsVolumeUB"], Desert::Core::kMegaLightsVolumeParamsBinding );
@@ -336,7 +337,7 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
     EXPECT_EQ( sceneRead["MegaLightsVolumeBTexture"], Desert::Core::kMegaLightsVolumeFirstBinding + 2u );
     EXPECT_EQ( sceneRead["LightGridParamsUB"], Desert::Core::kLightGridParamsBinding );
     EXPECT_EQ( sceneRead["LightGridCellsUB"], Desert::Core::kLightGridCellsBinding );
-    EXPECT_EQ( sceneRead["ObjectMotions"], Desert::Core::kObjectMotionsBinding );
+    EXPECT_EQ( sceneRead["GpuScenePrimitives"], Desert::Core::kGpuScenePrimitivesBinding );
     EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
     EXPECT_EQ( sceneRead["SceneDepthTexture"], Desert::Core::kSceneDepthBinding );
     EXPECT_EQ( sceneRead["SceneShadingWordTexture"], Desert::Core::kSceneShadingWordBinding );
@@ -345,8 +346,8 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
 TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )
 {
     const std::string source =
-         ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/ObjectMotion.glslh" );
-    EXPECT_NE( source.find( "return vec4( clip.xyz / clip.w - prevClip.xyz / prevClip.w, 0.0 );" ),
+         ReadFile( Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders/Common/Velocity.glslh" );
+    EXPECT_NE( source.find( "return vec4( clip.xyz / clip.w - prevClip.xyz / prevClip.w, objectMoved );" ),
                std::string::npos );
 }
 
@@ -373,38 +374,7 @@ TEST( VelocityTarget, IsCurrentMinusPreviousNdc )
     EXPECT_NEAR( v.x, c.x / c.w - pc.x / pc.w, kTolerance );
 }
 
-// The relation the geometry passes rely on: a draw the view did not draw last frame gets PrevWorld = World from
-// MotionHistory, so its velocity is the camera's alone — zero under a still camera even though the object
-// "jumped" from wherever it was before it vanished.
-// Mutation: MotionHistory keeps the transform of an object not drawn for a frame -> red.
-TEST( VelocityTarget, AnObjectNotDrawnLastFrameMovesOnlyWithTheCamera )
-{
-    MotionHistory   motion;
-    const MotionKey key{ 7, 0 };
-    const glm::mat4 before = glm::translate( glm::mat4( 1.0f ), glm::vec3( -400, 0, 0 ) );
-    const glm::mat4 now    = glm::translate( glm::mat4( 1.0f ), glm::vec3( 50, 0, 0 ) );
-    (void)motion.PreviousTransform( key, before );
-    motion.EndFrame();
-    motion.EndFrame(); // a frame without the object
-
-    GpuObjectMotion record;
-    record.World     = now;
-    record.PrevWorld = motion.PreviousTransform( key, now );
-
-    const glm::mat4 viewProj = Camera( glm::vec3( 0, 0, 500 ) );
-    const glm::vec4 p( 1, 2, 3, 1 );
-    const glm::vec2 v = glm::vec2( VelocityNdc( viewProj * record.World * p, viewProj * record.PrevWorld * p ) );
-    EXPECT_NEAR( v.x, 0.0f, kTolerance );
-    EXPECT_NEAR( v.y, 0.0f, kTolerance );
-
-    // And a camera move alone gives a non-zero velocity for that same still object.
-    const glm::mat4 prevViewProj = Camera( glm::vec3( -10, 0, 500 ) );
-    const glm::vec2 camera =
-         glm::vec2( VelocityNdc( viewProj * record.World * p, prevViewProj * record.PrevWorld * p ) );
-    EXPECT_GT( glm::length( camera ), 1e-4f );
-}
-
-// The owning entity is the MotionHistory key of a draw's previous transform, and it crosses three hops before the
+// The owning entity keys (GpuSceneRegistry MotionKey) a draw's previous transform, and it crosses three hops before the
 // geometry pass reads it: the ECS emplace names it, the command's Execute forwards it, SceneRenderer copies it
 // onto the render data. A hop that drops it keys every object of the scene under one id — each draw then reads
 // another object's previous transform, which is a wrong velocity with no error anywhere. Mutation that turns this
@@ -485,9 +455,9 @@ TEST( VelocityTarget, InstancedViewPushCarriesTheWindAtThePreviousFrame )
     EXPECT_EQ( PackViewInstanceWind( InstanceWind{} ).B.z, 0.0f );
 }
 
-// Step A: the rows are built once per frame per view BEFORE any pass is declared, and every captured frame state
-// carries them. Mutation: drop the BuildObjectMotions call, move it after the first AddFrame*, or drop the
-// frame.ObjectMotions / ObjectBones assignment in CaptureFrameState -> red.
+// Step A: the GpuScene rows are synced once per frame per view BEFORE any pass is declared, and every captured frame
+// state carries them. Mutation: drop the SyncGpuScene call, move it after the first AddFrame*, or drop the
+// frame.GpuScenePrimitives / ObjectBones assignment in CaptureFrameState -> red.
 TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
 {
     using VelocityTargetTest::ReadFile;
@@ -495,9 +465,9 @@ TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
     const auto scene = ReadFile( root / "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
     const auto body  = scene.find( "void SceneRenderer::OnUpdate(" );
     ASSERT_NE( body, std::string::npos );
-    const auto build = scene.find( "->BuildObjectMotions(", body );
+    const auto build = scene.find( "->SyncGpuScene(", body );
     const auto first = scene.find( "AddFrame", body );
-    ASSERT_NE( build, std::string::npos ) << "OnUpdate must build the view's motion rows";
+    ASSERT_NE( build, std::string::npos ) << "OnUpdate must sync the scene's GpuScene rows";
     ASSERT_NE( first, std::string::npos );
     EXPECT_LT( build, first ) << "the rows must be final before the first pass is declared";
 
@@ -508,8 +478,8 @@ TEST( VelocityTarget, MotionRowsAreBuiltBeforeAnyViewPassIsDeclared )
     const auto end = meshes.find( "return frame;", capture );
     ASSERT_NE( end, std::string::npos );
     const std::string captureBody = meshes.substr( capture, end - capture );
-    EXPECT_NE( captureBody.find( "frame.ObjectMotions = m_ObjectMotions;" ), std::string::npos );
-    EXPECT_NE( captureBody.find( "frame.ObjectBones   = m_ObjectBones;" ), std::string::npos );
+    EXPECT_NE( captureBody.find( "frame.GpuScenePrimitives = m_GpuScene->GetPrimitivesBuffer();" ), std::string::npos );
+    EXPECT_NE( captureBody.find( "frame.ObjectBones        = m_GpuScene->GetBonesBuffer();" ), std::string::npos );
 }
 
 namespace VelocityTargetTest
@@ -528,7 +498,7 @@ namespace VelocityTargetTest
     }
 } // namespace VelocityTargetTest
 
-// Step B: every view-pass draw builder indexes the object's motion row and pushes the submesh transform RELATIVE
+// Step B: every view-pass draw builder indexes the object's GpuScene row and pushes the submesh transform RELATIVE
 // to it (identity), and the skinned view path skins from the row's ObjectBones slices instead of uploading its own
 // palette. Mutations: drop a SetPrimitiveIndex (static / generic / glass / skinned) -> red; push obj->Transform or
 // g.Transform again (as `.Transform` or SetPushMatrix) -> red; restore UploadSkinnedBones or SetSkinnedBoneOffset
@@ -554,7 +524,7 @@ TEST( VelocityTarget, EveryViewPassDrawIndexesItsMotionRowAndPushesARelativeTran
     {
         const std::string body = FunctionBody( forward, head );
         ASSERT_FALSE( body.empty() ) << head;
-        EXPECT_NE( body.find( "SetPrimitiveIndex(" ), std::string::npos ) << head << " must push the motion row";
+        EXPECT_NE( body.find( "SetPrimitiveIndex(" ), std::string::npos ) << head << " must push the GpuScene row";
         for ( auto it = std::sregex_iterator( body.begin(), body.end(), designated ); it != std::sregex_iterator();
               ++it )
         {
@@ -573,132 +543,6 @@ TEST( VelocityTarget, EveryViewPassDrawIndexesItsMotionRowAndPushesARelativeTran
     EXPECT_EQ( skinned.find( "SetSkinnedBoneOffset" ), std::string::npos );
 }
 
-// Step A's row numbering, on the CPU (Graphic/View/ObjectMotionRows.hpp) — what MeshRenderer::BuildObjectMotions
-// uploads. Each test names the mutation that turns it red.
-namespace VelocityTargetTest
-{
-    glm::mat4 At( const float x )
-    {
-        return glm::translate( glm::mat4( 1.0f ), glm::vec3( x, 0, 0 ) );
-    }
-} // namespace VelocityTargetTest
-
-// Mutation: drop the identical-world lookup in the rigid loop (every record a new row) -> red.
-TEST( VelocityTarget, SubmeshRecordsOfOneObjectShareOneRow )
-{
-    using namespace Desert::Graphic;
-    MotionHistory                   motion;
-    const std::vector<MotionRecord> rigid = {
-         { .Entity = 3, .World = VelocityTargetTest::At( 10 ) }, // material slot 0
-         { .Entity = 3, .World = VelocityTargetTest::At( 10 ) }, // material slot 1 of the same mesh
-         { .Entity = 3, .World = VelocityTargetTest::At( 90 ) }, // a second primitive of the entity
-         { .Entity = 4, .World = VelocityTargetTest::At( 10 ) }, // another entity at the same world
-    };
-    ObjectMotionRows out;
-    BuildObjectMotionRows( motion, rigid, {}, out );
-    ASSERT_EQ( out.RecordRows.size(), 4u );
-    EXPECT_EQ( out.Rows.size(), 3u ) << "one row per primitive";
-    EXPECT_EQ( out.RecordRows[0], out.RecordRows[1] );
-    EXPECT_NE( out.RecordRows[0], out.RecordRows[2] );
-    EXPECT_NE( out.RecordRows[0], out.RecordRows[3] ) << "rows are per entity, never shared across entities";
-    for ( std::size_t i = 0; i < rigid.size(); ++i )
-        EXPECT_EQ( out.Rows[out.RecordRows[i]].World, rigid[i].World ) << i;
-}
-
-// Mutation: key the history by the global row index instead of the entity's slot (a new object submitted first
-// shifts every other one) or drop PreviousTransform (PrevWorld = World always) -> red.
-TEST( VelocityTarget, RowsCarryEachPrimitivesOwnPreviousWorldAcrossFrames )
-{
-    using namespace Desert::Graphic;
-    using VelocityTargetTest::At;
-    MotionHistory    motion;
-    ObjectMotionRows out;
-    {
-        const std::vector<MotionRecord> rigid = { { .Entity = 5, .World = At( 0 ) },
-                                                  { .Entity = 6, .World = At( 7 ) } };
-        BuildObjectMotionRows( motion, rigid, {}, out );
-        motion.EndFrame();
-    }
-    // Next frame: a new entity is submitted FIRST, entity 5 moved, entity 6 is still.
-    const std::vector<MotionRecord> rigid = { { .Entity = 9, .World = At( 300 ) },
-                                              { .Entity = 5, .World = At( 40 ) },
-                                              { .Entity = 6, .World = At( 7 ) } };
-    BuildObjectMotionRows( motion, rigid, {}, out );
-    ASSERT_EQ( out.Rows.size(), 3u );
-    EXPECT_EQ( out.Rows[out.RecordRows[0]].PrevWorld, At( 300 ) ) << "absent last frame: prev = current";
-    EXPECT_EQ( out.Rows[out.RecordRows[1]].PrevWorld, At( 0 ) ) << "moved: its own previous world";
-    // A still object: bit for bit, so its velocity is exactly the camera's.
-    EXPECT_EQ( Bits( out.Rows[out.RecordRows[2]].PrevWorld ), Bits( out.Rows[out.RecordRows[2]].World ) );
-}
-
-// Mutation: let a skinned record reuse a rigid row of the same world, write PrevBoneOffset = BoneOffset, or key
-// PreviousBones by slot 0 for every record -> red.
-TEST( VelocityTarget, EverySkinnedSlotGetsItsOwnRowAndItsOwnPreviousPalette )
-{
-    using namespace Desert::Graphic;
-    using VelocityTargetTest::At;
-    const std::vector<glm::mat4>    poseA0 = { At( 1 ), At( 2 ) };
-    const std::vector<glm::mat4>    poseB0 = { At( 5 ), At( 6 ), At( 7 ) };
-    const std::vector<glm::mat4>    poseA1 = { At( 11 ), At( 12 ) };
-    const std::vector<glm::mat4>    poseB1 = { At( 15 ), At( 16 ), At( 17 ) };
-    MotionHistory                   motion;
-    ObjectMotionRows                out;
-    const std::vector<MotionRecord> rigid = { { .Entity = 2, .World = At( 0 ) } };
-    BuildObjectMotionRows( motion, rigid,
-                           std::vector<MotionRecord>{ { .Entity = 2, .World = At( 0 ), .Bones = poseA0 },
-                                                      { .Entity = 2, .World = At( 0 ), .Bones = poseB0 } },
-                           out );
-    motion.EndFrame();
-    const std::vector<MotionRecord> skinned = { { .Entity = 2, .World = At( 0 ), .Bones = poseA1 },
-                                                { .Entity = 2, .World = At( 0 ), .Bones = poseB1 } };
-    BuildObjectMotionRows( motion, rigid, skinned, out );
-
-    ASSERT_EQ( out.RecordRows.size(), 3u );
-    EXPECT_EQ( out.Rows.size(), 3u ) << "the rigid record and both skinned slots are three primitives";
-    const GpuObjectMotion& a     = out.Rows[out.RecordRows[1]];
-    const GpuObjectMotion& b     = out.Rows[out.RecordRows[2]];
-    const auto             slice = [&]( const uint32_t offset, const std::size_t count )
-    {
-        const auto first = out.Palettes.begin() + static_cast<std::ptrdiff_t>( offset );
-        return std::vector<glm::mat4>( first, first + static_cast<std::ptrdiff_t>( count ) );
-    };
-    EXPECT_EQ( slice( a.BoneOffset, 2 ), poseA1 );
-    EXPECT_EQ( slice( a.PrevBoneOffset, 2 ), poseA0 );
-    EXPECT_EQ( slice( b.BoneOffset, 3 ), poseB1 );
-    EXPECT_EQ( slice( b.PrevBoneOffset, 3 ), poseB0 );
-    EXPECT_EQ( out.Palettes.size(), 2u * ( poseA1.size() + poseB1.size() ) ) << "both frames, end to end";
-}
-
-// Mutation: build twice per frame with a different RecordRows order (rows not stable within the frame), or fill
-// RecordRows in another order than rigid-then-skinned -> red.
-TEST( VelocityTarget, RowIndicesAreStableWithinTheFrame )
-{
-    using namespace Desert::Graphic;
-    using VelocityTargetTest::At;
-    const std::vector<glm::mat4>    pose  = { At( 1 ) };
-    const std::vector<MotionRecord> rigid = {
-         { .Entity = 1, .World = At( 0 ) }, { .Entity = 2, .World = At( 3 ) }, { .Entity = 1, .World = At( 0 ) } };
-    const std::vector<MotionRecord> skinned = { { .Entity = 8, .World = At( 4 ), .Bones = pose } };
-    MotionHistory                   motion;
-    ObjectMotionRows                first;
-    ObjectMotionRows                again;
-    BuildObjectMotionRows( motion, rigid, skinned, first );
-    BuildObjectMotionRows( motion, rigid, skinned, again ); // a second build in the same frame
-    EXPECT_EQ( first.RecordRows, again.RecordRows );
-    ASSERT_EQ( first.RecordRows.size(), 4u );
-    EXPECT_EQ( first.RecordRows, ( std::vector<uint32_t>{ 0, 1, 0, 2 } ) );
-    for ( std::size_t i = 0; i < first.Rows.size(); ++i )
-    {
-        const GpuObjectMotion& x = first.Rows[i];
-        const GpuObjectMotion& y = again.Rows[i];
-        EXPECT_EQ( Bits( x.World ), Bits( y.World ) ) << i;
-        EXPECT_EQ( Bits( x.PrevWorld ), Bits( y.PrevWorld ) ) << i;
-        EXPECT_EQ( x.BoneOffset, y.BoneOffset ) << i;
-        EXPECT_EQ( x.PrevBoneOffset, y.PrevBoneOffset ) << i;
-        EXPECT_EQ( x.Pad0, y.Pad0 ) << i;
-        EXPECT_EQ( x.Pad1, y.Pad1 ) << i;
-    }
-}
 
 // Step F: THE DEPTH-WRITER CENSUS. A pixel's depth and its velocity must come from the same surface, so every
 // program that writes the view's depth writes velocity too. Over the whole shipped tree, each `.shader` with
@@ -1117,7 +961,7 @@ namespace
 // THE VELOCITY VIEW MODE ("Debug: Velocity", VelocityView.shader) shows camera motion over static geometry, and is
 // black exactly when nothing moved. The chain, CPU side: SceneViewState gives the next frame the committed frame's
 // unjittered ViewProjection as PrevViewProjection; a static mesh's velocity is VelocityNdc( ViewProjection * p,
-// PrevViewProjection * p ) (Vertex_Static.glslh -> ObjectMotion.glslh DesertVelocity); the view samples
+// PrevViewProjection * p ) (Vertex_Static.glslh -> Velocity.glslh DesertVelocity); the view samples
 // FrameTransients::Velocity at the render extent and shows it with the shader's own gain (16 px per frame = full
 // brightness). VelocityViewColour below is the CPU twin of that shader, pinned line by line.
 // Mutation: PrevViewProjection = the current matrix on an un-reset frame, the shader's gain or encoding changed
@@ -1151,7 +995,6 @@ namespace VelocityTargetTest
         in.NearPlane          = 10.0f;
         in.FarPlane           = 5'000'000.0f;
         in.CameraIdentity     = 7;
-        in.SceneIdentity      = 1;
         in.Output             = ViewExtent{ 1920, 1080 };
         in.RenderScalePercent = 100; // no temporal method here: below 100 % would need TAAU (SelectTemporalMethod)
         in.AntiAliasing.Method      = ::Common::Scalability::AntiAliasingMethod::None;
@@ -1213,30 +1056,4 @@ TEST( VelocityTarget, TheVelocityViewShowsAMovingCameraOverStaticGeometryAndIsBl
          ReadFile( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" );
     EXPECT_NE( node.find( "const RDG::TextureRef velocity = textures.Transients.Velocity;" ), std::string::npos );
     EXPECT_NE( node.find( "view->DeclareBindings( pass, velocity );" ), std::string::npos );
-}
-
-// Mutation: number a MotionRecord with a Part by its submission position (or ignore Part) -> red: piece 2 is
-// handed piece 3's previous world as soon as piece 1 starts moving (DST-06b: every fracture piece has its own
-// key).
-TEST( VelocityTarget, AFracturePieceKeepsItsOwnPreviousWorldWhenAnotherPieceStartsMoving )
-{
-    using namespace Desert::Graphic;
-    const auto       At = []( auto x ) { return VelocityTargetTest::At( x ); };
-    MotionHistory    motion;
-    ObjectMotionRows out;
-    {
-        const std::vector<MotionRecord> rigid = { { .Entity = 7, .Part = 1, .World = At( 0 ) },
-                                                  { .Entity = 7, .Part = 2, .World = At( 0 ) },
-                                                  { .Entity = 7, .Part = 3, .World = At( 50 ) } };
-        BuildObjectMotionRows( motion, rigid, {}, out );
-        motion.EndFrame();
-    }
-    const std::vector<MotionRecord> rigid = { { .Entity = 7, .Part = 1, .World = At( 20 ) },
-                                              { .Entity = 7, .Part = 2, .World = At( 0 ) },
-                                              { .Entity = 7, .Part = 3, .World = At( 50 ) } };
-    BuildObjectMotionRows( motion, rigid, {}, out );
-    ASSERT_EQ( out.RecordRows.size(), 3u );
-    EXPECT_EQ( out.Rows[out.RecordRows[0]].PrevWorld, At( 0 ) ) << "the moving piece: its own previous world";
-    EXPECT_EQ( out.Rows[out.RecordRows[1]].PrevWorld, At( 0 ) ) << "a still piece is not handed another's";
-    EXPECT_EQ( out.Rows[out.RecordRows[2]].PrevWorld, At( 50 ) );
 }

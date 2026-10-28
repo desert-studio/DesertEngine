@@ -123,8 +123,8 @@ namespace Desert::Graphic
         // had nowhere else to write it from.
         void SetPushMatrix( const glm::mat4& matrix );
 
-        // A VIEW pass draw's row in the view's ObjectMotions[] (Common/ObjectMotion.glslh, one row per drawn
-        // primitive, MeshRenderer::BuildObjectMotions): the push field `PrimitiveIndex`. In a view pass the push
+        // A VIEW pass draw's row in the scene's GpuScene Primitives[] (Common/GpuScene.glslh, one row per
+        // primitive, MeshRenderer::SyncGpuScene): the push field `PrimitiveIndex`. In a view pass the push
         // Transform is then the submesh's transform relative to that row's World (Renderer::RenderMesh is handed
         // the identity), so current and previous world come from one place and a still object moves by exactly 0.
         void SetPrimitiveIndex( uint32_t row );

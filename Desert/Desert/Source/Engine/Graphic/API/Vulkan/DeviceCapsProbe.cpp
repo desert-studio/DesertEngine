@@ -51,6 +51,8 @@ namespace Desert::Graphic::API::Vulkan
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::wideLines );
                 case Capability::FillModeNonSolid:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::fillModeNonSolid );
+                case Capability::MultiDrawIndirect:
+                    return EnableCore10( device, &VkPhysicalDeviceFeatures::multiDrawIndirect );
                 case Capability::SamplerAnisotropy:
                     return EnableCore10( device, &VkPhysicalDeviceFeatures::samplerAnisotropy );
                 case Capability::TextureCompressionBC:

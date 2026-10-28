@@ -390,6 +390,7 @@ namespace
          { "ShowSkyBackdrop", Owner::Machine },
          // RDG-CULL: the render graph's pass-culling debug switch, one person's diagnostic view.
          { "DisablePassCulling", Owner::Machine },
+         { "ValidateGpuCulling", Owner::Machine },
          // The viewport's own Screen Percentage override (UE's per-viewport r.ScreenPercentage): one view's
          // render scale, never the game config.
          { "ScreenPercentage", Owner::Machine },

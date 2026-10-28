@@ -1483,6 +1483,7 @@ namespace Desert::Editor
                 viewChanged |= ImGui::Checkbox( "Card Placement", &view.ShowCardPlacement );
                 viewChanged |= ImGui::Checkbox( "Wireframe", &view.WireframeMode );
                 viewChanged |= ImGui::Checkbox( "Disable Pass Culling", &view.DisablePassCulling );
+                viewChanged |= ImGui::Checkbox( "Validate GPU Culling", &view.ValidateGpuCulling );
                 if ( ImGui::IsItemHovered() )
                     ImGui::SetTooltip( "Run every render-graph pass, even those whose output nothing reads.\n"
                                        "A picture that changes names a pass the graph cannot see." );

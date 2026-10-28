@@ -4,6 +4,7 @@
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp>
 #include <Engine/Graphic/LocalShadowCache.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
@@ -386,6 +387,7 @@ namespace Desert::Core
     Scene::Scene()
          : m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
            m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
+           m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
            m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) )
@@ -398,6 +400,7 @@ namespace Desert::Core
          : m_SceneName( std::move( sceneName ) ),
            m_ReflectionCaptures( std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance ) ),
            m_RayTracingCache( std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance ) ),
+           m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
            m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) )
@@ -1283,6 +1286,9 @@ namespace Desert::Core
         // A reload empties this object and refills it: a new world at the same address. Entity ids restart, so
         // a view's history keyed by (generation, entity) must not survive it (SceneRenderer::BeginScene).
         m_Generation   = NextSceneGeneration();
+        // The GPU scene is keyed by entity (MotionKey): the restarted ids would inherit the old world's
+        // primitives and previous transforms, so the reloaded world gets a registry of its own.
+        m_GpuScene     = std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>();
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
         m_PlayerController = entt::null;
