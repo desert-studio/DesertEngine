@@ -234,5 +234,9 @@ namespace Desert::Graphic::API::Vulkan
         // The previous census's bytes per tag: the census names the tags that GREW since it, because a
         // steady growth spread over tags below the largest six is otherwise invisible.
         std::unordered_map<std::string, std::size_t> m_LastCensusBytes;
+        // The process resident peak (MemoryWatch) the last full census was written at: the next one is written
+        // when the peak has climbed kCensusPeakStep past it, so a run killed for its memory ends on a census
+        // taken at most one step below the kill.
+        uint64_t m_CensusPeakReported = 0;
     };
 } // namespace Desert::Graphic::API::Vulkan

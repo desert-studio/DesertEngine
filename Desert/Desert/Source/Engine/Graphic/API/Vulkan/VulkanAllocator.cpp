@@ -4,6 +4,11 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Common/Core/DevInstruments.hpp>
+#include <Engine/Graphic/MemoryReadout.hpp>
+#include <Engine/Graphic/ResourceLedger.hpp>
+#include <array>
+#include <string_view>
 
 #include <algorithm>
 #include <cstdlib>
@@ -248,6 +253,97 @@ namespace Desert::Graphic::API::Vulkan
                                  static_cast<double>( growth[i].first ) / MB, growth[i].second->Count,
                                  static_cast<double>( growth[i].second->Bytes ) / MB );
         m_LastCensusBytes = std::move( bytesNow );
+
+#if DESERT_DEV_INSTRUMENTS
+        // THE CENSUS BY SUBSYSTEM, at every new resident peak (BISTRO-MEM-2). The line above names the six largest
+        // tags; a view killed for its memory (Bistro Lit, 6386 MB) needs the whole account at the peak: the
+        // ledger rolled up by the subsystem its tags name, the allocations no ledger row covers (the render
+        // graph's transient heaps and resources, VulkanRdgTransient / VulkanRenderGraph), the owners
+        // (ResourceLedger) and the process/device readout - all at one moment, so they subtract.
+        constexpr uint64_t kCensusPeakStep = 256ull * 1024ull * 1024ull;
+        if ( const uint64_t peak = MemoryWatch::PeakProcessResident();
+             peak >= m_CensusPeakReported + kCensusPeakStep )
+        {
+            m_CensusPeakReported = peak;
+            struct Subsystem
+            {
+                std::string_view Name;
+                std::size_t      Bytes = 0;
+                std::size_t      Count = 0;
+            };
+            std::array<Subsystem, 11> rollup{ { { "textures (.detex)" },
+                                                { "mesh vertex/index buffers" },
+                                                { "distance fields" },
+                                                { "surface cache" },
+                                                { "shadows" },
+                                                { "swapchain" },
+                                                { "view targets (attachments)" },
+                                                { "uniform/storage buffers" },
+                                                { "staging" },
+                                                { "other images/buffers" },
+                                                { "owed deletion (freed after its frame)" } } };
+            const auto subsystemOf = []( std::string_view tag ) -> std::size_t
+            {
+                const auto has = [&]( std::string_view part ) { return tag.find( part ) != std::string_view::npos; };
+                if ( has( ".detex" ) )
+                    return 0;
+                if ( tag == "VertexBuffer" || tag == "IndexBuffer" )
+                    return 1;
+                if ( has( "DistanceField" ) )
+                    return 2;
+                if ( has( "SurfaceCache" ) )
+                    return 3;
+                if ( has( "Shadow" ) || has( "Cascade" ) )
+                    return 4;
+                if ( has( "SwapChain" ) || has( "Swapchain" ) )
+                    return 5;
+                if ( has( "_attachment" ) || has( "GBuffer" ) )
+                    return 6;
+                if ( has( "UniformBuffer" ) || has( "StorageBuffer" ) )
+                    return 7;
+                if ( has( "Staging" ) )
+                    return 8;
+                return 9;
+            };
+            for ( const auto& total : byTag )
+            {
+                Subsystem& into = rollup[subsystemOf( total.Tag )];
+                into.Bytes += total.Bytes;
+                into.Count += total.Count;
+            }
+            for ( const BufferDeletionEntry& owed : m_BufferDeletionQueue )
+            {
+                rollup[10].Bytes += AllocationSize( owed.Allocation );
+                ++rollup[10].Count;
+            }
+            for ( const ImageDeletionEntry& owed : m_ImageDeletionQueue )
+            {
+                rollup[10].Bytes += AllocationSize( owed.Allocation );
+                ++rollup[10].Count;
+            }
+            std::string bySubsystem;
+            for ( const Subsystem& subsystem : rollup )
+                bySubsystem += std::format( "\n  {:<40} x{:<6} {:9.1f} MB", subsystem.Name, subsystem.Count,
+                                            static_cast<double>( subsystem.Bytes ) / MB );
+            std::size_t allocated = 0;
+            for ( const VmaBudget& budget : budgets )
+                allocated += static_cast<std::size_t>( budget.statistics.allocationBytes );
+            const std::size_t ledgered = m_Ledger.LiveBytes();
+            bySubsystem += std::format( "\n  {:<40} {:<7} {:9.1f} MB (VMA allocations {:.1f} MB - ledger {:.1f} MB)",
+                                        "not in the ledger (render graph)", "",
+                                        static_cast<double>( allocated > ledgered ? allocated - ledgered : 0 ) / MB,
+                                        static_cast<double>( allocated ) / MB, static_cast<double>( ledgered ) / MB );
+            std::string largest;
+            for ( std::size_t i = 0; i < byTag.size() && i < 25; ++i )
+                largest += std::format( "\n  {:<56} x{:<6} {:9.1f} MB", byTag[i].Tag, byTag[i].Count,
+                                        static_cast<double>( byTag[i].Bytes ) / MB );
+            LOG_INFO( "[Memory] census at resident peak {:.1f} MB, device memory by subsystem:{}\n largest tags:{}",
+                      static_cast<double>( peak ) / MB, bySubsystem, largest );
+            LOG_INFO( "[Memory] {}", MemoryReadout::Take().Report() );
+            LOG_INFO( "[Resources] {}", ResourceLedger::Report() );
+        }
+#endif
+
         LOG_DEBUG(
              "[VulkanAllocator] census: {} owed deletion(s) ({} buffer(s), {} image(s)); ledger {} object(s) "
              "{:.1f} MB;{} largest:{} grew:{}",
