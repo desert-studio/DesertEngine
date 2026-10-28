@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Graphic/API/Vulkan/VulkanGeometryAddress.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingBuildInput.hpp>
 #include <Engine/Graphic/Systems/RayTracing/ProceduralRayTracingGeometry.hpp>
 
@@ -8,12 +9,6 @@
 
 #include <memory>
 #include <vector>
-
-namespace Desert::Graphic
-{
-    class IndexBuffer;
-    class VertexBuffer;
-} // namespace Desert::Graphic
 
 // THE VULKAN BLAS OF ONE PROCEDURAL (mesh, hidden mask) (ProceduralRayTracingGeometry): built from the mesh's own
 // vertex buffer (kStaticMeshVertexLayout) and index buffer by the graph pass "RayTracingScene.DynamicGeometry",
@@ -44,10 +39,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_DeviceAddress;
         }
-        [[nodiscard]] RayTracing::RayTracingGeometryLayout GetMetadataLayout() const override
-        {
-            return RayTracing::MeshAttributeLayout( m_VertexAddress, m_IndexAddress, m_Segments, false );
-        }
+        // The addresses are read now: a GeometryPool growth moves the mesh's buffers between frames.
+        [[nodiscard]] RayTracing::RayTracingGeometryLayout GetMetadataLayout() const override;
         // The storage's ledger row is the one statement of what this BLAS costs (ResourceOwnership::GetBytes).
         [[nodiscard]] uint64_t GetMemoryBytes() const override
         {
@@ -58,12 +51,11 @@ namespace Desert::Graphic::API::Vulkan
         void Release();
 
         // What the current storage was built for: a change of any of them is a new BLAS.
-        std::shared_ptr<VertexBuffer>                      m_SourceVertices;
-        std::shared_ptr<IndexBuffer>                       m_Indices; // held: the build reads it by address
+        // The mesh's spans (held: the build and the hit's attribute fetch read them by address).
+        VertexBufferRange                                  m_Vertices;
+        IndexBufferRange                                   m_Indices;
         std::vector<RayTracing::RayTracingGeometrySegment> m_Segments;
-        VkDeviceAddress m_VertexAddress = 0; // the mesh's own vertex buffer: the hit's attribute stream
-        VkDeviceAddress m_IndexAddress  = 0;
-        VkDeviceSize    m_BuildScratch  = 0;
+        VkDeviceSize                                       m_BuildScratch = 0;
         bool            m_Built         = false;
 
         VkAccelerationStructureKHR            m_Handle        = VK_NULL_HANDLE;

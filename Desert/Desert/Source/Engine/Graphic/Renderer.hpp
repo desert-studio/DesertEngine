@@ -67,6 +67,17 @@ namespace Desert::Graphic
         // RendererAPI::ImportVertexBuffer.
         static Common::BoolResultStr ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                          RDG::ExternalBuffer&                 into );
+        // RendererAPI::ImportVertexBufferRange.
+        static Common::BoolResultStr ImportVertexBufferRange( const std::shared_ptr<VertexBuffer>& buffer,
+                                                              uint64_t offset, uint64_t bytes,
+                                                              RDG::ExternalBuffer& into );
+        // A mesh's vertices / streams as a graph external: its span of the buffer holding them (a GeometryPool
+        // arena or its own), vertex i of the mesh at element i of the import. Fails for a non-resident mesh and
+        // (streams) for a mesh without a stream buffer.
+        static Common::BoolResultStr ImportMeshVertices( const MeshGeometry& geometry, RDG::ExternalBuffer& into );
+        // RendererAPI::InvalidateGeometryBinding.
+        static void InvalidateGeometryBinding();
+        static Common::BoolResultStr ImportMeshStreams( const MeshGeometry& geometry, RDG::ExternalBuffer& into );
         void                         EndDebugLabel();
         // Vertexless draw in the pipeline's own topology (Lines for the debug lines, Triangles for a tool's
         // translucent preview mesh): the vertex stage pulls each vertex from a storage buffer by gl_VertexIndex.

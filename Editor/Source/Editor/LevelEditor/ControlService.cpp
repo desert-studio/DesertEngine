@@ -34,6 +34,7 @@
 #include "Editor/Core/CommandHistory.hpp"
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -1329,6 +1330,9 @@ namespace Desert::Editor
             snapshot.IsmInstancesDrawn                = m_Workspace.PrimaryRenderer() != nullptr
                                                              ? m_Workspace.PrimaryRenderer()->GetIsmInstancesDrawn()
                                                              : 0u;
+            const Graphic::GeometryPoolStats pool = Graphic::GeometryPool::Get().GetStats();
+            snapshot.GeometryPoolBinds            = pool.Binds;
+            snapshot.GeometryPoolMeshBinds        = pool.MeshBinds;
         }
 
         {

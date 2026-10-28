@@ -207,13 +207,13 @@ namespace Desert::Graphic::API::Vulkan
             const VkDevice                   device    = logical->GetVulkanLogicalDevice();
 
             const VulkanBlasBuildInput input = TranslateBlasGeometry(
-                 m_Layout.Segments, BufferAddress( functions, device, vertexBuffer.GetValue()->GetBuffer() ),
-                 BufferAddress( functions, device, indexBuffer.GetValue()->GetBuffer() ) );
+                 m_Layout.Segments, ( BufferAddress( functions, device, vertexBuffer.GetValue()->GetBuffer() ) + vertexBuffer.GetValue()->GetOffset() ),
+                 ( BufferAddress( functions, device, indexBuffer.GetValue()->GetBuffer() ) + indexBuffer.GetValue()->GetOffset() ) );
             VkAccelerationStructureBuildGeometryInfoKHR build = DynamicMeshBuildInfo( input, m_Update );
             build.srcAccelerationStructure                    = m_Update ? m_Handle : VK_NULL_HANDLE;
             build.dstAccelerationStructure                    = m_Handle;
             build.scratchData.deviceAddress                   = AlignScratchAddress(
-                 BufferAddress( functions, device, scratchBuffer.GetValue()->GetBuffer() ) + scratchOffset );
+                 ( BufferAddress( functions, device, scratchBuffer.GetValue()->GetBuffer() ) + scratchBuffer.GetValue()->GetOffset() ) + scratchOffset );
 
             const VkAccelerationStructureBuildRangeInfoKHR* rangeList = input.Ranges.data();
             functions.CmdBuildAccelerationStructures( command.GetValue(), 1, &build, &rangeList );

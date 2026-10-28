@@ -140,7 +140,7 @@ namespace Desert::Graphic::RayTracing
         // mesh still streaming in has neither and stays NoGeometry.
         bool IsResident( const Mesh& mesh )
         {
-            return mesh.GetVertexBuffer() != nullptr && mesh.GetIndexBuffer() != nullptr;
+            return mesh.GetGeometry().IsResident() && mesh.GetGeometry().IndexCount > 0u;
         }
     } // namespace
 

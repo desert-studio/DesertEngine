@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Math/AABB.hpp>
+#include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Graphic/IndexBuffer.hpp>
 #include <Engine/Graphic/VertexBuffer.hpp>
 #include "Errors/MeshError.hpp"
@@ -101,20 +102,15 @@ namespace Desert
             m_AuthoredLODScreenSizes = std::move( authored );
             ResolveLODScreenSizes();
         }
-        [[nodiscard]] const std::shared_ptr<Graphic::VertexBuffer>& GetVertexBuffer() const
+        // THE MESH'S GPU GEOMETRY (Graphic/GeometryPool.hpp): where its vertices, streams (binding 1) and indices
+        // live - the GeometryPool arena of its vertex layout for every mesh built from CPU data, its own buffers
+        // for a twin a compute pass writes. Not resident (IsResident false) until the renderer uploaded it
+        // (EnsureGpuResources / Invalidate). A pooled mesh always has streams (default values written when it
+        // authored none, MeshGeometry::AuthoredStreams); an unpooled one without streams binds the renderer's
+        // shared default buffer.
+        [[nodiscard]] const Graphic::MeshGeometry& GetGeometry() const
         {
-            return m_VertexBuffer;
-        }
-        // The optional vertex streams (MeshVertexStreams, binding 1); null when the mesh carries neither colours
-        // nor a second UV set, and then the draw binds the shared default buffer (white, UV1 0,0) at the same
-        // stride.
-        [[nodiscard]] const std::shared_ptr<Graphic::VertexBuffer>& GetStreamBuffer() const
-        {
-            return m_StreamBuffer;
-        }
-        [[nodiscard]] const std::shared_ptr<Graphic::IndexBuffer>& GetIndexBuffer() const
-        {
-            return m_IndexBuffer;
+            return m_Geometry;
         }
 
         // THE MESH'S BOTTOM-LEVEL ACCELERATION STRUCTURE (UE FRayTracingGeometry on the render data), built from
@@ -240,26 +236,93 @@ namespace Desert
         std::optional<std::vector<float>> m_AuthoredLODScreenSizes;
         std::vector<float>                m_LODScreenSizes;
 
-        // Protected data accessible by derived classes
-        std::shared_ptr<Graphic::VertexBuffer>  m_VertexBuffer;
         std::shared_ptr<Graphic::RayTracing::RayTracingGeometryResource> m_RayTracingGeometry;
-        std::shared_ptr<Graphic::VertexBuffer>  m_StreamBuffer;
 
-        void CreateStreamBuffer( const std::vector<MeshVertexStreams>& streams )
+        // THE CPU DATA WAITING FOR ITS UPLOAD (StaticMesh / SkinnedMesh: the constructor's arrays, kept until the
+        // renderer uploads them into the pool and then released, as the per-mesh buffers released their host
+        // copy). Vertices are raw bytes of the arena's vertex type.
+        // The pool's index layout: three uint32 per triangle, mesh-relative.
+        [[nodiscard]] static std::vector<uint32_t> FlattenIndices( const std::vector<Index>& triangles )
         {
-            if ( !streams.empty() )
-                m_StreamBuffer = Graphic::VertexBuffer::Create( streams.data(),
-                                                                streams.size() * sizeof( MeshVertexStreams ) );
+            std::vector<uint32_t> flat;
+            flat.reserve( triangles.size() * 3 );
+            for ( const Index& t : triangles )
+            {
+                flat.push_back( t.V1 );
+                flat.push_back( t.V2 );
+                flat.push_back( t.V3 );
+            }
+            return flat;
         }
-        [[nodiscard]] Common::BoolResultWithCodes<MeshError> InvalidateStreamBuffer() const
+        template <typename TVertex>
+        [[nodiscard]] static std::vector<std::byte> VertexBytes( const std::vector<TVertex>& vertices )
         {
-            if ( m_StreamBuffer != nullptr )
-                if ( const auto uploaded = m_StreamBuffer->RT_Invalidate(); !uploaded.IsSuccess() )
-                    return Common::MakeErrorWithCodes<bool, MeshError>( { MeshError::GpuUploadFailed },
-                                                                        uploaded.GetError() );
+            const auto* first = reinterpret_cast<const std::byte*>( vertices.data() );
+            return std::vector<std::byte>( first, first + vertices.size() * sizeof( TVertex ) );
+        }
+        // A twin over buffers it does not own in the pool (GPU-written by a displacement / morph pass).
+        void SetUnpooledGeometry( Graphic::MeshGeometry geometry )
+        {
+            m_PoolAllocation.reset();
+            m_Staged   = false;
+            m_Geometry = std::move( geometry );
+        }
+
+        void StageGeometry( Graphic::GeometryArena arena, std::vector<std::byte> vertices,
+                            std::vector<MeshVertexStreams> streams, std::vector<uint32_t> indices )
+        {
+            m_StagedArena    = arena;
+            m_StagedVertices = std::move( vertices );
+            m_StagedStreams  = std::move( streams );
+            m_StagedIndices  = std::move( indices );
+            m_Staged         = true;
+        }
+        // Uploads the staged data into a new pool allocation (the previous one released on the frame rule) and
+        // drops the staged copy once it landed. Nothing staged: the geometry already on the GPU stands (a twin
+        // built over GPU-written buffers, or a mesh whose staged copy already landed); refused when there is none.
+        [[nodiscard]] Common::BoolResultWithCodes<MeshError> UploadStagedGeometry()
+        {
+            if ( !m_Staged )
+            {
+                if ( m_Geometry.IsResident() )
+                    return Common::MakeSuccessWithCodes<bool, MeshError>( true );
+                return Common::MakeErrorWithCodes<bool, MeshError>(
+                     { MeshError::GpuUploadFailed },
+                     "mesh geometry uploaded again after its host copy was released" );
+            }
+            const bool authored = !m_StagedStreams.empty();
+            auto       uploaded = Graphic::GeometryPool::Get().RT_Upload( m_StagedArena, m_StagedVertices,
+                                                                          m_StagedStreams, m_StagedIndices );
+            if ( !uploaded.IsSuccess() )
+                return Common::MakeErrorWithCodes<bool, MeshError>( { MeshError::GpuUploadFailed },
+                                                                    uploaded.GetError() );
+            AdoptPoolAllocation( uploaded.ExtractValue(), authored );
+            m_Staged = false;
+            std::vector<std::byte>().swap( m_StagedVertices );
+            std::vector<MeshVertexStreams>().swap( m_StagedStreams );
+            std::vector<uint32_t>().swap( m_StagedIndices );
             return Common::MakeSuccessWithCodes<bool, MeshError>( true );
         }
-        std::shared_ptr<Graphic::IndexBuffer>   m_IndexBuffer;
+        // The mesh now draws from @p allocation (shared by a copy of the mesh, as its buffers were).
+        void AdoptPoolAllocation( Graphic::GeometryPoolAllocation allocation, const bool authoredStreams )
+        {
+            m_PoolAllocation = std::make_shared<Graphic::GeometryPoolAllocation>( std::move( allocation ) );
+            m_Geometry       = Graphic::GeometryPool::Get().Describe( *m_PoolAllocation, authoredStreams );
+        }
+        // Drops the GPU geometry (the pool span released on the frame rule).
+        void ReleaseGeometry()
+        {
+            m_PoolAllocation.reset();
+            m_Geometry = {};
+        }
+
+        Graphic::MeshGeometry                            m_Geometry;
+        std::shared_ptr<Graphic::GeometryPoolAllocation> m_PoolAllocation;
+        bool                                             m_Staged      = false;
+        Graphic::GeometryArena                           m_StagedArena = Graphic::GeometryArena::Static;
+        std::vector<std::byte>                           m_StagedVertices;
+        std::vector<MeshVertexStreams>                   m_StagedStreams;
+        std::vector<uint32_t>                            m_StagedIndices;
         std::vector<std::vector<TriangleCache>> m_TriangleCache;
         std::vector<Submesh>                    m_Submeshes;
         std::shared_ptr<const Assets::MeshDistanceFieldSlot> m_DistanceField;

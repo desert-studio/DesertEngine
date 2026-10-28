@@ -11,18 +11,21 @@ namespace Desert::Graphic::RayTracing
         if ( masks == RayTracingSubmeshMasks{} || !own )
             return Common::MakeSuccess( static_cast<const RayTracingGeometryResource*>( own.get() ) );
 
-        const auto vertices    = mesh.GetVertexBuffer();
-        const auto indices     = mesh.GetIndexBuffer();
+        const MeshGeometry& geometry = mesh.GetGeometry();
+        const auto          vertices = geometry.Vertices;
+        const auto          indices  = geometry.Indices;
+        const auto          binding  = geometry.MeshBinding();
         auto [found, inserted] = m_Variants.try_emplace( Key{ &mesh, masks } );
         Variant& variant       = found->second;
         variant.Used           = true;
         const bool sameUpload  = !inserted && variant.Vertices.lock().get() == vertices.get() &&
-                                variant.Indices.lock().get() == indices.get();
+                                variant.Indices.lock().get() == indices.get() && variant.Binding == binding;
         if ( sameUpload )
             return Common::MakeSuccess( static_cast<const RayTracingGeometryResource*>( variant.Geometry.get() ) );
 
         variant.Vertices = vertices;
         variant.Indices  = indices;
+        variant.Binding  = binding;
         variant.Geometry.reset();
         const Common::ResultStr<std::shared_ptr<RayTracingGeometryResource>> built = m_Build( mesh, masks );
         if ( !built )
