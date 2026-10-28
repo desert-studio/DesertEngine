@@ -529,7 +529,9 @@ namespace Desert::Graphic::SurfaceCache
 
         // THE GPU RECORDS (compact, this frame's order) and the page copies of this frame's captures.
         const float    atlas          = static_cast<float>( m_Budget.AtlasSize );
-        const uint64_t lightingFactor = std::max( m_Budget.DirectLightingUpdateFactor, 1u );
+        // Every visible page is relit in the frame after InvalidateLighting.
+        const uint64_t lightingFactor = m_RelightAll ? 1u : std::max( m_Budget.DirectLightingUpdateFactor, 1u );
+        m_RelightAll                  = false;
         frame.Frame                   = m_Frame;
         // (row, MeshCards index) of every instance, for the B3 table.
         std::vector<std::pair<uint32_t, uint32_t>> rowRecords;

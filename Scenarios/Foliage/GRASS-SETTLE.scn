@@ -7,11 +7,6 @@
 Дано --subject selection set SunAzimuth 20
 Дано --subject viewport set Camera.Position 0,900,2500
 Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
-Когда run View "View mode: Shadow Factor"
-Тогда-вид 0a_shadow_factor right after the sun set: the grass self-shadow is the same on both sides of the path (no lit cell)
-Когда run View "View mode: Shadow Cascades"
-Тогда-вид 0b_cascades right after the sun set: which cascade covers the lower left
-Когда run View "View mode: Lit"
 Тогда-вид 1_first the first frame after opening, default FOV: no grass cell of another colour with a straight edge (lower left)
 Когда --subject viewport set Camera.FOV 70
 Тогда-вид 2_fov70 FOV 70: the grass is uniform

@@ -716,6 +716,16 @@ namespace Desert::Graphic
             return FrameSun{ .Direction      = m_AtmosphereLight1->Light.Direction,
                              .ColorIntensity = m_AtmosphereLight1->Light.ColorIntensity };
         }
+        // Both as the world-space GI histories compare them (GlobalIllumination::InvalidatesLightingHistory).
+        [[nodiscard]] GlobalIllumination::DirectionalLighting GetFrameDirectionalLighting() const
+        {
+            const FrameSun sun    = GetFrameSun();
+            const FrameSun light1 = GetFrameLight1();
+            return { .SunDirection         = sun.Direction,
+                     .SunColorIntensity    = sun.ColorIntensity,
+                     .Light1Direction      = light1.Direction,
+                     .Light1ColorIntensity = light1.ColorIntensity };
+        }
 
         /// THE view's contact shadows (Common/ContactShadow.glslh): the march's view values and the sun's length,
         /// packed into ShadowUB for every lit pass (the deferred composite, the forward meshes, the glass).

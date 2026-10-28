@@ -129,8 +129,12 @@ namespace Desert::Graphic::SurfaceCache
         // and instances hands back the same records with Updated false; a later one for another camera or
         // instance set is refused - the scene picked one frame's captures and relit pages, and a second update in
         // the frame would capture and relight over what the frame's earlier graph reads.
-        [[nodiscard]] Common::ResultStr<SceneUpdate> UpdateScene( const std::vector<SceneInstance>& instances,
-                                                                  const glm::vec3& camera, uint64_t engineFrame );
+        // @p lighting is the frame's directional lights: a significant change from those the lit pages were last
+        // fully relit under (GlobalIllumination::InvalidatesLightingHistory) relights every visible page this
+        // frame.
+        [[nodiscard]] Common::ResultStr<SceneUpdate>
+        UpdateScene( const std::vector<SceneInstance>& instances, const glm::vec3& camera, uint64_t engineFrame,
+                     const GlobalIllumination::DirectionalLighting& lighting );
         // The scene's tables (rows by placement, the row of an instance). Its frame update is UpdateScene's.
         [[nodiscard]] const SurfaceCacheScene& GetScene() const
         {
@@ -206,6 +210,8 @@ namespace Desert::Graphic::SurfaceCache
             SceneFrame Scene;
         };
         std::optional<FrameUpdate> m_FrameUpdate;
+        // The directional lighting of the last full relight (empty until the first update).
+        std::optional<GlobalIllumination::DirectionalLighting>                m_LitBy;
         uint32_t                                                              m_AtlasSize = 0;
         std::array<std::shared_ptr<Image2D>, kCapturedLayers.size()>          m_Layers;
         std::array<std::shared_ptr<Image2D>, 3>                               m_LitLayers;
