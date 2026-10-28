@@ -67,9 +67,11 @@ namespace Desert::Editor
         // outstanding while this frame was being made". Judged later, by the gate, at OnFramePresented.
         // Also called once at the end of OnAttach: an unsampled census must not read as a settled editor.
         // @p startupLoading is the layer's start-up staging or content settle, still running.
-        // @p hlodBuildRunning: a Build HLODs started by a command is still baking (WorldPartitionPanel::TickBuild).
+        // @p hlodBuildRunning: a Build HLODs started by a command is still baking
+        // (WorldPartitionPanel::TickBuild).
+        // @p meshDropsLoading: a viewport's AsyncMeshLoader still imports or has not spawned a dropped mesh.
         void SampleFrameQuiescence( bool startupLoading, bool reflectionCapturesFilling, bool texturesStreaming,
-                                    bool hlodBuildRunning );
+                                    bool hlodBuildRunning, bool meshDropsLoading );
         // CAPTURING THE COMPOSITED FRAME, in two halves, because a swapchain image may only be touched
         // between its acquire and its present.
         //
