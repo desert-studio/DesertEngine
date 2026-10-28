@@ -366,7 +366,7 @@ namespace Desert::Graphic::API::Vulkan
                 if ( const Common::BoolResultStr made = AllocateHeap( desc, allocated ); !made )
                     return Common::MakeFormattedError( "graph '{}': {}", entry.Graph, made.GetError() );
                 // The census's detailed map (VulkanAllocator, BISTRO-MEM-2 p4) sums the heaps by this name.
-                vmaSetAllocationName( m_Device.Allocator, allocated.Memory, "RDG heap shared by the slot's graphs" );
+                vmaSetAllocationName( m_Device.Allocator, allocated.Memory, "RDG heap shared" );
                 held.Held = std::move( allocated );
             }
             if ( i < entry.SharedIndex.size() )
