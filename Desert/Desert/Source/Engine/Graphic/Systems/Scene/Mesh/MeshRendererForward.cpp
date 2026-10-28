@@ -1185,8 +1185,8 @@ namespace Desert::Graphic::System
              m_DeferredGeometry ? m_InstancedGBufferMaterial.get() : m_StaticInstancedMaterial.get();
         auto* instancedInstance =
              m_DeferredGeometry ? m_InstancedGBufferInstance.get() : m_StaticInstancedInstance.get();
-        const bool instancingOn = instancedPipeline != nullptr && instancedMaterial != nullptr &&
-                                  instancedInstance != nullptr;
+        const bool instancingOn =
+             instancedPipeline != nullptr && instancedMaterial != nullptr && instancedInstance != nullptr;
         const MeshPass instancedPass = m_DeferredGeometry ? MeshPass::GBuffer : MeshPass::Forward;
 
         // ONE ACCUMULATOR PER RECORDING MATERIAL, and that is Г28's change. There used to be a single
