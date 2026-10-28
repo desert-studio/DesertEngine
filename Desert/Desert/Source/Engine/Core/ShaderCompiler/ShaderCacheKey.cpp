@@ -291,6 +291,48 @@ namespace Desert::Core
 
     namespace
     {
+        // THE NAME A KEY GIVES A SHADER FILE: its path under the mount it lives in, never where that mount sits
+        // on this disk (UE keys shaders by virtual path, /Engine/Private/..., for the same reason). The editor
+        // cooks a package's SPIR-V and shader maps from Editor/Resources/Shaders; the packaged runtime reads
+        // the same bytes from <App>/Contents/Resources/Resources/Shaders. An absolute path in the key made every
+        // key the cook wrote one the package never asked for: a fresh Bistro package missed 418 of 806 shader
+        // maps, recompiled 546 stages at boot, and refused every ShippedByCook permutation by name (TAA,
+        // DeferredLighting's shadow masks, the GI tracers). Engine shaders are named under the shader root,
+        // other engine files under the engine directory, project files under the project's assets root (the
+        // editor's Content/ is the package's Assets/); a file under none of them keeps its full path.
+        std::string MountRelativeOrNull( const std::filesystem::path& file, const std::filesystem::path& root )
+        {
+            if ( root.empty() )
+                return {};
+            const std::filesystem::path relative =
+                 file.lexically_normal().lexically_relative( root.lexically_normal() );
+            if ( relative.empty() || *relative.begin() == ".." )
+                return {};
+            return relative.generic_string();
+        }
+
+        std::string ShaderKeyPath( const std::filesystem::path& file )
+        {
+            namespace Path = Common::Constants::Path;
+            if ( std::string relative = MountRelativeOrNull( file, Path::SHADERDIR_PATH ); !relative.empty() )
+                return "shaders:" + relative;
+            if ( Path::HasProject() )
+            {
+                const auto&                 project = Path::CurrentProjectRoot();
+                const std::filesystem::path assets  = project.AssetsRoot.is_absolute()
+                                                           ? project.AssetsRoot
+                                                           : project.ProjectDir / project.AssetsRoot;
+                if ( std::string relative = MountRelativeOrNull( file, assets ); !relative.empty() )
+                    return "project:" + relative;
+            }
+            if ( std::string relative = MountRelativeOrNull( file, Path::RESOURCE_PATH ); !relative.empty() )
+                return "engine:" + relative;
+            return file.lexically_normal().generic_string();
+        }
+    } // namespace
+
+    namespace
+    {
         // THE GENERATED PROTOCOL TEXT (GeneratedProtocolIncludes.hpp): the include is virtual, so the file loops
         // below have no bytes of it to hash — a C++ layout change must still move every key that includes it.
         void MixGeneratedProtocol( uint64_t& key, const std::filesystem::path& include )
@@ -328,7 +370,7 @@ namespace Desert::Core
             // artifact under one key depended on which file compiled it first: a serial build and a job
             // system build of the same programs disagreed (SHC1). Without debug info the path is not in
             // the binary, and identical text keeps sharing one entry.
-            FnvMix( key, requestingFile.generic_string() );
+            FnvMix( key, ShaderKeyPath( requestingFile ) );
         }
         key ^= static_cast<uint64_t>( stage );
         key *= kFnvPrime;
@@ -348,7 +390,7 @@ namespace Desert::Core
         // is a change even when the bytes are identical, the content so that editing it is one too.
         for ( const auto& include : CollectShaderIncludes( source, requestingFile, variant ) )
         {
-            FnvMix( key, include.generic_string() );
+            FnvMix( key, ShaderKeyPath( include ) );
             MixShadingModelLayout( key, include );
             MixGeneratedProtocol( key, include );
             // A read that fails mixes nothing — byte-identical to the empty string the old untyped
@@ -392,7 +434,7 @@ namespace Desert::Core
                 scanned.append( std::format( "\n#include <{}>\n", header ) );
         for ( const auto& include : CollectShaderIncludes( scanned, programPath, variant ) )
         {
-            FnvMix( key, include.generic_string() );
+            FnvMix( key, ShaderKeyPath( include ) );
             MixShadingModelLayout( key, include );
             MixGeneratedProtocol( key, include );
             const auto     file = ReadShaderFileCached( include );
