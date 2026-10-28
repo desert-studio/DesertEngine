@@ -72,41 +72,35 @@ namespace Desert::Graphic::API::Vulkan
             if ( ( both & static_cast<VkSampleCountFlags>( count ) ) != 0 )
                 catalog.MSAACounts.push_back( count );
 
-        // Upscalers, best first. DLSS is NVIDIA-only even if a runtime claims otherwise; MetalFX exists only
-        // through MoltenVK.
-        if ( probe.DlssAvailable && probe.VendorId == kVendorNvidia )
-        {
-            catalog.Upscalers.push_back( Upscaler::DLSS );
-            // After DLSS, not before it: Ray Reconstruction is better only on a view with noisy lighting signals
-            // to take, and a view without them refuses it (Graphic::RayReconstructionRefusal), so it is never
-            // the device's best upscaler as such.
-            if ( probe.DlssRayReconstructionAvailable )
-                catalog.Upscalers.push_back( Upscaler::DLSSRayReconstruction );
-        }
-        if ( probe.XessAvailable )
-            catalog.Upscalers.push_back( Upscaler::XeSS );
-        if ( probe.MetalFxAvailable && probe.Portability )
-            catalog.Upscalers.push_back( Upscaler::MetalFX );
-        if ( probe.FsrAvailable )
-            catalog.Upscalers.push_back( Upscaler::FSR );
-        // TSR before TAAU: both are ours and need nothing beyond the required feature set (pure compute, buffer
-        // atomics only: MoltenVK has them), and TSR reconstructs more per input pixel.
-        catalog.Upscalers.push_back( Upscaler::TSR );
-        catalog.Upscalers.push_back( Upscaler::TAAU );
-        catalog.Upscalers.push_back( Upscaler::Spatial ); // ours, needs nothing beyond the required feature set
-        catalog.Upscalers.push_back( Upscaler::None );
-
-        // AA methods in enum order: there is no single quality order across methods (MSAA vs SMAA depends on
-        // the content), so Resolve's rule 4 names each method's fallback explicitly instead of walking this.
+        // AA methods: the post AA methods, MSAA iff a count > 1, our temporal methods (TAA, TSR: nothing beyond
+        // the required feature set — pure compute, buffer atomics only, MoltenVK has them), then each vendor
+        // temporal method the build and the device run. In enum order: there is no single quality order across
+        // methods (MSAA vs SMAA depends on the content), so Resolve's rule 4 names each method's fallback
+        // explicitly instead of walking this. DLSS is NVIDIA-only even if a runtime claims otherwise; MetalFX
+        // exists only through MoltenVK.
         catalog.AntiAliasingMethods = { AntiAliasingMethod::None, AntiAliasingMethod::FXAA,
                                         AntiAliasingMethod::SMAA };
         if ( catalog.MSAACounts.size() > 1 )
             catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::MSAA );
         catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::TAA );
-        if ( CapabilityCatalog::Offers( catalog.Upscalers, Upscaler::FSR ) )
-            catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::FSRNative );
-        if ( CapabilityCatalog::Offers( catalog.Upscalers, Upscaler::DLSS ) )
-            catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::DLAA );
+        if ( probe.FsrAvailable )
+            catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::FSR );
+        const bool dlss = probe.DlssAvailable && probe.VendorId == kVendorNvidia;
+        if ( dlss )
+            catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::DLSS );
+        catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::TSR );
+        if ( dlss && probe.DlssRayReconstructionAvailable )
+            catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::DLSSRayReconstruction );
+        // What the runtime offered and then refused (CapabilityCatalog::RefusedAtRuntime): DLSS is NVIDIA-only
+        // here too, so a refusal on another vendor's device was never an offer.
+        if ( probe.VendorId == kVendorNvidia && probe.DlssRefused )
+            catalog.RefusedAtRuntime.push_back( AntiAliasingMethod::DLSS );
+        if ( probe.VendorId == kVendorNvidia && probe.DlssRayReconstructionRefused )
+            catalog.RefusedAtRuntime.push_back( AntiAliasingMethod::DLSSRayReconstruction );
+        if ( probe.XessAvailable )
+            catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::XeSS );
+        if ( probe.MetalFxAvailable && probe.Portability )
+            catalog.AntiAliasingMethods.push_back( AntiAliasingMethod::MetalFX );
 
         // Render scale: the SSAA ceiling is bounded by the largest 2D image the device creates; never below
         // native (a device whose 4K target cannot exceed 100 % simply has no supersampling).
