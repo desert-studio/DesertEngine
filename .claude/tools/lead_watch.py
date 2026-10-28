@@ -98,6 +98,9 @@ def main():
                 continue
             kind = rec.get("type")
             msg = rec.get("message") or {}
+            if kind == "system" and rec.get("subtype") == "compact_boundary":
+                st["ctx"] = 0  # /compact keeps the transcript; the next request reports the compacted size
+                continue
             if kind == "user":
                 content = msg.get("content")
                 is_result = isinstance(content, list) and any(
