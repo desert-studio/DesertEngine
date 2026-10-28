@@ -139,7 +139,7 @@ TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
          { "ParallaxShadowSteps", offsetof( Camera, ParallaxShadowSteps ) },
          { "PreExposure", offsetof( Camera, PreExposure ) },
          { "PrevPreExposure", offsetof( Camera, PrevPreExposure ) },
-         { "CameraPad2", offsetof( Camera, CameraPad2 ) },
+         { "FrameIndexMod8", offsetof( Camera, FrameIndexMod8 ) },
     };
 
     ASSERT_EQ( block.Members.size(), cpp.size() )
