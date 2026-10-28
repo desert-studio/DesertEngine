@@ -269,7 +269,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/GlobalIllumination` — 18 files, 2,465 lines
 - `Programs/GpuDriven` — 2 files, 499 lines
 - `Programs/Graph` — 4 files, 146 lines
-- `Programs/Grass` — 3 files, 452 lines
+- `Programs/Grass` — 3 files, 460 lines
 - `Programs/JFA` — 3 files, 203 lines
 - `Programs/LensFlare` — 2 files, 257 lines
 - `Programs/LightShafts` — 2 files, 115 lines
