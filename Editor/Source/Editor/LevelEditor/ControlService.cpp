@@ -206,7 +206,7 @@ namespace Desert::Editor
         // GameplayCamera itself would be overwritten from the entity one frame later: the defect this
         // replaces answered success and left the view where it was. Play's edits are discarded at Stop with
         // the rest of the played world, so no undo step is recorded.
-        [[nodiscard]] Common::BoolResultStr WritePlayViewCamera( ::Desert::Core::Scene& scene,
+        [[nodiscard]] Common::BoolResultStr WritePlayViewCamera( ::Desert::Core::Scene&    scene,
                                                                  const ViewportCameraWrite which,
                                                                  const std::vector<float>& value )
         {
@@ -230,10 +230,10 @@ namespace Desert::Editor
             const glm::mat4 world = entity.GetWorldTransform();
             const auto      now   = ::Desert::Core::CameraEntityViewOf( world, lens.FOV, lens.Near, lens.Far );
 
-            const glm::vec3 position = ( which == ViewportCameraWrite::Position )
-                                            ? glm::vec3( value[0], value[1], value[2] )
-                                            : now.Position;
-            ::Desert::Core::ViewBasis basis = now.Basis;
+            const glm::vec3           position = ( which == ViewportCameraWrite::Position )
+                                                      ? glm::vec3( value[0], value[1], value[2] )
+                                                      : now.Position;
+            ::Desert::Core::ViewBasis basis    = now.Basis;
             if ( which == ViewportCameraWrite::Direction )
             {
                 // A named direction is an upright one, as SnapToDirection makes it for the editor camera;
@@ -246,9 +246,10 @@ namespace Desert::Editor
             const glm::mat4 parentWorld = world * glm::inverse( tc.GetTransform() );
             const glm::vec3 worldScale( glm::length( glm::vec3( world[0] ) ), glm::length( glm::vec3( world[1] ) ),
                                         glm::length( glm::vec3( world[2] ) ) );
-            const glm::mat4 local =
-                 glm::inverse( parentWorld ) * ::Desert::Core::CameraWorldTransformFor( position, basis, worldScale );
-            const glm::mat3 rotation( glm::normalize( glm::vec3( local[0] ) ), glm::normalize( glm::vec3( local[1] ) ),
+            const glm::mat4 local = glm::inverse( parentWorld ) *
+                                    ::Desert::Core::CameraWorldTransformFor( position, basis, worldScale );
+            const glm::mat3 rotation( glm::normalize( glm::vec3( local[0] ) ),
+                                      glm::normalize( glm::vec3( local[1] ) ),
                                       glm::normalize( glm::vec3( local[2] ) ) );
             tc.Translation = glm::vec3( local[3] );
             tc.Rotation    = glm::eulerAngles( glm::quat_cast( rotation ) );
@@ -717,7 +718,8 @@ namespace Desert::Editor
                          request.Id,
                          Control::PropertiesToJson(
                               Control::kSubjects[static_cast<std::size_t>( Control::Subject::Viewport )].Name,
-                              DescribeViewportCamera( viewCamera->GetPosition(), forward, viewCamera->GetFOV() ) ) );
+                              DescribeViewportCamera( viewCamera->GetPosition(), forward,
+                                                      viewCamera->GetFOV() ) ) );
                 }
 
                 if ( request.Whose == Control::Subject::Tool )
@@ -1143,7 +1145,8 @@ namespace Desert::Editor
         {
             if ( m_Workspace.ActiveScene() && m_Play.InPlayMode() )
             {
-                const auto written = WritePlayViewCamera( *m_Workspace.ActiveScene(), which.GetValue(), request.Value );
+                const auto written =
+                     WritePlayViewCamera( *m_Workspace.ActiveScene(), which.GetValue(), request.Value );
                 if ( !written )
                     return Control::Response::Failure( request.Id, written.GetError() );
                 return Control::Response::Success( request.Id );
