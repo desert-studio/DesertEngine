@@ -63,7 +63,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Geometry/MeshCore/Selections` — 4 files, 411 lines: Component, MeshConnectedComponents, QuadGridPatch
 - `Geometry/MeshCore/Solvers` — 2 files, 528 lines: SparseLDLT, SparseMatrixD, SpectralConformalMeshUVSolver, Triplet
 - `Geometry/MeshCore/Spatial` — 3 files, 1,208 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
-- `Graphic` — 125 files, 26,300 lines: ActiveViewScope, AllocationLedger, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, BlockDeclaration, … (+193)
+- `Graphic` — 125 files, 26,312 lines: ActiveViewScope, AllocationLedger, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, BlockDeclaration, … (+193)
 - `Graphic/API` — 2 files, 31 lines
 - `Graphic/API/Vulkan` — 86 files, 24,826 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CatalogProbe, CommandBufferAllocator, DescriptorIndexingLimits, DescriptorPoolDeletionEntry, DescriptorSetInfo, DeviceCaps, … (+103)
 - `Graphic/API/Vulkan/FidelityFX` — 2 files, 225 lines: DeviceRequirements
@@ -73,7 +73,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/DistanceField` — 5 files, 2,163 lines: BrickAllocator, DistanceFieldSceneData, DistanceFieldStreamingStats, FrameField, FrameUpdate, GlobalDistanceField, GlobalDistanceFieldCompositeShaderParameters, GlobalDistanceFieldObject, GlobalDistanceFieldView, GlobalDistanceFieldViewShaderParameters, MeshDistanceFieldReads, MeshSDFGridPlacement, … (+6)
 - `Graphic/Environment` — 6 files, 1,130 lines: Environment, EnvironmentCacheEntry, EnvironmentCacheWriter, EnvironmentManager, OwnedEnvironment, SampledCube, SkyLook, SkyLookGPU, Write
 - `Graphic/Fog` — 1 files, 183 lines: FogGpuPayload, FogPush
-- `Graphic/GlobalIllumination` — 14 files, 4,976 lines: AtlasRect, Bin, CaptureTextures, Card, CardCapture, CardMip, CardPageCopy, CardPagePayload, CardPayload, Clipmap, DirectLightingInputs, FrameBuffers, … (+32)
+- `Graphic/GlobalIllumination` — 14 files, 5,074 lines: AtlasRect, Bin, CaptureTextures, Card, CardCapture, CardMip, CardPageCopy, CardPagePayload, CardPayload, Clipmap, DirectLightingInputs, DirectionalLighting, … (+33)
 - `Graphic/GpuDriven` — 13 files, 3,576 lines: CullViewInput, CulledDraws, DrawCommandBuffers, DrawCommandCache, Entry, GpuAffine3x4, GpuCullView, GpuDrawBin, GpuDrawSlot, GpuIndirectDraw, GpuOccludedInstance, GpuPrimitivePassDraws, … (+32)
 - `Graphic/Materials` — 17 files, 2,951 lines: ContactShadowSettings, DataDrivenMaterial, DirectionalShadowView, Entry, Material, MaterialBackend, MaterialExecutor, MaterialInstance, MaterialOverrides, MaterialProperty, MaterialPropertySet, MaterialSlotBinding, … (+4)
 - `Graphic/Materials/Clouds` — 2 files, 39 lines: MaterialCloudComposite
@@ -247,7 +247,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `.` — 8 files, 2,782 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
-- `Common` — 100 files, 15,136 lines
+- `Common` — 100 files, 15,137 lines
 - `Editor` — 1 files, 147 lines
 - `Generated` — 2 files, 81 lines
 - `Mesh` — 15 files, 1,535 lines
@@ -266,7 +266,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/EmissiveLights` — 1 files, 140 lines
 - `Programs/FXAA` — 1 files, 80 lines
 - `Programs/Fog` — 2 files, 242 lines
-- `Programs/GlobalIllumination` — 18 files, 2,463 lines
+- `Programs/GlobalIllumination` — 18 files, 2,465 lines
 - `Programs/GpuDriven` — 2 files, 499 lines
 - `Programs/Graph` — 4 files, 146 lines
 - `Programs/Grass` — 3 files, 452 lines
