@@ -1,22 +1,18 @@
 # WP23: pak chunks by world region - a copy of WP_Protocol at ChunkRegionSize 20000 cm (200 m regions), packaged.
 # The copy streams around the plane 9000002 (Scripts/World/WPFly.lua: 125 m/s along +X for 8 s = 1 km, five
 # regions) with the Player's source off, as WP-SRC-VELOCITY - so regions behind it lose their last cell.
-# WP_Protocol states 100000 cm already: one undo returns the field to 100000 (the value before the edit), not 0.
+# WP23_Regions is the copy p1 made (save-as of WP_Protocol after Load All, sources switched to the plane,
+# HLODs built for both worlds, ~20 min each); it is opened directly so the HLOD build is not repeated.
+# The field is set back to 100000 first, so the edit under test is a real change and one undo returns 100000.
 # Package Game bundles build/Bin/<PackageConfig>/Runtime (~/.desertengine/editor.json): Debug for this proof,
 # because a Shipping Runtime refuses --shot.
 # After PASS, outside the editor (the scenario drives the editor only):
 #   [wp23_paks]   PakTool list on the package's Chunk_World_*.dpak -> several _R<x>_<y> + _Shared
 #   [wp23_stream] the packaged Runtime --scene Content/Scenes/WP23_Regions.desce --shot <png> --shot-frames 900:
 #                 log "[VFS] Mounted ..._R.." as the plane enters a region, "Unmounted ... (on demand again)" after.
-Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP23_Regions.desce
 Дано run View "View mode: Lit"
-# A partitioned world saves as a copy only whole (594 of 601 entities live in unloaded cells otherwise).
-Дано run Scene "World Partition: Load All"
-# Package Game cooks every partitioned world of the project and refuses one without built HLODs (WP-FAR-6B D1).
-Дано run Scene "Build HLODs"
-Дано save-as WP23_Regions
-Дано set 9000001 StreamingSourceData.Enabled false
-Дано set 9000002 StreamingSourceData.Enabled true
+Дано set world WorldPartition.ChunkRegionSize 100000
 Дано run Panel "Open World Settings"
 Когда set world WorldPartition.ChunkRegionSize 20000
 Тогда wp23_field World Settings > World Partition: Chunk Region Size (cm) = 20000
@@ -24,6 +20,5 @@
 Тогда wp23_field_undo одна отмена: поле снова 100000 (значение до правки)
 Когда run Action "Redo"
 Когда run Action "Save Scene"
-Когда run Scene "Build HLODs"
 Когда run Build "Package Game"
-Тогда wp23_package пакет собран; в логе «[Package] world '…WP23_Regions…' divided into '…_Shared' + N region chunk(s)», N > 1
+Тогда wp23_pak пакет собран, манифест записан; в логе «[Package] world '…WP23_Regions…' divided into '…_Shared' + N region chunk(s)», N > 1
