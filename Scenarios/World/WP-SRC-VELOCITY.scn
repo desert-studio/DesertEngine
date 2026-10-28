@@ -1,16 +1,27 @@
 # WP-SRC-VELOCITY (167136e77): look-ahead by speed. Plane 9000002 (LookAheadTime 2 s, MaxLookAhead 500 m,
-# Scripts/World/WPFly.lua: 250 m/s along +X for 4 s, then stops); the Player's source is switched off.
-# The sources live in Main cells not loaded in Edit: Load All (WP panel button, window point 237,166) first.
+# Scripts/World/WPFly.lua: 125 m/s along +X for 8 s - a 250 m look-ahead -, then stops; Play
+# starting and the two wheel steps spend ~5 s of its time before the first frame); the Player's source is switched off.
+# The editor keeps its last view mode (it came up in Velocity: a black viewport) - the scenario sets Lit.
+# The sources live in Main cells not loaded in Edit: the palette's "World Partition: Load All" first (as WP22-REST).
+# Play from Here: Play alone refuses (no pawn); the WP panel map shows the streaming zone of every source.
+# The map follows the plane at UE's 100 m PlayerExtent - too close for a 200 m range + 250 m look-ahead: two wheel
+# steps out over the map (window point 144,482) keep the follow at ~9x the extent (WorldPartitionPanel m_FollowZoomed).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
 Дано run Panel "Open World Partition"
-Дано input click - 237,166
-Дано set 9000001 StreamingSource.Enabled false
-Дано set 9000002 StreamingSource.Enabled true
-Когда run Action "Play"
+Дано run Scene "World Partition: Load All"
+Дано set 9000001 StreamingSourceData.Enabled false
+Дано set 9000002 StreamingSourceData.Enabled true
+Тогда-вид wp_vel_edit вьюпорт в Edit до Play: освещён (сравнить с чёрным в Play from Here)
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда input scroll - 144,482 -16
+Когда input scroll - 144,482 -16
 Когда advance 2
 Тогда wp_vel_ahead на карте WP зона загрузки вытянута по +X (по движению); впереди ячейки загружены до подлёта, дыры перед камерой нет
 Когда advance 2
 Когда advance 2
-Когда advance 1
+Когда advance 2
+Когда advance 2
 Тогда wp_vel_stop самолёт стоит: зона снова круг, лишние впереди выгрузились
 Когда run Action "Stop"

@@ -251,6 +251,7 @@ namespace Desert::Editor
         {
             m_FocusPending = true;
             m_Follow       = false;
+            m_FollowZoomed = false;
         }
 
         const WorldPartitionPlan*                       plan      = nullptr;
@@ -797,6 +798,14 @@ namespace Desert::Editor
              sources.empty() ? std::nullopt : std::optional<glm::vec3>( sources.front().Position );
 
         // ── view: focus, follow, wheel, drag ──
+        // Follow centres the source; its scale is UE's PlayerExtent until a wheel sets one (m_FollowZoomed).
+        const auto FollowView = [&]( glm::dvec2 mapSize, const glm::vec3& source )
+        {
+            Map::View followed = Map::Follow( mapSize, { source.x, source.z } );
+            if ( m_FollowZoomed )
+                followed.Scale = m_View.Scale;
+            return followed;
+        };
         // The map grows with the window: a resize refits a view nobody has zoomed or dragged since the last
         // fit. The scale stays uniform, so a cell stays square at every size.
         if ( size != m_MapSize )
@@ -810,17 +819,17 @@ namespace Desert::Editor
             m_FocusPending = false;
             m_Fitted       = true;
             if ( streamer != nullptr && m_Follow && sourcePos )
-                m_View = Map::Follow( size, { sourcePos->x, sourcePos->z } );
+                m_View = FollowView( size, *sourcePos );
             else if ( const auto bounds = Map::PlanBounds( plan, m_Grid ) )
                 Map::Focus( m_View, size, *bounds );
         }
         if ( streamer != nullptr && m_Follow && sourcePos )
-            m_View = Map::Follow( size, { sourcePos->x, sourcePos->z } );
+            m_View = FollowView( size, *sourcePos );
         if ( hovered && io.MouseWheel != 0.0f )
         {
             Map::Zoom( m_View, size, { io.MousePos.x - origin.x, io.MousePos.y - origin.y }, io.MouseWheel );
-            m_Follow = false;
-            m_Fitted = false;
+            m_FollowZoomed = m_Follow;
+            m_Fitted       = false;
         }
         if ( ImGui::IsItemActive() && ( ImGui::IsMouseDragging( ImGuiMouseButton_Right ) ||
                                         ImGui::IsMouseDragging( ImGuiMouseButton_Middle ) ) )
