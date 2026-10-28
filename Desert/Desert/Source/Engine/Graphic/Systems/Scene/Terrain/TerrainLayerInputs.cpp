@@ -49,7 +49,7 @@ namespace Desert::Graphic::System
             auto* tex = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
             if ( tex == nullptr )
                 return {};
-            return { .Image      = dynamic_cast<const Image2D*>(
+            return { .Image = dynamic_cast<const Image2D*>(
                           Runtime::ResourceRegistry::GetImageService()->Resolve( tex->GetImageHandle() ) ),
                      .FullWidth  = tex->GetFullWidth(),
                      .FullHeight = tex->GetFullHeight() };
@@ -123,7 +123,7 @@ namespace Desert::Graphic::System
                      const_cast<Image2D*>( smallest )->GetImageSpecification().Width )
                     smallest = s;
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): reads the specification only
-            auto& first = const_cast<Image2D*>( smallest )->GetImageSpecification();
+            auto&                               first = const_cast<Image2D*>( smallest )->GetImageSpecification();
             const ResourceAttributionScope      owned( ResourceOwner::SceneRenderer );
             Core::Formats::Image2DSpecification spec = {
                  .Tag         = tag,
@@ -219,7 +219,8 @@ namespace Desert::Graphic::System
             // Rebuilt only when what it is copied from changes -- another texture, or a streamed mip change
             // inside one (its generation); a refused build keeps its sources too, so it is retried when a
             // texture changes and not on every frame.
-            if ( sources != inputs.Sources[kind] || generations != inputs.Generations[kind] || !inputs.Arrays[kind] )
+            if ( sources != inputs.Sources[kind] || generations != inputs.Generations[kind] ||
+                 !inputs.Arrays[kind] )
             {
                 inputs.Sources[kind]     = sources;
                 inputs.Generations[kind] = generations;

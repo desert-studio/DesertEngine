@@ -1159,14 +1159,15 @@ namespace Desert::Graphic::API::Vulkan
                                                          i, m_Specification.Tag );
             const auto& ss  = src->m_Specification;
             uint32_t    off = 0;
-            while ( off + 1 < src->m_Resource.MipLevels && std::max( 1u, ss.Width >> off ) > m_Specification.Width )
+            while ( off + 1 < src->m_Resource.MipLevels &&
+                    std::max( 1u, ss.Width >> off ) > m_Specification.Width )
                 ++off;
-            const bool  sized = std::max( 1u, ss.Width >> off ) == m_Specification.Width &&
+            const bool sized = std::max( 1u, ss.Width >> off ) == m_Specification.Width &&
                                std::max( 1u, ss.Height >> off ) == m_Specification.Height;
-            const char* field = ss.ArrayLayers != 0                                 ? "its being an array itself"
-                                : !sized                                            ? "size"
-                                : ss.Format != m_Specification.Format               ? "format"
-                                : ss.ColorSpace != m_Specification.ColorSpace       ? "colour space (sRGB / linear)"
+            const char* field = ss.ArrayLayers != 0                           ? "its being an array itself"
+                                : !sized                                      ? "size"
+                                : ss.Format != m_Specification.Format         ? "format"
+                                : ss.ColorSpace != m_Specification.ColorSpace ? "colour space (sRGB / linear)"
                                 : src->m_Resource.MipLevels - off < m_Resource.MipLevels ? "mip count"
                                                                                          : nullptr;
             if ( field != nullptr )

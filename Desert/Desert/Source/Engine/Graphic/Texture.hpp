@@ -110,8 +110,14 @@ namespace Desert::Graphic
         }
 
         /// The asset's whole chain's top size (TEX-STREAMING): GetWidth/GetHeight are the resident top level's.
-        [[nodiscard]] uint32_t GetFullWidth() const { return m_FullWidth; }
-        [[nodiscard]] uint32_t GetFullHeight() const { return m_FullHeight; }
+        [[nodiscard]] uint32_t GetFullWidth() const
+        {
+            return m_FullWidth;
+        }
+        [[nodiscard]] uint32_t GetFullHeight() const
+        {
+            return m_FullHeight;
+        }
 
         virtual const Runtime::ImageHandle& GetImageHandle() const override
         {
