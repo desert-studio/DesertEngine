@@ -13,7 +13,7 @@
 # A partitioned world saves as a copy only whole (594 of 601 entities live in unloaded cells otherwise).
 Дано run Scene "World Partition: Load All"
 # Package Game cooks every partitioned world of the project and refuses one without built HLODs (WP-FAR-6B D1).
-Дано run Build "Build HLODs"
+Дано run Scene "Build HLODs"
 Дано save-as WP23_Regions
 Дано set 9000001 StreamingSourceData.Enabled false
 Дано set 9000002 StreamingSourceData.Enabled true
@@ -24,6 +24,6 @@
 Тогда wp23_field_undo одна отмена: поле снова 100000 (значение до правки)
 Когда run Action "Redo"
 Когда run Action "Save Scene"
-Когда run Build "Build HLODs"
+Когда run Scene "Build HLODs"
 Когда run Build "Package Game"
 Тогда wp23_package пакет собран; в логе «[Package] world '…WP23_Regions…' divided into '…_Shared' + N region chunk(s)», N > 1
