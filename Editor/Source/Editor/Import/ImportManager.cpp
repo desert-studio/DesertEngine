@@ -38,6 +38,7 @@
 #include <Common/Core/JobSystem.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <format>
 #include <fstream>
@@ -831,6 +832,30 @@ namespace Desert::Editor
                     return Common::MakeError<bool>( std::format(
                          "material '{}' in '{}': texture '{}': {}", material.Name, sourcePath.generic_string(),
                          created.GetValue().generic_string(), set.GetError() ) );
+            }
+            // THE CLIP KEEPS ITS SILHOUETTE IN EVERY MIP (FOLIAGE-ALPHA-MIPS; UE: bPreserveAlphaCoverage on the
+            // opacity texture of a masked material). The image a masked material clips (the template's
+            // `OpacityTexture` Property) is marked with the material's clip value on the channel it reads, before it
+            // is cooked, so a distant crown is as dense as a near one.
+            if ( slot.Slot == "OpacityTexture" )
+            {
+                const auto clip    = std::ranges::find( data.Params, std::string_view( "OpacityMaskClipValue" ),
+                                                        &Assets::MaterialShaderParam::Name );
+                const auto channel = std::ranges::find( data.Params, std::string_view( "OpacityChannel" ),
+                                                        &Assets::MaterialShaderParam::Name );
+                if ( clip != data.Params.end() && clip->Value.x > 0.0f )
+                {
+                    std::array<float, 4> thresholds{};
+                    const int at = channel != data.Params.end() ? static_cast<int>( channel->Value.x ) : 3;
+                    thresholds[static_cast<size_t>( std::clamp( at, 0, 3 ) )] = std::clamp( clip->Value.x, 0.0f, 1.0f );
+                    const std::filesystem::path asset = image.extension() == Assets::kTextureAssetExtension
+                                                             ? image
+                                                             : TextureImporter::AssetPathFor( image );
+                    if ( const auto set = Assets::SetTextureAlphaCoverage( asset, thresholds ); !set )
+                        return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}': {}",
+                                                                     material.Name, sourcePath.generic_string(),
+                                                                     asset.generic_string(), set.GetError() ) );
+                }
             }
             if ( static_cast<uint64_t>( ImportTexture( image.string() ) ) == 0 )
                 return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}' for slot '{}' "

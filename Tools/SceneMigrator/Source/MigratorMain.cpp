@@ -1870,7 +1870,8 @@ namespace Desert::Migration
             }
         }
 
-        // THE TEXTURE ASSETS (TEX-SRGB): TXAS 1 -> 2 states the texture's colour space in IMPT. The step is the
+        // THE TEXTURE ASSETS: TXAS 1 -> 2 states the texture's colour space in IMPT (TEX-SRGB), 2 -> 3 its alpha coverage
+        // thresholds (FOLIAGE-ALPHA-MIPS). The step is the
         // engine's own UpgradeTextureSourceAsset (one statement of the format): nullopt = already current, a file
         // it cannot read FAILS by name and is left untouched.
         int texturesRaised = 0;
@@ -1887,7 +1888,7 @@ namespace Desert::Migration
             if ( !raised.GetValue() )
                 continue;
             ++texturesRaised;
-            out << ( check ? "would raise " : "raised " ) << path.string() << " TXAS 1 -> "
+            out << ( check ? "would raise " : "raised " ) << path.string() << " TXAS -> "
                 << Desert::Assets::kTextureAssetSubsystemVersion << "\n";
             if ( check )
                 continue;
