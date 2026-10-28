@@ -214,17 +214,18 @@ namespace Desert::Core
                 }
                 else
                 {
+                    // Shared with every HLOD read below: BeginHLODs runs them after this block has ended.
+                    const auto held = std::make_shared<const WorldCells::StoredHLODs>( stored.ExtractValue() );
                     const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
                     const std::vector<Rules::EntityDescriptor> descriptors =
                          Rules::DescribeEntities( snapshot->Entities );
-                    auto stale =
-                         WorldCells::StaleHLODCells( stored.GetValue().Index, *snapshot, descriptors, registries );
+                    auto stale = WorldCells::StaleHLODCells( held->Index, *snapshot, descriptors, registries );
                     if ( !stale )
                         return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
                                                           "': " + stale.GetError() );
                     const std::set<std::string> staleUnits( stale.GetValue().begin(), stale.GetValue().end() );
                     std::unordered_map<std::string, const WorldCells::BuiltHLODCell*> rows;
-                    for ( const WorldCells::BuiltHLODCell& row : stored.GetValue().Index.Cells )
+                    for ( const WorldCells::BuiltHLODCell& row : held->Index.Cells )
                         rows.emplace( row.Unit, &row );
                     for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < Rules::ResidencyUnitCount( plan );
                           ++unit )
@@ -244,16 +245,16 @@ namespace Desert::Core
                         // A row without a file, or whose file lists no record, stands in for nothing.
                         if ( !row->second->File.has_value() || row->second->Ids.empty() )
                             continue;
-                        // Read when BeginHLODs makes it, not now (CellHLOD): `stored`, `byId` and `snapshot`
-                        // outlive that call, which is made in this scope.
+                        // Read when BeginHLODs makes it, not now (CellHLOD): the read shares `held` (this block
+                        // ends before that call); `byId` and `snapshot` outlive it.
                         const WorldCells::BuiltHLODCell* cell = row->second;
                         hlods.push_back( CellHLOD{
                              unit,
-                             [&stored, &byId, &snapshot, cell,
+                             [held, &byId, &snapshot, cell,
                               name]() -> Common::ResultStr<std::vector<Assets::EntityData>>
                              {
                                  using Records = std::vector<Assets::EntityData>;
-                                 auto records  = WorldCells::StoredCellRecords( stored.GetValue(), *cell );
+                                 auto records  = WorldCells::StoredCellRecords( *held, *cell );
                                  if ( !records )
                                      return Common::MakeError<Records>( "world streaming of '" +
                                                                         snapshot->SceneName + "', " + name + ": " +
