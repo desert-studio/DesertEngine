@@ -12,6 +12,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+#include <Engine/Graphic/TextureStreamingDemand.hpp>
 #include <Engine/Graphic/VisibilityCulling.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -129,6 +130,57 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( StorageBuffer, Args );
             DESERT_SHADER_PARAMETER( StorageBuffer, Feedback );
         };
+
+        // WHAT A VARIETY ASKS OF ITS TEXTURES (TEX-STREAMING). UE streams a grass HISM's textures like any
+        // primitive's: the distance from the view to the component's bounds, the mesh's size at that distance
+        // (FRenderAssetInstanceView). The instances live only on the GPU here, so the nearest one is taken where
+        // it can grow: the field's ground nearest the camera (its sample under the eye, the eye clamped onto the
+        // field), out to the variety's EndCullDistance through this lens. Without it every grass texture kept the
+        // tail it was loaded with (mip 4 of a 2K atlas) at the camera's feet: a near patch of thin grey stalks.
+        void NoteVarietyTextureDemand( const GrassVarietyDraw& variety, const Desert::Mesh& mesh,
+                                       const GrassFieldData& field, const ViewFrame& frame )
+        {
+            const std::vector<uint32_t>& w          = field.Words;
+            const uint32_t               viewHeight = frame.Split.Output.Height;
+            if ( w.size() < 8 || w[0] == 0 || w[1] == 0 || viewHeight == 0 )
+                return;
+            const glm::vec3 eye     = frame.CameraPosition;
+            const glm::vec2 origin  = { std::bit_cast<float>( w[4] ), std::bit_cast<float>( w[5] ) };
+            const float     spacing = std::bit_cast<float>( w[6] );
+            if ( !( spacing > 0.0f ) || w.size() < 8ull + static_cast<uint64_t>( w[0] ) * w[1] )
+                return;
+            const auto sampleOf = [&]( const float at, const float from, const uint32_t count )
+            {
+                const float i = std::round( ( at - from ) / spacing );
+                return static_cast<uint32_t>( std::clamp( i, 0.0f, static_cast<float>( count - 1 ) ) );
+            };
+            const uint32_t sx     = sampleOf( eye.x, origin.x, w[0] );
+            const uint32_t sz     = sampleOf( eye.z, origin.y, w[1] );
+            const float    height = std::bit_cast<float>( w[8 + static_cast<size_t>( sz ) * w[0] + sx] );
+            // No tile loaded under the nearest sample: the ground is not known, so the eye's own height stands for
+            // it (the nearest an instance can be is then the camera itself - all the mips, never too few).
+            const glm::vec3         ground = { origin.x + static_cast<float>( sx ) * spacing,
+                                       height == kGrassNoHeight ? eye.y : height,
+                                               origin.y + static_cast<float>( sz ) * spacing };
+            const Geometry::LODView view{ eye, frame.Projection };
+            if ( glm::length( ground - eye ) > variety.Placement.EndCullDistance * DrawDistanceScale( view ) )
+                return;
+            const GrassPlacement& p        = variety.Placement;
+            const float           maxScale = std::max( { p.ScaleX.y, p.ScaleY.y, p.ScaleZ.y, 1.0e-3f } );
+            float                 radius   = 0.0f;
+            if ( variety.Blade )
+                radius = 0.5f * variety.Blade->Height;
+            else
+            {
+                const Common::Math::AABB bounds = Geometry::LocalBounds( mesh.GetSubmeshes() );
+                radius                          = 0.5f * glm::length( bounds.Max - bounds.Min );
+            }
+            const float pixels = TextureStreamingDemand::ScreenPixels( ground + glm::vec3( 0.0f, radius, 0.0f ),
+                                                                       radius * maxScale, view, viewHeight );
+            for ( const GrassSectionDraw& section : variety.Sections )
+                if ( section.Material )
+                    TextureStreamingDemand::Get().Note( section.Material->GetParentMaterial(), pixels );
+        }
 
     } // namespace
 
@@ -501,6 +553,7 @@ namespace Desert::Graphic::System
                 gpu->FeedbackRef    = graph.RegisterExternal( gpu->FeedbackImport, "GrassFeedback" );
                 gpu->FieldRef       = fieldGpu.Ref;
                 m_Frame.push_back( gpu );
+                NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame );
 
                 std::vector<MeshRenderer::GpuInstancedRenderData> sections;
                 sections.reserve( variety.Sections.size() );
