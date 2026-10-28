@@ -71,6 +71,8 @@ namespace Desert::Graphic::System
             if ( gpu.WorldBounds && frustum && !frustum->Intersects( *gpu.WorldBounds ) )
                 continue;
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
+            if ( materials->AwaitsTextures( parent ) )
+                continue; // a texture in flight: drawn from the frame its material is rebuilt bound (GRASS-SETTLE)
             const uint32_t            view = kGpuInstancedViewBase + gpu.Key * 2u + ( pass == MeshPass::GBuffer );
             DataDrivenMaterial*       cell = parent != nullptr && materials->Owns( parent )
                                                   ? materials->GetViewVariant( parent, gpu.Path, pass, view, this )
@@ -135,6 +137,8 @@ namespace Desert::Graphic::System
             if ( gpu.WorldBounds && !cascadeFrustum.Intersects( *gpu.WorldBounds ) )
                 continue;
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
+            if ( materials->AwaitsTextures( parent ) )
+                continue; // casts from the frame it draws: a masked caster would cut the default alpha
             const uint32_t            view   = kGpuInstancedViewBase + 0x08000000u + gpu.Key * kCascadeViews + c;
             // Its own (Instanced x ShadowDepth) cell, masked or not: the shared instanced caster's transforms are
             // the CPU-batched ISMs'.
