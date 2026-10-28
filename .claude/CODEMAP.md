@@ -41,7 +41,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/ShaderCompiler/ShadingModels` — 6 files, 1,098 lines: LoadedShadingModels, PayloadSlot, ShadingModelEntry, ShadingModelManifest, ShadingModelRegistry, ShadingWordField
 - `Core/Traits` — 1 files, 17 lines
 - `Destruction` — 16 files, 3,478 lines: BodyRef, BodyState, BoxFalloff, BrickSettings, CellBounds, ConvexCell, CutPlane, DestructibleDesc, DestructionEvent, DestructionSettings, DestructionWorld, FieldCommand, … (+25)
-- `ECS` — 46 files, 8,891 lines: AlwaysLoadedComponent, AnchorFieldComponent, AnchorFieldData, AnimationComponent, AppliedLayerLink, AtmosphereSunPick, AudioSourceComponent, AudioSourceData, Bound, CameraComponent, CameraData, CharacterControllerComponent, … (+175)
+- `ECS` — 46 files, 8,892 lines: AlwaysLoadedComponent, AnchorFieldComponent, AnchorFieldData, AnimationComponent, AppliedLayerLink, AtmosphereSunPick, AudioSourceComponent, AudioSourceData, Bound, CameraComponent, CameraData, CharacterControllerComponent, … (+175)
 - `ECS/System` — 53 files, 9,593 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, Built, ColliderMesh, ComponentEventCursor, ComponentEventSystem, DecomposedTransform, … (+44)
 - `GameplayDebugger` — 5 files, 566 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerShape, IGameplayDebuggerCategory
 - `GameplayTags` — 1 files, 113 lines: GameplayTag, GameplayTagContainer, GameplayTagRegistry
@@ -246,7 +246,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `.` — 8 files, 2,782 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
-- `Common` — 99 files, 14,855 lines
+- `Common` — 99 files, 14,882 lines
 - `Editor` — 1 files, 147 lines
 - `Generated` — 2 files, 81 lines
 - `Mesh` — 15 files, 1,535 lines
@@ -277,7 +277,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/Particles` — 10 files, 1,148 lines
 - `Programs/PathTracing` — 4 files, 1,797 lines
 - `Programs/Preview` — 1 files, 150 lines
-- `Programs/ProceduralSky` — 1 files, 225 lines
+- `Programs/ProceduralSky` — 1 files, 236 lines
 - `Programs/RayTracing` — 1 files, 63 lines
 - `Programs/ReflectionCapture` — 5 files, 417 lines
 - `Programs/SMAA` — 3 files, 122 lines
