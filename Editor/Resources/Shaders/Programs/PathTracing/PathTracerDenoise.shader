@@ -11,7 +11,8 @@
 //    length capped at 32 paths (diffuse) or 4..32 by roughness (specular), and the slow history clamped to the
 //    neighbourhood of a fast (6-path) one so a lighting change does not ghost;
 //  - VARIANCE from the integrated temporal moments (SVGF 4.2; a 7 x 7 spatial estimate while the history holds
-//    fewer than four paths), then a variance-guided a-trous ("Filter", SVGF 4.3, here an energy-conserving
+//    fewer than four paths), NRD ReLAX's anti-firefly ("AntiFirefly", PathTracing.Denoiser.AntiFirefly: an
+//    energy-conserving 3 x 3 clamp reaching two deviations of the mean), then a variance-guided a-trous ("Filter", SVGF 4.3, here an energy-conserving
 //    exchange) whose luminance width and normal lobe widen on young histories and whose iterations up to a
 //    spacing of 8 / sqrt(L) spread by geometry alone (30 pixels at one path, ReLAX's pre-pass radius), the chroma
 //    up to 16 / sqrt(L) - the disocclusion pre-blur that makes the frame after a cut usable.
@@ -478,6 +479,143 @@ Shader "PathTracerDenoise"
                            Integrate(hs, hm.y, imageLoad(DemodulatedSpecularTexture, pixel), paths, pixel, size, guide,
                                      true, specularLength));
                 imageStore(HistoryLengthTexture, pixel, vec4(diffuseLength, specularLength, 0.0, 0.0));
+            }
+        }
+    }
+
+    // NRD ReLAX's ANTI-FIREFLY (RELAX_AntiFirefly, enableAntiFirefly; PathTracing.Denoiser.AntiFirefly), between
+    // "Combine" and the first "Filter", per lobe: a surface pixel whose integrated luminance is above the brightest of
+    // its same-surface 3 x 3 neighbours is lowered towards that brightest one, hue kept. Two departures from NRD,
+    // both for the image the tracer converges to:
+    //  - THE REACH SHRINKS WITH THE VARIANCE: the luminance moves by at most kSigma standard deviations of the
+    //    pixel's mean (Combine's a). A firefly - one heavy path among L - stands about one deviation above its
+    //    neighbours (mean F / L, deviation F / L), so it is cut to them; a converged one-pixel highlight has a
+    //    vanishing deviation and is kept: with a still camera the image is the tracer's own;
+    //  - ENERGY-CONSERVING: what a pixel gives up is handed out in equal eighths to its 8 neighbour slots, each
+    //    same-surface neighbour receiving its eighth and the pixel keeping the eighths of the others (sky, image
+    //    edge, another surface). The same-surface test is symmetric, so what p hands q is exactly what q gathers
+    //    from p and the lobe's sum over the image is unchanged (NRD's clamp drops the energy: a frame of
+    //    heavy-tailed paths darkens). Only the bright side is clamped: a dark outlier raised from its neighbours
+    //    would take light from pixels that may hold less than it needs, and the a-trous fills it anyway.
+    // The variance (a) passes through: the a-trous' colour width stays the pixel's measured noise.
+    Pass "AntiFirefly"
+    {
+        Compute
+        {
+            LocalSize(8, 8, 1);
+
+            #include <Common/PathTracingDenoise.glslh>
+
+            layout(binding = 1, rgba32f) readonly uniform image2D GuideAlbedoTexture;
+            layout(binding = 2, rgba32f) readonly uniform image2D GuideNormalTexture;
+            layout(binding = 3, rgba32f) readonly uniform image2D IlluminationDiffuseTexture;
+            layout(binding = 4, rgba32f) readonly uniform image2D IlluminationSpecularTexture;
+            layout(binding = 5, rgba32f) writeonly uniform image2D FilteredDiffuseTexture;
+            layout(binding = 6, rgba32f) writeonly uniform image2D FilteredSpecularTexture;
+
+            // ReLAX's sigma scale (historyClampingColorBoxSigmaScale, Snapshot's kClampSigma): the deviations of the
+            // mean a firefly's luminance may be lowered by.
+            const float kSigma = 2.0;
+            // Neighbours farther than this share of the pair's larger camera distance are another surface
+            // (Combine's kSpatialDepthShare, made symmetric).
+            const float kDepthShare = 0.05;
+            // The 8 neighbour slots each receive this share of what a pixel gives up.
+            const float kSlotShare = 1.0 / 8.0;
+
+            // The pixel's 5 x 5 neighbourhood, index (y + 2) * 5 + x + 2: the 3 x 3 of each of its 8 neighbours.
+            // Depth 0: no surface there (sky, outside the image).
+            vec4  gDiffuse[25];
+            vec4  gSpecular[25];
+            float gDiffuseLuminance[25];
+            float gSpecularLuminance[25];
+            float gDepth[25];
+
+            int Slot(ivec2 offset)
+            {
+                return (offset.y + 2) * 5 + offset.x + 2;
+            }
+
+            bool SameSurface(int a, int b)
+            {
+                const float da = gDepth[a];
+                const float db = gDepth[b];
+                return da > 0.0 && db > 0.0 && abs(da - db) <= kDepthShare * max(da, db);
+            }
+
+            // What the pixel at @p offset (within 1 of the centre) gives up of the lobe (@p specular selects it).
+            vec3 Excess(ivec2 offset, bool specular)
+            {
+                const int p = Slot(offset);
+                if (gDepth[p] <= 0.0)
+                    return vec3(0.0);
+                const float luminance = specular ? gSpecularLuminance[p] : gDiffuseLuminance[p];
+                float       brightest = -1.0;
+                for (int y = -1; y <= 1; ++y)
+                    for (int x = -1; x <= 1; ++x)
+                    {
+                        const int q = Slot(offset + ivec2(x, y));
+                        if ((x != 0 || y != 0) && SameSurface(p, q))
+                            brightest = max(brightest, specular ? gSpecularLuminance[q] : gDiffuseLuminance[q]);
+                    }
+                if (brightest < 0.0 || luminance <= brightest)
+                    return vec3(0.0);
+                const vec4  signal = specular ? gSpecular[p] : gDiffuse[p];
+                const float kept   = max(brightest, luminance - kSigma * sqrt(max(signal.a, 0.0)));
+                return signal.rgb * (1.0 - kept / luminance);
+            }
+
+            // The centre's lobe after it gave up its excess to its same-surface neighbours and gathered theirs.
+            vec3 Exchange(bool specular)
+            {
+                const int c        = Slot(ivec2(0));
+                vec3      gathered = vec3(0.0);
+                float     slots    = 0.0;
+                for (int y = -1; y <= 1; ++y)
+                    for (int x = -1; x <= 1; ++x)
+                        if ((x != 0 || y != 0) && SameSurface(c, Slot(ivec2(x, y))))
+                        {
+                            gathered += Excess(ivec2(x, y), specular);
+                            slots += 1.0;
+                        }
+                const vec3 own = specular ? gSpecular[c].rgb : gDiffuse[c].rgb;
+                return own - slots * kSlotShare * Excess(ivec2(0), specular) + kSlotShare * gathered;
+            }
+
+            void main()
+            {
+                const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+                const ivec2 size  = imageSize(GuideAlbedoTexture);
+                if (pixel.x >= size.x || pixel.y >= size.y)
+                    return;
+                for (int y = -2; y <= 2; ++y)
+                    for (int x = -2; x <= 2; ++x)
+                    {
+                        const int   i      = Slot(ivec2(x, y));
+                        const ivec2 q      = pixel + ivec2(x, y);
+                        const bool  inside = q.x >= 0 && q.y >= 0 && q.x < size.x && q.y < size.y;
+                        const float paths  = inside ? imageLoad(GuideAlbedoTexture, q).a : 0.0;
+                        gDiffuse[i]        = vec4(0.0);
+                        gSpecular[i]       = vec4(0.0);
+                        gDepth[i]          = 0.0;
+                        if (paths >= 0.5)
+                        {
+                            gDiffuse[i]  = imageLoad(IlluminationDiffuseTexture, q);
+                            gSpecular[i] = imageLoad(IlluminationSpecularTexture, q);
+                            gDepth[i]    = imageLoad(GuideNormalTexture, q).w / paths;
+                        }
+                        gDiffuseLuminance[i]  = PathTracingDenoiseLuminance(gDiffuse[i].rgb);
+                        gSpecularLuminance[i] = PathTracingDenoiseLuminance(gSpecular[i].rgb);
+                    }
+                const int c = Slot(ivec2(0));
+                if (gDepth[c] <= 0.0)
+                {
+                    // Not a surface (Combine wrote zeros): nothing to clamp or hand out.
+                    imageStore(FilteredDiffuseTexture, pixel, gDiffuse[c]);
+                    imageStore(FilteredSpecularTexture, pixel, gSpecular[c]);
+                    return;
+                }
+                imageStore(FilteredDiffuseTexture, pixel, vec4(Exchange(false), gDiffuse[c].a));
+                imageStore(FilteredSpecularTexture, pixel, vec4(Exchange(true), gSpecular[c].a));
             }
         }
     }
