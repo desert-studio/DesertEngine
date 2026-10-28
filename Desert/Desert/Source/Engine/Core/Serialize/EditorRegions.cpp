@@ -90,8 +90,9 @@ namespace Desert::Core::EditorRegions
             SceneSerializer const             serializer( &scene, assets );
             const std::vector<LiveEntity>     live = serializer.LiveEntities();
             // An entity whose record the world's files do not hold (made since the open or last save, e.g. the
-            // foliage entity a palette edit creates) has no file to go back to and no region of the files: it stays
-            // as it is, unsaved, whatever the regions (UE: an unsaved new actor is not the loader's to unload).
+            // foliage entity a palette edit creates) has no file to go back to and no region of the files: it
+            // stays as it is, unsaved, whatever the regions (UE: an unsaved new actor is not the loader's to
+            // unload).
             const std::unordered_set<std::uint64_t> onDisk( rowIds.begin(), rowIds.end() );
             std::unordered_set<std::uint64_t>       held;
             std::vector<Common::UUID>               leaving;
