@@ -91,8 +91,11 @@ namespace Desert::Graphic::SurfaceCache
             // page's FinalLighting keeps the IndirectLighting it last received; otherwise it is direct only.
             bool IndirectLighting = false;
         };
-        // The world radiance cache of this frame, as the indirect lighting reads it (GlobalIllumination::
-        // RadianceCacheFrame: its read section, Common/RadianceCache.glslh RadianceCacheIrradianceAt).
+        // What the radiosity (UE LumenRadiosity) is traced and integrated with: the frame's tracer and the GI ray
+        // contract's reads - the same a radiance cache probe traces with (WorldRadianceCache::
+        // RadianceCacheUpdateInputs: GI frame record, lights, world light grid, sky cube, G-buffer, the cards a
+        // hit reads first) - and the world radiance cache of this frame (GlobalIllumination::RadianceCacheFrame's
+        // read section): the bounce of a hit no card holds, and the far side of a leaf.
         struct IndirectLightingInputs
         {
             RDG::BufferRef  Params;
@@ -100,6 +103,18 @@ namespace Desert::Graphic::SurfaceCache
             RDG::BufferRef  Probes;
             RDG::TextureRef Irradiance;
             RDG::TextureRef Depth;
+
+            GlobalIllumination::TracerFrame       Tracer;
+            GlobalIllumination::SurfaceCacheFrame Hits;
+            RDG::BufferRef                        GIFrame;
+            RDG::BufferRef                        PointLights;
+            RDG::BufferRef                        SpotLights;
+            RDG::BufferRef                        WorldGridParams;
+            RDG::BufferRef                        WorldGridCells;
+            RDG::TextureRef                       EnvSpecular;
+            RDG::TextureRef                       GBufferDepth;
+            RDG::TextureRef                       GBufferA;
+            RDG::TextureRef                       GBufferEmissive;
         };
 
         // Shaders, the copy pipeline and the capture framebuffer. A renderer may be made before it is initialised
@@ -167,8 +182,9 @@ namespace Desert::Graphic::SurfaceCache
                                                                    const SceneFrame&           frame,
                                                                    const FrameBuffers&         buffers,
                                                                    const DirectLightingInputs& inputs );
-        // The radiosity slot (SurfaceCacheIndirectLighting.shader): the frame's LightingPages take the radiance
-        // cache's irradiance as IndirectLighting and recombine FinalLighting. After the cache's update.
+        // UE LumenRadiosity: the frame's LightingPages trace their radiosity probes (SurfaceCacheRadiosityTrace.shader,
+        // into the radiosity trace atlas with its history), then integrate them into IndirectLighting and recombine
+        // FinalLighting (SurfaceCacheIndirectLighting.shader). After the radiance cache's update.
         [[nodiscard]] Common::BoolResultStr
         AddIndirectLightingPass( RDG::Builder& graph, const ImportImage& import, const SceneFrame& frame,
                                  const FrameBuffers& buffers, const IndirectLightingInputs& inputs );
@@ -177,19 +193,22 @@ namespace Desert::Graphic::SurfaceCache
                                                               RDG::TextureRef target );
         // "Lumen Scene": the scene drawn from its cards alone - every captured card's surface (its depth layer
         // placed back into the world) shaded with its albedo, or with its FinalLighting when @p lit ("Lumen Scene
-        // (Lit)"), depth-tested against the other cards.
+        // (Lit)", scaled by the view's @p preExposure as scene colour is), depth-tested against the other cards.
         [[nodiscard]] Common::BoolResultStr AddSceneViewPass( RDG::Builder& graph, const ImportImage& import,
                                                               RDG::TextureRef target, const SceneFrame& frame,
                                                               const FrameBuffers& buffers, bool lit,
                                                               const glm::mat4& viewProjection,
-                                                              const glm::vec3& cameraPosition );
+                                                              const glm::vec3& cameraPosition, float preExposure );
 
         // The direct lighting's program and pipeline for @p tracer's permutation (its shadow rays), built on the
         // first call for that tracer. Asked by the view before the frame's passes, so a permutation that does not
         // build refuses the methods it serves by name (SceneRenderer::AddFrameSurfaceCache, ProgramRefusals).
         [[nodiscard]] Common::BoolResultStr EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer );
-        // Every variant EnsureLightingProgram can acquire (GlobalIllumination::TracerProgramVariants of
-        // SurfaceCacheDirectLighting), cooked by the package (PackageCook CookShaderVariants).
+        // The radiosity trace's program and pipeline for @p tracer's permutation, built on the first call for it.
+        [[nodiscard]] Common::BoolResultStr EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer );
+        // Every variant EnsureLightingProgram and EnsureRadiosityProgram can acquire (GlobalIllumination::
+        // TracerProgramVariants of SurfaceCacheDirectLighting and SurfaceCacheRadiosityTrace), cooked by the
+        // package (PackageCook CookShaderVariants).
         [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
     private:
@@ -215,6 +234,11 @@ namespace Desert::Graphic::SurfaceCache
         uint32_t                                                              m_AtlasSize = 0;
         std::array<std::shared_ptr<Image2D>, kCapturedLayers.size()>          m_Layers;
         std::array<std::shared_ptr<Image2D>, 3>                               m_LitLayers;
+        // The radiosity probes' traced radiance, one hemisphere stratum per atlas texel (UE
+        // RadiosityTraceRadianceAtlas, PF_FloatR11G11B10), blended with its history.
+        std::shared_ptr<Image2D> m_RadiosityTrace;
+        // The directional lights changed this frame (a full relight): the radiosity keeps no history.
+        bool                     m_ResetRadiosity = true;
         std::shared_ptr<Framebuffer>                                          m_CaptureBuffer;
         std::shared_ptr<Shader>                                               m_CopyShader;
         std::shared_ptr<ComputePipeline>                                      m_CopyPipeline;
@@ -230,6 +254,10 @@ namespace Desert::Graphic::SurfaceCache
         std::shared_ptr<Shader>                                               m_IndirectShader;
         mutable ShaderBindingLayoutCache                                      m_IndirectLayout;
         std::shared_ptr<GraphicsPipeline>                                     m_IndirectPipeline;
+        std::shared_ptr<Shader>                                               m_RadiosityShader;
+        mutable ShaderBindingLayoutCache                                      m_RadiosityLayout;
+        std::shared_ptr<GraphicsPipeline>                                     m_RadiosityPipeline;
+        GlobalIllumination::Pipeline                                          m_RadiosityProgramFor{};
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_AtlasViewPipelines;
         std::map<std::pair<int, uint32_t>, std::shared_ptr<GraphicsPipeline>> m_SceneViewPipelines;
     };

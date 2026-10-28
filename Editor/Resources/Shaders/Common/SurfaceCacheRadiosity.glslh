@@ -1,0 +1,100 @@
+#ifndef SURFACE_CACHE_RADIOSITY_GLSLH
+#define SURFACE_CACHE_RADIOSITY_GLSLH
+
+// THE SURFACE CACHE'S RADIOSITY PROBES (GI-SHADE-DARK; port of UE LumenRadiosity.cpp / LumenRadiosity.usf): the
+// card's own indirect light, gathered on the card, independent of any screen or world probe cache.
+//
+//   placement  one probe per RADIOSITY_PROBE_SPACING² tile of a page's atlas texels (UE
+//              r.LumenScene.Radiosity.ProbeSpacing = 4), placed on the tile's first opaque texel scanning from its
+//              centre (UE PlaceProbes picks a valid texel of the tile the same way); a tile with no opaque texel has
+//              no probe;
+//   trace      the tile's own texels are its probe's hemisphere: texel (i, j) of a W x H tile traces one ray of the
+//              (i, j) stratum of the probe normal's hemisphere (UE HemisphereProbeResolution = 4: 16 rays), jittered
+//              within the stratum per frame, through the GI ray contract (the same tracer as every GI ray; a hit reads
+//              the cards' FinalLighting, a miss the sky) - SurfaceCacheRadiosityTrace.shader, into the radiosity
+//              trace atlas, blended with its history (UE's temporal accumulation, MaxFramesAccumulated);
+//   integrate  a texel bilinearly interpolates the four nearest probes of its page (UE IntegrateProbes), each
+//              probe's 16 strata cosine-weighted about the TEXEL's normal - SurfaceCacheIndirectLighting.shader.
+//
+// The strata are equal solid angle (uniform in cos theta, uniform in phi), so the irradiance over pi of a probe at
+// normal n is (2 / count) x sum( L_i max( dot( n, w_i ), 0 ) ) - the units of the cache's irradiance (already / PI).
+//
+// The includer defines, before including: RADIOSITY_OPACITY (a sampler2D of the atlas Opacity layer).
+// The card record (SurfaceCard, Common/SurfaceCache.glslh) is included here.
+
+#include <Common/SurfaceCache.glslh>
+
+// UE r.LumenScene.Radiosity.ProbeSpacing: atlas texels per probe on each axis, and so the hemisphere resolution.
+#define RADIOSITY_PROBE_SPACING 4
+
+// [-1, 1]² octahedral -> unit vector (UE OctahedronToUnitVector), as the card lighting decodes the Normal layer.
+vec3 RadiosityOctahedronToUnitVector( vec2 o )
+{
+    vec3 n = vec3( o, 1.0 - abs( o.x ) - abs( o.y ) );
+    const float t = max( -n.z, 0.0 );
+    n.x += n.x >= 0.0 ? -t : t;
+    n.y += n.y >= 0.0 ? -t : t;
+    return normalize( n );
+}
+
+// The page of @p atlasUVRect in atlas texels: origin (xy) and size (zw).
+ivec4 RadiosityPageTexels( vec4 atlasUVRect, vec2 atlasSize )
+{
+    const ivec2 origin = ivec2( atlasUVRect.xy * atlasSize + 0.5 );
+    const ivec2 size   = max( ivec2( atlasUVRect.zw * atlasSize + 0.5 ), ivec2( 1 ) );
+    return ivec4( origin, size );
+}
+
+// Tile @p tile (page-relative tile index) of a page of @p pageSize texels: its page-relative origin (xy) and size (zw, clipped to the page).
+ivec4 RadiosityTileOf( ivec2 tile, ivec2 pageSize )
+{
+    const ivec2 origin = tile * RADIOSITY_PROBE_SPACING;
+    return ivec4( origin, min( ivec2( RADIOSITY_PROBE_SPACING ), pageSize - origin ) );
+}
+
+// The texel of the tile at atlas texel @p tileOrigin (size @p tileSize) the probe stands on: the first opaque
+// texel scanning from the tile's centre; false when the tile has none (no probe).
+bool RadiosityProbeTexel( ivec2 tileOrigin, ivec2 tileSize, out ivec2 probeTexel )
+{
+    probeTexel = tileOrigin + tileSize / 2;
+    if ( texelFetch( RADIOSITY_OPACITY, probeTexel, 0 ).r >= 0.5 )
+        return true;
+    for ( int y = 0; y < tileSize.y; ++y )
+        for ( int x = 0; x < tileSize.x; ++x )
+        {
+            probeTexel = tileOrigin + ivec2( x, y );
+            if ( texelFetch( RADIOSITY_OPACITY, probeTexel, 0 ).r >= 0.5 )
+                return true;
+        }
+    return false;
+}
+
+// The world position of atlas texel @p atlasTexel of the page (@p cardUVRect in card UV, @p page in atlas texels)
+// of @p card at the captured @p depth - exactly as the card lighting places its texels.
+vec3 RadiosityTexelWorldPosition( SurfaceCard card, vec4 cardUVRect, ivec4 page, ivec2 atlasTexel, float depth )
+{
+    const vec2  res       = vec2( uvec2( 1u << ( card.info.x & 0xFFu ), 1u << ( ( card.info.x >> 8u ) & 0xFFu ) ) );
+    const vec2  cardTexel = floor( cardUVRect.xy * res + 0.5 ) + vec2( atlasTexel - page.xy ) + 0.5;
+    const vec2  uv        = cardTexel / res;
+    const vec2  local     = vec2( 2.0 * uv.x - 1.0, 1.0 - 2.0 * uv.y ) * card.localExtent.xy;
+    const vec3  origin    = vec3( card.worldToLocal[0].w, card.worldToLocal[1].w, card.worldToLocal[2].w );
+    return origin + card.worldToLocal[0].xyz * local.x + card.worldToLocal[1].xyz * local.y +
+           card.worldToLocal[2].xyz * ( card.localExtent.z - depth * 2.0 * card.localExtent.z );
+}
+
+// The direction of hemisphere point @p u in [0, 1)² about @p N: equal solid angle per stratum (cos theta = 1 - u.x,
+// phi = 2 pi u.y), in the orthonormal basis of Duff et al. 2017 (no branch on N's axis).
+vec3 RadiosityHemisphereDirection( vec2 u, vec3 N )
+{
+    const float cosTheta = 1.0 - u.x;
+    const float sinTheta = sqrt( max( 1.0 - cosTheta * cosTheta, 0.0 ) );
+    const float phi      = 6.28318530718 * u.y;
+    const float s        = N.z >= 0.0 ? 1.0 : -1.0;
+    const float a        = -1.0 / ( s + N.z );
+    const float b        = N.x * N.y * a;
+    const vec3  T        = vec3( 1.0 + s * N.x * N.x * a, s * b, -s * N.x );
+    const vec3  B        = vec3( b, s + N.y * N.y * a, -N.y );
+    return normalize( T * ( sinTheta * cos( phi ) ) + B * ( sinTheta * sin( phi ) ) + N * cosTheta );
+}
+
+#endif // SURFACE_CACHE_RADIOSITY_GLSLH
