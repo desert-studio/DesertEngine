@@ -105,16 +105,16 @@ namespace Desert::Graphic::API::Vulkan
         {
             std::vector<GraphHeaps> Graphs;
             // Heaps no graph holds, reusable by any graph of this slot (see THE HEAP POOL above).
-            std::vector<PooledHeap>                        Pool;
+            std::vector<PooledHeap> Pool;
             // Resources bound to heaps that went to the pool, destroyed at this slot's next BeginFrameSlot.
             std::vector<std::shared_ptr<VulkanRdgTexture>> RetiredTextures;
             std::vector<std::shared_ptr<VulkanRdgBuffer>>  RetiredBuffers;
         };
 
-        static void                           Retire( Slot& slot, GraphHeaps& graph, uint32_t heap );
-        static void                           Release( Slot& slot, GraphHeaps& graph );
-        static void                           DestroyRetired( Slot& slot );
-        void                                  FreePool( Slot& slot ) const;
+        static void Retire( Slot& slot, GraphHeaps& graph, uint32_t heap );
+        static void Release( Slot& slot, GraphHeaps& graph );
+        static void DestroyRetired( Slot& slot );
+        void        FreePool( Slot& slot ) const;
         // A pooled heap fitting @p want (same class, an allowed memory type, at most twice its bytes), else none.
         [[nodiscard]] static bool TakePooled( Slot& slot, const RDG::TransientHeapDesc& want, Heap& out );
         // Fills @p out (a heap is move-only: it holds its ledger row).

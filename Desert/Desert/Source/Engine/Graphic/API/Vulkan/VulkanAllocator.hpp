@@ -236,9 +236,9 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<HostObjectDeletionEntry>     m_HostObjectDeletionQueue;
 
         AllocationLedger m_Ledger;
-        std::mutex       m_ZeroBufferMutex;
-        VkBuffer         m_ZeroBuffer           = VK_NULL_HANDLE;
-        VmaAllocation    m_ZeroBufferAllocation = VK_NULL_HANDLE;
+        std::mutex                            m_ZeroBufferMutex;
+        VkBuffer                              m_ZeroBuffer           = VK_NULL_HANDLE;
+        VmaAllocation                         m_ZeroBufferAllocation = VK_NULL_HANDLE;
         std::chrono::steady_clock::time_point m_LastCensus{};
         // The previous census's bytes per tag: the census names the tags that GREW since it, because a
         // steady growth spread over tags below the largest six is otherwise invisible.

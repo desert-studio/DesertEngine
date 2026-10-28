@@ -75,8 +75,9 @@ namespace Desert::Graphic::API::Vulkan
         for ( auto it = slot.Pool.begin(); it != slot.Pool.end(); ++it )
         {
             const RDG::TransientHeapDesc& have = it->Pooled.Desc;
-            const bool fits = have.Class == want.Class && ( want.MemoryTypeBits & ( 1u << it->Pooled.MemoryType ) ) != 0 &&
-                              have.Bytes >= want.Bytes && have.Bytes / 2 <= want.Bytes && have.Alignment >= want.Alignment;
+            const bool                    fits =
+                 have.Class == want.Class && ( want.MemoryTypeBits & ( 1u << it->Pooled.MemoryType ) ) != 0 &&
+                 have.Bytes >= want.Bytes && have.Bytes / 2 <= want.Bytes && have.Alignment >= want.Alignment;
             if ( fits && ( best == slot.Pool.end() || have.Bytes < best->Pooled.Desc.Bytes ) )
                 best = it;
         }
@@ -101,7 +102,8 @@ namespace Desert::Graphic::API::Vulkan
             if ( ++pooled.IdleFrames > kGarbageCollectLatency )
                 vmaFreeMemory( m_Device.Allocator, pooled.Pooled.Memory );
         }
-        std::erase_if( current.Pool, []( const PooledHeap& pooled ) { return pooled.IdleFrames > kGarbageCollectLatency; } );
+        std::erase_if( current.Pool,
+                       []( const PooledHeap& pooled ) { return pooled.IdleFrames > kGarbageCollectLatency; } );
         // A graph this slot's previous frame did not record has nothing in flight: its heaps go to the pool.
         std::erase_if( current.Graphs,
                        [&]( GraphHeaps& graph )
@@ -193,7 +195,8 @@ namespace Desert::Graphic::API::Vulkan
                 Heap& kept = entry.Heaps[i];
                 if ( fits && want.Bytes > kept.Desc.Bytes / 2 )
                     kept.OversizedFrames = 0;
-                if ( fits && ( want.Bytes > kept.Desc.Bytes / 2 || ++kept.OversizedFrames <= kGarbageCollectLatency ) )
+                if ( fits &&
+                     ( want.Bytes > kept.Desc.Bytes / 2 || ++kept.OversizedFrames <= kGarbageCollectLatency ) )
                     continue;
                 // Grown, oversized (or of another class / type): the heap goes to the slot's pool; the resources
                 // bound to it are destroyed at the slot's next BeginFrameSlot, so none outlives its memory.
@@ -207,7 +210,8 @@ namespace Desert::Graphic::API::Vulkan
             }
             // Named for the graph that holds it (allocated or taken from the pool): the census's detailed map
             // (VulkanAllocator, BISTRO-MEM-2 p4) sums the heaps by the graph that wants them.
-            vmaSetAllocationName( m_Device.Allocator, allocated.Memory, std::format( "RDG heap {}", graph ).c_str() );
+            vmaSetAllocationName( m_Device.Allocator, allocated.Memory,
+                                  std::format( "RDG heap {}", graph ).c_str() );
             if ( i < entry.Heaps.size() )
                 entry.Heaps[i] = std::move( allocated );
             else

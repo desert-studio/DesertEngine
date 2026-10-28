@@ -51,9 +51,10 @@ namespace Desert::Graphic::API::Vulkan
                 const std::size_t at = object.find( key );
                 if ( at == std::string_view::npos )
                     return {};
-                const std::size_t open = object.find( '"', at + key.size() );
+                const std::size_t open  = object.find( '"', at + key.size() );
                 const std::size_t close = open == std::string_view::npos ? open : object.find( '"', open + 1 );
-                return close == std::string_view::npos ? std::string_view{} : object.substr( open + 1, close - open - 1 );
+                return close == std::string_view::npos ? std::string_view{}
+                                                       : object.substr( open + 1, close - open - 1 );
             };
             const auto numberAfter = []( std::string_view object, std::string_view key ) -> uint64_t
             {
@@ -68,7 +69,7 @@ namespace Desert::Graphic::API::Vulkan
             };
             // Each allocation is one flat JSON object: {"Offset"?, "Type", "Size", "Usage", "Name"?}.
             for ( std::size_t at = map.find( "\"Type\"" ); at != std::string_view::npos;
-                  at = map.find( "\"Type\"", at + 1 ) )
+                  at             = map.find( "\"Type\"", at + 1 ) )
             {
                 const std::size_t      begin  = map.rfind( '{', at );
                 const std::size_t      end    = map.find( '}', at );
@@ -80,11 +81,12 @@ namespace Desert::Graphic::API::Vulkan
                     continue;
                 const uint64_t         size = numberAfter( object, "\"Size\"" );
                 const std::string_view name = stringAfter( object, "\"Name\"" );
-                Group& group = name.empty()
-                                    ? unnamed[std::format( "{} usage {:#x}", type, numberAfter( object, "\"Usage\"" ) )]
-                                    : named[name.starts_with( "RDG heap " ) ? std::string( name )
-                                            : name.starts_with( "RDG " )    ? std::string( "RDG extracted (all)" )
-                                                                            : std::string( "ledger tags (all)" )];
+                Group&                 group =
+                     name.empty()
+                                          ? unnamed[std::format( "{} usage {:#x}", type, numberAfter( object, "\"Usage\"" ) )]
+                                          : named[name.starts_with( "RDG heap " ) ? std::string( name )
+                                                  : name.starts_with( "RDG " ) ? std::string( "RDG extracted (all)" )
+                                                                               : std::string( "ledger tags (all)" )];
                 group.Bytes += size;
                 ++group.Count;
             }
@@ -92,7 +94,8 @@ namespace Desert::Graphic::API::Vulkan
             const auto print = [&]( std::string_view title, const std::unordered_map<std::string, Group>& groups )
             {
                 std::vector<std::pair<std::string, Group>> sorted( groups.begin(), groups.end() );
-                std::ranges::sort( sorted, []( const auto& a, const auto& b ) { return a.second.Bytes > b.second.Bytes; } );
+                std::ranges::sort( sorted, []( const auto& a, const auto& b )
+                                   { return a.second.Bytes > b.second.Bytes; } );
                 std::size_t total = 0;
                 for ( const auto& [key, group] : sorted )
                     total += group.Bytes;
@@ -173,12 +176,12 @@ namespace Desert::Graphic::API::Vulkan
         const std::scoped_lock lock( m_ZeroBufferMutex );
         if ( m_ZeroBuffer != VK_NULL_HANDLE )
             return Common::MakeSuccess( m_ZeroBuffer );
-        constexpr VkDeviceSize kBytes = 65536;
+        constexpr VkDeviceSize   kBytes = 65536;
         const VkBufferCreateInfo info{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
                                        .size  = kBytes,
                                        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
                                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-        VkBuffer   buffer    = VK_NULL_HANDLE;
+        VkBuffer                 buffer = VK_NULL_HANDLE;
         const auto allocated = RT_AllocateBuffer( "ZeroBuffer", info, VMA_MEMORY_USAGE_CPU_TO_GPU, buffer );
         if ( !allocated.IsSuccess() )
             return Common::MakeError<VkBuffer>( allocated.GetError() );
