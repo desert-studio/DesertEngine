@@ -117,7 +117,7 @@ namespace Desert::Graphic::API::Vulkan
         void ReportSwallowedRebind( const IViewDescriptorSetCopy& sets, uint32_t binding, uint64_t handle,
                                     const char* what );
 
-        VkBuffer      m_DummyBuffer = VK_NULL_HANDLE;
-        VmaAllocation m_DummyAllocation = nullptr;
+        // The device's zero buffer (VulkanAllocator::RT_ZeroBuffer), not owned here.
+        VkBuffer m_DummyBuffer = VK_NULL_HANDLE;
     };
 } // namespace Desert::Graphic::API::Vulkan

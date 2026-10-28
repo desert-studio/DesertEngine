@@ -59,41 +59,28 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
 
-        // Create a dummy buffer to initialize unused bindings
-        VmaAllocator allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
-                                      ->GetVulkanAllocator()
-                                      ->GetVMAAllocator();
-
-        VkBufferCreateInfo      bufferInfo = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                                               .size  = 65536,
-                                               .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-        // Host-visible + zero-initialized. Every uniform/storage binding starts out pointing at this
-        // dummy buffer (see WriteFallbacks). If it held uninitialized GPU memory, any binding
-        // sampled before its real resource is bound — or one that is never bound — would read garbage,
-        // which the lighting blows up into white/NaN (or near-zero black). Defined zeros make those
-        // cases render as a stable black instead of flickering garbage.
-        VmaAllocationCreateInfo allocInfo  = { .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
-                                               .usage = VMA_MEMORY_USAGE_CPU_TO_GPU };
-
-        VmaAllocationInfo dummyAllocInfo{};
-        VK_CHECK_RESULT( vmaCreateBuffer( allocator, &bufferInfo, &allocInfo, &m_DummyBuffer, &m_DummyAllocation, &dummyAllocInfo ) );
-
-        if ( dummyAllocInfo.pMappedData )
+        // Every uniform/storage binding starts out pointing at the device's ONE zero buffer (WriteFallbacks):
+        // defined zeros render a binding read before its real resource is bound as a stable black instead of
+        // garbage. One per device, as UE's global null resources (GEmptyStructuredBuffer, GBlackTexture): it
+        // used to be one 64 KB buffer PER MATERIAL BACKEND, which on Bistro was 7753 buffers, 485 MB that no
+        // ledger saw (BISTRO-MEM-2 p4).
+        auto zero = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                         ->GetVulkanAllocator()
+                         ->RT_ZeroBuffer();
+        if ( !zero.IsSuccess() )
         {
-            std::memset( dummyAllocInfo.pMappedData, 0, bufferInfo.size );
+            LOG_ERROR( "[Material] shader '{}': the zero buffer for unbound bindings is missing: {}",
+                       m_VulkanShader ? m_VulkanShader->GetName() : std::string( "<null>" ), zero.GetError() );
+        }
+        else
+        {
+            m_DummyBuffer = zero.GetValue();
         }
     }
 
-    VulkanMaterialBackend::~VulkanMaterialBackend()
-    {
-        // DEFERRED, like every other GPU object a mid-session destruction releases: a material dropped
-        // while its sets are still in a command buffer in flight would otherwise free them under the GPU.
-        // The dummy buffer goes the same way: the sets being released (m_ViewSets frees every view's copy
-        // through the same queue) still point at it.
-        const auto& allocator =
-             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
-        allocator->RT_DestroyBuffer( m_DummyBuffer, m_DummyAllocation );
-    }
+    // The zero buffer is the device's (VulkanAllocator::RT_ZeroBuffer), alive until the device goes: the sets
+    // this backend releases may still point at it from a command buffer in flight, and that stays valid.
+    VulkanMaterialBackend::~VulkanMaterialBackend() = default;
 
     IViewDescriptorSetCopy* VulkanMaterialBackend::ActiveSets( const uint32_t frameIndex )
     {
