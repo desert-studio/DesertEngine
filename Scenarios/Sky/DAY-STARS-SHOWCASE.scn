@@ -1,0 +1,15 @@
+# DAY-STARS on a light scene: Sky_PhysicalShowcase authors a 1 lux sun at EV100 0.53, so its noon sky is ~0.06 cd/m^2
+# and the 1.8 cd/m^2 stars blazed at noon before the fix. FIELD_Barn (DAY-STARS.scn) is the brief's scene; this one
+# runs while FIELD_Barn's load is over the editor memory cap (6.2 GB > 6144 MB at Open Scene, 10-28).
+Дано run Scene "Open Scene Sky_PhysicalShowcase.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.FOV 70
+Дано --subject viewport set Camera.Position 0,300,0
+Дано --subject viewport set Camera.Direction 0,0.866,-0.5
+Тогда-вид 1_day the sun high: blue sky with no stars
+Когда run Entity "Sun"
+Когда --subject selection set SunElevation -25
+Тогда-вид 2_night the sun below the horizon: dark night sky, stars visible
