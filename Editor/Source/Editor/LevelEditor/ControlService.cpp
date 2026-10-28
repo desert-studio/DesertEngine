@@ -126,6 +126,9 @@ namespace Desert::Editor
             if ( !partition )
                 return;
             rows.push_back( { "WorldPartition", "json", Common::Json::Write( *partition ) } );
+            // World Settings > World Partition's one field (WP23): 0 = absent, the world ships in the base archive.
+            rows.push_back( { "WorldPartition.ChunkRegionSize", "float",
+                              std::format( "{}", partition->ChunkRegionSize.value_or( 0.0f ) ) } );
             for ( const ::Desert::Core::WorldPartitionGridSerialized& grid : partition->Grids )
             {
                 const std::string at = "WorldPartition.Grids." + grid.Name + ".";
@@ -157,10 +160,30 @@ namespace Desert::Editor
                 if ( !current )
                     return Common::MakeError<bool>( std::string(
                          "the world is not partitioned; set 'WorldPartition' to the whole block first" ) );
+                if ( property == "WorldPartition.ChunkRegionSize" )
+                {
+                    // The panel's DragFloat in text: centimetres, 0 clears it (the base archive), as the panel.
+                    after = *current;
+                    try
+                    {
+                        std::size_t used = 0;
+                        const float size = std::stof( text, &used );
+                        if ( used != text.size() || !std::isfinite( size ) || size < 0.0f )
+                            throw std::invalid_argument( text );
+                        after.ChunkRegionSize = size > 0.0f ? std::optional<float>( size ) : std::nullopt;
+                    }
+                    catch ( const std::exception& )
+                    {
+                        return Common::MakeError<bool>( std::format(
+                             "'{}' is not a region size in cm (a finite number >= 0; 0 = the base archive)",
+                             text ) );
+                    }
+                    return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
+                }
                 const std::size_t dot = property.rfind( '.' );
                 if ( !property.starts_with( kGrids ) || dot < kGrids.size() )
                     return Common::MakeError<bool>( std::format(
-                         "'{}' is not WorldPartition or WorldPartition.Grids.<Name>.<Field>", property ) );
+                         "'{}' is not WorldPartition, WorldPartition.ChunkRegionSize or WorldPartition.Grids.<Name>.<Field>", property ) );
                 const std::string name  = property.substr( kGrids.size(), dot - kGrids.size() );
                 const std::string field = property.substr( dot + 1 );
                 after                   = *current;
