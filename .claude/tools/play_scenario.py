@@ -104,9 +104,20 @@ def main():
 
     def desertctl(*a):
         # --wait covers the machine's one GPU slot: run_capped queues the editor until it is free
-        r = subprocess.run([ctl, "--socket", sock, "--wait", "2400", *a], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=2700)
-        return r.returncode == 0, (r.stdout + r.stderr).strip().splitlines()[-1:] or [""]
+        # a step against a dead editor fails at once (the memory cap kills it; --wait would sit 2400 s per step, 10-28)
+        if proc.poll() is not None:
+            return False, [f"editor exited (rc {proc.returncode}) - see editor.log"]
+        c = subprocess.Popen([ctl, "--socket", sock, "--wait", "2400", *a], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+        deadline = time.time() + 2700
+        while c.poll() is None:
+            if proc.poll() is not None or time.time() > deadline:
+                c.kill()
+                c.wait()
+                return False, [f"editor exited (rc {proc.returncode}) - see editor.log" if proc.poll() is not None
+                               else "DesertCtl timed out"]
+            time.sleep(1)
+        return c.returncode == 0, c.stdout.read().strip().splitlines()[-1:] or [""]
 
     # run_capped may queue the editor for the GPU slot longer than DesertCtl's --wait: wait for the socket itself
     while not os.path.exists(sock) and proc.poll() is None:
