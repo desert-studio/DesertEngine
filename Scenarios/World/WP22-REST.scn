@@ -7,7 +7,8 @@
 # Paint (Foliage grid), VELOCITY and FAR-2 are separate scenarios (see the brief's REMAINDER).
 # WP22-LIT: Load All before AND after the palette edit (a new unsaved entity no longer blocks it), a paint stroke
 # on the loaded Main cells, a lit frame from 400 m; the boulder_01 type the palette made goes to the Trash at the end.
-# The 'orange slab' of p2 was the Player cube itself: Scale 200 on the 100 cm Cube primitive = a 200 m box (fixed to 1x2x1 m).
+# The 'orange slab' of p2: 400 'Foliage Bush' cubes (CB_Orange) at Scale 150 on the 100 cm Cube = 150 m boxes 25 m apart,
+# one 625 m slab (now 1.5 m; Player/Plane were 200 m, now 2 m). Sun: DirectionLight takes Rotation (was 0 = horizon), now pitch -50 deg.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Scene "Build HLODs"
 Дано run Panel "Open World Partition"

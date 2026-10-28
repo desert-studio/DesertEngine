@@ -3,7 +3,7 @@
     "Tag": "Foliage Bush 6_8",
     "Translation": [16250.0, -404.1875, 21250.0],
     "Rotation": [0.0, 0.0, 0.0],
-    "Scale": [150.0, 150.0, 150.0],
+    "Scale": [1.5, 1.5, 1.5],
     "StaticMesh": {
         "MaterialSlots": [
             {
