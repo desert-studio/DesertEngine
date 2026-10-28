@@ -7,6 +7,10 @@
 
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <algorithm>
+#include <cstring>
+#include <type_traits>
+
 namespace Desert::Graphic
 {
     void Texture2D::ReleaseImage()
@@ -79,7 +83,75 @@ namespace Desert::Graphic
         cooked.ColorSpace = data.ColorSpace;
         cooked.Pixels = std::move( data.Pixels );
         cooked.Levels = std::move( spans );
+        cooked.FullWidth  = cooked.Width;
+        cooked.FullHeight = cooked.Height;
+        cooked.FullLevelBytes.reserve( cooked.Levels.size() );
+        for ( const Core::Formats::MipLevelSpan& level : cooked.Levels )
+            cooked.FullLevelBytes.push_back( level.ByteSize );
         return Common::MakeSuccess( std::move( cooked ) );
+    }
+
+    Common::ResultStr<CookedTexture2D> Texture2D::ReadCookedMips( const std::filesystem::path& cookedPath,
+                                                                  const uint32_t               firstMip,
+                                                                  const uint32_t               tailSize )
+    {
+        auto cooked = ReadCooked( cookedPath );
+        if ( !cooked.IsSuccess() )
+            return cooked;
+        CookedTexture2D texture = cooked.ExtractValue();
+        uint32_t        first   = firstMip;
+        if ( firstMip == kStreamingTail )
+        {
+            first = 0;
+            while ( std::max( texture.FullWidth >> first, texture.FullHeight >> first ) > tailSize &&
+                    first + 1 < texture.Levels.size() )
+                ++first;
+        }
+        texture.KeepFromMip( first );
+        return Common::MakeSuccess( std::move( texture ) );
+    }
+
+    void CookedTexture2D::KeepFromMip( const uint32_t firstMip )
+    {
+        if ( Levels.empty() )
+            return;
+        const uint32_t first = std::min<uint32_t>( firstMip, static_cast<uint32_t>( Levels.size() ) - 1 );
+        if ( first == FirstMip )
+            return;
+        // Levels are always counted from the asset's level 0 by the caller; this texture may already be trimmed.
+        if ( first < FirstMip )
+            return;
+        const uint32_t drop    = first - FirstMip;
+        auto           compact = [&]( auto& blob )
+        {
+            using Element = typename std::remove_reference_t<decltype( blob )>::value_type;
+            std::remove_reference_t<decltype( blob )> kept;
+            uint64_t                                  bytes = 0;
+            for ( std::size_t level = drop; level < Levels.size(); ++level )
+                bytes += Levels[level].ByteSize;
+            kept.resize( static_cast<std::size_t>( bytes / sizeof( Element ) ) );
+            uint64_t                                 offset = 0;
+            std::vector<Core::Formats::MipLevelSpan> spans;
+            for ( std::size_t level = drop; level < Levels.size(); ++level )
+            {
+                std::memcpy( reinterpret_cast<unsigned char*>( kept.data() ) + offset,
+                             reinterpret_cast<const unsigned char*>( blob.data() ) + Levels[level].ByteOffset,
+                             static_cast<std::size_t>( Levels[level].ByteSize ) );
+                spans.push_back( { offset, Levels[level].ByteSize } );
+                offset += Levels[level].ByteSize;
+            }
+            blob   = std::move( kept );
+            Levels = std::move( spans );
+        };
+        if ( auto* u8 = std::get_if<std::vector<unsigned char>>( &Pixels ) )
+            compact( *u8 );
+        else if ( auto* f32 = std::get_if<std::vector<float>>( &Pixels ) )
+            compact( *f32 );
+        else
+            return; // a bare pointer carries no length to compact from: kept whole
+        FirstMip = first;
+        Width    = std::max( 1u, FullWidth >> first );
+        Height   = std::max( 1u, FullHeight >> first );
     }
 
     Common::ResultStr<std::shared_ptr<Texture2D>> Texture2D::CreateFromCooked( CookedTexture2D       cooked,

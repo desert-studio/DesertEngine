@@ -24,6 +24,16 @@ namespace Desert::Graphic
         Core::Formats::TextureColorSpace         ColorSpace = Core::Formats::TextureColorSpace::Linear;
         Core::Formats::ImagePixelData            Pixels;
         std::vector<Core::Formats::MipLevelSpan> Levels;
+        /// MIP STREAMING (TEX-STREAMING): the whole chain the asset holds, of which `Levels` is the resident part
+        /// from `FirstMip` down. Width/Height above are the resident top level's; these are the asset's.
+        uint32_t              FullWidth  = 0;
+        uint32_t              FullHeight = 0;
+        uint32_t              FirstMip   = 0;
+        std::vector<uint64_t> FullLevelBytes;
+
+        /// Drops the levels above @p firstMip (clamped to the last level): the pixels of the kept levels are
+        /// compacted into a blob of their own, so the dropped ones are freed here, before the upload waits.
+        void KeepFromMip( uint32_t firstMip );
 
         /// The bytes the upload copies to staging: what the per-frame upload budget counts.
         [[nodiscard]] uint64_t UploadBytes() const
@@ -125,6 +135,12 @@ namespace Desert::Graphic
         /// `ReadCooked` is CPU only -- the DDC read, and the cook on a DDC miss, then the container decode -- and
         /// is safe on a worker. `CreateFromCooked` creates the GPU image and uploads it, on the main thread.
         static Common::ResultStr<CookedTexture2D>            ReadCooked( const std::filesystem::path& cookedPath );
+        /// The streaming read (TEX-STREAMING): `ReadCooked`, then only the levels from @p firstMip down are kept
+        /// (CookedTexture2D::KeepFromMip). @p firstMip = kStreamingTail keeps the mip tail: the first level no
+        /// larger than @p tailSize on its longer side, which is all a texture holds before the frame asks.
+        static constexpr uint32_t                 kStreamingTail = UINT32_MAX;
+        static Common::ResultStr<CookedTexture2D> ReadCookedMips( const std::filesystem::path& cookedPath,
+                                                                  uint32_t firstMip, uint32_t tailSize );
         static Common::ResultStr<std::shared_ptr<Texture2D>>
         CreateFromCooked( CookedTexture2D cooked, const TextureBackend& backend = TextureBackend::Device() );
 

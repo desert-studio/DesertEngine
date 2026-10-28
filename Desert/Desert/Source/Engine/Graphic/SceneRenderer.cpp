@@ -1,6 +1,7 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Graphic/TextureStreamingDemand.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
@@ -3038,6 +3039,44 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    namespace
+    {
+        // TEX-STREAMING: a draw's world bounding sphere (the LOD rule's: box centre, half-diagonal x largest
+        // scale) through @p transform.
+        std::pair<glm::vec3, float> WorldSphere( const Common::Math::AABB& local, const glm::mat4& transform )
+        {
+            const float scale = glm::max(
+                 glm::length( glm::vec3( transform[0] ) ),
+                 glm::max( glm::length( glm::vec3( transform[1] ) ), glm::length( glm::vec3( transform[2] ) ) ) );
+            return { glm::vec3( transform * glm::vec4( 0.5f * ( local.Min + local.Max ), 1.0f ) ),
+                     glm::length( local.Max - local.Min ) * 0.5f * scale };
+        }
+    } // namespace
+
+    void SceneRenderer::NoteTextureDemand( const Mesh& mesh, const std::span<const glm::mat4> transforms,
+                                           const std::span<MaterialInstance* const> materials ) const
+    {
+        const auto* camera = GetMainCamera();
+        if ( camera == nullptr || transforms.empty() || GetViewExtent().Height == 0 )
+            return;
+        const Common::Math::AABB local = Geometry::LocalBounds( mesh.GetSubmeshes() );
+        if ( Geometry::IsEmpty( local ) )
+            return;
+        const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
+        // The largest any instance covers: the nearest instance decides what the shared textures must hold.
+        float pixels = 0.0f;
+        for ( const glm::mat4& transform : transforms )
+        {
+            const auto [center, radius] = WorldSphere( local, transform );
+            pixels                      = std::max(
+                 pixels, TextureStreamingDemand::ScreenPixels( center, radius, view, GetViewExtent().Height ) );
+        }
+        auto& demand = TextureStreamingDemand::Get();
+        for ( MaterialInstance* instance : materials )
+            if ( instance != nullptr )
+                demand.Note( instance->GetParentMaterial(), pixels );
+    }
+
     bool SceneRenderer::IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
                                                  float maxDrawDistance ) const
     {
@@ -3079,6 +3118,7 @@ namespace Desert::Graphic
         auto* drawnMesh = const_cast<Mesh*>( mesh );
         if ( !ReadyForDraw( *drawnMesh ) )
             return;
+        NoteTextureDemand( *drawnMesh, std::span<const glm::mat4>( &transform, 1 ), materialSlots->Slots );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitMesh( { .Entity                   = extra.Entity,
                              .MotionPart               = extra.MotionPart,
@@ -3188,6 +3228,11 @@ namespace Desert::Graphic
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
+        if ( transforms )
+        {
+            MaterialInstance* const drawn[] = { material.get(), displacedMaterial.get() };
+            NoteTextureDemand( *mesh, *transforms, drawn );
+        }
         // NO CAST, AND THAT IS THE POINT. This used to read
         // `static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) )`, and the downcast was a lie
         // the type told: an ISM's mesh is very often a DynamicMesh — every primitive one is, and the
