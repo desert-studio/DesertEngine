@@ -7,26 +7,28 @@
 # Paint (Foliage grid), VELOCITY and FAR-2 are separate scenarios (see the brief's REMAINDER).
 # WP22-LIT: Load All before AND after the palette edit (a new unsaved entity no longer blocks it), a paint stroke
 # on the loaded Main cells, a lit frame from 400 m; the boulder_01 type the palette made goes to the Trash at the end.
+# The 'orange slab' of p2 was the Player cube itself: Scale 200 on the 100 cm Cube primitive = a 200 m box (fixed to 1x2x1 m).
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Scene "Build HLODs"
 Дано run Panel "Open World Partition"
 Дано run Scene "World Partition: Load All"
 Когда run Foliage "Add mesh to the palette: boulder_01"
 Когда run Scene "World Partition: Load All"
-Когда --subject viewport set Camera.Position 1000,3000,1000
-Когда --subject viewport set Camera.Direction 0.2,-1,0.15
+Когда --subject viewport set Camera.Position 1000,1200,-500
+Когда --subject viewport set Camera.Direction 0,-1,1
 Когда run Foliage "Tool: Paint"
 Когда run Foliage "Stroke at viewport centre"
 Когда run Foliage "Stroke at viewport centre"
 Когда run Foliage "Stroke at viewport centre"
-Тогда wp22_paint на месте мазка (центр вьюпорта, загруженная ячейка Main) лежат экземпляры boulder_01 - не 0; освещённый вид, не Wireframe
+Когда run Mode "Select mode"
+Тогда wp22_paint на месте мазка (центр вьюпорта, загруженная ячейка Main) лежат экземпляры boulder_01 - не 0; освещённый дневной вид с 15 м под 45°, без панели Foliage
 Когда run Action "Play from Here"
 Когда advance 2
 Когда --subject viewport set Camera.Position 0,40000,-40000
 Когда --subject viewport set Camera.Direction 0,-1,1
 Когда advance 2
 Когда advance 1
-Тогда wp22_lit освещённый (не Wireframe) кадр сверху 400 м под 45°, солнце днём: застройка вокруг игрока, HLOD до края мира без дыр, листва из мазка у центра
+Тогда wp22_lit освещённый (не Wireframe) кадр сверху 400 м под 45°, солнце днём (50°), без панели Foliage и без оранжевой плиты: застройка вокруг игрока, HLOD до края мира без дыр, листва из мазка у центра
 Тогда-вид wp22_lit_view тот же вид, только вьюпорт
 Когда run Action "Stop"
 Когда run "Content Browser" "Sync to Asset Foliage/boulder_01.defoliage"
