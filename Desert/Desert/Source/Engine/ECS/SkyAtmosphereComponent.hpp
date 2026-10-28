@@ -116,8 +116,9 @@ namespace Desert::ECS
 
         // Read by BOTH models (Common/Atmosphere.glslh AtmosphereStarField). The gradient fades it in with its
         // night palette; the physical model draws stars at their outer-space luminance (1 = a magnitude-0
-        // star, AtmosphereStarPeakLuminance) through the view transmittance, so the day sky's in-scattering
-        // hides them and the night sky shows them, with no switch.
+        // star, AtmosphereStarPeakLuminance) through the view transmittance; the sky's own brightness, carried
+        // to real units by the atmosphere sun's scale, hides them through the eye's threshold
+        // (AtmosphereStarVisibility) - so a 16 lux UE-convention sun hides them by day too, with no switch.
         PROPERTY( DisplayName( "Star Intensity" ), Category( "Night Sky" ), Range( 0.0f, 5.0f ),
                   Tooltip( "Star brightness. Physical Atmosphere: 1 = magnitude-0 stars at true luminance, seen "
                            "through the atmosphere's transmittance (hidden by the day sky, visible at night)." ) )
