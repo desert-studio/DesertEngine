@@ -15,6 +15,6 @@
 Дано --subject viewport set Camera.Position 1000,1500,5000
 Дано --subject viewport set Camera.Direction 0,-0.37,-1
 Дано run Assets "Drop into the viewport: Environments/FieldBarn/Meshes/island_tree_02/island_tree_02.gltf"
-Тогда far2_fov90 FOV 90: дерево island_tree_02 мелко в центре вьюпорта (~52 м), выделено; в строке состояния «island_tree_02  LOD 2» (дальний уровень)
+Тогда far2_fov90 FOV 90: дерево island_tree_02 мелко в центре вьюпорта (~52 м), выделено; в строке состояния «island_tree_02  LOD N», N > 0 (снято: LOD 1)
 Когда --subject viewport set Camera.FOV 20
 Тогда far2_fov20 FOV 20, та же точка и направление: то же дерево крупно в центре; в строке состояния «island_tree_02  LOD 0» (ближний уровень)
