@@ -2325,6 +2325,7 @@ namespace Desert::Graphic
 #endif
         m_FrameReflectionCaptures = nullptr;
         m_FrameRayTracingCache    = nullptr;
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ForgetGpuScene();
         m_FrameGpuScene           = nullptr;
         m_FrameLocalShadows       = nullptr;
         m_FrameDistanceFields     = nullptr;

@@ -512,6 +512,14 @@ namespace Desert::Graphic::System
             return m_GpuScene;
         }
 
+        // The GpuScene is THIS FRAME's: SyncGpuScene binds it, SceneRenderer::EndScene forgets it. A capture that
+        // runs before the sync (the terrain's, SceneRenderer::OnUpdate) then finds none instead of the previous
+        // frame's, whose Scene a scene switch has already destroyed.
+        void ForgetGpuScene()
+        {
+            m_GpuScene = nullptr;
+        }
+
         // The GpuScene instances of SyncGpuScene's @p otherRigid records, in their order. Valid until the next
         // sync.
         [[nodiscard]] std::span<const uint32_t> GetOtherGpuInstances() const
