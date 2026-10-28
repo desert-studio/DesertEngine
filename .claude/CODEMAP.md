@@ -34,7 +34,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Formats` — 11 files, 3,598 lines: BC6HCeilingCensus, BlockPolicy, Image2DSpecification, Image3DSpecification, ImageCubeSpecification, MaterialLayout, MaterialLayoutBindings, MaterialLayoutParam, MaterialLayoutPushField, MaterialLayoutTexture, MipLevelSpan, ReflectedLayoutMember, … (+8)
 - `Core/IO` — 2 files, 89 lines: ImageReader, ImageReaderGifInfo
 - `Core/Serialize` — 47 files, 14,595 lines: AxisSpan, BuiltHLODCell, BuiltHLODIndex, CellBounds, CellCoord, CellPayload, ComponentLoadingRow, ComponentRegistry, ComponentSerializer, ContainmentEdge, CookedCellSource, CookedFile, … (+88)
-- `Core/ShaderCompiler` — 16 files, 2,411 lines: BindlessShaderDefine, CookedProgramVariant, ScopedShaderPhase, ShaderCacheCounts, ShaderCompiler, ShaderMap, ShaderMapLookup, ShaderMapOutcome, ShaderMapRequest, ShaderMapStage, ShaderPhaseTimes, ShaderVariant, … (+1)
+- `Core/ShaderCompiler` — 16 files, 2,453 lines: BindlessShaderDefine, CookedProgramVariant, ScopedShaderPhase, ShaderCacheCounts, ShaderCompiler, ShaderMap, ShaderMapLookup, ShaderMapOutcome, ShaderMapRequest, ShaderMapStage, ShaderPhaseTimes, ShaderVariant, … (+1)
 - `Core/ShaderCompiler/DShader` — 2 files, 3,438 lines: DShaderParseResult, DShaderParser, DShaderPass, SurfaceTemplateInfo
 - `Core/ShaderCompiler/Includer` — 2 files, 284 lines: ShaderIncluder
 - `Core/ShaderCompiler/ShaderPreprocess` — 2 files, 141 lines: PreprocessedPass, ShaderPreprocess
