@@ -1108,7 +1108,12 @@ namespace Desert::Graphic::API::Vulkan
         // The graph's cached handles name each side's own VkImage: both are retired, and remade on next import.
         DropGraphTexture();
         other->DropGraphTexture();
-        std::swap( m_Specification, other->m_Specification );
+        // The specification is not assignable whole (its tag and usage are the image's identity): the size and the
+        // level description are what the streamed read changed.
+        std::swap( m_Specification.Width, other->m_Specification.Width );
+        std::swap( m_Specification.Height, other->m_Specification.Height );
+        std::swap( m_Specification.Mips, other->m_Specification.Mips );
+        std::swap( m_Specification.MipLevels, other->m_Specification.MipLevels );
         std::swap( m_Resource, other->m_Resource );
         std::swap( m_MipViews, other->m_MipViews );
         std::swap( m_EncodedView, other->m_EncodedView );
