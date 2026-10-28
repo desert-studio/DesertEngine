@@ -288,7 +288,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/Subsurface` — 2 files, 262 lines
 - `Programs/Surface` — 7 files, 633 lines
 - `Programs/SurfaceCache` — 5 files, 748 lines
-- `Programs/TemporalAA` — 6 files, 835 lines
+- `Programs/TemporalAA` — 6 files, 841 lines
 - `Programs/TemporalSuperResolution` — 10 files, 1,882 lines
 - `Programs/Terrain` — 11 files, 1,229 lines
 - `Programs/Text` — 3 files, 158 lines
