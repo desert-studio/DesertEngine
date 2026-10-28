@@ -1233,8 +1233,26 @@ namespace Desert::Graphic::API::Vulkan
         // Every used, non-extracted transient is PLACED at its planned heap offset, in plan order. Two that share
         // bytes are two resources over the same memory; the AliasAcquire barrier alone orders them.
         const RDG::AliasingPlan& plan = graph.Result->Aliasing;
-        if ( auto reserved = m_Transients->ReserveHeaps( graph.Name, plan.Heaps ); !reserved )
-            return reserved;
+        // A graph only on the graphics queue holds the slot's shared heaps in turn with the slot's other graphs
+        // (BISTRO-MEM-2 p5); one with an async-compute segment keeps its own (a compute submission is ordered
+        // after the earlier graphs only by the semaphores it waits on).
+        const bool graphicsOnly =
+             std::none_of( graph.Result->Segments.begin(), graph.Result->Segments.end(),
+                           []( const RDG::PipeSegment& segment ) { return segment.OnPipe == RDG::Pipe::AsyncCompute; } );
+        const Common::ResultStr<bool> reserved = m_Transients->ReserveGraphHeaps( graph.Name, plan.Heaps, graphicsOnly );
+        if ( !reserved )
+            return Common::MakeFormattedError( "{}", reserved.GetError() );
+        if ( reserved.GetValue() )
+        {
+            // An earlier graph of this frame used the bytes (same queue, earlier in submission order): its last
+            // accesses complete, and their writes are made available, before this graph's first access.
+            VkMemoryBarrier barrier{};
+            barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+            barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+            vkCmdPipelineBarrier( first.GetValue(), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                                  VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr );
+        }
         m_GraphName = graph.Name;
         for ( const RDG::Allocation& allocation : plan.Allocations )
         {
