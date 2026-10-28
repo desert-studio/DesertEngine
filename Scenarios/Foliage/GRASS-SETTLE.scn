@@ -9,5 +9,9 @@
 Дано --subject viewport set Camera.Position 0,900,2500
 Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
 Тогда-вид 1_first the first frame after opening: no grass cell of another colour with a straight edge (lower left)
-Когда advance 3
+# advance runs Play time (at most 2 s a step): three seconds under Simulate, then back to the editor.
+Когда run Action Simulate
+Когда advance 1.5
+Когда advance 1.5
 Тогда-вид 2_settled the same view three seconds later: the same grass as 1_first, no jump
+Когда run Action Stop
