@@ -4,6 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
+#include <Engine/Graphic/AllocationLedger.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
@@ -265,11 +266,12 @@ namespace Desert::Graphic::API::Vulkan
     // An entry is handed out again for the same description and usage, so an unchanged graph gets the same
     // images every frame and whatever descriptors point at them stay valid.
     //
-    // Entries are kept per frame slot: a slot's resources are reused only when the caller has waited for
-    // that slot's previous frame (the renderer's frames-in-flight fence), so the first barrier of a reused
-    // image - from UNDEFINED, waiting on nothing - never races the GPU still reading it from an earlier
-    // frame. An entry not handed out during a slot's whole previous frame is destroyed at the next
-    // BeginFrame of that slot; an entry still held by an extraction target is never handed out twice.
+    // Entries are shared by every frame slot (UE FRenderTargetPool): an entry is handed out again only when
+    // nothing holds it and its last hand-out was in a frame the caller has waited for (the renderer's
+    // frames-in-flight fence), so the first barrier of a reused image - from UNDEFINED, waiting on nothing -
+    // never races the GPU still reading it. Per-slot lists (p2) kept a history target's copies once per slot
+    // (4 where 3 suffice). An entry not handed out since the last waited frame is destroyed at BeginFrame; an
+    // entry still held by an extraction target is never handed out twice.
     class VulkanRdgPool
     {
     public:
@@ -309,17 +311,25 @@ namespace Desert::Graphic::API::Vulkan
         };
         struct Slot
         {
-            std::vector<Entry<VulkanRdgTexture>>                Textures;
-            std::vector<Entry<VulkanRdgBuffer>>                 Buffers;
             std::vector<std::shared_ptr<RDG::IPhysicalTexture>> Retired; // released at the slot's next BeginFrame
-            uint64_t PreviousFrame = 0; // frame counter of the slot's last BeginFrame
         };
+        // Frame @p frame has completed: the caller waited for it at a BeginFrame since.
+        [[nodiscard]] bool Fenced( uint64_t frame ) const noexcept
+        {
+            return frame + m_Slots.size() <= m_Frame;
+        }
 
-        const VulkanRdgDevice& m_Device;
-        std::vector<Slot>      m_Slots;
-        uint32_t               m_Slot  = 0;
-        uint64_t               m_Frame = 1;
+        const VulkanRdgDevice&               m_Device;
+        std::vector<Slot>                    m_Slots;
+        std::vector<Entry<VulkanRdgTexture>> m_Textures;
+        std::vector<Entry<VulkanRdgBuffer>>  m_Buffers;
+        uint32_t                             m_Slot  = 0;
+        uint64_t                             m_Frame = 1;
     };
+
+    // The dedicated (extracted) render graph resources' own ledger, by resource name: VMA allocations outside
+    // VulkanAllocator's tag ledger, rolled up by the memory census (VulkanAllocator::LogCensusIfDue).
+    [[nodiscard]] const AllocationLedger& RdgDedicatedLedger();
 
     // RDG-CONTRACTS A(3). Descriptor sets for graph resources, allocated from a pool per frame slot that is reset
     // when the slot is re-begun. The one way a pass binds a transient to a pipeline: allocate a set for the

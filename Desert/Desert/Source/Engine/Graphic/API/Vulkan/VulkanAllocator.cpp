@@ -8,6 +8,7 @@
 #include <Common/Core/DevInstruments.hpp>
 #include <Common/Utilities/ProcessMemory.hpp>
 #include <Engine/Graphic/MemoryReadout.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <array>
 #include <string_view>
@@ -262,7 +263,7 @@ namespace Desert::Graphic::API::Vulkan
         // ledger rolled up by the subsystem its tags name, the allocations no ledger row covers (the render
         // graph's transient heaps and resources, VulkanRdgTransient / VulkanRenderGraph), the owners
         // (ResourceLedger) and the process/device readout - all at one moment, so they subtract.
-        constexpr uint64_t kCensusPeakStep = 256ull * 1024ull * 1024ull;
+        constexpr uint64_t kCensusPeakStep = 128ull * 1024ull * 1024ull;
         // The process's own footprint, read here (one syscall a second): MemoryWatch samples only inside its
         // watch windows after a scene load, and the Bistro peak comes minutes later, at the hand-over. The
         // PHYSICAL footprint, not the resident set: on unified memory the resident set leaves out every Metal
@@ -343,10 +344,23 @@ namespace Desert::Graphic::API::Vulkan
             bySubsystem += std::format( "\n  {:<40} x{:<6} {:9.1f} MB", "render graph transient heaps (RDG)",
                                         owners.KnownFor( ResourceOwner::Device, ResourceKind::TransientHeap ),
                                         static_cast<double>( transient ) / MB );
-            bySubsystem += std::format( "\n  {:<40} {:<7} {:9.1f} MB (VMA allocations {:.1f} MB - ledger {:.1f} MB - RDG heaps)",
-                                        "not in any ledger", "",
-                                        static_cast<double>( untagged > transient ? untagged - transient : 0 ) / MB,
-                                        static_cast<double>( allocated ) / MB, static_cast<double>( ledgered ) / MB );
+            // The render graph's dedicated resources (extracted transients: histories, readbacks) - VMA allocations
+            // outside the tag ledger too, in their own ledger by resource name (VulkanRdgPool).
+            const AllocationLedger& dedicated      = RdgDedicatedLedger();
+            const std::size_t       dedicatedBytes = dedicated.LiveBytes();
+            bySubsystem += std::format( "\n  {:<40} x{:<6} {:9.1f} MB", "render graph extracted resources (RDG)",
+                                        dedicated.LiveCount(), static_cast<double>( dedicatedBytes ) / MB );
+            const std::size_t accounted = transient + dedicatedBytes;
+            bySubsystem += std::format(
+                 "\n  {:<40} {:<7} {:9.1f} MB (VMA allocations {:.1f} MB - ledger {:.1f} MB - RDG heaps - RDG extracted)",
+                 "not in any ledger", "", static_cast<double>( untagged > accounted ? untagged - accounted : 0 ) / MB,
+                 static_cast<double>( allocated ) / MB, static_cast<double>( ledgered ) / MB );
+            {
+                const auto byName = dedicated.ByTag();
+                for ( std::size_t i = 0; i < byName.size() && i < 12; ++i )
+                    bySubsystem += std::format( "\n    RDG extracted {:<42} x{:<6} {:9.1f} MB", byName[i].Tag,
+                                                byName[i].Count, static_cast<double>( byName[i].Bytes ) / MB );
+            }
             // The texture streaming pool (TEX-STREAMING): what its textures hold against r.Streaming.PoolSize.
             {
                 const auto& pool = TextureStreamingDemand::Get().Pool();
