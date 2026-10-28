@@ -50,7 +50,7 @@ def project_line(tree, lines):
         words = shlex.split(rest)
         if not words:
             sys.exit("SCENARIO: «Проект» needs a .deproj path")
-        for base in ("", tree, os.path.dirname(tree)):
+        for base in (tree, os.path.dirname(tree)):  # an absolute path ignores the base; never cwd (main tree -> "New Scene", 10-28)
             cand = os.path.abspath(os.path.join(base, os.path.expanduser(words[0])))
             if os.path.isfile(cand):
                 return cand, words[1:]
@@ -63,6 +63,9 @@ def main():
     if len(args) < 2:
         sys.exit(__doc__)
     tree, scn = os.path.abspath(args[0]), os.path.abspath(args[1])
+    if os.path.commonpath([tree, scn]) != tree:
+        # 10-28: a .scn from the agent's tree played against the main tree loaded nothing and still printed PASS.
+        sys.exit(f"SCENARIO refused: {scn} is not inside the tree {tree} — pass the tree the scenario belongs to")
     hold = "--hold" in args[2:]
     code = os.path.splitext(os.path.basename(scn))[0]
     exe = ".exe" if WIN else ""
@@ -101,9 +104,20 @@ def main():
 
     def desertctl(*a):
         # --wait covers the machine's one GPU slot: run_capped queues the editor until it is free
-        r = subprocess.run([ctl, "--socket", sock, "--wait", "2400", *a], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=2700)
-        return r.returncode == 0, (r.stdout + r.stderr).strip().splitlines()[-1:] or [""]
+        # a step against a dead editor fails at once (the memory cap kills it; --wait would sit 2400 s per step, 10-28)
+        if proc.poll() is not None:
+            return False, [f"editor exited (rc {proc.returncode}) - see editor.log"]
+        c = subprocess.Popen([ctl, "--socket", sock, "--wait", "2400", *a], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+        deadline = time.time() + 2700
+        while c.poll() is None:
+            if proc.poll() is not None or time.time() > deadline:
+                c.kill()
+                c.wait()
+                return False, [f"editor exited (rc {proc.returncode}) - see editor.log" if proc.poll() is not None
+                               else "DesertCtl timed out"]
+            time.sleep(1)
+        return c.returncode == 0, c.stdout.read().strip().splitlines()[-1:] or [""]
 
     # run_capped may queue the editor for the GPU slot longer than DesertCtl's --wait: wait for the socket itself
     while not os.path.exists(sock) and proc.poll() is None:

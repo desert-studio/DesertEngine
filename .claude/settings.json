@@ -79,6 +79,14 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/not_in_dev.py\" --quiet-ok"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/board_guard.py\" --session-start"
+          }
+        ]
       }
     ],
     "SubagentStop": [
@@ -101,6 +109,14 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/lead_watch.py\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/board_guard.py\""
           }
         ]
       }
