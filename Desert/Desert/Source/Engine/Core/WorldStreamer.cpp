@@ -333,17 +333,16 @@ namespace Desert::Core
                 if ( !row.File.has_value() )
                     continue;
                 // Read when BeginHLODs makes it (CellHLOD); `world` and `reader` outlive that call, made below.
-                hlods.push_back( CellHLOD{ row.Unit,
-                                           [&world, &reader, hlod, &streamer]()
-                                                -> Common::ResultStr<std::vector<Assets::EntityData>>
-                                           {
-                                               auto records = WorldCells::HLODRecords( *world.Index, reader, hlod );
-                                               if ( !records )
-                                                   return Common::MakeError<std::vector<Assets::EntityData>>(
-                                                        "world streaming of '" + streamer->m_SceneName +
-                                                        "': " + records.GetError() );
-                                               return records;
-                                           } } );
+                hlods.push_back( CellHLOD{
+                     row.Unit,
+                     [&world, &reader, hlod, &streamer]() -> Common::ResultStr<std::vector<Assets::EntityData>>
+                     {
+                         auto records = WorldCells::HLODRecords( *world.Index, reader, hlod );
+                         if ( !records )
+                             return Common::MakeError<std::vector<Assets::EntityData>>(
+                                  "world streaming of '" + streamer->m_SceneName + "': " + records.GetError() );
+                         return records;
+                     } } );
             }
             if ( auto begun = streamer->BeginHLODs( std::move( hlods ), holes ); !begun )
                 return Common::MakeError<Result>( begun.GetError() );
@@ -672,12 +671,12 @@ namespace Desert::Core
         if ( holes.empty() )
         {
             LOG_INFO( "[WorldPartition] '{0}': {1} HLOD(s), {2} record(s), stand in for the cells not drawn; {3}.",
-                      m_SceneName, units.size(), records.size(), holesText );
+                      m_SceneName, units.size(), recordCount, holesText );
         }
         else
         {
             LOG_WARN( "[WorldPartition] '{0}': {1} HLOD(s), {2} record(s), stand in for the cells not drawn; {3}.",
-                      m_SceneName, units.size(), records.size(), holesText );
+                      m_SceneName, units.size(), recordCount, holesText );
         }
         return BOOLSUCCESS;
     }
