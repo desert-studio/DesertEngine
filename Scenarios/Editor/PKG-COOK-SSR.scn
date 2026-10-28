@@ -1,0 +1,13 @@
+# PKG-COOK-SSR: Package Game on the Mac cooks everything - WP23 p2 (scn-1028-154218) reported "5 item(s) would not cook":
+#   4x SSR: the hit-lit reflections permutation was listed under the hardware tracer over the SURFACE CACHE, which
+#      SSRTrace.glslh:149 refuses (#error) - the renderer only selects hit-lit with in-place hit lighting
+#      (SceneRenderer::ReflectionsTracer), so like UE's ShouldCompilePermutation that combination is not cooked at all;
+#   1x Meshes/Test/LeePerrySmith.stmesh: its material was "not a material this project has scanned".
+# Package Game cooks every content asset of the project, so the default project scene is enough (LeePerrySmith is
+# cooked whether or not a scene places it).
+# After PASS, in the scenario's editor.log: no "would not cook", no "SSRTrace.glslh" #error, no "[PackageCook] static
+# mesh '...LeePerrySmith...'" error; the PackageCook summary line reports 0 failure(s).
+Проект Projects/Desert/Desert.deproj
+Дано run View "View mode: Lit"
+Когда run Build "Package Game"
+Тогда 1_package пакет собран; в логе нет «would not cook», нет SSRTrace #error, LeePerrySmith кукается с материалом (PackageCook: 0 failure(s))
