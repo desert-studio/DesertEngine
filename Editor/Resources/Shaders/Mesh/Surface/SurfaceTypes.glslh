@@ -253,6 +253,7 @@ SurfaceOutput DefaultSurfaceOutput()
         vec4 VertexColor; \
         vec4 Clip; \
         vec4 PrevClip; \
+        flat float ObjectMoved; \
     } v_Surface;
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS

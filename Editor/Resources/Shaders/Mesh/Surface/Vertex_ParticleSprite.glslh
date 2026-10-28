@@ -77,6 +77,8 @@ void main()
     // A sprite has no previous position of its own: the camera's motion only (the particle's own is not written).
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
+    // The object-motion flag (Common/ObjectMotion.glslh DesertVelocity w): a particle moves on its own.
+    v_Surface.ObjectMoved = 1.0;
 
     // Relative time = age / lifetime (UE NormalizedAge); Random is drawn from the particle's pool slot and its
     // lifetime, which is itself drawn at spawn — constant over one life, different for the next particle that takes
