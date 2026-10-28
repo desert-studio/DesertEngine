@@ -6,8 +6,8 @@
             "MATL": 7
         },
         "Dependencies": [
-            "9d6d6db70d7f0b397eac782bfb709efd", "33b6863a530bf3ee3e6d3872f0e274c4", "9c9508792d1152accc02514dee6710da", "b3d04d60b8a0a9eb0a235519444dc864", "829b0d8304ac69fe95fe7c4f1e314c5b", "71f20189e6942b213d54d709c240a974", "e8f06150fc8853b703fe32fe003694ea", "f30f93247c1a377925e5d5c95f0df8a8",
-            "a9951d16fb43f0d2a5320b3defec7db7", "068d3a93b05e570b5640b4d82141834c", "1a0fef53f64bd32e72696c5d21656bbd", "d6abac9250c3740ef36bfe856cca56fb", "a5399d2d0de9e31199dca9dc912b2e6c", "0e67a9bfdff1b3cd7ed50e27dadc465e", "c39ddb7d5965f1c080b50b71c51a6db6", "f1310680ea846d17141c59441b901b55"
+            "9d6d6db70d7f0b397eac782bfb709efd", "33b6863a530bf3ee3e6d3872f0e274c4", "9c9508792d1152accc02514dee6710da", "b3d04d60b8a0a9eb0a235519444dc864", "829b0d8304ac69fe95fe7c4f1e314c5b",
+            "068d3a93b05e570b5640b4d82141834c", "1a0fef53f64bd32e72696c5d21656bbd", "d6abac9250c3740ef36bfe856cca56fb", "a5399d2d0de9e31199dca9dc912b2e6c", "0e67a9bfdff1b3cd7ed50e27dadc465e", "c39ddb7d5965f1c080b50b71c51a6db6", "f1310680ea846d17141c59441b901b55"
         ]
     },
     "Shader": {
@@ -29,7 +29,7 @@
         },
         {
             "Name": "MacroVariationStrength",
-            "Value": [0.25, 0.0, 0.0, 0.0]
+            "Value": [0.15, 0.0, 0.0, 0.0]
         },
         {
             "Name": "Layer0Blend",
@@ -41,7 +41,7 @@
         },
         {
             "Name": "Layer0Tint",
-            "Value": [0.6200000047683716, 0.949999988079071, 0.5, 1.0]
+            "Value": [0.25, 0.41, 0.3, 1.0]
         },
         {
             "Name": "Layer1Blend",
@@ -53,7 +53,7 @@
         },
         {
             "Name": "Layer1Tint",
-            "Value": [1.0, 1.2200000286102295, 0.6800000071525574, 1.0]
+            "Value": [0.36, 0.4, 0.3, 1.0]
         },
         {
             "Name": "Layer2Blend",
@@ -65,7 +65,7 @@
         },
         {
             "Name": "Layer2Tint",
-            "Value": [1.850000023841858, 1.7000000476837158, 1.5, 1.0]
+            "Value": [1.0, 1.0, 1.0, 1.0]
         }
     ],
     "Textures": [
@@ -91,23 +91,23 @@
         },
         {
             "Name": "Layer1AlbedoTexture",
-            "Guid": "71f20189e6942b213d54d709c240a974",
-            "Path": "assets:Environments/FieldBarn/Textures/sparse_grass/sparse_grass_Diffuse_2k.detex"
+            "Guid": "33b6863a530bf3ee3e6d3872f0e274c4",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_Diffuse_2k.detex"
         },
         {
             "Name": "Layer1NormalTexture",
-            "Guid": "e8f06150fc8853b703fe32fe003694ea",
-            "Path": "assets:Environments/FieldBarn/Textures/sparse_grass/sparse_grass_nor_gl_2k.detex"
+            "Guid": "9c9508792d1152accc02514dee6710da",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_nor_gl_2k.detex"
         },
         {
             "Name": "Layer1ArmTexture",
-            "Guid": "f30f93247c1a377925e5d5c95f0df8a8",
-            "Path": "assets:Environments/FieldBarn/Textures/sparse_grass/sparse_grass_arm_2k.detex"
+            "Guid": "b3d04d60b8a0a9eb0a235519444dc864",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_arm_2k.detex"
         },
         {
             "Name": "Layer1HeightTexture",
-            "Guid": "a9951d16fb43f0d2a5320b3defec7db7",
-            "Path": "assets:Environments/FieldBarn/Textures/sparse_grass/sparse_grass_disp_2k.detex"
+            "Guid": "829b0d8304ac69fe95fe7c4f1e314c5b",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_disp_2k.detex"
         },
         {
             "Name": "Layer2AlbedoTexture",

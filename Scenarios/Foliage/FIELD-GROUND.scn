@@ -1,0 +1,12 @@
+# FIELD-GROUND: the FIELD_Barn ground has no tens-of-metres hard-edged blotches and sits in the grass's tone
+# (owner 10-28: "the field looks like a 2000s render"; FIELD-LOOK place 1).
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Albedo"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1_albedo no blotches tens of metres across with hard edges; dry spots 2-6 m with a soft edge
+Когда run View "View mode: Lit"
+Тогда-вид 2_lit the ground between the grass and beyond 45 m matches the grass in tone; no brightness step at the grass edge
