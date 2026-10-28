@@ -116,7 +116,9 @@ def write_tile(path, tx, tz):
             x = ORIGIN + (tx * QUADS + i) * SPACING
             hs.append(sample_from_cm(height(x, z)))
             p = int(round(255 * path_weight(x, z)))
-            dry = smoothstep(-0.12, 0.18, fbm(x, z, 2500.0, 3, 23) + 0.25 * fbm(x, z, 400.0, 2, 29))
+            # FIELD-GROUND: dry patches 2-6 m across (5 m noise step, a 30 m field only clusters them), a soft ~1 m
+            # edge, ~18 % of the grass area dry (sampled: chord median 2.2 m, p90 6 m)
+            dry = smoothstep(0.15, 0.35, fbm(x, z, 500.0, 3, 23) + 0.3 * fbm(x, z, 3000.0, 2, 29))
             dv = int(round((255 - p) * dry))
             wd.append(p); wy.append(dv); wg.append(255 - p - dv)
     planes = [(b"FieldDirt", wd), (b"FieldGrass", wg), (b"FieldDry", wy)]
