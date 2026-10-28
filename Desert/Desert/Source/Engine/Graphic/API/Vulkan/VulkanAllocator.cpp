@@ -26,6 +26,88 @@ namespace Desert::Graphic::API::Vulkan
     {
         static VmaAllocator s_VmaAllocator = VK_NULL_HANDLE;
 
+#if DESERT_DEV_INSTRUMENTS
+        // THE DETAILED MAP, SUMMED BY NAME (BISTRO-MEM-2 p4). Every allocation the engine makes is named at
+        // creation (the ledger tag, "RDG <resource>", "RDG heap <graph>"), so VMA's own detailed map
+        // (vmaBuildStatsString, detailedMap) is the census nothing can slip past: an allocation without a name
+        // is one no creation path recorded, grouped by its suballocation type and Vulkan usage flags so the
+        // group says what it is. Read at the census only (a footprint peak), never per frame.
+        std::string DetailedMapByName( VmaAllocator allocator, std::size_t rows )
+        {
+            char* json = nullptr;
+            vmaBuildStatsString( allocator, &json, VK_TRUE );
+            if ( json == nullptr )
+                return " (vmaBuildStatsString returned nothing)";
+            const std::string_view map( json );
+            struct Group
+            {
+                std::size_t Bytes = 0;
+                std::size_t Count = 0;
+            };
+            std::unordered_map<std::string, Group> named;
+            std::unordered_map<std::string, Group> unnamed;
+            const auto stringAfter = []( std::string_view object, std::string_view key ) -> std::string_view
+            {
+                const std::size_t at = object.find( key );
+                if ( at == std::string_view::npos )
+                    return {};
+                const std::size_t open = object.find( '"', at + key.size() );
+                const std::size_t close = open == std::string_view::npos ? open : object.find( '"', open + 1 );
+                return close == std::string_view::npos ? std::string_view{} : object.substr( open + 1, close - open - 1 );
+            };
+            const auto numberAfter = []( std::string_view object, std::string_view key ) -> uint64_t
+            {
+                const std::size_t at = object.find( key );
+                if ( at == std::string_view::npos )
+                    return 0;
+                std::size_t digit = object.find_first_of( "0123456789", at + key.size() );
+                uint64_t    value = 0;
+                for ( ; digit < object.size() && object[digit] >= '0' && object[digit] <= '9'; ++digit )
+                    value = value * 10 + static_cast<uint64_t>( object[digit] - '0' );
+                return value;
+            };
+            // Each allocation is one flat JSON object: {"Offset"?, "Type", "Size", "Usage", "Name"?}.
+            for ( std::size_t at = map.find( "\"Type\"" ); at != std::string_view::npos;
+                  at = map.find( "\"Type\"", at + 1 ) )
+            {
+                const std::size_t      begin  = map.rfind( '{', at );
+                const std::size_t      end    = map.find( '}', at );
+                const std::string_view object = map.substr( begin, end - begin );
+                if ( object.find( '{', 1 ) != std::string_view::npos )
+                    continue; // a block or pool object, not an allocation
+                const std::string_view type = stringAfter( object, "\"Type\"" );
+                if ( type == "FREE" )
+                    continue;
+                const uint64_t         size = numberAfter( object, "\"Size\"" );
+                const std::string_view name = stringAfter( object, "\"Name\"" );
+                Group& group = name.empty()
+                                    ? unnamed[std::format( "{} usage {:#x}", type, numberAfter( object, "\"Usage\"" ) )]
+                                    : named[name.starts_with( "RDG heap " ) ? std::string( name )
+                                            : name.starts_with( "RDG " )    ? std::string( "RDG extracted (all)" )
+                                                                            : std::string( "ledger tags (all)" )];
+                group.Bytes += size;
+                ++group.Count;
+            }
+            vmaFreeStatsString( allocator, json );
+            const auto print = [&]( std::string_view title, const std::unordered_map<std::string, Group>& groups )
+            {
+                std::vector<std::pair<std::string, Group>> sorted( groups.begin(), groups.end() );
+                std::ranges::sort( sorted, []( const auto& a, const auto& b ) { return a.second.Bytes > b.second.Bytes; } );
+                std::size_t total = 0;
+                for ( const auto& [key, group] : sorted )
+                    total += group.Bytes;
+                std::string out = std::format( "\n  VMA detailed map, {}: {:.1f} MB", title,
+                                               static_cast<double>( total ) / ( 1024.0 * 1024.0 ) );
+                for ( std::size_t i = 0; i < sorted.size() && i < rows; ++i )
+                    out += std::format( "\n    {:<56} x{:<6} {:9.1f} MB", sorted[i].first, sorted[i].second.Count,
+                                        static_cast<double>( sorted[i].second.Bytes ) / ( 1024.0 * 1024.0 ) );
+                return out;
+            };
+            return print( "named (ledger / RDG extracted / RDG heaps by graph)", named ) +
+                   print( "UNNAMED (no creation path recorded it)", unnamed );
+        }
+#endif
+
         // The ledger keys a row by the allocation's address: VmaAllocation is an opaque pointer and its
         // value is the identity, never dereferenced through the integer.
         uint64_t LedgerKey( VmaAllocation allocation )
@@ -138,6 +220,9 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
 
+        // VMA keeps the tag on the allocation too: the census's detailed map (vmaBuildStatsString) then names
+        // every allocation a ledger row covers, and an unnamed one is memory no ledger accounts for.
+        vmaSetAllocationName( s_VmaAllocator, allocation, tag.c_str() );
         m_Ledger.Record( LedgerKey( allocation ), tag, AllocationSize( allocation ) );
         return Common::MakeSuccess( allocation );
     }
@@ -182,6 +267,9 @@ namespace Desert::Graphic::API::Vulkan
                  VkResultToString( res ) );
         }
 
+        // VMA keeps the tag on the allocation too: the census's detailed map (vmaBuildStatsString) then names
+        // every allocation a ledger row covers, and an unnamed one is memory no ledger accounts for.
+        vmaSetAllocationName( s_VmaAllocator, allocation, tag.c_str() );
         m_Ledger.Record( LedgerKey( allocation ), tag, AllocationSize( allocation ) );
         return Common::MakeSuccess( allocation );
     }
@@ -357,6 +445,7 @@ namespace Desert::Graphic::API::Vulkan
                               "not in any ledger", "",
                               static_cast<double>( untagged > accounted ? untagged - accounted : 0 ) / MB,
                               static_cast<double>( allocated ) / MB, static_cast<double>( ledgered ) / MB );
+            bySubsystem += DetailedMapByName( s_VmaAllocator, 16 );
             {
                 const auto byName = dedicated.ByTag();
                 for ( std::size_t i = 0; i < byName.size() && i < 12; ++i )

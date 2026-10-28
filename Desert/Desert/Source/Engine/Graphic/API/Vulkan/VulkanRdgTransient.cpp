@@ -1,4 +1,5 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp>
+#include <format>
 
 #include <algorithm>
 
@@ -78,7 +79,8 @@ namespace Desert::Graphic::API::Vulkan
         std::erase_if( m_Cache, []( const Heap& heap ) { return heap.Memory == nullptr; } );
     }
 
-    Common::BoolResultStr VulkanRdgTransientAllocator::AllocateHeap( const RDG::TransientHeapDesc& desc,
+    Common::BoolResultStr VulkanRdgTransientAllocator::AllocateHeap( std::string_view              graph,
+                                                                     const RDG::TransientHeapDesc& desc,
                                                                      Heap&                         out ) const
     {
         // One vkAllocateMemory per heap (dedicated): the heap is the unit the plan's offsets are relative to.
@@ -97,6 +99,8 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeFormattedError<bool>( "transient heap of {} bytes (memory types {:#x}): "
                                                      "vmaAllocateMemory failed ({})",
                                                      desc.Bytes, desc.MemoryTypeBits, static_cast<int>( result ) );
+        // Named for the graph that made it: the census's detailed map sums the heaps by the graph that wanted them.
+        vmaSetAllocationName( m_Device.Allocator, heap.Memory, std::format( "RDG heap {}", graph ).c_str() );
         heap.Desc       = desc;
         heap.MemoryType = info.memoryType;
         // Graph execution runs outside every attribution scope, and the heap serves every view's graph: the
@@ -137,7 +141,7 @@ namespace Desert::Graphic::API::Vulkan
             Heap taken;
             if ( !TakeCached( want, asyncCompute, taken ) )
             {
-                if ( const Common::BoolResultStr made = AllocateHeap( want, taken ); !made )
+                if ( const Common::BoolResultStr made = AllocateHeap( graph, want, taken ); !made )
                     return Common::MakeFormattedError( "graph '{}': {}", graph, made.GetError() );
             }
             m_Open.push_back( std::move( taken ) );

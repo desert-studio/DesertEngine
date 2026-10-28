@@ -116,7 +116,8 @@ namespace Desert::Graphic::API::Vulkan
         // that this graph may take, moved out of the cache into @p out; false if none.
         [[nodiscard]] bool TakeCached( const RDG::TransientHeapDesc& want, bool asyncCompute, Heap& out );
         // Fills @p out (a heap is move-only: it holds its ledger row).
-        [[nodiscard]] Common::BoolResultStr AllocateHeap( const RDG::TransientHeapDesc& desc, Heap& out ) const;
+        [[nodiscard]] Common::BoolResultStr AllocateHeap( std::string_view graph, const RDG::TransientHeapDesc& desc,
+                                                          Heap& out ) const;
         [[nodiscard]] Common::ResultStr<Heap*> OpenHeap( const RDG::Allocation& allocation,
                                                          RDG::MemoryClass memoryClass, std::string_view name );
 

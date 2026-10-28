@@ -453,6 +453,7 @@ namespace Desert::Graphic::API::Vulkan
         // A dedicated allocation is a ledger row of its own (the pool claims it for its holder on every hand-out).
         texture->m_Ledger =
              ResourceOwnership::Take( RdgLedgerKind( desc.Dim ), static_cast<std::size_t>( allocated.size ) );
+        vmaSetAllocationName( device.Allocator, texture->m_Allocation, std::format( "RDG {}", name ).c_str() );
         MutableRdgDedicatedLedger().Record( RdgLedgerHandle( texture->m_Allocation ), std::string( name ),
                                             static_cast<std::size_t>( allocated.size ) );
         return Common::MakeSuccess( std::move( texture ) );
@@ -630,6 +631,7 @@ namespace Desert::Graphic::API::Vulkan
         // A dedicated allocation is a ledger row of its own, as VulkanRdgTexture::Create's.
         buffer->m_Ledger = ResourceOwnership::Take( Graphic::ResourceKind::StorageBuffer,
                                                     static_cast<std::size_t>( allocated.size ) );
+        vmaSetAllocationName( device.Allocator, buffer->m_Allocation, std::format( "RDG {}", name ).c_str() );
         MutableRdgDedicatedLedger().Record( RdgLedgerHandle( buffer->m_Allocation ), std::string( name ),
                                             static_cast<std::size_t>( allocated.size ) );
         return Common::MakeSuccess( std::move( buffer ) );
