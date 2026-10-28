@@ -1,6 +1,7 @@
 # FOLIAGE-PROOF (Bistro half): ivy and shrubs on the Bistro street under the bistro-sun content (100 000 lux, EV100 14-15):
 # not black, two-sided leaves, specular occlusion keeps leaves in the shade from glinting. Code is not changed.
 Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position -440,300,-230
 Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
 Тогда-вид 4_bistro_ivy ivy and shrubs not black; two-sided foliage lit on both faces; no shiny leaves in the shade

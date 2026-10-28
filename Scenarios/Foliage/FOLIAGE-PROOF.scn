@@ -3,6 +3,8 @@
 # The Bistro half (frame 4) is FOLIAGE-PROOF-BISTRO.scn: a scenario opens one project, Bistro is its own content project.
 # Sun aim: toward-sun = (cos El * sin Az, sin El, cos El * cos Az) (PORT-SUN-ROTATION: El 5 / Az 54.5 = +X+Z).
 Дано run Scene "Open Scene FIELD_Barn.desce"
+# The view mode is the editor's saved one (the first run came up in Wireframe: ISMs refused, barn as lines): set it.
+Дано run View "View mode: Lit"
 Дано run Entity "Sun"
 Дано --subject selection set SunElevation 40
 Дано --subject selection set SunAzimuth 20
