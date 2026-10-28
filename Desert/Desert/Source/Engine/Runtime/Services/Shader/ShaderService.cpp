@@ -304,8 +304,8 @@ namespace Desert::Runtime
             // one this is, so "unknown name" and "did not compile" are still distinguishable to a reader —
             // they were never distinguishable to the CODE, which is what mattered.
             LOG_ERROR( "[ShaderService] Variant {} of '{}' has no compiled stages — the substituted "
-                       "source did not compile. The caller falls back to the shipped program.",
-                       key, name );
+                       "source did not compile: {}. The caller falls back to the shipped program.",
+                       key, name, program->GetCompileError() );
             return nullptr;
         }
 
