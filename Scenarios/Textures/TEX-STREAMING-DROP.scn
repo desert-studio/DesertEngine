@@ -1,0 +1,28 @@
+# TEX-STREAMING-DROP: a mip DROP reads nothing (UE FTexture2DStreamOut). Image2D::StreamOutLevels makes a smaller
+# image, copies the kept levels GPU->GPU (vkCmdCopyImage) and the same Image2D takes it; the old device image goes
+# once the copy's fence signalled, past the frames in flight. Only a RAISE reads the .detex (ReplaceLevels).
+# Log: "[TextureStreaming] '<x>.detex' streamed out mip A -> B by a GPU copy (no read)" for a drop,
+# "[TextureStreaming] '<x>.detex' reads mip A -> B from its asset" for a raise.
+# Budget cut: Textures Low = Textures.StreamingPoolMiB 512 (the parameter's floor is 256); restored to Epic last.
+# Barn entity: Translation 1800,560,-3500 (FIELD_Barn.desce).
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: Textures Low"
+Дано --subject viewport set Camera.Position 1800,800,-2000
+Дано --subject viewport set Camera.Direction 0,-0.1,-1
+Когда run Action Simulate
+Когда advance 2
+Когда advance 2
+Тогда-вид 0_door дверь сарая вплотную резкая (мипы подняты); лог pool resident / budget 512
+Когда --subject viewport set Camera.Position 1800,6000,40000
+Когда --subject viewport set Camera.Direction 0,-0.12,-1
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Тогда-вид 1_far вдали без чёрных/белых/битых текстур; в логе «streamed out … by a GPU copy (no read)», ни одного «reads mip» на сброс
+Когда --subject viewport set Camera.Position 1800,800,-2000
+Когда --subject viewport set Camera.Direction 0,-0.1,-1
+Когда advance 2
+Когда advance 2
+Тогда-вид 2_back дверь снова резкая (мипы подняты чтением «reads mip»); пул в бюджете; ошибок валидации Vulkan нет
+Когда run Quality "Quality: Textures Epic"

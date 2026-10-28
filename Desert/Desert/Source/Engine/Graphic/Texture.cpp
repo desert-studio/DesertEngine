@@ -217,6 +217,18 @@ namespace Desert::Graphic
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr Texture2D::StreamOutLevels( const uint32_t droppedLevels )
+    {
+        auto* current = m_Service != nullptr ? dynamic_cast<Image2D*>( m_Service->Resolve( m_Handle ) ) : nullptr;
+        if ( current == nullptr )
+            return Common::MakeError<bool>( "the texture has no resident image to stream out of" );
+        if ( auto dropped = current->StreamOutLevels( droppedLevels ); !dropped.IsSuccess() )
+            return dropped;
+        m_Width  = std::max( 1u, m_Width >> droppedLevels );
+        m_Height = std::max( 1u, m_Height >> droppedLevels );
+        return Common::MakeSuccess( true );
+    }
+
     Common::ResultStr<std::shared_ptr<Texture2D>>
     Texture2D::Create( const std::string& tag, uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
                        Core::Formats::ImagePixelData&& data, const TextureBackend& backend )
