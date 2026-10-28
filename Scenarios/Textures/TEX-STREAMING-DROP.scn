@@ -3,7 +3,7 @@
 # once the copy's fence signalled, past the frames in flight. Only a RAISE reads the .detex (ReplaceLevels).
 # Log: "[TextureStreaming] '<x>.detex' streamed out mip A -> B by a GPU copy (no read)" for a drop,
 # "[TextureStreaming] '<x>.detex' reads mip A -> B from its asset" for a raise.
-# Budget cut: Textures Low = Textures.StreamingPoolMiB 512 (the parameter's floor is 256); restored to Epic last.
+# Budget cut: Textures Low = Textures.StreamingPoolMiB 512 (the parameter's floor is 256); restored to High (this machine's level) last.
 # Barn entity: Translation 1800,560,-3500 (FIELD_Barn.desce).
 Дано run Scene "Open Scene FIELD_Barn.desce"
 Дано run View "View mode: Lit"
@@ -25,4 +25,4 @@
 Когда advance 2
 Когда advance 2
 Тогда-вид 2_back дверь снова резкая (мипы подняты чтением «reads mip»); пул в бюджете; ошибок валидации Vulkan нет
-Когда run Quality "Quality: Textures Epic"
+Когда run Quality "Quality: Textures High"

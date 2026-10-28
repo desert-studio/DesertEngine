@@ -1143,8 +1143,8 @@ namespace Desert::Graphic::API::Vulkan
                  "storage, multisampled or array image)",
                  m_Specification.Tag );
         if ( !m_IsLoaded || m_Resource.Image == VK_NULL_HANDLE )
-            return Common::MakeFormattedError<bool>( "image '{}': StreamOutLevels on an image with no device image",
-                                                     m_Specification.Tag );
+            return Common::MakeFormattedError<bool>(
+                 "image '{}': StreamOutLevels on an image with no device image", m_Specification.Tag );
         if ( droppedLevels == 0 || droppedLevels >= m_Resource.MipLevels )
             return Common::MakeFormattedError<bool>(
                  "image '{}': StreamOutLevels asked to drop {} of its {} level(s); it must drop at least one and "
@@ -1154,18 +1154,18 @@ namespace Desert::Graphic::API::Vulkan
         // The kept chain, as a data-less image of the same format and colour space: it is written by the copy
         // below and by nothing else, before any frame samples it (the swap happens after the copy is recorded on
         // the same queue).
-        const uint32_t kept   = m_Resource.MipLevels - droppedLevels;
-        const uint32_t width  = std::max( 1u, m_Specification.Width >> droppedLevels );
-        const uint32_t height = std::max( 1u, m_Specification.Height >> droppedLevels );
-        const Core::Formats::Image2DSpecification spec = { .Tag        = m_Specification.Tag,
-                                                           .Width      = width,
-                                                           .Height     = height,
-                                                           .Format     = m_Specification.Format,
-                                                           .Mips       = kept,
-                                                           .Usage      = m_Specification.Usage,
-                                                           .Properties = m_Specification.Properties,
-                                                           .ColorSpace = m_Specification.ColorSpace };
-        auto staged = std::make_shared<VulkanImage2D>( spec );
+        const uint32_t                            kept   = m_Resource.MipLevels - droppedLevels;
+        const uint32_t                            width  = std::max( 1u, m_Specification.Width >> droppedLevels );
+        const uint32_t                            height = std::max( 1u, m_Specification.Height >> droppedLevels );
+        const Core::Formats::Image2DSpecification spec   = { .Tag        = m_Specification.Tag,
+                                                             .Width      = width,
+                                                             .Height     = height,
+                                                             .Format     = m_Specification.Format,
+                                                             .Mips       = kept,
+                                                             .Usage      = m_Specification.Usage,
+                                                             .Properties = m_Specification.Properties,
+                                                             .ColorSpace = m_Specification.ColorSpace };
+        auto                                      staged = std::make_shared<VulkanImage2D>( spec );
         if ( auto created = staged->RT_Invalidate(); !created.IsSuccess() )
             return Common::MakeFormattedError<bool>( "image '{}': the {}x{} image to stream out into was not "
                                                      "created: {}",
@@ -1188,7 +1188,8 @@ namespace Desert::Graphic::API::Vulkan
         // next frame finds both images in their default layout.
         const VkImageLayout original = m_Resource.Layout;
         TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT );
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_WRITE_BIT,
+                          VK_ACCESS_TRANSFER_READ_BIT );
         staged->TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_READ_BIT,
                                   VK_ACCESS_TRANSFER_WRITE_BIT );
@@ -1236,10 +1237,11 @@ namespace Desert::Graphic::API::Vulkan
         {
             // The copy never ran: take the old levels back, they are still whole.
             if ( auto back = TakeDeviceImageFrom( *staged ); !back.IsSuccess() )
-                return Common::MakeFormattedError<bool>(
-                     "image '{}': the stream-out copy was not submitted ({}) and the old levels could not be taken "
-                     "back: {}",
-                     m_Specification.Tag, submitted.GetError(), back.GetError() );
+                return Common::MakeFormattedError<bool>( "image '{}': the stream-out copy was not submitted ({}) "
+                                                         "and the old levels could not be taken "
+                                                         "back: {}",
+                                                         m_Specification.Tag, submitted.GetError(),
+                                                         back.GetError() );
             return Common::MakeFormattedError<bool>( "image '{}': the stream-out copy was not submitted: {}",
                                                      m_Specification.Tag, submitted.GetError() );
         }

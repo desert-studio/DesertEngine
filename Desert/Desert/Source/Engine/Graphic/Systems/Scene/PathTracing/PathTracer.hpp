@@ -223,7 +223,8 @@ namespace Desert::Graphic::System
     //    PathsPerFrame paths through each jittered pixel centre every frame and hands that raw estimate to it -
     //    no accumulation, the upscaler's history is the integration - with this frame's guide sums
     //    (PathTracedGuides, AddPasses' result), the factors the colour was made with, in place of the G-buffer's;
-    //  - ReLAX, and RR whose runtime refused: the ReLAX-style denoiser (PathTracerDenoise.shader) runs on every frame before the resolve:
+    //  - ReLAX, and RR whose runtime refused: the ReLAX-style denoiser (PathTracerDenoise.shader) runs on every
+    //  frame before the resolve:
     //    per lobe, a temporal history reprojected by the camera's motion on the frames the camera moved (THE
     //    DENOISER'S HISTORY below), the variance of the integrated signal, an energy-conserving variance-guided
     //    a-trous, and the remodulation. Its edge-stopping width is the estimate's standard deviation, so it fades
@@ -233,9 +234,9 @@ namespace Desert::Graphic::System
     // restarts it every frame, and the history carries the integration across that restart instead - only that
     // restart: any other (a cut, a resize, the scene, the bounces, the clamp, the denoising upscaler) empties the
     // history, as it empties the sum. On a moving frame "Denoise Snapshot" folds the previous frame's sum into the
-    // history before the trace overwrites it and "Denoise Temporal" reprojects it after the trace; on a still frame
-    // the history stays as the camera left it and the sum grows beside it (PathTracerDenoise.shader).
-    // It is not IScreenSpaceDenoiser's work: that one reconstructs one lighting signal of the raster (diffuse,
+    // history before the trace overwrites it and "Denoise Temporal" reprojects it after the trace; on a still
+    // frame the history stays as the camera left it and the sum grows beside it (PathTracerDenoise.shader). It is
+    // not IScreenSpaceDenoiser's work: that one reconstructs one lighting signal of the raster (diffuse,
     // reflections, shadow visibility) with the raster's G-buffer; here the signal is the whole path-traced
     // radiance with guides from the paths themselves (glass looked through, sub-pixel averaged), as UE keeps its
     // path tracer's denoiser apart from the screen-space one.
@@ -995,9 +996,9 @@ namespace Desert::Graphic::System
                  } );
         }
 
-        // "PathTracing: Denoise Combine" + kDenoiseIterations "PathTracing: Denoise Filter" + "PathTracing: Denoise
-        // Remodulate" (PathTracerDenoise.shader), every frame: the denoised mean radiance (a = 1) the resolve reads
-        // in place of the accumulation.
+        // "PathTracing: Denoise Combine" + kDenoiseIterations "PathTracing: Denoise Filter" + "PathTracing:
+        // Denoise Remodulate" (PathTracerDenoise.shader), every frame: the denoised mean radiance (a = 1) the
+        // resolve reads in place of the accumulation.
         RDG::TextureRef AddDenoisePasses( RDG::Builder& graph, const AccumulationRefs& accumulation,
                                           const HistoryRefs& history, const uint32_t width, const uint32_t height )
         {
