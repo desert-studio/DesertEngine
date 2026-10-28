@@ -344,17 +344,19 @@ namespace Desert::Graphic::API::Vulkan
             bySubsystem += std::format( "\n  {:<40} x{:<6} {:9.1f} MB", "render graph transient heaps (RDG)",
                                         owners.KnownFor( ResourceOwner::Device, ResourceKind::TransientHeap ),
                                         static_cast<double>( transient ) / MB );
-            // The render graph's dedicated resources (extracted transients: histories, readbacks) - VMA allocations
-            // outside the tag ledger too, in their own ledger by resource name (VulkanRdgPool).
+            // The render graph's dedicated resources (extracted transients: histories, readbacks) - VMA
+            // allocations outside the tag ledger too, in their own ledger by resource name (VulkanRdgPool).
             const AllocationLedger& dedicated      = RdgDedicatedLedger();
             const std::size_t       dedicatedBytes = dedicated.LiveBytes();
             bySubsystem += std::format( "\n  {:<40} x{:<6} {:9.1f} MB", "render graph extracted resources (RDG)",
                                         dedicated.LiveCount(), static_cast<double>( dedicatedBytes ) / MB );
             const std::size_t accounted = transient + dedicatedBytes;
-            bySubsystem += std::format(
-                 "\n  {:<40} {:<7} {:9.1f} MB (VMA allocations {:.1f} MB - ledger {:.1f} MB - RDG heaps - RDG extracted)",
-                 "not in any ledger", "", static_cast<double>( untagged > accounted ? untagged - accounted : 0 ) / MB,
-                 static_cast<double>( allocated ) / MB, static_cast<double>( ledgered ) / MB );
+            bySubsystem +=
+                 std::format( "\n  {:<40} {:<7} {:9.1f} MB (VMA allocations {:.1f} MB - ledger {:.1f} MB - RDG "
+                              "heaps - RDG extracted)",
+                              "not in any ledger", "",
+                              static_cast<double>( untagged > accounted ? untagged - accounted : 0 ) / MB,
+                              static_cast<double>( allocated ) / MB, static_cast<double>( ledgered ) / MB );
             {
                 const auto byName = dedicated.ByTag();
                 for ( std::size_t i = 0; i < byName.size() && i < 12; ++i )

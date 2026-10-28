@@ -29,14 +29,16 @@ namespace Desert::Graphic::API::Vulkan
         heap.Ledger = ResourceOwnership{}; // closes the row with the memory
     }
 
-    bool VulkanRdgTransientAllocator::TakeCached( const RDG::TransientHeapDesc& want, bool asyncCompute, Heap& out )
+    bool VulkanRdgTransientAllocator::TakeCached( const RDG::TransientHeapDesc& want, bool asyncCompute,
+                                                  Heap& out )
     {
         auto best = m_Cache.end();
         for ( auto it = m_Cache.begin(); it != m_Cache.end(); ++it )
         {
             const RDG::TransientHeapDesc& have = it->Desc;
-            const bool fits = have.Class == want.Class && ( want.MemoryTypeBits & ( 1u << it->MemoryType ) ) != 0 &&
-                              have.Bytes >= want.Bytes && have.Bytes / 2 <= want.Bytes && have.Alignment >= want.Alignment;
+            const bool                    fits =
+                 have.Class == want.Class && ( want.MemoryTypeBits & ( 1u << it->MemoryType ) ) != 0 &&
+                 have.Bytes >= want.Bytes && have.Bytes / 2 <= want.Bytes && have.Alignment >= want.Alignment;
             // Another queue is not ordered by the barrier TakeCrossGraphBarrier asks for: a heap an async-compute
             // graph used, or one an async-compute graph would use, waits for its last user's fence.
             const bool ordered = Fenced( it->LastFrame ) || ( !asyncCompute && !it->AsyncUser );
@@ -69,7 +71,8 @@ namespace Desert::Graphic::API::Vulkan
                 Free( heap );
                 continue;
             }
-            std::erase_if( heap.Textures, [&]( const PlacedTexture& placed ) { return stale( placed.LastFrame ); } );
+            std::erase_if( heap.Textures,
+                           [&]( const PlacedTexture& placed ) { return stale( placed.LastFrame ); } );
             std::erase_if( heap.Buffers, [&]( const PlacedBuffer& placed ) { return stale( placed.LastFrame ); } );
         }
         std::erase_if( m_Cache, []( const Heap& heap ) { return heap.Memory == nullptr; } );
@@ -106,15 +109,15 @@ namespace Desert::Graphic::API::Vulkan
     }
 
     Common::BoolResultStr
-    VulkanRdgTransientAllocator::ReserveHeaps( std::string_view graph, std::span<const RDG::TransientHeapDesc> heaps )
+    VulkanRdgTransientAllocator::ReserveHeaps( std::string_view                        graph,
+                                               std::span<const RDG::TransientHeapDesc> heaps )
     {
         // Without its compile result the graph may have an async-compute segment: only fenced heaps.
         return ReserveGraphHeaps( graph, heaps, true );
     }
 
-    Common::BoolResultStr VulkanRdgTransientAllocator::ReserveGraphHeaps( std::string_view                        graph,
-                                                                          std::span<const RDG::TransientHeapDesc> heaps,
-                                                                          bool asyncCompute )
+    Common::BoolResultStr VulkanRdgTransientAllocator::ReserveGraphHeaps(
+         std::string_view graph, std::span<const RDG::TransientHeapDesc> heaps, bool asyncCompute )
     {
         if ( !m_Begun )
             return Common::MakeFormattedError( "graph '{}': BeginFrameSlot was never called", graph );
@@ -252,9 +255,9 @@ namespace Desert::Graphic::API::Vulkan
                     continue;
                 stats.ReservedBytes += heap.Desc.Bytes;
                 ++stats.HeapCount;
-                stats.PlacedResources += static_cast<uint32_t>( std::count_if(
-                     heap.Textures.begin(), heap.Textures.end(),
-                     [&]( const PlacedTexture& placed ) { return placed.LastFrame == m_Frame; } ) );
+                stats.PlacedResources += static_cast<uint32_t>(
+                     std::count_if( heap.Textures.begin(), heap.Textures.end(),
+                                    [&]( const PlacedTexture& placed ) { return placed.LastFrame == m_Frame; } ) );
                 stats.PlacedResources += static_cast<uint32_t>(
                      std::count_if( heap.Buffers.begin(), heap.Buffers.end(),
                                     [&]( const PlacedBuffer& placed ) { return placed.LastFrame == m_Frame; } ) );

@@ -60,8 +60,9 @@ namespace Desert::Graphic::API::Vulkan
 
         // ReserveHeaps for a graph whose compile result is known: @p asyncCompute = it has an AsyncCompute
         // segment (it may then take only fenced heaps). The interface's ReserveHeaps assumes it does.
-        Common::BoolResultStr ReserveGraphHeaps( std::string_view graph, std::span<const RDG::TransientHeapDesc> heaps,
-                                                 bool asyncCompute );
+        Common::BoolResultStr ReserveGraphHeaps( std::string_view                        graph,
+                                                 std::span<const RDG::TransientHeapDesc> heaps,
+                                                 bool                                    asyncCompute );
         // True once after a ReserveGraphHeaps that took a heap an unfenced graph used: the caller records a full
         // memory barrier (all commands, memory write -> read/write) before the graph's first command.
         [[nodiscard]] bool TakeCrossGraphBarrier() noexcept
@@ -97,7 +98,8 @@ namespace Desert::Graphic::API::Vulkan
             RDG::TransientHeapDesc Desc; // what was allocated (Bytes / Alignment may exceed the plan's)
             VmaAllocation          Memory     = nullptr;
             uint32_t               MemoryType = 0;
-            // The heap's ledger row (TransientHeap, owner Device): opened with the memory, closed when it is freed.
+            // The heap's ledger row (TransientHeap, owner Device): opened with the memory, closed when it is
+            // freed.
             ResourceOwnership          Ledger;
             uint64_t                   LastFrame = 0;     // frame counter of its last graph
             bool                       AsyncUser = false; // its last graph had an AsyncCompute segment
@@ -115,18 +117,18 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] bool TakeCached( const RDG::TransientHeapDesc& want, bool asyncCompute, Heap& out );
         // Fills @p out (a heap is move-only: it holds its ledger row).
         [[nodiscard]] Common::BoolResultStr AllocateHeap( const RDG::TransientHeapDesc& desc, Heap& out ) const;
-        [[nodiscard]] Common::ResultStr<Heap*>
-        OpenHeap( const RDG::Allocation& allocation, RDG::MemoryClass memoryClass, std::string_view name );
+        [[nodiscard]] Common::ResultStr<Heap*> OpenHeap( const RDG::Allocation& allocation,
+                                                         RDG::MemoryClass memoryClass, std::string_view name );
 
         const VulkanRdgDevice& m_Device;
         uint64_t               m_SlotCount = 1;
-        std::vector<Heap>      m_Cache;           // heaps no graph holds
-        std::vector<Heap>      m_Open;            // the open graph's heaps, by the plan's heap index
-        bool                   m_Begun     = false; // BeginFrameSlot was called at least once
-        bool                   m_GraphOpen = false; // between ReserveHeaps and EndGraph
-        bool                   m_OpenAsync = false; // the open graph has an AsyncCompute segment
+        std::vector<Heap>      m_Cache;                     // heaps no graph holds
+        std::vector<Heap>      m_Open;                      // the open graph's heaps, by the plan's heap index
+        bool                   m_Begun             = false; // BeginFrameSlot was called at least once
+        bool                   m_GraphOpen         = false; // between ReserveHeaps and EndGraph
+        bool                   m_OpenAsync         = false; // the open graph has an AsyncCompute segment
         bool                   m_CrossGraphBarrier = false;
-        uint64_t               m_Frame       = 0; // BeginFrameSlot count
-        uint64_t               m_GraphSerial = 0; // ReserveHeaps count
+        uint64_t               m_Frame             = 0; // BeginFrameSlot count
+        uint64_t               m_GraphSerial       = 0; // ReserveHeaps count
     };
 } // namespace Desert::Graphic::API::Vulkan
