@@ -1,0 +1,9 @@
+# SCAL-UX: the Scalability panel shows 12 group sliders (Overall + 11 groups incl. PathTracing), Basic parameters by default, Advanced folded; defaults are the Epic values
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Day.desce
+Дано run View "View mode: Lit"
+Дано run Panel "Open Scalability"
+Тогда 0_panel_default the Scalability panel: Overall + group sliders incl. PathTracing; Basic rows only (AA method/samples/temporal quality, resolution scale, sharpness, filter, aniso, clouds, 3 method ceilings, PT spp/bounces/denoiser); Advanced collapsed
+Когда run Quality "Quality: ResolutionScale Low"
+Тогда 1_res_low the Resolution Scale row reads 50 %; the viewport is upscaled (softer), no error in the log
+Когда run Quality "Quality: ResolutionScale Epic"
+Тогда 2_res_epic Resolution Scale back to 100 %; the viewport matches 0_panel_default

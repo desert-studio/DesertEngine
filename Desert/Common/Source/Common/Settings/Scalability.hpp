@@ -62,6 +62,8 @@ namespace Common::Scalability
         AntiAliasing,    // sg.AntiAliasingQuality — axis 1
         ResolutionScale, // sg.ResolutionQuality — axis 2
         Shading,         // sg.ShadingQuality — material shader cost: parallax occlusion steps
+        PathTracing, // the path tracer's cost (UE r.PathTracing.*): a render MODE, not part of GI quality, so it
+                     // has its own level (SCAL-UX); appended so the other groups keep their index
         Count
     };
     inline constexpr std::size_t kGroupCount = static_cast<std::size_t>( Group::Count );
@@ -340,9 +342,18 @@ namespace Common::Scalability
         PathTracingDenoisers,
     };
 
+    // WHO A PARAMETER IS SHOWN TO (SCAL-UX, owner 10-27 "too many switches"). Basic: what a game's graphics menu
+    // offers a player (the method, the scale, the filter, the ceilings, the path tracer's budget). Advanced: an
+    // internal cost knob (UE's r.* under sg.*) — tuned by the level, shown only in a selector's advanced section.
+    enum class ParameterVisibility : int
+    {
+        Basic = 0,
+        Advanced,
+    };
+
     // ONE ROW PER PARAMETER, the single list every check is driven by: the JSON key, its group, its legal range
-    // (before the device), and which catalog list narrows it. The census in ScalabilityContract asserts one row
-    // per enum value, in enum order, with unique keys.
+    // (before the device), which catalog list narrows it, its default and who it is shown to. The census in
+    // ScalabilityContract asserts one row per enum value, in enum order, with unique keys.
     struct ParameterSpec
     {
         Parameter        Id;
@@ -354,10 +365,19 @@ namespace Common::Scalability
         // WHO READS THE RESOLVED VALUE (file / system), or std::nullopt for a placeholder: a reserved parameter
         // with no reader, hidden from every selector (see PLACEHOLDERS above).
         std::optional<std::string_view> Reader;
+        // THE VALUE AT A LEVEL THAT DOES NOT NAME THIS PARAMETER. Scalability.json lists, per level, only the
+        // values that differ from it (a line restating it is refused), so a knob that is the same at every level
+        // lives here once. Inside [Min, Max] (static_assert in Scalability.cpp). Set to the Epic value (SCAL-UX).
+        ParameterValue      Default    = 0;
+        ParameterVisibility Visibility = ParameterVisibility::Advanced;
     };
     [[nodiscard]] constexpr bool IsPlaceholder( const ParameterSpec& spec )
     {
         return !spec.Reader.has_value();
+    }
+    [[nodiscard]] constexpr bool IsBasic( const ParameterSpec& spec )
+    {
+        return spec.Visibility == ParameterVisibility::Basic;
     }
     [[nodiscard]] std::span<const ParameterSpec> ParameterSpecs();
     [[nodiscard]] const ParameterSpec&           SpecOf( Parameter parameter );
@@ -366,10 +386,16 @@ namespace Common::Scalability
     // What a selector (editor panel, palette, game menu, console listing) may show: the parameters that have a
     // reader, and the groups owning at least one of them.
     [[nodiscard]] std::vector<Parameter> ListedParameters();
+    // The listed parameters shown to @p visibility (a menu: Basic; a selector's advanced section: Advanced).
+    [[nodiscard]] std::vector<Parameter> ListedParameters( ParameterVisibility visibility );
+    // The names a by-name parameter's values are written with (Scalability.json, a selector's combo), index =
+    // value; empty for a numeric parameter.
+    [[nodiscard]] std::span<const std::string_view> ParameterValueNames( Parameter parameter );
     [[nodiscard]] bool                   IsGroupListed( Group group );
 
     // A full set of values, one per parameter, indexed by Parameter. Unset slots do not exist: the table loader
     // refuses a level that does not set every parameter of its group.
+    // A level that does not name one fills it with the spec Default.
     using ParameterValues = std::array<ParameterValue, kParameterCount>;
 
     // ---- The data file (UE BaseScalability.ini) ----------------------------------------------------------
@@ -377,13 +403,13 @@ namespace Common::Scalability
     // `Editor/Resources/Config/Scalability.json`, shipped by the packager in its Config tree, read with the
     // engine's own Common/Json (no third-party parser). Shape:
     //
-    //   { "Version": 1,
+    //   { "Version": 2,
     //     "Groups": {
     //       "AntiAliasing": {
-    //         "Low":       { "AntiAliasing.Method": "FXAA", "AntiAliasing.Samples": 1, ... },   // Samples > 1
-    //         only under MSAA
+    //         "Low":       { "AntiAliasing.Method": "FXAA", ... },   // only what differs from the spec Default
     //         ...
-    //         "Cinematic": { "AntiAliasing.Method": "MSAA", "AntiAliasing.Samples": 8, ... } }, ... },
+    //         "Epic":      { },                                     // every parameter at its Default
+    //         "Cinematic": { } }, ... },
     //     "Recommend": {
     //       "Thresholds": { "Shadows": [ 40, 110, 250 ] },   // index >= t[i] -> level i+1; never Cinematic
     //       "MinVideoMemoryMiB": { "Textures": [ 0, 2048, 4096, 6144, 8192 ] }, // per level; VRAM gate
@@ -395,7 +421,7 @@ namespace Common::Scalability
     {
         uint32_t Version = 0;
         // Values[group][level] — only the slots of that group's parameters are meaningful; the rest are the
-        // spec Min and never read (Resolve takes each parameter from its own group's level).
+        // spec Default and never read (Resolve takes each parameter from its own group's level).
         std::array<std::array<ParameterValues, kLevelCount>, kGroupCount> Values{};
         // Recommend thresholds per group: kLevelCount - 2 ascending perf-index boundaries (Low|Medium|High|Epic).
         std::array<std::array<float, kLevelCount - 2>, kGroupCount> RecommendThresholds{};
@@ -408,7 +434,7 @@ namespace Common::Scalability
 
         // PURE. Refuses, naming file position and the offending key/value, on: unknown group, level or parameter
         // key; a parameter listed under a group that does not own it; a level missing for a group that has
-        // parameters; a level missing one of its group's parameters; a value outside the spec range; an enum
+        // parameters; a value that restates the parameter's spec Default; a value outside the spec range; an enum
         // name that is not a value; a group WITHOUT parameters given levels (dead group); thresholds not strictly
         // ascending; a DeviceClass entry missing. Every error found, not the first.
         [[nodiscard]] static Common::ResultStr<ScalabilityTable> Parse( std::string_view jsonText );

@@ -17,6 +17,13 @@ namespace Common::Scalability
         using P                         = Parameter;
         using G                         = Group;
         using CL                        = CatalogList;
+        using Vis                       = ParameterVisibility;
+        // A by-name value's Default, written as its enumerator (the JSON writes the same value by name).
+        template <typename E>
+        constexpr ParameterValue Of( E value )
+        {
+            return static_cast<ParameterValue>( value );
+        }
         // The last enumerator of a by-name list (RenderMethods.hpp's name arrays are one entry per enumerator).
         constexpr ParameterValue LastOf( std::size_t count )
         {
@@ -30,268 +37,328 @@ namespace Common::Scalability
         constexpr std::array<ParameterSpec, kParameterCount> kParameterSpecs{ {
              { P::AntiAliasingMethod, G::AntiAliasing, "AntiAliasing.Method", 0,
                LastOf( kAntiAliasingMethodNames.size() ), CL::AntiAliasingMethods,
-               "SceneRenderer framebuffer setup + post AA pass" },
+               "SceneRenderer framebuffer setup + post AA pass", Of( AntiAliasingMethod::TAA ), Vis::Basic },
              { P::AntiAliasingSamples, G::AntiAliasing, "AntiAliasing.Samples", 1, 8, CL::MSAACounts,
-               "SceneRenderer framebuffer sample count (MSAA)" },
+               "SceneRenderer framebuffer sample count (MSAA)", 1, Vis::Basic },
              { P::RenderScalePercent, G::ResolutionScale, "Resolution.Percent", 50, 200, CL::RenderScale,
-               "RDG view-target size + the method's reconstruction pass (UpscalerForScale)" },
+               "RDG view-target size + the method's reconstruction pass (UpscalerForScale)", 100, Vis::Basic },
              { P::TextureFilter, G::Filtering, "Filtering.Texture", 0, 3, CL::None,
-               "sampler cache (RenderConfig push)" },
+               "sampler cache (RenderConfig push)", 3, Vis::Basic },
              { P::Anisotropy, G::Filtering, "Filtering.Anisotropy", 1, 16, CL::AnisotropyLevels,
-               "sampler cache (RenderConfig push)" },
-             { P::MeshLOD, G::ViewDistance, "ViewDistance.MeshLOD", 0, 1, CL::None, "mesh LOD selection" },
-             { P::CloudQuality, G::Effects, "Effects.CloudQuality", 0, 2, CL::None, "Graphic::CloudQualityScale" },
+               "sampler cache (RenderConfig push)", 16, Vis::Basic },
+             { P::MeshLOD, G::ViewDistance, "ViewDistance.MeshLOD", 0, 1, CL::None, "mesh LOD selection", 1,
+               Vis::Advanced },
+             { P::CloudQuality, G::Effects, "Effects.CloudQuality", 0, 2, CL::None, "Graphic::CloudQualityScale", 2,
+               Vis::Basic },
              { P::ShadowCascades, G::Shadows, "Shadows.Cascades", 1, 4, CL::None,
-               "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)" },
+               "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)", 4, Vis::Advanced },
              { P::ShadowMapSize, G::Shadows, "Shadows.MapSize", 512, 4096, CL::None,
-               "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)" },
+               "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)", 4096, Vis::Advanced },
              { P::ShadowDistance, G::Shadows, "Shadows.Distance", 1000, 100000, CL::None,
-               "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)" },
+               "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows (scene view)", 20000, Vis::Advanced },
              { P::ShadowContactSteps, G::Shadows, "Shadows.ContactShadowSteps", 0, 32, CL::None,
                "SceneRenderer::BeginScene -> DeferredLighting.shader contact-shadow march "
-               "(ContactShadowView.x)" },
+               "(ContactShadowView.x)", 16, Vis::Advanced },
              { P::ReflectionMaxSteps, G::Reflections, "Reflections.MaxSteps", 8, 128, CL::None,
-               "SSRRenderer trace push constant: HZB traversal iterations per ray (SceneRenderer SSR pass)" },
+               "SSRRenderer trace push constant: HZB traversal iterations per ray (SceneRenderer SSR pass)", 64,
+               Vis::Advanced },
              { P::DistanceFieldPoolMiB, G::GlobalIllumination, "GlobalIllumination.DistanceFieldPoolMiB", 32, 512,
                CL::None,
-               "DistanceFieldSceneData::SetPoolMiB - the brick atlas the finer mesh-field mips stream within" },
+               "DistanceFieldSceneData::SetPoolMiB - the brick atlas the finer mesh-field mips stream within", 384,
+               Vis::Advanced },
              { P::AmbientOcclusionSamples, G::PostProcess, "PostProcess.AmbientOcclusionSamples", 4, 32, CL::None,
-               "SSAORenderer GTAO horizon taps per direction (SSAO.shader kMaxTaps = 32)" },
+               "SSAORenderer GTAO horizon taps per direction (SSAO.shader kMaxTaps = 32)", 24, Vis::Advanced },
              { P::BloomMips, G::PostProcess, "PostProcess.BloomMips", 2, 6, CL::None,
-               "BloomRenderer::SetMaxMips (SceneRenderer::BeginScene)" },
+               "BloomRenderer::SetMaxMips (SceneRenderer::BeginScene)", 6, Vis::Advanced },
              { P::MotionBlurQuality, G::PostProcess, "PostProcess.MotionBlurQuality", 0, 2, CL::None,
-               "Graphic::MotionBlurSamplesForQuality (SceneRenderer::BeginScene -> MotionBlur gather taps)" },
+               "Graphic::MotionBlurSamplesForQuality (SceneRenderer::BeginScene -> MotionBlur gather taps)", 2,
+               Vis::Advanced },
              { P::DepthOfFieldQuality, G::PostProcess, "PostProcess.DepthOfFieldQuality", 0, 2, CL::None,
-               "Graphic::DofRingsForQuality (SceneRenderer::BeginScene -> DepthOfField gather rings)" },
+               "Graphic::DofRingsForQuality (SceneRenderer::BeginScene -> DepthOfField gather rings)", 2,
+               Vis::Advanced },
              { P::ReflectionCaptureSize, G::Reflections, "Reflections.CaptureSize", 32, 1024, CL::None,
-               "Graphic::ReflectionCaptureFaceSize (ReflectionCaptureRenderer: the scene's capture cube face)" },
+               "Graphic::ReflectionCaptureFaceSize (ReflectionCaptureRenderer: the scene's capture cube face)", 128,
+               Vis::Advanced },
              { P::ReflectionRaysPerPixel, G::Reflections, "Reflections.RaysPerPixel", 1, 12, CL::None,
-               "SSRRenderer trace push constant: GGX-VNDF rays per traced texel (SceneRenderer SSR pass)" },
+               "SSRRenderer trace push constant: GGX-VNDF rays per traced texel (SceneRenderer SSR pass)", 4,
+               Vis::Advanced },
              { P::GlobalIlluminationMethod, G::GlobalIllumination, "GlobalIllumination.Method", 0,
                LastOf( kGIMethodNames.size() ), CL::None,
-               "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the GI method ceiling" },
+               "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the GI method ceiling",
+               Of( GIMethod::HardwareTraced ), Vis::Basic },
              { P::ReflectionsMethod, G::Reflections, "Reflections.Method", 0,
                LastOf( kReflectionMethodNames.size() ), CL::None,
-               "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the reflection method ceiling" },
+               "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the reflection method ceiling",
+               Of( ReflectionMethod::HardwareTraced ), Vis::Basic },
              { P::ShadowsMethod, G::Shadows, "Shadows.Method", 0, LastOf( kShadowMethodNames.size() ), CL::None,
-               "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the shadow method ceiling" },
+               "Graphic::ResolveRenderMethods (SceneRenderer::BeginScene) - the shadow method ceiling",
+               Of( ShadowMethod::HardwareTraced ), Vis::Basic },
              { P::SkinCache, G::Effects, "Effects.SkinCache", 0, 1, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::SetSkinCacheEnabled -> "
-               "RayTracingSkinCache::SetEnabled" },
+               "RayTracingSkinCache::SetEnabled", 1, Vis::Advanced },
              { P::DisplacementDicingRate, G::ViewDistance, "ViewDistance.DisplacementDicingRate", 0, 8, CL::None,
-               "SceneRenderer::BeginScene -> DisplacementCache::SetQuality (0 = runtime displacement off)" },
+               "SceneRenderer::BeginScene -> DisplacementCache::SetQuality (0 = runtime displacement off)", 2,
+               Vis::Advanced },
              { P::DisplacementPoolMiB, G::ViewDistance, "ViewDistance.DisplacementPoolMiB", 64, 1024, CL::None,
-               "SceneRenderer::BeginScene -> DisplacementCache::SetQuality - the displaced geometry pool" },
+               "SceneRenderer::BeginScene -> DisplacementCache::SetQuality - the displaced geometry pool", 512,
+               Vis::Advanced },
              { P::LightGridPixelSize, G::Shadows, "Shadows.LightGridPixelSize", 16, 256, CL::None,
-               "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" tiles)" },
+               "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" tiles)", 32,
+               Vis::Advanced },
              { P::LightGridSlices, G::Shadows, "Shadows.LightGridSlices", 8, 128, CL::None,
-               "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" slices)" },
+               "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" slices)", 32,
+               Vis::Advanced },
              { P::LightGridMaxLightsPerCell, G::Shadows, "Shadows.LightGridMaxLightsPerCell", 8, 256, CL::None,
-               "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" lists)" },
+               "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" lists)", 64,
+               Vis::Advanced },
              { P::ShadowRayTracedSamplesPerPixel, G::Shadows, "Shadows.RayTracedSamplesPerPixel", 1, 8, CL::None,
-               "SceneRenderer::BeginScene -> System::MakeRayTracedSunShadowParams (\"Shadows: Ray Traced Sun\")" },
+               "SceneRenderer::BeginScene -> System::MakeRayTracedSunShadowParams (\"Shadows: Ray Traced Sun\")", 1,
+               Vis::Advanced },
              { P::ShadowRayTracedTranslucencyCascades, G::Shadows, "Shadows.RayTracedTranslucencyCascades", 1, 4,
                CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows under a ray-traced sun (blended "
-               "ShadowCascadesTexture readers, MeshRenderer::SunCascadeReadersQueued)" },
+               "ShadowCascadesTexture readers, MeshRenderer::SunCascadeReadersQueued)", 2, Vis::Advanced },
              { P::ShadowRayTracedTranslucencyMapSize, G::Shadows, "Shadows.RayTracedTranslucencyMapSize", 256,
                2048, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::RebudgetShadows under a ray-traced sun (blended "
-               "ShadowCascadesTexture readers, MeshRenderer::SunCascadeReadersQueued)" },
+               "ShadowCascadesTexture readers, MeshRenderer::SunCascadeReadersQueued)", 1024, Vis::Advanced },
              { P::ShadowFilterTaps, G::Shadows, "Shadows.FilterTaps", 4, 64, CL::None,
                "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB ShadowFilter.y: "
-               "Mesh/CascadedShadow.glslh PCSS filter taps)" },
+               "Mesh/CascadedShadow.glslh PCSS filter taps)", 32, Vis::Advanced },
              { P::ShadowBlockerSearchTaps, G::Shadows, "Shadows.BlockerSearchTaps", 4, 32, CL::None,
                "SceneRenderer::BeginScene -> SceneResources::PackShadowFilter (ShadowUB ShadowFilter.x: "
-               "Mesh/CascadedShadow.glslh PCSS blocker search taps)" },
+               "Mesh/CascadedShadow.glslh PCSS blocker search taps)", 16, Vis::Advanced },
              { P::ShadowRayTracedDenoiserRadius, G::Shadows, "Shadows.RayTracedDenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseShadowVisibility (reconstruction "
-               "kernel)" },
+               "kernel)", 2, Vis::Advanced },
              { P::ShadowVirtualMaxPhysicalPages, G::Shadows, "Shadows.VirtualMaxPhysicalPages", 256, 8192,
                CL::None,
-               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (the physical pool)" },
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (the physical pool)", 4096,
+               Vis::Advanced },
              { P::ShadowVirtualResolutionLodBias, G::Shadows, "Shadows.VirtualResolutionLodBias", -30, 30,
                CL::None,
-               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Lod.x, tenths)" },
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Lod.x, tenths)", -15,
+               Vis::Advanced },
              { P::ShadowVirtualSMRTRayCount, G::Shadows, "Shadows.VirtualSMRTRayCount", 0, 16, CL::None,
                "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Smrt.x: "
-               "VirtualShadowMapProject.shader rays)" },
+               "VirtualShadowMapProject.shader rays)", 8, Vis::Advanced },
              { P::ShadowVirtualSMRTSamplesPerRay, G::Shadows, "Shadows.VirtualSMRTSamplesPerRay", 1, 16, CL::None,
                "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Smrt.y: "
-               "VirtualShadowMapProject.shader samples per ray)" },
+               "VirtualShadowMapProject.shader samples per ray)", 4, Vis::Advanced },
              { P::ShadowMegaLightsSamplesPerPixel, G::Shadows, "Shadows.MegaLightsSamplesPerPixel", 1, 4, CL::None,
-               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (reservoirs per pixel)" },
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (reservoirs per pixel)", 2, Vis::Advanced },
              { P::ShadowMegaLightsSpatialSamples, G::Shadows, "Shadows.MegaLightsSpatialSamples", 0, 8, CL::None,
-               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (\"MegaLights: Spatial Resampling\")" },
+               "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (\"MegaLights: Spatial Resampling\")", 4,
+               Vis::Advanced },
              { P::ShadowMegaLightsMaxHistory, G::Shadows, "Shadows.MegaLightsMaxHistory", 0, 30, CL::None,
                "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (\"MegaLights: Temporal "
-               "Resampling\")" },
+               "Resampling\")", 20, Vis::Advanced },
              { P::ShadowMegaLightsDenoiserRadius, G::Shadows, "Shadows.MegaLightsDenoiserRadius", 1, 3, CL::None,
                "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseDiffuseIndirect / DenoiseDirectSpecular "
-               "(MegaLights kernel)" },
+               "(MegaLights kernel)", 2, Vis::Advanced },
              { P::ShadowMegaLightsDownsampleFactor, G::Shadows, "Shadows.MegaLightsDownsampleFactor", 1, 2,
-               CL::None, "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (sample pixels per side)" },
+               CL::None, "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (sample pixels per side)", 2,
+               Vis::Advanced },
              { P::ShadowMegaLightsVolumeTilePixels, G::Shadows, "Shadows.MegaLightsVolumeTilePixels", 8, 64,
-               CL::None, "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (froxel edge, px)" },
+               CL::None, "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (froxel edge, px)", 16,
+               Vis::Advanced },
              { P::ShadowMegaLightsVolumeSlices, G::Shadows, "Shadows.MegaLightsVolumeSlices", 16, 128, CL::None,
-               "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (depth slices)" },
+               "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (depth slices)", 64, Vis::Advanced },
              { P::ShadowMegaLightsVolumeSamples, G::Shadows, "Shadows.MegaLightsVolumeSamples", 1, 4, CL::None,
-               "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (traced samples per froxel)" },
+               "SceneRenderer::BeginScene -> MegaLightsVolumeRenderer::AddPasses (traced samples per froxel)", 2,
+               Vis::Advanced },
              { P::ShadowRainOcclusionMapSize, G::Shadows, "Shadows.RainOcclusionMapSize", 256, 4096, CL::None,
                "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (\"Weather: RainOcclusion\" "
-               "target side)" },
+               "target side)", 2048, Vis::Advanced },
              { P::ShadowRainOcclusionExtent, G::Shadows, "Shadows.RainOcclusionExtent", 1000, 100000, CL::None,
-               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (box side, world cm)" },
+               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (box side, world cm)", 20000,
+               Vis::Advanced },
              { P::ShadowRainOcclusionRefreshPercent, G::Shadows, "Shadows.RainOcclusionRefreshPercent", 5, 50,
                CL::None,
-               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (recentre distance)" },
+               "SceneRenderer::BeginScene -> MeshRenderer::SetRainOcclusionQuality (recentre distance)", 25,
+               Vis::Advanced },
              { P::ScreenSpaceGISamples, G::GlobalIllumination, "GlobalIllumination.ScreenSpaceSamples", 4, 64,
                CL::None,
                "SceneRenderer::BeginScene -> MaterialDeferredLighting (ScreenSpaceGi.x: DeferredLighting.shader "
-               "GatherIndirectGI samples)" },
+               "GatherIndirectGI samples)", 16, Vis::Advanced },
              { P::ReflectionDenoiserRadius, G::Reflections, "Reflections.DenoiserRadius", 1, 3, CL::None,
-               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseReflections (reconstruction kernel)" },
+               "SceneRenderer::BeginScene -> ScreenSpaceDenoiser::DenoiseReflections (reconstruction kernel)", 2,
+               Vis::Advanced },
              { P::ReflectionDownsampleFactor, G::Reflections, "Reflections.DownsampleFactor", 1, 2, CL::None,
                "SceneRenderer::BeginScene -> SSRRenderer::Prepare (trace resolution) + "
-               "ScreenSpaceDenoiser::DenoiseReflections (2x2 block rotation)" },
+               "ScreenSpaceDenoiser::DenoiseReflections (2x2 block rotation)", 2, Vis::Advanced },
              { P::DlssPresetNative, G::AntiAliasing, "AntiAliasing.DLSSPreset.Native", 0,
                LastOf( kDlssPresetNames.size() ), CL::None,
-               "DLSSUpscaler (DLSS options of the view's 100 % mode, NVIDIA's DLAA)" },
+               "DLSSUpscaler (DLSS options of the view's 100 % mode, NVIDIA's DLAA)", Of( DlssPreset::Default ),
+               Vis::Advanced },
              { P::DlssPresetUltraQuality, G::AntiAliasing, "AntiAliasing.DLSSPreset.UltraQuality", 0,
                LastOf( kDlssPresetNames.size() ), CL::None,
-               "DLSSUpscaler (DLSS options of the view's Ultra Quality mode)" },
+               "DLSSUpscaler (DLSS options of the view's Ultra Quality mode)", Of( DlssPreset::Default ),
+               Vis::Advanced },
              { P::DlssPresetQuality, G::AntiAliasing, "AntiAliasing.DLSSPreset.Quality", 0,
                LastOf( kDlssPresetNames.size() ), CL::None,
-               "DLSSUpscaler (DLSS options of the view's Quality mode)" },
+               "DLSSUpscaler (DLSS options of the view's Quality mode)", Of( DlssPreset::Default ), Vis::Advanced },
              { P::DlssPresetBalanced, G::AntiAliasing, "AntiAliasing.DLSSPreset.Balanced", 0,
                LastOf( kDlssPresetNames.size() ), CL::None,
-               "DLSSUpscaler (DLSS options of the view's Balanced mode)" },
+               "DLSSUpscaler (DLSS options of the view's Balanced mode)", Of( DlssPreset::Default ), Vis::Advanced },
              { P::DlssPresetPerformance, G::AntiAliasing, "AntiAliasing.DLSSPreset.Performance", 0,
                LastOf( kDlssPresetNames.size() ), CL::None,
-               "DLSSUpscaler (DLSS options of the view's Performance mode)" },
+               "DLSSUpscaler (DLSS options of the view's Performance mode)", Of( DlssPreset::Default ), Vis::Advanced },
              { P::DlssPresetUltraPerformance, G::AntiAliasing, "AntiAliasing.DLSSPreset.UltraPerformance", 0,
                LastOf( kDlssPresetNames.size() ), CL::None,
-               "DLSSUpscaler (DLSS options of the view's Ultra Performance mode)" },
+               "DLSSUpscaler (DLSS options of the view's Ultra Performance mode)", Of( DlssPreset::Default ),
+               Vis::Advanced },
              { P::DlssRRPresetNative, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.Native", 0,
                LastOf( kDlssRRPresetNames.size() ), CL::None,
-               "DLSSUpscaler (Ray Reconstruction options of the view's 100 % mode)" },
+               "DLSSUpscaler (Ray Reconstruction options of the view's 100 % mode)", Of( DlssRRPreset::Default ),
+               Vis::Advanced },
              { P::DlssRRPresetUltraQuality, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.UltraQuality", 0,
                LastOf( kDlssRRPresetNames.size() ), CL::None,
-               "DLSSUpscaler (Ray Reconstruction options of the view's Ultra Quality mode)" },
+               "DLSSUpscaler (Ray Reconstruction options of the view's Ultra Quality mode)",
+               Of( DlssRRPreset::Default ), Vis::Advanced },
              { P::DlssRRPresetQuality, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.Quality", 0,
                LastOf( kDlssRRPresetNames.size() ), CL::None,
-               "DLSSUpscaler (Ray Reconstruction options of the view's Quality mode)" },
+               "DLSSUpscaler (Ray Reconstruction options of the view's Quality mode)", Of( DlssRRPreset::Default ),
+               Vis::Advanced },
              { P::DlssRRPresetBalanced, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.Balanced", 0,
                LastOf( kDlssRRPresetNames.size() ), CL::None,
-               "DLSSUpscaler (Ray Reconstruction options of the view's Balanced mode)" },
+               "DLSSUpscaler (Ray Reconstruction options of the view's Balanced mode)", Of( DlssRRPreset::Default ),
+               Vis::Advanced },
              { P::DlssRRPresetPerformance, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.Performance", 0,
                LastOf( kDlssRRPresetNames.size() ), CL::None,
-               "DLSSUpscaler (Ray Reconstruction options of the view's Performance mode)" },
+               "DLSSUpscaler (Ray Reconstruction options of the view's Performance mode)", Of( DlssRRPreset::Default ),
+               Vis::Advanced },
              { P::DlssRRPresetUltraPerformance, G::AntiAliasing, "AntiAliasing.DLSSRRPreset.UltraPerformance", 0,
                LastOf( kDlssRRPresetNames.size() ), CL::None,
-               "DLSSUpscaler (Ray Reconstruction options of the view's Ultra Performance mode)" },
+               "DLSSUpscaler (Ray Reconstruction options of the view's Ultra Performance mode)",
+               Of( DlssRRPreset::Default ), Vis::Advanced },
              { P::TsrHistoryScreenPercentage, G::AntiAliasing, "AntiAliasing.TSR.HistoryScreenPercentage", 100,
-               200, CL::None, "TemporalSuperResolution::HistoryDescs (history extent)" },
+               200, CL::None, "TemporalSuperResolution::HistoryDescs (history extent)", 200, Vis::Advanced },
              { P::TsrHistoryUpdateQuality, G::AntiAliasing, "AntiAliasing.TSR.HistoryUpdateQuality", 0, 3,
-               CL::None, "TemporalSuperResolution (TSR.UpdateHistory shader variant)" },
+               CL::None, "TemporalSuperResolution (TSR.UpdateHistory shader variant)", 3, Vis::Advanced },
              { P::TsrShadingRejectionFlickering, G::AntiAliasing, "AntiAliasing.TSR.ShadingRejectionFlickering", 0,
-               1, CL::None, "TemporalSuperResolution (TSR.RejectShading flicker tolerance)" },
+               1, CL::None, "TemporalSuperResolution (TSR.RejectShading flicker tolerance)", 1, Vis::Advanced },
              { P::TsrRejectionAntiAliasing, G::AntiAliasing, "AntiAliasing.TSR.RejectionAntiAliasingQuality", 0, 2,
-               CL::None, "TemporalSuperResolution (TSR.SpatialAntiAliasing)" },
+               CL::None, "TemporalSuperResolution (TSR.SpatialAntiAliasing)", 2, Vis::Advanced },
              { P::TsrReprojectionField, G::AntiAliasing, "AntiAliasing.TSR.ReprojectionField", 0, 1, CL::None,
-               "TemporalSuperResolution (TSR.DilateVelocity reprojection field, TSR.UpdateHistory)" },
+               "TemporalSuperResolution (TSR.DilateVelocity reprojection field, TSR.UpdateHistory)", 1, Vis::Advanced },
              { P::TsrResurrection, G::AntiAliasing, "AntiAliasing.TSR.Resurrection", 0, 1, CL::None,
-               "TemporalSuperResolution::HistoryDescs (persistent frames) + TSR.RejectShading resurrection" },
-             { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt },
+               "TemporalSuperResolution::HistoryDescs (persistent frames) + TSR.RejectShading resurrection", 1,
+               Vis::Advanced },
+             { P::TextureMipBias, G::Textures, "Textures.MipBias", -200, 400, CL::None, std::nullopt, 0,
+               Vis::Advanced },
              { P::TextureStreamingPoolMiB, G::Textures, "Textures.StreamingPoolMiB", 256, 16384, CL::None,
-               std::nullopt },
+               std::nullopt, 4096, Vis::Advanced },
              { P::TemporalAAQuality, G::AntiAliasing, "AntiAliasing.TemporalQuality", 0, 2, CL::None,
-               std::nullopt },
+               std::nullopt, 2, Vis::Basic },
              { P::UpscalerSharpness, G::ResolutionScale, "Resolution.Sharpness", 0, 100, CL::None,
-               "post sharpen pass (Graphic::Sharpen)" },
+               "post sharpen pass (Graphic::Sharpen)", 0, Vis::Basic },
              { P::SurfaceCacheAtlasSize, G::GlobalIllumination, "GlobalIllumination.SurfaceCacheAtlasSize", 1024,
-               8192, CL::None, "surface cache scene + atlas (Graphic::SurfaceCache::SurfaceCacheScene)" },
+               8192, CL::None, "surface cache scene + atlas (Graphic::SurfaceCache::SurfaceCacheScene)", 4096,
+               Vis::Advanced },
              { P::SurfaceCacheCardTexelDensity, G::GlobalIllumination, "GlobalIllumination.CardTexelDensityScale",
-               10, 400, CL::None, "surface cache scene + atlas (Graphic::SurfaceCache::SurfaceCacheScene)" },
+               10, 400, CL::None, "surface cache scene + atlas (Graphic::SurfaceCache::SurfaceCacheScene)", 100,
+               Vis::Advanced },
              { P::SurfaceCacheCardMinResolution, G::GlobalIllumination, "GlobalIllumination.CardMinResolution", 1,
-               64, CL::None, "surface cache scene + atlas (Graphic::SurfaceCache::SurfaceCacheScene)" },
+               64, CL::None, "surface cache scene + atlas (Graphic::SurfaceCache::SurfaceCacheScene)", 2,
+               Vis::Advanced },
              { P::SurfaceCacheCardMaxResolution, G::GlobalIllumination, "GlobalIllumination.CardMaxResolution", 64,
-               2048, CL::None, "surface cache scene + atlas (Graphic::SurfaceCache::SurfaceCacheScene)" },
+               2048, CL::None, "surface cache scene + atlas (Graphic::SurfaceCache::SurfaceCacheScene)", 512,
+               Vis::Advanced },
              { P::SurfaceCacheDirectLightingUpdateFactor, G::GlobalIllumination,
                "GlobalIllumination.DirectLightingUpdateFactor", 1, 1024, CL::None,
-               "surface cache direct lighting (Graphic::SurfaceCache::SurfaceCacheScene)" },
+               "surface cache direct lighting (Graphic::SurfaceCache::SurfaceCacheScene)", 32, Vis::Advanced },
              { P::SurfaceCacheRadiosityUpdateFactor, G::GlobalIllumination,
-               "GlobalIllumination.RadiosityUpdateFactor", 1, 1024, CL::None, std::nullopt },
+               "GlobalIllumination.RadiosityUpdateFactor", 1, 1024, CL::None, std::nullopt, 64, Vis::Advanced },
              { P::SurfaceCacheRadiosityProbeSpacing, G::GlobalIllumination,
-               "GlobalIllumination.RadiosityProbeSpacing", 1, 16, CL::None, std::nullopt },
+               "GlobalIllumination.RadiosityProbeSpacing", 1, 16, CL::None, std::nullopt, 4, Vis::Advanced },
              { P::SurfaceCacheRadiosityProbeResolution, G::GlobalIllumination,
-               "GlobalIllumination.RadiosityHemisphereProbeResolution", 2, 8, CL::None, std::nullopt },
+               "GlobalIllumination.RadiosityHemisphereProbeResolution", 2, 8, CL::None, std::nullopt, 4,
+               Vis::Advanced },
              { P::RadianceCacheProbeResolution, G::GlobalIllumination,
                "GlobalIllumination.RadianceCacheProbeResolution", 8, 64, CL::None,
-               "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (probe texels per side)" },
+               "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (probe texels per side)", 32,
+               Vis::Advanced },
              { P::RadianceCacheProbesPerFrame, G::GlobalIllumination,
                "GlobalIllumination.RadianceCacheProbesPerFrame", 10, 2000, CL::None,
                "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (screen probes' probes traced "
-               "per frame)" },
+               "per frame)", 150, Vis::Advanced },
              { P::HitLightingAllowed, G::GlobalIllumination, "GlobalIllumination.HitLighting", 0, 1, CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::PipelineFor (hardware-traced hits lit in "
-               "place)" },
-             { P::PathTracingPathsPerFrame, G::GlobalIllumination, "PathTracing.PathsPerFrame", 1, 64, CL::None,
-               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths per pixel per frame)" },
-             { P::PathTracingMaxBounces, G::GlobalIllumination, "PathTracing.MaxBounces", 0, 64, CL::None,
-               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (bounces per path)" },
-             { P::PathTracingSamplesPerPixel, G::GlobalIllumination, "PathTracing.SamplesPerPixel", 1, 65536,
+               "place)", 1, Vis::Advanced },
+             { P::PathTracingPathsPerFrame, G::PathTracing, "PathTracing.PathsPerFrame", 1, 64, CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths per pixel per frame)", 2,
+               Vis::Advanced },
+             { P::PathTracingMaxBounces, G::PathTracing, "PathTracing.MaxBounces", 0, 64, CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (bounces per path)", 32, Vis::Basic },
+             { P::PathTracingSamplesPerPixel, G::PathTracing, "PathTracing.SamplesPerPixel", 1, 65536,
                CL::None,
-               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths per pixel until it stops)" },
-             { P::PathTracingMaxPathIntensity, G::GlobalIllumination, "PathTracing.MaxPathIntensity", 0, 65536,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths per pixel until it stops)", 4096,
+               Vis::Basic },
+             { P::PathTracingMaxPathIntensity, G::PathTracing, "PathTracing.MaxPathIntensity", 0, 65536,
                CL::None,
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the clamp of one path's exposed "
-               "contribution)" },
-             { P::PathTracingDenoiser, G::GlobalIllumination, "PathTracing.Denoiser", 0, 3,
+               "contribution)", 24, Vis::Advanced },
+             { P::PathTracingDenoiser, G::PathTracing, "PathTracing.Denoiser", 0, 3,
                CL::PathTracingDenoisers,
                "SceneRenderer::BeginScene -> System::PathTracer::KeepsDenoisingUpscaler / AddPasses (what "
                "denoises "
-               "the path-traced view: none, the engine's ReLAX or DLSS Ray Reconstruction)" },
+               "the path-traced view: none, the engine's ReLAX or DLSS Ray Reconstruction)",
+               Of( PathTracingDenoiserMethod::Auto ), Vis::Basic },
              { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,
                CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (pixels a uniform probe side: "
-               "the SP_DOWNSAMPLE permutation, 8 / 16 / 32 / 64)" },
+               "the SP_DOWNSAMPLE permutation, 8 / 16 / 32 / 64)", 16, Vis::Advanced },
              { P::ScreenProbeTracedTexels, G::GlobalIllumination, "GlobalIllumination.ScreenProbeTracedTexels", 4,
                16, CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (traced texels a probe side: "
-               "the SP_RES permutation)" },
+               "the SP_RES permutation)", 8, Vis::Advanced },
              { P::IrradianceFieldProbesPerFrame, G::GlobalIllumination,
                "GlobalIllumination.IrradianceFieldProbesPerFrame", 10, 2000, CL::None,
                "SceneRenderer::BeginScene -> RadianceCache::MakeRadianceCacheInputs (ProbeVolume's probes traced "
-               "per frame)" },
+               "per frame)", 100, Vis::Advanced },
              { P::ReflectionsHitLighting, G::Reflections, "Reflections.HitLighting", 0, 1, CL::None,
                "SceneRenderer::ReflectionsTracer -> SSR.shader \"HitLighting\" ray generation "
-               "(Renderer::TraceRays)" },
+               "(Renderer::TraceRays)", 0, Vis::Advanced },
              { P::ScreenProbeAdaptiveAllocation, G::GlobalIllumination,
                "GlobalIllumination.AdaptiveProbeAllocationPercent", 0, 100, CL::None,
-               "screen probe adaptive budget (Graphic::GlobalIllumination::ScreenProbeGather)" },
+               "screen probe adaptive budget (Graphic::GlobalIllumination::ScreenProbeGather)", 100, Vis::Advanced },
              { P::ScreenProbeShortRangeAO, G::GlobalIllumination, "GlobalIllumination.ShortRangeAO", 0, 1,
-               CL::None, "screen probe short-range AO (Graphic::GlobalIllumination::ScreenProbeGather)" },
+               CL::None, "screen probe short-range AO (Graphic::GlobalIllumination::ScreenProbeGather)", 1,
+               Vis::Advanced },
              { P::ReflectionsTranslucentFrontLayer, G::Reflections, "Reflections.TranslucentFrontLayer", 0, 1,
                CL::None,
                "SceneRenderer::TranslucentFrontLayerReflections -> \"Translucency: Front Layer G-buffer\" + "
-               "\"Translucency: Front Layer Reflections\" -> Pass_Forward_Translucent.glslh" },
+               "\"Translucency: Front Layer Reflections\" -> Pass_Forward_Translucent.glslh", 1, Vis::Advanced },
              { P::ShadingParallaxMinSteps, G::Shading, "Shading.ParallaxMinSteps", 1, 64, CL::None,
                "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxMinSteps "
-               "(Mesh/Surface/SurfaceParallax.glslh)" },
+               "(Mesh/Surface/SurfaceParallax.glslh)", 16, Vis::Advanced },
              { P::ShadingParallaxMaxSteps, G::Shading, "Shading.ParallaxMaxSteps", 1, 128, CL::None,
                "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxMaxSteps "
-               "(Mesh/Surface/SurfaceParallax.glslh)" },
+               "(Mesh/Surface/SurfaceParallax.glslh)", 48, Vis::Advanced },
              { P::ShadingParallaxShadowSteps, G::Shading, "Shading.ParallaxShadowSteps", 0, 64, CL::None,
                "SceneRenderer::BeginScene -> ViewFrame::Parallax -> cameraUB.ParallaxShadowSteps "
-               "(Mesh/Surface/SurfaceParallax.glslh)" },
+               "(Mesh/Surface/SurfaceParallax.glslh)", 16, Vis::Advanced },
              { P::EffectsSpawnCountScalePercent, G::Effects, "Effects.SpawnCountScalePercent", 1, 100, CL::None,
-               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> SpawnState::Step (rate and burst counts)" },
+               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> SpawnState::Step (rate and burst counts)", 100,
+               Vis::Advanced },
              { P::EffectsQualityLevel, G::Effects, "Effects.QualityLevel", 0, 4, CL::None,
-               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> VFXWorld::Tick (effect type level)" },
+               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> VFXWorld::Tick (effect type level)", 3,
+               Vis::Advanced },
              { P::EffectsMaxWorldParticles, G::Effects, "Effects.MaxWorldParticles", 0, 4194304, CL::None,
-               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> EvaluateVFXScalability (world pool budget)" },
+               "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> EvaluateVFXScalability (world pool budget)",
+               131072, Vis::Advanced },
         } };
+
+        // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).
+        constexpr bool DefaultsInRange()
+        {
+            for ( const ParameterSpec& spec : kParameterSpecs )
+                if ( spec.Default < spec.Min || spec.Default > spec.Max )
+                    return false;
+            return true;
+        }
+        static_assert( DefaultsInRange(), "a ParameterSpec Default lies outside its [Min, Max]" );
     } // namespace
 
     namespace
@@ -552,17 +619,33 @@ namespace Common::Scalability
                                            return;
                                        }
                                        const auto p = static_cast<std::size_t>( spec->Id );
-                                       set[p]       = true;
+                                       if ( set[p] )
+                                       {
+                                           errors.Add( valueNode, "{}.{}: '{}' is set twice", groupKey, levelKey,
+                                                       key );
+                                           return;
+                                       }
+                                       set[p] = true;
                                        if ( const auto value = ParseValue( *spec, valueNode, errors ) )
                                        {
+                                           // The level lists what differs from the spec; a line restating the
+                                           // Default is a second copy of it (SCAL-UX contract §3).
+                                           if ( *value == spec->Default )
+                                           {
+                                               errors.Add( valueNode, "{}.{}: '{}' restates its default {}; drop "
+                                                           "the line",
+                                                           groupKey, levelKey, key, *value );
+                                               return;
+                                           }
                                            table.Values[g][l][p] = *value;
                                            parsed[p]             = true;
                                        }
                                    } );
+                              // A parameter the level does not name keeps its Default (filled by Parse), and is
+                              // checked as part of the level like any value.
                               for ( const ParameterSpec& spec : ParameterSpecs() )
                                   if ( spec.Owner == *group && !set[static_cast<std::size_t>( spec.Id )] )
-                                      errors.Add( levelNode, "{}.{}: '{}' is not set", groupKey, levelKey,
-                                                  spec.Key );
+                                      parsed[static_cast<std::size_t>( spec.Id )] = true;
                               CheckSamplesOnlyUnderMsaa( levelNode, groupKey, levelKey, table.Values[g][l], parsed,
                                                          errors );
                           } );
@@ -914,12 +997,26 @@ namespace Common::Scalability
         return listed;
     }
 
+    std::vector<Parameter> ListedParameters( const ParameterVisibility visibility )
+    {
+        std::vector<Parameter> listed;
+        for ( const ParameterSpec& spec : kParameterSpecs )
+            if ( !IsPlaceholder( spec ) && spec.Visibility == visibility )
+                listed.push_back( spec.Id );
+        return listed;
+    }
+
+    std::span<const std::string_view> ParameterValueNames( const Parameter parameter )
+    {
+        return ValueNames( parameter );
+    }
+
     std::string_view GroupKey( Group group )
     {
         constexpr std::array<std::string_view, kGroupCount> kKeys{
              "Textures",    "Filtering", "Shadows",      "GlobalIllumination", "Reflections",
              "PostProcess", "Effects",   "ViewDistance", "AntiAliasing",       "ResolutionScale",
-             "Shading" };
+             "Shading",     "PathTracing" };
         return kKeys[static_cast<std::size_t>( group )];
     }
 
@@ -940,11 +1037,12 @@ namespace Common::Scalability
         const Json::Node root = Json::Root( parsed.GetValue() );
 
         ScalabilityTable table;
-        // Slots a group does not own keep the spec Min (never read: Resolve takes a parameter from its own group).
+        // Every slot starts at the spec Default: a level that does not name a parameter of its group runs it there;
+        // slots a group does not own are never read (Resolve takes a parameter from its own group).
         for ( auto& group : table.Values )
             for ( auto& level : group )
                 for ( const ParameterSpec& spec : kParameterSpecs )
-                    level[static_cast<std::size_t>( spec.Id )] = spec.Min;
+                    level[static_cast<std::size_t>( spec.Id )] = spec.Default;
 
         Errors errors;
         if ( root.GetKind() != Json::Kind::Object )

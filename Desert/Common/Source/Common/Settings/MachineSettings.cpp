@@ -258,6 +258,18 @@ namespace Common::Settings
             else
                 return levels.Raw();
 
+            // SCAL-UX: PathTracing was split out of GlobalIllumination (its five rows followed the GI level). A file
+            // written before the split migrates once: PathTracing takes this machine's GI level, and the load is
+            // marked migrated so the host rewrites the file with it.
+            {
+                constexpr auto kGI = static_cast<std::size_t>( Scalability::Group::GlobalIllumination );
+                constexpr auto kPT = static_cast<std::size_t>( Scalability::Group::PathTracing );
+                if ( !byGroup[kPT] && !out.Unread.test( kPT ) && byGroup[kGI] )
+                {
+                    byGroup[kPT] = *byGroup[kGI];
+                    out.Migrated = true;
+                }
+            }
             Json::ObjectBuilder rebuilt;
             for ( std::size_t g = 0; g < Scalability::kGroupCount; ++g )
             {
