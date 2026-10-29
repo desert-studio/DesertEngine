@@ -9,6 +9,9 @@ description: >
   existing design instead of introducing a new style.
 ---
 
+**Владелец 10-29 — два параметра всегда: АРХИТЕКТУРА И NEXTGEN; вид — из ассетов, код — только размещение/LOD** (DEV_CONTRACT §00b).
+
+
 # DesertEngine — architecture & optimization
 
 C++20 / Vulkan engine (MoltenVK on macOS/Apple Silicon, native on Windows). ImGui editor,
