@@ -17,7 +17,8 @@ namespace Desert::Editor
     {
         using SurfaceBlendMode = ::Desert::Core::Formats::SurfaceBlendMode;
 
-        // Why the material @p slot names cannot be drawn by the cluster raster; nullopt when it can.
+        // Why the material @p slot names cannot be drawn by the cluster raster; nullopt when it can. Only
+        // Masked / Translucent / Additive refuse; an Opaque material on any shader, import template or not, stands.
         std::optional<std::string> MaterialRefusal( const Assets::MeshMaterialSlot& slot,
                                                     const std::filesystem::path&    source )
         {
@@ -41,12 +42,11 @@ namespace Desert::Editor
                 return std::format( "material '{}' states no shader of its own (an instance), so its blend mode "
                                     "is not read here",
                                     path.generic_string() );
-            const auto blend = ImportManager::PublishedTemplateBlend( shader );
+            const auto blend = ImportManager::PublishedShaderBlend( shader );
             if ( !blend )
-                return std::format(
-                     "material '{}' draws with a shader that is not a published import template, so "
-                     "its blend mode is unknown",
-                     path.generic_string() );
+                return std::format( "material '{}' draws with a shader whose BlendMode was not published (not "
+                                    "loaded, or not a DSL shader), so its blend mode is unknown",
+                                    path.generic_string() );
             if ( *blend == SurfaceBlendMode::Masked )
                 return std::format( "material '{}' is Masked (the cluster raster has no per-pixel cut-out before "
                                     "VIRT-GEOM step 4)",

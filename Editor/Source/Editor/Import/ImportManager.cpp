@@ -703,6 +703,17 @@ namespace Desert::Editor
             const std::scoped_lock lock( s_TemplatesMutex );
             return s_Templates;
         }
+
+        // Every loaded shader's BlendMode by header GUID (VIRT-GEOM import gate): a material's blend is its
+        // shader's, whether or not that shader declares an Import block. Published beside the templates, from the
+        // same registry walk, and swapped under the same lock.
+        std::shared_ptr<const std::vector<ShaderBlendRow>> s_ShaderBlends;
+
+        std::shared_ptr<const std::vector<ShaderBlendRow>> ShaderBlends()
+        {
+            const std::scoped_lock lock( s_TemplatesMutex );
+            return s_ShaderBlends;
+        }
     } // namespace
 
     std::size_t ImportManager::PublishImportTemplates( const Assets::AssetManager& manager )
@@ -710,14 +721,22 @@ namespace Desert::Editor
         const std::filesystem::path resources =
              std::filesystem::path( Common::Constants::Path::SHADERDIR_PATH ).parent_path().parent_path();
         std::vector<ImportTemplate> templates;
+        std::vector<ShaderBlendRow> blends;
+        std::size_t                 unreadBlends = 0;
         for ( const auto& [handle, shader] : manager.FindAllByType<Assets::ShaderAsset>() )
         {
             if ( !shader->IsReadyForUse() )
                 continue;
             const std::filesystem::path& file = shader->GetMetadata().Filepath;
-            auto                         read = ReadImportTemplate(
-                 shader->GetShaderContent(),
-                 std::format( "engine:{}", std::filesystem::relative( file, resources ).generic_string() ) );
+            const std::string locator =
+                 std::format( "engine:{}", std::filesystem::relative( file, resources ).generic_string() );
+            // A shader the DSL parser does not read (an engine-internal pass without a Shader block) has no
+            // BlendMode: a material naming it is refused Virtual Geometry as "blend unknown", never guessed Opaque.
+            if ( auto blend = ReadShaderBlend( shader->GetShaderContent(), locator ) )
+                blends.push_back( blend.ExtractValue() );
+            else
+                ++unreadBlends;
+            auto read = ReadImportTemplate( shader->GetShaderContent(), locator );
             // A shader the readers refuse cannot take a material, and saying so is the refusal.
             if ( !read )
             {
@@ -726,16 +745,26 @@ namespace Desert::Editor
             else if ( read.GetValue().Manifest.DeclaresImport )
                 templates.push_back( read.ExtractValue() );
         }
+        LOG_INFO( "[Import] shader blend modes published: {} read, {} without a DSL BlendMode", blends.size(),
+                  unreadBlends );
+        PublishShaderBlends( std::move( blends ) );
         return PublishImportTemplates( std::move( templates ) );
     }
 
-    std::optional<::Desert::Core::Formats::SurfaceBlendMode>
-    ImportManager::PublishedTemplateBlend( const Common::Content::AssetGuid& shader )
+    void ImportManager::PublishShaderBlends( std::vector<ShaderBlendRow> blends )
     {
-        const auto published = ImportTemplates();
+        auto                   published = std::make_shared<const std::vector<ShaderBlendRow>>( std::move( blends ) );
+        const std::scoped_lock lock( s_TemplatesMutex );
+        s_ShaderBlends = std::move( published );
+    }
+
+    std::optional<::Desert::Core::Formats::SurfaceBlendMode>
+    ImportManager::PublishedShaderBlend( const Common::Content::AssetGuid& shader )
+    {
+        const auto published = ShaderBlends();
         if ( !published || shader.IsNull() )
             return std::nullopt;
-        for ( const ImportTemplate& candidate : *published )
+        for ( const ShaderBlendRow& candidate : *published )
             if ( const auto guid = Common::Content::AssetGuidFromText( candidate.Guid );
                  guid && guid.GetValue() == shader )
                 return candidate.Blend;

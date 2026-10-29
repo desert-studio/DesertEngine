@@ -76,10 +76,13 @@ namespace Desert::Editor
         // lands here, and a caller without a renderer (the import suites) reads the shipped shader files with
         // ReadImportTemplate and hands them over. Replaces whatever was published; returns the count.
         static std::size_t PublishImportTemplates( std::vector<ImportTemplate> templates );
-        // The BlendMode of the published template whose shader header GUID is @p shader; nullopt when no
-        // published template has that GUID (none published yet, or the shader declares no Import block).
+        // Publishes every loaded shader's BlendMode by header GUID; the registry overload of
+        // PublishImportTemplates calls it with every ready shader the DSL parser reads. Replaces what was published.
+        static void PublishShaderBlends( std::vector<ShaderBlendRow> blends );
+        // The BlendMode of the published shader whose header GUID is @p shader, import template or not; nullopt
+        // when none was published under that GUID (not published yet, or a shader the DSL parser does not read).
         [[nodiscard]] static std::optional<::Desert::Core::Formats::SurfaceBlendMode>
-        PublishedTemplateBlend( const Common::Content::AssetGuid& shader );
+        PublishedShaderBlend( const Common::Content::AssetGuid& shader );
 
         /// Imports every loose image under `LooseTextureRoots()` that has no `.detex` yet; returns the count.
         /// See the definition for why the mesh scan could not do this and why there is no `force`.

@@ -20,9 +20,11 @@
 // file's import record keeps what the user asked for; each mesh (a node mesh, the combined one) stores its own
 // verdict, so one masked node does not cost the rest of the file its clusters.
 //
-// The engine has no World Position Offset input: there is nothing of that kind to judge yet. A material with an
-// unknown template (an instance whose shader is its parent's, a shader without an Import block) is refused too:
-// a flag that stands only because its material was not read would be a guess.
+// The BlendMode is the shader's own (ImportManager::PublishedShaderBlend: every loaded DSL shader, import template
+// or not), so an Opaque material on a hand-written shader stands. The engine has no World Position Offset input:
+// there is nothing of that kind to judge yet. A material whose blend cannot be read (an instance whose shader is
+// its parent's, a shader not loaded or not in the DSL) is refused too: a flag that stands only because its
+// material was not read would be a guess.
 namespace Desert::Editor
 {
     // Why @p settings' Virtual Geometry cannot stand for @p mesh imported from @p source, whose submeshes name

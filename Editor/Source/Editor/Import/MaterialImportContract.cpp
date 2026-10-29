@@ -111,6 +111,19 @@ namespace Desert::Editor
         return Common::MakeSuccess( std::move( out ) );
     }
 
+    Common::ResultStr<ShaderBlendRow> ReadShaderBlend( std::string_view source, std::string_view locator )
+    {
+        const auto header = Common::Content::ReadShaderHeader( source );
+        if ( !header )
+            return Common::MakeError<ShaderBlendRow>( std::format( "'{}': {}", locator, header.GetError() ) );
+        if ( header.GetValue().Guid.empty() )
+            return Common::MakeError<ShaderBlendRow>( std::format( "'{}': no header GUID", locator ) );
+        const auto parsed = ::Desert::Core::Preprocess::DShaderParser::Parse( std::string( source ) );
+        if ( !parsed )
+            return Common::MakeError<ShaderBlendRow>( std::format( "'{}': {}", locator, parsed.GetError() ) );
+        return Common::MakeSuccess( ShaderBlendRow{ header.GetValue().Guid, parsed.GetValue().Meta.Blend } );
+    }
+
     bool ImportedTextureSlot::NeedsPacking() const
     {
         if ( Parts.empty() )
