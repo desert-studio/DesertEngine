@@ -3715,9 +3715,11 @@ namespace Desert::Graphic
     SceneResources::ContactShadowSettings SceneRenderer::GetContactShadowSettings( const ViewFrame& frame,
                                                                                    bool hasOpaqueDepth ) const
     {
-        // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip.
+        // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip. The view's PostProcess Contact
+        // Shadows (m_RenderMethods.ContactShadows) gates the march for every light, as UE's r.ContactShadows does;
+        // each light's ContactShadowLength then says how far it reaches (0 = none).
         return SceneResources::ContactShadowSettings{
-             .Steps                  = hasOpaqueDepth ? m_ContactShadowSteps : 0,
+             .Steps                  = hasOpaqueDepth && m_RenderMethods.ContactShadows ? m_ContactShadowSteps : 0,
              .TanHalfFovY            = 1.0f / std::max( std::abs( frame.Projection[1][1] ), 1e-6f ),
              .DitherFrame            = static_cast<uint32_t>( frame.FrameIndex % 8u ),
              .SunLength              = m_SunContactShadowLength,
