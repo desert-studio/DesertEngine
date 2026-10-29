@@ -8,6 +8,7 @@
 #include <Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp>
 #include <Engine/Graphic/LocalShadowCache.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Math/Ray.hpp>
@@ -390,7 +391,8 @@ namespace Desert::Core
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) )
+           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) )
     {
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
@@ -403,7 +405,8 @@ namespace Desert::Core
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) )
+           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
@@ -1298,6 +1301,7 @@ namespace Desert::Core
         m_RayTracingCache    = std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance );
         m_LocalShadows       = std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance );
         m_DistanceFields   = std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance );
+        m_SurfaceCache     = std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance );
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
         m_PlayerController = entt::null;

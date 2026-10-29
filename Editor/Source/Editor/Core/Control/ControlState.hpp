@@ -154,6 +154,14 @@ namespace Desert::Editor::Control
         // per-mesh binds, counted apart.
         uint32_t GeometryPoolBinds     = 0;
         uint32_t GeometryPoolMeshBinds = 0;
+        // The scene-owned GI pools (UE: FScene's FDistanceFieldSceneData and FLumenSceneData), over every live
+        // Core::Scene: Scenes, the live scenes; DistanceFieldPools, those whose mesh distance-field brick atlas is
+        // resident (DistanceFieldSceneData::GetBrickAtlas); SurfaceCaches, those whose surface cache atlases are
+        // (Scene::GetSurfaceCache, IsConfigured). One world seen by several viewports or played in PIE is one
+        // scene: one of each, however many views read it.
+        uint32_t Scenes             = 0;
+        uint32_t DistanceFieldPools = 0;
+        uint32_t SurfaceCaches      = 0;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -342,6 +350,9 @@ namespace Desert::Editor::Control
             views["ismInstancesDrawn"] = Num( snapshot.IsmInstancesDrawn );
             views["geometryPoolBinds"]     = Num( snapshot.GeometryPoolBinds );
             views["geometryPoolMeshBinds"] = Num( snapshot.GeometryPoolMeshBinds );
+            views["scenes"]                = Num( snapshot.Scenes );
+            views["distanceFieldPools"]    = Num( snapshot.DistanceFieldPools );
+            views["surfaceCaches"]         = Num( snapshot.SurfaceCaches );
             root["views"]         = Common::Json::Value( views );
         }
 

@@ -545,7 +545,7 @@ namespace Desert::Graphic
         if ( !m_FaceField )
             m_FaceField = std::make_unique<DistanceField::GlobalDistanceField>( m_Scene ); // the scene's rows
         if ( !m_FaceSurfaceCache )
-            m_FaceSurfaceCache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>();
+            m_FaceSurfaceCache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>( m_Scene ); // the scene's rows
         if ( !m_Faces[face] )
         {
             m_Faces[face] = std::make_unique<FaceView>();

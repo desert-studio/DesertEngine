@@ -650,8 +650,8 @@ namespace Desert::Graphic
     {
         const ActiveViewScope          viewScope( m_ViewResources );
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
-        // A lent surface cache / distance field is its lender's (a reflection capture's), released with it.
-        m_OwnSurfaceCache.reset();
+        // A lent surface cache / distance field is its lender's (a reflection capture's), released with it; the
+        // view's surface cache is its scene's (Scene::GetSurfaceCache), released with the scene's world.
         m_RadianceCache.reset();
         m_ScreenProbeGather.reset();
         m_IrradianceFieldGather.reset();
@@ -909,6 +909,8 @@ namespace Desert::Graphic
         m_FrameLocalShadows = &scene.GetLocalShadows();
         // The scene's mesh distance fields, which this view's global distance field composites from.
         m_FrameDistanceFields = &scene.GetDistanceFields();
+        // The scene's surface cache, which every view of the scene reads and the frame's first view updates.
+        m_FrameSurfaceCache = &scene.GetSurfaceCache();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -2369,6 +2371,7 @@ namespace Desert::Graphic
         m_FrameGpuScene           = nullptr;
         m_FrameLocalShadows       = nullptr;
         m_FrameDistanceFields     = nullptr;
+        m_FrameSurfaceCache       = nullptr;
 
         return BOOLSUCCESS;
     }

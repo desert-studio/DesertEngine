@@ -42,9 +42,20 @@ namespace Desert::Graphic
 // captured card's pages out of it into the atlas layers.
 namespace Desert::Graphic::SurfaceCache
 {
+    // ONE PER SCENE (UE: FScene's FLumenSceneData - the Lumen scene is the scene's, a view owns no cards):
+    // Core::Scene::GetSurfaceCache, read by every view of that scene (the editor viewports, PIE, which plays in
+    // the edited Scene). A reflection capture's face views stand at one capture point and keep one of their own
+    // (ReflectionCaptureRenderer::m_FaceSurfaceCache, SceneRenderer::ShareSurfaceCache).
     class SurfaceCacheRenderer
     {
     public:
+        // @p owner: the ledger instance whose rows the cache's device objects are - the scene's
+        // (Scene::GetLedgerInstance). Every call that creates one (Initialize, Configure, the programs and view
+        // pipelines) opens its scope, whichever view asked first.
+        explicit SurfaceCacheRenderer( ResourceOwnerInstance owner );
+        SurfaceCacheRenderer( const SurfaceCacheRenderer& )            = delete;
+        SurfaceCacheRenderer& operator=( const SurfaceCacheRenderer& ) = delete;
+
         // UE r.LumenScene.SurfaceCache.CardCaptureAtlas: the frame's captures share one atlas of this side; a
         // card that does not fit waits for the next frame (SurfaceCacheScene::Update packs it).
         static constexpr uint32_t kCaptureAtlasSize = 1024;
@@ -126,8 +137,21 @@ namespace Desert::Graphic::SurfaceCache
         {
             return m_CaptureBuffer != nullptr;
         }
-        // The machine's budget; a new atlas side recreates the layers and drops every capture.
+        // The machine's budget; a new atlas side recreates the layers and drops every capture. Asked by the view
+        // that updates the cache this frame (UpdatedIn false): the views of one scene read one atlas, so a view of
+        // another quality reads the budget the frame's first view set rather than re-cutting it per view.
         [[nodiscard]] Common::BoolResultStr Configure( const SurfaceCacheBudget& budget );
+        // Whether UpdateScene already ran in @p engineFrame: a later view of the frame reads that update.
+        [[nodiscard]] bool UpdatedIn( uint64_t engineFrame ) const
+        {
+            return m_FrameUpdate && m_FrameUpdate->Frame == engineFrame;
+        }
+        // Whether the atlases exist (Configure ran with a budget): the cache's resident instance, counted by the
+        // editor state ("views.surfaceCaches").
+        [[nodiscard]] bool IsConfigured() const
+        {
+            return m_AtlasSize != 0;
+        }
 
         // What a view's frame of the cache works from: the scene's records (SurfaceCacheScene::Update) and whether
         // this call updated the cache - true: the view records the frame's capture, copy, direct and indirect
@@ -140,10 +164,10 @@ namespace Desert::Graphic::SurfaceCache
         };
         // Brings the scene up to @p instances at @p camera, once per @p engineFrame (UPDATED AT MOST ONCE PER
         // ENGINE FRAME, as GlobalDistanceField::AddUpdatePasses): the first call of a frame updates the scene and
-        // its caller records the passes that write the atlases; a later one in the same frame for the same camera
-        // and instances hands back the same records with Updated false; a later one for another camera or
-        // instance set is refused - the scene picked one frame's captures and relit pages, and a second update in
-        // the frame would capture and relight over what the frame's earlier graph reads.
+        // its caller records the passes that write the atlases; every later one in the same frame - another view
+        // of the scene, at its own camera - hands back the frame's records with Updated false and reads the same
+        // atlases (UE: one Lumen scene update per scene render, read by all its views). A second update in the
+        // frame would capture and relight over what the frame's earlier graph reads.
         // @p lighting is the frame's directional lights: a significant change from those the lit pages were last
         // fully relit under (GlobalIllumination::InvalidatesLightingHistory) relights every visible page this
         // frame.
@@ -218,16 +242,14 @@ namespace Desert::Graphic::SurfaceCache
                       bool depth, std::string_view name );
 
         SurfaceCacheScene m_Scene;
-        // THE FRAME'S UPDATE (once per frame): the engine frame it ran in, what it was asked for (the camera and
-        // the identity of the instance list: key, placement, surface and capture readiness of each, in order),
-        // and the records a later call of that frame hands back without updating anything.
+        // THE FRAME'S UPDATE (once per frame): the engine frame it ran in and the records a later call of that
+        // frame hands back without updating anything.
         struct FrameUpdate
         {
             uint64_t   Frame = 0;
-            glm::vec3  Camera{ 0.0f };
-            uint64_t   Instances = 0;
             SceneFrame Scene;
         };
+        ResourceOwnerInstance     m_LedgerInstance; // see the constructor
         std::optional<FrameUpdate> m_FrameUpdate;
         // The directional lighting of the last full relight (empty until the first update).
         std::optional<GlobalIllumination::DirectionalLighting>                m_LitBy;
