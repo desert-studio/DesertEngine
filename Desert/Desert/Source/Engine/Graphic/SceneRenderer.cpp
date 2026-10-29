@@ -1990,6 +1990,9 @@ namespace Desert::Graphic
 
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
+            // Two-phase occlusion: this frame's HZB of that depth, then what last frame's HZB held back from the
+            // bins and this one finds visible.
+            AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
 

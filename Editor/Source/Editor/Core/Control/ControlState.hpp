@@ -86,6 +86,15 @@ namespace Desert::Editor::Control
         std::vector<std::pair<std::string, uint32_t>> CpuFallbacks;
     };
 
+    // One view the GPU-culled draw bins served (SceneRenderer::GetDrawBinPhaseCounts, read back a few frames
+    // late): the instances drawn in occlusion phase 1 (last frame's HZB) and phase 2 (this frame's HZB).
+    struct DrawBinViewSnapshot
+    {
+        std::string Name; ///< gbuffer / forward (the main view), shadowCascade<c>
+        uint32_t    Phase1 = 0;
+        uint32_t    Phase2 = 0;
+    };
+
     struct EntitySnapshot
     {
         std::string Tag;
@@ -143,6 +152,8 @@ namespace Desert::Editor::Control
         uint32_t GeometryPoolMeshBinds = 0;
         // Per GPU-driven mesh pass, in GpuDriven::MeshPass order.
         std::vector<MeshPassDrawSnapshot> MeshPasses;
+        // Per view the draw bins served this frame, in cull order (main view first).
+        std::vector<DrawBinViewSnapshot> DrawBinViews;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -345,6 +356,15 @@ namespace Desert::Editor::Control
                 meshPasses[pass.Name] = Common::Json::Value( item );
             }
             views["meshPasses"] = Common::Json::Value( meshPasses );
+            Common::Json::Object drawBinViews;
+            for ( const DrawBinViewSnapshot& view : snapshot.DrawBinViews )
+            {
+                Common::Json::Object item;
+                item["phase1"]          = Num( view.Phase1 );
+                item["phase2"]          = Num( view.Phase2 );
+                drawBinViews[view.Name] = Common::Json::Value( item );
+            }
+            views["drawBinViews"] = Common::Json::Value( drawBinViews );
             root["views"]         = Common::Json::Value( views );
         }
 

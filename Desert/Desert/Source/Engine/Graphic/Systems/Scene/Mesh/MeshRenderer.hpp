@@ -583,6 +583,12 @@ namespace Desert::Graphic::System
         // made.
         void SetFrameBinned( GpuDriven::MeshPass pass, uint32_t viewKey, const GpuDriven::CulledDraws& culled,
                              const GpuDriven::DrawCommandBuffers& upload, const GpuDriven::GpuSceneBuffers& scene );
+        // TWO-PHASE OCCLUSION, phase 2 (UE FInstanceCullingContext's post pass): the draws of the instances phase 1
+        // held back by last frame's HZB that this frame's HZB finds visible, issued by a second slice of (pass,
+        // view) with the same carriers and tables as its phase-1 issue (SetFrameBinned) and @p culled's own
+        // indirect args. False (nothing to draw) when (pass, view) has no phase-1 issue this frame: its CPU lists
+        // then draw every record, phase 2 has nothing it held back.
+        bool SetFramePostOcclusion( GpuDriven::MeshPass pass, uint32_t viewKey, const GpuDriven::CulledDraws& culled );
 
         // The GpuScene is THIS FRAME's: SyncGpuScene binds it, SceneRenderer::EndScene forgets it. A capture that
         // runs before the sync (the terrain's, SceneRenderer::OnUpdate) then finds none instead of the previous
@@ -863,6 +869,11 @@ namespace Desert::Graphic::System
         // SurfaceWeather.glslh). The exec records that list.
         void DeclareGBufferDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context ) const;
+        // SETUP of "Deferred: GBuffer Post-Occlusion" (SceneRenderer::AddFrameDrawBinsPostOcclusion, after this
+        // frame's HZB): only the main view's phase-2 bins (SetFramePostOcclusion), LOADing the G-buffer the
+        // phase-1 draws wrote. The exec records that list.
+        void DeclareGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
+        [[nodiscard]] Common::BoolResultStr RenderGBufferPostOcclusionManual( const RDG::PassContext& context ) const;
         // SETUP of "Deferred: Forward Depth/Normal" (after the terrain's G-buffer, before the depth resolve and
         // every screen pass): the generic queue's OPAQUE draws through their template's (Static x DepthNormal)
         // program into G-buffer depth + normal, so the ray-traced sun trace and the screen passes see the meshes
@@ -1286,6 +1297,7 @@ namespace Desert::Graphic::System
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
         MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer": static, instanced, skinned
+        MeshRendererDetail::MeshDrawList m_GBufferPostDraws; // "Deferred: GBuffer Post-Occlusion": phase-2 bins
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
         MeshRendererDetail::MeshDrawList m_DepthNormalDraws; // "Deferred: Forward Depth/Normal"
         // "MeshShadowCascade<c>": the cascade's casters, built by its Declare (BuildShadowCascadeDraws).
@@ -1856,6 +1868,8 @@ namespace Desert::Graphic::System
             GpuDriven::MeshPass                       Pass    = GpuDriven::MeshPass::GBuffer;
             uint32_t                                  ViewKey = kBinnedMainView;
             MeshRendererDetail::BinnedIssue           Issue;
+            // Phase 2's issue (SetFramePostOcclusion): Issue with the post-occlusion cull's draws.
+            std::optional<MeshRendererDetail::BinnedIssue> PostOcclusion;
         };
         std::vector<FrameBinnedView> m_FrameBinned;
         // The carriers of the scene blocks a binned group draws with: one material per (cell shader, view), its

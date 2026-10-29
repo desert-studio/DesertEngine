@@ -1365,6 +1365,12 @@ namespace Desert::Editor
                 }
                 snapshot.MeshPasses.push_back( std::move( item ) );
             }
+            snapshot.DrawBinViews.clear();
+            if ( m_Workspace.PrimaryRenderer() != nullptr )
+                for ( const Graphic::GpuDriven::CullPhaseViewCount& view :
+                      m_Workspace.PrimaryRenderer()->GetDrawBinPhaseCounts() )
+                    snapshot.DrawBinViews.push_back(
+                         DrawBinViewSnapshot{ .Name = view.Name, .Phase1 = view.Phase1, .Phase2 = view.Phase2 } );
         }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();

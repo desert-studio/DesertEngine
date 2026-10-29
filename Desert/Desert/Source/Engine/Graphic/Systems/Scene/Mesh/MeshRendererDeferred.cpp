@@ -38,6 +38,22 @@ namespace Desert::Graphic::System
         return m_GBufferDraws.Record( context );
     }
 
+    void MeshRenderer::DeclareGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_GBufferPostDraws.Clear();
+        const FrameBinnedView* const binned = FrameBinned( GpuDriven::MeshPass::GBuffer, kBinnedMainView );
+        if ( binned == nullptr || !binned->PostOcclusion )
+            return;
+        // Only bins: every CPU record of the view was drawn (or dropped for its phase-1 bin) by "Deferred: GBuffer".
+        m_GBufferPostDraws.SetBinned( *binned->PostOcclusion );
+        m_GBufferPostDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGBufferPostOcclusionManual( const RDG::PassContext& context ) const
+    {
+        return m_GBufferPostDraws.Record( context );
+    }
+
     void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const bool rayTracedSun,
                                                        const bool localShadowMasks )
     {

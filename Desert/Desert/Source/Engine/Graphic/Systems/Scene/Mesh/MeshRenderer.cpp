@@ -146,6 +146,7 @@ namespace Desert::Graphic::System
         // and the deferred path's forward-shaded generic pass), the sun's cascades (cached static and movable)
         // and the virtual shadow map's levels.
         m_GBufferDraws.CountAs( GpuDriven::MeshPass::GBuffer );
+        m_GBufferPostDraws.CountAs( GpuDriven::MeshPass::GBuffer );
         m_DepthNormalDraws.CountAs( GpuDriven::MeshPass::DepthPrepass );
         m_ForwardDraws.CountAs( GpuDriven::MeshPass::Forward );
         m_GenericDraws.CountAs( GpuDriven::MeshPass::Forward );
@@ -913,6 +914,21 @@ namespace Desert::Graphic::System
             issue.GroupCarriers[group] = carrier.Material->GetMaterialExecutor();
         }
         m_FrameBinned.push_back( FrameBinnedView{ pass, viewKey, std::move( issue ) } );
+    }
+
+    bool MeshRenderer::SetFramePostOcclusion( const GpuDriven::MeshPass pass, const uint32_t viewKey,
+                                              const GpuDriven::CulledDraws& culled )
+    {
+        for ( FrameBinnedView& view : m_FrameBinned )
+        {
+            if ( view.Pass != pass || view.ViewKey != viewKey )
+                continue;
+            MeshRendererDetail::BinnedIssue issue = view.Issue;
+            issue.Culled                          = culled;
+            view.PostOcclusion                    = std::move( issue );
+            return true;
+        }
+        return false;
     }
 
     const MeshRenderer::FrameBinnedView* MeshRenderer::FrameBinned( const GpuDriven::MeshPass pass,

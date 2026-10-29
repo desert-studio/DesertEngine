@@ -2,7 +2,9 @@
 // phases over every view the CPU path culls this frame - the main view (two-phase FURTHEST-HZB occlusion, UE
 // FInstanceCullingContext + HZB.cpp), the sun's cascades and the VSM clipmap levels (the "VSM: Cull Casters"
 // flavour of the same pass) - while the drawing stays on the CPU path. The next frame's phase 1 reads the furthest
-// HZB this node extracts into m_CullHzbHistory.
+// HZB this node extracts into m_CullHzbHistory (or the draw bins' phase 2 extracted, when they ran).
+// The DRAW BINS (AddFrameDrawBins, AddFrameDrawBinsPostOcclusion): the same cull feeding the passes' indirect
+// draws, the deferred main view in two phases around this frame's furthest HZB.
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
@@ -48,8 +50,12 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
     {
         m_FrameGpuSceneTables.reset();
+        m_FrameDrawBins.reset();
+        m_FramePrevHzb     = {};
+        m_FrameFurthestHzb = {};
         const auto refuse = [this]( std::string message )
         {
+            m_DrawBinPhaseCounts.Forget();
             if ( message != m_DrawBinsLastError )
                 LOG_ERROR( "[SceneRenderer] {}: GPUDriven: DrawBins: {}; every pass draws on the CPU path",
                            m_ViewResources.GetName(), message );
@@ -60,7 +66,10 @@ namespace Desert::Graphic
         const GpuDriven::GpuScene* gpuScene = meshes != nullptr ? meshes->GetGpuScene() : nullptr;
         const Core::Camera*        camera   = GetMainCamera();
         if ( meshes == nullptr || gpuScene == nullptr || camera == nullptr || meshes->GetDrawCommandCache() == nullptr )
+        {
+            m_DrawBinPhaseCounts.Forget();
             return; // nothing to draw from bins: the CPU lists draw everything
+        }
         const Common::ResultStr<GpuDriven::DrawCommandBuffers> upload = meshes->BeginFrameBins( graph );
         if ( !upload )
         {
@@ -79,14 +88,45 @@ namespace Desert::Graphic
         const float             lensScale = Graphic::DrawDistanceScale( lod );
         const uint32_t          lodFlag   = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
 
-        // Frustum only, no HZB: phase 1 against last frame's HZB without the phase-2 redraw would leave holes
-        // where objects are disoccluded (REMAINDER: the two-phase G-buffer split).
-        std::vector<GpuDriven::CullViewInput> views;
-        std::vector<uint32_t>                 viewKeys;
-        const GpuDriven::MeshPass             mainPass = meshes->MainViewPass();
-        views.push_back( MakeCullView( mainPass, frame.ViewProjection, frame.PrevViewProjection, camera->GetFrustum(),
-                                       lod, lensScale, lodFlag ) );
-        viewKeys.push_back( System::MeshRenderer::kBinnedMainView );
+        // The main view's phase 1 tests last frame's furthest HZB (UE two-phase occlusion) only when phase 2 can
+        // redraw what it holds back: the deferred G-buffer (AddFrameDrawBinsPostOcclusion splits it around this
+        // frame's HZB), an HZB pipeline, a history of this depth's size and a previous frame PrevViewProjection
+        // projects into. Otherwise frustum only, and phase 2 is empty.
+        FrameDrawBins             bins;
+        const GpuDriven::MeshPass mainPass = meshes->MainViewPass();
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* hzbRenderer = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
+        uint32_t    hzbWidth = 0, hzbHeight = 0;
+        if ( mainPass == GpuDriven::MeshPass::GBuffer && m_GBuffer && hzbRenderer != nullptr &&
+             hzbRenderer->CanBuild() )
+        {
+            if ( const auto depthDesc = graph.GetTextureDesc( textures.Depth( m_GBuffer, "GBuffer" ) ) )
+            {
+                hzbWidth  = depthDesc.GetValue().Size.Width;
+                hzbHeight = depthDesc.GetValue().Size.Height;
+            }
+        }
+        bins.MainTestsHzb = hzbWidth != 0u && m_CullHzbHistory.Physical != nullptr &&
+                            m_CullHzbHistory.Desc.Size.Width == hzbWidth &&
+                            m_CullHzbHistory.Desc.Size.Height == hzbHeight && frame.HistoryValid();
+        {
+            GpuDriven::CullViewInput mainInput =
+                 MakeCullView( mainPass, frame.ViewProjection, frame.PrevViewProjection, camera->GetFrustum(), lod,
+                               lensScale, lodFlag | ( bins.MainTestsHzb ? GpuDriven::CullViewFlags::kTestHzb : 0u ) );
+            if ( bins.MainTestsHzb )
+            {
+                m_FramePrevHzb           = graph.RegisterExternal( m_CullHzbHistory, "GPUDriven.PrevHzb" );
+                mainInput.PrevHzb        = m_FramePrevHzb;
+                mainInput.View.HzbExtent = glm::uvec4(
+                     hzbWidth, hzbHeight, static_cast<uint32_t>( std::bit_width( std::max( hzbWidth, hzbHeight ) ) ),
+                     0u );
+            }
+            bins.Views.push_back( mainInput );
+            bins.ViewKeys.push_back( System::MeshRenderer::kBinnedMainView );
+            bins.ViewNames.emplace_back( mainPass == GpuDriven::MeshPass::GBuffer ? "gbuffer" : "forward" );
+        }
+        std::vector<GpuDriven::CullViewInput>& views    = bins.Views;
+        std::vector<uint32_t>&                 viewKeys = bins.ViewKeys;
         if ( m_FrameCascades )
         {
             const uint32_t cascades = meshes->DirectionalShadows()[SceneResources::kDirectionalShadowSun].Count;
@@ -101,6 +141,7 @@ namespace Desert::Graphic
                                                GpuDriven::CullViewFlags::kShadowCaster |
                                                     GpuDriven::CullViewFlags::kOrthographic | lodFlag ) );
                 viewKeys.push_back( view );
+                bins.ViewNames.push_back( std::format( "shadowCascade{}", c ) );
             }
         }
 
@@ -114,7 +155,69 @@ namespace Desert::Graphic
         for ( size_t v = 0; v < views.size(); ++v )
             meshes->SetFrameBinned( static_cast<GpuDriven::MeshPass>( views[v].View.Pass ), viewKeys[v],
                                     culled.GetValue().Draws[v], upload.GetValue(), scene.GetValue() );
+        bins.Carry      = culled.GetValue().Carry;
+        bins.Upload     = upload.GetValue();
+        bins.Scene      = scene.GetValue();
+        // A forward main view has no phase 2 (AddFrameDrawBinsPostOcclusion runs on the deferred path only): its
+        // counts are handed here.
+        if ( mainPass != GpuDriven::MeshPass::GBuffer )
+            m_DrawBinPhaseCounts.AddFrame( graph, frame.FrameIndex, bins.ViewNames, bins.Carry );
+        m_FrameDrawBins = std::move( bins );
         m_DrawBinsLastError.clear();
+    }
+
+    void SceneRenderer::AddFrameDrawBinsPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                                       System::MeshRenderer* meshRenderer, const ViewFrame& frame )
+    {
+        if ( !m_FrameDrawBins || meshRenderer == nullptr || meshRenderer->GetDrawCommandCache() == nullptr ||
+             !m_GBuffer )
+            return;
+        FrameDrawBins& bins   = *m_FrameDrawBins;
+        const auto     refuse = [this]( std::string message )
+        {
+            if ( message != m_DrawBinsLastError )
+                LOG_ERROR( "[SceneRenderer] {}: GPUDriven: DrawBins phase 2: {}", m_ViewResources.GetName(), message );
+            m_DrawBinsLastError = std::move( message );
+        };
+
+        // This frame's furthest HZB of the phase-1 depth: phase 2's occlusion input and next frame's phase 1.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto*                 hzbRenderer = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
+        const bool            gbufferView =
+             bins.Views.front().View.Pass == static_cast<uint32_t>( GpuDriven::MeshPass::GBuffer );
+        const RDG::TextureRef depth     = textures.Depth( m_GBuffer, "GBuffer" );
+        const auto            depthDesc = graph.GetTextureDesc( depth );
+        const RDG::TextureRef furthest  = hzbRenderer != nullptr && depthDesc && gbufferView
+                                               ? hzbRenderer->AddPasses( graph, depth, depthDesc.GetValue().Size.Width,
+                                                                         depthDesc.GetValue().Size.Height,
+                                                                         System::HZBKind::Furthest )
+                                               : RDG::TextureRef{};
+        if ( !furthest.IsValid() )
+        {
+            // No history either: next frame's phase 1 must not test an HZB no phase 2 follows.
+            m_CullHzbHistory = {};
+            if ( bins.MainTestsHzb )
+                refuse( "this frame's furthest HZB could not be built; the instances phase 1 held back are not "
+                        "drawn this frame" );
+        }
+        else
+        {
+            m_FrameFurthestHzb = furthest;
+            if ( bins.MainTestsHzb )
+            {
+                bins.Views.front().Hzb = furthest;
+                const Common::ResultStr<std::vector<GpuDriven::CulledDraws>> post = m_GpuCull.AddPostOcclusionPhase(
+                     graph, bins.Scene, meshRenderer->GetDrawCommandCache()->Passes(), bins.Upload.Passes, bins.Views,
+                     bins.Carry );
+                if ( !post )
+                    refuse( post.GetError() );
+                else if ( meshRenderer->SetFramePostOcclusion( GpuDriven::MeshPass::GBuffer, bins.ViewKeys.front(),
+                                                               post.GetValue().front() ) )
+                    AddFrameGBufferPostOcclusion( graph, textures, meshRenderer );
+            }
+            graph.Extract( furthest, m_CullHzbHistory, RDG::Access::SampledCompute );
+        }
+        m_DrawBinPhaseCounts.AddFrame( graph, frame.FrameIndex, bins.ViewNames, bins.Carry );
     }
 
     void SceneRenderer::AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
@@ -172,9 +275,13 @@ namespace Desert::Graphic
 
         // Main view: phase 1 against last frame's furthest HZB, only when it is this view's size and the view has
         // a previous frame (PrevViewProjection projects into it).
-        const bool prevHzbValid = m_CullHzbHistory.Physical != nullptr &&
-                                  m_CullHzbHistory.Desc.Size.Width == width &&
-                                  m_CullHzbHistory.Desc.Size.Height == height && frame.HistoryValid();
+        // The draw bins' HZBs when they built this frame's (AddFrameDrawBinsPostOcclusion): the history is
+        // registered once per graph and extracted once.
+        const bool binsHzb      = m_FrameFurthestHzb.IsValid();
+        const bool prevHzbValid = binsHzb ? m_FramePrevHzb.IsValid()
+                                          : m_CullHzbHistory.Physical != nullptr &&
+                                                 m_CullHzbHistory.Desc.Size.Width == width &&
+                                                 m_CullHzbHistory.Desc.Size.Height == height && frame.HistoryValid();
         {
             GpuDriven::CullViewInput mainInput =
                  MakeCullView( GpuDriven::MeshPass::GBuffer, frame.ViewProjection, frame.PrevViewProjection,
@@ -182,7 +289,8 @@ namespace Desert::Graphic
                                lodFlag | ( prevHzbValid ? GpuDriven::CullViewFlags::kTestHzb : 0u ) );
             if ( prevHzbValid )
             {
-                mainInput.PrevHzb        = graph.RegisterExternal( m_CullHzbHistory, "GPUDriven.PrevHzb" );
+                mainInput.PrevHzb =
+                     binsHzb ? m_FramePrevHzb : graph.RegisterExternal( m_CullHzbHistory, "GPUDriven.PrevHzb" );
                 mainInput.View.HzbExtent = glm::uvec4(
                      width, height, static_cast<uint32_t>( std::bit_width( std::max( width, height ) ) ), 0u );
             }
@@ -243,7 +351,8 @@ namespace Desert::Graphic
 
         // This frame's furthest HZB of the CPU-drawn depth: phase 2's occlusion input and next frame's phase 1.
         const RDG::TextureRef furthest =
-             hzbRenderer->AddPasses( graph, depth, width, height, System::HZBKind::Furthest );
+             binsHzb ? m_FrameFurthestHzb
+                     : hzbRenderer->AddPasses( graph, depth, width, height, System::HZBKind::Furthest );
         if ( !furthest.IsValid() )
         {
             refuse( "GPUDriven: Cull: the furthest HZB could not be built (no HZB pipeline); no phase 2" );
@@ -261,7 +370,8 @@ namespace Desert::Graphic
                 return;
             }
         }
-        graph.Extract( furthest, m_CullHzbHistory, RDG::Access::SampledCompute );
+        if ( !binsHzb )
+            graph.Extract( furthest, m_CullHzbHistory, RDG::Access::SampledCompute );
         RDG::BufferRef vsmDirtyMask{};
         if ( m_FrameVsmPages )
             vsmDirtyMask = m_FrameVsmPages->DirtyMask;
