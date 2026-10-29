@@ -20,7 +20,6 @@
 
 #include <algorithm>
 #include <bit>
-#include <chrono>
 #include <cmath>
 #include <format>
 #include <optional>
@@ -432,7 +431,7 @@ namespace Desert::Graphic::System
             gpu.Shape.reset();
             if ( variety.Blade )
                 gpu.Shape =
-                     ShaderResources::StorageBuffer::Create( "GrassBladeShape", sizeof( GrassBladeShapeGpu ), 13 );
+                     ShaderResources::StorageBuffer::Create( "GrassBladeShape", sizeof( GrassBladeShapeGpu ), 13, true );
         }
         if ( variety.Blade )
         {
@@ -514,34 +513,6 @@ namespace Desert::Graphic::System
                                 static_cast<int32_t>( std::floor( lo.y / cell ) ) - 1,
                                 static_cast<int32_t>( std::ceil( ( hi.x - lo.x ) / cell ) ) + 2,
                                 static_cast<int32_t>( std::ceil( ( hi.y - lo.y ) / cell ) ) + 2 );
-        { // GRASS-SETTLE p18 probe (temporary)
-            static std::unordered_map<uint64_t, int64_t> s_LastSecond;
-            const int64_t second = std::chrono::duration_cast<std::chrono::seconds>(
-                                        std::chrono::steady_clock::now().time_since_epoch() ).count();
-            int64_t& seen = s_LastSecond[variety.Key ^ reinterpret_cast<uintptr_t>( this )];
-            const int left = static_cast<int>( second % 1000 );
-            if ( seen != second && ( second % 2 ) == 0 && counted[buckets] != 0u && seen != -1 )
-            {
-                uint64_t    sum = 0;
-                std::string cs, ks;
-                for ( uint32_t b = 0; b < buckets; ++b )
-                {
-                    sum += counted[b];
-                    cs += std::format( "{},", counted[b] );
-                    ks += std::format( "{},", capacities[b] );
-                }
-                LOG_INFO( "[GrassProbe] gr={} key={:016x} idx={} layer={} eye=({:.0f},{:.0f},{:.0f}) lens={:.3f} "
-                          "radius={:.0f} lod={:.0f} fedBack={} written={} counted=[{}] sum={} caps=[{}] "
-                          "cells=({},{},{},{}) settle={} inst={} params={} left={}",
-                          static_cast<const void*>( this ), variety.Key, gpu.Index, variety.Layer,
-                          frame.CameraPosition.x, frame.CameraPosition.y, frame.CameraPosition.z, lens, radius,
-                          lodDistance, fedBack, counted[buckets], cs, sum, ks, gpu.Cells.x, gpu.Cells.y,
-                          gpu.Cells.z, gpu.Cells.w, gpu.SettleReads,
-                          static_cast<const void*>( gpu.Instances.get() ),
-                          static_cast<const void*>( gpu.Params.get() ), left );
-                seen = second;
-            }
-        }
         return &gpu;
     }
 

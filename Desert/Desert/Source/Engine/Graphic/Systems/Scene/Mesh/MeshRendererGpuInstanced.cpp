@@ -95,20 +95,6 @@ namespace Desert::Graphic::System
             if ( !instance )
                 instance = cell->CreateInstance( "GpuInstanced" );
             BindGpuInstancedBuffers( *cell, gpu );
-            { // GRASS-SETTLE p18 probe (temporary): every new (renderer, key, pass) -> (cell, instance, buffer)
-                static std::unordered_map<std::string, std::string> s_Seen;
-                const std::string                                   k =
-                     std::format( "{}/{}/{}", static_cast<const void*>( this ), gpu.Key, MeshPassName( pass ) );
-                const std::string v = std::format(
-                     "cell={} inst={} buf={} shape={} parent={} view={}", static_cast<const void*>( cell ),
-                     static_cast<const void*>( instance.get() ), static_cast<const void*>( gpu.Instances.get() ),
-                     static_cast<const void*>( gpu.BladeShape.get() ), static_cast<const void*>( parent ), view );
-                if ( s_Seen[k] != v )
-                {
-                    LOG_INFO( "[GrassProbe] MR {} -> {}", k, v );
-                    s_Seen[k] = v;
-                }
-            }
             // The section's row is the scene material table's (SyncGpuScene), read by the cell of its template.
             const std::optional<uint32_t> materialRow = FindMaterialRow( parent, gpu.Material.get() );
             if ( !materialRow || !LendMaterialTable( *cell ) )
