@@ -361,9 +361,21 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 	if (contact <= 0.0)
 		return 0.0;
 	const vec3 origin = p.Position + p.N * (dot(p.N, dir) >= 0.0 ? bias : -bias);
+#if !defined(MEGALIGHTS_VISIBILITY_RAY_QUERY) && !defined(MEGALIGHTS_VISIBILITY_SCREEN)
+#error "MegaLights.glslh: MEGALIGHTS_TRACE needs a MEGALIGHTS_VISIBILITY_* source"
+#endif
+#if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY) && defined(MEGALIGHTS_VISIBILITY_SCREEN)
+	// A mixed program (a ray-query frame with Screen / VirtualMaps lamps): each light tests its own source, the
+	// payload's ShadowVisibility (Common::Scalability::StochasticVisibility: 0 = RayQuery), resolved per light by
+	// Graphic::ResolveLightVisibility - the source the state reports for it.
+	const int points = int(Counts.x);
+	const int source = light < points ? pointLights[light].shadowVisibility : spotLights[light - points].shadowVisibility;
+	if (source == 0)
+#endif
 #if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY)
 	return contact * RayQueryVisibility(origin, dir, max(reach - 2.0 * bias, 0.0), RAY_TRACING_MASK_SHADOW_CASTER);
-#elif defined(MEGALIGHTS_VISIBILITY_SCREEN)
+#endif
+#if defined(MEGALIGHTS_VISIBILITY_SCREEN)
 	if (MegaLightsScreenTraceOccluded(origin, dir, max(reach - 2.0 * bias, 0.0)))
 		return 0.0;
 #if defined(MEGALIGHTS_VISIBILITY_VSM)
@@ -377,8 +389,6 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 		                                       max(reach - 2.0 * bias, 0.0), MegaLightsRandom(random));
 #endif
 	return contact;
-#else
-#error "MegaLights.glslh: MEGALIGHTS_TRACE needs a MEGALIGHTS_VISIBILITY_* source"
 #endif
 }
 #endif

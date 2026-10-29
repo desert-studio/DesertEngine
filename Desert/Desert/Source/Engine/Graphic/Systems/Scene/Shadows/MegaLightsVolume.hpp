@@ -70,10 +70,11 @@ namespace Desert::Graphic::System
     // This frame's inputs, graph refs of this view's graph.
     struct MegaLightsVolumeInputs
     {
-        // The frame's visibility source (Common::Scalability::StochasticVisibility, one program each) and what it
-        // reads: the TLAS and its records (RayQuery), the virtual shadow map's reader tables with the local lights'
-        // pages (VirtualMapsAndScreen); Screen reads nothing (the froxels are unshadowed).
-        Common::Scalability::StochasticVisibility Visibility = Common::Scalability::StochasticVisibility::RayQuery;
+        // The visibility sources the frame's casting lights resolved to (never empty; each froxel sample tests its
+        // light's own, the payload's ShadowVisibility) and what they read: the TLAS and its records (RayQuery),
+        // the virtual shadow map's reader tables with the local lights' pages (VirtualMaps); a Screen light reads
+        // nothing (a froxel is not on the screen: unshadowed).
+        Common::Scalability::StochasticSources Sources;
         RDG::BufferRef                      Tlas;
         RayTracing::RayTracingMetadataFrame Metadata;
         VirtualShadowMapReadRefs            Vsm;
@@ -129,25 +130,29 @@ namespace Desert::Graphic::System
     class MegaLightsVolumeRenderer
     {
     public:
-        // Declares "MegaLights: Volume" with the program of @p in.Visibility (built on its first frame, EnsureProgram)
-        // and returns the volume ON. An error, never a volume lit without its source, when the frame lacks what the
-        // source reads (the TLAS, the virtual shadow map) or the light grid.
+        // Declares "MegaLights: Volume" with the program of @p in.Sources (ProgramOf, built on its first frame,
+        // EnsureProgram) and returns the volume ON. An error, never a volume lit without its source, when the
+        // frame lacks what a source reads (the TLAS, the virtual shadow map) or the light grid.
         [[nodiscard]] Common::ResultStr<MegaLightsVolumeRefs> AddPasses( RDG::Builder&                  graph,
                                                                          const MegaLightsVolumeInputs&  in,
                                                                          const MegaLightsVolumeQuality& quality,
                                                                          const ViewFrame&               frame )
         {
-            using Common::Scalability::StochasticVisibility;
-            if ( const Common::BoolResultStr built = EnsureProgram( in.Visibility ); !built )
+            if ( in.Sources.Empty() )
+                return Common::MakeError<MegaLightsVolumeRefs>(
+                     "MegaLights: Volume: the frame names no visibility source" );
+            const std::size_t programIndex = ProgramOf( in.Sources );
+            if ( const Common::BoolResultStr built = EnsureProgram( programIndex ); !built )
                 return Common::MakeError<MegaLightsVolumeRefs>( built.GetError() );
-            const Program& program = m_Programs[static_cast<std::size_t>( in.Visibility )];
-            if ( in.Visibility == StochasticVisibility::RayQuery &&
+            const Program& program = m_Programs[programIndex];
+            if ( in.Sources.RayQuery &&
                  ( !in.Tlas.IsValid() || !in.Metadata.Geometry.IsValid() || !in.Metadata.Materials.IsValid() ) )
                 return Common::MakeError<MegaLightsVolumeRefs>(
-                     "MegaLights: Volume: the visibility is rayquery but the frame has no TLAS" );
-            if ( in.Visibility == StochasticVisibility::VirtualMapsAndScreen && !in.Vsm.IsValid() )
+                     "MegaLights: Volume: a light's visibility is rayquery but the frame has no TLAS" );
+            if ( in.Sources.VirtualMaps && !in.Vsm.IsValid() )
                 return Common::MakeError<MegaLightsVolumeRefs>(
-                     "MegaLights: Volume: the visibility is vsm+screen but the frame drew no virtual shadow map" );
+                     "MegaLights: Volume: a light's visibility is vsm+screen but the frame drew no virtual shadow "
+                     "map" );
             if ( !in.Lights.GridParams.IsValid() || !in.Lights.GridCells.IsValid() || !in.Black3D.IsValid() )
                 return Common::MakeError<MegaLightsVolumeRefs>( std::format(
                      "MegaLights: Volume: the frame has no {}",
@@ -223,21 +228,14 @@ namespace Desert::Graphic::System
                                     RDG::Access::StorageRead )
                           .Storage( kLightGridParamsBlock, in.Lights.GridParams, RDG::Access::StorageRead )
                           .Storage( kLightGridCellsBlock, in.Lights.GridCells, RDG::Access::StorageRead );
-                     switch ( in.Visibility )
-                     {
-                     case StochasticVisibility::RayQuery:
+                     if ( in.Sources.RayQuery )
                          block.AccelerationStructure( MegaLightsVolumeShaderParameters::SceneTlas, in.Tlas )
                               .Storage( MegaLightsVolumeShaderParameters::RayTracingGeometryRecords,
                                         in.Metadata.Geometry, RDG::Access::StorageRead )
                               .Storage( MegaLightsVolumeShaderParameters::RayTracingMaterialRecords,
                                         in.Metadata.Materials, RDG::Access::StorageRead );
-                         break;
-                     case StochasticVisibility::VirtualMapsAndScreen:
+                     if ( in.Sources.VirtualMaps )
                          BindVirtualShadowMapReads( block, in.Vsm, layout );
-                         break;
-                     case StochasticVisibility::Screen:
-                         break;
-                     }
                      for ( std::size_t channel = 0; channel < 3; ++channel )
                          block.Texture( kHistoryInputs[channel], history[channel], RDG::Access::SampledCompute,
                                         RDG::SubresourceRange::All() )
@@ -259,10 +257,26 @@ namespace Desert::Graphic::System
         }
 
     private:
-        // The program per visibility source (Common::Scalability::StochasticVisibility order).
-        static constexpr std::array<std::string_view, 3> kShaderNames = { "MegaLightsVolume", "MegaLightsVolumeVirtual",
-                                                                          "MegaLightsVolumeScreen" };
-        static_assert( kShaderNames.size() == Common::Scalability::kStochasticVisibilityNames.size() );
+        // The programs, one per set of visibility sources (ProgramOf); each branches per light on its payload's
+        // ShadowVisibility (Common/MegaLightsVolumeWrite.glslh VolumeVisibility). A Screen light needs no program
+        // of its own: a froxel is not on the screen, it is unshadowed in every program.
+        static constexpr std::size_t                                 kProgramRayQuery               = 0;
+        static constexpr std::size_t                                 kProgramVirtualMaps            = 1;
+        static constexpr std::size_t                                 kProgramScreen                 = 2;
+        static constexpr std::size_t                                 kProgramRayQueryAndVirtualMaps = 3;
+        static constexpr std::size_t                                 kProgramCount                  = 4;
+        static constexpr std::array<std::string_view, kProgramCount> kShaderNames                   = {
+             "MegaLightsVolume", "MegaLightsVolumeVirtual", "MegaLightsVolumeScreen",
+             "MegaLightsVolumeRayQueryVirtual" };
+
+        // The one program that holds every source of @p sources (not empty).
+        [[nodiscard]] static constexpr std::size_t
+        ProgramOf( const Common::Scalability::StochasticSources& sources )
+        {
+            if ( sources.RayQuery )
+                return sources.VirtualMaps ? kProgramRayQueryAndVirtualMaps : kProgramRayQuery;
+            return sources.VirtualMaps ? kProgramVirtualMaps : kProgramScreen;
+        }
         static constexpr std::string_view                kPassName          = "MegaLights: Volume";
         static constexpr std::array<RDG::TextureParameter, 3> kHistoryInputs     = {
              RDG::TextureParameter( "HistoryRTexture" ), RDG::TextureParameter( "HistoryGTexture" ),
@@ -321,11 +335,10 @@ namespace Desert::Graphic::System
             mutable ShaderBindingLayoutCache Layout;
         };
 
-        // The program of @p visibility, built once: a device without ray query never builds the ray-query one. A
-        // failure is latched (no later frame repairs a shader).
-        [[nodiscard]] Common::BoolResultStr EnsureProgram( const Common::Scalability::StochasticVisibility visibility )
+        // The program @p source (ProgramOf), built once: a device without ray query never builds a ray-query one.
+        // A failure is latched (no later frame repairs a shader).
+        [[nodiscard]] Common::BoolResultStr EnsureProgram( const std::size_t source )
         {
-            const auto source  = static_cast<std::size_t>( visibility );
             Program&   program = m_Programs[source];
             if ( program.Pipeline )
                 return BOOLSUCCESS;
@@ -349,8 +362,8 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        std::array<Program, 3>     m_Programs; // per StochasticVisibility, built on first use (EnsureProgram)
-        std::array<std::string, 3> m_ProgramErrors;
+        std::array<Program, kProgramCount>     m_Programs; // per ProgramOf, built on first use (EnsureProgram)
+        std::array<std::string, kProgramCount> m_ProgramErrors;
         std::array<HistorySlot, 2>       m_Slots;
         uint32_t                         m_Parity = 0;
     };

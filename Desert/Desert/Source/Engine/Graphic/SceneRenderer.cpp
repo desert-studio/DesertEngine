@@ -2478,14 +2478,22 @@ namespace Desert::Graphic
                !PathTraced( m_RenderMethods );
     }
 
-    Common::Scalability::StochasticVisibility SceneRenderer::StochasticTraceVisibility() const
+    Common::Scalability::StochasticSources SceneRenderer::StochasticTraceSources() const
     {
+        using Common::Scalability::StochasticSources;
         using Common::Scalability::StochasticVisibility;
-        const StochasticVisibility frame = m_RenderMethods.Visibility;
-        if ( frame == StochasticVisibility::VirtualMapsAndScreen &&
-             m_StochasticSourceLights[static_cast<std::size_t>( StochasticVisibility::VirtualMapsAndScreen )] == 0 )
-            return StochasticVisibility::Screen;
-        return frame;
+        const auto lights = [&]( const StochasticVisibility source )
+        { return m_StochasticSourceLights[static_cast<std::size_t>( source )] > 0; };
+        const StochasticSources sources{ .RayQuery    = lights( StochasticVisibility::RayQuery ),
+                                         .VirtualMaps = lights( StochasticVisibility::VirtualMapsAndScreen ),
+                                         .Screen      = lights( StochasticVisibility::Screen ) };
+        if ( !sources.Empty() )
+            return sources;
+        // No casting light in the view: nothing is traced; the frame's source names the program, and a vsm+screen
+        // frame drew no local page, so the screen one.
+        return StochasticSources::Of( m_RenderMethods.Visibility == StochasticVisibility::VirtualMapsAndScreen
+                                           ? StochasticVisibility::Screen
+                                           : m_RenderMethods.Visibility );
     }
 
     bool SceneRenderer::LocalLightsReadVirtualPages() const
@@ -2678,38 +2686,36 @@ namespace Desert::Graphic
         // The frame's visibility source (LowerShadowsForFrame): the ray query only with this frame's TLAS built;
         // without rays the closest HZB (the screen traces' when they built one this frame) and, vsm+screen, the
         // virtual map AddFrameVirtualShadows drew this frame.
-        // A vsm+screen frame none of whose lights resolved to vsm+screen (each asked Screen) drew no local page:
-        // its trace is the screen program (StochasticTraceVisibility).
-        const StochasticVisibility visibility = StochasticTraceVisibility();
-        const RDG::TextureRef      hzb        = visibility == StochasticVisibility::RayQuery ? RDG::TextureRef{}
-                                                : screenHzb.IsValid()                       ? screenHzb
-                                                                                            : AddFrameHZB( graph, textures );
+        // Per light its own source (payload ShadowVisibility): the program holds every source present
+        // (StochasticTraceSources), the HZB built whenever one of them traces the screen (a ray-query frame with a
+        // Screen or VirtualMaps lamp too).
+        const Common::Scalability::StochasticSources sources = StochasticTraceSources();
+        const RDG::TextureRef                        hzb     = !sources.ScreenTrace() ? RDG::TextureRef{}
+                                                               : screenHzb.IsValid()  ? screenHzb
+                                                                                     : AddFrameHZB( graph, textures );
         const RayTracing::RayTracingSceneFrame& scene = m_RayTracingScene.GetFrame();
         const FrameGraphRefs                    refs  = textures.GraphRefs();
-        const System::MegaLightsInputs          inputs{ .Depth       = textures.Depth( m_GBuffer, "GBuffer" ),
-                                                        .GBufferA    = gbuffer[0],
-                                                        .GBufferB    = gbuffer[1],
-                                                        .ShadingWord = gbuffer[2],
-                                                        .Velocity    = textures.Transients.Velocity,
-                                                        .Black       = refs.System.Black,
-                                                        .Visibility  = visibility,
-                                                        .Tlas        = visibility == StochasticVisibility::RayQuery
-                                                                           ? scene.Tlas
-                                                                           : RDG::BufferRef{},
-                                                        .Metadata    = visibility == StochasticVisibility::RayQuery
-                                                                           ? scene.Metadata
-                                                                           : RayTracing::RayTracingMetadataFrame{},
-                                                        .Hzb         = hzb,
-                                                        .Vsm         = textures.Transients.Vsm,
-                                                        .Lights      = refs.Transients.Lights,
-                                                        .PointLights = pointCount,
-                                                        .SpotLights  = spotCount,
-                                                        .Width       = frame.Split.Render.Width,
-                                                        .Height      = frame.Split.Render.Height,
-                                               // The G-buffer depth is the opaque scene: the march has
-                                               // something to hit (as the composite's contact shadows).
-                                                        .ContactShadowView = SceneResources::ContactShadowViewVector(
-                                                    GetContactShadowSettings( frame, true ) ) };
+        const System::MegaLightsInputs               inputs{
+                           .Depth       = textures.Depth( m_GBuffer, "GBuffer" ),
+                           .GBufferA    = gbuffer[0],
+                           .GBufferB    = gbuffer[1],
+                           .ShadingWord = gbuffer[2],
+                           .Velocity    = textures.Transients.Velocity,
+                           .Black       = refs.System.Black,
+                           .Sources     = sources,
+                           .Tlas        = sources.RayQuery ? scene.Tlas : RDG::BufferRef{},
+                           .Metadata = sources.RayQuery ? scene.Metadata : RayTracing::RayTracingMetadataFrame{},
+                           .Hzb      = hzb,
+                           .Vsm      = textures.Transients.Vsm,
+                           .Lights   = refs.Transients.Lights,
+                           .PointLights = pointCount,
+                           .SpotLights  = spotCount,
+                           .Width       = frame.Split.Render.Width,
+                           .Height      = frame.Split.Render.Height,
+             // The G-buffer depth is the opaque scene: the march has
+             // something to hit (as the composite's contact shadows).
+                           .ContactShadowView =
+                  SceneResources::ContactShadowViewVector( GetContactShadowSettings( frame, true ) ) };
         const Common::ResultStr<System::MegaLightsLighting> lighting =
              m_MegaLights.AddPasses( graph, inputs, m_MegaLightsQuality, frame );
         if ( !lighting )
@@ -2734,23 +2740,23 @@ namespace Desert::Graphic
         // The froxels' visibility is the frame's StochasticVisibility (LowerShadowsForFrame): the TLAS only when
         // this frame built it, the local lights' virtual pages under vsm+screen (AddFrameVirtualShadows drew them
         // before this call), none under screen.
-        using Common::Scalability::StochasticVisibility;
-        const StochasticVisibility              visibility = StochasticTraceVisibility();
-        const bool                              rays       = visibility == StochasticVisibility::RayQuery;
-        const RayTracing::RayTracingSceneFrame& scene      = m_RayTracingScene.GetFrame();
-        const System::MegaLightsVolumeInputs    inputs{ .Visibility  = visibility,
-                                                        .Tlas        = rays ? scene.Tlas : RDG::BufferRef{},
-                                                        .Metadata    = rays ? scene.Metadata
-                                                                            : RayTracing::RayTracingMetadataFrame{},
-                                                        .Vsm         = textures.Transients.Vsm,
-                                                        .Lights      = textures.Transients.Lights,
-                                                        .Black3D     = refs.System.Black3D,
-                                                        .PointLights = pointCount,
-                                                        .SpotLights  = spotCount,
-                                                        .Width       = frame.Split.Render.Width,
-                                                        .Height      = frame.Split.Render.Height,
-                                                        .Near        = lightGrid.ZParams.x,
-                                                        .Far         = lightGrid.ZParams.z };
+        // Each froxel sample tests its light's own source (payload ShadowVisibility); the program holds them all.
+        const Common::Scalability::StochasticSources  sources = StochasticTraceSources();
+        const bool                                    rays    = sources.RayQuery;
+        const RayTracing::RayTracingSceneFrame&       scene   = m_RayTracingScene.GetFrame();
+        const System::MegaLightsVolumeInputs          inputs{ .Sources     = sources,
+                                                              .Tlas        = rays ? scene.Tlas : RDG::BufferRef{},
+                                                              .Metadata    = rays ? scene.Metadata
+                                                                                  : RayTracing::RayTracingMetadataFrame{},
+                                                              .Vsm         = textures.Transients.Vsm,
+                                                              .Lights      = textures.Transients.Lights,
+                                                              .Black3D     = refs.System.Black3D,
+                                                              .PointLights = pointCount,
+                                                              .SpotLights  = spotCount,
+                                                              .Width       = frame.Split.Render.Width,
+                                                              .Height      = frame.Split.Render.Height,
+                                                              .Near        = lightGrid.ZParams.x,
+                                                              .Far         = lightGrid.ZParams.z };
         const Common::ResultStr<MegaLightsVolumeRefs> volume =
              m_MegaLightsVolume.AddPasses( graph, inputs, m_MegaLightsVolumeQuality, frame );
         if ( !volume )

@@ -99,19 +99,9 @@ float VolumeTarget(int light, vec3 p)
 	return dot(VolumeLightAt(light, p).Radiance, vec3(0.2126, 0.7152, 0.0722));
 }
 
-// How much of @p light reaches the point @p p, by the frame's visibility source. A light whose shadowCaster is 0
-// (CastShadows off) is not tested.
-float VolumeVisibility(int light, vec3 p, inout uint random)
-{
-	const int  points  = int(Counts.x);
-	const bool casts   = (light < points ? pointLights[light].shadowCaster
-	                                     : spotLights[light - points].shadowCaster) != 0;
-	if (!casts)
-		return 1.0;
-	const vec3  toLight  = (light < points ? pointLights[light].position : spotLights[light - points].position) - p;
-	const float distance = length(toLight);
-	const float radius   = light < points ? pointLights[light].sourceRadius : spotLights[light - points].sourceRadius;
 #if defined(MEGALIGHTS_VOLUME_VISIBILITY_RAY_QUERY)
+float VolumeRayVisibility(vec3 toLight, float distance, float radius, vec3 p, inout uint random)
+{
 	// A ray toward a point of the light's source sphere, uniform in the solid angle the sphere subtends (UE
 	// UniformSampleCone), stopped short of the sphere by the bias.
 	const float bias = Params.y;
@@ -135,7 +125,13 @@ float VolumeVisibility(int light, vec3 p, inout uint random)
 	}
 	// A froxel point has no surface to leave: the ray starts at the point, its first bias skipped.
 	return RayQueryVisibility(p + dir * bias, dir, max(reach - 2.0 * bias, 0.0), RAY_TRACING_MASK_SHADOW_CASTER);
-#elif defined(MEGALIGHTS_VOLUME_VISIBILITY_VSM)
+}
+#endif
+
+#if defined(MEGALIGHTS_VOLUME_VISIBILITY_VSM)
+float VolumeVsmVisibility(int light, vec3 toLight, float distance, float radius, vec3 p)
+{
+	const int points = int(Counts.x);
 	// The light's virtual shadow map (VSM-LOCAL), the same pages MegaLights' surface trace reads: slot = the light's
 	// index in the frame's VsmLocalLights (AssignLocalShadowMaskSlots). A froxel point has no surface: its "normal"
 	// faces the light, so the receiver offset moves it toward the light by half a texel of its mip. A froxel no
@@ -144,14 +140,40 @@ float VolumeVisibility(int light, vec3 p, inout uint random)
 	if (slot < 0 || distance <= max(2.0 * Params.y, radius))
 		return 1.0; // no page for the light this frame (outside the view), or on/inside the emitter
 	return VsmLocalVisibility(vsmLocalLights[slot], p, toLight / distance);
-#elif defined(MEGALIGHTS_VOLUME_VISIBILITY_NONE)
-	// Screen-only visibility (StochasticVisibility::Screen): a froxel point is not on the screen, there is nothing
-	// to march (UE MegaLights' volume takes no screen trace either) - the volume is unshadowed.
-	return 1.0;
-#else
-#error "MegaLightsVolumeWrite.glslh: define one MEGALIGHTS_VOLUME_VISIBILITY_* source"
-#endif
 }
+#endif
+
+// How much of @p light reaches the point @p p, by the frame's visibility source. A light whose shadowCaster is 0
+// (CastShadows off) is not tested.
+float VolumeVisibility(int light, vec3 p, inout uint random)
+{
+	const int  points  = int(Counts.x);
+	const bool casts   = (light < points ? pointLights[light].shadowCaster
+	                                     : spotLights[light - points].shadowCaster) != 0;
+	if (!casts)
+		return 1.0;
+	const vec3  toLight  = (light < points ? pointLights[light].position : spotLights[light - points].position) - p;
+	const float distance = length(toLight);
+	const float radius   = light < points ? pointLights[light].sourceRadius : spotLights[light - points].sourceRadius;
+#if !defined(MEGALIGHTS_VOLUME_VISIBILITY_RAY_QUERY) && !defined(MEGALIGHTS_VOLUME_VISIBILITY_VSM) && \
+    !defined(MEGALIGHTS_VOLUME_VISIBILITY_NONE)
+#error "MegaLightsVolumeWrite.glslh: define a MEGALIGHTS_VOLUME_VISIBILITY_* source"
+#endif
+	// Each light tests its own source, the payload's ShadowVisibility (Common::Scalability::StochasticVisibility:
+	// 0 RayQuery, 1 vsm+screen, 2 Screen); a source this program does not hold is not in the frame's set
+	// (SceneRenderer::StochasticTraceSources), and a Screen light is unshadowed (a froxel is not on the screen).
+	const int source = light < points ? pointLights[light].shadowVisibility : spotLights[light - points].shadowVisibility;
+#if defined(MEGALIGHTS_VOLUME_VISIBILITY_RAY_QUERY)
+	if (source == 0)
+		return VolumeRayVisibility(toLight, distance, radius, p, random);
+#endif
+#if defined(MEGALIGHTS_VOLUME_VISIBILITY_VSM)
+	if (source == 1)
+		return VolumeVsmVisibility(light, toLight, distance, radius, p);
+#endif
+	return 1.0;
+}
+
 
 LocalSize(4, 4, 4);
 

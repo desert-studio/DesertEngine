@@ -41,11 +41,11 @@
 //  3) "MegaLights: Spatial Resampling"  - ReSTIR DI spatial reuse over Shadows.MegaLightsSpatialSamples
 //  neighbours; 4) "MegaLights: Trace Samples"       - ONE visibility test per surviving sample (UE traces each
 //  sample once):
-//     the light's contact shadow through the G-buffer depth, then the frame's visibility source
-//     (Common::Scalability::StochasticVisibility, one program each): a ray query toward a point of its source
-//     sphere (SourceRadius: soft shadows), or without rays the screen trace over the closest HZB followed by the
-//     light's virtual shadow map pages (VSM-LOCAL), or the screen trace alone; W scaled by it. Next frame's
-//     history;
+//     the light's contact shadow through the G-buffer depth, then the light's own visibility source (its
+//     payload's ShadowVisibility, Common::Scalability::StochasticVisibility): a ray query toward a point of its
+//     source sphere (SourceRadius: soft shadows), or the screen trace over the closest HZB followed by the
+//     light's virtual shadow map pages (VSM-LOCAL), or the screen trace alone; W scaled by it. One program per
+//     set of sources present (Common::Scalability::StochasticSources, TraceProgramOf). Next frame's history;
 //  5) "MegaLights: Shade Samples"       - at RENDER resolution, every pixel shades its sample pixel's traced
 //     reservoirs with its own surface (UE ShadeLightSamples: the upsample), the shading model's specular lobe and
 //     its diffuse rest apart, each demodulated by its reflectance (Mesh/MegaLightsDemodulation.glslh);
@@ -119,9 +119,10 @@ namespace Desert::Graphic::System
         RDG::TextureRef                     ShadingWord; // RG32_UINT
         RDG::TextureRef                     Velocity;    // FrameTransients::Velocity
         RDG::TextureRef                     Black;       // System.Black: the history before one exists
-        // The frame's visibility source and what it reads: the TLAS and its records (RayQuery), the closest HZB
-        // (VirtualMapsAndScreen, Screen) and the virtual shadow map's reader tables (VirtualMapsAndScreen).
-        Common::Scalability::StochasticVisibility Visibility = Common::Scalability::StochasticVisibility::RayQuery;
+        // The visibility sources the frame's casting lights resolved to (never empty) and what they read: the TLAS
+        // and its records (RayQuery), the closest HZB (VirtualMaps, Screen) and the virtual shadow map's reader
+        // tables (VirtualMaps).
+        Common::Scalability::StochasticSources Sources;
         RDG::BufferRef                      Tlas;
         RayTracing::RayTracingMetadataFrame Metadata;
         RDG::TextureRef                     Hzb;
@@ -154,8 +155,8 @@ namespace Desert::Graphic::System
     public:
         [[nodiscard]] Common::BoolResultStr Initialize()
         {
-            // The trace's program is the visibility source's, built on its first frame (EnsureTrace): a device
-            // without ray query never builds the ray-query one.
+            // The trace's program is the frame's set of sources' (TraceProgramOf), built on its first frame
+            // (EnsureTrace): a device without ray query never builds a ray-query one.
             for ( std::size_t stage = 0; stage < kStageCount; ++stage )
                 if ( stage != kTrace )
                     if ( const Common::BoolResultStr built = Build( m_Stages[stage], kShaderNames[stage] ); !built )
@@ -173,25 +174,26 @@ namespace Desert::Graphic::System
                                                                        const MegaLightsQuality& quality,
                                                                        const ViewFrame&         frame )
         {
-            using Common::Scalability::StochasticVisibility;
             for ( std::size_t stage = 0; stage < kStageCount; ++stage )
                 if ( stage != kTrace && !m_Stages[stage].Pipeline )
                     return Common::MakeError<MegaLightsLighting>(
                          "MegaLights: the pipelines are not initialised" );
-            const auto source = static_cast<std::size_t>( in.Visibility );
-            if ( const Common::BoolResultStr trace = EnsureTrace( in.Visibility ); !trace )
+            if ( in.Sources.Empty() )
+                return Common::MakeError<MegaLightsLighting>( "MegaLights: the frame names no visibility source" );
+            const std::size_t program = TraceProgramOf( in.Sources );
+            if ( const Common::BoolResultStr trace = EnsureTrace( program ); !trace )
                 return Common::MakeError<MegaLightsLighting>( trace.GetError() );
-            if ( in.Visibility == StochasticVisibility::RayQuery &&
+            if ( in.Sources.RayQuery &&
                  ( !in.Tlas.IsValid() || !in.Metadata.Geometry.IsValid() || !in.Metadata.Materials.IsValid() ) )
                 return Common::MakeError<MegaLightsLighting>(
-                     "MegaLights: the visibility source is the ray query but the frame has no TLAS" );
-            if ( in.Visibility != StochasticVisibility::RayQuery && !in.Hzb.IsValid() )
+                     "MegaLights: a light's visibility source is the ray query but the frame has no TLAS" );
+            if ( in.Sources.ScreenTrace() && !in.Hzb.IsValid() )
                 return Common::MakeError<MegaLightsLighting>(
-                     std::format( "MegaLights: the visibility source is {} but the frame has no HZB",
-                                  Common::Scalability::kStochasticVisibilityNames[source] ) );
-            if ( in.Visibility == StochasticVisibility::VirtualMapsAndScreen && !in.Vsm.IsValid() )
+                     "MegaLights: a light's visibility source traces the screen but the frame has no HZB" );
+            if ( in.Sources.VirtualMaps && !in.Vsm.IsValid() )
                 return Common::MakeError<MegaLightsLighting>(
-                     "MegaLights: the visibility source is vsm+screen but the frame has no virtual shadow map" );
+                     "MegaLights: a light's visibility source is vsm+screen but the frame has no virtual shadow "
+                     "map" );
             if ( !in.Lights.GridCells.IsValid() || !in.Velocity.IsValid() )
                 return Common::MakeError<MegaLightsLighting>( std::format(
                      "MegaLights: the frame has no {}",
@@ -263,26 +265,20 @@ namespace Desert::Graphic::System
                          .Texture( MegaLightsShaderParameters::GBufferShadingWordTexture, in.ShadingWord,
                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             };
-            const Stage& traceProgram = m_Trace[source];
+            const Stage& traceProgram = m_Trace[program];
             const auto   tracing      = [&]( RDG::BindingBlockBuilder& block )
             {
-                switch ( in.Visibility )
-                {
-                case StochasticVisibility::RayQuery:
+                if ( in.Sources.RayQuery )
                     block.AccelerationStructure( MegaLightsShaderParameters::SceneTlas, in.Tlas )
                          .Storage( MegaLightsShaderParameters::RayTracingGeometryRecords, in.Metadata.Geometry,
                                    RDG::Access::StorageRead )
                          .Storage( MegaLightsShaderParameters::RayTracingMaterialRecords, in.Metadata.Materials,
                                    RDG::Access::StorageRead );
-                    return;
-                case StochasticVisibility::VirtualMapsAndScreen:
+                if ( in.Sources.VirtualMaps )
                     BindVirtualShadowMapReads( block, in.Vsm, traceProgram.Layout.Get( traceProgram.Shader ) );
-                    [[fallthrough]];
-                case StochasticVisibility::Screen:
+                if ( in.Sources.ScreenTrace() )
                     block.Texture( MegaLightsShaderParameters::HzbTexture, in.Hzb, RDG::Access::SampledCompute,
                                    RDG::SubresourceRange::All() );
-                    return;
-                }
             };
             const auto read =
                  [&]( RDG::BindingBlockBuilder& block, RDG::TextureParameter name, RDG::TextureRef texture )
@@ -371,10 +367,29 @@ namespace Desert::Graphic::System
         static constexpr std::array<std::string_view, kStageCount> kShaderNames = {
              "MegaLightsGenerateSamples", "MegaLightsTemporalResampling", "MegaLightsSpatialResampling",
              "MegaLightsTraceSamples", "MegaLightsShadeSamples" };
-        // The trace's program per visibility source (Common::Scalability::StochasticVisibility order).
-        static constexpr std::array<std::string_view, 3> kTraceShaderNames = {
-             "MegaLightsTraceSamples", "MegaLightsTraceSamplesVirtual", "MegaLightsTraceSamplesScreen" };
-        static_assert( kTraceShaderNames.size() == Common::Scalability::kStochasticVisibilityNames.size() );
+        // The trace's programs, one per set of visibility sources a frame can hold (TraceProgramOf). The mixed
+        // ones branch per light on its payload's ShadowVisibility (Common/MegaLights.glslh MegaLightsVisibility).
+        // A Screen light needs no program of its own beside vsm+screen: its slot is -1, the screen trace alone.
+        static constexpr std::size_t                                      kTraceRayQuery               = 0;
+        static constexpr std::size_t                                      kTraceVirtualMapsAndScreen   = 1;
+        static constexpr std::size_t                                      kTraceScreen                 = 2;
+        static constexpr std::size_t                                      kTraceRayQueryAndScreen      = 3;
+        static constexpr std::size_t                                      kTraceRayQueryAndVirtualMaps = 4;
+        static constexpr std::size_t                                      kTraceProgramCount           = 5;
+        static constexpr std::array<std::string_view, kTraceProgramCount> kTraceShaderNames            = {
+             "MegaLightsTraceSamples", "MegaLightsTraceSamplesVirtual", "MegaLightsTraceSamplesScreen",
+             "MegaLightsTraceSamplesRayQueryScreen", "MegaLightsTraceSamplesRayQueryVirtual" };
+
+        // The one trace program that holds every source of @p sources (not empty).
+        [[nodiscard]] static constexpr std::size_t
+        TraceProgramOf( const Common::Scalability::StochasticSources& sources )
+        {
+            if ( sources.RayQuery )
+                return sources.VirtualMaps ? kTraceRayQueryAndVirtualMaps
+                       : sources.Screen    ? kTraceRayQueryAndScreen
+                                           : kTraceRayQuery;
+            return sources.VirtualMaps ? kTraceVirtualMapsAndScreen : kTraceScreen;
+        }
         static constexpr std::array<std::string_view, kStageCount> kPassNames = {
              "MegaLights: Generate Samples", "MegaLights: Temporal Resampling", "MegaLights: Spatial Resampling",
              "MegaLights: Trace Samples", "MegaLights: Shade Samples" };
@@ -404,10 +419,10 @@ namespace Desert::Graphic::System
             return true;
         }
 
-        // The trace program of @p visibility, built once; a failure is latched (no later frame repairs a shader).
-        [[nodiscard]] Common::BoolResultStr EnsureTrace( const Common::Scalability::StochasticVisibility visibility )
+        // The trace program @p source (TraceProgramOf), built once; a failure is latched (no later frame repairs a
+        // shader).
+        [[nodiscard]] Common::BoolResultStr EnsureTrace( const std::size_t source )
         {
-            const auto source = static_cast<std::size_t>( visibility );
             if ( m_Trace[source].Pipeline )
                 return true;
             if ( !m_TraceErrors[source].empty() )
@@ -489,8 +504,8 @@ namespace Desert::Graphic::System
         }
 
         std::array<Stage, kStageCount> m_Stages; // [kTrace] unused: the trace is m_Trace's
-        std::array<Stage, 3>           m_Trace;  // per StochasticVisibility, built on first use (EnsureTrace)
-        std::array<std::string, 3>     m_TraceErrors;
+        std::array<Stage, kTraceProgramCount> m_Trace;  // per TraceProgramOf, built on first use (EnsureTrace)
+        std::array<std::string, kTraceProgramCount> m_TraceErrors;
         std::array<HistorySlot, 2>     m_Slots;
         uint32_t                       m_Parity = 0;
         ScreenSpaceDenoiser            m_DiffuseDenoiser{ DenoiserSignal::DiffuseIndirect };

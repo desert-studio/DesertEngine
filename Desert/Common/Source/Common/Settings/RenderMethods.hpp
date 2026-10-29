@@ -127,6 +127,35 @@ namespace Common::Scalability
                                                                               "Screen" };
     static_assert( static_cast<std::size_t>( LightShadowMethod::Screen ) + 1 == kLightShadowMethodNames.size() );
 
+    // THE SOURCES A FRAME'S MEGALIGHTS SAMPLES TEST: one flag per StochasticVisibility, set when at least one
+    // casting light of the view resolved to it (Graphic::ResolveLightVisibility, the payload's ShadowVisibility).
+    // MegaLights' trace and its volume run the one program that holds every source present and branch per light on
+    // its ShadowVisibility (a ray-query frame with a Screen lamp runs the ray query and the screen trace in one
+    // program), so the effective source the state reports per light is the one its pixels test.
+    struct StochasticSources
+    {
+        bool RayQuery    = false;
+        bool VirtualMaps = false; // StochasticVisibility::VirtualMapsAndScreen
+        bool Screen      = false;
+
+        [[nodiscard]] static constexpr StochasticSources Of( const StochasticVisibility source )
+        {
+            return { .RayQuery    = source == StochasticVisibility::RayQuery,
+                     .VirtualMaps = source == StochasticVisibility::VirtualMapsAndScreen,
+                     .Screen      = source == StochasticVisibility::Screen };
+        }
+        [[nodiscard]] constexpr bool Empty() const
+        {
+            return !RayQuery && !VirtualMaps && !Screen;
+        }
+        // The screen trace over the closest HZB runs: vsm+screen marches it before the pages, Screen alone.
+        [[nodiscard]] constexpr bool ScreenTrace() const
+        {
+            return VirtualMaps || Screen;
+        }
+        constexpr bool operator==( const StochasticSources& ) const = default;
+    };
+
     // By name: Scalability.json, the log line and the overlay print these, one list per enum.
     inline constexpr std::array<std::string_view, 7> kGIMethodNames{
          "Off", "Lightmaps", "ScreenSpace", "ProbeVolume", "SoftwareTraced", "HardwareTraced", "PathTraced" };

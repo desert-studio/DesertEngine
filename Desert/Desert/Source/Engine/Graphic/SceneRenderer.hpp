@@ -663,10 +663,11 @@ namespace Desert::Graphic
         // whose visibility source is vsm+screen (MegaLights' trace and volume read the pages by ShadowMaskSlot). The
         // one test every page reader asks: the page passes' local lights, the surface cache's cards.
         [[nodiscard]] bool LocalLightsReadVirtualPages() const;
-        // MegaLights' trace and volume program this frame: the frame's Visibility, except a vsm+screen frame none
-        // of whose lights resolved to vsm+screen (no local page drawn) traces the screen program. A ray-query frame
-        // still traces every light with the ray query (REMAINDER-MEGALIGHTS-NORT-4: the mixed programs).
-        [[nodiscard]] Common::Scalability::StochasticVisibility StochasticTraceVisibility() const;
+        // The visibility sources MegaLights' trace and volume run this frame: one per source a casting light of
+        // the view resolved to (m_StochasticSourceLights, AssignLocalShadowMaskSlots), so each light is tested by
+        // its own payload ShadowVisibility. A view with no casting light in it names the frame's Visibility (a
+        // vsm+screen frame: screen, no local page was drawn), so the programs always have one source.
+        [[nodiscard]] Common::Scalability::StochasticSources StochasticTraceSources() const;
         // The lights whose Shadow Method is not Auto, as AssignLocalShadowMaskSlots resolved them this frame
         // (DesertCtl state render.shadows.lights).
         [[nodiscard]] const std::vector<StochasticLightMethod>& GetStochasticLightMethods() const
