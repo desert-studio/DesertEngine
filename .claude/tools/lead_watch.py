@@ -12,7 +12,7 @@ Patterns:
   stale watch — a notification of a background task this session never started (a waiter left by an older
                 session: find it with ps and kill it);
   long context — above CLEAR_AT every owner prompt (and every CLEAR_EVERY requests) carries the /clear reminder:
-                write the handover and ask the owner for /clear (owner 10-20: «напоминай всегда про CLEAR»);
+                write the handover and ask the owner for /compact (owner 10-28: compact вместо clear);
   digging     — the lead's own log/code digging fills its context (10-20: 43 shell reads + 40 searches = 39 % of the
                 lead's spend): a tool result over BIG_RESULT chars, or more than DIG_PER_TURN reads/searches in a turn;
   big schema  — ToolSearch loading a large deferred schema (notion-query-data-sources ~20k) into the lead: it stays
@@ -98,6 +98,9 @@ def main():
                 continue
             kind = rec.get("type")
             msg = rec.get("message") or {}
+            if kind == "system" and rec.get("subtype") == "compact_boundary":
+                st["ctx"] = 0  # /compact keeps the transcript; the next request reports the compacted size
+                continue
             if kind == "user":
                 content = msg.get("content")
                 is_result = isinstance(content, list) and any(
@@ -165,8 +168,9 @@ def main():
     event = data.get("hook_event_name", "")
     if st["ctx"] > CLEAR_AT and (event == "UserPromptSubmit" or st["n"] - st["last_clear_n"] >= CLEAR_EVERY):
         st["last_clear_n"] = st["n"]
-        lines.append(f"/CLEAR: context {st['ctx']//1000}k > {CLEAR_AT//1000}k — every request re-reads it; write the handover "
-                     "(memory STATE FOR /clear) and ASK THE OWNER FOR /clear in this reply")
+        lines.append(f"/COMPACT: context {st['ctx']//1000}k > {CLEAR_AT//1000}k — every request re-reads it; write the handover "
+                     "(memory STATE FOR /clear), FIRST fill every free agent slot (up to 4) and start ready landings, THEN ASK THE OWNER FOR /compact "
+                     "in this reply; after compact continue at once (owner 10-28: compact, not clear; 10-29: no idle before/after compact)")
     if st["n"] - st["last_report_n"] >= REPORT_EVERY:
         st["last_report_n"] = st["n"]
         read_pct = round(100 * 0.1 * st["read"] / units) if units else 0
