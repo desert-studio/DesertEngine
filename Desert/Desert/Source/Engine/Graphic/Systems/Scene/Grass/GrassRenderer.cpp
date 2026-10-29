@@ -431,7 +431,7 @@ namespace Desert::Graphic::System
             gpu.Shape.reset();
             if ( variety.Blade )
                 gpu.Shape =
-                     ShaderResources::StorageBuffer::Create( "GrassBladeShape", sizeof( GrassBladeShapeGpu ), 13, true );
+                     ShaderResources::StorageBuffer::Create( "GrassBladeShape", sizeof( GrassBladeShapeGpu ), 13 );
         }
         if ( variety.Blade )
         {
