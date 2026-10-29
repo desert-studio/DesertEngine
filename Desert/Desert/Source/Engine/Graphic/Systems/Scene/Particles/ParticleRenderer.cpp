@@ -281,6 +281,7 @@ namespace Desert::Graphic::System
                 ViewDraw draw;
                 draw.Sprite   = ResolveSprite( fe, row, material );
                 draw.Instance = draw.Sprite != nullptr ? material.Instance.get() : nullptr;
+                draw.Material = draw.Sprite != nullptr ? material.Cell : nullptr;
                 if ( draw.Sprite != nullptr )
                     ve.Draws.push_back( draw );
             }
@@ -836,6 +837,7 @@ namespace Desert::Graphic::System
             SpriteDraw* sprite = cell != nullptr ? SpriteDrawFor( cell->GetShaderName() ) : nullptr;
             if ( sprite != nullptr )
             {
+                material.Cell = cell;
                 if ( !material.Instance || material.Handle != handle )
                 {
                     material.Handle   = handle;
@@ -847,20 +849,29 @@ namespace Desert::Graphic::System
             const bool pending = cell == nullptr && service->IsPending( handle );
             if ( !pending && ( !material.HasRefused || material.Refused != handle ) )
             {
-                LOG_ERROR( "[Particles] emitter {}.{} renderer row {} draws with {}: its material {} {}",
+                // Named by the ASSET (its file's stem), what a person looks for in the Content Browser; a
+                // broken file was already refused aloud with its path and field by the material service.
+                const std::string name   = service->AssetNameOf( handle );
+                const std::string reason = cell != nullptr
+                     ? std::format( "has a {} cell that cannot draw (logged above)", MeshVertexPathName( path ) )
+                     : ( service->IsBroken( handle )
+                              ? std::string( "is BROKEN (its read was refused, [MaterialService] above names the "
+                                             "file and the field)" )
+                              : std::format( "is missing or its template has no `Usage {}` cell",
+                                             ribbon ? "ParticleRibbons" : "ParticleSprites" ) );
+                LOG_ERROR( "[Particles] emitter {}.{} renderer row {} draws with the engine default {}: its "
+                           "material '{}' ({}) {}",
                            fe.EntityId, fe.Emitter, row.Row,
                            ribbon ? "ParticleRibbonDefault" : "ParticleSpriteDefault",
-                           static_cast<uint64_t>( handle ),
-                           cell == nullptr ? std::format( "is missing or its template has no `Usage {}` cell",
-                                                          ribbon ? "ParticleRibbons" : "ParticleSprites" )
-                                           : std::format( "has a {} cell that cannot draw (logged above)",
-                                                          MeshVertexPathName( path ) ) );
+                           name.empty() ? std::string( "<no material asset>" ) : name,
+                           static_cast<uint64_t>( handle ), reason );
                 material.Refused    = handle;
                 material.HasRefused = true;
             }
         }
         material.Handle   = Common::AssetHandle::Null();
         material.Instance = nullptr; // the default cell's own defaults
+        material.Cell     = nullptr;
         return SpriteDrawFor( engine );
     }
 
@@ -932,9 +943,12 @@ namespace Desert::Graphic::System
                 {
                     MaterialInstance* instance =
                          draw.Instance != nullptr ? draw.Instance : draw.Sprite->Instance.get();
+                    // The row is the material ASSET's (its values, its textures' bindless slots) under the row's
+                    // overrides, as a mesh slot's is; only a row with no material of its own takes the cell's.
+                    const DataDrivenMaterial* rowMaterial =
+                         draw.Material != nullptr ? draw.Material : draw.Sprite->Material.get();
                     draw.Row = MeshRendererDetail::AppendRow(
-                         draw.Sprite->Rows,
-                         MeshRendererDetail::EffectiveRow( draw.Sprite->Material.get(), instance ) );
+                         draw.Sprite->Rows, MeshRendererDetail::EffectiveRow( rowMaterial, instance ) );
                 }
             }
             for ( auto& [cell, sprite] : m_Sprites )

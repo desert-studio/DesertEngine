@@ -63,6 +63,8 @@ namespace Desert::Graphic::System
              // Ribbon row's RibbonIdBinding, an int column).
              { "Scale", VFX::VFXValueType::Vec3, 9 },
              { "MeshOrientation", VFX::VFXValueType::Vec4, 10 },
+             // A VelocityAligned Sprite row's axis (UE Particles.Velocity in the sprite vertex factory): Columns2.w.
+             { "Velocity", VFX::VFXValueType::Vec3, 11 },
         };
 
         // Where the compiled stack put each drawn attribute; an attribute the stack declares with another type is
@@ -721,6 +723,19 @@ namespace Desert::Graphic::System
             if ( row.Enabled && row.Kind == Assets::Serialization::VFXRendererKind::Ribbon && row.Ribbon )
             {
                 ribbon = &*row.Ribbon;
+                break;
+            }
+        }
+        // The emitter's Sprite row alignment (UE ENiagaraSpriteAlignment): the first enabled Sprite row's, as the
+        // Ribbon row's settings above; an absent settings block is UE's default, Unaligned.
+        for ( const Assets::Serialization::VFXRendererData& row : data.Renderers )
+        {
+            if ( row.Enabled && row.Kind == Assets::Serialization::VFXRendererKind::Sprite )
+            {
+                layout.Range.w = ( row.Sprite && row.Sprite->Alignment ==
+                                                       Assets::Serialization::VFXSpriteAlignment::VelocityAligned )
+                                      ? 1u
+                                      : 0u;
                 break;
             }
         }

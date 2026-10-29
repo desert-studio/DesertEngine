@@ -6,7 +6,7 @@
             "VFXS": 5
         },
         "Dependencies": [
-            "02637a2ef2774901a0a88452af542abd", "0caef28c515f4a4e93363f1616ed3ca3", "240adf0c6a0f407489419764780491eb", "2d5323b9c4d349f8b91c4fc795599f4f", "3435fcff54c84b3499fa6ed992a4bfd3", "37ef32a37dfc4501bb57e95fc9919372", "55923c5734e04fc78e068ad051c4772c", "8079c58d9d214db694607abaf9c1a4b2",
+            "02637a2ef2774901a0a88452af542abd", "3bce9126304e42bfb9e95812078280ac", "e4550618a30848d59e17c3b1a6c45e8e", "0caef28c515f4a4e93363f1616ed3ca3", "240adf0c6a0f407489419764780491eb", "2d5323b9c4d349f8b91c4fc795599f4f", "3435fcff54c84b3499fa6ed992a4bfd3", "37ef32a37dfc4501bb57e95fc9919372", "55923c5734e04fc78e068ad051c4772c", "8079c58d9d214db694607abaf9c1a4b2",
             "94456c88cf0e495e9396474e052d53bd", "9488cdf80a5f4f4fba16c02d431bc8e0", "a0f042db0b6248cab1bcf38605abbf78", "bd19bb728e4646919475240f1a19369d", "d1378c9a2062498ab14e47e7ef29cccb", "dff69e4e958a45f5a4fd4f19ba7de22c", "e64f581d72684d28ab4dc2f70e9c807a"
         ]
     },
@@ -501,8 +501,8 @@
                                 "Type": "Float",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [0.05999999865889549, 0.0, 0.0, 0.0],
-                                    "Max": [0.11999999731779099, 0.0, 0.0, 0.0]
+                                    "Min": [0.14, 0.0, 0.0, 0.0],
+                                    "Max": [0.22, 0.0, 0.0, 0.0]
                                 }
                             }
                         ]
@@ -519,8 +519,8 @@
                                 "Type": "Vec2",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [40.0, 40.0, 0.0, 0.0],
-                                    "Max": [60.0, 60.0, 0.0, 0.0]
+                                    "Min": [70.0, 70.0, 0.0, 0.0],
+                                    "Max": [100.0, 100.0, 0.0, 0.0]
                                 }
                             }
                         ]
@@ -735,7 +735,11 @@
             "Renderers": [
                 {
                     "Kind": "Sprite",
-                    "Enabled": true
+                    "Enabled": true,
+                    "Material": {
+                        "Guid": "e4550618a30848d59e17c3b1a6c45e8e",
+                        "Path": "assets:VFX/Demo/Materials/M_ImpactFlash.demat"
+                    }
                 }
             ]
         },
@@ -861,8 +865,8 @@
                                 "Type": "Vec2",
                                 "Source": "Random",
                                 "Random": {
-                                    "Min": [3.0, 3.0, 0.0, 0.0],
-                                    "Max": [6.0, 6.0, 0.0, 0.0]
+                                    "Min": [1.5, 10.0, 0.0, 0.0],
+                                    "Max": [2.5, 18.0, 0.0, 0.0]
                                 }
                             }
                         ]
@@ -1044,7 +1048,14 @@
             "Renderers": [
                 {
                     "Kind": "Sprite",
-                    "Enabled": true
+                    "Enabled": true,
+                    "Material": {
+                        "Guid": "3bce9126304e42bfb9e95812078280ac",
+                        "Path": "assets:VFX/Demo/Materials/M_ImpactSpark.demat"
+                    },
+                    "Sprite": {
+                        "Alignment": "VelocityAligned"
+                    }
                 }
             ]
         }

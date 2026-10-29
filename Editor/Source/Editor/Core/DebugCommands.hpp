@@ -2,7 +2,13 @@
 
 #include <Editor/Core/CommandPalette.hpp>
 
+#include <memory>
 #include <vector>
+
+namespace Desert::Core
+{
+    class Scene;
+}
 
 namespace Desert::Editor
 {
@@ -11,5 +17,9 @@ namespace Desert::Editor
     void AppendCrashCommand( std::vector<PaletteCommand>& commands );
     void AppendGpuAllocationCommand( std::vector<PaletteCommand>& commands );
     // "Debug.Particle Debugger" (VFX-16): opens the Particle Debugger panel, so an MCP run_command can show it.
-    void AppendParticleDebuggerCommand( std::vector<PaletteCommand>& commands );
+    // "Debug.Particles: Freeze / Unfreeze / Step" are the panel's Freeze checkbox and Step button on the active
+    // scene's effects world (UE Niagara Debugger's playback controls), so a scenario can stop the effects at a
+    // chosen fixed step and photograph that moment instead of whatever frame the clock lands on.
+    void AppendParticleDebuggerCommand( std::vector<PaletteCommand>&                  commands,
+                                        const std::shared_ptr<::Desert::Core::Scene>& scene );
 } // namespace Desert::Editor

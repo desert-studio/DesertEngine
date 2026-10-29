@@ -230,6 +230,23 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const VFXMeshRendererData& ) const = default;
     };
 
+    /// How a sprite's quad is turned (UE ENiagaraSpriteAlignment).
+    enum class VFXSpriteAlignment
+    {
+        Unaligned,       ///< faces the camera, turned by the particle's SpriteRotation (UE Unaligned)
+        VelocityAligned, ///< its height runs along the particle's Velocity, its width across it, still facing the
+                         ///< camera as far as that allows (UE VelocityAligned): sparks, streaks, rain
+    };
+
+    /// A Sprite row's settings (UE UNiagaraSpriteRendererProperties). Absent on a Sprite row = UE's defaults
+    /// (Unaligned), as an absent Material is the engine's sprite material.
+    struct VFXSpriteRendererData
+    {
+        VFXSpriteAlignment Alignment = VFXSpriteAlignment::Unaligned;
+
+        [[nodiscard]] bool operator==( const VFXSpriteRendererData& ) const = default;
+    };
+
     /// The most lights one Light row casts per emitter (its MaxLights is 1 .. this).
     inline constexpr uint32_t kVFXLightMaxPerEmitter = 64u;
 
@@ -267,6 +284,7 @@ namespace Desert::Assets::Serialization
         VFXRendererKind                      Kind    = VFXRendererKind::Sprite;
         bool                                 Enabled = true;
         std::optional<AssetGuidRef>          Material{};
+        std::optional<VFXSpriteRendererData> Sprite{}; ///< stated only when Kind == Sprite; absent = UE defaults
         std::optional<VFXRibbonRendererData> Ribbon{};
         std::optional<VFXMeshRendererData>   Mesh{};
         std::optional<VFXLightRendererData> Light{}; ///< stated exactly when Kind == Light (which has no Material)

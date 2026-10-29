@@ -35,6 +35,14 @@ vec3 ParticleWorldPosition( uint n )
     return ( ParticleSimulationToWorld() * vec4( p, 1.0 ) ).xyz;
 }
 
+// World velocity (cm/s), a direction through the simulation frame (no translation); no Velocity column = 0.
+vec3 ParticleWorldVelocity( uint n )
+{
+    const uint c = DrawLayoutData.Columns2.w;
+    const vec3 v = vec3( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 0.0 ) );
+    return ( ParticleSimulationToWorld() * vec4( v, 0.0 ) ).xyz;
+}
+
 vec2 ParticleSpriteSize( uint n )
 {
     const uint c = DrawLayoutData.Columns0.y;

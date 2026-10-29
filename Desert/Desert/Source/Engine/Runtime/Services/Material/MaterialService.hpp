@@ -296,6 +296,10 @@ namespace Desert::Runtime
         // @p handle names no material asset.
         [[nodiscard]] std::string AssetNameOf( const Assets::AssetHandle& handle ) const;
 
+        // Was @p handle's last read REFUSED (AssetBase::IsBroken)? A renderer that draws its engine default in
+        // its place says which of the three it is: still loading (IsPending), broken, or not a material at all.
+        [[nodiscard]] bool IsBroken( const Assets::AssetHandle& handle ) const;
+
         // For editor live-edit of a material-instance asset: entities rebuild their cached
         // runtime instances on the next tick (same mechanism as Invalidate, no graveyard needed —
         // no runtime Material dies here).
