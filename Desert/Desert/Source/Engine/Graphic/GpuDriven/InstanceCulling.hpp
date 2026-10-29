@@ -106,16 +106,22 @@ namespace Desert::Graphic::GpuDriven
         // (the cluster cut's view row), DESERT_GPU_INVALID_INDEX = the view appends nothing.
         RDG::BufferRef CutViewOf;
         uint32_t       PrimitiveRows = 0;
-        uint32_t       Capacity      = 0; // candidate rows: the caller's exact bound (instances x DAGs x cut views)
+        // Candidate rows PER CUT VIEW: the caller's exact bound of one view's append (instances x DAGs); every cut
+        // view owns its own region of that many rows (UE: per-view candidate ranges, so a view's cut dispatch
+        // covers only its own candidates).
+        uint32_t Capacity = 0;
+        uint32_t CutViews = 0; // regions: every CutViewOf value is below it
     };
 
-    // The append's output: GpuClusterCandidate[Capacity] and the GPU count (uint at offset 0, may pass Capacity:
-    // the reader clamps).
+    // The append's output, compacted PER CUT VIEW: cut view v's rows are Rows[v x Capacity, v x Capacity +
+    // Counts[v]). Count block (uint32): [0] = VG instances that reached a bin of a view with a cut view (an
+    // invariant: 0), [1 + v] = rows cut view v appended (may pass Capacity: the reader clamps).
     struct VirtualGeometryCandidateOutput
     {
-        RDG::BufferRef Rows;
-        RDG::BufferRef Count;
-        uint32_t       Capacity = 0;
+        RDG::BufferRef Rows;  // GpuClusterCandidate[CutViews x Capacity]
+        RDG::BufferRef Count; // uint32[1 + CutViews]
+        uint32_t       Capacity = 0; // rows per cut view
+        uint32_t       CutViews = 0;
     };
 
     struct MainPhaseResult

@@ -32,12 +32,15 @@ namespace Desert::Graphic::RDG
 // RDG ORDER (SceneRenderer::AddFrameVirtualGeometry, after AddFrameDrawBins' instance phase 1):
 //  1. instance cull       InstanceCulling (GPU-DRIVEN, unchanged owner): a VG primitive's instance that survives the
 //                         frustum / caster / distance test in a view with a cut view appends one ClusterCandidate per
-//                         DAG row and goes into NO bin of that view (nor its occlusion carry). Every cull view of
-//                         the draw bins (main + drawn shadow cascades) has a cut view.
-//  2. cluster cull (Main) "VirtualGeometry: Cluster Cut": persistent-thread BVH traversal; per node / cluster:
+//                         DAG row INTO ITS CUT VIEW'S OWN REGION (per-view compaction: Rows[v x Capacity, + count v),
+//                         count block [1 + v]) and goes into NO bin of that view (nor its occlusion carry). Every cull
+//                         view of the draw bins (main + drawn shadow cascades) has a cut view.
+//  2. cluster cull (Main) "VirtualGeometry: Cluster Cut": one workgroup per candidate of the dispatch's own views
+//                         (indirect args from those views' counts only); BVH traversal; per node / cluster:
 //                         frustum, previous-frame furthest HZB, LOD (Project(LodBounds, error) vs
-//                         MaxPixelsPerEdge). Occluded node children / clusters are carried to the post phase
-//                         (ClusterCullResult::OccludedCandidates).
+//                         MaxPixelsPerEdge in the view's own pixels, ClusterLodMeasure). Occluded node children /
+//                         clusters are carried to the post phase (ClusterCullResult::OccludedCandidates: children
+//                         from row 0, clusters from row VisibleCapacity).
 //  3. raster binning      "VirtualGeometry: Raster Binning" (AddRasterBinning): the cut's HW clusters -> one
 //                         VkDrawIndirectCommand per IndirectGroup of the main view's pass + the instance id rows.
 //  4. raster              the main pass's mesh list (MeshRenderer::SetFrameVirtualGeometry), after its bins: per
@@ -46,36 +49,68 @@ namespace Desert::Graphic::RDG
 //                         (AddFrameDrawBinsPostOcclusion) therefore holds the clusters.
 //  5. cluster cull (PostOcclusion) "VirtualGeometry: Cluster Cut Post" (AddFrameDrawBinsPostOcclusion, after this
 //                         frame's furthest HZB): the main phase's carry re-cut against that HZB through
-//                         ViewProjection, raster-binned and drawn by the GBuffer post-occlusion pass
+//                         ViewProjection (a carried child: one workgroup, its subtree; carried clusters: 64 per
+//                         workgroup, one per thread - UE batches the post pass's clusters), raster-binned and drawn by the GBuffer post-occlusion pass
 //                         (MeshRenderer::SetFrameVirtualGeometry, CullPhase::PostOcclusion).
 //  6. shadow cascades     one cut + raster binning per drawn cascade view (its own dispatch: one RasterBins per
-//                         view), LOD from the main camera as the bins (the shadows draw the main view's LOD), no
-//                         HZB (cascades do not occlusion-cull), drawn in each cascade's static layer.
+//                         view), LOD by the cascade's OWN texel (ClusterLodMeasure::Orthographic of its world size per
+//                         texel; UE: shadow LOD by the shadow view's resolution), no HZB (cascades do not occlusion-cull), drawn in each cascade's static layer.
 // NOT YET: the SW raster of sub-pixel triangles (visibility buffer).
 namespace Desert::Graphic::VirtualGeometry
 {
+    // How a view measures a world length L (cm) in ITS OWN pixels for the cut's LOD (UE GetProjectedEdgeScales;
+    // shadow views by their own resolution, not the main camera's):
+    //  Perspective   pixels = L x LodScale / (distance from the view's LodOrigin), LodScale = 0.5 x height x
+    //                LodProjection[1][1] (the main view);
+    //  Orthographic  pixels = L x LodScale, LodScale = 1 / the view's world size per texel (a shadow cascade).
+    struct ClusterLodMeasure
+    {
+        float LodScale     = 0.0f; // > 0 for a usable view
+        bool  Orthographic = false;
+
+        [[nodiscard]] static ClusterLodMeasure Perspective( const uint32_t viewHeight, const glm::mat4& lodProjection )
+        {
+            return { .LodScale = 0.5f * static_cast<float>( viewHeight ) * lodProjection[1][1], .Orthographic = false };
+        }
+        [[nodiscard]] static ClusterLodMeasure OrthographicTexel( const float worldPerTexel )
+        {
+            return { .LodScale = worldPerTexel > 0.0f ? 1.0f / worldPerTexel : 0.0f, .Orthographic = true };
+        }
+    };
+
     // One view the cluster cull serves: the instance cull's view (same GpuCullView, same frustum, same HZBs).
     struct ClusterCullView
     {
         GpuDriven::CullViewInput Instance{};
         // The LOD threshold for this view, pixels per edge (Scalability VirtualGeometry.MaxPixelsPerEdge x the
-        // view's LOD scale, VIEW-LOD-FOV). Shadow cascades use the main view's (their LOD is the main camera's;
-        // UE: the VSM page texel).
-        float    MaxPixelsPerEdge = 1.0f;
-        uint32_t ViewWidth        = 0; // pixels the LOD error projects into
-        uint32_t ViewHeight       = 0;
+        // view's LOD scale, VIEW-LOD-FOV), in the view's own pixels (Lod).
+        float             MaxPixelsPerEdge = 1.0f;
+        ClusterLodMeasure Lod{};
     };
 
     // The cluster cull's input: the VG candidates InstanceCulling appended (GpuClusterCandidate::View indexes the
     // span of ClusterCullView handed with them). The count lives on the GPU (the producer's append counter);
     // Capacity bounds the rows read, VisibleCapacity the clusters the cut can emit - the caller's exact bound,
     // the sum of ClusterCount over every DAG a candidate can name (a cut never draws more than its DAG holds).
+    // How Rows / Count are laid out (ClusterCut.shader reads the count block as uint[0] = binned VG instances,
+    // uint[1 + k] = region k's rows):
+    //  PerCutView  InstanceCulling's append: region v = cut view v, Rows[v x Capacity, + count[1 + v]); a dispatch
+    //              launches one workgroup per candidate of ITS views only (indirect args from their counts).
+    //  PostCarry   a main cut's carry (ClusterCullResult::Occluded*): region 0 = carried node children (one
+    //              workgroup each), region 1 = carried clusters (packed 64 per workgroup), CutViews = 1.
+    enum class ClusterCandidateLayout : uint8_t
+    {
+        PerCutView,
+        PostCarry,
+    };
     struct ClusterCandidates
     {
-        RDG::BufferRef Rows;  // GpuClusterCandidate[Capacity]
-        RDG::BufferRef Count; // uint32 at offset 0: rows written (clamped to Capacity)
-        uint32_t       Capacity        = 0;
-        uint32_t       VisibleCapacity = 0;
+        RDG::BufferRef         Rows;  // GpuClusterCandidate[regions x Capacity]
+        RDG::BufferRef         Count; // uint32[1 + regions] (counts may pass Capacity: the cut clamps)
+        uint32_t               Capacity        = 0; // rows per region
+        uint32_t               VisibleCapacity = 0;
+        ClusterCandidateLayout Layout          = ClusterCandidateLayout::PerCutView;
+        uint32_t               CutViews        = 0; // PerCutView: regions (every candidate's View is below it)
     };
 
     // What one phase leaves for the rasters, per dispatch of all views.
@@ -85,10 +120,10 @@ namespace Desert::Graphic::VirtualGeometry
         RDG::BufferRef RasterArgs;         // GpuClusterRasterArgs — Access::IndirectArgs
         RDG::BufferRef Status;             // ClusterCutStatus (what the cut could not do, by DAG row)
         uint32_t       VisibleCapacity = 0; // rows of VisibleClusters (HW row i = VisibleCapacity - 1 - i)
-        // Main only: the post phase's ClusterCandidates (Rows / Count), capacity VisibleCapacity. A row's Node
-        // names the occluded node child or cluster (ClusterCut.shader VG_POST_CHILD / VG_POST_CLUSTER).
-        RDG::BufferRef OccludedCandidates; // GpuClusterCandidate[VisibleCapacity]
-        RDG::BufferRef OccludedCount;      // uint32 at offset 0, 0 at offset 4 (the candidates' count block)
+        // Main only: the post phase's ClusterCandidates (Layout PostCarry, Capacity VisibleCapacity). A row's
+        // Node names the occluded node child or cluster (ClusterCut.shader VG_POST_CHILD / VG_POST_CLUSTER).
+        RDG::BufferRef OccludedCandidates; // GpuClusterCandidate[2 x VisibleCapacity]: children, then clusters
+        RDG::BufferRef OccludedCount;      // uint32[4]: 0, children, clusters, 0 (the candidates' count block)
     };
 
     // THE CUT'S HW CLUSTERS SORTED INTO ONE MESH PASS'S MATERIAL GROUPS (AddRasterBinning): what that pass's VG

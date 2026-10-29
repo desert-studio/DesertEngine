@@ -82,7 +82,7 @@ namespace Desert::Graphic::VirtualGeometry
         struct CutPush
         {
             glm::uvec4 Params{
-                 0u }; // step, visible capacity, primitive rows of the pass table, candidate capacity
+                 0u }; // step, visible capacity, primitive rows of the pass table, candidate rows per region
             glm::uvec4 Params2{ 0u }; // x = 1 when a HZB is bound, y = occluded carry capacity, z = 1 post phase
             glm::uvec4 Params3{ 0u }; // x = first cut view of the dispatch, y = its views
         };
@@ -242,6 +242,19 @@ namespace Desert::Graphic::VirtualGeometry
                  "VirtualGeometry: Cluster Cut: no candidates (Rows {}, Count {}, capacity {}, visible {})",
                  candidates.Rows.IsValid() ? "valid" : "invalid", candidates.Count.IsValid() ? "valid" : "invalid",
                  candidates.Capacity, candidates.VisibleCapacity ) );
+        // The layout follows the phase: the main cut reads InstanceCulling's per-cut-view regions, the post cut a
+        // main cut's carry (ClusterCandidateLayout).
+        const ClusterCandidateLayout expected =
+             post ? ClusterCandidateLayout::PostCarry : ClusterCandidateLayout::PerCutView;
+        if ( candidates.Layout != expected )
+            return Common::MakeError<Result>( std::format(
+                 "VirtualGeometry: Cluster Cut: the {} phase reads {} candidates, got {}", post ? "post" : "main",
+                 post ? "post-carry" : "per-cut-view",
+                 candidates.Layout == ClusterCandidateLayout::PostCarry ? "post-carry" : "per-cut-view" ) );
+        if ( !post && uint64_t{ firstView } + views.size() > candidates.CutViews )
+            return Common::MakeError<Result>(
+                 std::format( "VirtualGeometry: Cluster Cut: cut views [{}, {}) past the candidates' {} regions",
+                              firstView, uint64_t{ firstView } + views.size(), candidates.CutViews ) );
         if ( candidates.VisibleCapacity > kMaxVisibleClusters )
             return Common::MakeError<Result>(
                  std::format( "VirtualGeometry: Cluster Cut: {} visible clusters pass the visibility word's {}",
@@ -260,10 +273,11 @@ namespace Desert::Graphic::VirtualGeometry
         for ( uint32_t v = 0; v < views.size(); ++v )
         {
             const ClusterCullView& view = views[v];
-            if ( view.ViewHeight == 0u || view.MaxPixelsPerEdge <= 0.0f )
-                return Common::MakeError<Result>(
-                     std::format( "VirtualGeometry: Cluster Cut: view {} has height {} / {} pixels per edge", v,
-                                  view.ViewHeight, view.MaxPixelsPerEdge ) );
+            if ( !( view.Lod.LodScale > 0.0f ) || view.MaxPixelsPerEdge <= 0.0f )
+                return Common::MakeError<Result>( std::format(
+                     "VirtualGeometry: Cluster Cut: view {} has LOD scale {} ({}) / {} pixels per edge", v,
+                     view.Lod.LodScale, view.Lod.Orthographic ? "orthographic" : "perspective",
+                     view.MaxPixelsPerEdge ) );
             GpuDriven::GpuCullView row = view.Instance.View;
             for ( uint32_t plane = 0; plane < 6u; ++plane )
             {
@@ -273,9 +287,10 @@ namespace Desert::Graphic::VirtualGeometry
             }
             row.ViewIndex = v;
             rows.push_back( row );
-            // UE GetProjectedEdgeScales: a world length at distance d covers length x lodScale / d pixels.
-            const float lodScale = 0.5f * static_cast<float>( view.ViewHeight ) * row.LodProjection[1][1];
-            lods.emplace_back( lodScale, view.MaxPixelsPerEdge, 0.0f, 0.0f );
+            // In the view's own pixels (ClusterLodMeasure): perspective length x lodScale / d, orthographic
+            // length x lodScale (a cascade's texels).
+            lods.emplace_back( view.Lod.LodScale, view.MaxPixelsPerEdge, view.Lod.Orthographic ? 1.0f : 0.0f,
+                               0.0f );
         }
 
         CutBinds b;
@@ -299,13 +314,14 @@ namespace Desert::Graphic::VirtualGeometry
         b.DispatchArgs = Upload( graph, "VirtualGeometry.CutDispatchArgs", Bytes( zeros ) );
         b.ArgsSlot     = Upload( graph, "VirtualGeometry.CutArgsSlot", Bytes( zeros ) );
         b.Hzb          = hasHzb ? hzb : neutralHzb;
-        // The post carry: every entry the main phase finds occluded is a disjoint subtree or a cluster of a
-        // candidate's cut, each holding at least one cluster, so the visible capacity bounds it too.
+        // The post carry (ClusterCandidateLayout::PostCarry): every entry the main phase finds occluded is a
+        // disjoint subtree or a cluster of a candidate's cut, so the visible capacity bounds each region: node
+        // children from row 0, clusters from row carryCapacity (packed 64 per post workgroup).
         const uint32_t carryCapacity = !post && hasHzb ? candidates.VisibleCapacity : 0u;
         b.OccludedCount              = Upload( graph, post ? "VirtualGeometry.CutOccludedSlot" : "VirtualGeometry.OccludedCount",
                                                Bytes( zeros ) );
         b.OccludedCandidates         = graph.CreateBuffer(
-             RDG::BufferDesc{ .Bytes = uint64_t{ std::max( carryCapacity, 1u ) } * sizeof( GpuClusterCandidate ) },
+             RDG::BufferDesc{ .Bytes = uint64_t{ std::max( carryCapacity, 1u ) } * 2u * sizeof( GpuClusterCandidate ) },
              post ? "VirtualGeometry.CutOccludedRowsSlot" : "VirtualGeometry.OccludedCandidates" );
 
         const Programs::Program& program       = m_Programs->ClusterCut;

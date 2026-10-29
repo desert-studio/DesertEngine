@@ -15,7 +15,9 @@ Shader "InstanceCull"
     //                 the HZB-rejected are appended to Occluded for step 2. Writes Visibility[view, instance].
     //                 VIRTUAL GEOMETRY (Params3.x != 0): an instance past the frustum test whose primitive has DAG
     //                 rows (VgPrimitiveDags) in a view with a cluster-cut view (VgCutViewOf) appends one
-    //                 VgClusterCandidate per DAG row BEFORE the HZB test - the cluster cut owns VG occlusion -
+    //                 VgClusterCandidate per DAG row, compacted into its cut view's own region (rows cutView x
+    //                 Params3.y, count VgCandidateCounts[cutView]), BEFORE the HZB test - the cluster cut owns VG
+    //                 occlusion -
     //                 and goes into NO bin of that view (the VG raster draws its clusters; MeshRenderer's
     //                 VirtualGeometryIssue): it is not held back for step 2 either. A VG instance that still reaches
     //                 a bin of a view with a cut view counts into VgBinnedInstances (must stay 0; the cut's Status
@@ -132,8 +134,8 @@ Shader "InstanceCull"
         };
         Buffer(21) GpuCullVgCandidateCount
         {
-            uint VgCandidateCount;  // may pass Params3.y: the cluster cut clamps
-            uint VgBinnedInstances; // VG instances binned in a view with a cut view (an invariant: 0)
+            uint VgBinnedInstances;   // VG instances binned in a view with a cut view (an invariant: 0)
+            uint VgCandidateCounts[]; // per cut view: rows appended to its region (may pass Params3.y: the cut clamps)
         };
 
         Uniform sampler PointClampSampler;
@@ -145,7 +147,7 @@ Shader "InstanceCull"
             uvec4 Params;  // x = step, y = instance rows, z = views of this dispatch, w = first view in Views[]
             uvec4 Params2; // x = bins of the pass, y = visible capacity per view, z = primitive rows of the pass
                            // table, w = 1 when a HZB is bound
-            uvec4 Params3; // x = VG primitive rows (0 = no candidate append), y = VG candidate capacity
+            uvec4 Params3; // x = VG primitive rows (0 = no candidate append), y = VG candidate rows per cut view
         };
 
         uint ThreadIndex()
@@ -331,9 +333,9 @@ Shader "InstanceCull"
             for ( uint k = 0u; k < range.y; ++k )
             {
                 const uvec2 entry = VgDagEntries[range.x + k];
-                const uint  slot  = atomicAdd( VgCandidateCount, 1u );
-                if ( slot < Params3.y )
-                    VgCandidates[slot] = VgClusterCandidate( instanceRow, entry.x, entry.y, cutView );
+                const uint  slot  = atomicAdd( VgCandidateCounts[cutView], 1u );
+                if ( slot < Params3.y ) // compacted per cut view: region cutView x Params3.y
+                    VgCandidates[cutView * Params3.y + slot] = VgClusterCandidate( instanceRow, entry.x, entry.y, cutView );
             }
             return true;
         }

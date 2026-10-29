@@ -66,8 +66,8 @@ namespace Desert::Graphic
 
         // From the static queue: per primitive row, the DAG rows of every submesh one of its queue entries shows
         // (one entry per material slot: their union), appended for EVERY cull view of the draw bins (the main view
-        // and the drawn shadow cascades), cull view v as cut view v. Capacity = instances x DAGs x views;
-        // VisibleCapacity = instances x the DAGs' ClusterCount, the bound of ONE view's cut (AddFrameVirtualGeometry
+        // and the drawn shadow cascades), cull view v as cut view v. Capacity = instances x DAGs, the rows of EACH
+        // cut view's region (InstanceCulling compacts the append per cut view); VisibleCapacity = instances x the DAGs' ClusterCount, the bound of ONE view's cut (AddFrameVirtualGeometry
         // cuts each view in its own dispatch; a cut never draws more clusters than its DAG holds). Refused when
         // that bound passes the visible-list index range.
         Common::ResultStr<VirtualGeometryCandidateTables>
@@ -119,13 +119,12 @@ namespace Desert::Graphic
                 capacity += instances * spans.size();
                 instancesTotal += instances;
             }
-            const uint64_t views = std::max( viewCount, 1u );
-            capacity *= views;
-            if ( visible > VirtualGeometry::kMaxVisibleClusters || capacity > UINT32_MAX )
+            const uint32_t views = std::max( viewCount, 1u );
+            if ( visible > VirtualGeometry::kMaxVisibleClusters || capacity * views > UINT32_MAX )
                 return Common::MakeError<Result>( std::format(
                      "VirtualGeometry: {} drawn VG instances hold {} clusters / {} candidates, past the visible-list "
                      "index range {}",
-                     instancesTotal, visible, capacity, VirtualGeometry::kMaxVisibleClusters ) );
+                     instancesTotal, visible, capacity * views, VirtualGeometry::kMaxVisibleClusters ) );
             if ( capacity == 0u || visible == 0u )
                 return Common::MakeSuccess( std::move( out ) );
 
@@ -144,6 +143,7 @@ namespace Desert::Graphic
             out.Input.CutViewOf     = upload( "GPUDriven.VgCutViewOf", std::as_bytes( std::span( cutViewOf ) ) );
             out.Input.PrimitiveRows = primitiveRows;
             out.Input.Capacity      = static_cast<uint32_t>( capacity );
+            out.Input.CutViews      = views;
             out.Instances           = static_cast<uint32_t>( std::min<uint64_t>( instancesTotal, UINT32_MAX ) );
             out.VisibleCapacity     = static_cast<uint32_t>( visible );
             return Common::MakeSuccess( std::move( out ) );
@@ -593,23 +593,42 @@ namespace Desert::Graphic
         m_ClusterCutCounts->BeginFrame( frame.FrameIndex );
 
         // One cut per cull view of the draw bins (cull view v = cut view v): the main view, then each drawn
-        // shadow cascade. Every view selects LOD from the main camera (MakeCullView's LodProjection, as the bins:
-        // the shadows draw the main view's LOD), so each cut projects into the main view's pixels.
+        // shadow cascade. Each cut selects LOD in ITS OWN pixels (UE: shadow LOD by the shadow view's
+        // resolution): the main view through its perspective LodProjection, a cascade by its own world size per
+        // texel (orthographic). The cascades' instance bins keep the main camera's mesh LOD (MakeCullView).
         const VirtualGeometry::ClusterCandidates candidates{ .Rows            = bins.VgCandidates.Rows,
                                                              .Count           = bins.VgCandidates.Count,
                                                              .Capacity        = bins.VgCandidates.Capacity,
-                                                             .VisibleCapacity = bins.VgVisibleCapacity };
+                                                             .VisibleCapacity = bins.VgVisibleCapacity,
+                                                             .Layout          = VirtualGeometry::ClusterCandidateLayout::PerCutView,
+                                                             .CutViews        = bins.VgCandidates.CutViews };
         const VirtualGeometry::VirtualMeshBuffers vgMeshes = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
         const VirtualGeometryCutInput             in{ .Scene      = bins.Scene,
                                                       .Upload     = bins.Upload,
                                                       .Meshes     = vgMeshes,
                                                       .NeutralHzb = bins.NeutralHzb };
-        const auto viewOf = [&]( const size_t v )
+        const SceneResources::DirectionalShadowViews shadows = meshes->DirectionalShadows();
+        const SceneResources::DirectionalShadowView& sun     = shadows[SceneResources::kDirectionalShadowSun];
+        const auto viewOf = [&]( const size_t v ) -> Common::ResultStr<VirtualGeometry::ClusterCullView>
         {
-            return VirtualGeometry::ClusterCullView{ .Instance         = bins.Views[v],
-                                                     .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
-                                                     .ViewWidth        = frame.Split.Render.Width,
-                                                     .ViewHeight       = frame.Split.Render.Height };
+            using Result = VirtualGeometry::ClusterCullView;
+            if ( v == 0u )
+                return Common::MakeSuccess( Result{
+                     .Instance         = bins.Views[v],
+                     .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
+                     .Lod = VirtualGeometry::ClusterLodMeasure::Perspective( frame.Split.Render.Height,
+                                                                             bins.Views[v].View.LodProjection ) } );
+            // A cascade's view key is kDirectionalShadowSun x kMaxCascades + its cascade (AddFrameDrawBins).
+            const uint32_t key   = bins.ViewKeys[v];
+            const uint32_t first = SceneResources::kDirectionalShadowSun * System::MeshRenderer::kMaxCascades;
+            if ( key < first || key - first >= System::MeshRenderer::kMaxCascades )
+                return Common::MakeError<Result>(
+                     std::format( "VirtualGeometry: cut view {} (key {}) is not a sun cascade", v, key ) );
+            const float worldPerTexel = sun.CascadeWorldPerTexel[static_cast<glm::length_t>( key - first )];
+            return Common::MakeSuccess(
+                 Result{ .Instance         = bins.Views[v],
+                         .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
+                         .Lod              = VirtualGeometry::ClusterLodMeasure::OrthographicTexel( worldPerTexel ) } );
         };
         const auto logOnce = [this]( const std::string& message )
         {
@@ -621,8 +640,15 @@ namespace Desert::Graphic
         bool cascadesCut = true;
         for ( size_t v = 1; v < bins.Views.size(); ++v )
         {
+            const auto cascadeView = viewOf( v );
+            if ( !cascadeView )
+            {
+                logOnce( std::format( "{} ({})", cascadeView.GetError(), bins.ViewNames[v] ) );
+                cascadesCut = false;
+                continue;
+            }
             const auto cascade = AddVirtualGeometryCut( graph, *m_VirtualGeometry, *m_ClusterCutCounts, *meshes, in,
-                                                        candidates, viewOf( v ), static_cast<uint32_t>( v ),
+                                                        candidates, cascadeView.GetValue(), static_cast<uint32_t>( v ),
                                                         bins.ViewKeys[v], GpuDriven::CullPhase::Main,
                                                         VirtualGeometry::ClusterCutKind::ShadowCascade );
             if ( !cascade )
@@ -632,7 +658,7 @@ namespace Desert::Graphic
             }
         }
 
-        const VirtualGeometry::ClusterCullView view   = viewOf( 0 );
+        const VirtualGeometry::ClusterCullView view   = viewOf( 0 ).GetValue(); // the main view never refuses
         const uint32_t                         pass   = view.Instance.View.Pass;
         const auto                             culled = AddVirtualGeometryCut(
              graph, *m_VirtualGeometry, *m_ClusterCutCounts, *meshes, in, candidates, view, 0u,
@@ -668,12 +694,15 @@ namespace Desert::Graphic
              .Rows            = m_FrameVirtualGeometry->OccludedCandidates,
              .Count           = m_FrameVirtualGeometry->OccludedCount,
              .Capacity        = m_FrameVirtualGeometry->VisibleCapacity,
-             .VisibleCapacity = m_FrameVirtualGeometry->VisibleCapacity };
+             .VisibleCapacity = m_FrameVirtualGeometry->VisibleCapacity,
+             .Layout          = VirtualGeometry::ClusterCandidateLayout::PostCarry,
+             .CutViews        = 1u };
         const VirtualGeometry::VirtualMeshBuffers vgMeshes = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
-        const VirtualGeometry::ClusterCullView    view{ .Instance         = bins.Views.front(),
-                                                        .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
-                                                        .ViewWidth        = frame.Split.Render.Width,
-                                                        .ViewHeight       = frame.Split.Render.Height };
+        const VirtualGeometry::ClusterCullView    view{
+                .Instance         = bins.Views.front(),
+                .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
+                .Lod              = VirtualGeometry::ClusterLodMeasure::Perspective(
+                     frame.Split.Render.Height, bins.Views.front().View.LodProjection ) };
         const auto post = AddVirtualGeometryCut(
              graph, *m_VirtualGeometry, *m_ClusterCutCounts, *meshes,
              VirtualGeometryCutInput{

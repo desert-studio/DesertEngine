@@ -3,6 +3,8 @@
 # main view's bins. Project: F:/BistroFoliageProj. UNVERIFIED (written unbuilt): the lantern import repeats
 # VIRT-GEOM-COOK.scn's first steps; the camera is VIRT-GEOM-COOK's [vg_cut] near position.
 # The "bins-only" reference frames: the same steps on commit 92fbdd55d (VG instances drawn by the bins).
+# Step 14: per-cut-view candidate regions (each view's cut dispatch covers only its own candidates), the post
+# phase's carried clusters packed 64 per workgroup, cascade cuts LOD by the cascade's own texel size.
 # Step 13: post phase (a cluster the previous frame's HZB hid is re-cut against this frame's HZB and drawn by the
 # GBuffer post pass) and the shadow cascades' own cuts (VG instances out of the cascade bins too).
 Дано run Scene "Open Scene Bistro.desce"
@@ -23,5 +25,6 @@
 Тогда [vg_raster] editor.log: 0 VUID, no "[MeshRenderer] ... has no `.VirtualGeometry` pipeline" for the lantern's cell, no "the view draws no virtual geometry this frame", no "occluded entries past the post carry's capacity"
 Тогда-вид [vg_raster] vg_raster_cut60.png (the frame right after the camera cut, where last frame's HZB is of the other camera): no missing cluster - pixel diff vs the bins-only frame of the same steps < 1% of pixels (pixel diff, not thumbnails)
 Тогда-вид [vg_raster] the lit frame at frame 120 shows the lantern and its shadow as in the bins-only frame: frame mean within 1%
+Тогда [vg_raster_views] (step 14: candidates compacted per cut view, post clusters 64 per workgroup, cascade LOD by the cascade's own texel) vg_raster_cut60.png differs from the bins-only frame by < 1% of pixels; views.virtualGeometry.clustersDrawn > 0 and shadowClustersDrawn > 0; editor.log 0 VUID
 Когда run View "View mode: Virtual Geometry Clusters"
 Тогда-вид [vg_raster] the lantern shows per-cluster colours on the same silhouette as the lit frame

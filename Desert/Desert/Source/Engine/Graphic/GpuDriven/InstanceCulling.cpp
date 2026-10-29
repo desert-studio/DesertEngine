@@ -56,7 +56,7 @@ namespace Desert::Graphic::GpuDriven
         constexpr uint32_t    kStepArgs      = 3u;
 
         // InstanceCull.shader's push block: Params, Params2, Params3 (x = VG primitive rows, y = VG candidate
-        // capacity; 0 = no append).
+        // rows per cut view; 0 = no append).
         struct CullPush
         {
             glm::uvec4 Params{ 0u };
@@ -225,13 +225,18 @@ namespace Desert::Graphic::GpuDriven
             return Common::MakeError<MainPhaseResult>( "GPUDriven: Cull: no view to cull for" );
         const bool appendsVg = virtualGeometry.PrimitiveDags.IsValid();
         if ( appendsVg && ( !virtualGeometry.DagEntries.IsValid() || !virtualGeometry.CutViewOf.IsValid() ||
-                            virtualGeometry.PrimitiveRows == 0u || virtualGeometry.Capacity == 0u ) )
+                            virtualGeometry.PrimitiveRows == 0u || virtualGeometry.Capacity == 0u ||
+                            virtualGeometry.CutViews == 0u ) )
             return Common::MakeError<MainPhaseResult>( std::format(
                  "GPUDriven: Cull: virtual-geometry candidates half given (entries {}, view map {}, {} primitive "
-                 "rows, capacity {})",
+                 "rows, capacity {} per cut view, {} cut views)",
                  virtualGeometry.DagEntries.IsValid() ? "valid" : "invalid",
                  virtualGeometry.CutViewOf.IsValid() ? "valid" : "invalid", virtualGeometry.PrimitiveRows,
-                 virtualGeometry.Capacity ) );
+                 virtualGeometry.Capacity, virtualGeometry.CutViews ) );
+        if ( appendsVg && uint64_t{ virtualGeometry.Capacity } * virtualGeometry.CutViews > UINT32_MAX )
+            return Common::MakeError<MainPhaseResult>(
+                 std::format( "GPUDriven: Cull: {} cut views x {} candidate rows pass the row index range",
+                              virtualGeometry.CutViews, virtualGeometry.Capacity ) );
         if ( tables.size() != kMeshPassCount || passes.size() != kMeshPassCount )
             return Common::MakeError<MainPhaseResult>(
                  std::format( "GPUDriven: Cull: {} pass tables / {} pass buffers, expected one per MeshPass ({})",
@@ -284,10 +289,15 @@ namespace Desert::Graphic::GpuDriven
         if ( appendsVg )
         {
             result.VirtualGeometry.Capacity = virtualGeometry.Capacity;
+            result.VirtualGeometry.CutViews = virtualGeometry.CutViews;
             result.VirtualGeometry.Rows     = graph.CreateBuffer(
-                 RDG::BufferDesc{ .Bytes = uint64_t{ virtualGeometry.Capacity } * kVirtualGeometryCandidateBytes },
+                 RDG::BufferDesc{ .Bytes = uint64_t{ virtualGeometry.Capacity } * virtualGeometry.CutViews *
+                                           kVirtualGeometryCandidateBytes },
                  "GPUDriven.VgCandidates" );
-            result.VirtualGeometry.Count = ZeroBuffer( graph, "GPUDriven.VgCandidateCount" );
+            // [0] = binned VG instances, [1 + v] = cut view v's append count.
+            result.VirtualGeometry.Count =
+                 ZeroBuffer( graph, "GPUDriven.VgCandidateCount",
+                             std::max<uint64_t>( 16u, ( uint64_t{ virtualGeometry.CutViews } + 1u ) * 4u ) );
         }
 
         for ( uint32_t p = 0; p < kMeshPassCount; ++p )

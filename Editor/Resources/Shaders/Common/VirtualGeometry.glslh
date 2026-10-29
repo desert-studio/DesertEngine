@@ -162,14 +162,19 @@ float VgMaxScale( mat4 world )
 }
 
 // UE Nanite GetProjectedEdgeScales, the sphere's nearest point: a world LOD error @p error seen from @p origin
-// in pixels (@p lodScale = 0.5 x view height x Projection[1][1]). Error 0 (level 0) projects to 0; a view inside
-// the sphere sees any positive error as infinitely large (refine). THE ONE FUNCTION both sides of the cut call:
+// in the view's own pixels. Perspective: @p lodScale = 0.5 x view height x Projection[1][1], divided by the
+// nearest distance; a view inside the sphere sees any positive error as infinitely large (refine).
+// @p orthographic (a shadow cascade, UE: shadow LOD by the shadow view's resolution): @p lodScale = texels per
+// world cm, no distance. Error 0 (level 0) projects to 0. THE ONE FUNCTION both sides of the cut call:
 // a group's (LodBounds, ParentLodError) in the parent test is bit-for-bit its children's (LodBounds, LodError)
 // in the own test, so a group and the clusters generated from it can never both draw or both hide (no crack).
-float VgProjectedError( vec4 sphere, float error, mat4 world, float worldScale, vec3 origin, float lodScale )
+float VgProjectedError( vec4 sphere, float error, mat4 world, float worldScale, vec3 origin, float lodScale,
+                        bool orthographic )
 {
     if ( error <= 0.0 )
         return 0.0;
+    if ( orthographic )
+        return error * worldScale * lodScale;
     const vec3  center = ( world * vec4( sphere.xyz, 1.0 ) ).xyz;
     const float near   = distance( center, origin ) - sphere.w * worldScale;
     if ( near <= 0.0 )
