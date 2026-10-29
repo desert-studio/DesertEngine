@@ -1007,9 +1007,11 @@ namespace Desert::Graphic::System
         /// Draws (cells or generic materials) the last frame gave to the default surface, or left out, because
         /// their own pipeline was still compiling: the picture is not the scene yet. UE's automated screenshot
         /// waits for FinishAllCompilation; the control gate's PendingWork::MaterialPipelines waits on this.
+        /// A bin whose `.Binned` PSO is still compiling counts too (once per PSO): its draws ride the CPU path
+        /// meanwhile, so the frame is not the one the GPU-driven passes will settle on.
         [[nodiscard]] uint32_t GetStandInDraws() const
         {
-            return m_StandInDraws;
+            return m_StandInDraws + static_cast<uint32_t>( m_BinnedAwaiting.size() );
         }
         /// Triangles the last frame's VIEW pass sent to the GPU (forward geometry, or the deferred G-buffer +
         /// forward generic), at the LOD each draw was built with: UE's stat "Triangles drawn" for the base pass.
@@ -1913,6 +1915,9 @@ namespace Desert::Graphic::System
         std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_BinnedFeed;
         std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_ScratchBinnedFeed;
         std::unordered_set<std::string>                                    m_BinnedRefused; // said once each
+        // The bins' PSOs BinnedCellPipeline found still compiling (their draws answered PipelineUnavailable): the
+        // frame one of them leaves the driver, FeedDrawCommandCache re-resolves the cache's draws.
+        std::vector<std::weak_ptr<GraphicsPipeline>> m_BinnedAwaiting;
         // What the cache's answers were resolved at: a recompile (Graphic::PipelineRebuildEpoch) or a wireframe
         // toggle (the Forward pass state's line twin) moves them, and the feed re-resolves every cached draw.
         uint64_t m_BinnedPipelineEpoch = 0;

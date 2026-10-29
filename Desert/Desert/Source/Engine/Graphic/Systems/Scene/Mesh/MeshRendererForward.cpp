@@ -840,6 +840,12 @@ namespace Desert::Graphic::System
                                return false; // the G-buffer pass is set up on a later frame
                            // A missing cell shader or a refused pipeline is logged by CellPipeline, once per key.
                            (void)CullPermutation( CellPipeline( passState, cell.Shader ), cell.TwoSided );
+                           // The same cell's `.Binned` permutation, which a GPU-driven bin draws it with
+                           // (ResolveBinnedPipeline): warmed with it, so a bin does not first ask on the frame
+                           // that sees its mesh. A template with no binned cell (translucent) is not binned.
+                           const std::string binnedCell = BinnedCellOf( cell.Shader );
+                           if ( Runtime::ResourceRegistry::GetShaderService()->GetByName( binnedCell ) )
+                               (void)BinnedCellPipeline( binnedCell, passState, cell.TwoSided );
                            return true;
                        } );
     }

@@ -720,8 +720,18 @@ namespace Desert::Graphic::System
             m_BinnedPipelineEpoch = epoch;
             m_BinnedWireframe     = WireframeView();
             m_BinnedRefused.clear(); // a reload may have fixed what was refused; say a remaining refusal again
+            m_BinnedAwaiting.clear(); // every answer is asked again below, so is every PSO still compiling
             m_DrawCommandCache->InvalidatePipelines();
         }
+        // A bin's PSO that left the driver (Ready or Failed) since the last frame: the draws that fell back to the
+        // CPU path for it (PipelineUnavailable) are re-resolved now, not at the next recompile.
+        else if ( std::erase_if( m_BinnedAwaiting,
+                                 []( const std::weak_ptr<GraphicsPipeline>& w )
+                                 {
+                                     const auto pipeline = w.lock();
+                                     return !pipeline || pipeline->GetReadiness() != PipelineReadiness::Compiling;
+                                 } ) > 0 )
+            m_DrawCommandCache->InvalidatePipelines();
 
         // One entry per primitive, gathered across its records: a record draws the submeshes it does not hide with
         // its row; the primitive hides what every record hides (the other records' sections, the component's mask).
@@ -978,7 +988,26 @@ namespace Desert::Graphic::System
                 LOG_ERROR( "[MeshRenderer] binned cell '{}' has no pipeline: {}", cellShader, built.GetError() );
             return nullptr;
         }
-        return built.GetValue().get();
+        const std::shared_ptr<GraphicsPipeline>& pipeline = built.GetValue();
+        switch ( pipeline->GetReadiness() )
+        {
+            case PipelineReadiness::Ready:
+                return pipeline.get();
+            case PipelineReadiness::Compiling:
+                // Not a bin's PSO yet: the draws stay on the CPU path (PipelineUnavailable), which shows the
+                // default surface while their own cell compiles too, and the cache re-resolves them the frame
+                // this one leaves the driver (FeedDrawCommandCache); until then the frame is not the scene's
+                // picture (GetStandInDraws).
+                if ( std::ranges::none_of( m_BinnedAwaiting, [&pipeline]( const std::weak_ptr<GraphicsPipeline>& w )
+                                           { return w.lock() == pipeline; } ) )
+                    m_BinnedAwaiting.push_back( pipeline );
+                return nullptr;
+            case PipelineReadiness::Failed:
+                break;
+        }
+        if ( m_BinnedRefused.insert( cellShader ).second )
+            LOG_ERROR( "[MeshRenderer] binned cell '{}' did not compile; its draws stay on the CPU path.", cellShader );
+        return nullptr;
     }
 
     GpuDriven::PassPipelineResolution MeshRenderer::ResolveBinnedPipeline( const GpuDriven::MeshPass       pass,
