@@ -909,11 +909,15 @@ namespace Desert::Editor
         if ( !m_UnattendedMachineJson.empty() )
         {
             if ( ReadWholeFile( m_UnattendedMachineJson ) == m_UnattendedMachineBytes )
+            {
                 LOG_INFO( "[Machine] unattended run: {} is byte-identical to its state at start ({} bytes)",
                           m_UnattendedMachineJson.string(), m_UnattendedMachineBytes.size() );
+            }
             else
+            {
                 LOG_ERROR( "[Machine] unattended run CHANGED {} — a quality or machine setting leaked to disk",
                            m_UnattendedMachineJson.string() );
+            }
         }
 
         return BOOLSUCCESS;
