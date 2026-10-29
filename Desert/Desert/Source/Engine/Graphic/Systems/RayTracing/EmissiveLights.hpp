@@ -226,6 +226,9 @@ namespace Desert::Graphic::RayTracing
         // Emissive segments of deformed primitives left out this frame: their skin cache wrote no positions (no
         // ray-traced scene this frame). Counted, so the caller says it (AddFrameEmissiveLights).
         uint32_t UnplacedDeformedSegments = 0;
+        // Per gather primitive: its static rows [x, x + y) in Segments (y = 0: none - not emitting, deformed, or a
+        // grass row), what a moved primitive rewrites (EmissiveTriangleListCache::Update with moved primitives).
+        std::vector<glm::uvec2> PrimitiveRows;
         // FNV-1a of the static rows WITHOUT their transforms (ObjectToWorld zeroed): which triangles the static
         // part holds, from which streams, at which leaves, with which emission - not where they stand. The
         // renderer re-expands the whole static part on a change; otherwise only the rows whose transform moved
@@ -237,6 +240,15 @@ namespace Desert::Graphic::RayTracing
         // frame's whole list is (the path tracer restarts on a change).
         uint64_t Hash = 0;
     };
+
+    // FNV-1a over @p data from @p hash: the list's hashes (EmissiveTriangleList).
+    [[nodiscard]] inline uint64_t EmissiveFnv( uint64_t hash, const std::span<const std::byte> data )
+    {
+        for ( const std::byte b : data )
+            hash = ( hash ^ static_cast<uint64_t>( b ) ) * 1099511628211ull;
+        return hash;
+    }
+    inline constexpr uint64_t kEmissiveFnvBasis = 14695981039346656037ull;
 
     [[nodiscard]] inline float EmissiveLuminance( const glm::vec3& c )
     {
@@ -276,6 +288,7 @@ namespace Desert::Graphic::RayTracing
                                                        materials.GetRecordCount(), segments.size() );
         Result list;
         list.InstanceCount = static_cast<uint32_t>( instances.size() );
+        list.PrimitiveRows.assign( primitives.size(), glm::uvec2( 0u ) );
         const auto radiance = [&materials]( const std::size_t record ) -> const glm::vec3&
         { return materials.Of( record ).Radiance; };
 
@@ -349,6 +362,8 @@ namespace Desert::Graphic::RayTracing
                      primitive.SegmentRecordCount, described.size() );
             if ( deformed )
                 list.DynamicPositions.push_back( primitive.DeformedPositions );
+            else
+                list.PrimitiveRows[p].x = static_cast<uint32_t>( list.Segments.size() );
 
             for ( uint32_t g = 0; g < primitive.SegmentRecordCount; ++g )
             {
@@ -391,6 +406,8 @@ namespace Desert::Graphic::RayTracing
                 row.EmissiveSampler  = estimate.Sampler;
                 row.UvRotation       = estimate.UvRotation;
                 triangles += segment.PrimitiveCount;
+                if ( !deformed )
+                    ++list.PrimitiveRows[p].y;
                 // The triangle index and the trees' leaves are 32-bit on the GPU, and the two parts share one
                 // index space (the dynamic triangles follow the static ones).
                 if ( staticTriangles + dynamicTriangles > 0x7FFFFFFFull )
@@ -441,25 +458,19 @@ namespace Desert::Graphic::RayTracing
             }
         }
 
-        constexpr uint64_t kFnvBasis = 14695981039346656037ull;
-        const auto         fnv       = []( uint64_t hash, const std::span<const std::byte> data )
-        {
-            for ( const std::byte b : data )
-                hash = ( hash ^ static_cast<uint64_t>( b ) ) * 1099511628211ull;
-            return hash;
-        };
         // The structure: every static row with its transform zeroed.
-        uint64_t structure = kFnvBasis;
+        uint64_t structure = kEmissiveFnvBasis;
         for ( EmissiveSegmentGpu row : list.Segments )
         {
             row.ObjectToWorld = {};
-            structure         = fnv( structure, std::as_bytes( std::span<const EmissiveSegmentGpu>( &row, 1 ) ) );
+            structure         = EmissiveFnv( structure, std::as_bytes( std::span<const EmissiveSegmentGpu>( &row, 1 ) ) );
         }
         list.StructureHash = structure;
-        list.LookupHash    = fnv( kFnvBasis, std::as_bytes( std::span<const uint32_t>( list.Lookup ) ) );
-        uint64_t whole     = fnv( kFnvBasis, std::as_bytes( std::span<const EmissiveSegmentGpu>( list.Segments ) ) );
-        whole              = fnv( whole, std::as_bytes( std::span<const uint32_t>( list.Lookup ) ) );
-        list.Hash = fnv( whole, std::as_bytes( std::span<const EmissiveSegmentGpu>( list.DynamicSegments ) ) );
+        list.LookupHash = EmissiveFnv( kEmissiveFnvBasis, std::as_bytes( std::span<const uint32_t>( list.Lookup ) ) );
+        uint64_t whole =
+             EmissiveFnv( kEmissiveFnvBasis, std::as_bytes( std::span<const EmissiveSegmentGpu>( list.Segments ) ) );
+        whole     = EmissiveFnv( whole, std::as_bytes( std::span<const uint32_t>( list.Lookup ) ) );
+        list.Hash = EmissiveFnv( whole, std::as_bytes( std::span<const EmissiveSegmentGpu>( list.DynamicSegments ) ) );
         return Common::MakeSuccess( std::move( list ) );
     }
 
@@ -475,11 +486,11 @@ namespace Desert::Graphic::RayTracing
         [[nodiscard]] Common::BoolResultStr Update( std::span<const RayTracingPrimitive>     primitives,
                                                     std::span<const RayTracingSegmentRecord> segments,
                                                     std::span<const RayTracingInstance> instances, const bool regathered,
-                                                    const EmissiveEstimateFn& estimateOf )
+                                                    std::span<const uint32_t> moved, const EmissiveEstimateFn& estimateOf )
         {
             const bool materials = m_Materials.Update( segments, regathered, estimateOf );
             if ( m_Valid && !regathered && !materials )
-                return BOOLSUCCESS;
+                return Move( primitives, moved );
             m_Valid   = false;
             auto list = BuildEmissiveTriangleList( primitives, segments, instances, m_Materials );
             if ( !list )
@@ -500,12 +511,49 @@ namespace Desert::Graphic::RayTracing
         {
             return m_Builds;
         }
+        // How many times Update moved rows of the kept list in place (a moving emitter: once per frame it moves).
+        [[nodiscard]] uint64_t GetMoveCount() const
+        {
+            return m_Moves;
+        }
 
     private:
+        // The kept list, same structure: the static rows of each moved primitive take its World (a row-major 3x4),
+        // and Hash (what the whole list is) takes the rewritten rows. StructureHash and the lookup do not move.
+        // Walks the moved primitives' rows only.
+        [[nodiscard]] Common::BoolResultStr Move( std::span<const RayTracingPrimitive> primitives,
+                                                  std::span<const uint32_t>            moved )
+        {
+            bool rewrote = false;
+            for ( const uint32_t p : moved )
+            {
+                if ( p >= primitives.size() || p >= m_List.PrimitiveRows.size() )
+                    return Common::MakeFormattedError<bool>( "EmissiveLights: moved primitive {} of a gather of {} "
+                                                             "(the list holds {})",
+                                                             p, primitives.size(), m_List.PrimitiveRows.size() );
+                const glm::uvec2 rows  = m_List.PrimitiveRows[p];
+                const glm::mat4& world = primitives[p].World;
+                for ( uint32_t row = rows.x; row < rows.x + rows.y; ++row )
+                {
+                    EmissiveSegmentGpu& segment = m_List.Segments[row];
+                    for ( glm::length_t r = 0; r < 3; ++r )
+                        segment.ObjectToWorld[static_cast<std::size_t>( r )] =
+                             glm::vec4( world[0][r], world[1][r], world[2][r], world[3][r] );
+                    m_List.Hash =
+                         EmissiveFnv( m_List.Hash, std::as_bytes( std::span<const EmissiveSegmentGpu>( &segment, 1 ) ) );
+                    rewrote = true;
+                }
+            }
+            if ( rewrote )
+                ++m_Moves;
+            return BOOLSUCCESS;
+        }
+
         EmissiveMaterialTable m_Materials;
         EmissiveTriangleList  m_List;
         bool                  m_Valid  = false;
         uint64_t              m_Builds = 0;
+        uint64_t              m_Moves  = 0;
     };
 
     // One run of tree nodes a Build or Reduce dispatch writes: its threads [ThreadPrefix, ThreadPrefix + Count)

@@ -245,24 +245,69 @@ namespace Desert::Graphic::RayTracing
         if ( m_SceneMeshes == nullptr ||
              m_SceneGatherFrame != Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() )
             return Common::MakeError( "RayTracingScene: a scene gather before this frame's AddPasses" );
-        // Cached: the gather runs again only when what it reads changed (RayTracingSceneGatherKey, O(records)) or
-        // a TLAS gather overwrote it since. A still scene costs the key, not the per-instance ISM walk.
+        // Cached per primitive: the gather runs again only when what it reads changed IN STRUCTURE
+        // (RayTracingSceneGatherKey::SameStructure, O(records)) or a TLAS gather overwrote it since. A key that
+        // differs only in its records' worlds moves the kept primitives of those rows in place
+        // (GetSceneMovedPrimitives). A still scene costs the key, not the per-instance ISM walk.
+        m_SceneMoved.clear();
         const RayTracingGatherInputs inputs = GatherInputsOf( *m_SceneMeshes, m_SceneViewOrigin, m_SceneLensScale );
         {
             DESERT_PROFILE_SCOPE( "RayTracingScene: SceneGatherKey" );
             MakeRayTracingSceneGatherKey( inputs, m_SceneGatherScratchKey );
-            if ( m_GatherIsScene && m_SceneGatherScratchKey == m_SceneGatherKey )
+            if ( m_GatherIsScene && m_SceneGatherScratchKey.SameStructure( m_SceneGatherKey ) )
+            {
+                if ( m_SceneGatherScratchKey.Transforms == m_SceneGatherKey.Transforms )
+                    return BOOLSUCCESS;
+                MoveScenePrimitives();
+                std::swap( m_SceneGatherKey, m_SceneGatherScratchKey );
+                ++m_SceneGatherMoves;
                 return BOOLSUCCESS;
+            }
         }
         {
-            // In the profile only on the frames that regather (a still scene: none after the first).
+            // In the profile only on the frames that regather (a still scene: none after the first; a moving
+            // primitive: none either, "RayTracingScene: SceneGatherMove" instead).
             DESERT_PROFILE_SCOPE( "RayTracingScene: SceneGather" );
             GatherRayTracingPrimitives( inputs, nullptr, m_Gather );
+            // The primitives a world of the key moves: one per row for every kind with a CPU world of its own
+            // (a static row merges its records; an ISM instance's world is its field snapshot, structure).
+            m_ScenePrimitivesOfRow.clear();
+            for ( std::size_t p = 0; p < m_Gather.Primitives.size(); ++p )
+            {
+                const RayTracingPrimitiveKind kind = m_Gather.Primitives[p].Kind;
+                if ( kind == RayTracingPrimitiveKind::Static || kind == RayTracingPrimitiveKind::Generic ||
+                     kind == RayTracingPrimitiveKind::Skinned )
+                    m_ScenePrimitivesOfRow.emplace( m_Gather.Primitives[p].GpuSceneRow, static_cast<uint32_t>( p ) );
+            }
         }
         std::swap( m_SceneGatherKey, m_SceneGatherScratchKey );
         m_GatherIsScene = true;
         ++m_SceneGathers;
         return BOOLSUCCESS;
+    }
+
+    void RayTracingSceneRenderer::MoveScenePrimitives()
+    {
+        // Same structure: the same primitives in the same order (RayTracingSceneGatherKey). Only the records whose
+        // world differs are applied, each to the primitives of its row; a row's records share one world (the
+        // gather takes the row's first), so a primitive moves once.
+        DESERT_PROFILE_SCOPE( "RayTracingScene: SceneGatherMove" );
+        const std::vector<glm::mat4>& now  = m_SceneGatherScratchKey.Transforms;
+        const std::vector<glm::mat4>& kept = m_SceneGatherKey.Transforms;
+        for ( std::size_t record = 0; record < now.size(); ++record )
+        {
+            if ( now[record] == kept[record] )
+                continue;
+            const auto [first, last] = m_ScenePrimitivesOfRow.equal_range( m_SceneGatherScratchKey.TransformRows[record] );
+            for ( auto it = first; it != last; ++it )
+            {
+                RayTracingPrimitive& primitive = m_Gather.Primitives[it->second];
+                if ( primitive.World == now[record] )
+                    continue;
+                primitive.World = now[record];
+                m_SceneMoved.push_back( it->second );
+            }
+        }
     }
 
     Common::BoolResultStr RayTracingSceneRenderer::AddPasses(
@@ -271,6 +316,7 @@ namespace Desert::Graphic::RayTracing
     {
         m_Frame     = {};
         m_Instances = {};
+        m_SceneMoved.clear();
         m_Stats     = {};
         // What a scene gather of this frame reads (GatherScene), kept whether or not the TLAS is built.
         m_SceneMeshes      = &meshes;

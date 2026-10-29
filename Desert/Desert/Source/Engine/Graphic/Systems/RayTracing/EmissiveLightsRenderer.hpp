@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <utility>
 #include <string_view>
 #include <vector>
 
@@ -80,6 +81,7 @@ namespace Desert::Graphic::RayTracing
 
     inline constexpr std::string_view kEmissiveSegmentsName          = "EmissiveLights.Segments";
     inline constexpr std::string_view kEmissiveLookupName            = "EmissiveLights.Lookup";
+    inline constexpr std::string_view kEmissiveMoveAckName           = "EmissiveLights.MoveAck";
     inline constexpr std::string_view kEmissiveTrianglesName         = "EmissiveLights.Triangles";
     inline constexpr std::string_view kEmissivePowerName             = "EmissiveLights.Power";
     inline constexpr std::string_view kEmissiveDynamicSegmentsName   = "EmissiveLights.DynamicSegments";
@@ -180,6 +182,7 @@ namespace Desert::Graphic::RayTracing
                      "EmissiveLights: the pipelines were not made (Initialize)" );
             const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
             m_Retiring.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+            ResolvePendingMoves( frames.GetAbsoluteFrameCount() );
 
             EmissiveLightsFrame frame;
             frame.Valid         = true;
@@ -254,12 +257,18 @@ namespace Desert::Graphic::RayTracing
                          { .Row = glm::uvec4( static_cast<uint32_t>( row ), 0u, 0u, 0u ),
                            .ObjectToWorld = segment.ObjectToWorld } );
                     leafRuns.emplace_back( segment.FirstTriangle, segment.FirstTriangle + segment.TriangleCount );
-                    m_KeptTransforms[row] = segment.ObjectToWorld;
+                    m_PendingMoves.emplace_back( static_cast<uint32_t>( row ), segment.ObjectToWorld );
                 }
                 if ( moves.empty() )
                     return Common::MakeSuccess( frame );
                 DESERT_PROFILE_SCOPE( "EmissiveLights: Move" );
                 AddMove( graph, frame.Static.Segments, moves );
+                // The moved rows count as held by the GPU only once this graph executed: its ack arrives on
+                // Execute (ResolvePendingMoves, next frame).
+                const uint32_t       ack    = 1u;
+                const RDG::BufferRef ackRef = graph.CreateBuffer( RDG::BufferDesc{ sizeof( ack ) }, kEmissiveMoveAckName );
+                graph.QueueBufferUpload( ackRef, std::as_bytes( std::span<const uint32_t>( &ack, 1 ) ) );
+                graph.Extract( ackRef, m_MoveAck, RDG::Access::StorageRead );
                 AddTree( graph, frame.Static, static_cast<uint32_t>( list.Segments.size() ), {},
                          EmissiveDirtyRuns( std::move( leafRuns ), frame.Static.Levels ),
                          { kEmissiveMovedRunsName, kEmissiveBuildMovedPassName, kEmissiveReduceMovedPassName } );
@@ -292,6 +301,7 @@ namespace Desert::Graphic::RayTracing
             m_Kept.Triangles     = {};
             m_Kept.Power         = {};
             m_Kept.StructureHash = list.StructureHash;
+            m_PendingMoves.clear(); // the whole part is re-expanded from the list: nothing pending survives it
             m_KeptTransforms.clear();
             m_KeptTransforms.reserve( list.Segments.size() );
             for ( const EmissiveSegmentGpu& segment : list.Segments )
@@ -313,14 +323,48 @@ namespace Desert::Graphic::RayTracing
         {
             return m_StaticMoves;
         }
+        // How many Move frames' graphs did not execute (no ack): their rows were moved again on the next frame.
+        [[nodiscard]] uint64_t GetStaticMoveRetryCount() const
+        {
+            return m_StaticMoveRetries;
+        }
 
     private:
+        // A FAILED FRAME MARKS ITS MOVED EMITTERS DIRTY AGAIN. The rows the last Move frame wrote enter
+        // m_KeptTransforms only when its graph executed (m_MoveAck arrived on Execute); a graph that failed or never
+        // ran after declaring the Move leaves them at what the GPU holds, so this frame's comparison moves them
+        // again (writing the same transforms and re-expanding their leaves is idempotent, whatever part of the
+        // failed graph ran). The ack is parked like any kept buffer: a frame in flight may still hold it.
+        void ResolvePendingMoves( const uint64_t frame )
+        {
+            if ( !m_PendingMoves.empty() )
+            {
+                if ( m_MoveAck.Physical )
+                {
+                    for ( const auto& [row, transform] : m_PendingMoves )
+                        if ( row < m_KeptTransforms.size() )
+                            m_KeptTransforms[row] = transform;
+                }
+                else
+                    ++m_StaticMoveRetries;
+                m_PendingMoves.clear();
+            }
+            if ( m_MoveAck.Physical )
+            {
+                Kept replaced;
+                replaced.MoveAck = std::move( m_MoveAck );
+                m_Retiring.Park( std::move( replaced ), frame );
+            }
+            m_MoveAck = {};
+        }
+
         struct Kept
         {
             RDG::ExternalBuffer Segments;
             RDG::ExternalBuffer Lookup;
             RDG::ExternalBuffer Triangles;
             RDG::ExternalBuffer Power;
+            RDG::ExternalBuffer MoveAck; // only ever parked (ResolvePendingMoves)
             uint64_t            StructureHash = 0;
             uint64_t            LookupHash    = 0;
         };
@@ -516,10 +560,14 @@ namespace Desert::Graphic::RayTracing
         Kept                             m_Kept;
         // The transform of each kept static row as the GPU holds it (what a move is measured against).
         std::vector<std::array<glm::vec4, 3>> m_KeptTransforms;
+        // The last Move frame's rows and transforms, until its ack says whether its graph executed.
+        std::vector<std::pair<uint32_t, std::array<glm::vec4, 3>>> m_PendingMoves;
+        RDG::ExternalBuffer                                        m_MoveAck;
         EmptyPart                             m_EmptyDynamic;
         // Static parts (and lookups) a rebuild replaced, kept until no frame in flight can still read them.
         Assets::FrameRetireQueue<Kept> m_Retiring;
         uint64_t                       m_StaticRebuilds = 0;
         uint64_t                       m_StaticMoves    = 0;
+        uint64_t                       m_StaticMoveRetries = 0;
     };
 } // namespace Desert::Graphic::RayTracing

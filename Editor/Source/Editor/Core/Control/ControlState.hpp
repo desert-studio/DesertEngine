@@ -140,6 +140,16 @@ namespace Desert::Editor::Control
         std::string              GIMethod;
         std::string              ReflectionsMethod;
         std::string              ShadowsMethod;
+        /// GI-ALL-LIGHTS step 5: the main viewport's SceneRenderer::GetEmissiveLightCounters() - how its emissive
+        /// light list followed the scene (full rebuilds vs in-place moves of the scene gather, the CPU list and the
+        /// GPU static part; Move frames whose graph did not execute). All 0 when no main viewport renders.
+        uint64_t EmissiveGatherFullRebuilds = 0;
+        uint64_t EmissiveGatherMoves        = 0;
+        uint64_t EmissiveListFullRebuilds   = 0;
+        uint64_t EmissiveListMoves          = 0;
+        uint64_t EmissiveGpuFullRebuilds    = 0;
+        uint64_t EmissiveGpuMoves           = 0;
+        uint64_t EmissiveGpuMovesRetried    = 0;
     };
 
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
@@ -432,6 +442,16 @@ namespace Desert::Editor::Control
             section["rtModes"]     = Common::Json::Value( modes );
             section["pathTracing"] = Common::Json::Value( pathTracing );
             section["methods"]     = Common::Json::Value( methods );
+            Common::Json::Object emissive;
+            const auto count = []( const uint64_t value ) { return Num( static_cast<double>( value ) ); };
+            emissive["gatherFullRebuilds"]       = count( device.EmissiveGatherFullRebuilds );
+            emissive["gatherMoves"]              = count( device.EmissiveGatherMoves );
+            emissive["emissiveListFullRebuilds"] = count( device.EmissiveListFullRebuilds );
+            emissive["emissiveListMoves"]        = count( device.EmissiveListMoves );
+            emissive["gpuFullRebuilds"]          = count( device.EmissiveGpuFullRebuilds );
+            emissive["gpuMoves"]                 = count( device.EmissiveGpuMoves );
+            emissive["gpuMovesRetried"]          = count( device.EmissiveGpuMovesRetried );
+            section["emissiveLights"] = Common::Json::Value( emissive );
             root["device"]  = Common::Json::Value( section );
         }
 

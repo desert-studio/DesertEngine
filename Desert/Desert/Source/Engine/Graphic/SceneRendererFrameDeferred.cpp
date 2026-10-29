@@ -1413,8 +1413,9 @@ namespace Desert::Graphic
             return estimate;
         };
         // The CPU list is rebuilt only when its gather was redone (every TLAS frame; a scene gather only when
-        // RayTracingSceneGatherKey moved) or a material's estimate moved (EmissiveTriangleListCache); the GPU side
-        // then re-expands only what changed (EmissiveLightsRenderer::AddPasses).
+        // RayTracingSceneGatherKey's structure moved) or a material's estimate moved (EmissiveTriangleListCache);
+        // a scene gather that only moved primitives moves their rows in place (GetSceneMovedPrimitives). The GPU
+        // side then re-expands only what changed (EmissiveLightsRenderer::AddPasses).
         const uint64_t gathers    = m_RayTracingScene.GetSceneGatherCount();
         const bool     regathered = tlas || gathers != m_EmissiveGatherCount;
         m_EmissiveGatherCount     = tlas ? ~0ull : gathers;
@@ -1424,7 +1425,7 @@ namespace Desert::Graphic
                  m_RayTracingScene.GetPrimitives(), m_RayTracingScene.GetSegmentRecords(),
                  tlas ? std::span<const RayTracing::RayTracingInstance>( m_RayTracingScene.GetInstances().Instances )
                       : std::span<const RayTracing::RayTracingInstance>(),
-                 regathered, estimateOf );
+                 regathered, m_RayTracingScene.GetSceneMovedPrimitives(), estimateOf );
             if ( !updated )
                 return Common::MakeError<Result>( updated.GetError() );
         }

@@ -423,12 +423,6 @@ namespace Desert::Graphic::RayTracing
             {
                 Words.push_back( std::bit_cast<uint32_t>( value ) );
             }
-            void Matrix( const glm::mat4& matrix ) const
-            {
-                for ( glm::length_t c = 0; c < 4; ++c )
-                    for ( glm::length_t r = 0; r < 4; ++r )
-                        Float( matrix[c][r] );
-            }
             void Section( const SectionSource& section ) const
             {
                 Value( section.Visible );
@@ -456,7 +450,15 @@ namespace Desert::Graphic::RayTracing
         out.Words.clear();
         out.InstancedRows.clear();
         out.Fields.clear();
+        out.Transforms.clear();
+        out.TransformRows.clear();
         const KeyWriter key{ out.Words };
+        // A record's world goes to Transforms, its row to TransformRows (RayTracingSceneGatherKey: per primitive).
+        const auto world = [&out]( const glm::mat4& transform, const uint32_t row )
+        {
+            out.Transforms.push_back( transform );
+            out.TransformRows.push_back( row );
+        };
         key.Value( inputs.Static.size() );
         key.Value( inputs.Generic.size() );
         key.Value( inputs.Instanced.size() );
@@ -465,7 +467,7 @@ namespace Desert::Graphic::RayTracing
         for ( const MeshRenderer::StaticMeshRenderData& data : inputs.Static )
         {
             key.MeshOf( data.Mesh );
-            key.Matrix( data.Transform );
+            world( data.Transform, data.GpuInstance );
             key.Value( data.GpuInstance );
             key.Section( SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ) );
             key.Value( data.CastShadows ? 1u : 0u );
@@ -476,7 +478,7 @@ namespace Desert::Graphic::RayTracing
             if ( !data.VisibleInRayTracing )
                 continue;
             key.MeshOf( data.Mesh );
-            key.Matrix( data.Transform );
+            world( data.Transform, data.GpuInstance );
             key.Value( data.GpuInstance );
             key.Section( GenericSectionOf( data ) );
             key.Value( data.CastShadows ? 1u : 0u );
@@ -527,7 +529,7 @@ namespace Desert::Graphic::RayTracing
         for ( const MeshRenderer::SkinnedMeshRenderData& data : inputs.Skinned )
         {
             key.MeshOf( data.Mesh );
-            key.Matrix( data.Transform );
+            world( data.Transform, data.GpuInstance );
             key.Value( data.GpuInstance );
             key.Value( data.Sections.size() );
             for ( const MeshRenderer::SkinnedSection& section : data.Sections )

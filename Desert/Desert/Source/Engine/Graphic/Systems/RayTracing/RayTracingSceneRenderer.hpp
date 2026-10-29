@@ -18,6 +18,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 // THE VIEW'S TLAS (UE FRayTracingScene::Create + its build pass). Every frame whose resolved methods trace rays
@@ -324,10 +325,23 @@ namespace Desert::Graphic::RayTracing
         // queues' primitives, transforms, sections, materials, ISM transform snapshots and rows) changes, or after
         // a TLAS gather replaced it. Error: called before this frame's AddPasses.
         [[nodiscard]] Common::BoolResultStr GatherScene();
-        // How many scene gathers GatherScene actually ran since the view was made (a still scene: one).
+        // How many full scene gathers GatherScene ran since the view was made (a still scene, or one whose
+        // primitives only move: one).
         [[nodiscard]] uint64_t GetSceneGatherCount() const
         {
             return m_SceneGathers;
+        }
+        // How many GatherScene calls moved kept primitives in place instead (RayTracingSceneGatherKey: same
+        // structure, other worlds).
+        [[nodiscard]] uint64_t GetSceneGatherMoveCount() const
+        {
+            return m_SceneGatherMoves;
+        }
+        // The primitives (GetPrimitives indices) whose World this frame's GatherScene moved in place; empty on a
+        // frame that gathered in full, built a TLAS, or moved nothing.
+        [[nodiscard]] std::span<const uint32_t> GetSceneMovedPrimitives() const
+        {
+            return m_SceneMoved;
         }
 
         // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
@@ -382,6 +396,11 @@ namespace Desert::Graphic::RayTracing
         RayTracingSceneGatherKey m_SceneGatherScratchKey; // this frame's, capacity kept
         bool                     m_GatherIsScene = false;
         uint64_t                 m_SceneGathers  = 0;
+        uint64_t                 m_SceneGatherMoves = 0;
+        // The kept scene gather's primitives by GPU-scene row (kinds with a CPU world), and this frame's moved ones.
+        std::unordered_multimap<uint32_t, uint32_t> m_ScenePrimitivesOfRow;
+        std::vector<uint32_t>                       m_SceneMoved;
+        void MoveScenePrimitives(); // GatherScene: the scratch key's moved worlds onto the kept gather
         std::vector<RDG::BufferRef>                 m_DynamicBlas;   // CPU scratch: this frame's built BLASes
         std::vector<RayTracingDynamicGeometryBuild> m_DynamicBuilds; // CPU scratch: this frame's BLAS builds
         RayTracingSceneStats                        m_Stats;

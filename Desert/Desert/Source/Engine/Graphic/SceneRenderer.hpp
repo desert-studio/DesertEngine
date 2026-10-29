@@ -481,6 +481,30 @@ namespace Desert::Graphic
         {
             return m_RenderMethods;
         }
+        // GI-ALL-LIGHTS step 5: how the emissive light list followed the scene since the view was made - full
+        // scene gathers vs in-place primitive moves (RayTracingSceneRenderer), CPU list rebuilds vs row moves
+        // (EmissiveTriangleListCache), GPU static-part rebuilds vs moved-row passes (EmissiveLightsRenderer). A
+        // still scene or one whose emitters only move: one full rebuild of each.
+        struct EmissiveLightCounters
+        {
+            uint64_t GatherFullRebuilds   = 0;
+            uint64_t GatherMoves          = 0;
+            uint64_t ListFullRebuilds     = 0;
+            uint64_t ListMoves            = 0;
+            uint64_t GpuFullRebuilds      = 0;
+            uint64_t GpuMoves             = 0;
+            uint64_t GpuMovesRetried      = 0;
+        };
+        [[nodiscard]] EmissiveLightCounters GetEmissiveLightCounters() const
+        {
+            return { .GatherFullRebuilds = m_RayTracingScene.GetSceneGatherCount(),
+                     .GatherMoves        = m_RayTracingScene.GetSceneGatherMoveCount(),
+                     .ListFullRebuilds   = m_EmissiveList.GetBuildCount(),
+                     .ListMoves          = m_EmissiveList.GetMoveCount(),
+                     .GpuFullRebuilds    = m_EmissiveLights.GetStaticRebuildCount(),
+                     .GpuMoves           = m_EmissiveLights.GetStaticMoveCount(),
+                     .GpuMovesRetried    = m_EmissiveLights.GetStaticMoveRetryCount() };
+        }
         // Read back by the editor's own external passes (grid, colliders), which draw INTO this view and
         // therefore must ask this view what it is showing — not a global, or every offscreen preview would
         // inherit the main viewport's flags.

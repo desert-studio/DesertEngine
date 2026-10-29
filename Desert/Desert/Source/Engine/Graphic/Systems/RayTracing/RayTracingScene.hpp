@@ -289,12 +289,25 @@ namespace Desert::Graphic::RayTracing
     // (RayTracingSceneRenderer::GatherScene) regathers only when a primitive, its transform, its sections or their
     // materials change. The view (origin, lens scale) is part of the key only when an ISM field culls by distance
     // - the one place the gather reads it.
+    // PER PRIMITIVE (GI-ALL-LIGHTS step 5): the world of a static / generic / skinned record is NOT in Words but
+    // in Transforms (one per such record, in key order, its GPU-scene row beside it in TransformRows). Equal
+    // structures (SameStructure) gather the same primitives in the same order with the same segment records, so
+    // a key that differs only in Transforms is applied to the kept gather in place - the moved rows' World, no
+    // primitive walk (RayTracingSceneRenderer::GatherScene). An ISM instance's world is its field's snapshot
+    // (Fields: a new snapshot is a new structure).
     struct RayTracingSceneGatherKey
     {
         std::vector<uint64_t>                                      Words;
         std::vector<uint32_t>                                      InstancedRows;
         std::vector<std::shared_ptr<const std::vector<glm::mat4>>> Fields;
+        std::vector<glm::mat4>                                     Transforms;
+        std::vector<uint32_t>                                      TransformRows;
 
+        [[nodiscard]] bool SameStructure( const RayTracingSceneGatherKey& other ) const
+        {
+            return Words == other.Words && InstancedRows == other.InstancedRows && Fields == other.Fields &&
+                   TransformRows == other.TransformRows;
+        }
         bool operator==( const RayTracingSceneGatherKey& ) const = default;
     };
 

@@ -1560,6 +1560,14 @@ namespace Desert::Editor
                 device.ReflectionsMethod =
                      name( Common::Scalability::kReflectionMethodNames, methods.Reflections.Effective );
                 device.ShadowsMethod = name( Common::Scalability::kShadowMethodNames, methods.Shadows.Effective );
+                const Graphic::SceneRenderer::EmissiveLightCounters emissive = renderer->GetEmissiveLightCounters();
+                device.EmissiveGatherFullRebuilds = emissive.GatherFullRebuilds;
+                device.EmissiveGatherMoves        = emissive.GatherMoves;
+                device.EmissiveListFullRebuilds   = emissive.ListFullRebuilds;
+                device.EmissiveListMoves          = emissive.ListMoves;
+                device.EmissiveGpuFullRebuilds    = emissive.GpuFullRebuilds;
+                device.EmissiveGpuMoves           = emissive.GpuMoves;
+                device.EmissiveGpuMovesRetried    = emissive.GpuMovesRetried;
             }
         }
 
