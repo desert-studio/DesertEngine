@@ -280,7 +280,7 @@ namespace Desert::Editor::Tools
                  MeshOf( EntityOf( scene, m_Session->Entity ) ) == nullptr ||
                  // Undo / Redo (or any other edit) replaced the component's mesh under the session: start over
                  // from what it holds now, or the preview would show the copy of the mesh it no longer has.
-                 MeshOf( EntityOf( scene, m_Session->Entity ) )->EditableMesh != m_Session->Committed )
+                 MeshOf( EntityOf( scene, m_Session->Entity ) )->GetEditableMesh() != m_Session->Committed )
             {
                 if ( !active && ms.ReqCancel )
                     ms.ReqCancel = false;
