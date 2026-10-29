@@ -104,6 +104,7 @@
 #include <Engine/Graphic/Systems/Scene/Shadows/MegaLightsVolume.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedLocalShadow.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedSunShadow.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/ForwardPrepassStats.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 #include <Engine/Graphic/Systems/Scene/PathTracing/PathTracer.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
@@ -428,6 +429,8 @@ namespace Desert::Graphic
         /// Triangles the last frame's view pass drew, at the LOD each mesh was drawn with
         /// (MeshRenderer::GetViewTrianglesDrawn).
         [[nodiscard]] uint64_t GetViewTrianglesDrawn() const;
+        /// The last frame's forward depth prepass (MeshRenderer::GetForwardPrepassStats); zero without a mesh renderer.
+        [[nodiscard]] System::ForwardPrepassStats GetForwardPrepassStats() const;
 
         // UE-style Instanced Static Mesh: one mesh + one lit material drawn for every transform in
         // @p transforms. Material and transforms are both co-owned handles for the reason SubmitMesh's
@@ -662,6 +665,13 @@ namespace Desert::Graphic
             return m_SceneInfo.ActiveCamera;
         }
 
+        // The virtual shadow map's local lights as last read back: per light its requested, rendered and cached
+        // pages (DesertCtl state "vsm"). Empty while no frame drew a local light into the map.
+        [[nodiscard]] const std::vector<System::VsmLocalLightStats>& GetVirtualShadowLocalStats() const
+        {
+            return m_VirtualShadowMap.GetLocalLightStats();
+        }
+
         // THE CURRENT FRAME'S VIEW (TAA1 step 3) — what every camera-block writer of this renderer fills
         // CameraUB from (ShaderProtocols::MakeCameraUB). CONTRACT: non-null only while OnUpdate runs, from the
         // moment m_ViewState.BeginFrame accepted the frame until OnUpdate returns (the graph executes and
@@ -710,6 +720,11 @@ namespace Desert::Graphic
         {
             return m_RenderPath;
         }
+
+        // This frame's point/spot shadows are the virtual shadow map's (Shadows resolved to VirtualMaps, not path
+        // traced): "VSM: Project Local" per slot, read by the same RayTracedLocal programs, and every forward
+        // reader (the mesh cells, the forward terrain) reads the virtual map in place of the atlas.
+        [[nodiscard]] bool LocalShadowsAreVirtual() const;
 
         // Shared GraphicsPipeline cache (keyed by shader + target + render-state). Renderers request
         // pipelines from here instead of creating their own; cleared on Init (full rebuild).
@@ -1043,9 +1058,11 @@ namespace Desert::Graphic
         // instead of it (colour 0, the velocity slot and the depth replaced, no resolves; same formats and one
         // sample, so the render pass stays compatible with the one their pipelines were built against) - the
         // overlays after the temporal resolve.
+        // @p clearDepth false: that first node clears colour only and LOADS the depth (the forward base pass over
+        // its depth prepass).
         void AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
                                std::span<const SystemRasterPass> passes, bool clearFirst,
-                               const OverlayTargets& overlay = {} );
+                               const OverlayTargets& overlay = {}, bool clearDepth = true );
         // The systems' opaque raster, called in this order by OnUpdate: the mesh renderer's cascade depths (each
         // clears its cascade), the scene target's sky + mesh geometry + terrain (the sky clears, the rest load),
         // the outline mask (clears).
@@ -1073,6 +1090,9 @@ namespace Desert::Graphic
         // This frame's point/spot shadows are ray traced (Shadows resolved to HardwareTraced, not path traced):
         // "Shadows: Ray Traced Local" per slot, read by the composite's RayTracedLocal program.
         [[nodiscard]] bool LocalShadowsAreRayTraced() const;
+        // THE ONE ANSWER TO "do the point/spot lights read a screen mask per ShadowMaskSlot this frame" (traced or
+        // virtual): the slots, the composite's and the opaque programs' mask permutations, the atlas gate ask it.
+        [[nodiscard]] bool LocalShadowsAreScreenMask() const;
         // THE ONE ANSWER TO "does a program of this frame read the point/spot shadow maps" while the composite
         // reads the ray-traced masks: a mesh forward draw (MeshRenderer::LocalShadowMapReadersQueued), the forward
         // terrain (TerrainRenderer::ForwardReadsTexture) or a view emitter's sprite (ParticleRenderer::
@@ -1081,7 +1101,7 @@ namespace Desert::Graphic
         // The same derivation for the sun's cascades (ShadowCascadesTexture) while the sun is a screen mask.
         [[nodiscard]] bool SunCascadesRead() const;
         // Every point/spot light that casts in this view gets a ShadowMaskSlot (and a record of
-        // m_LocalShadowMaskLights) when LocalShadowsAreRayTraced and its attenuation sphere meets @p view (the
+        // m_LocalShadowMaskLights) when LocalShadowsAreScreenMask and its attenuation sphere meets @p view (the
         // frame's unjittered frustum), every other -1. After UpdateLocalShadows.
         void AssignLocalShadowMaskSlots( const Core::Frustum& view );
         // Per slot: trace, denoise (history per light, m_LocalShadowDenoisers) and pack into the frame's 2D-array
@@ -1112,18 +1132,39 @@ namespace Desert::Graphic
         // low-detail cascades kept for the blended ShadowCascadesTexture readers). The producers ask their own method.
         [[nodiscard]] bool SunShadowIsScreenMask() const;
         // "Shadows: Virtual Shadow Map" (System::VirtualShadowMapRenderer): the page passes over this view's
-        // G-buffer, then "VSM: Project" (SMRT inside the sun's SourceAngle) into the screen mask. Invalid (logged)
-        // when the passes could not be declared; the readers then bind System.White, as for the ray-traced sun.
-        RDG::TextureRef AddFrameVirtualSunShadow( RDG::Builder& graph, FrameTextures& textures,
-                                                  const std::vector<RDG::TextureRef>& gbuffer,
-                                                  const glm::vec3& directionToSun, const ViewFrame& frame );
+        // G-buffer for the sun (when the scene has a directional light) and, under LocalShadowsAreVirtual, every
+        // point/spot light holding a ShadowMaskSlot; the casters' raster; then "VSM: Project" (SMRT inside the
+        // sun's SourceAngle) into the sun's screen mask and "VSM: Project Local" into one mask layer per slot.
+        // Each invalid (logged) when its passes could not be declared, or when there is nothing for it: the
+        // readers then bind System.White for the sun, and the local lights fall back as for a failed trace.
+        struct FrameVirtualShadows
+        {
+            RDG::TextureRef SunMask;
+            RDG::TextureRef LocalMasks;
+        };
+        // @p viewDepth: the view's reversed-Z opaque depth the local lights' pages are marked from - the G-buffer's,
+        // or the forward depth prepass's (AddFrameForwardDepthPrepass). @p gbuffer empty: the forward shading path,
+        // before its base pass - no sun pages and no masks (its forward cells read the map itself,
+        // DESERT_LOCAL_SHADOW_VSM), the local lights' pages from @p viewDepth, @p receiverDepths and their coarse
+        // mips. @p receiverDepths: the forward receivers' device depths (the translucent front layer).
+        FrameVirtualShadows AddFrameVirtualShadows( RDG::Builder& graph, FrameTextures& textures,
+                                                    RDG::TextureRef                     viewDepth,
+                                                    const std::vector<RDG::TextureRef>& gbuffer,
+                                                    const glm::vec3& directionToSun, const ViewFrame& frame,
+                                                    std::span<const RDG::TextureRef> receiverDepths );
         bool            EnsureVirtualShadowResources();
         // GPU-DRIVEN CULL, only under DebugViewState::ValidateGpuCulling (the drawing stays on the CPU path): the
         // InstanceCulling phases over the main view (two-phase FURTHEST-HZB occlusion against m_CullHzbHistory),
-        // the sun's cascades (m_FrameCascades) and the VSM clipmap levels (m_FrameVsmPages), then this frame's
-        // furthest HZB extracted into m_CullHzbHistory. A refusal is logged once per message and skips the frame.
+        // the sun's cascades (m_FrameCascades) and the VSM clipmap levels (m_FrameVsmPages, with a sun), then
+        // this frame's furthest HZB extracted into m_CullHzbHistory. A refusal is logged once per message and skips
+        // the frame.
         void AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
+        // THE FORWARD PATH'S DEPTH PREPASS (UE: the full DepthPass of the forward renderer), every forward frame:
+        // the opaque meshes and the terrain into the scene target's depth ALONE, cleared here; the base pass
+        // (AddFrameBasePass) then loads it, tests CloserOrEqual and writes none. The scene depth it wrote, for
+        // AddFrameVirtualShadows' view depth; invalid without a scene target.
+        RDG::TextureRef AddFrameForwardDepthPrepass( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
         // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
         // declared reads; @p color / @p depth are the loads of the node's targets.
@@ -1237,7 +1278,10 @@ namespace Desert::Graphic
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
-        void AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
+        // "Scene: DepthResolve" (@p name): the scene depth as the single-sample texture a compute or sampling pass
+        // reads - the resolved copy at MSAA, the scene depth itself at one sample; invalid when MSAA has no resolve.
+        RDG::TextureRef AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures,
+                                                   std::string_view name = "Scene: DepthResolve" );
         // The shader resolves of the scene target's SampleZero graph colours ("Velocity: Resolve", MSAA only).
         void AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures );
         // THE PATH-TRACED FRAME (PathTraced( m_RenderMethods ), after the G-buffer): System::PathTracer's restart,
@@ -1414,7 +1458,15 @@ namespace Desert::Graphic
         FrameFrontLayer AddFrameTranslucentFrontLayer( RDG::Builder& graph, FrameTextures& textures,
                                                        System::MeshRenderer*               meshRenderer,
                                                        const std::vector<RDG::TextureRef>& gbuffer,
-                                                       const FrameScreenTrace& screenTrace, const ViewFrame& frame );
+                                                       const FrameScreenTrace& screenTrace, const ViewFrame& frame,
+                                                       const FrontLayerSurface* prepared );
+        // "Translucency: Front Layer G-buffer": the nearest translucent surface of each pixel (FrontLayerSurface).
+        // Nothing when no translucent object is visible or a target cannot be described (logged). Under Shadows
+        // VirtualMaps it is drawn before the virtual shadow map, whose receivers its depth marks, and @p prepared
+        // above hands it to the reflections rather than drawing it twice.
+        std::optional<FrontLayerSurface> AddFrameFrontLayerSurface( RDG::Builder& graph, FrameTextures& textures,
+                                                                    System::MeshRenderer* meshRenderer,
+                                                                    const std::vector<RDG::TextureRef>& gbuffer );
         bool m_FrontLayerReflectionsFailed = false;
 
         struct FrameSSR
@@ -1607,6 +1659,7 @@ namespace Desert::Graphic
         // a program (RetryRefusedProgramsAfterRecompile): the same bytes fail the same way, new bytes are tried
         // again on the next frame.
         ProgramRefusals m_ProgramRefusals;
+        bool            m_DeferredWithoutGBufferLogged = false; // BeginScene's lowering of Deferred, said once
         // The refusals that stood when the shader service last recompiled, and the
         // ShaderService::RecompileGeneration they were dropped at. A method refused again for the same program
         // and the same reason (another shader was recompiled, not this one) is NOT said again.
@@ -1808,7 +1861,7 @@ namespace Desert::Graphic
         GpuDriven::InstanceCulling m_GpuCull;
         // The CPU recount of the cull's Visibility words, logged per view (one frame-in-flight late).
         GpuDriven::InstanceCullValidation m_GpuCullValidation;
-        // This frame's VSM page passes (AddFrameVirtualSunShadow), for the cull's VSM level views; reset before
+        // This frame's VSM page passes (AddFrameVirtualShadows), for the cull's VSM level views; reset before
         // the sun shadow is declared each frame, so a frame without VSM culls no level.
         std::optional<System::VirtualShadowMapFrame> m_FrameVsmPages;
         // The last cull refusal logged (AddFrameGpuCull): the same message is not logged again every frame.

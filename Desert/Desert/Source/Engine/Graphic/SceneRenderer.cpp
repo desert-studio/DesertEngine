@@ -962,6 +962,22 @@ namespace Desert::Graphic
         // dead setting, reintroduced by the fix for one.
         m_RenderPath = ( m_DebugView.WireframeMode || m_DebugView.LightingDebug ) ? Core::RenderPath::Forward
                                                                                   : sceneSettings.RenderingPath;
+        // The deferred path draws the meshes into the G-buffer: a mesh renderer without its (Static x GBuffer)
+        // pipeline (MeshRenderer::SetupGBufferPass named why) cannot, so the view is forward - its meshes then get
+        // the forward depth prepass their base pass tests against, never a forward draw on a deferred frame.
+        if ( m_RenderPath == Core::RenderPath::Deferred )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            if ( mesh != nullptr && !mesh->DrawsGBuffer() )
+            {
+                m_RenderPath = Core::RenderPath::Forward;
+                if ( !m_DeferredWithoutGBufferLogged )
+                    LOG_ERROR( "[SceneRenderer] the scene states the Deferred path but the mesh renderer has no "
+                               "G-buffer pipeline: this view renders Forward" );
+                m_DeferredWithoutGBufferLogged = true;
+            }
+        }
 
         // THE ANTI-ALIASING THIS FRAME RUNS (AA2), read from the settings layer's resolution of the
         // machine's choice for the SCENE'S path — not m_RenderPath: a debug view that forces forward must
@@ -1936,6 +1952,8 @@ namespace Desert::Graphic
             // Under HardwareTraced the deferred composite reads "Shadows: Ray Traced Local" (ShadowMaskSlot), and
             // the maps are drawn only while a queued forward draw in view samples them
             // (LocalShadowMapsRead: meshes, forward terrain, particles) - no forward surface loses its shadows.
+            // Under VirtualMaps no atlas is drawn: every reader (the forward and translucent cells, the forward
+            // terrain, the composite, the surface cache) reads DESERT_LOCAL_SHADOW_VSM (ForwardShadowMaskVariant).
             {
                 DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
                 System::MeshRenderer* const localShadowMeshes =
@@ -1943,7 +1961,8 @@ namespace Desert::Graphic
                 localShadowMeshes->UpdateLocalShadows(
                      m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights, m_SpotLightShadows,
                      !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) &&
-                          ( !LocalShadowsAreRayTraced() || LocalShadowMapsRead() ) );
+                          ( !LocalShadowsAreScreenMask() ||
+                            ( LocalShadowsAreRayTraced() && LocalShadowMapsRead() ) ) );
                 // The terrain's draws into those views, at the LOD each light asks for (not the camera's, so a
                 // cached local shadow survives a camera move), and its cache key, before LocalShadowPasses asks
                 // for it (PlanLocalShadowCache). Before this ran, GetLocalShadowCasterLights was empty and every
@@ -2033,6 +2052,30 @@ namespace Desert::Graphic
             AddFrameLightGridWorld( graph, textures, frame );
         if ( GlobalDistanceFieldRead() )
             AddFrameGlobalDistanceField( graph, textures, frame );
+        // THE FORWARD SHADING PATH UNDER Shadows VirtualMaps (UE: virtual shadow maps are independent of the
+        // shading path): the point/spot lights' pages before the base pass, whose forward cells read the map itself
+        // (DESERT_LOCAL_SHADOW_VSM) - the atlas is not drawn. No G-buffer: no sun pages (the forward sun reads its
+        // cascades) and no screen masks; each light's coarse mip is marked ("VSM: Mark Coarse") and a receiver
+        // reads its own mip where mapped, the coarse one otherwise (VsmLocalOccluderDistance).
+        // The forward depth prepass (UE forward: the full depth prepass, every forward frame) runs first: "VSM: Mark
+        // Local" marks the pages its pixels read, as it does the deferred G-buffer's, and the base pass tests
+        // CloserOrEqual against it and writes no depth.
+        if ( m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer )
+        {
+            const RDG::TextureRef sceneDepth = AddFrameForwardDepthPrepass( graph, textures );
+            if ( LocalShadowsAreVirtual() )
+            {
+                m_FrameVsmPages.reset();
+                // "VSM: Mark Local" samples a single-sample depth: at MSAA the prepass's multisampled depth through
+                // its own resolve (the base pass writes no depth, so this is the opaque depth the receivers read).
+                const RDG::TextureRef markDepth =
+                     sceneDepth.IsValid()
+                          ? AddFrameSceneDepthResolve( graph, textures, "Forward: Prepass DepthResolve" )
+                          : RDG::TextureRef{};
+                (void)AddFrameVirtualShadows( graph, textures, markDepth, {}, glm::vec3( 0.0f, 1.0f, 0.0f ), frame,
+                                              {} );
+            }
+        }
         AddFrameBasePass( graph, textures );
         // The selection outline's mask, which a face view's missing post chain would never read.
         if ( !m_ViewProfile.SceneCapture )
@@ -2072,6 +2115,27 @@ namespace Desert::Graphic
                 const FrameSun  sun        = GetFrameSun();
                 const glm::vec4 lightDir   = sun.Direction;
                 const glm::vec4 lightColor = sun.ColorIntensity;
+                // THE VIRTUAL SHADOW MAP before its first reader (UE: VSM page marking and rendering after the
+                // base pass, before the lighting): the surface cache's cards and every forward cell read the point/
+                // spot lights' shadows from it (DESERT_LOCAL_SHADOW_VSM), the composite its masks. Under VirtualMaps
+                // the translucent front layer's G-buffer is drawn first: its depth marks the pages the glass reads
+                // ("VSM: Mark Receivers"), and the front layer's reflections below reuse it.
+                // "VSM: Project" writes the sun's screen mask the composite's DESERT_SUN_SHADOW_SCREEN_MASK
+                // permutation reads; under VirtualMaps the point/spot lights' pages share the sun's map: one page
+                // pass for both, and "VSM: Project Local" writes the local masks the composite reads as the traced
+                // ones.
+                m_FrameVsmPages.reset();
+                std::optional<FrontLayerSurface> frontLayerSurface;
+                if ( LocalShadowsAreVirtual() && meshRenderer != nullptr && meshRenderer->BuildFrontLayerDraws() )
+                    frontLayerSurface = AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer );
+                const RDG::TextureRef receivers[] = { frontLayerSurface ? frontLayerSurface->Depth
+                                                                        : RDG::TextureRef{} };
+                const FrameVirtualShadows virtualShadows =
+                     SunShadowIsVirtual() ? AddFrameVirtualShadows( graph, textures,
+                                                                    textures.Depth( m_GBuffer, "GBuffer" ), gbuffer,
+                                                                    -glm::vec3( lightDir ), frame, receivers )
+                                          : FrameVirtualShadows{};
+
                 AddFrameSSAO( graph, textures, gbuffer, frame );
                 AddFrameSurfaceCache( graph, textures, frame );
 
@@ -2111,18 +2175,15 @@ namespace Desert::Graphic
                 const FrameFrontLayer frontLayer =
                      ssr != nullptr && TranslucentFrontLayerReflections()
                           ? AddFrameTranslucentFrontLayer( graph, textures, meshRenderer, gbuffer, screenTrace,
-                                                           frame )
+                                                           frame, frontLayerSurface ? &*frontLayerSurface : nullptr )
                           : FrameFrontLayer{};
 
                 // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
                 // with their neutral defaults), not as a second, separately resolved read list.
                 // "Shadows: Ray Traced Sun" in place of the cascades (SunShadowIsRayTraced): the composite's
-                // DESERT_SUN_SHADOW_SCREEN_MASK permutation reads this mask.
-                // "VSM: Project" likewise: the same mask, the same permutations.
-                m_FrameVsmPages.reset();
+                // DESERT_SUN_SHADOW_SCREEN_MASK permutation reads this mask; "VSM: Project" likewise (above).
                 const RDG::TextureRef sunShadowMask =
-                     SunShadowIsVirtual()
-                          ? AddFrameVirtualSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
+                     SunShadowIsVirtual() ? virtualShadows.SunMask
                      : SunShadowIsRayTraced()
                           ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                           : RDG::TextureRef{};
@@ -2135,10 +2196,11 @@ namespace Desert::Graphic
                      LocalLightsAreStochastic() ? AddFrameMegaLights( graph, textures, gbuffer, frame )
                                                 : System::MegaLightsLighting{};
                 // Shadows HardwareTraced: the point/spot lights' ray-traced masks, one layer per ShadowMaskSlot.
-                const RDG::TextureRef localShadowMasks = LocalShadowsAreRayTraced()
-                                                              ? AddFrameRayTracedLocalShadows( graph, textures,
-                                                                                               gbuffer, frame )
-                                                              : RDG::TextureRef{};
+                // Shadows VirtualMaps: the same layers, from "VSM: Project Local".
+                const RDG::TextureRef localShadowMasks =
+                     LocalShadowsAreRayTraced() ? AddFrameRayTracedLocalShadows( graph, textures, gbuffer, frame )
+                     : LocalShadowsAreVirtual() ? virtualShadows.LocalMasks
+                                                : RDG::TextureRef{};
                 // SSS-PROFILE: the composite splits the scattered texels' diffuse into this target when the view
                 // scatters; Burley + Recombine add it back BEFORE the forward meshes (AddFrameGeneric), which may
                 // stand in front of a scattered texel and must not receive its diffuse.
@@ -2478,6 +2540,16 @@ namespace Desert::Graphic
                !PathTraced( m_RenderMethods );
     }
 
+    bool SceneRenderer::LocalShadowsAreVirtual() const
+    {
+        return LocalShadowsVirtual( m_RenderMethods );
+    }
+
+    bool SceneRenderer::LocalShadowsAreScreenMask() const
+    {
+        return LocalShadowsAreRayTraced() || LocalShadowsAreVirtual();
+    }
+
     namespace
     {
         // The forward readers of one shadow map name outside the mesh renderer: the forward terrain and the view's
@@ -2527,7 +2599,7 @@ namespace Desert::Graphic
         // ShadowCaster is UpdateLocalShadows' answer "this light casts in this view" (CastShadows, and the view
         // draws shadows), whether or not a map was drawn for it.
         m_LocalShadowMaskLights.clear();
-        const bool traced = LocalShadowsAreRayTraced();
+        const bool traced = LocalShadowsAreScreenMask();
         int32_t    slot   = 0;
         for ( std::size_t i = 0; i < m_PointLight.PointLights.size(); ++i )
         {
@@ -2699,15 +2771,17 @@ namespace Desert::Graphic
         return true;
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameVirtualSunShadow( RDG::Builder& graph, FrameTextures& textures,
-                                                             const std::vector<RDG::TextureRef>& gbuffer,
-                                                             const glm::vec3&                    directionToSun,
-                                                             const ViewFrame&                    frame )
+    SceneRenderer::FrameVirtualShadows SceneRenderer::AddFrameVirtualShadows(
+         RDG::Builder& graph, FrameTextures& textures, const RDG::TextureRef viewDepth,
+         const std::vector<RDG::TextureRef>& gbuffer,
+         const glm::vec3& directionToSun, const ViewFrame& frame, const std::span<const RDG::TextureRef> receiverDepths )
     {
         if ( !EnsureVirtualShadowResources() )
             return {};
-        const System::VirtualShadowMapViewInputs view{ .Depth  = textures.Depth( m_GBuffer, "GBuffer" ),
-                                                       .Normal = gbuffer[1],
+        const bool                               deferred = gbuffer.size() > 1;
+        const System::VirtualShadowMapViewInputs view{ .Depth   = viewDepth,
+                                                       .Normal  = deferred ? gbuffer[1] : RDG::TextureRef{},
+                                                       .NoDepth = textures.GraphRefs().System.Black,
                                                        .InvJitteredViewProjection =
                                                             frame.InvJitteredViewProjection,
                                                        .Projection     = frame.Projection,
@@ -2715,45 +2789,101 @@ namespace Desert::Graphic
                                                        .Width          = frame.Split.Render.Width,
                                                        .Height         = frame.Split.Render.Height,
                                                        .FrameIndex     = frame.FrameIndex };
-        const System::VirtualShadowMapSun        sun{ .DirectionToSun     = directionToSun,
-                                                      .SourceAngleDegrees = m_SunSourceAngleDegrees };
+        // The sun only when the scene has a directional light (a night scene's map holds its lamps alone), and only
+        // from a G-buffer: the forward path's sun reads its cascades.
+        // `composite`: the deferred composite reads this frame's masks; a forward view has no G-buffer, its depth
+        // prepass (AddFrameForwardDepthPrepass) marks the local lights' pages only.
+        const bool composite = deferred && m_RenderPath == Core::RenderPath::Deferred;
+        const bool                        hasSun = composite && !m_DirectionLights.DirectionLights.empty();
+        const System::VirtualShadowMapSun sun{ .DirectionToSun     = directionToSun,
+                                               .SourceAngleDegrees = m_SunSourceAngleDegrees };
+        // The point/spot lights given a mask slot (AssignLocalShadowMaskSlots: they cast, and their sphere meets
+        // the view), slot = layer.
+        std::vector<System::VirtualShadowMapLocalLight> locals;
+        if ( LocalShadowsAreVirtual() )
+        {
+            locals.reserve( m_LocalShadowMaskLights.size() );
+            for ( size_t slot = 0; slot < m_LocalShadowMaskLights.size(); ++slot )
+            {
+                const System::RayTracedLocalShadowLight& light = m_LocalShadowMaskLights[slot];
+                const bool spot = light.CosOuter != System::kRayTracedLocalShadowNoCone;
+                locals.push_back( { .SourceId      = light.SourceId,
+                                    .Position      = light.Position,
+                                    .Radius        = light.AttenuationRadius,
+                                    .SpotDirection = light.SpotDirection,
+                                    .CosOuter      = spot ? light.CosOuter : System::kVsmLocalPointCone,
+                                    .SourceRadius  = light.SourceRadius,
+                                    .MaskSlot      = static_cast<uint32_t>( slot ) } );
+            }
+        }
+        // Under VirtualMaps every local-shadow reader is a VSM program (the forward cells, the terrain and the glass
+        // take the frame's LocalShadowsAreVirtual, as the generic prepass checked): the map's refs exist even when
+        // no light casts this frame (the page passes run over none; the view slots are a high-water mark, so the
+        // cached pages stay).
+        if ( !hasSun && !LocalShadowsAreVirtual() )
+            return {};
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
         // The casters that changed since the last frame drop their cached pages (UE VSM cache invalidation).
         const System::MeshRenderer::VirtualShadowInvalidation invalidation =
              meshes->CollectVirtualShadowInvalidation();
         const Common::ResultStr<System::VirtualShadowMapFrame> pages = m_VirtualShadowMap.AddPagePasses(
-             graph, view, sun, m_VirtualShadowQuality, invalidation.Boxes, invalidation.StaticCastersChanged );
+             graph, view, hasSun ? &sun : nullptr, locals, receiverDepths, m_VirtualShadowQuality,
+             invalidation.Boxes,
+             invalidation.StaticCastersChanged );
         if ( !pages )
         {
-            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
-                       pages.GetError() );
+            LOG_ERROR( "[SceneRenderer] {}: {}; the virtual shadow map casts no shadow this frame",
+                       m_ViewResources.GetName(), pages.GetError() );
             return {};
         }
         m_FrameVsmPages = pages.GetValue();
-        // "VSM: Raster": every caster into the dirty pages, before the projection reads the pool. A refusal is
-        // a missing caster program or pipeline, which no later frame repairs: said once, and the method stays
-        // dark.
+        // "VSM: Raster": every caster into the dirty pages (the sun's levels, then the local lights' mips), before
+        // the projections read the pool. A refusal is a missing caster program or pipeline, which no later frame
+        // repairs: said once, and the method stays dark.
         if ( const Common::BoolResultStr raster =
                   meshes->AddVirtualShadowRasterPasses( graph, pages.GetValue(), m_VirtualShadowMap );
              !raster.IsSuccess() )
         {
-            LOG_ERROR( "[SceneRenderer] {}: Shadows: Virtual Shadow Map casters cannot be drawn; the sun casts no "
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Virtual Shadow Map casters cannot be drawn; nothing casts a "
                        "shadow while the method resolves to VirtualMaps: {}",
                        m_ViewResources.GetName(), raster.GetError() );
             m_VirtualShadowFailed = true;
             m_VirtualShadowReady  = false;
             return {};
         }
-        const Common::ResultStr<RDG::TextureRef> mask =
-             m_VirtualShadowMap.AddProjection( graph, pages.GetValue(), view );
-        if ( !mask )
+        // The map for its readers (DESERT_LOCAL_SHADOW_VSM: the forward and translucent cells, the composite's
+        // transmission, the surface cache's cards), bound by name through SceneViewInputs::Vsm.
+        textures.Transients.Vsm = VirtualShadowMapReadRefs{ .FrameData    = pages.GetValue().FrameData,
+                                                             .PageTable    = pages.GetValue().PageTable,
+                                                             .PhysicalPool = pages.GetValue().PhysicalPool,
+                                                             .LocalLights  = pages.GetValue().LocalLights };
+        FrameVirtualShadows result;
+        if ( hasSun )
         {
-            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
-                       mask.GetError() );
-            return {};
+            const Common::ResultStr<RDG::TextureRef> mask =
+                 m_VirtualShadowMap.AddProjection( graph, pages.GetValue(), view );
+            if ( !mask )
+                LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
+                           mask.GetError() );
+            else
+                result.SunMask = mask.GetValue();
         }
-        return mask.GetValue();
+        // The local masks are the deferred composite's and the generic opaque cells' (screen pixels of the
+        // G-buffer); the forward path's cells read the map itself.
+        if ( composite && !locals.empty() )
+        {
+            const RDG::TextureRef masks = System::RayTracedLocalShadowRenderer::CreateMasks(
+                 graph, view.Width, view.Height, static_cast<uint32_t>( locals.size() ) );
+            if ( const Common::BoolResultStr projected =
+                      m_VirtualShadowMap.AddLocalProjection( graph, pages.GetValue(), view, masks );
+                 !projected.IsSuccess() )
+                LOG_ERROR( "[SceneRenderer] {}: {}; the local lights cast no virtual shadow this frame",
+                           m_ViewResources.GetName(), projected.GetError() );
+            else
+                result.LocalMasks = masks;
+        }
+        return result;
     }
 
     bool SceneRenderer::EnsureRayTracedShadowResources()
@@ -3459,6 +3589,14 @@ namespace Desert::Graphic
         if ( found == m_RenderSystems.end() )
             return 0;
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetViewTrianglesDrawn();
+    }
+
+    System::ForwardPrepassStats SceneRenderer::GetForwardPrepassStats() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return {};
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetForwardPrepassStats();
     }
 
     void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,

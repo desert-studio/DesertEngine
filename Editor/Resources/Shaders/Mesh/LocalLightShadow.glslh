@@ -9,6 +9,15 @@
 // (the row struct is Mesh/LocalLightShadowView.glslh, included BEFORE the buffer) and includes this AFTER
 // them, the way Mesh/CascadedShadow.glslh is included. The lights' contact shadows (their ContactShadowLength)
 // are applied here too: Common/ContactShadow.glslh, which the includer has included with its inputs.
+//
+// UNDER Shadows.Method VirtualMaps (DESERT_LOCAL_SHADOW_VSM) the atlas does not exist for this reader: a light reads
+// its virtual map (UE: every receiver of a local light samples its VSM), through the reader the G-buffer's
+// "VSM: Project Local" uses (Common/VirtualShadowMap.glslh, VsmLocalVisibility / VsmLocalTransmission). The light's
+// shadowMaskSlot is its index in the frame's VsmLocalLights (SceneRenderer::AddFrameVirtualShadows: slot = layer =
+// light), -1 = not shadowed this frame. The includer declares, instead of the atlas and its views, the reader's tables
+// (VsmFrameData, VsmPageTable, PhysicalPoolTexture: Core::kVsmReadFrameDataBinding ..) and
+//     readonly buffer VsmLocalLightsUB { VsmLocalLight vsmLocalLights[]; };
+// and includes Common/VirtualShadowMap.glslh's reader (DESERT_VSM_READ) before this header.
 #include <Common/ShadowFilterDisk.glslh>
 #include <Mesh/LightSources.glslh>
 #include <Mesh/LocalLightShadowView.glslh>
@@ -30,13 +39,10 @@ DesertLight DesertShadowedPointLightAt(PointLight source, vec3 worldPosition, ve
              ContactShadowFactor(worldPosition, N, light.L, LightContactShadow(source), subsurfaceOpacity);
         light.Shadow = PointLightShadow(source, worldPosition, N) * contact;
         // Only a subsurface receiver (opacity >= 0) has a model that reads the transmitted share.
-        if (subsurfaceOpacity >= 0.0 && source.shadowView >= 0)
+        if (subsurfaceOpacity >= 0.0)
             light.TransmissionShadow =
-                 LocalShadowTransmissionAt(source.shadowView + PointShadowFace(worldPosition - source.position),
-                                           worldPosition, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) *
+                 PointLightTransmission(source, worldPosition, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) *
                  contact;
-        else if (subsurfaceOpacity >= 0.0)
-            light.TransmissionShadow = contact;
     }
     return light;
 }
@@ -51,13 +57,10 @@ DesertLight DesertShadowedSpotLightAt(SpotLight source, vec3 worldPosition, vec3
              ContactShadowFactor(worldPosition, N, light.L, LightContactShadow(source), subsurfaceOpacity);
         light.Shadow = SpotLightShadow(source, worldPosition, N) * contact;
         // Only a subsurface receiver (opacity >= 0) has a model that reads the transmitted share.
-        if (subsurfaceOpacity >= 0.0 && source.shadowView >= 0)
+        if (subsurfaceOpacity >= 0.0)
             light.TransmissionShadow =
-                 LocalShadowTransmissionAt(source.shadowView, worldPosition,
-                                           ContactShadowSubsurfaceDensity(subsurfaceOpacity)) *
+                 SpotLightTransmission(source, worldPosition, ContactShadowSubsurfaceDensity(subsurfaceOpacity)) *
                  contact;
-        else if (subsurfaceOpacity >= 0.0)
-            light.TransmissionShadow = contact;
     }
     return light;
 }

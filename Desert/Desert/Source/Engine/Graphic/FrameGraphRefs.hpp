@@ -36,6 +36,25 @@ namespace Desert::Graphic
     // node): the point and spot rows, the local shadow views their ShadowView indices name, and the view's light
     // grid (Graphic/LightGrid.hpp, UE's ForwardLightData) — its parameters (uploaded) and its cells (written by
     // the "LightGrid" compute node). Every lit pass reads the grid: the deferred composite, the forward meshes.
+    // THE VIEW'S VIRTUAL SHADOW MAP AS ITS READERS SEE IT (Shadows.Method VirtualMaps, System::VirtualShadowMapFrame
+    // after "VSM: Raster"): the level table, the page table, the physical pool and the frame's shadowed point / spot
+    // lights, read through Common/VirtualShadowMap.glslh's reader by every DESERT_LOCAL_SHADOW_VSM program - the
+    // forward and translucent cells, the forward terrain, the deferred composite's subsurface transmission and the
+    // surface cache's cards - in place of the local shadow atlas. Invalid refs before SceneRenderer::
+    // AddFrameVirtualShadows ran or when it drew nothing; a VSM reader then faults its pass by name.
+    struct VirtualShadowMapReadRefs
+    {
+        RDG::BufferRef  FrameData;    // "VsmFrameData"
+        RDG::BufferRef  PageTable;    // "VsmPageTable"
+        RDG::TextureRef PhysicalPool; // "PhysicalPoolTexture" (R32_UINT, read as a storage image)
+        RDG::BufferRef  LocalLights;  // "VsmLocalLightsUB": one VsmLocalLight per shadowMaskSlot
+
+        [[nodiscard]] bool IsValid() const
+        {
+            return FrameData.IsValid() && PageTable.IsValid() && PhysicalPool.IsValid() && LocalLights.IsValid();
+        }
+    };
+
     struct ViewLightBuffers
     {
         RDG::BufferRef Point;       // "Upload: Lights.Point"
@@ -145,6 +164,9 @@ namespace Desert::Graphic
         RDG::TextureRef SkyViewLut1;
         // The view's lights and light grid (ViewLightBuffers); invalid refs until AddFrameLightGrid ran.
         ViewLightBuffers Lights;
+        // The view's virtual shadow map for its readers (VirtualShadowMapReadRefs); invalid until
+        // AddFrameVirtualShadows ran.
+        VirtualShadowMapReadRefs Vsm;
         // The MegaLights translucency volume (MegaLightsVolumeRefs); invalid refs until AddFrameMegaLightsVolume.
         MegaLightsVolumeRefs MegaLightsVolume;
         // The global distance field brought up to this frame (SceneRenderer::AddFrameGlobalDistanceField,
@@ -244,6 +266,9 @@ namespace Desert::Graphic
         // layer per ShadowMaskSlot), read by an OPAQUE forward draw's DESERT_LOCAL_SHADOW_SCREEN_MASK permutation in
         // place of the atlas. Invalid when the local shadows are not ray traced (the permutation is then not chosen).
         RDG::TextureRef LocalShadowMasks;
+        // Shadows.Method VirtualMaps: the view's virtual shadow map (FrameTransients::Vsm), read by a
+        // DESERT_LOCAL_SHADOW_VSM program in place of the atlas.
+        VirtualShadowMapReadRefs Vsm;
         // The view's world radiance cache (FrameTransients::RadianceCache*, the neutral one where the view traces
         // no GI): the forward passes read their diffuse estimator from it, as the deferred composite's final
         // gather does, so a capture measured by the cache is normalised by the cache on a forward pixel too.
@@ -311,6 +336,10 @@ namespace Desert::Graphic
     // The deferred composite's ray-traced local lights (Shadows HardwareTraced): each light with a ShadowMaskSlot
     // reads its layer of LocalShadowMasksTexture (System::RayTracedLocalShadowRenderer) in place of its shadow map.
     inline constexpr std::string_view kLocalShadowScreenMaskDefine = "DESERT_LOCAL_SHADOW_SCREEN_MASK";
+    // Shadows.Method VirtualMaps: every reader of the point/spot lights' shadows (the forward and translucent cells,
+    // the forward terrain, the composite's transmission, the surface cache's cards) reads the virtual shadow map
+    // (VirtualShadowMapReadRefs, Common/VirtualShadowMap.glslh's reader) in place of the atlas, which is not drawn.
+    inline constexpr std::string_view kLocalShadowVsmDefine = "DESERT_LOCAL_SHADOW_VSM";
     // The deferred composite's MegaLights program (Shadows Stochastic): the local lights from MegaLights'
     // MegaLightsDiffuseTexture / MegaLightsSpecularTexture (System::MegaLightsRenderer) in place of the light-grid loop.
     inline constexpr std::string_view kMegaLightsDefine = "DESERT_MEGALIGHTS";
@@ -325,6 +354,11 @@ namespace Desert::Graphic
     inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";
     // The local shadow atlas's view table (Mesh/LocalLightShadowView.glslh): the composite, the forward cells.
     inline constexpr std::string_view kLocalShadowViewsBlockName = "LocalShadowViewsUB";
+    // The virtual shadow map's reader tables (Common/VirtualShadowMap.glslh, VirtualShadowMapReadRefs).
+    inline constexpr std::string_view kVsmFrameDataBlockName    = "VsmFrameData";
+    inline constexpr std::string_view kVsmPageTableBlockName    = "VsmPageTable";
+    inline constexpr std::string_view kVsmPhysicalPoolName      = "PhysicalPoolTexture";
+    inline constexpr std::string_view kVsmLocalLightsBlockName  = "VsmLocalLightsUB";
     // A READER of the world layout's cells (Mesh/LightGrid.glslh, LIGHT_GRID_WORLD_CELLS); the build shader writes
     // either layout through kLightGridCellsBlockName.
     inline constexpr std::string_view kLightGridWorldCellsBlockName = "LightGridWorldCellsUB";
@@ -355,6 +389,10 @@ namespace Desert::Graphic
     inline constexpr RDG::StorageBufferParameter kLightGridParamsBlock{ kLightGridParamsBlockName };
     inline constexpr RDG::StorageBufferParameter kLightGridCellsBlock{ kLightGridCellsBlockName };
     inline constexpr RDG::StorageBufferParameter kLocalShadowViewsBlock{ kLocalShadowViewsBlockName };
+    inline constexpr RDG::StorageBufferParameter  kVsmFrameDataBlock{ kVsmFrameDataBlockName };
+    inline constexpr RDG::StorageBufferParameter  kVsmPageTableBlock{ kVsmPageTableBlockName };
+    inline constexpr RDG::StorageTextureParameter kVsmPhysicalPool{ kVsmPhysicalPoolName };
+    inline constexpr RDG::StorageBufferParameter  kVsmLocalLightsBlock{ kVsmLocalLightsBlockName };
     inline constexpr RDG::StorageBufferParameter kLightGridWorldCellsBlock{ kLightGridWorldCellsBlockName };
     inline constexpr RDG::TextureParameter       kSceneViewRainOcclusionMap{ kSceneViewRainOcclusionMapName };
     inline constexpr RDG::SamplerParameter kSceneViewRainOcclusionSampler{ kSceneViewRainOcclusionSamplerName };
@@ -394,6 +432,7 @@ namespace Desert::Graphic
         inputs.LightGridParams        = t.Lights.GridParams;
         inputs.LightGridCells         = t.Lights.GridCells;
         inputs.LocalShadowViews       = t.Lights.ShadowViews;
+        inputs.Vsm                    = t.Vsm;
         inputs.FogParams              = t.FogParams;
         inputs.FogAerialPerspective   = t.FogAerialPerspective;
         inputs.FogDistantSkyLight     = t.FogDistantSkyLight;
@@ -496,6 +535,27 @@ namespace Desert::Graphic
         return false;
     }
 
+    // SETUP: the virtual shadow map's reader tables (VirtualShadowMapReadRefs) where @p layout declares them - a
+    // DESERT_LOCAL_SHADOW_VSM program. Invalid refs are handed on: such a program then faults its pass by name
+    // rather than reading an atlas nobody drew. Shared by BindSceneViewInputs and the passes that bind their own
+    // view inputs (the surface cache's card lighting).
+    template <typename Block>
+    void BindVirtualShadowMapReads( Block& block, const VirtualShadowMapReadRefs& vsm,
+                                    const RDG::ShaderBindingLayout& layout )
+    {
+        for ( const auto& [name, buffer] : { std::pair{ kVsmFrameDataBlock, vsm.FrameData },
+                                             std::pair{ kVsmPageTableBlock, vsm.PageTable },
+                                             std::pair{ kVsmLocalLightsBlock, vsm.LocalLights } } )
+            if ( SceneViewDetail::LayoutReadsBuffer( layout, name.Name ) )
+                block.Storage( name, buffer, RDG::Access::StorageRead );
+        if ( std::any_of( layout.Slots.begin(), layout.Slots.end(),
+                          []( const RDG::ShaderSlot& slot ) {
+                              return slot.Name == kVsmPhysicalPoolName &&
+                                     slot.Kind == RDG::ShaderResourceKind::StorageTexture;
+                          } ) )
+            block.Storage( kVsmPhysicalPool, vsm.PhysicalPool, RDG::Access::StorageRead );
+    }
+
     // SETUP: declares on @p block (RenderPassDeclaration::BlockDeclaration or RDG::BindingBlockBuilder) every
     // input
     // @p layout has a sampled slot for, so a shader that samples no cascade (the glass) is never handed one - the
@@ -545,6 +605,7 @@ namespace Desert::Graphic
                 std::pair{ kMegaLightsVolumeBlock, inputs.MegaLightsVolume.Params } } )
             if ( SceneViewDetail::LayoutReadsBuffer( layout, name.Name ) )
                 block.Storage( name, buffer, RDG::Access::StorageRead );
+        BindVirtualShadowMapReads( block, inputs.Vsm, layout );
         // The radiance cache, where the shader reads it (the forward passes' estimator). Bound here and not in
         // BindWhere: the surface cache's lighting passes bind their own cache under the same names.
         for ( const auto& [name, buffer] :

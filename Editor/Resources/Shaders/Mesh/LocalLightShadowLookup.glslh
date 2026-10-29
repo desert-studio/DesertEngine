@@ -6,6 +6,10 @@
 // read. Mesh/LocalLightShadow.glslh adds the contact shadow on top for surfaces. Declares no binding: the
 // includer declares LocalShadowAtlasTexture, ReadBuffer LocalShadowViewsUB { LocalShadowView localShadowViews[]; }
 // and the view's ShadowUB (ShadowFilter, unless LOCAL_SHADOW_FILTER_TAPS is defined) first (see Mesh/LocalLightShadow.glslh).
+// UNDER Shadows.Method VirtualMaps (DESERT_LOCAL_SHADOW_VSM) the atlas half is compiled out and Point/SpotLightShadow
+// and Point/SpotLightTransmission read the light's virtual map instead (see Mesh/LocalLightShadow.glslh for what the
+// includer then declares). The froxel fog has the same two permutations (VolumetricFogRenderer picks by
+// Graphic::LocalShadowsVirtual, the rule every local-shadow reader takes).
 //
 // The PCF disc's rotation is keyed on a pixel: LOCAL_SHADOW_FILTER_PIXEL, the fragment's gl_FragCoord.xy unless the
 // includer names another (a compute receiver has no fragment: the froxel fog names its froxel's xy).
@@ -20,7 +24,7 @@
 #include <Common/ShadowFilterDisk.glslh>
 #include <Mesh/LightSources.glslh>
 #include <Mesh/LocalLightShadowView.glslh>
-
+#ifndef DESERT_LOCAL_SHADOW_VSM
 // The world distance along the view's axis a stored standard-Z depth stands for.
 float LocalShadowLinearDepth(float z, float nearPlane, float farPlane)
 {
@@ -126,6 +130,7 @@ float LocalShadowTransmissionAt(int viewIndex, vec3 worldPosition, float density
     }
     return through / 9.0;
 }
+#endif // !DESERT_LOCAL_SHADOW_VSM
 
 // The cube face a direction FROM the light falls in, in the order the faces were drawn
 // (Graphic::PointShadowFaceViewProj): +X -X +Y -Y +Z -Z.
@@ -146,10 +151,15 @@ float PointLightShadow(PointLight source, vec3 worldPosition, vec3 N)
     if (source.shadowMaskSlot >= 0)
         return DesertLocalShadowScreenMask(source.shadowMaskSlot);
 #endif
+#ifdef DESERT_LOCAL_SHADOW_VSM
+    return source.shadowMaskSlot >= 0 ? VsmLocalVisibility(vsmLocalLights[source.shadowMaskSlot], worldPosition, N)
+                                      : 1.0;
+#else
     if (source.shadowView < 0)
         return 1.0;
     const vec3 fromLight = worldPosition - source.position;
     return LocalShadowAt(source.shadowView + PointShadowFace(fromLight), worldPosition, N, normalize(-fromLight));
+#endif
 }
 
 float SpotLightShadow(SpotLight source, vec3 worldPosition, vec3 N)
@@ -158,9 +168,39 @@ float SpotLightShadow(SpotLight source, vec3 worldPosition, vec3 N)
     if (source.shadowMaskSlot >= 0)
         return DesertLocalShadowScreenMask(source.shadowMaskSlot);
 #endif
+#ifdef DESERT_LOCAL_SHADOW_VSM
+    return source.shadowMaskSlot >= 0 ? VsmLocalVisibility(vsmLocalLights[source.shadowMaskSlot], worldPosition, N)
+                                      : 1.0;
+#else
     if (source.shadowView < 0)
         return 1.0;
     return LocalShadowAt(source.shadowView, worldPosition, N, normalize(source.position - worldPosition));
+#endif
+}
+
+// The light through a subsurface receiver's occluders (LocalShadowTransmissionAt / VsmLocalTransmission); 1 for a
+// light that casts no shadow.
+float PointLightTransmission(PointLight source, vec3 worldPosition, float density)
+{
+#ifdef DESERT_LOCAL_SHADOW_VSM
+    return source.shadowMaskSlot >= 0 ? VsmLocalTransmission(vsmLocalLights[source.shadowMaskSlot], worldPosition, density)
+                                      : 1.0;
+#else
+    return source.shadowView >= 0
+               ? LocalShadowTransmissionAt(source.shadowView + PointShadowFace(worldPosition - source.position),
+                                           worldPosition, density)
+               : 1.0;
+#endif
+}
+
+float SpotLightTransmission(SpotLight source, vec3 worldPosition, float density)
+{
+#ifdef DESERT_LOCAL_SHADOW_VSM
+    return source.shadowMaskSlot >= 0 ? VsmLocalTransmission(vsmLocalLights[source.shadowMaskSlot], worldPosition, density)
+                                      : 1.0;
+#else
+    return source.shadowView >= 0 ? LocalShadowTransmissionAt(source.shadowView, worldPosition, density) : 1.0;
+#endif
 }
 
 #endif // LOCAL_LIGHT_SHADOW_LOOKUP_GLSLH

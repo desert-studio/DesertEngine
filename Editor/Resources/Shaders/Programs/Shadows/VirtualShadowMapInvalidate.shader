@@ -38,20 +38,21 @@ Shader "VirtualShadowMapInvalidate"
         {
             const uint level = gl_WorkGroupID.y;
             const uint local = gl_GlobalInvocationID.x;
-            if ( local >= VSM_PAGES_PER_LEVEL )
+            const uint side  = Levels[level].Pages.y;
+            if ( local >= side * side )
                 return;
-            const uint         index = level * VSM_PAGES_PER_LEVEL + local;
+            const uint         index = Levels[level].Pages.x + local;
             const VsmPageEntry entry = Entries[index];
             uint               flags = entry.Flags;
 
             const uint drawn = VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
             if ( ( flags & drawn ) == drawn )
                 flags &= ~VSM_FLAG_DIRTY;
-            flags &= ~VSM_FLAG_REQUESTED;
+            flags &= ~( VSM_FLAG_REQUESTED | VSM_FLAG_MARK_KINDS );
 
             if ( ( flags & VSM_FLAG_ALLOCATED ) != 0u )
             {
-                const ivec2 expected = VsmWorldPageOfSlot( Levels[level].Window.xy, local );
+                const ivec2 expected = VsmExpectedTag( Levels[level], local );
                 const bool  stale    = Params.x != 0u || Levels[level].Window.w != 0 || entry.TagX != expected.x ||
                                    entry.TagY != expected.y;
                 if ( stale )

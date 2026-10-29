@@ -151,6 +151,10 @@ namespace Desert::Graphic::System
         if ( !SetupGeometryPass() )
             return Common::MakeError( "Failed to setup static geometry pass" );
 
+        // The forward path's depth prepass: required, its base pass tests against that depth and writes none.
+        if ( !SetupDepthPrepass() )
+            return Common::MakeError( "Failed to setup the forward depth prepass" );
+
         // Deferred G-buffer pipeline (optional; forward path is unaffected if it fails to set up). Creating it
         // here compiles the deferred shader + validates the MRT pipeline at startup.
         if ( !SetupGBufferPass() )
@@ -219,7 +223,7 @@ namespace Desert::Graphic::System
         // The same path test the forward list's build makes: on Deferred the forward list is cleared and the
         // meshes are in the G-buffer list, the forward-shaded generics in the generic one.
         const bool deferred =
-             m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_StaticGBufferPipeline;
+             m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_SceneRenderer->GetGBuffer();
         if ( !deferred )
             return m_ForwardDraws.Triangles();
         return m_GBufferDraws.Triangles() + m_GenericDraws.Triangles();
@@ -468,14 +472,32 @@ namespace Desert::Graphic::System
             // only: in Deferred the meshes are drawn into the G-buffer by "Deferred: GBuffer" instead (this
             // target keeps sky/grid/terrain for compositing). The cloud layer's shadow map is one of the inputs.
             m_ForwardDraws.Clear();
+            // SceneRenderer's own test (its deferred block runs exactly then, and it runs the deferred path only
+            // where DrawsGBuffer): every frame that draws meshes here ran "Forward: Depth Prepass" before it.
             const bool deferred =
-                 m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_StaticGBufferPipeline;
+                 m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_SceneRenderer->GetGBuffer();
             if ( deferred || m_SceneRenderer->GetMainCamera() == nullptr )
+            {
+                m_ForwardPrepassStats = {};
                 return;
+            }
+            const SceneViewInputs view = SceneViewInputsOf( refs );
+            // Shadows.Method VirtualMaps: every forward cell reads the view's virtual shadow map, not the atlas.
+            m_ForwardVirtualLocal = m_SceneRenderer->LocalShadowsAreVirtual();
             BuildStaticDraws( m_ForwardDraws );
             BuildSkinnedDraws( m_ForwardDraws );
             BuildGenericDraws( m_ForwardDraws, GenericSlice::Forward );
-            m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );
+            m_ForwardDraws.Declare( declared, view );
+            // What this frame's prepass admitted (DeclareDepthPrepassDraws ran before this node), and whether any
+            // base-pass draw writes the depth it tests against.
+            m_ForwardPrepassStats = ForwardPrepassStats{
+                 .Draws       = PrepassCurrent() ? static_cast<uint32_t>( m_DepthPrepassDraws.GetCommands().size() )
+                                                 : 0u,
+                 .Cells       = PrepassCurrent() ? static_cast<uint32_t>( m_PrepassCellDraws.size() ) : 0u,
+                 .GpuSections = PrepassCurrent() ? static_cast<uint32_t>( m_PrepassGpuSections.size() ) : 0u,
+                 .DepthWriteInBase = std::ranges::any_of( m_ForwardDraws.GetCommands(),
+                                                          []( const MeshRendererDetail::MeshDrawCommand& draw )
+                                                          { return draw.Pipeline->GetSpecification().DepthWriteEnabled; } ) };
             // The skin cache's streams the forward skinned cell fetches by address (Vertex_Skinned.glslh).
             for ( const RDG::BufferRef& streams : m_SkinCacheReads )
                 declared.Read( streams, RDG::Access::StorageRead );
@@ -533,7 +555,9 @@ namespace Desert::Graphic::System
 
         // The view's contact shadows, from the SAME settings the deferred composite packs. The forward meshes
         // and the glass march the opaque scene depth (SceneDepthTexture): the deferred path has it (the G-buffer
-        // depth, finished before any of them draws); the forward path has no prepass, so it marches nothing.
+        // depth, finished before any of them draws). The forward path's prepass depth is the base pass's own depth
+        // attachment (loaded, tested, never written), which a draw of that pass cannot also sample: it marches
+        // nothing.
         if ( view != nullptr )
             frame.ContactShadow = m_SceneRenderer->GetContactShadowSettings(
                  *view, m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred );

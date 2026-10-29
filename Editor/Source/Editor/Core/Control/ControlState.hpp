@@ -207,6 +207,29 @@ namespace Desert::Editor::Control
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
     /// the documents most-recently-used first, exactly as Ctrl+Tab walks them — so a client reading this
     /// and a person reading the screen are reading the same sequence.
+    /// One point/spot light of the primary view's virtual shadow map, as last read back
+    /// (Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp VsmLocalLightStats).
+    struct VsmLocalLightSnapshot
+    {
+        uint32_t Source    = 0; ///< LocalLightShadowSettings::SourceId (entity + 1)
+        uint32_t Views     = 0; ///< 1 spot, 6 point
+        uint32_t Requested = 0; ///< pages a pixel asked for
+        uint32_t Rendered  = 0; ///< of them, cleared and drawn that frame
+        uint32_t Cached    = 0; ///< of them, kept from an earlier frame
+        uint32_t Coarse    = 0; ///< of them, asked for by "VSM: Mark Coarse" (the coarse mip, every frame)
+        uint32_t Receivers = 0; ///< of them, asked for by "VSM: Mark Receivers" (a forward receiver's own depth)
+    };
+
+    /// The primary view's last forward depth prepass (Graphic/Systems/Scene/Mesh/MeshRenderer.hpp
+    /// ForwardPrepassStats): all zero on a frame that drew its meshes into the G-buffer.
+    struct ForwardPrepassSnapshot
+    {
+        uint32_t Draws            = 0;     ///< commands of "Forward: Depth Prepass"
+        uint32_t Cells            = 0;     ///< (material x path) cell draws the base pass was admitted
+        uint32_t GpuSections      = 0;     ///< GPU-instanced sections (landscape grass) the base pass was admitted
+        bool     DepthWriteInBase = false; ///< a base-pass draw wrote depth (only the Wireframe view's twins may)
+    };
+
     struct EditorSnapshot
     {
         std::string SceneName;
@@ -237,6 +260,10 @@ namespace Desert::Editor::Control
         // per-mesh binds, counted apart.
         uint32_t GeometryPoolBinds     = 0;
         uint32_t GeometryPoolMeshBinds = 0;
+        // The primary view's virtual shadow map local lights (Shadows VirtualMaps), one per light it drew.
+        std::vector<VsmLocalLightSnapshot> VsmLocalLights;
+        // The primary view's forward depth prepass, as its base pass of the same frame admitted it.
+        ForwardPrepassSnapshot ForwardPrepass;
         // The scene-owned GI pools (UE: FScene's FDistanceFieldSceneData and FLumenSceneData), over every live
         // Core::Scene: Scenes, the live scenes; DistanceFieldPools, those whose mesh distance-field brick atlas is
         // resident (DistanceFieldSceneData::GetBrickAtlas); SurfaceCaches, those whose surface cache atlases are
@@ -264,7 +291,8 @@ namespace Desert::Editor::Control
     /// actually honoured — the same rule the command line follows for its flags, and for the same reason:
     /// a list written out by hand drifts, and the drift shows up as a section that silently returns nothing.
     inline constexpr const char* kStateSections[] = {
-         "scene", "selection", "authoring", "documents", "panels", "views", "log", "device", "nrc", "quiescence",
+         "scene", "selection", "authoring", "documents", "panels", "views", "vsm", "render", "log", "device",
+         "nrc", "quiescence",
     };
 
     [[nodiscard]] inline std::string KnownSectionList()
@@ -440,6 +468,39 @@ namespace Desert::Editor::Control
             views["distanceFieldPools"]    = Num( snapshot.DistanceFieldPools );
             views["surfaceCaches"]         = Num( snapshot.SurfaceCaches );
             root["views"]         = Common::Json::Value( views );
+        }
+
+        if ( Wanted( sections, "vsm" ) )
+        {
+            Common::Json::Value::Array lights;
+            for ( const VsmLocalLightSnapshot& light : snapshot.VsmLocalLights )
+            {
+                Common::Json::Object entry;
+                entry["source"]    = Num( light.Source );
+                entry["views"]     = Num( light.Views );
+                entry["requested"] = Num( light.Requested );
+                entry["rendered"]  = Num( light.Rendered );
+                entry["cached"]    = Num( light.Cached );
+                entry["coarse"]    = Num( light.Coarse );
+                entry["receivers"] = Num( light.Receivers );
+                lights.push_back( Common::Json::Value( entry ) );
+            }
+            Common::Json::Object vsm;
+            vsm["localLights"] = Common::Json::Value( lights );
+            root["vsm"]        = Common::Json::Value( vsm );
+        }
+
+        if ( Wanted( sections, "render" ) )
+        {
+            const ForwardPrepassSnapshot& prepass = snapshot.ForwardPrepass;
+            Common::Json::Object          forwardPrepass;
+            forwardPrepass["draws"]            = Num( prepass.Draws );
+            forwardPrepass["cells"]            = Num( prepass.Cells );
+            forwardPrepass["gpuSections"]      = Num( prepass.GpuSections );
+            forwardPrepass["depthWriteInBase"] = Common::Json::Value( prepass.DepthWriteInBase );
+            Common::Json::Object render;
+            render["forwardPrepass"] = Common::Json::Value( forwardPrepass );
+            root["render"]           = Common::Json::Value( render );
         }
 
         if ( Wanted( sections, "log" ) )

@@ -108,6 +108,9 @@ namespace Desert::Graphic::SurfaceCache
             // The indirect lighting runs this frame (AddIndirectLightingPass after the radiance cache update): a
             // page's FinalLighting keeps the IndirectLighting it last received; otherwise it is direct only.
             bool IndirectLighting = false;
+            // The cache's local shadow kind (FrameViews::VirtualLocalShadows): true = the lights read View.Vsm
+            // through the DESERT_LOCAL_SHADOW_VSM program, false = the atlas's view table (Lights.ShadowViews).
+            bool VirtualLocalShadows = false;
         };
         // What the radiosity (UE LumenRadiosity) is traced and integrated with: the frame's tracer and the GI ray
         // contract's reads - the same a radiance cache probe traces with (WorldRadianceCache::
@@ -160,6 +163,11 @@ namespace Desert::Graphic::SurfaceCache
             // process settings under the machine's ceiling and the device - when traced, else the software walk
             // every device runs. The updating view records the lighting with it and builds what it reads.
             GlobalIllumination::Pipeline Tracer;
+            // The local lights' shadows the cards are lit through (LocalShadowsVirtual of the scene's resolved methods):
+            // true = their virtual maps (the DESERT_LOCAL_SHADOW_VSM lighting program), false = the local shadow
+            // atlas. The cache's, not the updating view's: the view that records the frame's lighting must have
+            // built the same kind of local shadows, else AddDirectLightingPass refuses it by name.
+            bool VirtualLocalShadows = false;
         };
         // States @p origins of engine frame @p engineFrame and resolves the budget and the card tracer from the
         // scene: @p registry's unbound post-process volumes (ResolveViewSettings without a view position) and
@@ -266,7 +274,10 @@ namespace Desert::Graphic::SurfaceCache
         // The direct lighting's program and pipeline for @p tracer's permutation (its shadow rays), built on the
         // first call for that tracer. Asked by the view before the frame's passes, so a permutation that does not
         // build refuses the methods it serves by name (SceneRenderer::AddFrameSurfaceCache, ProgramRefusals).
-        [[nodiscard]] Common::BoolResultStr EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer );
+        // @p virtualLocalShadows: Shadows.Method VirtualMaps - the DESERT_LOCAL_SHADOW_VSM permutation, whose
+        // point/spot lights read the view's virtual shadow map (SceneViewInputs::Vsm) in place of the atlas.
+        [[nodiscard]] Common::BoolResultStr EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer,
+                                                                   bool virtualLocalShadows );
         // The radiosity trace's program and pipeline for @p tracer's permutation, built on the first call for it.
         [[nodiscard]] Common::BoolResultStr EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer );
         // Every variant EnsureLightingProgram and EnsureRadiosityProgram can acquire (GlobalIllumination::
@@ -315,6 +326,7 @@ namespace Desert::Graphic::SurfaceCache
         mutable ShaderBindingLayoutCache                                      m_LightingLayout;
         std::shared_ptr<GraphicsPipeline>                                     m_LightingPipeline;
         GlobalIllumination::Pipeline                                          m_LightingProgramFor{};
+        bool                                                                  m_LightingProgramVsm = false;
         std::shared_ptr<Shader>                                               m_IndirectShader;
         mutable ShaderBindingLayoutCache                                      m_IndirectLayout;
         std::shared_ptr<GraphicsPipeline>                                     m_IndirectPipeline;

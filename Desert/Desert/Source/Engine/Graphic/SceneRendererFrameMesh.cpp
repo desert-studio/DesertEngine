@@ -79,7 +79,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
                                           const std::span<const SystemRasterPass> passes, const bool clearFirst,
-                                          const OverlayTargets& overlay )
+                                          const OverlayTargets& overlay, const bool clearDepth )
     {
         // @p passes in the given order, each a raster node: its targets are its framebuffer WHOLE (TargetsOf:
         // every colour, the depth, and at MSAA the resolve images), its reads are what its Declare names. The
@@ -106,8 +106,9 @@ namespace Desert::Graphic
                  clears ? RDG::LoadOp::ClearColor( clearColor.r, clearColor.g, clearColor.b, clearColor.a )
                         : RDG::LoadOp::Load();
             const RDG::LoadOp depth =
-                 clears ? RDG::LoadOp::ClearDepth( pass.ClearDepth.value_or( defaults.ClearColor.DepthStencil.x ) )
-                        : RDG::LoadOp::Load();
+                 clears && clearDepth
+                      ? RDG::LoadOp::ClearDepth( pass.ClearDepth.value_or( defaults.ClearColor.DepthStencil.x ) )
+                      : RDG::LoadOp::Load();
             AddPassNode( graph, textures, pass, target, pass.Name, color, depth, overlay );
         }
     }
@@ -170,9 +171,9 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures )
     {
-        // The scene target's opaque raster, one clearing sequence: the sky first (it CLEARS colour and depth),
-        // then the meshes, then the terrain, both LOADING and sharing the depth so they resolve against each
-        // other.
+        // The scene target's opaque raster, one clearing sequence: the sky first (it CLEARS colour - and the depth
+        // on the deferred path; the forward path's depth is its depth prepass's, LOADED), then the meshes, then the
+        // terrain, both LOADING and sharing the depth (forward: CloserOrEqual against the prepass, no write).
         std::vector<SystemRasterPass> passes;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] ) )
@@ -183,7 +184,8 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] ) )
             passes.push_back( terrain->GeometryPass() );
-        AddSystemRasters( graph, textures, passes, true );
+        const bool forward = m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer;
+        AddSystemRasters( graph, textures, passes, true, {}, /*clearDepth*/ !forward );
     }
 
     void SceneRenderer::AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures )
@@ -325,6 +327,42 @@ namespace Desert::Graphic
                   RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 
+    RDG::TextureRef SceneRenderer::AddFrameForwardDepthPrepass( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // THE FORWARD PATH'S DEPTH PREPASS (UE: the forward renderer's full DepthPass; FDepthPassMeshProcessor):
+        // into the scene target's depth ALONE - no colour attachment, no shading. The meshes' node CLEARS it and
+        // draws every opaque mesh the base pass shades (static, instanced, skinned, the opaque generics through
+        // their DepthNormal program - MeshRenderer::DeclareDepthPrepassDraws); the terrain's LOADS it. The base
+        // pass (AddFrameBasePass) then clears only colour, tests CloserOrEqual and writes no depth, and the
+        // virtual shadow map marks the local lights' pages from this depth.
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Forward: Depth Prepass" );
+        if ( !targets || !targets->Depth.IsValid() )
+            return {};
+        RasterTargets depthOnly;
+        depthOnly.Depth = targets->Depth;
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+        auto* const meshes  = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        // The meshes' node CLEARS (it is the first writer of the frame's scene depth); without a mesh renderer the
+        // terrain's node does.
+        if ( meshes != nullptr )
+            AddRaster(
+                 graph, "Forward: Depth Prepass", depthOnly, {}, RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+                 [meshes]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshes->RenderDepthPrepassManual( context ); },
+                 [meshes, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+                 { meshes->DeclareDepthPrepassDraws( pass, view ); } );
+        if ( terrain != nullptr )
+            AddRaster(
+                 graph, "Forward: Terrain Depth Prepass", depthOnly, {},
+                 meshes != nullptr ? RDG::LoadOp::Load() : RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+                 [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return terrain->RenderDepthManual( context ); },
+                 [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthDraws( pass ); } );
+        return depthOnly.Depth;
+    }
+
     void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
@@ -382,8 +420,9 @@ namespace Desert::Graphic
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderForwardDepthNormalManual( context ); },
              [meshRenderer, rayTracedSun = SunShadowIsScreenMask(),
-              localShadowMasks = LocalShadowsAreRayTraced()]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun, localShadowMasks ); } );
+              localShadowMasks = LocalShadowsAreScreenMask(),
+              virtualLocal     = LocalShadowsAreVirtual()]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun, localShadowMasks, virtualLocal ); } );
     }
 
     void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,
@@ -401,10 +440,10 @@ namespace Desert::Graphic
         if ( SunShadowIsScreenMask() )
             view.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : textures.GraphRefs().System.White;
         // Under ray-traced local shadows the opaque programs read the masks in place of the atlas (the prepass chose
-        // the same permutation by LocalShadowsAreRayTraced). The masks exist whenever the frame traced them
+        // the same permutation by LocalShadowsAreScreenMask). The masks exist whenever the frame traced them
         // (AddFrameRayTracedLocalShadows packs at least one layer); a pack that failed (logged there) leaves them
         // invalid and the draws on the atlas program - no stand-in array is read in place of a missing mask.
-        if ( LocalShadowsAreRayTraced() )
+        if ( LocalShadowsAreScreenMask() )
             view.LocalShadowMasks = localShadowMasks;
         AddRaster(
              graph, "Deferred: Generic", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),

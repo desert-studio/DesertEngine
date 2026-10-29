@@ -48,7 +48,8 @@ namespace Desert::Graphic::System
     }
 
     void MeshRenderer::BuildGpuInstancedDraws( MeshDrawList& list, GraphicsPipeline* instancedPipeline,
-                                               const MeshPass pass, const SceneFrameBinding& frameState )
+                                               const MeshPass pass, const SceneFrameBinding& frameState,
+                                               const StaticPassCells* companion )
     {
         if ( m_GpuInstancedQueue.empty() || instancedPipeline == nullptr )
             return;
@@ -73,10 +74,23 @@ namespace Desert::Graphic::System
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
             if ( materials->AwaitsTextures( parent ) )
                 continue; // a texture in flight: drawn from the frame its material is rebuilt bound (GRASS-SETTLE)
-            const uint32_t            view = kGpuInstancedViewBase + gpu.Key * 2u + ( pass == MeshPass::GBuffer );
-            DataDrivenMaterial*       cell = parent != nullptr && materials->Owns( parent )
-                                                  ? materials->GetViewVariant( parent, gpu.Path, pass, view, this )
-                                                  : nullptr;
+            // One cell (and instance) per section x view pass: Forward, GBuffer, Depth.
+            const auto viewOf = [&gpu]( const MeshPass of )
+            {
+                return kGpuInstancedViewBase + ( gpu.Key * 3u ) +
+                       ( of == MeshPass::GBuffer ? 1u : of == MeshPass::Depth ? 2u : 0u );
+            };
+            // This view's copy of the section's (path x pass) cell; the Forward one in its virtual-shadow
+            // permutation (ForwardVirtualCell: a blade or instance under a local light reads the VSM).
+            const auto cellOf = [&]( const MeshPass of ) -> DataDrivenMaterial*
+            {
+                if ( parent == nullptr || !materials->Owns( parent ) )
+                    return nullptr;
+                return ForwardVirtualCell( materials->GetViewVariant( parent, gpu.Path, of, viewOf( of ), this ),
+                                           parent, gpu.Path, of, viewOf( of ) );
+            };
+            const uint32_t      view = viewOf( pass );
+            DataDrivenMaterial* cell = cellOf( pass );
             if ( cell == nullptr )
             {
                 static std::unordered_set<const DataDrivenMaterial*> s_Refused;
@@ -90,9 +104,34 @@ namespace Desert::Graphic::System
                  CullPermutation( CellPipeline( instancedPipeline, *cell ), gpu.Material->IsTwoSided() );
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue; // still in the driver: drawn from the frame it is Ready (RDG-PSO)
+            if ( companion != nullptr )
+            {
+                // Paired with the forward depth prepass: the prepass draws a section only when its cell is Ready
+                // in BOTH passes (and its textures are in) and records it; the base pass of the same frame draws
+                // exactly the recorded ones.
+                if ( pass == MeshPass::Forward && PrepassCurrent() )
+                {
+                    if ( !m_PrepassGpuSections.contains( static_cast<uint64_t>( gpu.Key ) ) )
+                        continue;
+                }
+                else
+                {
+                    DataDrivenMaterial* const other = cellOf( companion->Pass );
+                    GraphicsPipeline* const otherPipeline =
+                         other != nullptr && companion->InstancedState != nullptr
+                              ? CullPermutation( CellPipeline( companion->InstancedState, *other ),
+                                                 gpu.Material->IsTwoSided() )
+                              : nullptr;
+                    if ( otherPipeline == nullptr || otherPipeline->GetReadiness() != PipelineReadiness::Ready )
+                        continue;
+                    if ( pass == MeshPass::Depth )
+                        m_PrepassGpuSections.insert( static_cast<uint64_t>( gpu.Key ) );
+                }
+            }
 
+            // Recreated when the view's cell changed (Shadows.Method switched the Forward cell's permutation).
             auto& instance = m_GpuInstancedInstances[view];
-            if ( !instance )
+            if ( !instance || instance->GetParentMaterial() != cell )
                 instance = cell->CreateInstance( "GpuInstanced" );
             BindGpuInstancedBuffers( *cell, gpu );
             // The section's row is the scene material table's (SyncGpuScene), read by the cell of its template.

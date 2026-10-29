@@ -316,10 +316,27 @@ namespace Desert::Graphic::System
 
     namespace
     {
+        // Whether a pipeline draws the forward BASE PASS over the view's depth prepass: then it tests
+        // CloserOrEqual (its own prepassed depth passes) and writes no depth (UE: the base pass after a full
+        // depth prepass, DepthRead).
+        enum class TerrainDepthState : uint8_t
+        {
+            Shader,   // the shader's own `State` block
+            BasePass, // CloserOrEqual, no depth write
+        };
+
+        std::shared_ptr<GraphicsPipeline> CreateTerrainPipeline( SceneRenderer*                 sceneRenderer,
+                                                                 const std::shared_ptr<Shader>& shader,
+                                                                 const char*                    debugName,
+                                                                 const RenderTargetLayout&      layout,
+                                                                 std::string&                   error,
+                                                                 TerrainDepthState depthState );
+
         std::shared_ptr<GraphicsPipeline> CreateTerrainPipeline( SceneRenderer* sceneRenderer,
                                                                  const char* shaderName, const char* debugName,
                                                                  const RenderTargetLayout& layout,
-                                                                 std::string&              error )
+                                                                 std::string&              error,
+                                                                 const TerrainDepthState   depthState )
         {
             const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( shaderName );
             if ( !shader )
@@ -327,7 +344,16 @@ namespace Desert::Graphic::System
                 error = std::string( "missing shader '" ) + shaderName + "'";
                 return nullptr;
             }
+            return CreateTerrainPipeline( sceneRenderer, shader, debugName, layout, error, depthState );
+        }
 
+        std::shared_ptr<GraphicsPipeline> CreateTerrainPipeline( SceneRenderer*                 sceneRenderer,
+                                                                 const std::shared_ptr<Shader>& shader,
+                                                                 const char*                    debugName,
+                                                                 const RenderTargetLayout&      layout,
+                                                                 std::string&                   error,
+                                                                 const TerrainDepthState        depthState )
+        {
             GraphicsPipelineSpecification spec;
             spec.DebugName   = debugName;
             spec.Shader      = shader;
@@ -337,6 +363,11 @@ namespace Desert::Graphic::System
             // Render-state (topology, cull, depth) is declared by the shader's
             // `#pragma state` — no longer hardcoded here. The pipeline comes from the shared cache.
             ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
+            if ( depthState == TerrainDepthState::BasePass )
+            {
+                spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
+                spec.DepthWriteEnabled = false;
+            }
 
             const auto pipeline = sceneRenderer->GetPipelineCache().GetOrCreate( spec );
             if ( !pipeline )
@@ -356,24 +387,33 @@ namespace Desert::Graphic::System
     bool TerrainRenderer::ForwardReadsTexture( const std::string_view textureName ) const
     {
         if ( m_SceneRenderer == nullptr || m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-             m_Queue.empty() || !m_Pipeline )
+             m_Queue.empty() || m_ForwardRefused || !ForwardPipeline() )
             return false;
-        const auto& shader = m_Pipeline->GetSpecification().Shader;
+        const auto& shader = ForwardPipeline()->GetSpecification().Shader;
         return shader && shader->SamplesTexture( textureName );
     }
 
     Common::BoolResultStr TerrainRenderer::Initialize()
     {
         std::string error;
-        m_Pipeline =
-             CreateTerrainPipeline( m_SceneRenderer, "Terrain", "TerrainPipeline", SceneTargetLayout(), error );
+        // The VSM permutation's pipeline follows the target layout: built again on the next frame that asks.
+        m_PipelineVsm.reset();
+        m_PipelineVsmRefused = false;
+        m_Pipeline = CreateTerrainPipeline( m_SceneRenderer, "Terrain", "TerrainPipeline", SceneTargetLayout(), error,
+                                            TerrainDepthState::BasePass );
         if ( !m_Pipeline )
             return Common::MakeError( "TerrainRenderer: " + error );
+        // The forward path's depth prepass program: the base pass above writes no depth, so the ground is in the
+        // scene depth only through it.
+        m_DepthPipeline = CreateTerrainPipeline( m_SceneRenderer, "TerrainDepth", "TerrainDepthPipeline",
+                                                 SceneDepthLayout(), error, TerrainDepthState::Shader );
+        if ( !m_DepthPipeline )
+            return Common::MakeError( "TerrainRenderer: the depth prepass pipeline: " + error );
 
         // The deferred path's twin. Its absence leaves the terrain undrawn in Deferred, and says so; the
         // Forward path does not need it.
         m_GBufferPipeline = CreateTerrainPipeline( m_SceneRenderer, "TerrainGBuffer", "TerrainGBufferPipeline",
-                                                   GBufferLayout(), error );
+                                                   GBufferLayout(), error, TerrainDepthState::Shader );
         if ( !m_GBufferPipeline )
             return Common::MakeError( "TerrainRenderer: the G-buffer pipeline: " + error );
 
@@ -431,6 +471,13 @@ namespace Desert::Graphic::System
         // Only the program this frame's render path shades with gets its rows; the shadow caster always
         // does (it has no param rows, only the instances).
         const bool deferred = m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred;
+        // Shadows.Method VirtualMaps on the Forward path: the forward terrain reads the view's virtual shadow map
+        // (Terrain.shader's DESERT_LOCAL_SHADOW_VSM permutation), not the atlas, which is not drawn then. A
+        // refused permutation leaves the terrain undrawn on the forward path (said once), never on the atlas.
+        m_ForwardVirtual = !deferred && m_SceneRenderer->LocalShadowsAreVirtual();
+        m_ForwardRefused = m_ForwardVirtual && !EnsureForwardVsmPipeline();
+        if ( m_ForwardRefused )
+            m_ForwardVirtual = false; // the rows still go up (the casters read them); "TerrainPass" draws nothing
 
         // ── Resolve every terrain's material and pack its rows BEFORE any draw ──────────────
         //
@@ -472,9 +519,13 @@ namespace Desert::Graphic::System
             {
                 materials.Forward       = std::make_unique<DataDrivenMaterial>( "Terrain" );
                 materials.GBuffer       = std::make_unique<DataDrivenMaterial>( "TerrainGBuffer" );
+                materials.Depth         = std::make_unique<DataDrivenMaterial>( "TerrainDepth" );
                 materials.Shadow        = std::make_unique<DataDrivenMaterial>( "TerrainShadow" );
                 materials.VirtualShadow = std::make_unique<DataDrivenMaterial>( "TerrainVirtualShadow" );
             }
+            if ( m_ForwardVirtual && !materials.ForwardVsm )
+                materials.ForwardVsm =
+                     std::make_unique<DataDrivenMaterial>( m_PipelineVsm->GetSpecification().Shader );
 
             // The material's layer inputs (TerrainLayerInputs): keyed by the material's own textures, not the
             // tile's, so every tile of a landscape shares one set of arrays; resolved once per frame per material.
@@ -493,7 +544,7 @@ namespace Desert::Graphic::System
                 // Textures are identical for every terrain of this group BY CONSTRUCTION (the key), so they
                 // are bound once, from the terrain that opened the group. Unset samplers keep the backend
                 // white fallback, so this is purely additive.
-                DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : materials.Forward.get();
+                DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
                 const auto&         schema  = surface->GetSchema();
                 for ( const auto& [name, handle] : t.Overrides.Textures )
                 {
@@ -531,16 +582,18 @@ namespace Desert::Graphic::System
                 surface->SetTexture( "HeightmapTexture", t.Heightmap.get() );
                 materials.Shadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
                 materials.VirtualShadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
+                materials.Depth->SetTexture( "HeightmapTexture", t.Heightmap.get() );
                 if ( t.Weights.Weightmap != nullptr )
                 {
                     surface->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
                     // The casters read the visibility channel too: a hole must not cast a shadow.
                     materials.Shadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
                     materials.VirtualShadow->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
+                    materials.Depth->SetTexture( "WeightmapTexture", t.Weights.Weightmap.get() );
                 }
             }
             FrameGroup&         group   = m_FrameGroups[it->second];
-            DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : materials.Forward.get();
+            DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
 
             surface->ApplyDefaults();
             for ( const auto& [name, value] : t.Overrides.Params )
@@ -579,12 +632,13 @@ namespace Desert::Graphic::System
         for ( const auto& group : m_FrameGroups )
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
-            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
+            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
             for ( DataDrivenMaterial* material :
-                  { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
+                  { surface, materials.Shadow.get(), materials.VirtualShadow.get(), materials.Depth.get() } )
             {
-                // The shadow programs have no TerrainUB (their vertices are the camera's, the LOD rides in the
-                // row) and no Materials[] row block (no Properties block): for them both slots are optional.
+                // The depth-only programs (the casters, the view's depth prepass) have no TerrainUB (their vertices
+                // are the pushed matrix's, the LOD rides in the row) and no Materials[] row block (no Properties
+                // block): for them both slots are optional.
                 const bool shadowProgram = material != surface;
                 auto*      terrainUB =
                      shadowProgram ? material->Find<UniformBufferProperty>( TerrainShaderParameters::TerrainUB )
@@ -621,7 +675,7 @@ namespace Desert::Graphic::System
         if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
             return;
         for ( const auto& group : m_FrameGroups )
-            scene.ApplyTo( m_Materials.at( group.Key ).Forward.get() );
+            scene.ApplyTo( ( m_Materials.at( group.Key ).*ForwardProgram() ).get() );
     }
 
     void TerrainRenderer::PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights )
@@ -695,9 +749,9 @@ namespace Desert::Graphic::System
         for ( const auto& group : m_FrameGroups )
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
-            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
+            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
             for ( DataDrivenMaterial* material :
-                  { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
+                  { surface, materials.Shadow.get(), materials.VirtualShadow.get(), materials.Depth.get() } )
                 if ( auto* instances =
                           material->Get<StorageBufferProperty>( TerrainShaderParameters::TerrainInstances ) )
                     instances->SetRawData(
@@ -802,12 +856,12 @@ namespace Desert::Graphic::System
                                    if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
                                        return BOOLSUCCESS;
                                    const auto* camera = m_SceneRenderer->GetMainCamera();
-                                   if ( ( camera == nullptr ) || m_FrameDraws.empty() )
+                                   if ( ( camera == nullptr ) || m_FrameDraws.empty() || m_ForwardRefused )
                                        return BOOLSUCCESS;
                                    // Through the blocks declared below (the scene/view inputs Terrain.shader
                                    // samples - the cloud shadow map - are entries of them).
                                    (void)refs;
-                                   return RecordDraws( context, 0, *m_Pipeline, &ProgramMaterials::Forward,
+                                   return RecordDraws( context, 0, *ForwardPipeline(), ForwardProgram(),
                                                        m_SceneRenderer->GetViewFrame()->JitteredViewProjection,
                                                        m_FrameDraws );
                                },
@@ -817,13 +871,14 @@ namespace Desert::Graphic::System
             // Exactly when the exec draws: one block per Forward material of the frame's groups, each binding the
             // scene/view inputs its shader has slots for (a block entry IS the read).
             if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-                 m_SceneRenderer->GetMainCamera() == nullptr || m_FrameDraws.empty() )
+                 m_SceneRenderer->GetMainCamera() == nullptr || m_FrameDraws.empty() || m_ForwardRefused )
             {
                 return;
             }
             const SceneViewInputs view = SceneViewInputsOf( refs );
-            (void)DeclareGroupBlocks( declared, m_Pipeline.get(), m_ForwardLayout,
-                                      GroupExecutors( &ProgramMaterials::Forward ), &view );
+            (void)DeclareGroupBlocks( declared, ForwardPipeline().get(),
+                                      m_ForwardVirtual ? m_ForwardVsmLayout : m_ForwardLayout,
+                                      GroupExecutors( ForwardProgram() ), &view );
         };
         return pass;
     }
@@ -852,6 +907,32 @@ namespace Desert::Graphic::System
         }
         (void)DeclareGroupBlocks( pass, m_GBufferPipeline.get(), m_GBufferLayout,
                                   GroupExecutors( &ProgramMaterials::GBuffer ), nullptr );
+    }
+
+    void TerrainRenderer::DeclareDepthDraws( RDG::PassBuilder& pass )
+    {
+        // Exactly when RenderDepthManual draws: the forward path's frames that draw the terrain at all
+        // ("TerrainPass" draws the same m_FrameDraws, CloserOrEqual against this depth). TerrainDepth.shader samples
+        // no scene/view input.
+        if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
+             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_FrameDraws.empty() ||
+             m_ForwardRefused )
+        {
+            return;
+        }
+        (void)DeclareGroupBlocks( pass, m_DepthPipeline.get(), m_DepthLayout, GroupExecutors( &ProgramMaterials::Depth ),
+                                  nullptr );
+    }
+
+    Common::BoolResultStr TerrainRenderer::RenderDepthManual( const RDG::PassContext& context )
+    {
+        if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
+             m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_FrameDraws.empty() ||
+             m_ForwardRefused )
+            return BOOLSUCCESS;
+        // The base pass's very matrix (GeometryPass), so both rasterise the same depth.
+        return RecordDraws( context, 0, *m_DepthPipeline, &ProgramMaterials::Depth,
+                            m_SceneRenderer->GetViewFrame()->JitteredViewProjection, m_FrameDraws );
     }
 
     const std::vector<TerrainRenderer::FrameDraw>& TerrainRenderer::ShadowViewDraws( const uint32_t view ) const
@@ -978,6 +1059,32 @@ namespace Desert::Graphic::System
                                .Max       = box.Max,
                                .Arguments = { m_FrameDraws[k].VertexCount, 0u, 0u, 0u, 0u } } );
         }
+    }
+
+    Core::ShaderVariant TerrainRenderer::ForwardVsmVariant()
+    {
+        return Core::ShaderVariant{ .Defines = { std::string( kLocalShadowVsmDefine ) }, .ShippedByCook = true };
+    }
+
+    bool TerrainRenderer::EnsureForwardVsmPipeline()
+    {
+        if ( m_PipelineVsm )
+            return true;
+        if ( m_PipelineVsmRefused )
+            return false;
+        const auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "Terrain", ForwardVsmVariant() );
+        std::string error = "its DESERT_LOCAL_SHADOW_VSM permutation did not compile (ShaderService named the error)";
+        if ( shader && shader->IsCompiled() )
+            m_PipelineVsm = CreateTerrainPipeline( m_SceneRenderer, shader, "TerrainPipeline|DESERT_LOCAL_SHADOW_VSM",
+                                                   SceneTargetLayout(), error, TerrainDepthState::BasePass );
+        if ( !m_PipelineVsm )
+        {
+            m_PipelineVsmRefused = true;
+            LOG_ERROR( "[TerrainRenderer] the forward terrain is not drawn under Shadows.Method VirtualMaps: {}",
+                       error );
+            return false;
+        }
+        return true;
     }
 
     const GraphicsPipeline* TerrainRenderer::VirtualShadowPipeline()

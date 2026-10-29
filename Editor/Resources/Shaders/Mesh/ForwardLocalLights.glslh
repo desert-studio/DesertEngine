@@ -27,6 +27,28 @@ layout( std430, binding = 30 ) readonly buffer LightGridCellsUB
     uint lightGridCells[];
 };
 
+#ifdef DESERT_LOCAL_SHADOW_VSM
+// Shadows.Method VirtualMaps: the view's virtual shadow map in place of the atlas (Mesh/LocalLightShadow.glslh says
+// how a light finds its record): the reader's tables at Core::kVsmReadFrameDataBinding .. kVsmReadLocalLightsBinding,
+// then Common/VirtualShadowMap.glslh's reader over them.
+#include <Common/VirtualShadowMap.glslh>
+layout( std430, binding = 49 ) restrict readonly buffer VsmFrameData
+{
+    VsmFrame Frame;
+    VsmLevel Levels[];
+};
+layout( std430, binding = 50 ) restrict readonly buffer VsmPageTable
+{
+    VsmPageEntry Entries[];
+};
+layout( binding = 51, r32ui ) restrict readonly uniform uimage2D PhysicalPoolTexture;
+layout( std430, binding = 52 ) restrict readonly buffer VsmLocalLightsUB
+{
+    VsmLocalLight vsmLocalLights[];
+};
+#define DESERT_VSM_READ
+#include <Common/VirtualShadowMap.glslh>
+#else
 // The view's local shadow atlas and the table of its views each light's shadowView names (Graphic/LocalShadows.hpp).
 // The atlas is a separate texture read through the pass's shared point-clamped state (the includer declares
 // PointClampSampler, as the deferred composite does), so it costs no sampler of its own in the stage's limit.
@@ -37,11 +59,12 @@ layout( std430, binding = 39 ) readonly buffer LocalShadowViewsUB
 {
     LocalShadowView localShadowViews[];
 };
+#endif
 #ifdef DESERT_LOCAL_SHADOW_SCREEN_MASK
 // "Shadows: Ray Traced Local" (Shadows HardwareTraced), the OPAQUE forward cells: each shadowed light's ray-traced
 // screen mask, one layer per light by its shadowMaskSlot (Graphic/RayTracedLocalShadow.hpp), read before the light's
 // shadow view exactly as the deferred composite reads it (Programs/Deferred/DeferredLighting.shader). The atlas
-// above stays declared: a light with no mask slot and the subsurface transmission still read their shadow view.
+// (or the virtual map) stays declared: a light with no mask slot and the subsurface transmission still read it.
 // Core::kLocalShadowMasksBinding.
 layout( binding = 40 ) uniform texture2DArray LocalShadowMasksTexture;
 #define DesertLocalShadowScreenMask( slot ) texelFetch( sampler2DArray( LocalShadowMasksTexture, PointClampSampler ), ivec3( ivec2( gl_FragCoord.xy ), slot ), 0 ).r

@@ -2451,7 +2451,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // reads the fogged scene) and before every translucent draw, which fogs itself at its own depth.
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
-         "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun)]",
+         "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun,LocalShadowsAreVirtual())]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients,volumeResult)]",
          "system[fog->ApplyPass()]",
          "Deferred: SceneCopy",
@@ -2460,7 +2460,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // The forward path's opaque fog (the same call; the deferred path took it above).
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
-         "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun)]",
+         "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun,LocalShadowsAreVirtual())]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients,volumeResult)]",
          "system[fog->ApplyPass()]",
          // The water wrote the scene depth: the clouds and the particles read it resolved again.
@@ -3939,7 +3939,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     for ( const char* needle :
           { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
             "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
-            "AddComputeNodes(graph,textures,volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun))",
+            "AddComputeNodes(graph,textures,volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun,LocalShadowsAreVirtual()))",
             "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients,volumeResult))",
             "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph,frame))" } )
         EXPECT_NE( frame.find( needle ), std::string::npos ) << needle;

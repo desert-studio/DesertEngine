@@ -344,162 +344,211 @@ namespace Desert::Graphic::System
         if ( auto pipelines = EnsureVirtualShadowPipelines(); !pipelines.IsSuccess() )
             return pipelines;
 
-        for ( uint32_t level = 0; level < kVsmClipmapLevelCount; ++level )
+        // The sun's clipmap levels, when the frame has a sun (a night scene draws only its local lights).
+        if ( frame.HasSun )
         {
-            const uint32_t view = kVsmViewBase + level;
-            // No caster bias: the virtual shadow map offsets its receivers along their normals instead
-            // (kVsmNormalBiasTexels, "VSM: Project"), so the casters draw with the level's own matrix.
-            m_CascadeCasterVP[view]   = frame.LevelViewProjection[level];
-            m_CascadeCasterBias[view] = CascadeCasterBias{};
-            if ( !EnsureShadowViewMaterials( view ) )
-                return Common::MakeError(
-                     std::format( "virtual shadow map level {} has no caster materials", level ) );
-
-            MeshDrawList& draws = m_VsmDraws[level];
-            draws.Clear();
-            BuildShadowCascadeDraws( view, draws, ShadowCasterLayer::All );
-            if ( draws.GetError() )
-                return Common::MakeError(
-                     std::format( "virtual shadow map level {}: {}", level, *draws.GetError() ) );
-
-            // THE LEVEL'S CULL (UE CullPerPageDrawCommands): every draw's argument records (instance counts 0) and
-            // every instance it may draw with its world box; "VSM: Cull Casters" keeps the instances over a page
-            // drawn this frame. Mesh draws first, in list order, then the non-mesh casters' draws.
-            VsmCasterCull         cull;
-            std::vector<uint32_t> firstRecords;
-            firstRecords.reserve( draws.GetCommands().size() );
-            for ( const MeshDrawCommand& command : draws.GetCommands() )
+            for ( uint32_t level = 0; level < kVsmClipmapLevelCount; ++level )
             {
-                const auto firstRecord = static_cast<uint32_t>( cull.Arguments.size() / kMeshDrawArgumentWords );
-                firstRecords.push_back( firstRecord );
-                if ( command.Instances.empty() && command.InstanceCount != 1u )
-                    return Common::MakeError( std::format(
-                         "virtual shadow map level {}: a draw of {} instances names no instance matrices", level,
-                         command.InstanceCount ) );
-                const auto records = AppendMeshDrawArguments( *command.Mesh, command.HiddenSubmeshMask,
-                                                              command.LodLevel, cull.RemapSize, cull.Arguments );
-                if ( !records )
+                const uint32_t view = kVsmViewBase + level;
+                // No caster bias: the virtual shadow map offsets its receivers along their normals instead
+                // (kVsmNormalBiasTexels, "VSM: Project"), so the casters draw with the level's own matrix.
+                m_CascadeCasterVP[view]   = frame.LevelViewProjection[level];
+                m_CascadeCasterBias[view] = CascadeCasterBias{};
+                if ( !EnsureShadowViewMaterials( view ) )
                     return Common::MakeError(
-                         std::format( "virtual shadow map level {}: {}", level, records.GetError() ) );
-                if ( records.GetValue() == 0u )
-                    continue; // every submesh hidden: the walk draws nothing
+                         std::format( "virtual shadow map level {} has no caster materials", level ) );
+                if ( auto added = AddVirtualShadowRasterNode( graph, frame, map, level, view, kVsmVirtualResolution,
+                                                              std::format( "VSM: Raster L{}", level ),
+                                                              m_VsmDraws[level], m_VsmCasters[level] );
+                     !added.IsSuccess() )
+                    return added;
+            }
+        }
+
+        // THE LOCAL LIGHTS' DRAWN MIPS: each a shadow view of its own past this frame's atlas rows (its own caster
+        // materials: two nodes through one material would both read whichever upload came last), drawn with the
+        // mip's matrix over its ResolutionPages * kVsmPageSize square.
+        const auto firstView = static_cast<uint32_t>( kLocalShadowViewBase + m_LocalShadowRows.size() );
+        for ( uint32_t view = firstView; view < m_VirtualShadowViews.size(); ++view )
+            m_VirtualShadowViews[view] = 0u;
+        if ( frame.LocalRasters.empty() )
+            return BOOLSUCCESS;
+        EnsureShadowViewCount( firstView + static_cast<uint32_t>( frame.LocalRasters.size() ) );
+        while ( m_VsmLocalDraws.size() < frame.LocalRasters.size() )
+            m_VsmLocalDraws.push_back( std::make_unique<VsmLocalRasterDraws>() );
+        for ( size_t k = 0; k < frame.LocalRasters.size(); ++k )
+        {
+            const VsmLocalRaster& raster = frame.LocalRasters[k];
+            const uint32_t        view   = firstView + static_cast<uint32_t>( k );
+            m_VirtualShadowViews[view]   = 1u;
+            m_CascadeCasterVP[view]      = raster.ViewProjection;
+            m_CascadeCasterBias[view]    = CascadeCasterBias{};
+            if ( !EnsureShadowViewMaterials( view ) )
+                return Common::MakeError( std::format(
+                     "virtual shadow map local light {} view {} mip {} has no caster materials", raster.Light,
+                     raster.View, raster.Mip ) );
+            VsmLocalRasterDraws& entry = *m_VsmLocalDraws[k];
+            if ( auto added = AddVirtualShadowRasterNode(
+                      graph, frame, map, raster.Level, view, raster.ResolutionPages * kVsmPageSize,
+                      std::format( "VSM: Raster Local {} V{} M{}", raster.Light, raster.View, raster.Mip ),
+                      entry.Draws, entry.Casters );
+                 !added.IsSuccess() )
+                return added;
+        }
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr MeshRenderer::AddVirtualShadowRasterNode( RDG::Builder&                   graph,
+                                                                    const VirtualShadowMapFrame&    frame,
+                                                                    const VirtualShadowMapRenderer& map,
+                                                                    const uint32_t level, const uint32_t view,
+                                                                    const uint32_t resolution, std::string name,
+                                                                    MeshDrawList&                draws,
+                                                                    std::vector<VsmCasterEntry>& casters )
+    {
+        draws.Clear();
+        BuildShadowCascadeDraws( view, draws, ShadowCasterLayer::All );
+        if ( draws.GetError() )
+            return Common::MakeError(
+                 std::format( "virtual shadow map level {}: {}", level, *draws.GetError() ) );
+
+        // THE LEVEL'S CULL (UE CullPerPageDrawCommands): every draw's argument records (instance counts 0) and
+        // every instance it may draw with its world box; "VSM: Cull Casters" keeps the instances over a page
+        // drawn this frame. Mesh draws first, in list order, then the non-mesh casters' draws.
+        VsmCasterCull         cull;
+        std::vector<uint32_t> firstRecords;
+        firstRecords.reserve( draws.GetCommands().size() );
+        for ( const MeshDrawCommand& command : draws.GetCommands() )
+        {
+            const auto firstRecord = static_cast<uint32_t>( cull.Arguments.size() / kMeshDrawArgumentWords );
+            firstRecords.push_back( firstRecord );
+            if ( command.Instances.empty() && command.InstanceCount != 1u )
+                return Common::MakeError( std::format(
+                     "virtual shadow map level {}: a draw of {} instances names no instance matrices", level,
+                     command.InstanceCount ) );
+            const auto records = AppendMeshDrawArguments( *command.Mesh, command.HiddenSubmeshMask,
+                                                          command.LodLevel, cull.RemapSize, cull.Arguments );
+            if ( !records )
+                return Common::MakeError(
+                     std::format( "virtual shadow map level {}: {}", level, records.GetError() ) );
+            if ( records.GetValue() == 0u )
+                continue; // every submesh hidden: the walk draws nothing
+            const auto draw = static_cast<uint32_t>( cull.Draws.size() );
+            cull.Draws.push_back(
+                 { .FirstRecord = firstRecord, .Records = records.GetValue(), .RemapBase = cull.RemapSize } );
+            const Common::Math::AABB local = Geometry::LocalBounds( command.Mesh->GetSubmeshes() );
+            if ( command.Instances.empty() )
+            {
+                VsmInvalidationBox box = WorldBox( local, command.Transform, command.BoundsPad );
+                if ( command.WorldBounds )
+                    box = { .Min = command.WorldBounds->Min, .Max = command.WorldBounds->Max };
+                cull.Instances.push_back( CullInstance( box, draw, command.FirstInstance ) );
+                cull.RemapSize += 1u;
+                continue;
+            }
+            for ( size_t i = 0; i < command.Instances.size(); ++i )
+                cull.Instances.push_back(
+                     CullInstance( WorldBox( local, command.Instances[i], command.BoundsPad ), draw,
+                                   command.FirstInstance + static_cast<uint32_t>( i ) ) );
+            cull.RemapSize += static_cast<uint32_t>( command.Instances.size() );
+        }
+        casters.clear();
+        std::vector<VirtualShadowCasterDraw> casterDraws;
+        for ( const auto& weak : m_ShadowCasters )
+        {
+            const auto caster = weak.lock();
+            if ( !caster )
+                continue;
+            casterDraws.clear();
+            caster->AppendVirtualShadowDraws( casterDraws );
+            casters.push_back(
+                 { .Caster      = weak,
+                   .FirstRecord = static_cast<uint32_t>( cull.Arguments.size() / kMeshDrawArgumentWords ) } );
+            for ( const VirtualShadowCasterDraw& casterDraw : casterDraws )
+            {
                 const auto draw = static_cast<uint32_t>( cull.Draws.size() );
                 cull.Draws.push_back(
-                     { .FirstRecord = firstRecord, .Records = records.GetValue(), .RemapBase = cull.RemapSize } );
-                const Common::Math::AABB local = Geometry::LocalBounds( command.Mesh->GetSubmeshes() );
-                if ( command.Instances.empty() )
-                {
-                    VsmInvalidationBox box = WorldBox( local, command.Transform, command.BoundsPad );
-                    if ( command.WorldBounds )
-                        box = { .Min = command.WorldBounds->Min, .Max = command.WorldBounds->Max };
-                    cull.Instances.push_back( CullInstance( box, draw, command.FirstInstance ) );
-                    cull.RemapSize += 1u;
-                    continue;
-                }
-                for ( size_t i = 0; i < command.Instances.size(); ++i )
-                    cull.Instances.push_back(
-                         CullInstance( WorldBox( local, command.Instances[i], command.BoundsPad ), draw,
-                                       command.FirstInstance + static_cast<uint32_t>( i ) ) );
-                cull.RemapSize += static_cast<uint32_t>( command.Instances.size() );
+                     { .FirstRecord = static_cast<uint32_t>( cull.Arguments.size() / kMeshDrawArgumentWords ),
+                       .Records     = 1u,
+                       .RemapBase   = cull.RemapSize } );
+                std::array<uint32_t, kMeshDrawArgumentWords> arguments = casterDraw.Arguments;
+                arguments[kMeshDrawInstanceWord]                       = 0u;
+                cull.Arguments.insert( cull.Arguments.end(), arguments.begin(), arguments.end() );
+                cull.Instances.push_back( CullInstance(
+                     VsmInvalidationBox{ .Min = casterDraw.Min, .Max = casterDraw.Max }, draw, 0u ) );
+                cull.RemapSize += 1u;
             }
-            m_VsmCasters[level].clear();
-            std::vector<VirtualShadowCasterDraw> casterDraws;
-            for ( const auto& weak : m_ShadowCasters )
-            {
-                const auto caster = weak.lock();
-                if ( !caster )
-                    continue;
-                casterDraws.clear();
-                caster->AppendVirtualShadowDraws( casterDraws );
-                m_VsmCasters[level].push_back(
-                     { .Caster      = weak,
-                       .FirstRecord = static_cast<uint32_t>( cull.Arguments.size() / kMeshDrawArgumentWords ) } );
-                for ( const VirtualShadowCasterDraw& casterDraw : casterDraws )
-                {
-                    const auto draw = static_cast<uint32_t>( cull.Draws.size() );
-                    cull.Draws.push_back(
-                         { .FirstRecord = static_cast<uint32_t>( cull.Arguments.size() / kMeshDrawArgumentWords ),
-                           .Records     = 1u,
-                           .RemapBase   = cull.RemapSize } );
-                    std::array<uint32_t, kMeshDrawArgumentWords> arguments = casterDraw.Arguments;
-                    arguments[kMeshDrawInstanceWord]                       = 0u;
-                    cull.Arguments.insert( cull.Arguments.end(), arguments.begin(), arguments.end() );
-                    cull.Instances.push_back( CullInstance(
-                         VsmInvalidationBox{ .Min = casterDraw.Min, .Max = casterDraw.Max }, draw, 0u ) );
-                    cull.RemapSize += 1u;
-                }
-            }
-            // Nothing casts into this level: no node at all.
-            if ( cull.Instances.empty() )
-                continue;
-
-            const auto culled = map.AddCasterCulling( graph, frame, level, cull );
-            if ( !culled )
-                return Common::MakeError( culled.GetError() );
-            const RDG::BufferRef arguments = culled.GetValue().Arguments;
-            const RDG::BufferRef remap     = culled.GetValue().InstanceRemap;
-            draws.SetIndirect( arguments, std::move( firstRecords ) );
-
-            // The pass parameters of every block the level's node declares (the mesh cells' and the non-mesh
-            // casters'): every VirtualShadowDepth program includes Common/VirtualShadowRaster.glslh; the instanced
-            // cells also fetch through the level's instance remap (Vertex_Instanced.glslh).
-            const VirtualShadowBlockParameters parameters =
-                 [&frame, level, remap]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
-            {
-                block.Storage( MeshVirtualShadowShaderParameters::VsmFrameData, frame.FrameData,
-                               RDG::Access::StorageRead )
-                     .Storage( MeshVirtualShadowShaderParameters::VsmPageTable, frame.PageTable,
-                               RDG::Access::StorageRead )
-                     .Storage( MeshVirtualShadowShaderParameters::PhysicalPoolTexture, frame.PhysicalPool,
-                               RDG::Access::StorageWrite )
-                     .Storage( MeshVirtualShadowShaderParameters::VsmRasterLevel, frame.RasterLevel[level],
-                               RDG::Access::StorageRead );
-                if ( std::any_of( layout.Slots.begin(), layout.Slots.end(),
-                                  []( const RDG::ShaderSlot& slot ) { return slot.Name == "VsmInstanceRemap"; } ) )
-                    block.Storage( MeshVirtualShadowShaderParameters::VsmInstanceRemap, remap,
-                                   RDG::Access::StorageRead );
-            };
-            graph.AddPass(
-                 std::format( "VSM: Raster L{}", level ), RDG::PassFlags::Raster,
-                 [this, level, arguments, &parameters]( RDG::PassBuilder& pass )
-                 {
-                     pass.RenderArea( kVsmVirtualResolution, kVsmVirtualResolution );
-                     MeshDrawList& list = m_VsmDraws[level];
-                     list.Declare( pass, std::nullopt, parameters );
-                     pass.Read( arguments, RDG::Access::IndirectArgs );
-                     // The skin cache's streams its skinned casters fetch (after "SkinCache: Skin" wrote them).
-                     for ( const RDG::BufferRef& streams : m_SkinCacheReads )
-                         pass.Read( streams, RDG::Access::StorageRead );
-                     // The non-mesh casters declare their blocks after the list's.
-                     uint32_t nextBlock = list.BlockCount();
-                     for ( VsmCasterEntry& entry : m_VsmCasters[level] )
-                     {
-                         if ( const auto caster = entry.Caster.lock() )
-                         {
-                             entry.FirstBlock = nextBlock;
-                             nextBlock += caster->DeclareVirtualShadow( pass, parameters );
-                         }
-                     }
-                 },
-                 [this, level, view, arguments]( RDG::PassContext& context ) -> Common::BoolResultStr
-                 {
-                     DESERT_PROFILE_PASS( "VSM: Raster" );
-                     if ( auto drawn = m_VsmDraws[level].Record( context ); !drawn.IsSuccess() )
-                         return drawn;
-                     for ( const VsmCasterEntry& entry : m_VsmCasters[level] )
-                     {
-                         const auto caster = entry.Caster.lock();
-                         if ( !caster )
-                             continue; // gone since the setup: its draws went with it
-                         if ( auto cast =
-                                   caster->RecordVirtualShadow( context, entry.FirstBlock, m_CascadeCasterVP[view],
-                                                                arguments, entry.FirstRecord );
-                              !cast.IsSuccess() )
-                             return cast;
-                     }
-                     return BOOLSUCCESS;
-                 } );
         }
+        // Nothing casts into this level: no node at all.
+        if ( cull.Instances.empty() )
+            return BOOLSUCCESS;
+
+        const auto culled = map.AddCasterCulling( graph, frame, level, cull );
+        if ( !culled )
+            return Common::MakeError( culled.GetError() );
+        const RDG::BufferRef arguments = culled.GetValue().Arguments;
+        const RDG::BufferRef remap     = culled.GetValue().InstanceRemap;
+        draws.SetIndirect( arguments, std::move( firstRecords ) );
+
+        // The pass parameters of every block the level's node declares (the mesh cells' and the non-mesh
+        // casters'): every VirtualShadowDepth program includes Common/VirtualShadowRaster.glslh; the instanced
+        // cells also fetch through the level's instance remap (Vertex_Instanced.glslh).
+        const VirtualShadowBlockParameters parameters =
+             [&frame, level, remap]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
+        {
+            block.Storage( MeshVirtualShadowShaderParameters::VsmFrameData, frame.FrameData,
+                           RDG::Access::StorageRead )
+                 .Storage( MeshVirtualShadowShaderParameters::VsmPageTable, frame.PageTable,
+                           RDG::Access::StorageRead )
+                 .Storage( MeshVirtualShadowShaderParameters::PhysicalPoolTexture, frame.PhysicalPool,
+                           RDG::Access::StorageWrite )
+                 .Storage( MeshVirtualShadowShaderParameters::VsmRasterLevel, frame.RasterLevel[level],
+                           RDG::Access::StorageRead );
+            if ( std::any_of( layout.Slots.begin(), layout.Slots.end(),
+                              []( const RDG::ShaderSlot& slot ) { return slot.Name == "VsmInstanceRemap"; } ) )
+                block.Storage( MeshVirtualShadowShaderParameters::VsmInstanceRemap, remap,
+                               RDG::Access::StorageRead );
+        };
+        graph.AddPass(
+             std::move( name ), RDG::PassFlags::Raster,
+             [this, &draws, &casters, resolution, arguments, &parameters]( RDG::PassBuilder& pass )
+             {
+                 pass.RenderArea( resolution, resolution );
+                 MeshDrawList& list = draws;
+                 list.Declare( pass, std::nullopt, parameters );
+                 pass.Read( arguments, RDG::Access::IndirectArgs );
+                 // The skin cache's streams its skinned casters fetch (after "SkinCache: Skin" wrote them).
+                 for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+                     pass.Read( streams, RDG::Access::StorageRead );
+                 // The non-mesh casters declare their blocks after the list's.
+                 uint32_t nextBlock = list.BlockCount();
+                 for ( VsmCasterEntry& entry : casters )
+                 {
+                     if ( const auto caster = entry.Caster.lock() )
+                     {
+                         entry.FirstBlock = nextBlock;
+                         nextBlock += caster->DeclareVirtualShadow( pass, parameters );
+                     }
+                 }
+             },
+             [this, &draws, &casters, view, arguments]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 DESERT_PROFILE_PASS( "VSM: Raster" );
+                 if ( auto drawn = draws.Record( context ); !drawn.IsSuccess() )
+                     return drawn;
+                 for ( const VsmCasterEntry& entry : casters )
+                 {
+                     const auto caster = entry.Caster.lock();
+                     if ( !caster )
+                         continue; // gone since the setup: its draws went with it
+                     if ( auto cast =
+                               caster->RecordVirtualShadow( context, entry.FirstBlock, m_CascadeCasterVP[view],
+                                                            arguments, entry.FirstRecord );
+                          !cast.IsSuccess() )
+                         return cast;
+                 }
+                 return BOOLSUCCESS;
+             } );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Graphic::System

@@ -346,10 +346,11 @@ namespace Desert::Graphic::SurfaceCache
             tracer        = GlobalIllumination::Pipeline{};
             tracer.Traced = true;
         }
-        m_FrameViews = FrameViews{ .Frame   = engineFrame,
-                                   .Origins = std::move( origins ),
-                                   .Budget  = MakeSurfaceCacheBudget( quality ),
-                                   .Tracer  = tracer };
+        m_FrameViews = FrameViews{ .Frame               = engineFrame,
+                                   .Origins             = std::move( origins ),
+                                   .Budget              = MakeSurfaceCacheBudget( quality ),
+                                   .Tracer              = tracer,
+                                   .VirtualLocalShadows = LocalShadowsVirtual( methods ) };
     }
 
     void SurfaceCacheRenderer::RefuseLightingTracer( const GlobalIllumination::Pipeline& tracer )
@@ -610,12 +611,25 @@ namespace Desert::Graphic::SurfaceCache
     namespace
     {
         constexpr std::string_view kDirectLightingShaderName = "SurfaceCacheDirectLighting";
+
+        // The direct lighting's permutation: the tracer's, plus DESERT_LOCAL_SHADOW_VSM under Shadows VirtualMaps.
+        Core::ShaderVariant DirectLightingVariant( const GlobalIllumination::Pipeline& tracer,
+                                                  const bool                          virtualLocalShadows )
+        {
+            Core::ShaderVariant variant = GlobalIllumination::TracerVariant( tracer );
+            if ( virtualLocalShadows )
+                variant.Defines.emplace_back( kLocalShadowVsmDefine );
+            return variant;
+        }
     } // namespace
 
     std::vector<Core::CookedProgramVariant> SurfaceCacheRenderer::ProgramVariants()
     {
-        std::vector<Core::CookedProgramVariant> variants =
-             GlobalIllumination::TracerProgramVariants( kDirectLightingShaderName );
+        std::vector<Core::CookedProgramVariant> variants;
+        for ( const GlobalIllumination::Pipeline& tracer : GlobalIllumination::kTracerPermutations )
+            for ( const bool virtualLocalShadows : { false, true } )
+                variants.push_back( { std::string( kDirectLightingShaderName ),
+                                      DirectLightingVariant( tracer, virtualLocalShadows ) } );
         for ( auto& variant : GlobalIllumination::TracerProgramVariants( kRadiosityShaderName ) )
             variants.push_back( std::move( variant ) );
         return variants;
@@ -656,13 +670,14 @@ namespace Desert::Graphic::SurfaceCache
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr SurfaceCacheRenderer::EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer )
+    Common::BoolResultStr SurfaceCacheRenderer::EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer,
+                                                                       const bool virtualLocalShadows )
     {
         const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
-        if ( m_LightingPipeline && tracer == m_LightingProgramFor )
+        if ( m_LightingPipeline && tracer == m_LightingProgramFor && virtualLocalShadows == m_LightingProgramVsm )
             return BOOLSUCCESS;
         auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
-             std::string( kDirectLightingShaderName ), GlobalIllumination::TracerVariant( tracer ) );
+             std::string( kDirectLightingShaderName ), DirectLightingVariant( tracer, virtualLocalShadows ) );
         if ( !acquired )
             return Common::MakeFormattedError<bool>( "surface cache: shader SurfaceCacheDirectLighting ({}) was "
                                                      "refused: {}",
@@ -672,8 +687,9 @@ namespace Desert::Graphic::SurfaceCache
         // One quad per relit page into the two lit layers (no depth, no blend: every texel of a relit page is
         // written).
         GraphicsPipelineSpecification lighting;
-        lighting.DebugName =
-             std::format( "SurfaceCacheDirectLighting ({})", GlobalIllumination::TracerDefine( tracer.Tracer ) );
+        lighting.DebugName = std::format( "SurfaceCacheDirectLighting ({}{})",
+                                          GlobalIllumination::TracerDefine( tracer.Tracer ),
+                                          virtualLocalShadows ? ", VSM" : "" );
         lighting.TargetLayout =
              RenderTargetLayout{ .ColorFormats = { kLayerFormats[static_cast<std::size_t>( kLitLayers[0] )],
                                                    kLayerFormats[static_cast<std::size_t>( kLitLayers[2] )] },
@@ -688,6 +704,7 @@ namespace Desert::Graphic::SurfaceCache
         m_LightingShader     = std::move( shader );
         m_LightingPipeline   = pipeline.GetValue();
         m_LightingProgramFor = tracer;
+        m_LightingProgramVsm = virtualLocalShadows;
         return BOOLSUCCESS;
     }
 
@@ -699,8 +716,16 @@ namespace Desert::Graphic::SurfaceCache
     {
         if ( frame.LightingPages.empty() )
             return BOOLSUCCESS;
+        // The cache's local shadow kind, stated with its frame (FrameViews::VirtualLocalShadows), not read off the
+        // updating view: under VirtualMaps the lights read the view's virtual shadow map (AddFrameVirtualShadows ran
+        // before this), and the atlas's view table is not this program's.
+        const bool virtualLocalShadows = inputs.VirtualLocalShadows;
+        if ( virtualLocalShadows && !inputs.View.Vsm.IsValid() )
+            return Common::MakeError<bool>( "surface cache direct lighting: the cache's lights read virtual shadow "
+                                            "maps, and the updating view built none this frame "
+                                            "(AddFrameVirtualShadows)" );
         if ( !inputs.Lights.Point.IsValid() || !inputs.Lights.Spot.IsValid() ||
-             !inputs.Lights.ShadowViews.IsValid() )
+             ( !virtualLocalShadows && !inputs.Lights.ShadowViews.IsValid() ) )
             return Common::MakeError<bool>( "surface cache direct lighting: the view's light buffers were not "
                                             "uploaded this frame (AddFrameLightGrid)" );
         if ( !inputs.Lights.WorldGridParams.IsValid() || !inputs.Lights.WorldGridCells.IsValid() )
@@ -715,7 +740,7 @@ namespace Desert::Graphic::SurfaceCache
         if ( emissiveLights && !inputs.Emissive.Valid )
             return Common::MakeError<bool>( "surface cache direct lighting: the GI tracer samples the emissive "
                                             "triangles, and the frame built no list (AddFrameEmissiveLights)" );
-        if ( const auto program = EnsureLightingProgram( inputs.Tracer.Pipeline ); !program )
+        if ( const auto program = EnsureLightingProgram( inputs.Tracer.Pipeline, virtualLocalShadows ); !program )
             return program;
         std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
         for ( std::size_t i = 0; i < layers.size(); ++i )
@@ -758,8 +783,6 @@ namespace Desert::Graphic::SurfaceCache
                                 RDG::Access::StorageRead )
                       .Storage( ShaderProtocols::SpotLight::Parameter, inputs.Lights.Spot,
                                 RDG::Access::StorageRead )
-                      .Storage( kLocalShadowViewsBlock, inputs.Lights.ShadowViews,
-                                RDG::Access::StorageRead )
                       .Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCacheShadowUB, shadow,
                                 RDG::Access::StorageRead )
                       .Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCacheCloudShadowUB, cloud,
@@ -767,6 +790,14 @@ namespace Desert::Graphic::SurfaceCache
                       .Storage( kLightGridParamsBlock, inputs.Lights.WorldGridParams, RDG::Access::StorageRead )
                       .Storage( kLightGridWorldCellsBlock, inputs.Lights.WorldGridCells, RDG::Access::StorageRead )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( DirectLightingPush ) ) );
+                 // The local lights' shadows: the atlas's view table, or the virtual shadow map's tables.
+                 if ( virtualLocalShadows )
+                 {
+                     if ( layout )
+                         BindVirtualShadowMapReads( block, inputs.View.Vsm, *layout );
+                 }
+                 else
+                     block.Storage( kLocalShadowViewsBlock, inputs.Lights.ShadowViews, RDG::Access::StorageRead );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      block.Texture( kLayerTextures[i], layers[i], RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All() )

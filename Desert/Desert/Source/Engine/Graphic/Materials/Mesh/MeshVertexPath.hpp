@@ -154,6 +154,15 @@ namespace Desert::Graphic
 
     inline constexpr uint32_t kMeshVertexPathCount = 6;
 
+    // The paths whose Forward cell MeshRenderer draws in the view's opaque mesh passes - and so draws, under
+    // Shadows.Method VirtualMaps, in its DESERT_LOCAL_SHADOW_VSM permutation (MeshRenderer::ForwardVirtualCell):
+    // the per-object static, the skinned, the CPU/GPU instanced and the GPU grass blade. The cook ships each
+    // one's permutations from this list (MeshRenderer::MaterialProgramVariants). MeshVertexPath.cpp asserts it
+    // holds every path with a G-buffer cell (an opaque mesh path), so a new mesh path cannot be drawn without
+    // its virtual-shadow permutation being cooked. The particle paths are ParticleRenderer's.
+    inline constexpr MeshVertexPath kMeshRendererForwardPaths[] = {
+         MeshVertexPath::Static, MeshVertexPath::Skinned, MeshVertexPath::Instanced, MeshVertexPath::GrassBlade };
+
     // What the fragment stage of the draw WRITES. Orthogonal to the path above: the same geometry can be
     // rasterized into the lit scene, into the deferred G-buffer, into the transparent composite or into a
     // shadow cascade, and which one it is has nothing to do with how its vertices were fetched.
@@ -177,9 +186,13 @@ namespace Desert::Graphic
         // Depth only, into the virtual shadow map's physical pool (SHADOW-VSM "VSM: Raster"): the ShadowDepth
         // cell's vertex stage, a fragment stage that atomic-maxes the depth into the page its texel maps to.
         VirtualShadowDepth = 5,
+        // Depth only, into the VIEW's scene depth before the base pass (UE: the DepthPass mesh pass): the view
+        // header's vertex stage (the base pass's very gl_Position), Mesh/Surface/Pass_Depth.glslh's fragment stage
+        // (nothing / the opacity mask's clip / the relief's depth). The base pass then tests equal and writes none.
+        Depth = 6,
     };
 
-    inline constexpr uint32_t kMeshPassCount = 6;
+    inline constexpr uint32_t kMeshPassCount = 7;
 
     // (path x pass) -> the surface CELL that draws it, "<Path>.<Pass>" (DShaderParser's SurfaceCellName), or
     // nullptr where the pass is not drawn through a surface template's cell (Glass, which is its own program).
@@ -279,6 +292,9 @@ namespace Desert::Graphic
     {
         const void* PassState = nullptr;
         std::string CellShader;
+        // ShaderVariant::Hash of a permutation of CellShader (ShaderService::AcquireVariant), which is not
+        // registered under the name; 0 = the program registered as CellShader.
+        uint64_t Variant = 0;
 
         bool operator==( const MeshCellPipelineKey& ) const = default;
     };

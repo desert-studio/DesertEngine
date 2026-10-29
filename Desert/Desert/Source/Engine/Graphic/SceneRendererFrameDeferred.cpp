@@ -258,23 +258,29 @@ namespace Desert::Graphic
                                                         : nullptr;
     }
 
-    void SceneRenderer::AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures,
+                                                              const std::string_view name )
     {
         if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetDepthAttachmentCount() == 0 )
-            return;
+            return {};
+        const RDG::TextureRef sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
+        const uint32_t        samples    = m_TargetFramebuffer->GetSpecification().Samples;
+        if ( samples <= 1 )
+            return sceneDepth; // one sample: the consumers read the scene depth itself
         auto* resolve =
              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
              UNIQUE_GET_AS( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] );
         if ( resolve == nullptr || !resolve->IsReady() )
-            return;
-        const RDG::TextureRef sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
+            return {};
+        const RDG::TextureRef resolved = textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" );
         DeferredFrameNodes::AddSceneDepthResolve(
-             graph, m_TargetFramebuffer->GetSpecification().Samples, sceneDepth,
-             textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" ),
+             graph, samples, sceneDepth, resolved,
              [resolve]( RDG::PassBuilder& pass, RDG::TextureRef depth )
              { resolve->DeclareBindings( pass, depth ); },
              [resolve]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return resolve->Record( context ); } );
+             { return resolve->Record( context ); },
+             name );
+        return resolved;
     }
 
     void SceneRenderer::AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures )
@@ -824,7 +830,11 @@ namespace Desert::Graphic
             // Shadows HardwareTraced: the lights with a ShadowMaskSlot read the ray-traced masks
             // (AddFrameRayTracedLocalShadows logged why they are missing; the sun-mask program then reads the
             // lights' shadow views - their maps where drawn, otherwise unshadowed).
-            shadow.RayTracedLocalLights = LocalShadowsAreRayTraced() && localShadowMasks.IsValid();
+            shadow.RayTracedLocalLights = LocalShadowsAreScreenMask() && localShadowMasks.IsValid();
+            // Shadows VirtualMaps: the same masks, and the virtual map's tables (AddFrameVirtualShadows) for the
+            // subsurface transmission in place of the atlas, which is not drawn under VirtualMaps.
+            shadow.VirtualLocalLights =
+                 LocalShadowsAreVirtual() && localShadowMasks.IsValid() && textures.Transients.Vsm.IsValid();
             inputs.LocalShadowMasks     = localShadowMasks;
         }
         else if ( meshRenderer != nullptr )
@@ -1951,11 +1961,13 @@ namespace Desert::Graphic
 
     SceneRenderer::FrameFrontLayer SceneRenderer::AddFrameTranslucentFrontLayer(
          RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
-         const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace, const ViewFrame& frame )
+         const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace, const ViewFrame& frame,
+         const FrontLayerSurface* const prepared )
     {
+        if ( meshRenderer == nullptr || gbuffer.size() < 2 || m_FrontLayerReflectionsFailed )
+            return {};
         // UE RenderFrontLayerTranslucency: the pass and its resources exist only when a view draws into it.
-        if ( meshRenderer == nullptr || gbuffer.size() < 2 || m_FrontLayerReflectionsFailed ||
-             !meshRenderer->BuildFrontLayerDraws() )
+        if ( prepared == nullptr && !meshRenderer->BuildFrontLayerDraws() )
             return {};
         if ( m_RenderSystems.find( "FrontLayerReflectionsSystem" ) == m_RenderSystems.end() )
         {
@@ -1975,6 +1987,27 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* reflections = UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["FrontLayerReflectionsSystem"] );
 
+        // The same surface the virtual shadow map's receivers were marked from, or this frame's own.
+        const std::optional<FrontLayerSurface> drawn =
+             prepared != nullptr ? std::optional<FrontLayerSurface>( *prepared )
+                                 : AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer );
+        if ( !drawn )
+            return {};
+        const FrontLayerSurface& surface = *drawn;
+
+        const FrameSSR traced = AddFrameSSR( graph, textures, *reflections, gbuffer, screenTrace, frame, &surface );
+        if ( !traced.Resolved.IsValid() )
+            return {};
+        return FrameFrontLayer{ .Reflection = traced.Resolved, .Depth = surface.Depth };
+    }
+
+    std::optional<SceneRenderer::FrontLayerSurface> SceneRenderer::AddFrameFrontLayerSurface(
+         RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
+         const std::vector<RDG::TextureRef>& gbuffer )
+    {
+        // The caller asked MeshRenderer::BuildFrontLayerDraws first (a translucent object is visible).
+        if ( meshRenderer == nullptr || gbuffer.size() < 2 )
+            return std::nullopt;
         // The front layer's targets: the G-buffer normal slot's, the view velocity's and the G-buffer depth's
         // descriptions (FrontLayerTargetLayout), transients of this frame.
         const RDG::TextureRef opaqueDepth = textures.Depth( m_GBuffer, "GBuffer" );
@@ -1987,7 +2020,7 @@ namespace Desert::Graphic
                        !normalDesc ? normalDesc.GetError()
                        : !motionDesc ? motionDesc.GetError()
                                      : depthDesc.GetError() );
-            return {};
+            return std::nullopt;
         }
         const FrontLayerSurface surface{ .Normal   = graph.CreateTexture( normalDesc.GetValue(), "FrontLayer.Normal" ),
                                          .Velocity = graph.CreateTexture( motionDesc.GetValue(), "FrontLayer.Velocity" ),
@@ -2006,10 +2039,6 @@ namespace Desert::Graphic
              },
              [meshRenderer]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderFrontLayerManual( context ); } );
-
-        const FrameSSR traced = AddFrameSSR( graph, textures, *reflections, gbuffer, screenTrace, frame, &surface );
-        if ( !traced.Resolved.IsValid() )
-            return {};
-        return FrameFrontLayer{ .Reflection = traced.Resolved, .Depth = surface.Depth };
+        return surface;
     }
 } // namespace Desert::Graphic

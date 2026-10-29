@@ -218,7 +218,9 @@ namespace Desert::Graphic
             sun.CascadeDepthRange    = mesh->GetCascadeDepthRange();
         }
         // Inactive (fog off, VolumetricFog off, machine ceiling 0): no node, and the frame result says so.
-        AddComputeNodes( graph, textures, volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun ) );
+        // The froxels read the local lights' shadows by the opaque lighting's rule (atlas, or virtual maps).
+        AddComputeNodes( graph, textures,
+                         volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun, LocalShadowsAreVirtual() ) );
     }
 
     void SceneRenderer::AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )

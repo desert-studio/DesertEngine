@@ -1600,6 +1600,22 @@ namespace Desert::Editor
             const Graphic::GeometryPoolStats pool = Graphic::GeometryPool::Get().GetStats();
             snapshot.GeometryPoolBinds            = pool.Binds;
             snapshot.GeometryPoolMeshBinds        = pool.MeshBinds;
+            if ( const auto* primary = m_Workspace.PrimaryRenderer(); primary != nullptr )
+            {
+                const Graphic::System::ForwardPrepassStats prepass = primary->GetForwardPrepassStats();
+                snapshot.ForwardPrepass = { .Draws            = prepass.Draws,
+                                            .Cells            = prepass.Cells,
+                                            .GpuSections      = prepass.GpuSections,
+                                            .DepthWriteInBase = prepass.DepthWriteInBase };
+                for ( const Graphic::System::VsmLocalLightStats& light : primary->GetVirtualShadowLocalStats() )
+                    snapshot.VsmLocalLights.push_back( { .Source    = light.SourceId,
+                                                         .Views     = light.Views,
+                                                         .Requested = light.Requested,
+                                                         .Rendered  = light.Rendered,
+                                                         .Cached    = light.Cached,
+                                                         .Coarse    = light.Coarse,
+                                                         .Receivers = light.Receivers } );
+            }
             // The scene-owned GI pools: one per live scene that brought each up, never one per view.
             for ( const ::Desert::Core::Scene* scene : ::Desert::Core::Scene::LiveScenes() )
             {
