@@ -14,6 +14,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Assets/GrassCoverLook.hpp>
+#include <Editor/Import/GrassCoverLookBuilder.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Core/Application.hpp>
 #include <filesystem>
@@ -240,7 +241,7 @@ namespace Desert::Editor
                    // A displaced mesh's bake-level surface (Baked draw, collision; CPU height decode is editor-only).
                    Assets::SetDisplacedMeshBuilder( &Editor::BuildDisplacedMeshBytes );
                    // A grass variety's cover look: its albedo map averaged over the texels its blades draw.
-                   Assets::SetGrassCoverLookBuilder( &TextureImporter::BuildGrassCoverLook );
+                   Assets::SetGrassCoverLookBuilder( &Editor::BuildGrassCoverLook );
                    (void)m_ImportManager->ImportLooseTextures( SplashItems() );
                },
                kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr, 0 } );

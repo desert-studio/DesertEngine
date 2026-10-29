@@ -10,6 +10,8 @@
 #include "TextureIntentFile.hpp"
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Common/Content/DerivedDataCache.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Editor/Import/TextureSourceFormats.hpp>
 #include <Editor/Import/DdsSource.hpp>
@@ -786,6 +788,52 @@ namespace Desert::Editor
         // every load with `vkCmdBlitImage`, which is impossible for the block-compressed formats this
         // container exists to carry (`blitDst=0`) — so the chain has to be in the file before the
         // format can change, and that ordering is `Docs/World/PROGRAMME.md` §5.
+        // COLOUR PADDED UNDER THE MASK BEFORE THE CHAIN (GRASS-ASSET p5, TextureDilationMask). A foliage atlas
+        // whose opacity is another texture carries matte black under its cut-away; padded here, no mip mixes the
+        // blade with it. The mask is resolved by GUID (UE CompositeTexture); an unresolvable or undecodable mask is
+        // a failed cook, never a silent undilated one.
+        if ( const Assets::TextureDilationMask& dilation = asset.Import.Settings.ColorDilationMask; dilation.Enabled() )
+        {
+            auto failDilation = [&]( const std::string& why ) -> TextureCookResult {
+                LOG_ERROR( "[TextureImporter] '{0}': its colour dilation mask {1} {2}. The null handle is "
+                           "returned and nothing is cached.",
+                           abs, Common::Content::AssetGuidToText( dilation.Texture ), why );
+                return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
+            };
+            const std::string maskKey = Assets::ContentRegistry::KeyForHandle(
+                 static_cast<uint64_t>( Common::Content::HandleForGuid( dilation.Texture ) ) );
+            if ( maskKey.empty() )
+                return failDilation( "is not in the content registry" );
+            const auto maskSource = Assets::ReadTextureSourceImage( Common::AssetHandle::PathForStableKey( maskKey ) );
+            if ( !maskSource.IsSuccess() )
+                return failDilation( std::format( "could not be read ({})", maskSource.GetError() ) );
+            const std::vector<std::byte>& maskBytes = maskSource.GetValue();
+            int                           mw = 0, mh = 0, mch = 0;
+            stbi_uc* maskPixels = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( maskBytes.data() ),
+                                                         static_cast<int>( maskBytes.size() ), &mw, &mh, &mch, 4 );
+            if ( !maskPixels )
+                return failDilation( std::format( "could not be decoded ({})", stbi_failure_reason() ) );
+            // Nearest texel of the mask for each colour texel: the two images of one atlas share a layout and
+            // usually an extent; a different extent maps by UV.
+            std::vector<float> mask( static_cast<size_t>( w ) * h );
+            for ( int y = 0; y < h; ++y )
+                for ( int x = 0; x < w; ++x )
+                {
+                    const int mx = std::min( mw - 1, static_cast<int>( ( x + 0.5 ) * mw / w ) );
+                    const int my = std::min( mh - 1, static_cast<int>( ( y + 0.5 ) * mh / h ) );
+                    mask[static_cast<size_t>( y ) * w + x] =
+                         static_cast<float>( maskPixels[( static_cast<size_t>( my ) * mw + mx ) * 4 + dilation.Channel] ) /
+                         255.0f;
+                }
+            stbi_image_free( maskPixels );
+            const auto filled = Assets::Serialization::DilateColorUnderMask(
+                 data.Width, data.Height, data.Format, base, mask, dilation.Threshold, asset.Import.Settings.ColorSpace );
+            if ( !filled.IsSuccess() )
+                return failDilation( filled.GetError() );
+            LOG_INFO( "[TextureImporter] '{0}': colour padded into {1} of {2} texels under mask {3}.", abs,
+                      filled.GetValue(), mask.size(), Common::Content::AssetGuidToText( dilation.Texture ) );
+        }
+
         auto chain = Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base, data.Pixels,
                                                            asset.Import.Settings.ColorSpace,
                                                            asset.Import.Settings.AlphaCoverageThresholds );
@@ -1154,43 +1202,6 @@ namespace Desert::Editor
             mips.push_back( { level.Width, level.Height, texels.ExtractValue() } );
         }
         return Common::MakeSuccess( std::move( mips ) );
-    }
-
-    Common::ResultStr<std::string> TextureImporter::BuildGrassCoverLook( const Assets::GrassCoverLookInput& input )
-    {
-        // 256 texels across: a blade card of a 2k atlas keeps a few dozen texels of its width, enough for the
-        // mean of its veins and dry tips; the level is the cooked one, so the mean is what the mip chain draws.
-        constexpr uint32_t kGrassCoverLookEdge = 256;
-        auto               albedo              = DecodePlatformMips( input.AlbedoAsset, kGrassCoverLookEdge );
-        if ( !albedo.IsSuccess() )
-            return Common::MakeError<std::string>( albedo.GetError() );
-        if ( albedo.GetValue().empty() )
-            return Common::MakeFormattedError<std::string>( "albedo map '{}' has no level within {} texels",
-                                                            input.AlbedoAsset.generic_string(), kGrassCoverLookEdge );
-        const PlatformMip&                               a = albedo.GetValue().front();
-        std::optional<std::vector<PlatformMip>>          maskMips;
-        std::optional<Assets::GrassCoverLookLevel>       maskLevel;
-        if ( !input.MaskAsset.empty() )
-        {
-            auto mask = DecodePlatformMips( input.MaskAsset, kGrassCoverLookEdge );
-            if ( !mask.IsSuccess() )
-                return Common::MakeError<std::string>( mask.GetError() );
-            if ( mask.GetValue().empty() )
-                return Common::MakeFormattedError<std::string>( "opacity mask '{}' has no level within {} texels",
-                                                                input.MaskAsset.generic_string(),
-                                                                kGrassCoverLookEdge );
-            maskMips             = mask.ExtractValue();
-            const PlatformMip& m = maskMips->front();
-            maskLevel            = Assets::GrassCoverLookLevel{ m.Width, m.Height, m.Texels };
-        }
-        const Assets::GrassCoverLook look =
-             Assets::AverageGrassCoverLook( input, { a.Width, a.Height, a.Texels }, maskLevel );
-        if ( look.Coverage <= 0.0f )
-            return Common::MakeFormattedError<std::string>(
-                 "albedo map '{}': no texel of its {} rect(s) passes the opacity mask '{}' (clip {})",
-                 input.AlbedoAsset.generic_string(), input.Rects.size(), input.MaskAsset.generic_string(),
-                 input.MaskClip );
-        return Common::MakeSuccess( Assets::EncodeGrassCoverLook( look ) );
     }
 
 } // namespace Desert::Editor
