@@ -1,5 +1,7 @@
 # GRASS-SETTLE: the first frame after opening FIELD_Barn must not show a grass cell of another colour with a straight
-# edge (FOLIAGE-PROOF 10-28, 1_field_grass lower left: a variety drawn with its Pending textures' schema defaults).
+# edge (FOLIAGE-PROOF 10-28, 1_field_grass lower left). p13: not textures - after a camera cut the grass buffers are
+# sized by the PREVIOUS view's GPU count (+25 %) and the generator drops every instance past it (GrassGenerate), so a
+# block of cells loses its green meshes until the count comes back. The reply now waits for the grass to settle.
 Дано run Scene "Open Scene FIELD_Barn.desce"
 Дано run View "View mode: Lit"
 Дано run Entity "Sun"
@@ -7,6 +9,7 @@
 Дано --subject selection set SunAzimuth 20
 Дано --subject viewport set Camera.Position 0,900,2500
 Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
-Тогда-вид 1_first the first frame after opening, default FOV: no grass cell of another colour with a straight edge (lower left)
+Тогда-вид 1_first taken right after the camera is set: left of the path the grass has the same tone as on 2_fov70; no pale block with a straight edge
+Тогда editor.log has "[Grass] variety ... truncated N->cap" after the camera cut (the cause), and 1_first still shows no pale block (the reply waited for the grass)
 Когда --subject viewport set Camera.FOV 70
 Тогда-вид 2_fov70 FOV 70: the grass is uniform
