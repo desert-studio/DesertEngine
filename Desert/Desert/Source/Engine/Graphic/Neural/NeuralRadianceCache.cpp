@@ -132,7 +132,16 @@ namespace Desert::Engine::Neural
             return Common::MakeFormattedError( "NRC: the NN layer's kernel path is refused: {}",
                                                resolved.GetError() );
         m_Path = resolved.GetValue();
-        m_Mlp  = std::make_unique<FusedMlpCompute>( m_Caps );
+        // Every MLP batch a frame runs (NeuralRadianceCache.hpp FRAME ORDER: an inference chunk - the query
+        // capacity is whole chunks, so every chunk is full -, the self-training inference, a training step): a
+        // shape or batch the kernels do not run is refused here, before any frame adds a pass, not halfway
+        // through AddCachePasses.
+        for ( const uint32_t batch :
+              { Groups( kNrcInferenceChunk ) * kGroup, kNrcMaxTrainingPaths, kNrcTrainingBatch } )
+            if ( const std::string invalid = ValidateFusedMlp( kNrcShape, batch ); !invalid.empty() )
+                return Common::MakeFormattedError( "NRC: the MLP batch of {} rows is refused: {}", batch,
+                                                   invalid );
+        m_Mlp = std::make_unique<FusedMlpCompute>( m_Caps );
         // The MLP's kernels now: a refusal stops the cache before the frame's graph has any of its passes.
         if ( const auto kernels = m_Mlp->PrepareKernels( m_Path ); !kernels )
         {

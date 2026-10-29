@@ -149,6 +149,7 @@ namespace Desert::Editor::Control
         std::string        Requested = "Off";   ///< PathTracing.RadianceCache as set (kPathTracingRadianceCacheNames)
         std::string        Status    = "Off";   ///< what the paths ran: Off when the cache was not asked or refused
         std::string        Reason;              ///< why the cache that was asked is Off (its standing refusal)
+        std::string        RetryOn; ///< what the held refusal waits for (PathTracer RadianceCacheStatus::RetryOn)
     };
 
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
@@ -436,6 +437,7 @@ namespace Desert::Editor::Control
             section["requested"]       = Str( nrc.Requested );
             section["status"]          = Str( nrc.Status );
             section["reason"]          = Str( nrc.Reason );
+            section["retryOn"]         = Str( nrc.RetryOn );
             section["active"]          = Common::Json::Value( nrc.Active );
             section["kernelPath"]      = Str( nrc.KernelPath );
             section["trainingSteps"]   = Num( static_cast<double>( nrc.TrainingSteps ) );
