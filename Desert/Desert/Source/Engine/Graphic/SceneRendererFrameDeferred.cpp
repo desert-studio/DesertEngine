@@ -787,7 +787,7 @@ namespace Desert::Graphic
             // Shadows HardwareTraced: the lights with a ShadowMaskSlot read the ray-traced masks
             // (AddFrameRayTracedLocalShadows logged why they are missing; the sun-mask program then reads the
             // lights' shadow views - their maps where drawn, otherwise unshadowed).
-            shadow.RayTracedLocalLights = LocalShadowsAreRayTraced() && localShadowMasks.IsValid();
+            shadow.RayTracedLocalLights = LocalShadowsAreScreenMask() && localShadowMasks.IsValid();
             inputs.LocalShadowMasks     = localShadowMasks;
         }
         else if ( meshRenderer != nullptr )

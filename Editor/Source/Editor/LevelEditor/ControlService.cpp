@@ -1339,6 +1339,15 @@ namespace Desert::Editor
             const Graphic::GeometryPoolStats pool = Graphic::GeometryPool::Get().GetStats();
             snapshot.GeometryPoolBinds            = pool.Binds;
             snapshot.GeometryPoolMeshBinds        = pool.MeshBinds;
+            if ( const auto* primary = m_Workspace.PrimaryRenderer(); primary != nullptr )
+            {
+                for ( const Graphic::System::VsmLocalLightStats& light : primary->GetVirtualShadowLocalStats() )
+                    snapshot.VsmLocalLights.push_back( { .Source    = light.SourceId,
+                                                         .Views     = light.Views,
+                                                         .Requested = light.Requested,
+                                                         .Rendered  = light.Rendered,
+                                                         .Cached    = light.Cached } );
+            }
         }
 
         {

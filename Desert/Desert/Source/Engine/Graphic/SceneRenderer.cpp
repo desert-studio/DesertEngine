@@ -1888,7 +1888,7 @@ namespace Desert::Graphic
                 localShadowMeshes->UpdateLocalShadows(
                      m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights, m_SpotLightShadows,
                      !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) &&
-                          ( !LocalShadowsAreRayTraced() || LocalShadowMapsRead() ) );
+                          ( !LocalShadowsAreScreenMask() || LocalShadowMapsRead() ) );
                 // The terrain's draws into those views, at the LOD each light asks for (not the camera's, so a
                 // cached local shadow survives a camera move), and its cache key, before LocalShadowPasses asks
                 // for it (PlanLocalShadowCache). Before this ran, GetLocalShadowCasterLights was empty and every
@@ -2064,10 +2064,15 @@ namespace Desert::Graphic
                 // "Shadows: Ray Traced Sun" in place of the cascades (SunShadowIsRayTraced): the composite's
                 // DESERT_SUN_SHADOW_SCREEN_MASK permutation reads this mask.
                 // "VSM: Project" likewise: the same mask, the same permutations.
+                // Under VirtualMaps the point/spot lights' pages share the sun's map: one page pass for both, and
+                // "VSM: Project Local" writes the local masks the composite reads as the traced ones.
                 m_FrameVsmPages.reset();
-                const RDG::TextureRef sunShadowMask =
+                const FrameVirtualShadows virtualShadows =
                      SunShadowIsVirtual()
-                          ? AddFrameVirtualSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
+                          ? AddFrameVirtualShadows( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
+                          : FrameVirtualShadows{};
+                const RDG::TextureRef sunShadowMask =
+                     SunShadowIsVirtual() ? virtualShadows.SunMask
                      : SunShadowIsRayTraced()
                           ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                           : RDG::TextureRef{};
@@ -2080,10 +2085,11 @@ namespace Desert::Graphic
                      LocalLightsAreStochastic() ? AddFrameMegaLights( graph, textures, gbuffer, frame )
                                                 : System::MegaLightsLighting{};
                 // Shadows HardwareTraced: the point/spot lights' ray-traced masks, one layer per ShadowMaskSlot.
-                const RDG::TextureRef localShadowMasks = LocalShadowsAreRayTraced()
-                                                              ? AddFrameRayTracedLocalShadows( graph, textures,
-                                                                                               gbuffer, frame )
-                                                              : RDG::TextureRef{};
+                // Shadows VirtualMaps: the same layers, from "VSM: Project Local".
+                const RDG::TextureRef localShadowMasks =
+                     LocalShadowsAreRayTraced() ? AddFrameRayTracedLocalShadows( graph, textures, gbuffer, frame )
+                     : LocalShadowsAreVirtual() ? virtualShadows.LocalMasks
+                                                : RDG::TextureRef{};
                 // SSS-PROFILE: the composite splits the scattered texels' diffuse into this target when the view
                 // scatters; Burley + Recombine add it back BEFORE the forward meshes (AddFrameGeneric), which may
                 // stand in front of a scattered texel and must not receive its diffuse.
@@ -2378,6 +2384,17 @@ namespace Desert::Graphic
                !PathTraced( m_RenderMethods );
     }
 
+    bool SceneRenderer::LocalShadowsAreVirtual() const
+    {
+        return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::VirtualMaps &&
+               !PathTraced( m_RenderMethods );
+    }
+
+    bool SceneRenderer::LocalShadowsAreScreenMask() const
+    {
+        return LocalShadowsAreRayTraced() || LocalShadowsAreVirtual();
+    }
+
     namespace
     {
         // The forward readers of one shadow map name outside the mesh renderer: the forward terrain and the view's
@@ -2427,7 +2444,7 @@ namespace Desert::Graphic
         // ShadowCaster is UpdateLocalShadows' answer "this light casts in this view" (CastShadows, and the view
         // draws shadows), whether or not a map was drawn for it.
         m_LocalShadowMaskLights.clear();
-        const bool traced = LocalShadowsAreRayTraced();
+        const bool traced = LocalShadowsAreScreenMask();
         int32_t    slot   = 0;
         for ( std::size_t i = 0; i < m_PointLight.PointLights.size(); ++i )
         {
@@ -2599,10 +2616,9 @@ namespace Desert::Graphic
         return true;
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameVirtualSunShadow( RDG::Builder& graph, FrameTextures& textures,
-                                                             const std::vector<RDG::TextureRef>& gbuffer,
-                                                             const glm::vec3&                    directionToSun,
-                                                             const ViewFrame&                    frame )
+    SceneRenderer::FrameVirtualShadows SceneRenderer::AddFrameVirtualShadows(
+         RDG::Builder& graph, FrameTextures& textures, const std::vector<RDG::TextureRef>& gbuffer,
+         const glm::vec3& directionToSun, const ViewFrame& frame )
     {
         if ( !EnsureVirtualShadowResources() )
             return {};
@@ -2615,46 +2631,84 @@ namespace Desert::Graphic
                                                        .Width          = frame.Split.Render.Width,
                                                        .Height         = frame.Split.Render.Height,
                                                        .FrameIndex     = frame.FrameIndex };
-        const System::VirtualShadowMapSun        sun{ .DirectionToSun     = directionToSun,
-                                                      .SourceAngleDegrees = m_SunSourceAngleDegrees };
+        // The sun only when the scene has a directional light (a night scene's map holds its lamps alone).
+        const bool                        hasSun = !m_DirectionLights.DirectionLights.empty();
+        const System::VirtualShadowMapSun sun{ .DirectionToSun     = directionToSun,
+                                               .SourceAngleDegrees = m_SunSourceAngleDegrees };
+        // The point/spot lights given a mask slot (AssignLocalShadowMaskSlots: they cast, and their sphere meets
+        // the view), slot = layer.
+        std::vector<System::VirtualShadowMapLocalLight> locals;
+        if ( LocalShadowsAreVirtual() )
+        {
+            locals.reserve( m_LocalShadowMaskLights.size() );
+            for ( size_t slot = 0; slot < m_LocalShadowMaskLights.size(); ++slot )
+            {
+                const System::RayTracedLocalShadowLight& light = m_LocalShadowMaskLights[slot];
+                const bool spot = light.CosOuter != System::kRayTracedLocalShadowNoCone;
+                locals.push_back( { .SourceId      = light.SourceId,
+                                    .Position      = light.Position,
+                                    .Radius        = light.AttenuationRadius,
+                                    .SpotDirection = light.SpotDirection,
+                                    .CosOuter      = spot ? light.CosOuter : System::kVsmLocalPointCone,
+                                    .SourceRadius  = light.SourceRadius,
+                                    .MaskSlot      = static_cast<uint32_t>( slot ) } );
+            }
+        }
+        if ( !hasSun && locals.empty() )
+            return {}; // nothing casts into the map this frame: its pages stay cached
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
         // The casters that changed since the last frame drop their cached pages (UE VSM cache invalidation).
         const System::MeshRenderer::VirtualShadowInvalidation invalidation =
              meshes->CollectVirtualShadowInvalidation();
         const Common::ResultStr<System::VirtualShadowMapFrame> pages = m_VirtualShadowMap.AddPagePasses(
-             graph, view, &sun, std::span<const System::VirtualShadowMapLocalLight>{}, m_VirtualShadowQuality,
-             invalidation.Boxes, invalidation.StaticCastersChanged );
+             graph, view, hasSun ? &sun : nullptr, locals, m_VirtualShadowQuality, invalidation.Boxes,
+             invalidation.StaticCastersChanged );
         if ( !pages )
         {
-            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
-                       pages.GetError() );
+            LOG_ERROR( "[SceneRenderer] {}: {}; the virtual shadow map casts no shadow this frame",
+                       m_ViewResources.GetName(), pages.GetError() );
             return {};
         }
         m_FrameVsmPages = pages.GetValue();
-        // "VSM: Raster": every caster into the dirty pages, before the projection reads the pool. A refusal is
-        // a missing caster program or pipeline, which no later frame repairs: said once, and the method stays
-        // dark.
+        // "VSM: Raster": every caster into the dirty pages (the sun's levels, then the local lights' mips), before
+        // the projections read the pool. A refusal is a missing caster program or pipeline, which no later frame
+        // repairs: said once, and the method stays dark.
         if ( const Common::BoolResultStr raster =
                   meshes->AddVirtualShadowRasterPasses( graph, pages.GetValue(), m_VirtualShadowMap );
              !raster.IsSuccess() )
         {
-            LOG_ERROR( "[SceneRenderer] {}: Shadows: Virtual Shadow Map casters cannot be drawn; the sun casts no "
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Virtual Shadow Map casters cannot be drawn; nothing casts a "
                        "shadow while the method resolves to VirtualMaps: {}",
                        m_ViewResources.GetName(), raster.GetError() );
             m_VirtualShadowFailed = true;
             m_VirtualShadowReady  = false;
             return {};
         }
-        const Common::ResultStr<RDG::TextureRef> mask =
-             m_VirtualShadowMap.AddProjection( graph, pages.GetValue(), view );
-        if ( !mask )
+        FrameVirtualShadows result;
+        if ( hasSun )
         {
-            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
-                       mask.GetError() );
-            return {};
+            const Common::ResultStr<RDG::TextureRef> mask =
+                 m_VirtualShadowMap.AddProjection( graph, pages.GetValue(), view );
+            if ( !mask )
+                LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
+                           mask.GetError() );
+            else
+                result.SunMask = mask.GetValue();
         }
-        return mask.GetValue();
+        if ( !locals.empty() )
+        {
+            const RDG::TextureRef masks = System::RayTracedLocalShadowRenderer::CreateMasks(
+                 graph, view.Width, view.Height, static_cast<uint32_t>( locals.size() ) );
+            if ( const Common::BoolResultStr projected =
+                      m_VirtualShadowMap.AddLocalProjection( graph, pages.GetValue(), view, masks );
+                 !projected.IsSuccess() )
+                LOG_ERROR( "[SceneRenderer] {}: {}; the local lights cast no virtual shadow this frame",
+                           m_ViewResources.GetName(), projected.GetError() );
+            else
+                result.LocalMasks = masks;
+        }
+        return result;
     }
 
     bool SceneRenderer::EnsureRayTracedShadowResources()

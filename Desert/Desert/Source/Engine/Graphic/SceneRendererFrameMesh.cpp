@@ -387,7 +387,7 @@ namespace Desert::Graphic
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderForwardDepthNormalManual( context ); },
              [meshRenderer, rayTracedSun = SunShadowIsScreenMask(),
-              localShadowMasks = LocalShadowsAreRayTraced()]( RDG::PassBuilder& pass )
+              localShadowMasks = LocalShadowsAreScreenMask()]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun, localShadowMasks ); } );
     }
 
@@ -406,10 +406,10 @@ namespace Desert::Graphic
         if ( SunShadowIsScreenMask() )
             view.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : textures.GraphRefs().System.White;
         // Under ray-traced local shadows the opaque programs read the masks in place of the atlas (the prepass chose
-        // the same permutation by LocalShadowsAreRayTraced). The masks exist whenever the frame traced them
+        // the same permutation by LocalShadowsAreScreenMask). The masks exist whenever the frame traced them
         // (AddFrameRayTracedLocalShadows packs at least one layer); a pack that failed (logged there) leaves them
         // invalid and the draws on the atlas program - no stand-in array is read in place of a missing mask.
-        if ( LocalShadowsAreRayTraced() )
+        if ( LocalShadowsAreScreenMask() )
             view.LocalShadowMasks = localShadowMasks;
         AddRaster(
              graph, "Deferred: Generic", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),

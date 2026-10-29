@@ -733,9 +733,13 @@ namespace Desert::Graphic::System
         static constexpr uint32_t kRainOcclusionView      = kVsmViewBase + kVsmClipmapLevelCount;
         static constexpr uint32_t kLocalShadowViewBase    = kRainOcclusionView + 1u;
         static constexpr uint32_t kFixedShadowViews       = kLocalShadowViewBase;
-        [[nodiscard]] static constexpr bool IsVirtualShadowView( const uint32_t view )
+        // A virtual shadow map view: a clipmap level of the sun (the fixed range), or a local view this frame's
+        // "VSM: Raster" of a point / spot light's mip gave out (m_VirtualShadowViews, past the atlas rows).
+        [[nodiscard]] bool IsVirtualShadowView( const uint32_t view ) const
         {
-            return view >= kVsmViewBase && view < kRainOcclusionView;
+            if ( view >= kVsmViewBase && view < kRainOcclusionView )
+                return true;
+            return view < m_VirtualShadowViews.size() && m_VirtualShadowViews[view] != 0u;
         }
 
         // THE SUN'S VIRTUAL SHADOW MAP, before its page passes (SceneRenderer::AddFrameVirtualSunShadow): what
@@ -1360,8 +1364,8 @@ namespace Desert::Graphic::System
         // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —
         // its mask texture and clip threshold with it. The cascade material of the draw, or null when the
         // caster takes the shared program (opaque, or no batched-path material).
-        static DataDrivenMaterial* MaskedCasterMaterial( const DataDrivenMaterial* material, MeshVertexPath path,
-                                                         uint32_t cascade );
+        DataDrivenMaterial* MaskedCasterMaterial( const DataDrivenMaterial* material, MeshVertexPath path,
+                                                  uint32_t cascade ) const;
         // The pipeline of one masked caster cell: the shared caster's state for @p path with the cell's shader,
         // built on first use and kept per cell shader. Null (logged once per shader) when it cannot.
         GraphicsPipeline* MaskedCasterPipeline( const DataDrivenMaterial& caster, MeshVertexPath path,
@@ -1555,6 +1559,24 @@ namespace Desert::Graphic::System
             uint32_t                     FirstRecord = 0;
         };
         std::array<std::vector<VsmCasterEntry>, kVsmClipmapLevelCount> m_VsmCasters;
+        // The local lights' drawn mips (VirtualShadowMapFrame::LocalRasters), one entry each, in the frame's order:
+        // its casters and non-mesh casters as a sun level's. Grows and is never shrunk, so a node's lambdas hold a
+        // stable entry.
+        struct VsmLocalRasterDraws
+        {
+            MeshRendererDetail::MeshDrawList Draws;
+            std::vector<VsmCasterEntry>      Casters;
+        };
+        std::vector<std::unique_ptr<VsmLocalRasterDraws>> m_VsmLocalDraws;
+        // One raster node of the virtual shadow map: the casters of shadow view @p view culled against level
+        // @p level's drawn pages, over a @p resolution texel square.
+        [[nodiscard]] Common::BoolResultStr AddVirtualShadowRasterNode( RDG::Builder&                   graph,
+                                                                        const VirtualShadowMapFrame&    frame,
+                                                                        const VirtualShadowMapRenderer& map,
+                                                                        uint32_t level, uint32_t view,
+                                                                        uint32_t resolution, std::string name,
+                                                                        MeshRendererDetail::MeshDrawList& draws,
+                                                                        std::vector<VsmCasterEntry>&      casters );
         // CollectVirtualShadowInvalidation's state from the last frame the map was drawn: the casters that stand
         // still, sorted by signature, and the boxes of the ones that move by themselves. The instance snapshots
         // the still ISMs' signatures name, kept alive so a freed snapshot's address is not reused by a new one
@@ -1606,6 +1628,11 @@ namespace Desert::Graphic::System
         // caster). Sized kFixedShadowViews + this frame's local views (EnsureShadowViewCount).
         std::vector<glm::mat4> m_CascadeCasterVP = std::vector<glm::mat4>( kFixedShadowViews, glm::mat4( 1.0f ) );
         std::vector<CascadeCasterBias> m_CascadeCasterBias = std::vector<CascadeCasterBias>( kFixedShadowViews );
+        // Per shadow view past the fixed ones: 1 = this frame gave it to a local light's virtual shadow map mip
+        // (IsVirtualShadowView), 0 = an atlas row. And the kind each view's caster materials were made for: a
+        // view whose kind flipped makes them again on the other cells (EnsureShadowViewMaterials).
+        std::vector<uint8_t> m_VirtualShadowViews     = std::vector<uint8_t>( kFixedShadowViews, 0u );
+        std::vector<uint8_t> m_ShadowMaterialsVirtual = std::vector<uint8_t>( kFixedShadowViews, 0u );
         // Grows every per-view array above (and the local views' draw lists) to hold @p viewCount views. Never
         // shrinks: a view's caster materials are kept for the next frame that has as many local views.
         void EnsureShadowViewCount( uint32_t viewCount );

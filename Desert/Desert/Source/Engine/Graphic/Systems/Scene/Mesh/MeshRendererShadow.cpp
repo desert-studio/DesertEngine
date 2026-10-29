@@ -581,7 +581,7 @@ namespace Desert::Graphic::System
     }
 
     DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material,
-                                                            MeshVertexPath path, uint32_t cascade )
+                                                            MeshVertexPath path, uint32_t cascade ) const
     {
         const MeshPass pass =
              IsVirtualShadowView( cascade ) ? MeshPass::VirtualShadowDepth : MeshPass::ShadowDepth;
@@ -833,7 +833,9 @@ namespace Desert::Graphic::System
         // clamp and land on its sun-side end (EnsureVirtualShadowPipelines). That end is clip z >= 0 of the
         // level's standard-Z [0,1] projection, the plane the extraction names PLANE_FAR (row 2 alone,
         // Frustum::Rebuild).
-        if ( IsVirtualShadowView( c ) )
+        // A local light's mip is a perspective view from the light: its near-plane casters are clamped and
+        // dropped by the raster (Common/VirtualShadowRaster.glslh), nothing lies beyond its far plane.
+        if ( c >= kVsmViewBase && c < kRainOcclusionView )
             cascadeFrustum.Open( Core::PLANE_FAR );
 
         // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is
