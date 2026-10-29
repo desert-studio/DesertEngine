@@ -275,7 +275,7 @@ namespace Desert::Graphic::System
                          .Storage( MegaLightsShaderParameters::RayTracingMaterialRecords, in.Metadata.Materials,
                                    RDG::Access::StorageRead );
                 if ( in.Sources.VirtualMaps )
-                    BindVirtualShadowMapReads( block, in.Vsm, traceProgram.Layout.Get( traceProgram.Shader ) );
+                    BindVirtualShadowMapReads( block, in.Vsm, *traceProgram.Layout.Get( traceProgram.Shader ) );
                 if ( in.Sources.ScreenTrace() )
                     block.Texture( MegaLightsShaderParameters::HzbTexture, in.Hzb, RDG::Access::SampledCompute,
                                    RDG::SubresourceRange::All() );
@@ -416,7 +416,7 @@ namespace Desert::Graphic::System
             if ( !pipeline )
                 return Common::MakeError( pipeline.GetError() );
             program.Pipeline = pipeline.GetValue();
-            return true;
+            return Common::MakeSuccess( true );
         }
 
         // The trace program @p source (TraceProgramOf), built once; a failure is latched (no later frame repairs a
@@ -424,7 +424,7 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::BoolResultStr EnsureTrace( const std::size_t source )
         {
             if ( m_Trace[source].Pipeline )
-                return true;
+                return Common::MakeSuccess( true );
             if ( !m_TraceErrors[source].empty() )
                 return Common::MakeError( m_TraceErrors[source] );
             Common::BoolResultStr built = Build( m_Trace[source], kTraceShaderNames[source] );

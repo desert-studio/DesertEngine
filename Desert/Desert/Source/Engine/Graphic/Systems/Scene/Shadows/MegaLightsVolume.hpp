@@ -229,7 +229,7 @@ namespace Desert::Graphic::System
                  kPassName, RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
-                     const RDG::ShaderBindingLayout& layout = program.Layout.Get( program.Shader );
+                     const auto& layout = program.Layout.Get( program.Shader );
                      auto block = pass.Bindings( layout, Renderer::GetPipelineRouteFill( *program.Pipeline ) );
                      block.Uniform( MegaLightsVolumeShaderParameters::MegaLightsVolumeViewUB, view )
                           .Sampler( MegaLightsVolumeShaderParameters::LinearClampSampler,
@@ -247,7 +247,7 @@ namespace Desert::Graphic::System
                               .Storage( MegaLightsVolumeShaderParameters::RayTracingMaterialRecords,
                                         in.Metadata.Materials, RDG::Access::StorageRead );
                      if ( in.Sources.VirtualMaps )
-                         BindVirtualShadowMapReads( block, in.Vsm, layout );
+                         BindVirtualShadowMapReads( block, in.Vsm, *layout );
                      if ( in.Sources.ScreenTrace() )
                          block.Texture( MegaLightsVolumeShaderParameters::HzbTexture, in.Hzb,
                                         RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
