@@ -26,5 +26,6 @@
 Тогда-вид [vg_raster] vg_raster_cut60.png (the frame right after the camera cut, where last frame's HZB is of the other camera): no missing cluster - pixel diff vs the bins-only frame of the same steps < 1% of pixels (pixel diff, not thumbnails)
 Тогда-вид [vg_raster] the lit frame at frame 120 shows the lantern and its shadow as in the bins-only frame: frame mean within 1%
 Тогда [vg_raster_views] (step 14: candidates compacted per cut view, post clusters 64 per workgroup, cascade LOD by the cascade's own texel) vg_raster_cut60.png differs from the bins-only frame by < 1% of pixels; views.virtualGeometry.clustersDrawn > 0 and shadowClustersDrawn > 0; editor.log 0 VUID
+Тогда [vg_vsm] (step 16: the VSM clipmap levels are cluster cut views, their clusters rastered into the pages; Shadows.Method VirtualMaps, Bistro, 120 frames) views.virtualGeometry.vsmClustersDrawn[level] > 0 on every level that drew pages; the sun shadow (lit frame 120) differs from the bins-only VSM frame by < 1% of pixels (pixel diff); editor.log 0 VUID, no "the virtual shadow map draws its virtual geometry on the CPU walk"
 Когда run View "View mode: Virtual Geometry Clusters"
 Тогда-вид [vg_raster] the lantern shows per-cluster colours on the same silhouette as the lit frame

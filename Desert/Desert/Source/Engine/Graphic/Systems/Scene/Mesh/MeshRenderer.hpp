@@ -140,6 +140,16 @@ namespace Desert::Graphic::System
             RDG::BufferRef PrimitiveDraws;  // the pass's PassDrawBuffers::PrimitiveDraws (binding 53)
             uint32_t       GroupCount = 0;
             std::vector<const MaterialExecutor*> GroupCarriers; // per Table->Groups; null = the group draws no cluster
+            // Per Table->Groups: the cell pipeline each group's clusters record with. Empty = the table's own
+            // IndirectGroup::VirtualGeometryPipeline (the pass the table is for); the virtual shadow map's levels
+            // draw the ShadowCascade table's groups with their `Static.VirtualShadowDepth` cells instead
+            // (MeshRenderer::SetVirtualShadowGeometry). Null = the group draws no cluster.
+            std::vector<const GraphicsPipeline*> GroupPipelines;
+            [[nodiscard]] const GraphicsPipeline* PipelineOf( const GpuDriven::PassDrawTable& table,
+                                                              const size_t                    group ) const
+            {
+                return GroupPipelines.empty() ? table.Groups[group].VirtualGeometryPipeline : GroupPipelines[group];
+            }
         };
 
         struct BinnedIssue
@@ -152,6 +162,9 @@ namespace Desert::Graphic::System
             GpuDriven::IndirectSubmissionMode    Mode;
             std::vector<const MaterialExecutor*> GroupCarriers; // per Table->Groups
             std::optional<VirtualGeometryIssue>  VirtualGeometry; // drawn after the bins (phase 1 only)
+            // False: a VG-only issue (a list whose view culled no bins, the virtual shadow map's levels): Culled is
+            // empty, only VirtualGeometry is drawn; GroupCarriers is then one null per group.
+            bool BinsIssued = true;
         };
 
         class MeshDrawList
@@ -617,6 +630,23 @@ namespace Desert::Graphic::System
         // cell has no VG twin draws none of its clusters: logged once per cell.
         bool SetFrameVirtualGeometry( GpuDriven::MeshPass pass, uint32_t viewKey, GpuDriven::CullPhase phase,
                                       MeshRendererDetail::VirtualGeometryIssue issue );
+        // THE VIRTUAL-GEOMETRY RASTER OF A VIRTUAL SHADOW MAP LEVEL (VIRT-GEOM step 16; UE: Nanite rastering into
+        // the VSM pages). @p issue: the level's cut binned into the groups of @p tablePass's table (ShadowCascade:
+        // VirtualShadow has no table of its own yet), drawn by "VSM: Raster L<level>" after its CPU casters, each
+        // group with the `<T>/Static.VirtualShadowDepth[.Parallax].Binned.VirtualGeometry` twin of its
+        // `Static.ShadowDepth` cell on the VSM caster state (m_VsmPipeline). The level's carriers are made by
+        // AddVirtualShadowRasterPasses (they carry the level's matrix, set there); until then the level's CPU walk
+        // leaves out every VG primitive (DrawsVirtualGeometry). Returns per group whether its clusters are drawn
+        // (a group whose cell has no VSM twin draws none: logged once per cell). Refused without the VSM caster
+        // pipelines, a draw command cache or for bins of another group count; nothing is attached then.
+        [[nodiscard]] Common::ResultStr<std::vector<uint8_t>>
+        SetVirtualShadowGeometry( uint32_t level, GpuDriven::MeshPass tablePass,
+                                  MeshRendererDetail::VirtualGeometryIssue issue,
+                                  const GpuDriven::DrawCommandBuffers& upload, const GpuDriven::GpuSceneBuffers& scene );
+        // THE ONE RULE "this static entry is drawn as clusters where a cut serves its view" (the GPU side's
+        // SceneRenderer MakeVirtualGeometryCandidates appends the same entries): its mesh has uploaded DAG rows
+        // for a submesh it shows.
+        [[nodiscard]] static bool DrawsVirtualGeometry( const StaticMeshRenderData& rd );
 
         // The GpuScene is THIS FRAME's: SyncGpuScene binds it, SceneRenderer::EndScene forgets it. A capture that
         // runs before the sync (the terrain's, SceneRenderer::OnUpdate) then finds none instead of the previous
@@ -1647,6 +1677,9 @@ namespace Desert::Graphic::System
         // Each level's casters, built by its node's setup and recorded by its exec; the non-mesh casters its setup
         // declared, each with the index of its first block (after the list's).
         std::array<MeshRendererDetail::MeshDrawList, kVsmClipmapLevelCount> m_VsmDraws;
+        // Per level: this frame's VG-only issue (SetVirtualShadowGeometry), consumed by the level's raster setup
+        // (AddVirtualShadowRasterPasses); while set, the level's CPU walk leaves out the VG primitives.
+        std::array<std::optional<MeshRendererDetail::BinnedIssue>, kVsmClipmapLevelCount> m_VsmGeometry;
         // Per non-mesh caster: its first block on the level's node and its first culled argument record.
         struct VsmCasterEntry
         {

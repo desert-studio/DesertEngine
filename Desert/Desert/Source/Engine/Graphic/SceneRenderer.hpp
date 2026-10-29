@@ -435,6 +435,8 @@ namespace Desert::Graphic
             // the main view's main + post phase, and every shadow cascade's.
             uint32_t ClustersDrawn       = 0;
             uint32_t ShadowClustersDrawn = 0;
+            // Per VSM clipmap level (index = level): its cluster raster's drawn clusters.
+            std::vector<uint32_t> VsmClustersDrawn;
             uint32_t Overflow         = 0;
             uint32_t OccludedClusters = 0;
             // VG instances still drawn by the bins of a view with a cut (main or cascade; must be 0: the cluster
@@ -1117,6 +1119,16 @@ namespace Desert::Graphic
         // post pass): the main cut's carry ("Cluster Cut Post") against this frame's furthest HZB, drawn by the
         // GBuffer post-occlusion pass. Nothing when the main cut tested no HZB.
         void AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame );
+        // VIRT-GEOM step 16 (AddFrameVirtualSunShadow, between the page passes and "VSM: Raster"): the virtual
+        // shadow map's clipmap levels as cut views - one instance cull over the levels (kVsmPageMask, the level's
+        // drawn-page mask) appending only VG candidates, then per level a "Cluster Cut" at the level's texel
+        // (VirtualShadowMapFrame::LevelTexelWorld) + raster binning into the ShadowCascade table's groups, handed to
+        // MeshRenderer::SetVirtualShadowGeometry (the level's raster draws the clusters; its CPU walk leaves the VG
+        // primitives out) and to m_ClusterCutCounts (vsmClustersDrawn). Nothing without this frame's VG candidates;
+        // a refusal is logged once per message and that level's VG stays on the CPU walk.
+        // UE rasters every VSM view in one Nanite pass (view id per cluster); here one pass per level reuses the
+        // level's RasterLevel + camera block (REMAINDER: one pass needs the VG VSM cell to read the level per cluster).
+        void AddFrameVirtualGeometryShadowPages( RDG::Builder& graph, const System::VirtualShadowMapFrame& pages );
         // TWO-PHASE OCCLUSION, after the phase-1 G-buffer ("Deferred: GBuffer" + "TerrainGBuffer"; UE
         // FInstanceCullingContext's post pass, HZB.cpp): this frame's furthest HZB of that depth, extracted into
         // m_CullHzbHistory for the next frame's phase 1; when phase 1 tested last frame's HZB, the instances it

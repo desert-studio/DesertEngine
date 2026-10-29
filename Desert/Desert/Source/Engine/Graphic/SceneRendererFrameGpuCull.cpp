@@ -717,6 +717,130 @@ namespace Desert::Graphic
         }
     }
 
+    void SceneRenderer::AddFrameVirtualGeometryShadowPages( RDG::Builder&                        graph,
+                                                                const System::VirtualShadowMapFrame& pages )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto*               meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        const Core::Camera* camera = GetMainCamera();
+        // The VG candidates exist only when the draw bins appended some this frame (a VG mesh in the queue) and
+        // AddFrameVirtualGeometry began this frame's counts.
+        if ( !m_FrameDrawBins || !m_FrameDrawBins->VgCandidates.Rows.IsValid() || meshes == nullptr ||
+             camera == nullptr || meshes->GetDrawCommandCache() == nullptr || meshes->GetGpuScene() == nullptr ||
+             !m_VirtualGeometry || !m_ClusterCutCounts )
+            return;
+        const FrameDrawBins& bins    = *m_FrameDrawBins;
+        const auto           logOnce = [this]( const std::string& message )
+        {
+            if ( message != m_VirtualGeometryLastError )
+                LOG_ERROR( "[SceneRenderer] {}: {}; the virtual shadow map draws its virtual geometry on the CPU "
+                           "walk this frame",
+                           m_ViewResources.GetName(), message );
+            m_VirtualGeometryLastError = message;
+        };
+
+        // THE LEVELS AS CULL VIEWS (the validation path's VSM views, AddFrameGpuCull): the far plane open, as the
+        // casters' cull, and the level's drawn-page mask; cull view = cut view = level.
+        const Geometry::LODView lod{ .Origin = camera->GetPosition(), .Projection = camera->GetProjectionMatrix() };
+        const float             lensScale = Graphic::DrawDistanceScale( lod );
+        const uint32_t          lodFlag   = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
+        std::vector<GpuDriven::CullViewInput> views;
+        views.reserve( System::kVsmClipmapLevelCount );
+        for ( uint32_t level = 0; level < System::kVsmClipmapLevelCount; ++level )
+        {
+            const glm::mat4& vp = pages.LevelViewProjection[level];
+            Core::Frustum    frustum( vp, glm::mat4( 1.0f ) );
+            frustum.Open( Core::PLANE_FAR );
+            GpuDriven::CullViewInput input =
+                 MakeCullView( GpuDriven::MeshPass::VirtualShadow, vp, vp, frustum, lod, lensScale,
+                               GpuDriven::CullViewFlags::kShadowCaster | GpuDriven::CullViewFlags::kOrthographic |
+                                    GpuDriven::CullViewFlags::kVsmPageMask | lodFlag );
+            input.View.VsmLevel = level;
+            input.VsmDirtyMask  = pages.DirtyMask;
+            views.push_back( input );
+        }
+
+        // The levels' VG candidates: one more instance cull over the levels, appending only (VirtualShadow has no
+        // bins: MeshRenderer.cpp PassNotBinned).
+        auto vgTables = MakeVirtualGeometryCandidates( graph, *meshes, *meshes->GetGpuScene(),
+                                                       bins.Scene.PrimitiveCount, static_cast<uint32_t>( views.size() ) );
+        if ( !vgTables )
+        {
+            logOnce( vgTables.GetError() );
+            return;
+        }
+        if ( !vgTables.GetValue().Input.PrimitiveDags.IsValid() )
+            return; // no VG instance casts
+        const Common::ResultStr<GpuDriven::MainPhaseResult> culled =
+             m_GpuCull.AddMainPhase( graph, bins.Scene, meshes->GetDrawCommandCache()->Passes(), bins.Upload.Passes,
+                                     views, bins.NeutralHzb, vgTables.GetValue().Input );
+        if ( !culled )
+        {
+            logOnce( std::format( "VSM levels: {}", culled.GetError() ) );
+            return;
+        }
+        const GpuDriven::VirtualGeometryCandidateOutput& appended = culled.GetValue().VirtualGeometry;
+        const VirtualGeometry::ClusterCandidates candidates{ .Rows            = appended.Rows,
+                                                             .Count           = appended.Count,
+                                                             .Capacity        = appended.Capacity,
+                                                             .VisibleCapacity = vgTables.GetValue().VisibleCapacity,
+                                                             .Layout   = VirtualGeometry::ClusterCandidateLayout::PerCutView,
+                                                             .CutViews = appended.CutViews };
+        const VirtualGeometry::VirtualMeshBuffers vgMeshes = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
+
+        // Per level: the cut at the level's own texel (UE: shadow LOD by the shadow view's resolution), binned into
+        // the ShadowCascade table's material groups (VirtualShadow has no table yet, REMAINDER C), drawn by
+        // "VSM: Raster L<level>" (MeshRenderer::SetVirtualShadowGeometry).
+        constexpr GpuDriven::MeshPass   kTablePass = GpuDriven::MeshPass::ShadowCascade;
+        const auto                      tableIndex = static_cast<size_t>( kTablePass );
+        const GpuDriven::PassDrawTable& passTable  = meshes->GetDrawCommandCache()->Passes()[tableIndex];
+        for ( uint32_t level = 0; level < System::kVsmClipmapLevelCount; ++level )
+        {
+            const VirtualGeometry::ClusterCullView view{
+                 .Instance         = views[level],
+                 .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
+                 .Lod = VirtualGeometry::ClusterLodMeasure::OrthographicTexel( pages.LevelTexelWorld[level] ) };
+            const auto cut = m_VirtualGeometry->AddClusterCull(
+                 graph, GpuDriven::CullPhase::Main, bins.Scene, vgMeshes, passTable, bins.Upload.Passes[tableIndex],
+                 bins.Upload.SubmeshTransforms, candidates, std::span( &view, 1 ), level, bins.NeutralHzb );
+            if ( !cut )
+            {
+                logOnce( std::format( "VSM level {}: {}", level, cut.GetError() ) );
+                continue;
+            }
+            const auto rasterBins = m_VirtualGeometry->AddRasterBinning( graph, bins.Scene, vgMeshes, passTable,
+                                                                         bins.Upload.Passes[tableIndex], cut.GetValue() );
+            if ( !rasterBins )
+            {
+                m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), nullptr,
+                                         {}, level );
+                logOnce( std::format( "VSM level {}: {}", level, rasterBins.GetError() ) );
+                continue;
+            }
+            const VirtualGeometry::RasterBins& raster = rasterBins.GetValue();
+            auto                               drawn  = meshes->SetVirtualShadowGeometry(
+                 level, kTablePass,
+                 System::MeshRendererDetail::VirtualGeometryIssue{
+                      .GroupArgs       = raster.GroupArgs,
+                      .Rows            = raster.Rows,
+                      .VisibleClusters = raster.VisibleClusters,
+                      .Clusters        = vgMeshes.Clusters,
+                      .Dags            = vgMeshes.Dags,
+                      .PrimitiveDraws  = bins.Upload.Passes[tableIndex].PrimitiveDraws,
+                      .GroupCount      = raster.GroupCount },
+                 bins.Upload, bins.Scene );
+            if ( !drawn )
+            {
+                m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), nullptr,
+                                         {}, level );
+                logOnce( std::format( "VSM level {}: {}", level, drawn.GetError() ) );
+                continue;
+            }
+            m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), &raster,
+                                     std::move( drawn.GetValue() ), level );
+        }
+    }
+
     SceneRenderer::VirtualGeometryCounts SceneRenderer::GetVirtualGeometryCounts() const
     {
         if ( !m_ClusterCutCounts )
@@ -726,6 +850,7 @@ namespace Desert::Graphic
                  .ClustersVisible     = last.ClustersVisible,
                  .ClustersDrawn       = last.ClustersDrawn,
                  .ShadowClustersDrawn = last.ShadowClustersDrawn,
+                 .VsmClustersDrawn    = last.VsmClustersDrawn,
                  .Overflow         = last.Status.StackOverflow + last.Status.VisibleOverflow + last.Status.MissingSlot,
                  .OccludedClusters  = last.Status.OccludedClusters,
                  .BinnedVgInstances = last.Status.BinnedVgInstances };

@@ -206,7 +206,10 @@ namespace Desert::Graphic::VirtualGeometry
         // pass drew (a group with no `.VirtualGeometry` pipeline draws none of the clusters binned into it).
         uint32_t         ClustersDrawn       = 0; // the main view: main + post phase
         uint32_t         ShadowClustersDrawn = 0; // every shadow cascade
-        ClusterCutStatus Status{};                // the main view's main phase
+        // Per virtual shadow map clipmap level (index = level): the clusters its "VSM: Raster L<level>" drew; a
+        // level with no cut this frame reads 0. Sized to the highest level cut + 1.
+        std::vector<uint32_t> VsmClustersDrawn;
+        ClusterCutStatus      Status{}; // the main view's main phase
     };
 
     // Which cut of the frame a ClusterCutCounts entry is.
@@ -215,6 +218,7 @@ namespace Desert::Graphic::VirtualGeometry
         Main,          // the main view, phase 1
         PostOcclusion, // the main view, phase 2
         ShadowCascade, // one cascade view
+        VirtualShadow, // one virtual shadow map clipmap level (ClusterCutCounts::Add's level)
     };
 
     // HOW MANY CLUSTERS THE CUTS DREW (DesertCtl `state views.virtualGeometry`), the CullPhaseCounts pattern: each
@@ -228,8 +232,9 @@ namespace Desert::Graphic::VirtualGeometry
         void BeginFrame( uint64_t frameIndex );
         // Hands this frame's cut @p culled of @p kind. @p bins: its raster's bins when the pass drew them, with
         // @p drawnGroups (one flag per group of bins: the pass drew that group's clusters); null = drew nothing.
+        // @p vsmLevel: the clipmap level of a VirtualShadow cut (ignored for the other kinds).
         void Add( RDG::Builder& graph, ClusterCutKind kind, const ClusterCullResult& culled, const RasterBins* bins,
-                  std::vector<uint8_t> drawnGroups );
+                  std::vector<uint8_t> drawnGroups, uint32_t vsmLevel = 0 );
         // A frame with no cut: nothing is handed, and the counts read so far are forgotten.
         void                                 Forget();
         [[nodiscard]] const ClusterCutCount& LastCount() const
@@ -240,7 +245,8 @@ namespace Desert::Graphic::VirtualGeometry
     private:
         struct Entry
         {
-            ClusterCutKind       Kind = ClusterCutKind::Main;
+            ClusterCutKind       Kind     = ClusterCutKind::Main;
+            uint32_t             VsmLevel = 0; // a VirtualShadow cut's clipmap level
             RDG::ExternalBuffer  RasterArgs;
             RDG::ExternalBuffer  Status;
             RDG::ExternalBuffer  GroupArgs; // none: the cut was not drawn

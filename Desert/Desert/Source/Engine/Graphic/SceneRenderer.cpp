@@ -2663,6 +2663,8 @@ namespace Desert::Graphic
             return {};
         }
         m_FrameVsmPages = pages.GetValue();
+        // The levels' cluster cuts, before the raster that draws them (and leaves their VG primitives off the walk).
+        AddFrameVirtualGeometryShadowPages( graph, pages.GetValue() );
         // "VSM: Raster": every caster into the dirty pages, before the projection reads the pool. A refusal is
         // a missing caster program or pipeline, which no later frame repairs: said once, and the method stays
         // dark.

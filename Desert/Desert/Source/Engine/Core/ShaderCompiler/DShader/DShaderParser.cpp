@@ -3122,13 +3122,13 @@ namespace Desert::Core::Preprocess
                         }
                 }
             // THE VIRTUAL GEOMETRY PERMUTATION (kSurfaceVirtualGeometryCellSuffix): the Static path's binned cells
-            // again, after every binned cell (the earlier cells' order is unchanged).
+            // and its VirtualShadowDepth cell (kSurfaceVirtualGeometryCellPasses) again, after every binned cell (the earlier cells' order is unchanged).
             if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
                 for ( const bool parallax : { false, true } )
                 {
                     if ( parallax && !result.Meta.Height )
                         continue;
-                    for ( const std::string_view pass : kSurfaceBinnedCellPasses )
+                    for ( const std::string_view pass : kSurfaceVirtualGeometryCellPasses )
                     {
                         DShaderPass cell;
                         cell.Name = SurfaceCellName( kSurfaceVirtualGeometryPath, pass ) +

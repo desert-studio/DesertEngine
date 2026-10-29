@@ -480,7 +480,8 @@ namespace Desert::Graphic::VirtualGeometry
     }
 
     void ClusterCutCounts::Add( RDG::Builder& graph, const ClusterCutKind kind, const ClusterCullResult& culled,
-                                const RasterBins* bins, std::vector<uint8_t> drawnGroups )
+                                const RasterBins* bins, std::vector<uint8_t> drawnGroups,
+                                const uint32_t vsmLevel )
     {
         if ( m_Current == nullptr )
         {
@@ -493,7 +494,8 @@ namespace Desert::Graphic::VirtualGeometry
             return;
         }
         Entry& entry = m_Current->Entries.emplace_back();
-        entry.Kind   = kind;
+        entry.Kind     = kind;
+        entry.VsmLevel = vsmLevel;
         graph.Extract( culled.RasterArgs, entry.RasterArgs, RDG::Access::HostRead );
         graph.Extract( culled.Status, entry.Status, RDG::Access::HostRead );
         if ( bins != nullptr && bins->GroupArgs.IsValid() && drawnGroups.size() == bins->GroupCount )
@@ -524,7 +526,8 @@ namespace Desert::Graphic::VirtualGeometry
         {
             const char* const kind = entry.Kind == ClusterCutKind::Main            ? "main"
                                      : entry.Kind == ClusterCutKind::PostOcclusion ? "post-occlusion"
-                                                                                   : "shadow cascade";
+                                     : entry.Kind == ClusterCutKind::ShadowCascade ? "shadow cascade"
+                                                                                   : "virtual shadow level";
             if ( !entry.RasterArgs.Physical || !entry.Status.Physical )
             {
                 fail( std::format( "the {} cut's readback was not executed", kind ) );
@@ -568,6 +571,12 @@ namespace Desert::Graphic::VirtualGeometry
             const auto clamped = static_cast<uint32_t>( std::min<uint64_t>( drawn, UINT32_MAX ) );
             if ( entry.Kind == ClusterCutKind::ShadowCascade )
                 count.ShadowClustersDrawn += clamped;
+            else if ( entry.Kind == ClusterCutKind::VirtualShadow )
+            {
+                if ( count.VsmClustersDrawn.size() <= entry.VsmLevel )
+                    count.VsmClustersDrawn.resize( size_t{ entry.VsmLevel } + 1u, 0u );
+                count.VsmClustersDrawn[entry.VsmLevel] += clamped;
+            }
             else
                 count.ClustersDrawn += clamped;
 
