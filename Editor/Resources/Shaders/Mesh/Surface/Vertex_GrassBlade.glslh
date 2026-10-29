@@ -26,6 +26,7 @@ layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 
 // The blade's shape and placement: one statement for this stage and the ray tracer's blade BLAS.
 #include <Mesh/Surface/GrassBlade.glslh>
+#include <Common/GrassBladeLook.glslh>
 
 // The variety's shape (GrassBladeShapeGpu), std430.
 layout( std430, binding = 13 ) readonly buffer GrassBladeShape
@@ -52,8 +53,8 @@ void main()
     vec3 colour = mix( Blade.Base.rgb, Blade.Tip.rgb, t );
     if ( model[0].w < Blade.Tip.w )
         colour = mix( colour, Blade.Dry.rgb, smoothstep( 1.0 - Blade.Dry.w, 1.0, t ) );
-    // Cool and dark to warm and light, so clumps read as patches of one meadow and not as one green
-    colour *= mix( vec3( 0.75, 0.9, 0.85 ), vec3( 1.2, 1.1, 0.8 ), model[2].w );
+    // The clump's tint (Common/GrassBladeLook.glslh, shared with the field's far cover).
+    colour *= GrassClumpTint( model[2].w );
     v_Surface.WorldPosition = blade.Position;
     v_Surface.Normal        = normal;
     v_Surface.UV0           = DesertMeshTextureUV( a_TextureCoord );

@@ -128,7 +128,7 @@ Shader "TerrainGBuffer"
         // The G-buffer's four targets, as StaticMeshGBuffer.shader writes them.
         Out(0) vec4 oGBufferA;        // Albedo.rgb, Metallic.a
         Out(1) vec4 oGBufferB;        // Normal.rgb, Roughness.a
-        Out(2) uvec2 oGBufferShadingWord; // shading word (DefaultLit, no maps, no payload); no world position
+        Out(2) uvec2 oGBufferShadingWord; // shading word (DefaultLit; TwoSidedFoliage under the grass cover); no world position
         Out(3) vec4 oGBufferEmissive; // Emissive.rgb
         Out(4) vec4 oVelocity;        // the view's velocity, slot 4 of the G-buffer target (TerrainSurface.glslh)
         Out(5) float oThinGeometryCoverage; // slot 5 of the G-buffer target (Common/ThinGeometryCoverage.glslh)
@@ -139,12 +139,23 @@ Shader "TerrainGBuffer"
 
         void main()
         {
-            TerrainSurface s = EvaluateTerrainSurface();
+            vec3           transmission;
+            float          cover;
+            TerrainSurface s = EvaluateTerrainSurfaceCovered( Material.Tint.rgb, transmission, cover );
 
-            // Ground is a dielectric; roughness and occlusion are the landscape material's layers'.
-            oGBufferA        = vec4( s.Albedo * Material.Tint.rgb, 0.0 );
+            // Ground is a dielectric; roughness and occlusion are the landscape material's layers'. Where the grass
+            // field's far cover lies over it (GRASS-FIELD) the pixel shades as the blades do - TwoSidedFoliage, its
+            // SubsurfaceColor the cover's share of the blades' (stored as its square root, UE
+            // EncodeSubsurfaceColor), so the transmitted light fades in with the cover and bare ground stays
+            // DefaultLit.
+            oGBufferA        = vec4( s.Albedo, 0.0 );
             oGBufferB        = vec4( s.N, s.Roughness );
-            oGBufferShadingWord = DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, 0.5, DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
+            const vec3 sss   = sqrt( clamp( transmission, 0.0, 1.0 ) );
+            oGBufferShadingWord = cover > 0.0
+                                       ? DesertPackShadingWord( SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE, 0.0, 0.5,
+                                                                DesertPayload( sss.r, sss.g, sss.b, cover ) )
+                                       : DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, 0.5,
+                                                                DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
             oGBufferEmissive = vec4( 0.0, 0.0, 0.0, s.AO ); // no emission; material AO from the layers' ARM maps
             oVelocity        = TerrainVelocity();
             oThinGeometryCoverage = DesertThinGeometryCoverage( SHADING_MODEL_INDEX_DEFAULT_LIT );
