@@ -8,12 +8,12 @@
 Дано --subject selection set SunAzimuth 110
 Дано --subject viewport set Camera.Position 0,170,2500
 Дано --subject viewport set Camera.Direction 0.15,-0.25,-1
-Тогда-вид 1_eye camera at 1.7 m: the near blades carry the scan's texture (veins, ragged edge, dry tips from the albedo/mask), not flat single-colour strips
+Тогда-вид 1_eye camera at 1.7 m: the near blades carry the scan's texture (veins, ragged edge, dry tips from the albedo/mask), not flat single-colour strips; all nine FieldBarn albedos are BC7 (p7) and the blade and flower edges show no block artefacts
 Когда --subject viewport set Camera.Position 0,600,2500
 Когда --subject viewport set Camera.Direction 0.15,-0.12,-1
-Тогда-вид 2_high camera at 6 m: the far lowland and the near grass are one tone; no line at 6 m where the blades turn into the cover
+Тогда-вид 2_high camera at 6 m: the far lowland and the near grass are one tone; no line at 6 m where the blades turn into the cover; no block artefacts on the flowers
 Когда run View "View mode: Albedo"
-Тогда-вид 4_basecolor the same view in the Albedo buffer: the near blades and the far cover are one tone (difference <= 20%), no sky or fog
+Тогда-вид 4_basecolor the same view in the Albedo buffer: the near blades and the far cover are one tone (difference <= 20%), no fog, and the sky is black (UE BaseColor: no surface there)
 Когда run View "View mode: Lit"
 Когда run Entity "Sun"
 Когда --subject selection set SunElevation 12

@@ -382,6 +382,9 @@ namespace Desert::Assets
             PutU64( out, mask.Texture.Lo );
             PutU32( out, mask.Channel );
             PutU32( out, std::bit_cast<uint32_t>( mask.Threshold ) );
+            // The block gate grades a masked colour only where the mask shows it (GRASS-ASSET p7); a revision of
+            // that rule re-derives masked textures alone, the way EncoderVersion re-derives all of them.
+            PutU32( out, kTextureMaskedGateVersion );
         }
         return out;
     }
