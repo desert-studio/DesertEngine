@@ -567,7 +567,7 @@ namespace Desert::Editor::Tools
             return;
 
         auto& smc  = entity.GetComponent<ECS::SkinnedMeshComponent>();
-        auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
+        auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( smc.GetMeshHandle() );
         if ( !mesh || !mesh->IsSkinned() )
             return;
         auto*       skeleton = static_cast<SkinnedMesh*>( mesh )->GetSkeletonMutable();
@@ -670,7 +670,7 @@ namespace Desert::Editor::Tools
         {
             m_BoneDragActive = true;
             m_BoneDragIndex  = boneIdx;
-            m_BoneDragMesh   = smc.MeshHandle;
+            m_BoneDragMesh   = smc.GetMeshHandle();
             m_BoneDragOld    = bones[boneIdx].LocalBindTransform;
         }
 

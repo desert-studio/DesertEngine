@@ -153,7 +153,7 @@ namespace Desert::Editor
         }
 
         const auto& smc       = entity.GetComponent<ECS::StaticMeshComponent>();
-        auto        meshAsset = assets.FindByHandle<Assets::StaticMeshAsset>( smc.MeshHandle );
+        auto        meshAsset = assets.FindByHandle<Assets::StaticMeshAsset>( smc.GetMeshHandle() );
         if ( !meshAsset )
         {
             LOG_WARN( "[RigBuilder] Convert aborted: only asset-backed static meshes can be rigged (no "

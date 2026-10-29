@@ -3079,7 +3079,7 @@ namespace Desert::Editor
             root.RemoveComponent<ECS::StaticMeshComponent>();
         for ( ECS::Entity child : PlaceNodeActors( *m_Scene, root, nodes ) )
         {
-            (void)Runtime::AwaitAssetClosure( child.GetComponent<ECS::StaticMeshComponent>().MeshHandle,
+            (void)Runtime::AwaitAssetClosure( child.GetComponent<ECS::StaticMeshComponent>().GetMeshHandle(),
                                               Common::Content::ContentKind::StaticMesh );
             ApplySidecarMaterial( child, sourcePath );
         }
@@ -3116,11 +3116,11 @@ namespace Desert::Editor
         // Assign to every material slot (one per submesh).
         auto&  smc   = entity.GetComponent<ECS::StaticMeshComponent>();
         size_t count = 1;
-        if ( auto* meshAsset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( smc.MeshHandle ) )
+        if ( auto* meshAsset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( smc.GetMeshHandle() ) )
             if ( const auto n = meshAsset->GetMaterialHandles().size(); n > 0 )
                 count = n;
         smc.MaterialSlots.assign( count, h );
-        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeMaterialInstances().clear();
     }
 
     std::optional<::Desert::Core::RaycastHit> ViewportPanel::SurfaceAtCursor() const
@@ -3183,9 +3183,9 @@ namespace Desert::Editor
         // Assign every element (the renderer repeats the last slot anyway) and select the entity so
         // the Materials panel shows the result of the drop immediately.
         auto& smc = m_Scene->GetRegistry().get<ECS::StaticMeshComponent>( entity.GetHandle() );
-        const size_t count = std::max<size_t>( size_t{ 1 }, smc.MaterialSlots.size() );
+        const size_t count = std::max<size_t>( size_t{ 1 }, smc.GetMaterialSlots().size() );
         smc.MaterialSlots.assign( count, handle );
-        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeMaterialInstances().clear();
         Core::SelectionManager::SetSelected( hit.Entity );
     }
 

@@ -14,3 +14,8 @@
 Тогда [render_proxy_components] 5_visibility: on that frame scene.renderDirty >= 1 (the glass and its subtree, one entry each); the next idle frame scene.renderDirty == 0; the glass is gone from the frame; 0 VUID
 Когда tick the box again, then set StaticMeshComponent.MaterialSlots[0] to the material it already has
 Тогда [render_proxy_components] 6_same: the re-tick frame >= 1 then 0; the same-material set frame scene.renderDirty == 0 (an unchanged reference is no write); 0 VUID
+
+Когда set StaticMeshComponent.MeshHandle of the selected glass to another static mesh asset (ControlService `set` -> the entry's EditData edits a copy -> ECS::ApplyStaticMeshEdit -> ECS::SetStaticMesh, a registry.patch)
+Тогда [render_proxy_mesh] 7_mesh_swap: on that frame scene.renderDirty >= 1; the next idle frame scene.renderDirty == 0; the glass draws the new mesh; 0 VUID
+Когда undo (Ctrl+Z) the mesh swap (the RoutedFieldCommand replays the old MeshHandle through the same EditData, no address into EnTT storage)
+Тогда [render_proxy_mesh] 8_mesh_undo: on that frame scene.renderDirty >= 1; the next idle frame scene.renderDirty == 0; the glass draws its original mesh; 0 VUID

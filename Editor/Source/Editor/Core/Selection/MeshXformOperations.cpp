@@ -203,12 +203,12 @@ namespace Desert::Editor::Core
                 const Target&                    into   = targets.front();
                 const glm::mat4                  toInto = glm::inverse( into.Entity.GetWorldTransform() );
                 std::vector<Common::AssetHandle> table =
-                     into.Entity.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
+                     into.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
                 std::vector<Geometry::MergePart> parts;
                 for ( const Target& t : targets )
                     parts.push_back(
                          { *t.Mesh, toInto * t.Entity.GetWorldTransform(),
-                           RemapInto( table, t.Entity.GetComponent<ECS::StaticMeshComponent>().MaterialSlots,
+                           RemapInto( table, t.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots(),
                                       *t.Mesh ) } );
                 auto merged = Geometry::MergeMeshes( parts );
                 if ( !merged.IsSuccess() )

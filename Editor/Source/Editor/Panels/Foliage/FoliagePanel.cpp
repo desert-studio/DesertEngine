@@ -544,7 +544,7 @@ namespace Desert::Editor::Tools
                     const auto cost      = Foliage::MeasureFoliageTypeCost(
                          instances,
                          type ? type->GetData().CullDistance : Assets::Serialization::FoliageFloatInterval{},
-                         Core::FoliagePaint::ViewPosition(), TrianglesOf( ism.MeshHandle ), hidden );
+                         Core::FoliagePaint::ViewPosition(), TrianglesOf( ism.GetMeshHandle() ), hidden );
 
                     ImGui::PushID( static_cast<int>( static_cast<uint64_t>( uuid ) ) );
                     ImGui::TableNextRow();
@@ -598,7 +598,7 @@ namespace Desert::Editor::Tools
                     rowMenu( uuid );
                     ImDrawList* dl = ImGui::GetWindowDrawList();
                     dl->AddRectFilled( at, ImVec2( at.x + tile, at.y + tile ), IM_COL32( 36, 36, 36, 255 ), 3.0f );
-                    if ( const void* tex = ThumbnailOf( assetManager, uiHelper, ism.MeshHandle ) )
+                    if ( const void* tex = ThumbnailOf( assetManager, uiHelper, ism.GetMeshHandle() ) )
                         dl->AddImageRounded( reinterpret_cast<ImTextureID>( const_cast<void*>( tex ) ),
                                              ImVec2( at.x + 2, at.y + 2 ),
                                              ImVec2( at.x + tile - 2, at.y + tile - 2 ), ImVec2( 0, 0 ),

@@ -607,7 +607,7 @@ namespace Desert::Editor
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         smc.Primitive.reset();
         smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeMaterialInstances().clear();
         ECS::ClearEditableMesh( smc );
 
         // As PreviewViewport::SetSkinnedMesh + ApplyAnimationTime stage it: this scene runs no
@@ -661,7 +661,7 @@ namespace Desert::Editor
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         smc.Primitive.reset();
         smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeMaterialInstances().clear();
         ECS::ClearEditableMesh( smc );
 
         // The layers: switched OFF rather than destroyed — destroying the deck would give back its 10 MiB
@@ -696,7 +696,7 @@ namespace Desert::Editor
             smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
             smc.Primitive.reset();
             smc.MaterialSlots.clear();
-            smc.RuntimeMaterialInstances.clear();
+            smc.RuntimeMaterialInstances().clear();
             ECS::ClearEditableMesh( smc );
 
             if ( m_PendingSky )
@@ -745,7 +745,7 @@ namespace Desert::Editor
             // if one was provided, so the preview shows the real look instead of a flat default gray.
             ECS::ClearEditableMesh( smc );
             smc.Primitive.reset();
-            smc.RuntimeMaterialInstances.clear();
+            smc.RuntimeMaterialInstances().clear();
             smc.MeshHandle = m_PendingHandle;
 
             // Framed by the asset's bounds measured at the request (RequestMesh refused a mesh without them).
@@ -776,7 +776,7 @@ namespace Desert::Editor
             smc.MeshHandle    = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
             smc.Primitive     = PrimitiveFor( m_PendingThumbnail.Primitive );
             smc.MaterialSlots = { m_PendingHandle };
-            smc.RuntimeMaterialInstances.clear();
+            smc.RuntimeMaterialInstances().clear();
             ECS::ClearEditableMesh( smc ); // drop any previously-built primitive so the type change rebuilds
 
             // MEASURED from the very mesh MeshECSSystem will draw for this component (the process-wide
@@ -789,7 +789,7 @@ namespace Desert::Editor
             // sphere the camera was practically resting on: a wall of albedo under sky, with no sphere in
             // it. See ThumbnailFraming for the framing rule and the measured geometry.
             // No stand-in: a sphere that cannot be measured is not photographed (TickCapture abandons it).
-            const auto* prim  = Geometry::PrimitiveMeshFactory::GetShared( *smc.Primitive );
+            const auto* prim  = Geometry::PrimitiveMeshFactory::GetShared( *smc.GetPrimitive() );
             const auto  frame = prim != nullptr ? ThumbnailFraming::MeasureSubmeshes( prim->GetSubmeshes() )
                                                 : ThumbnailFraming::Frame{};
             if ( !frame.Valid )

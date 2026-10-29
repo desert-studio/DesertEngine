@@ -706,8 +706,8 @@ namespace Desert::Editor
         const auto& smc  = entity.GetComponent<ECS::SkinnedMeshComponent>();
         // Editor-built runtime rig (Convert to Skinned) has no MeshHandle — prefer it (mirrors the render /
         // pick / animation paths) so a just-converted character animates in the Sequencer too.
-        Desert::Mesh* mesh = smc.RuntimeMesh ? static_cast<Desert::Mesh*>( smc.RuntimeMesh.get() )
-                                             : Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
+        Desert::Mesh* mesh = smc.GetRuntimeMesh() ? static_cast<Desert::Mesh*>( smc.GetRuntimeMesh().get() )
+                                             : Runtime::ResourceRegistry::GetMeshService()->Get( smc.GetMeshHandle() );
         if ( !mesh || !mesh->IsSkinned() )
         {
             ImGui::TextDisabled( "Skinned mesh not resolved yet." );
@@ -715,7 +715,7 @@ namespace Desert::Editor
         }
         const Animation::Skeleton& skeleton = static_cast<SkinnedMesh*>( mesh )->GetSkeleton();
         const auto                 clips    = m_Library != nullptr
-                                                   ? m_Library->GetForMesh( m_Library->IdentifyMeshHandle( smc.MeshHandle ) )
+                                                   ? m_Library->GetForMesh( m_Library->IdentifyMeshHandle( smc.GetMeshHandle() ) )
                                                    : std::vector<Assets::Asset<Assets::AnimationAsset>>{};
 
         // Names for the clip combos + the index of the currently-selected clip.
@@ -760,7 +760,7 @@ namespace Desert::Editor
             // The new clip references the mesh's skeleton asset; an editor-built rig (Convert to Skinned) has
             // none yet, so there is nothing a clip could name and the button says so instead of acting.
             const Animation::MeshSkeletonIdentity meshSkeleton =
-                 m_Library != nullptr ? m_Library->IdentifyMeshHandle( smc.MeshHandle )
+                 m_Library != nullptr ? m_Library->IdentifyMeshHandle( smc.GetMeshHandle() )
                                       : Animation::MeshSkeletonIdentity{};
             const bool canCreate = !meshSkeleton.Skeleton.Guid.IsNull();
             ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.20f, 0.40f, 0.28f, 1.0f ) );

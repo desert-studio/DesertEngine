@@ -330,7 +330,7 @@ namespace Desert::Editor::Core
             curvature = c.ExtractValue();
         }
 
-        const auto& slots    = target.GetValue().Entity.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
+        const auto& slots    = target.GetValue().Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
         const auto  material = WriteMaterial( assets, slots.empty() ? Common::AssetHandle{} : slots.front(),
                                               texture.GetValue(), orm ? &*orm : nullptr, stem );
         if ( !material.IsSuccess() )
@@ -345,13 +345,13 @@ namespace Desert::Editor::Core
                                             if ( !live )
                                                 return;
                                             auto& smc = live->get().GetComponent<ECS::StaticMeshComponent>();
-                                            if ( smc.MaterialSlots.empty() )
+                                            if ( smc.GetMaterialSlots().empty() )
                                                 smc.MaterialSlots.push_back( handle );
-                                            for ( auto& slot : smc.MaterialSlots )
+                                            for ( auto& slot : smc.GetMaterialSlots() )
                                                 slot = handle;
-                                            smc.RuntimeMaterialInstances.clear();
-                                            smc.RuntimeSlots.reset();
-                                            smc.SeenMaterialsVersion = 0;
+                                            smc.RuntimeMaterialInstances().clear();
+                                            smc.RuntimeSlots().reset();
+                                            smc.SeenMaterialsVersion() = 0;
                                         } );
 
         Out out;

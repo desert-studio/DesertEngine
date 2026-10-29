@@ -1416,31 +1416,31 @@ namespace Desert::Core::Serialize
                 }
                 auto                 resolver = MakeAssetResolver( assetManager );
                 Common::Json::Object out      = Reflection::SerializeReflected( *type, &smc, &resolver );
-                meshSer.Primitive = smc.Primitive;
+                meshSer.Primitive = smc.GetPrimitive();
 
                 // Rendering controls: write only non-default values (absent = default on load).
-                if ( smc.OutlineDraw )
-                    meshSer.OutlineDraw = smc.OutlineDraw;
-                if ( smc.ForcedLOD >= 0 )
-                    meshSer.ForcedLOD = smc.ForcedLOD;
-                if ( smc.LODBias != 0 )
-                    meshSer.LODBias = smc.LODBias;
-                if ( !smc.CastShadows )
-                    meshSer.CastShadows = smc.CastShadows;
-                if ( !smc.ReceiveShadows )
-                    meshSer.ReceiveShadows = smc.ReceiveShadows;
-                if ( !smc.CastContactShadow )
-                    meshSer.CastContactShadow = smc.CastContactShadow;
-                if ( smc.TranslucencySortPriority != 0 )
-                    meshSer.TranslucencySortPriority = smc.TranslucencySortPriority;
-                if ( smc.MaxDrawDistance > 0.0f )
-                    meshSer.MaxDrawDistance = smc.MaxDrawDistance;
-                if ( smc.HiddenSubmeshes != 0 )
-                    meshSer.HiddenSubmeshes = smc.HiddenSubmeshes;
+                if ( smc.GetOutlineDraw() )
+                    meshSer.OutlineDraw = smc.GetOutlineDraw();
+                if ( smc.GetForcedLOD() >= 0 )
+                    meshSer.ForcedLOD = smc.GetForcedLOD();
+                if ( smc.GetLODBias() != 0 )
+                    meshSer.LODBias = smc.GetLODBias();
+                if ( !smc.GetCastShadows() )
+                    meshSer.CastShadows = smc.GetCastShadows();
+                if ( !smc.GetReceiveShadows() )
+                    meshSer.ReceiveShadows = smc.GetReceiveShadows();
+                if ( !smc.GetCastContactShadow() )
+                    meshSer.CastContactShadow = smc.GetCastContactShadow();
+                if ( smc.GetTranslucencySortPriority() != 0 )
+                    meshSer.TranslucencySortPriority = smc.GetTranslucencySortPriority();
+                if ( smc.GetMaxDrawDistance() > 0.0f )
+                    meshSer.MaxDrawDistance = smc.GetMaxDrawDistance();
+                if ( smc.GetHiddenSubmeshes() != 0 )
+                    meshSer.HiddenSubmeshes = smc.GetHiddenSubmeshes();
 
                 // The SOURCE is saved, never the render mesh derived from it (see EditableMesh.hpp).
-                if ( smc.EditableMesh )
-                    meshSer.EditMesh = Geometry::ToSerialized( *smc.EditableMesh );
+                if ( smc.GetEditableMesh() )
+                    meshSer.EditMesh = Geometry::ToSerialized( *smc.GetEditableMesh() );
 
                 const Common::Json::Value rest = Common::Json::FromStruct( meshSer );
                 if ( const auto* fields = std::get_if<Common::Json::Object>( &rest.variant() ) )
@@ -1471,16 +1471,16 @@ namespace Desert::Core::Serialize
                 Reflection::DeserializeReflected( *type, &smc, g, issues, &resolver );
                 smc.Primitive = meshData.Primitive;
 
-                smc.OutlineDraw     = meshData.OutlineDraw.value_or( smc.OutlineDraw );
-                smc.ForcedLOD       = meshData.ForcedLOD.value_or( smc.ForcedLOD );
-                smc.LODBias         = meshData.LODBias.value_or( smc.LODBias );
-                smc.CastShadows     = meshData.CastShadows.value_or( smc.CastShadows );
-                smc.ReceiveShadows  = meshData.ReceiveShadows.value_or( smc.ReceiveShadows );
-                smc.CastContactShadow = meshData.CastContactShadow.value_or( smc.CastContactShadow );
+                smc.OutlineDraw     = meshData.OutlineDraw.value_or( smc.GetOutlineDraw() );
+                smc.ForcedLOD       = meshData.ForcedLOD.value_or( smc.GetForcedLOD() );
+                smc.LODBias         = meshData.LODBias.value_or( smc.GetLODBias() );
+                smc.CastShadows     = meshData.CastShadows.value_or( smc.GetCastShadows() );
+                smc.ReceiveShadows  = meshData.ReceiveShadows.value_or( smc.GetReceiveShadows() );
+                smc.CastContactShadow = meshData.CastContactShadow.value_or( smc.GetCastContactShadow() );
                 smc.TranslucencySortPriority =
-                     meshData.TranslucencySortPriority.value_or( smc.TranslucencySortPriority );
-                smc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( smc.MaxDrawDistance );
-                smc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( smc.HiddenSubmeshes );
+                     meshData.TranslucencySortPriority.value_or( smc.GetTranslucencySortPriority() );
+                smc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( smc.GetMaxDrawDistance() );
+                smc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( smc.GetHiddenSubmeshes() );
 
                 if ( meshData.EditMesh )
                 {
@@ -1523,20 +1523,20 @@ namespace Desert::Core::Serialize
                 Assets::InstancedStaticMeshComponentSer ser;
 
                 auto resolver = MakeAssetResolver( assetManager );
-                if ( ism.MeshHandle )
+                if ( ism.GetMeshHandle() )
                 {
-                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( ism.MeshHandle ), "StaticMeshAsset" );
+                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( ism.GetMeshHandle() ), "StaticMeshAsset" );
                          !p.empty() )
                         ser.MeshPath = p;
                     ser.MeshGuid =
-                         MeshGuidText( resolver, static_cast<uint64_t>( ism.MeshHandle ), "StaticMeshAsset" );
+                         MeshGuidText( resolver, static_cast<uint64_t>( ism.GetMeshHandle() ), "StaticMeshAsset" );
                 }
 
-                if ( !ism.MaterialSlots.empty() )
+                if ( !ism.GetMaterialSlots().empty() )
                 {
                     ser.MaterialPaths = std::vector<std::string>{};
                     ser.MaterialGuids = std::vector<std::string>{};
-                    for ( auto handle : ism.MaterialSlots )
+                    for ( auto handle : ism.GetMaterialSlots() )
                     {
                         ser.MaterialPaths->push_back(
                              resolver.ToPath( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
@@ -1544,18 +1544,18 @@ namespace Desert::Core::Serialize
                              resolver.ToGuid( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
                     }
                 }
-                ser.Primitive = ism.Primitive;
-                if ( !ism.CastShadows )
-                    ser.CastShadows = ism.CastShadows;
-                if ( !ism.CastContactShadow )
-                    ser.CastContactShadow = ism.CastContactShadow;
-                if ( ism.MaxDrawDistance > 0.0f )
-                    ser.MaxDrawDistance = ism.MaxDrawDistance;
-                if ( !ism.InstanceTransforms.empty() )
+                ser.Primitive = ism.GetPrimitive();
+                if ( !ism.GetCastShadows() )
+                    ser.CastShadows = ism.GetCastShadows();
+                if ( !ism.GetCastContactShadow() )
+                    ser.CastContactShadow = ism.GetCastContactShadow();
+                if ( ism.GetMaxDrawDistance() > 0.0f )
+                    ser.MaxDrawDistance = ism.GetMaxDrawDistance();
+                if ( !ism.GetInstanceTransforms().empty() )
                 {
                     std::vector<std::array<float, 16>> flat;
-                    flat.reserve( ism.InstanceTransforms.size() );
-                    for ( const auto& m : ism.InstanceTransforms )
+                    flat.reserve( ism.GetInstanceTransforms().size() );
+                    for ( const auto& m : ism.GetInstanceTransforms() )
                     {
                         std::array<float, 16> a{};
                         std::memcpy( a.data(), &m[0][0], sizeof( float ) * 16 );
@@ -1604,9 +1604,9 @@ namespace Desert::Core::Serialize
                     }
                 }
                 ism.Primitive   = data.Primitive;
-                ism.CastShadows     = data.CastShadows.value_or( ism.CastShadows );
-                ism.CastContactShadow = data.CastContactShadow.value_or( ism.CastContactShadow );
-                ism.MaxDrawDistance = data.MaxDrawDistance.value_or( ism.MaxDrawDistance );
+                ism.CastShadows     = data.CastShadows.value_or( ism.GetCastShadows() );
+                ism.CastContactShadow = data.CastContactShadow.value_or( ism.GetCastContactShadow() );
+                ism.MaxDrawDistance = data.MaxDrawDistance.value_or( ism.GetMaxDrawDistance() );
                 if ( data.InstanceTransforms.has_value() )
                 {
                     ism.InstanceTransforms.clear();
@@ -1755,20 +1755,20 @@ namespace Desert::Core::Serialize
                 Assets::SkinnedMeshComponentSer meshSer;
 
                 auto resolver = MakeAssetResolver( assetManager );
-                if ( smc.MeshHandle )
+                if ( smc.GetMeshHandle() )
                 {
-                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( smc.MeshHandle ), "SkinnedMeshAsset" );
+                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( smc.GetMeshHandle() ), "SkinnedMeshAsset" );
                          !p.empty() )
                         meshSer.MeshPath = p;
                     meshSer.MeshGuid =
-                         MeshGuidText( resolver, static_cast<uint64_t>( smc.MeshHandle ), "SkinnedMeshAsset" );
+                         MeshGuidText( resolver, static_cast<uint64_t>( smc.GetMeshHandle() ), "SkinnedMeshAsset" );
                 }
 
-                if ( !smc.MaterialSlots.empty() )
+                if ( !smc.GetMaterialSlots().empty() )
                 {
                     meshSer.MaterialPaths = std::vector<std::string>{};
                     meshSer.MaterialGuids = std::vector<std::string>{};
-                    for ( auto handle : smc.MaterialSlots )
+                    for ( auto handle : smc.GetMaterialSlots() )
                     {
                         meshSer.MaterialPaths->push_back(
                              resolver.ToPath( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
@@ -1779,8 +1779,8 @@ namespace Desert::Core::Serialize
 
                 // Rendering controls: write only non-default values (absent = default on load), exactly
                 // like the static mesh above.
-                if ( !smc.CastShadows )
-                    meshSer.CastShadows = smc.CastShadows;
+                if ( !smc.GetCastShadows() )
+                    meshSer.CastShadows = smc.GetCastShadows();
 
                 return Common::Json::FromStruct( meshSer );
             };
@@ -1814,7 +1814,7 @@ namespace Desert::Core::Serialize
                     }
                 }
 
-                smc.CastShadows = meshData.CastShadows.value_or( smc.CastShadows );
+                smc.CastShadows = meshData.CastShadows.value_or( smc.GetCastShadows() );
             };
 
             Register( std::move( s ) );

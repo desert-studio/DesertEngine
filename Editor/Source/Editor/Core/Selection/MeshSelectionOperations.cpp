@@ -358,7 +358,7 @@ namespace Desert::Editor::Core
                 {
                     auto& sourceMesh = source->get().GetComponent<ECS::StaticMeshComponent>();
                     back             = Common::MakeSuccess( true );
-                    switch ( PlanMeshRestore( sourceMesh.EditableMesh, committed ) )
+                    switch ( PlanMeshRestore( sourceMesh.GetEditableMesh(), committed ) )
                     {
                         case MeshRestore::Set:
                             back = ECS::SetEditableMesh( sourceMesh, committed );

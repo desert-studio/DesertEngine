@@ -709,7 +709,7 @@ namespace Desert::Editor
         auto& smc = m_PreviewTarget.GetComponent<ECS::StaticMeshComponent>();
         ECS::ClearEditableMesh( smc );
         smc.Primitive.reset();
-        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeMaterialInstances().clear();
         smc.MaterialSlots.clear();
         smc.MeshHandle = m_PreviewMesh;
 

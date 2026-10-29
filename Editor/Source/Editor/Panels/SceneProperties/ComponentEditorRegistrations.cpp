@@ -1894,9 +1894,9 @@ namespace Desert::Editor
             {
                 const auto&     smc = targetEntity->GetComponent<::Desert::ECS::SkinnedMeshComponent>();
                 ::Desert::Mesh* mesh =
-                     smc.RuntimeMesh
-                          ? static_cast<::Desert::Mesh*>( smc.RuntimeMesh.get() )
-                          : ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
+                     smc.GetRuntimeMesh()
+                          ? static_cast<::Desert::Mesh*>( smc.GetRuntimeMesh().get() )
+                          : ::Desert::Runtime::ResourceRegistry::GetMeshService()->Get( smc.GetMeshHandle() );
                 if ( mesh && mesh->IsSkinned() )
                     skeleton = &static_cast<::Desert::SkinnedMesh*>( mesh )->GetSkeleton();
             }
@@ -2476,9 +2476,9 @@ namespace Desert::Editor
 
             ::Desert::Assets::AssetHandle meshHandle;
             if ( en.HasComponent<::Desert::ECS::SkinnedMeshComponent>() )
-                meshHandle = en.GetComponent<::Desert::ECS::SkinnedMeshComponent>().MeshHandle;
+                meshHandle = en.GetComponent<::Desert::ECS::SkinnedMeshComponent>().GetMeshHandle();
             else if ( en.HasComponent<::Desert::ECS::StaticMeshComponent>() )
-                meshHandle = en.GetComponent<::Desert::ECS::StaticMeshComponent>().MeshHandle;
+                meshHandle = en.GetComponent<::Desert::ECS::StaticMeshComponent>().GetMeshHandle();
 
             const ::Desert::Assets::MeshAsset* meshAsset =
                  meshHandle ? ::Desert::Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle )

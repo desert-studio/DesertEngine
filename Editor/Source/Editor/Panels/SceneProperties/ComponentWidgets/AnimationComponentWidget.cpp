@@ -92,7 +92,7 @@ namespace Desert::Editor
         // SAME rule AnimationECSSystem resolves the name this slot writes (SkeletonReference.hpp). Asked when the
         // widget draws, not cached: a cache keyed by anything but the library's contents offered stale clips.
         const Assets::AssetHandle meshHandle = entity.HasComponent<ECS::SkinnedMeshComponent>()
-                                                    ? entity.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle
+                                                    ? entity.GetComponent<ECS::SkinnedMeshComponent>().GetMeshHandle()
                                                     : Assets::AssetHandle{};
         const auto clips = m_AnimationLibrary->GetForMesh( m_AnimationLibrary->IdentifyMeshHandle( meshHandle ) );
 
@@ -475,7 +475,7 @@ namespace Desert::Editor
         // THE TARGET SKELETON IS PICKED AT CREATION (UE: UAnimBlueprint::TargetSkeleton): the graph animates
         // the skeleton of the mesh it is created for. A mesh that names none gets no graph, by name.
         const Assets::AssetHandle        meshHandle = entity.HasComponent<ECS::SkinnedMeshComponent>()
-                                                           ? entity.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle
+                                                           ? entity.GetComponent<ECS::SkinnedMeshComponent>().GetMeshHandle()
                                                            : Assets::AssetHandle{};
         const Common::Content::AssetGuid skeleton =
              m_AnimationLibrary->IdentifyMeshHandle( meshHandle ).Skeleton.Guid;

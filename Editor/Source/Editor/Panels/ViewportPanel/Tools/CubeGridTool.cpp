@@ -314,7 +314,7 @@ namespace Desert::Editor::Tools
         // slot holding it, or a slot added for it. Slots never shrink (CoverMaterialIds' rule), so an Undo
         // leaves the added slot unused rather than renumbering the mesh's IDs.
         const Common::AssetHandle        want  = ms.QuickMaterial;
-        std::vector<Common::AssetHandle> slots = smc.MaterialSlots;
+        std::vector<Common::AssetHandle> slots = smc.GetMaterialSlots();
         if ( slots.empty() )
             slots.emplace_back();
         auto slotIt = std::find( slots.begin(), slots.end(), want );
@@ -335,13 +335,13 @@ namespace Desert::Editor::Tools
                                                 *input.GetValue().Mesh, piece );
         if ( !result.IsSuccess() )
             return refuse( result.GetError() );
-        if ( slots != smc.MaterialSlots )
+        if ( slots != smc.GetMaterialSlots() )
         {
             smc.MaterialSlots = std::move( slots );
             // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
-            smc.RuntimeMaterialInstances.clear();
-            smc.RuntimeSlots.reset();
-            smc.SeenMaterialsVersion = 0;
+            smc.RuntimeMaterialInstances().clear();
+            smc.RuntimeSlots().reset();
+            smc.SeenMaterialsVersion() = 0;
         }
         if ( auto set = ECS::SetEditableMesh( smc, result.GetValue().Mesh ); !set.IsSuccess() )
             return refuse( set.GetError() );
@@ -424,13 +424,13 @@ namespace Desert::Editor::Tools
         slots.reserve( submeshMaterialIds.size() );
         for ( const int id : submeshMaterialIds )
             slots.push_back( m_Materials.at( static_cast<size_t>( id ) ) );
-        if ( slots == smc.MaterialSlots )
+        if ( slots == smc.GetMaterialSlots() )
             return;
         smc.MaterialSlots = std::move( slots );
         // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
-        smc.RuntimeMaterialInstances.clear();
-        smc.RuntimeSlots.reset();
-        smc.SeenMaterialsVersion = 0;
+        smc.RuntimeMaterialInstances().clear();
+        smc.RuntimeSlots().reset();
+        smc.SeenMaterialsVersion() = 0;
     }
 
     void CubeGridTool::ResetSession()
@@ -517,7 +517,7 @@ namespace Desert::Editor::Tools
         m_EntityFrame = opened.GetValue().EntityFrame;
         m_Volume      = std::move( opened.ExtractValue().Volume );
         // Accept stored the material IDs as the entity's slot indices (StoreVoxels), so the slots ARE the set.
-        const auto& slots = e.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
+        const auto& slots = e.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
         if ( !slots.empty() )
             m_Materials = slots;
 

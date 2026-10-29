@@ -57,12 +57,12 @@ namespace Desert::Core
         // belongs here, where Raycast and the mesh systems can share it.
         ::Desert::Mesh* ResolveMesh( const ECS::StaticMeshComponent& c )
         {
-            if ( c.MeshHandle )
-                return Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
-            if ( c.RuntimeMesh )
-                return c.RuntimeMesh.get();
-            if ( c.Primitive.has_value() )
-                return Geometry::PrimitiveMeshFactory::GetShared( c.Primitive.value() );
+            if ( c.GetMeshHandle() )
+                return Runtime::ResourceRegistry::GetMeshService()->Get( c.GetMeshHandle() );
+            if ( c.GetRuntimeMesh() )
+                return c.GetRuntimeMesh().get();
+            if ( c.GetPrimitive().has_value() )
+                return Geometry::PrimitiveMeshFactory::GetShared( c.GetPrimitive().value() );
             return nullptr;
         }
 
@@ -76,17 +76,17 @@ namespace Desert::Core
         };
         std::optional<MeshTriangles> StaticTriangles( const ECS::StaticMeshComponent& c )
         {
-            if ( c.MeshHandle )
+            if ( c.GetMeshHandle() )
             {
-                const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( c.MeshHandle );
+                const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( c.GetMeshHandle() );
                 const auto* data  = dynamic_cast<const Assets::StaticMeshAsset*>( asset );
                 if ( !data )
                     return std::nullopt;
                 return MeshTriangles{ data->GetVertices(), data->GetIndices(), data->GetSubmeshes() };
             }
-            const DynamicMesh* mesh = c.RuntimeMesh ? c.RuntimeMesh.get()
-                                      : c.Primitive.has_value()
-                                           ? Geometry::PrimitiveMeshFactory::GetShared( c.Primitive.value() )
+            const DynamicMesh* mesh = c.GetRuntimeMesh() ? c.GetRuntimeMesh().get()
+                                      : c.GetPrimitive().has_value()
+                                           ? Geometry::PrimitiveMeshFactory::GetShared( c.GetPrimitive().value() )
                                            : nullptr;
             if ( !mesh )
                 return std::nullopt;
@@ -119,10 +119,10 @@ namespace Desert::Core
         // Editor-built runtime rig takes priority over the cooked asset (mirrors the render path).
         ::Desert::Mesh* ResolveSkinnedMesh( const ECS::SkinnedMeshComponent& c )
         {
-            if ( c.RuntimeMesh )
-                return c.RuntimeMesh.get();
-            if ( c.MeshHandle )
-                return Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
+            if ( c.GetRuntimeMesh() )
+                return c.GetRuntimeMesh().get();
+            if ( c.GetMeshHandle() )
+                return Runtime::ResourceRegistry::GetMeshService()->Get( c.GetMeshHandle() );
             return nullptr;
         }
 

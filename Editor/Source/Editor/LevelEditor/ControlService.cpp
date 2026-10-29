@@ -929,11 +929,36 @@ namespace Desert::Editor
                     Core::SelectionManager::SetSelected( entityId );
                     // Only this entity's file is rewritten by the next save (WP17), as from Details.
                     const CommandHistory::FieldSubject fieldSubject( entityId );
+                    // The undo and redo of this edit reach the component again through the same entry's
+                    // EditData (entity + type), so they end in the component's writer as the edit does and never
+                    // hold an address inside EnTT storage.
+                    const ReflectedEditRoute route =
+                         [weakScene = std::weak_ptr<::Desert::Core::Scene>( scene ), entityId,
+                          reflectedType = found->ReflectedTypeName]( const std::function<void( void* )>& write )
+                    {
+                        const auto owner = weakScene.lock();
+                        if ( !owner )
+                            return false;
+                        auto ref = owner->FindEntityByID( entityId );
+                        if ( !ref )
+                            return false;
+                        ECS::Entity target = ref->get(); // a handle: a copy names the same entity
+                        for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
+                            if ( entry.DataPtr && entry.ReflectedTypeName == reflectedType && entry.Has( target ) )
+                            {
+                                if ( entry.EditData )
+                                    entry.EditData( target, write );
+                                else
+                                    write( entry.DataPtr( target ) );
+                                return true;
+                            }
+                        return false;
+                    };
                     Common::BoolResultStr written = Common::MakeSuccess( true );
                     const auto            edit    = [&]( void* data )
                     {
                         written = SetReflectedFieldFromText( data, found->ReflectedTypeName, fieldPath,
-                                                             request.Text, CommandHistory::Get() );
+                                                             request.Text, CommandHistory::Get(), route );
                     };
                     if ( found->EditData )
                         found->EditData( en, edit );

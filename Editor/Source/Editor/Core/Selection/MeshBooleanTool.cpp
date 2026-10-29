@@ -103,7 +103,7 @@ namespace Desert::Editor::Core
             auto mesh = std::make_shared<Geometry::DynamicMesh3>( std::move( moved.ExtractValue().Mesh ) );
             if ( table )
             {
-                const auto& slots = other.Entity.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
+                const auto& slots = other.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
                 auto        mapped =
                      Geometry::MapMaterialIds( *mesh,
                                                [&]( const int id )
@@ -207,7 +207,7 @@ namespace Desert::Editor::Core
 
         // A Trim drops every triangle of the cutter, so the operated entity's slots stay as they are.
         std::vector<Common::AssetHandle> table =
-             operated.Entity.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
+             operated.Entity.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
         auto cutter = BakeInto( operated, other, bTrim ? nullptr : &table, name );
         if ( !cutter.IsSuccess() )
             return Common::MakeError<bool>( cutter.GetError() );

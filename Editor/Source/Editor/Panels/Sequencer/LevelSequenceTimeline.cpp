@@ -535,7 +535,7 @@ namespace Desert::Editor
         // The SAME skeleton identity the skeletal timeline's clip picker lists by: a clip is offered only where
         // it plays on this mesh's skeleton.
         return m_Library->GetForMesh(
-             m_Library->IdentifyMeshHandle( entity->GetComponent<ECS::SkinnedMeshComponent>().MeshHandle ) );
+             m_Library->IdentifyMeshHandle( entity->GetComponent<ECS::SkinnedMeshComponent>().GetMeshHandle() ) );
     }
 
     void SequencerPanel::AddLevelAnimation( const LevelTL::BindingGuid&                    binding,

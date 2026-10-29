@@ -66,11 +66,11 @@ namespace Desert::Editor
         const auto& component = ref->get().GetComponent<ECS::StaticMeshComponent>();
         // The fracture names the ASSET it cut (FractureData::SourceMesh): an entity whose geometry is an
         // unaccepted modeling edit is not that asset, so its edit is accepted into the asset first.
-        if ( component.EditableMesh )
+        if ( component.GetEditableMesh() )
             return PaletteCommandOutcome( false,
                                           "Generate: the selected mesh has a modeling edit; Accept it into its "
                                           "asset first, so the fracture names the mesh it cut." );
-        const auto guid = Assets::ContentRegistry::GuidForHandle( component.MeshHandle );
+        const auto guid = Assets::ContentRegistry::GuidForHandle( component.GetMeshHandle() );
         if ( !guid.has_value() || guid->IsNull() )
             return PaletteCommandOutcome( false,
                                           "Generate: the selected mesh is not a static mesh asset with a GUID." );

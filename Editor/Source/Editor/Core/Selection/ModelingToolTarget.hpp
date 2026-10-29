@@ -17,7 +17,7 @@
 
 namespace Desert::ECS
 {
-    struct StaticMeshComponent;
+    class StaticMeshComponent;
 }
 
 namespace Desert::Editor

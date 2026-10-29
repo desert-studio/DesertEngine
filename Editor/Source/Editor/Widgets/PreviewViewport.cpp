@@ -379,7 +379,7 @@ namespace Desert::Editor
         auto& floorMesh = m_Floor.GetComponent<ECS::StaticMeshComponent>();
         if ( m_Setup.ShowFloor )
         {
-            if ( floorMesh.Primitive != Geometry::PrimitiveType::Plane )
+            if ( floorMesh.GetPrimitive() != Geometry::PrimitiveType::Plane )
             {
                 floorMesh.Primitive = Geometry::PrimitiveType::Plane;
                 ECS::ClearEditableMesh( floorMesh );
@@ -397,9 +397,9 @@ namespace Desert::Editor
             //
             // Every frame, because MeshECSSystem owns those instances and rebuilds them whenever the slot
             // count changes; three setter calls on one instance is cheaper than watching for that.
-            if ( !floorMesh.RuntimeMaterialInstances.empty() && floorMesh.RuntimeMaterialInstances[0] )
+            if ( !floorMesh.RuntimeMaterialInstances().empty() && floorMesh.RuntimeMaterialInstances()[0] )
             {
-                auto& inst = floorMesh.RuntimeMaterialInstances[0];
+                auto& inst = floorMesh.RuntimeMaterialInstances()[0];
                 inst->SetParamFromVec4( "AlbedoColor", glm::vec4( m_Setup.FloorColour, 1.0f ) );
                 // Fully rough and non-metallic: the floor is there to catch a shadow, and a glossy one
                 // would throw a sun highlight across the frame that reads as part of the asset.
@@ -424,11 +424,11 @@ namespace Desert::Editor
             floor.Translation = glm::vec3( 0.0f, ( m_Fill == Fill::SkyDome ) ? 0.0f : -50.0f, 0.0f );
             m_Floor.SetLocalTransform( floor );
         }
-        else if ( floorMesh.Primitive.has_value() )
+        else if ( floorMesh.GetPrimitive().has_value() )
         {
             floorMesh.Primitive.reset();
             ECS::ClearEditableMesh( floorMesh );
-            floorMesh.RuntimeMaterialInstances.clear();
+            floorMesh.RuntimeMaterialInstances().clear();
         }
 
         // ── What the scene renderer is asked for ──────────────────────────────────────────────────────
@@ -502,7 +502,7 @@ namespace Desert::Editor
     {
         if ( !m_Target || !m_Target.HasComponent<ECS::StaticMeshComponent>() )
             return;
-        int& forced = m_Target.GetComponent<ECS::StaticMeshComponent>().ForcedLOD;
+        int& forced = m_Target.GetComponent<ECS::StaticMeshComponent>().GetForcedLOD();
         if ( forced != lod )
             ++m_ContentRevision;
         forced = lod;
@@ -524,7 +524,7 @@ namespace Desert::Editor
         auto& smc = m_Target.GetComponent<ECS::StaticMeshComponent>();
         ECS::ClearEditableMesh( smc );
         smc.Primitive.reset();
-        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeMaterialInstances().clear();
         smc.MeshHandle    = mesh;
         smc.MaterialSlots = materials;
         smc.ForcedLOD     = -1;
@@ -666,7 +666,7 @@ namespace Desert::Editor
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         // Clearing the runtime instances forces a rebuild against the new handle; dropping the runtime mesh
         // makes a shape change rebuild the geometry.
-        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeMaterialInstances().clear();
         ECS::ClearEditableMesh( smc );
         smc.Primitive     = ToPrimitive( shape );
         smc.MaterialSlots = { material };
@@ -704,7 +704,7 @@ namespace Desert::Editor
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         smc.Primitive.reset();
         smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeMaterialInstances().clear();
         ECS::ClearEditableMesh( smc );
 
         if ( !m_CubemapPass )
@@ -774,7 +774,7 @@ namespace Desert::Editor
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         smc.Primitive.reset();
         smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeMaterialInstances().clear();
         ECS::ClearEditableMesh( smc );
 
         if ( m_CubemapPass )
@@ -863,7 +863,7 @@ namespace Desert::Editor
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         smc.Primitive.reset();
         smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeMaterialInstances().clear();
         ECS::ClearEditableMesh( smc );
         if ( m_CubemapPass )
             m_CubemapPass->ClearSource();
@@ -968,7 +968,7 @@ namespace Desert::Editor
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         smc.Primitive.reset();
         smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeMaterialInstances().clear();
         ECS::ClearEditableMesh( smc );
 
         auto& skinned         = m_Target.AddComponent<ECS::SkinnedMeshComponent>();
@@ -1116,7 +1116,7 @@ namespace Desert::Editor
             // so the signature stamp, not the pointer, says the Animator is stale.
             Desert::Mesh* mesh = m_Target.HasComponent<ECS::SkinnedMeshComponent>()
                                       ? Runtime::ResourceRegistry::GetMeshService()->Get(
-                                             m_Target.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle )
+                                             m_Target.GetComponent<ECS::SkinnedMeshComponent>().GetMeshHandle() )
                                       : nullptr;
             if ( mesh == nullptr || !mesh->IsSkinned() )
             {
@@ -1175,7 +1175,7 @@ namespace Desert::Editor
         smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         smc.Primitive.reset();
         smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
+        smc.RuntimeMaterialInstances().clear();
         ECS::ClearEditableMesh( smc );
 
         if ( m_CubemapPass )

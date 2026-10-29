@@ -38,12 +38,12 @@ namespace Desert::Editor::Tools
         // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
         void PutSlots( ECS::StaticMeshComponent& component, const std::vector<Common::AssetHandle>& slots )
         {
-            if ( component.MaterialSlots == slots )
+            if ( component.GetMaterialSlots() == slots )
                 return;
             component.MaterialSlots = slots;
-            component.RuntimeMaterialInstances.clear();
-            component.RuntimeSlots.reset();
-            component.SeenMaterialsVersion = 0;
+            component.RuntimeMaterialInstances().clear();
+            component.RuntimeSlots().reset();
+            component.SeenMaterialsVersion() = 0;
         }
 
         std::string SlotLabel( const Common::AssetHandle& handle )
@@ -153,8 +153,8 @@ namespace Desert::Editor::Tools
             ms.EditMaterialsStatus = target.GetError();
             return;
         }
-        Session session{ *selected, target.GetValue().Committed, component->MaterialSlots, target.GetValue().Mesh,
-                         component->MaterialSlots, {} };
+        Session session{ *selected, target.GetValue().Committed, component->GetMaterialSlots(), target.GetValue().Mesh,
+                         component->GetMaterialSlots(), {} };
         // Every material id the mesh uses names a slot (ECS::CoverMaterialIds' rule), so Assign can address it.
         int maxId = 0;
         if ( session.Preview->HasAttributes() && session.Preview->Attributes()->HasMaterialID() )
@@ -181,7 +181,7 @@ namespace Desert::Editor::Tools
         ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( component == nullptr )
             return;
-        if ( component->EditableMesh != m_Session->Preview )
+        if ( component->GetEditableMesh() != m_Session->Preview )
             if ( auto set = ECS::SetEditableMesh( *component, m_Session->Preview ); !set.IsSuccess() )
                 LOG_ERROR( "[Modeling] Edit Materials: the preview could not be shown: {0}", set.GetError() );
         PutSlots( *component, m_Session->Slots );
@@ -192,7 +192,7 @@ namespace Desert::Editor::Tools
         ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( component == nullptr )
             return;
-        switch ( PlanMeshRestore( component->EditableMesh, m_Session->Committed ) )
+        switch ( PlanMeshRestore( component->GetEditableMesh(), m_Session->Committed ) )
         {
             case MeshRestore::Unchanged:
                 break;

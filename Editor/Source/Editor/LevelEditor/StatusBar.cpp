@@ -152,7 +152,7 @@ namespace Desert::Editor
                     if ( const ::Desert::Mesh* mesh = ResolveDrawnMesh( entity );
                          mesh != nullptr && MeshLODRows::LevelCount( *mesh ) > 1 )
                         drawnLevel = MeshLODRows::DrawingLevel( m_Workspace.ActiveScene().get(), entity, *mesh,
-                                                                smc.ForcedLOD, smc.LODBias );
+                                                                smc.GetForcedLOD(), smc.GetLODBias() );
                 }
             }
             if ( drawnLevel )

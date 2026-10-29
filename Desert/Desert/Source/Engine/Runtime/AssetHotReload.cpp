@@ -47,13 +47,13 @@ namespace Desert::Runtime
             registry.view<ECS::StaticMeshComponent>().each(
                  [&]( ECS::StaticMeshComponent& mesh )
                  {
-                     for ( const auto& slot : mesh.MaterialSlots )
+                     for ( const auto& slot : mesh.GetMaterialSlots() )
                          if ( slot == materialHandle )
                          {
-                             mesh.RuntimeMaterialInstances.clear();
+                             mesh.RuntimeMaterialInstances().clear();
                              // Dropped, not emptied: a draw recorded this frame may still hold the old
                              // binding, and it must keep the instances it names alive until it has run.
-                             mesh.RuntimeSlots.reset();
+                             mesh.RuntimeSlots().reset();
                              break;
                          }
                  } );
@@ -61,10 +61,10 @@ namespace Desert::Runtime
             registry.view<ECS::SkinnedMeshComponent>().each(
                  [&]( ECS::SkinnedMeshComponent& mesh )
                  {
-                     for ( const auto& slot : mesh.MaterialSlots )
+                     for ( const auto& slot : mesh.GetMaterialSlots() )
                          if ( slot == materialHandle )
                          {
-                             mesh.RuntimeMaterialInstances.clear();
+                             mesh.RuntimeMaterialInstances().clear();
                              break;
                          }
                  } );

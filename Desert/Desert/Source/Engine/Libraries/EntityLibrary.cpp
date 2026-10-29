@@ -286,9 +286,9 @@ namespace Desert::Libraries
                               name ) );
             return;
         }
-        UpsertParam( smc->ScriptSlotParams, name, value );
-        if ( !smc->RuntimeMaterialInstances.empty() && smc->RuntimeMaterialInstances[0] )
-            smc->RuntimeMaterialInstances[0]->SetParamFromVec4( name, value );
+        UpsertParam( smc->GetScriptSlotParams(), name, value );
+        if ( !smc->RuntimeMaterialInstances().empty() && smc->RuntimeMaterialInstances()[0] )
+            smc->RuntimeMaterialInstances()[0]->SetParamFromVec4( name, value );
     }
 
     // The value a read sees is the one the write route above keeps: the override's Params, else the script's
@@ -304,11 +304,11 @@ namespace Desert::Libraries
         }
         if ( const auto* smc = Get<ECS::StaticMeshComponent>( entity ) )
         {
-            for ( const auto& p : smc->ScriptSlotParams )
+            for ( const auto& p : smc->GetScriptSlotParams() )
                 if ( p.Name == name )
                     return p.Value;
-            if ( !smc->RuntimeMaterialInstances.empty() && smc->RuntimeMaterialInstances[0] )
-                if ( const auto authored = smc->RuntimeMaterialInstances[0]->GetOverrideAsVec4( name ) )
+            if ( !smc->RuntimeMaterialInstances().empty() && smc->RuntimeMaterialInstances()[0] )
+                if ( const auto authored = smc->RuntimeMaterialInstances()[0]->GetOverrideAsVec4( name ) )
                     return *authored;
         }
         return glm::vec4( 0.0f );
@@ -327,10 +327,10 @@ namespace Desert::Libraries
             ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), desc );
         }
         if ( auto* smc = Get<ECS::StaticMeshComponent>( entity );
-             smc != nullptr && !smc->ScriptSlotParams.empty() )
+             smc != nullptr && !smc->GetScriptSlotParams().empty() )
         {
             smc->ScriptSlotParams.clear();
-            smc->RuntimeMaterialInstances.clear();
+            smc->RuntimeMaterialInstances().clear();
         }
     }
 

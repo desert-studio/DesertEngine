@@ -64,19 +64,19 @@ namespace Desert::Editor
         {
             auto& c               = entity.GetComponent<ECS::StaticMeshComponent>();
             host.Slots            = &c.MaterialSlots;
-            host.RuntimeInstances = &c.RuntimeMaterialInstances;
-            host.MeshHandle       = c.MeshHandle;
-            host.Mesh             = c.RuntimeMesh ? static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() )
-                                                  : Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
+            host.RuntimeInstances = &c.RuntimeMaterialInstances();
+            host.MeshHandle       = c.GetMeshHandle();
+            host.Mesh             = c.GetRuntimeMesh() ? static_cast<::Desert::Mesh*>( c.GetRuntimeMesh().get() )
+                                                  : Runtime::ResourceRegistry::GetMeshService()->Get( c.GetMeshHandle() );
         }
         else if ( entity.HasComponent<ECS::SkinnedMeshComponent>() )
         {
             auto& c               = entity.GetComponent<ECS::SkinnedMeshComponent>();
             host.Slots            = &c.MaterialSlots;
-            host.RuntimeInstances = &c.RuntimeMaterialInstances;
-            host.MeshHandle       = c.MeshHandle;
-            host.Mesh             = c.RuntimeMesh ? static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() )
-                                                  : Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
+            host.RuntimeInstances = &c.RuntimeMaterialInstances();
+            host.MeshHandle       = c.GetMeshHandle();
+            host.Mesh             = c.GetRuntimeMesh() ? static_cast<::Desert::Mesh*>( c.GetRuntimeMesh().get() )
+                                                  : Runtime::ResourceRegistry::GetMeshService()->Get( c.GetMeshHandle() );
         }
         else if ( entity.HasComponent<ECS::InstancedStaticMeshComponent>() )
         {
@@ -90,10 +90,10 @@ namespace Desert::Editor
             // the same way the static twin's does.
             auto& c               = entity.GetComponent<ECS::InstancedStaticMeshComponent>();
             host.Slots            = &c.MaterialSlots;
-            host.RuntimeInstances = &c.RuntimeMaterialInstances;
-            host.MeshHandle       = c.MeshHandle;
-            host.Mesh             = c.RuntimeMesh ? static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() )
-                                                  : Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
+            host.RuntimeInstances = &c.RuntimeMaterialInstances();
+            host.MeshHandle       = c.GetMeshHandle();
+            host.Mesh             = c.RuntimeMesh() ? static_cast<::Desert::Mesh*>( c.RuntimeMesh().get() )
+                                                  : Runtime::ResourceRegistry::GetMeshService()->Get( c.GetMeshHandle() );
         }
         return host;
     }
@@ -167,7 +167,7 @@ namespace Desert::Editor
                 // can't disagree with what is on screen.
                 MeshLODRows::DrawLevels( *lodMesh,
                                          MeshLODRows::DrawingLevel( scene, entity, *lodMesh,
-                                                                    materialComp.ForcedLOD, materialComp.LODBias ),
+                                                                    materialComp.GetForcedLOD(), materialComp.GetLODBias() ),
                                          "Drawing" );
                 MeshLODRows::DrawScreenSizes( host.MeshHandle, *lodMesh );
             }
@@ -177,7 +177,7 @@ namespace Desert::Editor
             Utils::ImGuiUtilities::ResetPropertyRows();
 
             const char* items[] = { "Auto (by screen size)", "LOD 0", "LOD 1", "LOD 2", "LOD 3" };
-            int         cur     = materialComp.ForcedLOD < 0 ? 0 : materialComp.ForcedLOD + 1;
+            int         cur     = materialComp.GetForcedLOD() < 0 ? 0 : materialComp.GetForcedLOD() + 1;
             Utils::ImGuiUtilities::BeginPropertyRow( "Force LOD" );
             if ( ImGui::Combo( "##forcelod", &cur, items, 5 ) )
                 materialComp.ForcedLOD = ( cur == 0 ) ? -1 : cur - 1;
@@ -226,8 +226,8 @@ namespace Desert::Editor
                  "shadow (0 = no limit); scaled by the camera's field of view, so a zoomed-in camera draws "
                  "farther" );
             ImGui::DragFloat( "##maxdrawdistance", &materialComp.MaxDrawDistance, 10.0f, 0.0f, 1.0e9f,
-                              materialComp.MaxDrawDistance > 0.0f ? "%.0f cm" : "No limit" );
-            materialComp.MaxDrawDistance = std::max( materialComp.MaxDrawDistance, 0.0f );
+                              materialComp.GetMaxDrawDistance() > 0.0f ? "%.0f cm" : "No limit" );
+            materialComp.MaxDrawDistance = std::max( materialComp.GetMaxDrawDistance(), 0.0f );
             Utils::ImGuiUtilities::EndPropertyRow();
 
             Utils::ImGuiUtilities::BeginPropertyRow(
@@ -245,13 +245,13 @@ namespace Desert::Editor
                 for ( size_t i = 0; i < subCount && i < 64; ++i )
                 {
                     const uint64_t bit     = ( 1ull << i );
-                    bool           visible = ( materialComp.HiddenSubmeshes & bit ) == 0;
+                    bool           visible = ( materialComp.GetHiddenSubmeshes() & bit ) == 0;
                     const auto&    sm      = lodMesh->GetSubmeshes()[i];
                     const std::string label   = sm.Name.empty() ? std::format( "Submesh {}", i ) : sm.Name;
                     ImGui::PushID( static_cast<int>( i ) );
                     if ( ImGui::Checkbox( label.c_str(), &visible ) )
                         materialComp.HiddenSubmeshes =
-                             visible ? ( materialComp.HiddenSubmeshes & ~bit ) : ( materialComp.HiddenSubmeshes | bit );
+                             visible ? ( materialComp.GetHiddenSubmeshes() & ~bit ) : ( materialComp.GetHiddenSubmeshes() | bit );
                     ImGui::PopID();
                 }
             }

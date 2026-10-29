@@ -419,7 +419,7 @@ namespace Desert::Editor::Commands
                 auto& smc = e->GetComponent<ECS::StaticMeshComponent>();
                 // Null is the asset-only entity (a Modeling tool lifted its .stmesh): PlanMeshRestore drops
                 // the EditableMesh.
-                const MeshRestore plan = PlanMeshRestore( smc.EditableMesh, mesh );
+                const MeshRestore plan = PlanMeshRestore( smc.GetEditableMesh(), mesh );
                 if ( plan != MeshRestore::Set )
                 {
                     if ( plan == MeshRestore::Clear )
@@ -597,20 +597,20 @@ namespace Desert::Editor::Commands
             auto& smc = e->GetComponent<ECS::StaticMeshComponent>();
             // A null mesh is a state too: the entity drawn from its asset alone (a Modeling tool lifted the
             // .stmesh), so undoing the edit drops the EditableMesh instead of keeping the edited one.
-            const MeshRestore plan = PlanMeshRestore( smc.EditableMesh, state.Mesh );
+            const MeshRestore plan = PlanMeshRestore( smc.GetEditableMesh(), state.Mesh );
             if ( plan == MeshRestore::Clear )
                 ECS::ClearEditableMesh( smc );
             else if ( plan == MeshRestore::Set )
                 if ( auto set = ECS::SetEditableMesh( smc, state.Mesh ); !set.IsSuccess() )
                     return Common::MakeFormattedError<bool>( "entity {}: {}", static_cast<uint64_t>( id ),
                                                              set.GetError() );
-            if ( state.MaterialSlots && *state.MaterialSlots != smc.MaterialSlots )
+            if ( state.MaterialSlots && *state.MaterialSlots != smc.GetMaterialSlots() )
             {
                 smc.MaterialSlots = *state.MaterialSlots;
                 // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
-                smc.RuntimeMaterialInstances.clear();
-                smc.RuntimeSlots.reset();
-                smc.SeenMaterialsVersion = 0;
+                smc.RuntimeMaterialInstances().clear();
+                smc.RuntimeSlots().reset();
+                smc.SeenMaterialsVersion() = 0;
             }
             e->SetLocalTransform( ECS::LocalTransform{ state.Translation, state.Rotation, state.Scale } );
             if ( state.Visible )
@@ -627,10 +627,10 @@ namespace Desert::Editor::Commands
                 return std::nullopt;
             const auto&      smc = e->GetComponent<ECS::StaticMeshComponent>();
             const auto&      tc  = e->GetComponent<ECS::TransformComponent>();
-            XformEntityState out{ id,       smc.EditableMesh, tc.GetTranslation(), tc.GetRotation(),
+            XformEntityState out{ id,       smc.GetEditableMesh(), tc.GetTranslation(), tc.GetRotation(),
                                   tc.GetScale(), std::nullopt,     std::nullopt };
             if ( withSlots )
-                out.MaterialSlots = smc.MaterialSlots;
+                out.MaterialSlots = smc.GetMaterialSlots();
             // No component reads as shown (ECS::IsHidden), so undoing a hide leaves it shown either way.
             if ( withVisibility )
                 out.Visible = !e->HasComponent<ECS::VisibilityComponent>() ||
@@ -696,7 +696,7 @@ namespace Desert::Editor::Commands
                     }
                     // An asset-only part (null mesh) comes back from its snapshot's MeshHandle alone.
                     auto& goneMesh = root.GetComponent<ECS::StaticMeshComponent>();
-                    if ( PlanMeshRestore( goneMesh.EditableMesh, gone.Mesh ) == MeshRestore::Set )
+                    if ( PlanMeshRestore( goneMesh.GetEditableMesh(), gone.Mesh ) == MeshRestore::Set )
                         ok &= Report( ECS::SetEditableMesh( goneMesh, gone.Mesh ) );
                 }
                 OnStructuralChange();
@@ -979,10 +979,10 @@ namespace Desert::Editor::Commands
             if ( !e.HasComponent<ECS::StaticMeshComponent>() )
                 return Common::MakeFormattedError<WrittenStaticMesh>( "'{}' has no mesh component", tag );
             const auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
-            if ( !smc.EditableMesh )
+            if ( !smc.GetEditableMesh() )
                 return Common::MakeFormattedError<WrittenStaticMesh>(
                      "'{}' has no editable mesh to convert; it already draws {}", tag,
-                     smc.MeshHandle.IsNull() ? std::string( "a primitive or nothing" )
+                     smc.GetMeshHandle().IsNull() ? std::string( "a primitive or nothing" )
                                              : std::string( "a mesh asset" ) );
 
             auto target = Editor::StaticMeshOutputFolder( folder );
@@ -992,10 +992,10 @@ namespace Desert::Editor::Commands
             // The file names each slot's material by its header GUID (MeshBinary v3); the slot holds
             // HandleForGuid of it, which cannot be inverted, so the cooked registry row answers.
             std::vector<Common::Content::AssetGuid> slots;
-            slots.reserve( smc.MaterialSlots.size() );
-            for ( std::size_t k = 0; k < smc.MaterialSlots.size(); ++k )
+            slots.reserve( smc.GetMaterialSlots().size() );
+            for ( std::size_t k = 0; k < smc.GetMaterialSlots().size(); ++k )
             {
-                const uint64_t material = static_cast<uint64_t>( smc.MaterialSlots[k] );
+                const uint64_t material = static_cast<uint64_t>( smc.GetMaterialSlots()[k] );
                 if ( material == 0 )
                 {
                     slots.push_back( {} );
@@ -1009,7 +1009,7 @@ namespace Desert::Editor::Commands
                          tag, k, material );
                 slots.push_back( *guid );
             }
-            auto written = Editor::WriteStaticMeshAsset( *smc.EditableMesh, slots, target.GetValue(),
+            auto written = Editor::WriteStaticMeshAsset( *smc.GetEditableMesh(), slots, target.GetValue(),
                                                          name.empty() ? std::string_view( tag ) : name );
             if ( !written.IsSuccess() )
                 return Common::MakeError<WrittenStaticMesh>( written.GetError() );
@@ -1255,7 +1255,7 @@ namespace Desert::Editor::Commands
         if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
             return;
         std::shared_ptr<const Geometry::DynamicMesh3> after =
-             e->GetComponent<ECS::StaticMeshComponent>().EditableMesh;
+             e->GetComponent<ECS::StaticMeshComponent>().GetEditableMesh();
         if ( after == before )
             return;
         CommandHistory::Get().PushEntityEdit(
@@ -1365,7 +1365,7 @@ namespace Desert::Editor::Commands
             auto e = FindEntity( id );
             if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
                 return rollback( fmt::format( "entity {} to delete has no mesh", static_cast<uint64_t>( id ) ) );
-            gone.push_back( { id, e->GetComponent<ECS::StaticMeshComponent>().EditableMesh, {} } );
+            gone.push_back( { id, e->GetComponent<ECS::StaticMeshComponent>().GetEditableMesh(), {} } );
         }
         // Destroyed last: nothing can refuse after this point.
         for ( XformCommand::Gone& g : gone )
@@ -1687,9 +1687,9 @@ namespace Desert::Editor::Commands
                 }
                 smc.MaterialSlots = keptMesh->MaterialSlots;
                 // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
-                smc.RuntimeMaterialInstances.clear();
-                smc.RuntimeSlots.reset();
-                smc.SeenMaterialsVersion = 0;
+                smc.RuntimeMaterialInstances().clear();
+                smc.RuntimeSlots().reset();
+                smc.SeenMaterialsVersion() = 0;
             }
 
             const Common::UUID freshId = UUIDOf( fresh );
@@ -1715,11 +1715,11 @@ namespace Desert::Editor::Commands
                 return std::nullopt;
             const auto&      mesh = entity.GetComponent<ECS::StaticMeshComponent>();
             FoldMeshIdentity identity;
-            identity.Mesh        = mesh.MeshHandle;
-            identity.Primitive   = mesh.Primitive;
-            identity.Materials   = mesh.MaterialSlots;
-            identity.CastShadows = mesh.CastShadows;
-            identity.CastContactShadow = mesh.CastContactShadow;
+            identity.Mesh        = mesh.GetMeshHandle();
+            identity.Primitive   = mesh.GetPrimitive();
+            identity.Materials   = mesh.GetMaterialSlots();
+            identity.CastShadows = mesh.GetCastShadows();
+            identity.CastContactShadow = mesh.GetCastContactShadow();
             return identity;
         }
     } // namespace
@@ -1793,21 +1793,21 @@ namespace Desert::Editor::Commands
 
             // The static component's own fields that an ISM has no room for. Each one is a knob somebody
             // deliberately moved, so losing it silently is losing an authoring decision.
-            if ( mesh.OutlineDraw )
+            if ( mesh.GetOutlineDraw() )
                 candidate.Blockers.emplace_back( "a persistent outline" );
-            if ( mesh.ForcedLOD >= 0 )
+            if ( mesh.GetForcedLOD() >= 0 )
                 candidate.Blockers.emplace_back( "a forced LOD" );
-            if ( mesh.LODBias != 0 )
+            if ( mesh.GetLODBias() != 0 )
                 candidate.Blockers.emplace_back( "a LOD bias" );
-            if ( !mesh.ReceiveShadows )
+            if ( !mesh.GetReceiveShadows() )
                 candidate.Blockers.emplace_back( "receive-shadows off" );
-            if ( mesh.TranslucencySortPriority != 0 )
+            if ( mesh.GetTranslucencySortPriority() != 0 )
                 candidate.Blockers.emplace_back( "a translucency sort priority" );
-            if ( mesh.HiddenSubmeshes != 0 )
+            if ( mesh.GetHiddenSubmeshes() != 0 )
                 candidate.Blockers.emplace_back( "hidden submeshes" );
-            if ( mesh.MaxDrawDistance > 0.0f )
+            if ( mesh.GetMaxDrawDistance() > 0.0f )
                 candidate.Blockers.emplace_back( "a max draw distance" );
-            if ( mesh.EditableMesh )
+            if ( mesh.GetEditableMesh() )
                 candidate.Blockers.emplace_back( "a mesh built in the editor (an instanced mesh names an asset or "
                                                  "a primitive)" );
 
@@ -1884,7 +1884,7 @@ namespace Desert::Editor::Commands
         Core::SelectionManager::SetSelected( folded );
 
         LOG_INFO( "[Collapse] {0} entities -> 1 instanced mesh with {1} instances.", plan.Sources.size(),
-                  ism.InstanceTransforms.size() );
+                  ism.GetInstanceTransforms().size() );
         return Common::MakeSuccess( Common::UUID( folded ) );
     }
 

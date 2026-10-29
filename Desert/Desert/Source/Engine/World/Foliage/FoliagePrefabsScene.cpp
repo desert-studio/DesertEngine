@@ -82,7 +82,7 @@ namespace Desert::World::Foliage
             // either way: a spawned prefab may add to the component pools and move the field's vector.
             const glm::mat4        toField = glm::inverse( fieldEntity.GetWorldTransform() );
             std::vector<glm::mat4> wanted =
-                 registry.get<ECS::InstancedStaticMeshComponent>( field ).InstanceTransforms;
+                 registry.get<ECS::InstancedStaticMeshComponent>( field ).GetInstanceTransforms();
             for ( glm::mat4& instance : wanted )
                 instance = toField * instance;
             if ( auto realized = ApplyPrefabFoliage( wanted, host ); !realized )
