@@ -69,6 +69,7 @@ namespace Desert::Graphic
     {
         Method           Refused{};
         std::string_view Program; // the program's debug name, static storage
+        std::string      Reason;  // why it did not build, as said in the refusal's one ERROR line
     };
     // One list per axis; the view's renderers append the methods whose own program did not build.
     struct ProgramRefusals
@@ -78,16 +79,27 @@ namespace Desert::Graphic
         std::vector<MethodRefusal<Common::Scalability::ShadowMethod>>     Shadows;
     };
 
-    // Records @p method refused for @p program; false when it already was (the caller logs only a new refusal).
+    // Records @p method refused for @p program because of @p reason; false when it already was (the caller logs
+    // only a new refusal).
     template <typename Method>
     bool AddRefusal( std::vector<MethodRefusal<Method>>& refusals, const Method method,
-                     const std::string_view program )
+                     const std::string_view program, const std::string_view reason )
     {
         for ( const MethodRefusal<Method>& refusal : refusals )
             if ( refusal.Refused == method )
                 return false;
-        refusals.push_back( { .Refused = method, .Program = program } );
+        refusals.push_back( { .Refused = method, .Program = program, .Reason = std::string( reason ) } );
         return true;
+    }
+    // Whether @p refusals holds @p method refused for @p program with exactly @p reason - the same refusal again.
+    template <typename Method>
+    [[nodiscard]] bool HoldsRefusal( const std::vector<MethodRefusal<Method>>& refusals, const Method method,
+                                     const std::string_view program, const std::string_view reason )
+    {
+        for ( const MethodRefusal<Method>& refusal : refusals )
+            if ( refusal.Refused == method && refusal.Program == program && refusal.Reason == reason )
+                return true;
+        return false;
     }
 
     struct RenderMethods

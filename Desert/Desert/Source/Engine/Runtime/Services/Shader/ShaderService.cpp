@@ -356,11 +356,13 @@ namespace Desert::Runtime
     void ShaderService::ForgetRefusalsOf( const Assets::AssetHandle& handle )
     {
         std::erase_if( m_Refusals, [&handle]( const auto& entry ) { return entry.second.Handle == handle; } );
+        ++m_RecompileGeneration;
     }
 
     void ShaderService::ForgetRefusalsOfProgram( const std::string& program )
     {
         std::erase_if( m_Refusals, [&program]( const auto& entry ) { return entry.second.Program == program; } );
+        ++m_RecompileGeneration;
     }
 
     std::vector<Core::CookedProgramVariant> ShaderService::ShippedByCookRequests() const
@@ -473,14 +475,6 @@ namespace Desert::Runtime
         return Common::MakeSuccess( ReloadVariantsOf( handle ) );
     }
 
-    Common::ResultStr<int> ShaderService::Recompile( const std::string& name )
-    {
-        const auto it = m_NameToHandleMap.find( name );
-        if ( it == m_NameToHandleMap.end() )
-            return Common::MakeError<int>( std::format( "Recompile: no shader is registered as '{}'", name ) );
-        return Recompile( it->second );
-    }
-
     void ShaderService::Clear()
     {
         // Was an empty body. Shaders own VkShaderModules and the pipeline layouts built from them.
@@ -491,6 +485,7 @@ namespace Desert::Runtime
         m_Media.clear();
         m_WarnedNotAMedium.clear();
         m_Refusals.clear();
+        ++m_RecompileGeneration;
         // Only the weak bookkeeping — a variant's modules belong to whoever still holds it, and freeing
         // them from here would leave that holder with a program made of destroyed modules.
         m_Variants.clear();
