@@ -170,7 +170,7 @@
                     "SSRIntensity": 1.0,
                     "SSRMaxDistance": 4000.0,
                     "ShadowsMethod": 1,
-                    "ContactShadows": false,
+                    "ContactShadows": true,
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "ManualExposureEV100": 0.0,

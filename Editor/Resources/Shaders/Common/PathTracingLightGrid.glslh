@@ -1,0 +1,35 @@
+#ifndef DESERT_PATH_TRACING_LIGHT_GRID_GLSLH
+#define DESERT_PATH_TRACING_LIGHT_GRID_GLSLH
+
+// THE PATH TRACER'S LIGHT GRID (PathTracing.LightSampling 1; NVIDIA RTXDI ReGIR, "Rearchitecting Spatiotemporal
+// Resampling for Production", Boksansky et al. 2021): a world grid of cells around the camera, each holding
+// LightGridSize.w light reservoirs over the scene's local lights (the point lights, then the spot lights),
+// rebuilt every frame by PathTracerLightGrid.shader "Build" (System::PathTracer::AddLightGridPass).
+//
+// A slot is (local light index, W) - W the RIS contribution weight of that light for the cell:
+//   W = (1 / p_cell(y)) * (1 / M) * sum_j p_cell(x_j) / q(x_j)
+// over M candidates x_j drawn uniformly (q = 1 / lights), p_cell the light's luminance at the point of the cell
+// closest to it. p_cell bounds the light's luminance at every point of the cell (the falloff never rises with
+// distance; a spot light's cone is left out), so it is positive wherever a light reaches the cell, and
+// E[f(y) W] is the sum of f over every local light at any point of the cell: the slot is an unbiased estimator
+// of the local lights' contribution there. A slot whose candidates all missed the cell is empty
+// (kPathTracingLightGridNone, W = 0), the zero of that estimator.
+//
+// The grid's placement is the pass's push: LightGrid = (min corner in cm, cell side in cm), LightGridSize = (cells
+// along x, y, z, slots per cell); LightGridSize.x = 0: no grid this frame.
+const uint kPathTracingLightGridNone = 0xFFFFFFFFu;
+
+// The cell of the grid holding @p position, cells numbered x fastest, then y, then z; kPathTracingLightGridNone
+// outside the grid (or with no grid).
+uint PathTracingLightGridCell(vec3 position, vec4 grid, uvec4 size)
+{
+    if (size.x == 0u || grid.w <= 0.0)
+        return kPathTracingLightGridNone;
+    const vec3 local = (position - grid.xyz) / grid.w;
+    if (any(lessThan(local, vec3(0.0))) || any(greaterThanEqual(local, vec3(size.xyz))))
+        return kPathTracingLightGridNone;
+    const uvec3 cell = min(uvec3(local), size.xyz - 1u);
+    return cell.x + size.x * (cell.y + size.y * cell.z);
+}
+
+#endif // DESERT_PATH_TRACING_LIGHT_GRID_GLSLH

@@ -160,6 +160,11 @@ namespace Desert::Graphic::RayTracing
         // reads for a deformed one (its BLAS reads the cached positions instead).
         std::shared_ptr<VertexBuffer> Vertices;
         std::shared_ptr<IndexBuffer>  Indices;
+        // Where the mesh's data begins in each (MeshGeometry: a GeometryPool arena holds many meshes). Segments
+        // stay mesh-relative; every device address of these buffers adds its offset, and is read when it is
+        // used, never cached across frames (a pool arena that grows changes its VkBuffer).
+        uint64_t VertexByteOffset = 0;
+        uint64_t IndexByteOffset  = 0;
         // Vertices in Vertices: a deformed BLAS sizes its cached positions by it (a static input leaves it 0).
         uint32_t VertexCount = 0;
         // Empty: nothing to build (no visible triangle, or a skinned mesh asked for a static BLAS).

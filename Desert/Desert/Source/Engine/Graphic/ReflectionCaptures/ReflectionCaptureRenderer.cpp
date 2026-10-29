@@ -469,6 +469,7 @@ namespace Desert::Graphic
             m_ReferenceSuns     = dirLights.DirectionLights;
             m_Done.assign( m_Captures.size(), false );
             m_PendingRelit = m_Pending != kNoCapture;
+            m_StaleRelit   = m_PendingRelit;
         }
         if ( m_Pending == kNoCapture )
         {
@@ -491,9 +492,17 @@ namespace Desert::Graphic
                 // the same way. A recapture builds them again; their GPU objects go through the device's
                 // deferred deletion, but a view's pipelines are destroyed with it: the views are parked until every
                 // frame that can have recorded their passes has retired.
+                size_t released = 0;
                 for ( std::unique_ptr<FaceView>& face : m_Faces )
                     if ( face )
+                    {
                         m_RetiringFaces.Park( std::move( face ), frames.GetAbsoluteFrameCount() );
+                        ++released;
+                    }
+                if ( released > 0 )
+                    LOG_INFO( "[ReflectionCaptures] every capture settled at frame {} after {} write(s): {} face "
+                              "view(s) released",
+                              frames.GetAbsoluteFrameCount(), m_Writes, released );
                 if ( m_FaceField )
                     m_RetiringFields.Park( std::move( m_FaceField ), frames.GetAbsoluteFrameCount() );
                 if ( m_FaceSurfaceCache )
@@ -503,6 +512,7 @@ namespace Desert::Graphic
             m_Pending      = static_cast<uint32_t>( next );
             m_PendingSuns  = dirLights;
             m_PendingRelit = false;
+            m_StaleRelit   = false;
             m_FaceRenders.fill( 0u );
             m_FaceHeld.fill( 0u );
             m_FaceStreamed.fill( false );
@@ -992,6 +1002,14 @@ namespace Desert::Graphic
                 firstWrite          = capture;
             }
             m_Done[capture] = !m_PendingRelit;
+            ++m_Writes;
+            // Every write while the round is young, then one in 64: a round that never settles shows its reason.
+            if ( m_Writes <= 8u || m_Writes % 64u == 0u )
+                LOG_INFO( "[ReflectionCaptures] capture {} written at frame {} (write {}): {}", capture, frame,
+                          m_Writes,
+                          !m_PendingRelit ? "settled"
+                          : m_StaleRelit  ? "stale - the lighting changed while it rendered"
+                                          : "stale - textures were still streaming" );
             m_LastCaptured  = capture;
             m_Pending       = kNoCapture;
             m_WriteCapture  = false;

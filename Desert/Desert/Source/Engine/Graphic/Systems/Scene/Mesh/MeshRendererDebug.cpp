@@ -147,6 +147,19 @@ namespace Desert::Graphic::System
         return true;
     }
 
+    bool MeshRenderer::EnsureOverdrawPass()
+    {
+        if ( m_OverdrawPipeline && m_OverdrawFB && m_OverdrawResolvePipeline )
+            return true;
+        if ( m_OverdrawRefused )
+            return false;
+        if ( SetupOverdrawPass() )
+            return true;
+        m_OverdrawRefused = true;
+        LOG_WARN( "[MeshRenderer] Overdraw debug view unavailable (shaders missing)." );
+        return false;
+    }
+
     bool MeshRenderer::SetupOverdrawPass()
     {
         m_OverdrawShader        = Runtime::ResourceRegistry::GetShaderService()->GetByName( "Overdraw" );

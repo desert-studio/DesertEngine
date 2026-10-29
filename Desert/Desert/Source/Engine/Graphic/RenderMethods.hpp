@@ -107,7 +107,7 @@ namespace Desert::Graphic
         ResolvedMethod<Common::Scalability::GIMethod>         GlobalIllumination;
         ResolvedMethod<Common::Scalability::ReflectionMethod> Reflections;
         ResolvedMethod<Common::Scalability::ShadowMethod>     Shadows;
-        // The shadow supplements, after the same rule (both refused at load until they land, so both false).
+        // The shadow supplements, after the same rule (distance-field shadows refused at load until they land).
         bool ContactShadows       = false;
         bool DistanceFieldShadows = false;
 

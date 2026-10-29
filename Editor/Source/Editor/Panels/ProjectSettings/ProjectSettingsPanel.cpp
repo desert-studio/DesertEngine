@@ -223,6 +223,14 @@ namespace Desert::Editor
         if ( ImGui::Checkbox( "##TsrThinGeometryDetection", &m_EditRendering.TsrThinGeometryDetection ) )
             CommitRendering();
         Utils::ImGuiUtilities::EndPropertyRow();
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Game Viewport High DPI",
+             "UE r.SecondaryScreenPercentage.GameViewport: off -- the packaged game renders at the window's logical "
+             "resolution (display pixels / DPI scale) and upscales at present; on -- at the display's native pixels "
+             "(a Retina window costs four times the targets and histories)." );
+        if ( ImGui::Checkbox( "##GameViewportHighDPI", &m_EditRendering.GameViewportHighDPI ) )
+            CommitRendering();
+        Utils::ImGuiUtilities::EndPropertyRow();
     }
 
     void ProjectSettingsPanel::CommitRendering()

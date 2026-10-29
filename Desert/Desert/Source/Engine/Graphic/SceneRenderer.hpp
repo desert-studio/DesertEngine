@@ -334,6 +334,15 @@ namespace Desert::Graphic
         // when its frame count starts, a camera cut or a teleport asks for the same thing.
         void ResetTemporalHistory();
 
+        // THE WORLD THIS VIEW DREW WAS TORN DOWN (UE: the FSceneViewState and the Lumen/distance-field scene data
+        // die with their FScene). Releases everything this view built FROM the old world - its surface cache,
+        // radiance cache, probe gathers, global distance field and the terrain's materials and layer arrays - and
+        // cuts the temporal history. Each is made again on first use by the next world. Called between frames by
+        // the opener, after the world is cleared and before the next one loads
+        // (SceneWorkspace::ReleaseActiveWorld), so the old world's device memory is given back before the new
+        // one's is asked for (FIELD-MEM p3).
+        void ReleaseWorldResources();
+
         [[nodiscard]] const ViewExtent& GetViewExtent() const
         {
             return m_ViewExtent;
@@ -395,6 +404,9 @@ namespace Desert::Graphic
 
         /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).
         [[nodiscard]] uint32_t GetIsmInstancesDrawn() const;
+        /// Draws the last frame gave to the default surface while their own pipeline compiled
+        /// (MeshRenderer::GetStandInDraws): the control gate's PendingWork::MaterialPipelines.
+        [[nodiscard]] uint32_t GetStandInDraws() const;
         /// Triangles the last frame's view pass drew, at the LOD each mesh was drawn with
         /// (MeshRenderer::GetViewTrianglesDrawn).
         [[nodiscard]] uint64_t GetViewTrianglesDrawn() const;
@@ -740,6 +752,9 @@ namespace Desert::Graphic
         /// SSS-PROFILE: this view scatters and its Burley history has not yet averaged its full window (a Scale
         /// change, a camera cut, the first frames) - the control gate's PendingWork::SubsurfaceHistory.
         [[nodiscard]] bool SubsurfaceHistoryConverging() const;
+        /// GRASS-SETTLE p14: this view's last frame drew a grass variety that may hold fewer instances than its
+        /// generator keeps (GrassRenderer::InstancesSettling) - the control gate's PendingWork::GrassInstances.
+        [[nodiscard]] bool GrassInstancesSettling() const;
 
     private:
         // THIS VIEW in the resource ledger (RT-LEDGER-2). Its RT rows — the TLAS storage, the landscape tiles'

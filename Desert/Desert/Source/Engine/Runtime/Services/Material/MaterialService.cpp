@@ -312,6 +312,17 @@ namespace Desert::Runtime
             Graphic::MaterialPipelineRequests::Get().Request( shaderName );
         if ( const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( asset ) )
             ApplySurfaceAsset( *material, *surface );
+        // A mesh-table cell is precached on the path it IS drawn on (GRASS-SETTLE): the G-buffer cells of the
+        // static and instanced vertex paths, with the material's cull permutation. Only on the base build: a
+        // permutation returned above is a draw-time sibling, and its base was requested when it loaded.
+        if ( Graphic::MeshCellPath( shaderName ) )
+            for ( const auto cellPath : { Graphic::MeshVertexPath::Static, Graphic::MeshVertexPath::Instanced } )
+                if ( const auto gbufferCell =
+                          CellShaderOf( *asset, cellPath, Graphic::MeshPass::GBuffer, displaced ) )
+                    Graphic::MaterialPipelineRequests::Get().RequestCell( { .Shader   = gbufferCell.GetValue(),
+                                                                            .Path     = cellPath,
+                                                                            .Pass     = Graphic::MeshPass::GBuffer,
+                                                                            .TwoSided = material->IsTwoSided() } );
         return material;
     }
 

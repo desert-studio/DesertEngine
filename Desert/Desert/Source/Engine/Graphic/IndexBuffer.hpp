@@ -43,6 +43,14 @@ namespace Desert::Graphic
 
         [[nodiscard]] virtual Common::BoolResultStr RT_Invalidate() = 0;
 
+        // A Pooled buffer's range write (blocking one-off copy, like RT_Invalidate's upload). Refused by every
+        // other usage. A Pooled buffer never grows: the GeometryPool adds a page instead.
+        [[nodiscard]] virtual Common::BoolResultStr RT_WriteRange( uint64_t /*offset*/, const void* /*data*/,
+                                                                   uint64_t /*size*/ )
+        {
+            return Common::MakeError<bool>( "RT_WriteRange: not a Pooled buffer" );
+        }
+
         static std::shared_ptr<IndexBuffer> Create( const void* data, uint32_t size,
                                                     BufferUsage usage = BufferUsage::Static );
         static std::shared_ptr<IndexBuffer> Create( uint32_t size, BufferUsage usage = BufferUsage::Dynamic );

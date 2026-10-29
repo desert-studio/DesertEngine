@@ -81,6 +81,11 @@ Shader "FoliageSurface"
         Vec2        UVOffset ("UV Offset", Category("Surface")) = (0, 0)
         Float       UVRotation ("UV Rotation", Range(-3.14159,3.14159), Category("Surface")) = 0
         Float       NormalScale ("Normal Scale", Range(0,4), Category("Surface")) = 1
+        // UE's Dither Opacity Mask: 1 = keep a pixel with probability = mask (TAA resolves it) instead of cutting at
+        // the clip value. For leaves smaller than a texel of the mip they sample (a crown of single-leaf cards seen from
+        // afar): no threshold on a mip can keep each leaf's share, a dither can. Its opacity texture then keeps the
+        // plain mean in its mips (no AlphaCoverageThresholds).
+        Float       DitherOpacityMask ("Dither Opacity Mask", Range(0,1), Category("Surface")) = 0
         // Which channel of OpacityTexture is the mask: 0 = R of a separate opacity map, 3 = A (the importer binds the
         // albedo texture itself there for a glTF MASK). Stated, never guessed from the bound texture's size.
         Float       OpacityChannel ("Opacity Channel", Range(0,3), Category("Surface")) = 0

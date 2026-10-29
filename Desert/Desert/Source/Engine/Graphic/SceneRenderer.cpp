@@ -376,11 +376,9 @@ namespace Desert::Graphic
             }
             case 5:
             {
-                const auto& jumpFloodSystem =
-                     SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
-                // Tonemap consumes the Jump Flood output (the outlined scene).
-                RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this,
-                                                         jumpFloodSystem->GetSystemFramebuffer() );
+                // The tonemap reads the frame's post input, or the outline's transient output when something is
+                // outlined (AddFrameJumpFlood); its own image is sized from the scene target here.
+                RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this, m_TargetFramebuffer );
                 const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
                 if ( !tonemapSystem->Initialize() )
                     LOG_ERROR(
@@ -649,6 +647,25 @@ namespace Desert::Graphic
         m_CameraCutPending = true;
         LOG_INFO( "[SceneRenderer] {}: temporal history reset over {} render system(s).",
                   m_ViewResources.GetName(), m_RenderSystemOrder.size() );
+    }
+
+    void SceneRenderer::ReleaseWorldResources()
+    {
+        const ActiveViewScope          viewScope( m_ViewResources );
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
+        // A lent surface cache / distance field is its lender's (a reflection capture's), released with it.
+        m_OwnSurfaceCache.reset();
+        m_RadianceCache.reset();
+        m_ScreenProbeGather.reset();
+        m_IrradianceFieldGather.reset();
+        m_GlobalDistanceFieldView.reset();
+        m_OwnGlobalDistanceField.reset();
+        if ( const auto it = m_RenderSystems.find( "TerrainSystem" ); it != m_RenderSystems.end() && it->second )
+            UNIQUE_GET_AS( System::TerrainRenderer, it->second )->ReleaseWorldCaches();
+        ResetTemporalHistory();
+        LOG_INFO( "[SceneRenderer] {}: the old world's view resources released (surface cache, radiance cache, "
+                  "probe gathers, global distance field, terrain materials).",
+                  m_ViewResources.GetName() );
     }
 
     namespace
@@ -1072,15 +1089,16 @@ namespace Desert::Graphic
         // The view's memory census sizes the SSR trace from the profile, so the profile holds the factor.
         m_ViewProfile.ReflectionDownsampleFactor = quality.As<uint32_t>( Parameter::ReflectionDownsampleFactor );
         m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
-        m_PathTracingSettings                 = System::PathTracer::Settings{
-                             .SamplesPerPixel = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
-                             .PathsPerFrame   = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
-                             .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
-                             .MaxPathIntensity =
-                                  quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
-                             .Denoiser = quality.As<Common::Scalability::PathTracingDenoiserMethod>(
-                                  Parameter::PathTracingDenoiser ),
-                             .AntiFirefly = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ) };
+        m_PathTracingSettings                    = System::PathTracer::Settings{
+                                .SamplesPerPixel  = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
+                                .PathsPerFrame    = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
+                                .MaxBounces       = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
+                                .MaxPathIntensity = quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
+                                .Denoiser =
+                  quality.As<Common::Scalability::PathTracingDenoiserMethod>( Parameter::PathTracingDenoiser ),
+                                .AntiFirefly   = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ),
+                                .LightSampling = static_cast<System::PathTracer::LightSamplingMethod>(
+                  quality.As<uint32_t>( Parameter::PathTracingLightSampling ) ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
@@ -3107,9 +3125,7 @@ namespace Desert::Graphic
             overdrawFb->Resize( width, height );
 #endif
 
-        // The outline's composite reads the scene target: the scene's extent.
-        UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] )
-             ->OnResize( width, height );
+        // The outline keeps no image: its seeds and output are the frame's transients at the scene's extent.
     }
 
     namespace
@@ -3122,7 +3138,7 @@ namespace Desert::Graphic
             if ( const auto uploaded = mesh.EnsureGpuResources(); !uploaded.IsSuccess() )
                 LOG_ERROR( "[SceneRenderer] a mesh could not be uploaded and is not drawn: {}",
                            uploaded.GetError() );
-            return mesh.GetVertexBuffer() != nullptr;
+            return mesh.GetGeometry().IsResident();
         }
     } // namespace
 
@@ -3333,6 +3349,14 @@ namespace Desert::Graphic
         if ( found == m_RenderSystems.end() )
             return 0;
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
+    }
+
+    uint32_t SceneRenderer::GetStandInDraws() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return 0;
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetStandInDraws();
     }
 
     uint64_t SceneRenderer::GetViewTrianglesDrawn() const
@@ -3771,9 +3795,11 @@ namespace Desert::Graphic
     SceneResources::ContactShadowSettings SceneRenderer::GetContactShadowSettings( const ViewFrame& frame,
                                                                                    bool hasOpaqueDepth ) const
     {
-        // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip.
+        // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip. The view's PostProcess Contact
+        // Shadows (m_RenderMethods.ContactShadows) gates the march for every light, as UE's r.ContactShadows does;
+        // each light's ContactShadowLength then says how far it reaches (0 = none).
         return SceneResources::ContactShadowSettings{
-             .Steps                  = hasOpaqueDepth ? m_ContactShadowSteps : 0,
+             .Steps                  = hasOpaqueDepth && m_RenderMethods.ContactShadows ? m_ContactShadowSteps : 0,
              .TanHalfFovY            = 1.0f / std::max( std::abs( frame.Projection[1][1] ), 1e-6f ),
              .DitherFrame            = static_cast<uint32_t>( frame.FrameIndex % 8u ),
              .SunLength              = m_SunContactShadowLength,

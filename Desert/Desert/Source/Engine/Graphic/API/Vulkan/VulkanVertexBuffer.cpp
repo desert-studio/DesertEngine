@@ -1,5 +1,6 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanPooledBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/MeshBufferUsage.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
@@ -85,6 +86,16 @@ namespace Desert::Graphic::API::Vulkan
             if ( !allocation.IsSuccess() )
                 return Common::MakeError<bool>( allocation.GetError() );
             m_MemoryAllocation = allocation.GetValue();
+            return Common::MakeSuccess( true );
+        }
+
+        if ( m_Usage == BufferUsage::Pooled )
+        {
+            const auto created = RT_CreatePooledBuffer( *allocator, MeshBufferRole::Vertex, m_Size, "PooledVertexBuffer",
+                                                        m_VulkanBuffer );
+            if ( !created.IsSuccess() )
+                return Common::MakeError<bool>( created.GetError() );
+            m_MemoryAllocation = created.GetValue();
             return Common::MakeSuccess( true );
         }
 
@@ -211,7 +222,7 @@ namespace Desert::Graphic::API::Vulkan
          : m_Size( size ), m_Usage( usage )
     {
         // A GPU-written buffer has no host copy: nothing ever uploads to it.
-        if ( usage != BufferUsage::GpuWritten )
+        if ( usage != BufferUsage::GpuWritten && usage != BufferUsage::Pooled )
             m_StorageBuffer.Allocate( size );
     }
 
@@ -239,4 +250,16 @@ namespace Desert::Graphic::API::Vulkan
     }
     DESERT_DESTRUCTOR_GUARD( "~VulkanVertexBuffer" )
 
+    Common::BoolResultStr VulkanVertexBuffer::RT_WriteRange( const uint64_t offset, const void* data, const uint64_t size )
+    {
+        if ( m_Usage != BufferUsage::Pooled )
+            return Common::MakeError<bool>( "RT_WriteRange: not a Pooled buffer" );
+        if ( offset + size > m_Size )
+            return Common::MakeFormattedError<bool>( "RT_WriteRange: [{}, {}) past a {}-byte buffer", offset,
+                                                     offset + size, m_Size );
+        auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                              ->GetVulkanAllocator()
+                              .get();
+        return RT_WritePooledBuffer( *allocator, m_VulkanBuffer, offset, data, size );
+    }
 } // namespace Desert::Graphic::API::Vulkan

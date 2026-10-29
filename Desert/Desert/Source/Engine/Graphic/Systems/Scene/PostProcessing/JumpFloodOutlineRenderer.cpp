@@ -28,17 +28,9 @@ namespace Desert::Graphic::System
             return Common::MakeError( "JumpFloodOutlineRenderer: target framebuffer is not available" );
         }
 
-        FramebufferSpecification spec;
-        spec.DebugName = "JFA_Output";
-        spec.Attachments.Attachments.emplace_back( kSeedFormat );
-        m_Framebuffer = Graphic::Framebuffer::Create( spec );
-        if ( !m_Framebuffer )
-        {
-            return Common::MakeError( "JumpFloodOutlineRenderer: failed to create the output framebuffer" );
-        }
-        m_Framebuffer->Resize( targetFramebuffer->GetFramebufferWidth(),
-                               targetFramebuffer->GetFramebufferHeight() );
-
+        // No image is kept: the seeds AND the composite's output are graph transients of a frame that outlines
+        // something (SceneRenderer::AddFrameJumpFlood); a frame with nothing outlined - every frame of a game -
+        // creates none of them and hands the scene straight to the tonemap.
         if ( !CreatePipelines() )
         {
             return Common::MakeError( "JumpFloodOutlineRenderer: failed to create pipelines" );
@@ -62,8 +54,8 @@ namespace Desert::Graphic::System
     {
         const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
 
-        // @p framebuffer: the output (Final); null: a seed transient, built against the graph's canonical render
-        // pass for one kJFASeed colour target.
+        // Every target is a transient (seeds and the composite's output): built against the graph's canonical
+        // render pass for one kJFASeed colour target.
         const auto makePipeline = [&]( const std::string& shaderName, const std::shared_ptr<Framebuffer>& framebuffer,
                                        const std::string& debugName ) -> std::shared_ptr<GraphicsPipeline>
         {
@@ -97,26 +89,16 @@ namespace Desert::Graphic::System
 
         m_InitPipeline  = makePipeline( "JFA_Init", nullptr, "JFA_InitPipeline" );
         m_StepPipeline  = makePipeline( "JFA_Step", nullptr, "JFA_StepPipeline" );
-        m_FinalPipeline = makePipeline( "JFA_Final", m_Framebuffer, "JFA_FinalPipeline" );
+        m_FinalPipeline = makePipeline( "JFA_Final", nullptr, "JFA_FinalPipeline" );
 
         return m_InitPipeline && m_StepPipeline && m_FinalPipeline;
     }
 
-    void JumpFloodOutlineRenderer::OnResize( uint32_t width, uint32_t height )
-    {
-        if ( width == 0 || height == 0 )
-            return;
-        if ( m_Framebuffer )
-            m_Framebuffer->Resize( width, height );
-    }
-
     bool JumpFloodOutlineRenderer::Prepare() const
     {
-        if ( !m_TargetFramebuffer.lock() || !m_Framebuffer || !m_InitPipeline || !m_StepPipeline ||
-             !m_FinalPipeline )
+        if ( !m_TargetFramebuffer.lock() || !m_InitPipeline || !m_StepPipeline || !m_FinalPipeline )
         {
-            LOG_ERROR( "JumpFloodOutlineRenderer::Prepare: the scene framebuffer, the output or a pipeline is "
-                       "unavailable" );
+            LOG_ERROR( "JumpFloodOutlineRenderer::Prepare: the scene framebuffer or a pipeline is unavailable" );
             return false;
         }
         return true;

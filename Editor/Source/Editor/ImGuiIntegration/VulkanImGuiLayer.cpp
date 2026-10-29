@@ -15,6 +15,7 @@
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
@@ -411,6 +412,8 @@ namespace Desert::Graphic::API::Vulkan
                  if ( !commandBuffer )
                      return Common::MakeError( commandBuffer.GetError() );
                  ImGui_ImplVulkan_RenderDrawData( drawData, commandBuffer.GetValue() );
+                 // The backend bound its own vertex / index buffers: the renderer's bind-skip key is stale.
+                 Graphic::Renderer::InvalidateGeometryBinding();
                  return BOOLSUCCESS;
              } );
         graph.AddPass(

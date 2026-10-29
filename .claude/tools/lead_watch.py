@@ -169,7 +169,8 @@ def main():
     if st["ctx"] > CLEAR_AT and (event == "UserPromptSubmit" or st["n"] - st["last_clear_n"] >= CLEAR_EVERY):
         st["last_clear_n"] = st["n"]
         lines.append(f"/COMPACT: context {st['ctx']//1000}k > {CLEAR_AT//1000}k — every request re-reads it; write the handover "
-                     "(memory STATE FOR /clear) and ASK THE OWNER FOR /compact in this reply (owner 10-28: compact, not clear)")
+                     "(memory STATE FOR /clear), FIRST fill every free agent slot (up to 4) and start ready landings, THEN ASK THE OWNER FOR /compact "
+                     "in this reply; after compact continue at once (owner 10-28: compact, not clear; 10-29: no idle before/after compact)")
     if st["n"] - st["last_report_n"] >= REPORT_EVERY:
         st["last_report_n"] = st["n"]
         read_pct = round(100 * 0.1 * st["read"] / units) if units else 0

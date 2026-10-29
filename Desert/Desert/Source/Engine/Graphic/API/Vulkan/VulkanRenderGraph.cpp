@@ -679,11 +679,12 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( std::move( buffer ) );
     }
 
-    std::shared_ptr<VulkanRdgBuffer> VulkanRdgBuffer::Wrap( VkBuffer buffer, uint64_t size )
+    std::shared_ptr<VulkanRdgBuffer> VulkanRdgBuffer::Wrap( VkBuffer buffer, uint64_t size, uint64_t offset )
     {
         std::shared_ptr<VulkanRdgBuffer> wrapped( new VulkanRdgBuffer() );
         wrapped->m_Buffer = buffer;
         wrapped->m_Size   = size;
+        wrapped->m_Offset = offset;
         return wrapped;
     }
 
@@ -1042,7 +1043,8 @@ namespace Desert::Graphic::API::Vulkan
         const Common::ResultStr<VulkanRdgBuffer*> physical = VulkanRdgBackend::BufferOf( buffer );
         if ( !physical )
             return Common::MakeError( physical.GetError() );
-        const VkDescriptorBufferInfo info{ physical.GetValue()->GetBuffer(), 0, physical.GetValue()->GetSize() };
+        const VkDescriptorBufferInfo info{ physical.GetValue()->GetBuffer(), physical.GetValue()->GetOffset(),
+                                           physical.GetValue()->GetSize() };
         VkWriteDescriptorSet         write{};
         write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet          = set;
@@ -1432,9 +1434,10 @@ namespace Desert::Graphic::API::Vulkan
                     buffer.dstAccessMask       = dstAccess;
                     buffer.srcQueueFamilyIndex = srcFamily;
                     buffer.dstQueueFamilyIndex = dstFamily;
-                    buffer.buffer              = m_Buffers[barrier.Resource]->GetBuffer();
-                    buffer.offset              = 0;
-                    buffer.size                = VK_WHOLE_SIZE;
+                    const VulkanRdgBuffer& physical = *m_Buffers[barrier.Resource];
+                    buffer.buffer                   = physical.GetBuffer();
+                    buffer.offset                   = physical.GetOffset();
+                    buffer.size = physical.GetOffset() == 0 ? VK_WHOLE_SIZE : physical.GetSize();
                     buffers.push_back( buffer );
                 }
             }
@@ -1635,7 +1638,8 @@ namespace Desert::Graphic::API::Vulkan
         for ( size_t offset = 0; offset < bytes.size(); offset += kUpdateLimit )
         {
             const size_t size = std::min( kUpdateLimit, bytes.size() - offset );
-            vkCmdUpdateBuffer( m_CommandBuffer, target->GetBuffer(), offset, size, bytes.data() + offset );
+            vkCmdUpdateBuffer( m_CommandBuffer, target->GetBuffer(), target->GetOffset() + offset, size,
+                               bytes.data() + offset );
         }
         return Common::MakeSuccess( true );
     }
