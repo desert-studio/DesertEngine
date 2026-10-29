@@ -447,7 +447,7 @@ namespace Desert::ECS
             && TranslucencySortPriority == desc.TranslucencySortPriority
             && HiddenSubmeshes == desc.HiddenSubmeshes
             && ScriptSlotParams == desc.ScriptSlotParams;
-    }}
+    }
 
     inline void StaticMeshComponent::Assign( const StaticMeshDesc& desc )
     {
@@ -635,7 +635,7 @@ namespace Desert::ECS
             && CastShadows == desc.CastShadows
             && RuntimeMesh == desc.RuntimeMesh
             && RuntimeSkeleton == desc.RuntimeSkeleton;
-    }}
+    }
 
     inline void SkinnedMeshComponent::Assign( const SkinnedMeshDesc& desc )
     {
@@ -857,7 +857,7 @@ namespace Desert::ECS
             && CastContactShadow == desc.CastContactShadow
             && MaxDrawDistance == desc.MaxDrawDistance
             && Primitive == desc.Primitive;
-    }}
+    }
 
     inline void InstancedStaticMeshComponent::Assign( const InstancedStaticMeshDesc& desc )
     {
