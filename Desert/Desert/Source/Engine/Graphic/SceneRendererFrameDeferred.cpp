@@ -1374,16 +1374,17 @@ namespace Desert::Graphic
         // under either GI tracer, GI-EMISSIVE-LIGHTS); made once, kept.
         if ( const Common::BoolResultStr ready = m_EmissiveLights.Initialize(); !ready )
             return Common::MakeError<Result>( ready.GetError() );
-        // The estimate the tree's powers are made of: the segment's emissive colour x intensity in the row the
-        // raster draws it with. A landscape tile's hit group emits nothing (TerrainRayHit), a whole-entity
-        // override has no surface row.
-        const auto radianceOf = []( const RayTracing::RayTracingSegmentRecord& segment ) -> glm::vec3
+        // The estimate the tree's powers are made of: the segment's emissive colour x intensity, emissive map and
+        // UV transform in the row the raster draws it with (the surface templates' SurfaceEmission). A landscape
+        // tile's hit group emits nothing (TerrainRayHit), a whole-entity override has no surface row.
+        const auto estimateOf = []( const RayTracing::RayTracingSegmentRecord& segment )
         {
+            RayTracing::EmissiveMaterialEstimate estimate;
             if ( segment.LandscapeTile != RayTracing::kNoLandscapeTile )
-                return glm::vec3( 0.0f );
+                return estimate;
             const auto* material = dynamic_cast<const DataDrivenMaterial*>( segment.SurfaceMaterial );
             if ( material == nullptr )
-                return glm::vec3( 0.0f );
+                return estimate;
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): EffectiveRow reads the instance's overrides
             const Core::Formats::MaterialParamRow row = System::MeshRendererDetail::EffectiveRow(
                  material, const_cast<MaterialInstance*>( segment.Instance ) );
@@ -1393,25 +1394,50 @@ namespace Desert::Graphic
             const std::optional<glm::vec4> intensity =
                  MaterialBinder::ReadRowParam( layout, row, RayTracing::kSurfaceEmissiveIntensityParam );
             if ( !color || !intensity )
-                return glm::vec3( 0.0f );
-            return glm::vec3( *color ) * intensity->x;
+                return estimate;
+            estimate.Radiance = glm::vec3( *color ) * intensity->x;
+            if ( const std::optional<glm::uvec2> map =
+                      MaterialBinder::ReadRowTexture( layout, row, RayTracing::kSurfaceEmissiveTextureParam ) )
+            {
+                estimate.Texture = map->x;
+                estimate.Sampler = map->y;
+            }
+            // The template's UV transform as EvaluateSurface applies it (a tiling <= 0 reads as 1).
+            if ( const auto offset = MaterialBinder::ReadRowParam( layout, row, RayTracing::kSurfaceUvOffsetParam ) )
+                estimate.UvOffset = glm::vec2( *offset );
+            if ( const auto tiling = MaterialBinder::ReadRowParam( layout, row, RayTracing::kSurfaceUvTilingParam ) )
+                estimate.UvTiling = glm::vec2( tiling->x > 0.0f ? tiling->x : 1.0f, tiling->y > 0.0f ? tiling->y : 1.0f );
+            if ( const auto rotation =
+                      MaterialBinder::ReadRowParam( layout, row, RayTracing::kSurfaceUvRotationParam ) )
+                estimate.UvRotation = rotation->x;
+            return estimate;
         };
-        auto list = RayTracing::BuildEmissiveTriangleList(
-             m_RayTracingScene.GetPrimitives(), m_RayTracingScene.GetSegmentRecords(),
-             tlas ? std::span<const RayTracing::RayTracingInstance>( m_RayTracingScene.GetInstances().Instances )
-                  : std::span<const RayTracing::RayTracingInstance>(),
-             radianceOf );
-        if ( !list )
-            return Common::MakeError<Result>( list.GetError() );
-        if ( list.GetValue().UnplacedDeformedSegments != m_LoggedUnplacedEmissive )
+        // The CPU list is rebuilt only when its gather was redone (every TLAS frame; a scene gather only when
+        // RayTracingSceneGatherKey moved) or a material's estimate moved (EmissiveTriangleListCache); the GPU side
+        // then re-expands only what changed (EmissiveLightsRenderer::AddPasses).
+        const uint64_t gathers    = m_RayTracingScene.GetSceneGatherCount();
+        const bool     regathered = tlas || gathers != m_EmissiveGatherCount;
+        m_EmissiveGatherCount     = tlas ? ~0ull : gathers;
         {
-            m_LoggedUnplacedEmissive = list.GetValue().UnplacedDeformedSegments;
+            DESERT_PROFILE_SCOPE( "EmissiveLights: List" );
+            const Common::BoolResultStr updated = m_EmissiveList.Update(
+                 m_RayTracingScene.GetPrimitives(), m_RayTracingScene.GetSegmentRecords(),
+                 tlas ? std::span<const RayTracing::RayTracingInstance>( m_RayTracingScene.GetInstances().Instances )
+                      : std::span<const RayTracing::RayTracingInstance>(),
+                 regathered, estimateOf );
+            if ( !updated )
+                return Common::MakeError<Result>( updated.GetError() );
+        }
+        const RayTracing::EmissiveTriangleList& list = m_EmissiveList.GetList();
+        if ( list.UnplacedDeformedSegments != m_LoggedUnplacedEmissive )
+        {
+            m_LoggedUnplacedEmissive = list.UnplacedDeformedSegments;
             if ( m_LoggedUnplacedEmissive > 0u )
                 LOG_WARN( "[SceneRenderer] {}: {} emissive segments of skinned meshes are not lights this frame "
                           "(no skin-cache positions without a ray-traced scene)",
                           m_ViewResources.GetName(), m_LoggedUnplacedEmissive );
         }
-        return m_EmissiveLights.AddPasses( graph, list.GetValue() );
+        return m_EmissiveLights.AddPasses( graph, list );
     }
 
     Common::BoolResultStr SceneRenderer::AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,

@@ -1536,6 +1536,10 @@ namespace Desert::Graphic
         RayTracing::RayTracingHitGroupTable m_ReflectionHitGroups;
         // The scene's emissive triangles as lights, kept on the GPU across frames (AddFrameEmissiveLights).
         RayTracing::EmissiveLightsRenderer  m_EmissiveLights;
+        // The CPU list across frames (rebuilt only on a regathered frame or a moved material estimate), and the
+        // scene-gather count it was last given (~0: a TLAS frame's gather, never equal to a count).
+        RayTracing::EmissiveTriangleListCache m_EmissiveList;
+        uint64_t                              m_EmissiveGatherCount = ~0ull;
         std::shared_ptr<DataDrivenMaterial> m_ReflectionDefaultSurface;
         bool                                m_ReportedHitLightingDevice = false;
         // Templates already reported as shading on the default hit group (no compiled `RayTracing.Hit` cell):
