@@ -741,8 +741,7 @@ namespace Desert::Graphic::System
                                             const MeshVertexPath path, const uint32_t firstInstance,
                                             const uint32_t instanceCount, const uint64_t hidden, const uint32_t row,
                                             const bool                   generic  = false,
-                                            const GpuDriven::BinFallback fallback = GpuDriven::BinFallback::None,
-                                            const bool                   sways    = false )
+                                            const GpuDriven::BinFallback fallback = GpuDriven::BinFallback::None )
         {
             if ( mesh == nullptr || !scene.IsValid( primitive ) )
                 return;
@@ -763,7 +762,6 @@ namespace Desert::Graphic::System
             // A primitive shared by a generic record and a batched one (one per entity slot) takes the generic's
             // rules: it cannot be half binned through two vertex contracts.
             f.Generic = f.Generic || generic;
-            f.Sways   = f.Sways || sways;
             if ( fallback != GpuDriven::BinFallback::None )
                 f.Fallback = fallback;
             f.HiddenSubmeshMask &= hidden;
@@ -785,8 +783,7 @@ namespace Desert::Graphic::System
                 continue;
             if ( const auto row = FindMaterialRow( mat, data.Material.get(), true ) )
                 claim( rows.FieldPrimitives[f], data.Mesh, MeshVertexPath::Instanced, rows.FieldInstances[f],
-                       static_cast<uint32_t>( data.Transforms->size() ), data.HiddenSubmeshes, *row, false,
-                       GpuDriven::BinFallback::None, data.Wind.Sways() );
+                       static_cast<uint32_t>( data.Transforms->size() ), data.HiddenSubmeshes, *row );
         }
         // The CPU ISM loops find an entry's primitive here (SkipsBinned): the queue's order is the rows' order.
         m_FieldPrimitives.assign( rows.FieldPrimitives.begin(), rows.FieldPrimitives.end() );
@@ -868,6 +865,15 @@ namespace Desert::Graphic::System
                m_CascadeCache[view].Rebuild && m_CascadeCache[view].RedrawStatic;
     }
 
+    bool MeshRenderer::CascadeMovableBinsDrawn( const uint32_t view ) const
+    {
+        // The sun's cascade whose movable layer ShadowCascadePasses draws this frame (state.Rebuild && Movable).
+        return view < kCascadeViews && view < m_CascadeSlots * kMaxCascades &&
+               view / kMaxCascades == SceneResources::kDirectionalShadowSun &&
+               view % kMaxCascades < m_Shadow.CascadeCount && m_ShadowPipeline && m_CascadeStaticFB[view] &&
+               m_CascadeCache[view].Rebuild && m_CascadeCache[view].Movable;
+    }
+
     void MeshRenderer::SetFrameBinned( const GpuDriven::MeshPass pass, const uint32_t viewKey,
                                        const GpuDriven::CulledDraws& culled, const GpuDriven::DrawCommandBuffers& upload,
                                        const GpuDriven::GpuSceneBuffers& scene )
@@ -878,8 +884,11 @@ namespace Desert::Graphic::System
                 LOG_ERROR( "[MeshRenderer] {}; the view draws on the CPU path", message );
             m_BinnedLastError = std::move( message );
         };
-        if ( !m_DrawCommandCache || m_SceneRenderer == nullptr ||
-             ( viewKey != kBinnedMainView && ( pass != GpuDriven::MeshPass::ShadowCascade || !CascadeBinsDrawn( viewKey ) ) ) )
+        const bool casterLayer =
+             pass == GpuDriven::MeshPass::ShadowCascade &&
+             ( CascadeBinsDrawn( viewKey ) ||
+               ( viewKey >= kCascadeMovableViewBase && CascadeMovableBinsDrawn( viewKey - kCascadeMovableViewBase ) ) );
+        if ( !m_DrawCommandCache || m_SceneRenderer == nullptr || ( viewKey != kBinnedMainView && !casterLayer ) )
             return;
         const GpuDriven::PassDrawTable& table = m_DrawCommandCache->Pass( pass );
         MeshRendererDetail::BinnedIssue issue;
@@ -1095,10 +1104,8 @@ namespace Desert::Graphic::System
             }
             case GpuDriven::MeshPass::ShadowCascade:
             {
-                // Binned casters are issued only into the cascade's cached static layer (SetFrameBinned): what
-                // moves by itself is drawn over the copied cache every frame, on the CPU.
-                if ( path == MeshVertexPath::Skinned || feed->Sways )
-                    return fallback( BinFallback::MovableCaster );
+                // Static and movable casters share the pass's bins; the cull splits them into the cascade cache's
+                // layers by PrimitiveFlags::kMovableCaster (skinned, swaying), SyncGpuScene's bit.
                 const auto defaultCell = MeshRendererDetail::DefaultSurfaceShaderName( path, MeshPass::ShadowDepth );
                 if ( !defaultCell )
                     return fallback( BinFallback::NoBinnedCell );
@@ -1167,7 +1174,8 @@ namespace Desert::Graphic::System
                                  .World  = data.Transform,
                                  .Bones  = data.BoneMatrices,
                                  .Mesh   = data.Mesh,
-                                 .Flags  = Flags::kSkinned | rigidFlags( data.CastShadows, true ) } );
+                                 .Flags  = Flags::kSkinned | Flags::kMovableCaster |
+                                          rigidFlags( data.CastShadows, true ) } );
 
         // A field's wind as its row carries it: PackViewInstanceWind's values (zeros for one that does not sway), which
         // the binned instanced vertex stage reads from the row instead of the push block.
@@ -1191,7 +1199,8 @@ namespace Desert::Graphic::System
                                 .Transforms        = *data.Transforms,
                                 .CullDistanceStart = data.CullDistance.Min,
                                 .CullDistanceEnd   = data.CullDistance.Max,
-                                .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ),
+                                .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ) |
+                                         ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
                                 .BoundsPad         = WindBoundsPad( data.Wind ),
                                 .Wind              = primitiveWind( data.Wind ) } );
 

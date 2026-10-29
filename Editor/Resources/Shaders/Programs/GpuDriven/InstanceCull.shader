@@ -364,7 +364,13 @@ Shader "InstanceCull"
             // A free instance row keeps its last primitive index; only the rows inside the primitive's range are live.
             if ( instanceRow < primitive.FirstInstance || instanceRow >= primitive.FirstInstance + primitive.InstanceCount ||
                  ( ( view.Flags & DESERT_GPU_CULL_VIEW_SHADOW_CASTER ) != 0u &&
-                   ( primitive.Flags & DESERT_GPU_PRIMITIVE_CASTS_SHADOW ) == 0u ) )
+                   ( primitive.Flags & DESERT_GPU_PRIMITIVE_CASTS_SHADOW ) == 0u ) ||
+                 // A cached cascade's layer (GpuDriven::CullViewFlags::kCaster*Layer): the static layer keeps what
+                 // stands still, the movable layer what moves by itself.
+                 ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_STATIC_LAYER ) != 0u &&
+                   ( primitive.Flags & DESERT_GPU_PRIMITIVE_MOVABLE_CASTER ) != 0u ) ||
+                 ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_MOVABLE_LAYER ) != 0u &&
+                   ( primitive.Flags & DESERT_GPU_PRIMITIVE_MOVABLE_CASTER ) == 0u ) )
             {
                 Visibility[cell] = 0u;
                 return;

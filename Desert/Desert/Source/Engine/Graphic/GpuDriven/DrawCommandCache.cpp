@@ -104,8 +104,6 @@ namespace Desert::Graphic::GpuDriven
                 return "BoundTextures";
             case BinFallback::GenericProgram:
                 return "GenericProgram";
-            case BinFallback::MovableCaster:
-                return "MovableCaster";
             case BinFallback::Count:
                 break;
         }

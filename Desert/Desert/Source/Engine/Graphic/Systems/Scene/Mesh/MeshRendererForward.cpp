@@ -218,13 +218,14 @@ namespace Desert::Graphic::System
             // the engine's Mesh/Surface/Vertex_<Path>.glslh, which transforms a_Position and nothing else, and
             // Desert/Tests/Engine/FrustumCulling asserts that over every Surface-domain shader in the tree. The
             // day a vertex-offset node exists, that census goes red before this does.
-            if ( g.Mesh != nullptr &&
-                 !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
-                continue;
-            // A surface override held by the view's GPU-culled bins (AttachBinned) is issued from them.
+            // A surface override held by the view's GPU-culled bins (AttachBinned) is issued from them (asked
+            // before the CPU frustum test: the cull decides it).
             if ( ( slice == GenericSlice::DeferredSurfaceGBuffer || slice == GenericSlice::Forward ) &&
                  SkipsBinned( slice == GenericSlice::Forward ? GpuDriven::MeshPass::Forward : GpuDriven::MeshPass::GBuffer,
                               kBinnedMainView, g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
+                continue;
+            if ( g.Mesh != nullptr &&
+                 !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                 continue;
 
             // Per-slot draws carry their own material (asset params already applied at build);
@@ -1277,11 +1278,12 @@ namespace Desert::Graphic::System
             if ( data.Mesh == nullptr || !data.MaterialSlots )
                 continue;
 
-            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
-                continue;
-            // Held by the view's GPU-culled bins this frame (AttachBinned): issued from them, not from here.
+            // Held by the view's GPU-culled bins this frame (AttachBinned): the cull decides it and the bins issue
+            // it - asked before the CPU frustum test, so a binned record costs this loop no culling work.
             if ( SkipsBinned( m_DeferredGeometry ? GpuDriven::MeshPass::GBuffer : GpuDriven::MeshPass::Forward,
                               kBinnedMainView, data.GpuPrimitive, data.HiddenSubmeshes ) )
+                continue;
+            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
 
             // The entry's section slot drives its batch (one entry per section material, made at submit by

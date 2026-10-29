@@ -105,8 +105,6 @@ namespace Desert::Graphic::GpuDriven
         BoundTextures,       // the template binds textures per material (a TextureBinding), which one bin cannot carry
         GenericProgram,      // a generic draw through a program with no Surface block, or a slot material's own
                              // program: its passes (DepthNormal + forward) have no `.Binned` permutation
-        MovableCaster,       // a caster of the cascade cache's movable layer (skinned, swaying foliage): drawn every
-                             // frame over the copied cache, a layer the cull does not split the bins by yet
         Count
     };
     inline constexpr uint32_t kBinFallbackCount = static_cast<uint32_t>( BinFallback::Count );

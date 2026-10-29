@@ -130,18 +130,32 @@ namespace Desert::Graphic
         if ( m_FrameCascades )
         {
             const uint32_t cascades = meshes->DirectionalShadows()[SceneResources::kDirectionalShadowSun].Count;
+            // Each cascade in the cache's two layers (MeshRenderer::PlanCascadeCache): the static layer the frame
+            // the cache is redrawn, the movable layer every frame it has movers, the same pass's bins split by
+            // PrimitiveFlags::kMovableCaster. Frustum only: the static layer is redrawn when its matrix moved,
+            // so last frame's cascade depth is no HZB of this one (UE's cached CSM culls its casters the same way).
+            const uint32_t casterFlags =
+                 GpuDriven::CullViewFlags::kShadowCaster | GpuDriven::CullViewFlags::kOrthographic | lodFlag;
             for ( uint32_t c = 0; c < cascades; ++c )
             {
                 const uint32_t view = SceneResources::kDirectionalShadowSun * System::MeshRenderer::kMaxCascades + c;
-                if ( !meshes->CascadeBinsDrawn( view ) )
-                    continue;
                 const glm::mat4& vp = meshes->GetCasterViewProjection( view );
-                views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
-                                               Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
-                                               GpuDriven::CullViewFlags::kShadowCaster |
-                                                    GpuDriven::CullViewFlags::kOrthographic | lodFlag ) );
-                viewKeys.push_back( view );
-                bins.ViewNames.push_back( std::format( "shadowCascade{}", c ) );
+                if ( meshes->CascadeBinsDrawn( view ) )
+                {
+                    views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
+                                                   Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
+                                                   casterFlags | GpuDriven::CullViewFlags::kCasterStaticLayer ) );
+                    viewKeys.push_back( view );
+                    bins.ViewNames.push_back( std::format( "shadowCascade{}", c ) );
+                }
+                if ( meshes->CascadeMovableBinsDrawn( view ) )
+                {
+                    views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
+                                                   Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
+                                                   casterFlags | GpuDriven::CullViewFlags::kCasterMovableLayer ) );
+                    viewKeys.push_back( System::MeshRenderer::CascadeMovableView( view ) );
+                    bins.ViewNames.push_back( std::format( "shadowCascade{}Movable", c ) );
+                }
             }
         }
 

@@ -884,9 +884,10 @@ namespace Desert::Graphic::System
         };
         const auto isMasked = []( const DataDrivenMaterial* material ) { return IsMaskedSurface( material ); };
 
-        // The sun cascade's static layer issued from its GPU-culled bins (AttachBinned below): its CPU loops drop
-        // every record the bins hold. Local views, VSM levels and the movable layer never do.
-        const bool binnedLayer = layer == ShadowCasterLayer::Static;
+        // A sun cascade's layer issued from its GPU-culled bins (AttachBinned below; the static layer at the
+        // cascade view, the movable layer at CascadeMovableView): its CPU loops drop every record the bins hold.
+        // Local views and VSM levels (layer All) never do.
+        const bool binnedLayer = layer != ShadowCasterLayer::All;
         const auto heldByBins  = [&]( const GpuDriven::PrimitiveIndex primitive, const uint64_t hidden )
         { return binnedLayer && SkipsBinned( GpuDriven::MeshPass::ShadowCascade, c, primitive, hidden ); };
         if ( binnedLayer )
@@ -894,9 +895,9 @@ namespace Desert::Graphic::System
         for ( const auto& rd : m_StaticQueue )
         {
             if ( !drawStatic || rd.Mesh == nullptr || !rd.CastShadows ||
+                 heldByBins( rd.GpuPrimitive, rd.HiddenSubmeshes ) ||
                  !IsVisibleInView( cascadeFrustum, rd.Transform,
-                                   Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) ||
-                 heldByBins( rd.GpuPrimitive, rd.HiddenSubmeshes ) )
+                                   Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
             {
                 continue;
             }
@@ -1114,8 +1115,8 @@ namespace Desert::Graphic::System
         for ( const auto& g : m_GenericQueue )
         {
             if ( drawStatic && g.Mesh != nullptr && g.CastShadows &&
-                 IsVisibleInView( cascadeFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) &&
-                 !heldByBins( g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
+                 !heldByBins( g.GpuPrimitive, ~g.VisibleSubmeshMask ) &&
+                 IsVisibleInView( cascadeFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
             {
                 list.Add( { .Pipeline          = casters.Static,
                             .Mesh              = g.Mesh,
@@ -1160,6 +1161,8 @@ namespace Desert::Graphic::System
                 uint64_t opaqueVisible = 0;
                 for ( const SkinnedSection& section : sd.Sections )
                 {
+                    if ( heldByBins( sd.GpuPrimitive, section.HiddenSubmeshes ) )
+                        continue;
                     if ( !isMasked( section.Material ) )
                     {
                         opaqueVisible |= ~section.HiddenSubmeshes;

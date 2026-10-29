@@ -571,14 +571,22 @@ namespace Desert::Graphic::System
         // GPU-DRIVEN PASSES (SceneRenderer::AddFrameDrawBins): which (pass, view) draws this frame from GPU-culled
         // bins. BeginFrameBins forgets the last frame's issues and uploads the cache's tables ("DrawCommands:
         // Upload"); SetFrameBinned hands one view's culled draws to the lists of (pass, view): the main view
-        // (kBinnedMainView) of MainViewPass, or a sun cascade view (slot * kMaxCascades + c) of ShadowCascade whose
-        // static layer is drawn (CascadeBinsDrawn: binned casters live only in the cached static layer). An active
+        // (kBinnedMainView) of MainViewPass, or a sun cascade's layer of ShadowCascade: its static layer (view
+        // slot * kMaxCascades + c, CascadeBinsDrawn: the frame the cache is redrawn) and its movable layer
+        // (CascadeMovableView( view ), CascadeMovableBinsDrawn: every frame it has movers), the cull splitting the
+        // pass's bins between them by PrimitiveFlags::kMovableCaster (CullViewFlags::kCaster*Layer). An active
         // (pass, view) issues its bins and its CPU loops drop every record the bins hold
         // (DrawCommandCache::SubmeshesBinned); any other draws everything on the CPU, as before.
         static constexpr uint32_t kBinnedMainView = ~0u;
         [[nodiscard]] Common::ResultStr<GpuDriven::DrawCommandBuffers> BeginFrameBins( RDG::Builder& graph );
         [[nodiscard]] GpuDriven::MeshPass                             MainViewPass() const;
         [[nodiscard]] bool                                            CascadeBinsDrawn( uint32_t view ) const;
+        [[nodiscard]] bool                                            CascadeMovableBinsDrawn( uint32_t view ) const;
+        // The caster view of cascade view @p view's movable layer (ShadowCascadePasses' "<cascade>.Movable").
+        [[nodiscard]] static constexpr uint32_t CascadeMovableView( const uint32_t view )
+        {
+            return kCascadeMovableViewBase + view;
+        }
         // Refused (logged once per message, the view stays on the CPU) when a non-empty group's carrier cannot be
         // made.
         void SetFrameBinned( GpuDriven::MeshPass pass, uint32_t viewKey, const GpuDriven::CulledDraws& culled,
@@ -1878,9 +1886,6 @@ namespace Desert::Graphic::System
             // with no Surface block, a slot material's own program: no `.Binned` permutation).
             bool                   Generic  = false;
             GpuDriven::BinFallback Fallback = GpuDriven::BinFallback::None;
-            // An ISM whose wind sways it: a caster of the cascade cache's movable layer (BinFallback::MovableCaster in
-            // ShadowCascade), drawn every frame over the copied cache on the CPU.
-            bool Sways = false;
             bool                  operator==( const BinnedPrimitiveFeed& ) const = default;
         };
         std::unique_ptr<GpuDriven::DrawCommandCache>                       m_DrawCommandCache;
