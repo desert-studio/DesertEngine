@@ -138,6 +138,10 @@ namespace Desert::Graphic::VirtualGeometry
 
         [[nodiscard]] VirtualMeshTableStats GetStats() const;
 
+        // The name RT_Register was given for the live mesh owning Dags[] row @p dag; empty when no live mesh owns
+        // it (a GPU report that outlived the mesh). For the log of a GPU-side refusal by DAG row.
+        [[nodiscard]] std::string DagMeshName( uint32_t dag ) const;
+
         // Device teardown: drops the buffers (Renderer::Shutdown, next to GeometryPool::RT_Shutdown).
         void RT_Shutdown();
 

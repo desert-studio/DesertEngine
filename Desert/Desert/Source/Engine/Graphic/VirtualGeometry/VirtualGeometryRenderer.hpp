@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace Desert::Graphic::RDG
@@ -58,11 +59,25 @@ namespace Desert::Graphic::VirtualGeometry
         uint32_t ViewHeight       = 0;
     };
 
+    // The cluster cull's input: the VG candidates InstanceCulling appended (GpuClusterCandidate::View indexes the
+    // span of ClusterCullView handed with them). The count lives on the GPU (the producer's append counter);
+    // Capacity bounds the rows read, VisibleCapacity the clusters the cut can emit - the caller's exact bound,
+    // the sum of ClusterCount over every DAG a candidate can name (a cut never draws more than its DAG holds).
+    struct ClusterCandidates
+    {
+        RDG::BufferRef Rows;  // GpuClusterCandidate[Capacity]
+        RDG::BufferRef Count; // uint32 at offset 0: rows written (clamped to Capacity)
+        uint32_t       Capacity        = 0;
+        uint32_t       VisibleCapacity = 0;
+    };
+
     // What one phase leaves for the rasters, per dispatch of all views.
     struct ClusterCullResult
     {
         RDG::BufferRef VisibleClusters;    // GpuVisibleCluster[capacity], SW from the front, HW from the back
         RDG::BufferRef RasterArgs;         // GpuClusterRasterArgs — Access::IndirectArgs
+        RDG::BufferRef Status;             // ClusterCutStatus (what the cut could not do, by DAG row)
+        uint32_t       VisibleCapacity = 0; // rows of VisibleClusters (HW row i = VisibleCapacity - 1 - i)
         RDG::BufferRef OccludedCandidates; // GpuClusterCandidate[] for the post phase (Main only)
         RDG::BufferRef OccludedArgs;       // VkDispatchIndirectCommand of the post phase (Main only)
     };
@@ -101,11 +116,16 @@ namespace Desert::Graphic::VirtualGeometry
         // and VG meshes draw their DAG-cut discrete LODs through the bins.
         [[nodiscard]] static Common::BoolResultStr CheckDevice();
 
-        // Step 2/5: the cluster cull of @p candidates (InstanceCulling's VG output) for @p views.
+        // Step 2/5: "VirtualGeometry: Cluster Cut" of @p candidates (InstanceCulling's VG output) for @p views
+        // (Programs/VirtualGeometry/ClusterCut.shader). Every view is of the one mesh pass @p passTable /
+        // @p passSlots describe: a candidate's submesh transform is the row that pass's DrawCommandCache placed
+        // for (primitive, lod 0, the DAG's submesh), indexing @p submeshTransforms. Refused: no view, views of two
+        // passes, a missing table, the PostOcclusion phase (its HZB carry is not built yet).
         [[nodiscard]] Common::ResultStr<ClusterCullResult>
         AddClusterCull( RDG::Builder& graph, GpuDriven::CullPhase phase, const GpuDriven::GpuSceneBuffers& scene,
-                        const VirtualMeshBuffers& meshes, RDG::BufferRef candidates, RDG::BufferRef candidateArgs,
-                        std::span<const ClusterCullView> views ) const;
+                        const VirtualMeshBuffers& meshes, const GpuDriven::PassDrawTable& passTable,
+                        const GpuDriven::PassDrawBuffers& passSlots, RDG::BufferRef submeshTransforms,
+                        const ClusterCandidates& candidates, std::span<const ClusterCullView> views ) const;
 
         // Step 3/5: SW then HW raster of @p culled into @p target.
         [[nodiscard]] Common::BoolResultStr
@@ -137,5 +157,54 @@ namespace Desert::Graphic::VirtualGeometry
 
     private:
         std::unique_ptr<Programs> m_Programs;
+    };
+
+    // ClusterCut.shader's Status block: each failure counted with the lowest DAG row it hit (kInvalidIndex =
+    // none), so the host names the mesh.
+    struct ClusterCutStatus
+    {
+        uint32_t StackOverflow      = 0; // hierarchy nodes a full traversal stack could not take
+        uint32_t StackOverflowDag   = 0xFFFFFFFFu;
+        uint32_t MissingSlot        = 0; // candidates whose primitive has no lod-0 draw slot for the DAG's submesh
+        uint32_t MissingSlotDag     = 0xFFFFFFFFu;
+        uint32_t VisibleOverflow    = 0; // clusters past ClusterCandidates::VisibleCapacity
+        uint32_t VisibleOverflowDag = 0xFFFFFFFFu;
+        uint32_t Pad0               = 0;
+        uint32_t Pad1               = 0;
+    };
+    static_assert( sizeof( ClusterCutStatus ) == 32, "std430 twin: ClusterCut.shader ClusterCutStatus" );
+
+    struct ClusterCutCount
+    {
+        uint32_t ClustersVisible = 0; // RasterArgs.HwDraw[1]
+        ClusterCutStatus Status{};
+    };
+
+    // HOW MANY CLUSTERS THE CUT DREW (DesertCtl `state views.virtualGeometry`), the CullPhaseCounts pattern: the
+    // frame's RasterArgs + Status reach the host through a frame-in-flight readback slot, counted when the slot
+    // comes round again. A Status failure is logged once per message with the mesh the DAG row belongs to.
+    class ClusterCutCounts
+    {
+    public:
+        // Counts the slot of @p frameIndex, then hands it this frame's @p culled.
+        void AddFrame( RDG::Builder& graph, uint64_t frameIndex, const ClusterCullResult& culled );
+        // A frame with no cut: nothing is handed, and the counts read so far are forgotten.
+        void                                 Forget();
+        [[nodiscard]] const ClusterCutCount& LastCount() const
+        {
+            return m_Last;
+        }
+
+    private:
+        struct Slot
+        {
+            RDG::ExternalBuffer RasterArgs;
+            RDG::ExternalBuffer Status;
+        };
+        void Count( const Slot& slot );
+
+        std::vector<Slot> m_Slots;
+        ClusterCutCount   m_Last;
+        std::string       m_LastError; // logged once per message
     };
 } // namespace Desert::Graphic::VirtualGeometry

@@ -513,6 +513,16 @@ namespace Desert::Graphic::VirtualGeometry
         return spans;
     }
 
+    std::string VirtualMeshTable::DagMeshName( const uint32_t dag ) const
+    {
+        const Storage&  s = *m_Storage;
+        std::lock_guard lock( s.Mutex );
+        for ( const MeshRows& rows : s.Rows )
+            if ( rows.Live && dag >= rows.FirstDag && dag - rows.FirstDag < rows.DagCount )
+                return rows.Name;
+        return {};
+    }
+
     VirtualMeshBuffers VirtualMeshTable::Import( RDG::Builder& graph ) const
     {
         const Storage&     s = *m_Storage;
