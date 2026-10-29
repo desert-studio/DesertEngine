@@ -44,7 +44,8 @@ namespace Desert::Scripting::LuauProperties
     /// Pushes a whole property (an Array as a table of its items).
     void PushProperty( lua_State* L, const ScriptProperty& property, const World& world );
 
-    /// The value at `index` as a scalar of kind `type` (Number, Int, Bool, String, Enum), or false when it is
-    /// not one — what a SaveGame read-back copies.
+    /// The value at `index` as a scalar of kind `type` (Number, Int, Bool, String, Enum, and a Color / Vector
+    /// from its Luau vector), or false when it is not one (an Asset, Entity or Array included) — what a SaveGame
+    /// read-back copies and what the gameplay debugger shows of a running script.
     [[nodiscard]] bool ReadScalar( lua_State* L, int index, PropertyType type, ScriptValue& out );
 } // namespace Desert::Scripting::LuauProperties

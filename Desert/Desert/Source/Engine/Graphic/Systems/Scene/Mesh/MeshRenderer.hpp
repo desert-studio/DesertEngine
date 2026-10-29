@@ -21,6 +21,7 @@
 #include <Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialOverdraw.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialOverdrawResolve.hpp>
+#include <Engine/Graphic/PrimitiveReadout.hpp>
 #endif
 #include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
@@ -1003,6 +1004,9 @@ namespace Desert::Graphic::System
 #if DESERT_DEV_INSTRUMENTS
         // The bounding-box lines over the lit scene, depth-tested.
         [[nodiscard]] SystemRasterPass DebugLinesPass();
+        // The gameplay debugger's Rendering category (Graphic/PrimitiveReadout.hpp): every queued record of
+        // @p entity this frame, read from the queues the passes drew - call it before ClearQueues.
+        [[nodiscard]] std::vector<PrimitiveDrawReadout> DescribePrimitive( uint32_t entity ) const;
 #endif
 
         // Silhouette mask of the currently outlined meshes (white on the framebuffer clear color).

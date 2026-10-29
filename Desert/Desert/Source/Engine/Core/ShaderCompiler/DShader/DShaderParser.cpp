@@ -2950,7 +2950,8 @@ namespace Desert::Core::Preprocess
             }
             result.Surface.ShadingModel          = model->Manifest.Guid;
             const std::string shadingModelDefine = ShadingModels::ShadingModelIndexDefine( model->Manifest.Name );
-            result.Meta.Blend = result.Surface.Blend;
+            result.Meta.Blend        = result.Surface.Blend;
+            result.Meta.ShadingModel = result.Surface.ShadingModel;
             if ( result.Surface.UsedWithWaterMesh != ( model->Manifest.Name == kSingleLayerWaterShadingModel ) )
             {
                 err = {
