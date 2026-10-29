@@ -118,8 +118,9 @@ namespace Common::Scalability
                method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
     }
     // The two shadow supplements beside the method (PostProcessSettings ContactShadows / DistanceFieldShadows):
-    // contact shadows (SHADOW-CONTACT) and distance-field shadows (GLOBAL-SDF) — neither implemented yet.
-    inline constexpr bool kContactShadowsImplemented       = false;
+    // contact shadows (Common/ContactShadow.glslh, gated in SceneRenderer::GetContactShadowSettings) and
+    // distance-field shadows (GLOBAL-SDF, not implemented yet).
+    inline constexpr bool kContactShadowsImplemented       = true;
     inline constexpr bool kDistanceFieldShadowsImplemented = false;
 
     // ---- What a method needs from the device: a render area (CapabilityCatalog MaxRenderArea). -----------------

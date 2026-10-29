@@ -87,9 +87,11 @@ namespace Desert::Core
                   Tooltip( "Requested method; the viewport overlay shows the effective one." ) )
         Common::Scalability::ShadowMethod ShadowsMethod = Common::Scalability::ShadowMethod::CascadedMaps;
         // The two supplements every shadow method takes: screen-space contact shadows for the detail a map
-        // misses, distance-field shadows for the sun beyond the maps' reach. Declared; refused until they land.
+        // misses, distance-field shadows for the sun beyond the maps' reach (refused until it lands).
         PROPERTY( DisplayName( "Contact Shadows" ), Category( "Shadows" ),
-                  Refuse( "Common::Scalability::RefuseContactShadows" ) )
+                  Refuse( "Common::Scalability::RefuseContactShadows" ),
+                  Tooltip( "Screen-space contact shadows for every light whose Contact Shadow Length is above 0 "
+                           "(steps: Scalability Shadows.ContactShadowSteps)." ) )
         bool ContactShadows = false;
         PROPERTY( DisplayName( "Distance Field Shadows" ), Category( "Shadows" ),
                   Refuse( "Common::Scalability::RefuseDistanceFieldShadows" ) )
