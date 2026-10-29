@@ -29,6 +29,16 @@
 #   the runs above; 0 VUID and 0 SYNC-HAZARD lines in both logs; the two last frames differ < 0.5 %
 #   (scripts/Dev/frames_compare.py); "GPU: Frame Total" in the async-on [Profiler] dump is not above the async-off one
 #   ("RDG Async: <first> .. <last>" rows are the compute-queue spans that overlap the graphics rows).
+# [fps_async_ao] (FPS-CPU-7): "Deferred: SSAO" (GTAO) is a compute pass (SSAO.shader Compute, UE
+#   r.AmbientOcclusion.Compute) flagged PassFlags::AsyncCompute: fork after the G-buffer depth / GBufferB, join at
+#   "Deferred: Composite". There is no raster AO path any more. The node exists only when SSAO runs: PostProcess
+#   EnableSSAO on and the screen probes' short-range AO not replacing it (SceneRendererFrameDeferred.cpp
+#   ScreenProbeAOReplacesSSAO). If the GI_Bistro_Night log has no "Deferred: SSAO" in the RDG pass list, the scene's
+#   GI replaced it and this check does not apply to that scene (NOT a PASS) - run it on a scene whose GI is not the
+#   screen-probe gather. Same two headless runs as [fps_async_passes] (DESERT_VULKAN_VALIDATION=1; async on / off).
+# [fps_async_ao] PASS when: the async-on "[RDG] graph 'SceneView' async compute segments:" line has a segment that
+#   names "Deferred: SSAO"; 0 VUID and 0 SYNC-HAZARD lines in both logs; the async-on last frame differs from the
+#   dev tip's < 0.5 % (scripts/Dev/frames_compare.py).
 # The interactive half below walks the camera across the street while the scene streams in, and checks the frames.
 Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
 Дано run View "View mode: Lit"

@@ -52,6 +52,8 @@ namespace Desert::Graphic::ViewTargetFormats
     // (Shaders Common/ThinGeometryCoverage.glslh). TSR's thin-geometry detection reads it. A colour attachment of
     // the G-buffer AND of the scene target, written by the passes that write the view's depth, as the velocity.
     inline constexpr ImageFormat kThinGeometryCoverage = ImageFormat::R8_UNORM;
+    // GTAO's AO factor (SSAO.shader, a compute pass): written as a storage image, so the shader spells this format
+    // in its image qualifier (rgba8) - change the two together.
     inline constexpr ImageFormat kSSAO            = ImageFormat::RGBA8F;
 
     // Post stack. A target written by a compute shader as a storage image (bloom, light shafts, lens flare,

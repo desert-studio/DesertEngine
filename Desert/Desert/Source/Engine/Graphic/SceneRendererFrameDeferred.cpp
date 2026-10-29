@@ -352,26 +352,28 @@ namespace Desert::Graphic
         const RDG::TextureRef depth    = textures.Depth( m_GBuffer, "GBuffer" ); // world position reconstructed
         const RDG::TextureRef normal   = gbuffer[1]; // GBufferB
         textures.Transients.SSAO       = ao;         // -> Deferred: Composite (SsaoTexture)
+        // The G-buffer was rasterised with the jittered matrix: SSAO projects its samples through it and
+        // reconstructs positions with its inverse (both from the ViewFrame, one copy).
+        const RDG::BufferRef uniforms = System::SSAORenderer::UploadUniforms(
+             graph, System::SSAOUniforms::Inputs{ .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                                                  .View                      = frame.View,
+                                                  .Projection                = frame.Projection,
+                                                  .TargetSize       = { aoDesc.Size.Width, aoDesc.Size.Height },
+                                                  .FrameIndex       = frame.FrameIndex,
+                                                  .WorldRadius      = kGTAOWorldRadius,
+                                                  .ThicknessBlend   = kGTAOThicknessBlend,
+                                                  .TapsPerDirection = m_SSAOSamples,
+                                                  .Angles           = kGTAOAngles } );
+        // UE r.AmbientOcclusion.Compute: a compute dispatch whose every input is a graph resource, so it runs on
+        // the async compute pipe (RenderPipeline.AsyncCompute; the builder strips the flag when that is off). Fork:
+        // the last graphics writer of the depth / GBufferB (the G-buffer, its resolve / expand); join: the first
+        // graphics reader of the AO, Deferred: Composite. HZB and SSR (and everything else between) overlap it.
         graph.AddPass(
-             "Deferred: SSAO", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 ssao->DeclareBindings( pass, depth, normal );
-                 pass.ColorTarget( 0, ao, EngineClearColor() ); // AO is fully recomputed each frame
-             },
-             // The G-buffer was rasterised with the jittered matrix: SSAO projects its samples through it and
-             // reconstructs positions with its inverse (both from the ViewFrame, one copy).
-             [ssao, inputs = MaterialSSAO::Inputs{ .InvJitteredViewProjection = frame.InvJitteredViewProjection,
-                                                   .View                      = frame.View,
-                                                   .Projection                = frame.Projection,
-                                                   .TargetSize       = { aoDesc.Size.Width, aoDesc.Size.Height },
-                                                   .FrameIndex       = frame.FrameIndex,
-                                                   .WorldRadius      = kGTAOWorldRadius,
-                                                   .ThicknessBlend   = kGTAOThicknessBlend,
-                                                   .TapsPerDirection = m_SSAOSamples,
-                                                   .Angles           = kGTAOAngles }](
+             "Deferred: SSAO", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [&]( RDG::PassBuilder& pass ) { ssao->DeclareBindings( pass, depth, normal, ao, uniforms ); },
+             [ssao, width = aoDesc.Size.Width, height = aoDesc.Size.Height](
                   RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssao->Record( context, inputs ); } );
+             { return ssao->Record( context, width, height ); } );
     }
 
     LightGridParamsPayload SceneRenderer::AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures,
