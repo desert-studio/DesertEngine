@@ -2045,7 +2045,7 @@ namespace Desert::Graphic
         {
             const RDG::TextureRef sceneDepth = AddFrameForwardDepthPrepass( graph, textures );
             // Stochastic with vsm+screen: the volume's froxels read the same local pages (MegaLightsVolumeVirtual).
-            if ( LocalShadowsAreVirtual() || StochasticReadsVirtualPages( m_RenderMethods ) )
+            if ( LocalLightsReadVirtualPages() )
             {
                 m_FrameVsmPages.reset();
                 // "VSM: Mark Local" samples a single-sample depth: at MSAA the prepass's multisampled depth through
@@ -2489,6 +2489,11 @@ namespace Desert::Graphic
                !PathTraced( m_RenderMethods );
     }
 
+    bool SceneRenderer::LocalLightsReadVirtualPages() const
+    {
+        return LocalShadowsAreVirtual() || StochasticReadsVirtualPages( m_RenderMethods );
+    }
+
     bool SceneRenderer::LocalShadowsAreScreenMask() const
     {
         return LocalShadowsAreRayTraced() || LocalShadowsAreVirtual();
@@ -2762,7 +2767,7 @@ namespace Desert::Graphic
         // The point/spot lights given a mask slot (AssignLocalShadowMaskSlots: they cast, and their sphere meets
         // the view), slot = layer.
         std::vector<System::VirtualShadowMapLocalLight> locals;
-        if ( LocalShadowsAreVirtual() || StochasticReadsVirtualPages( m_RenderMethods ) )
+        if ( LocalLightsReadVirtualPages() )
         {
             locals.reserve( m_LocalShadowMaskLights.size() );
             for ( size_t slot = 0; slot < m_LocalShadowMaskLights.size(); ++slot )
@@ -2782,7 +2787,7 @@ namespace Desert::Graphic
         // take the frame's LocalShadowsAreVirtual, as the generic prepass checked): the map's refs exist even when
         // no light casts this frame (the page passes run over none; the view slots are a high-water mark, so the
         // cached pages stay).
-        if ( !hasSun && !LocalShadowsAreVirtual() && !StochasticReadsVirtualPages( m_RenderMethods ) )
+        if ( !hasSun && !LocalLightsReadVirtualPages() )
             return {};
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );

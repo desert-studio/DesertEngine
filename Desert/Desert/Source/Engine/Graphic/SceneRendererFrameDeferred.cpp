@@ -787,9 +787,6 @@ namespace Desert::Graphic
                                                    .Lights = meshRenderer != nullptr
                                                                   ? meshRenderer->DirectionalShadows()
                                                                   : SceneResources::DirectionalShadowViews{} };
-            // Shadows Stochastic: MegaLights' local lighting (AddFrameMegaLights logged why one is missing; a view
-            // without local lights has none to add): black adds no local light, never the unshadowed grid loop.
-            shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
             // Shadows HardwareTraced: the lights with a ShadowMaskSlot read the ray-traced masks
             // (AddFrameRayTracedLocalShadows logged why they are missing; the sun-mask program then reads the
             // lights' shadow views - their maps where drawn, otherwise unshadowed).
@@ -802,6 +799,10 @@ namespace Desert::Graphic
         }
         else if ( meshRenderer != nullptr )
             shadow.Sun = DeferredCascadeShadow{ .Lights = meshRenderer->DirectionalShadows() };
+        // Shadows Stochastic: MegaLights' local lighting under either sun arm (the mask under rayquery and
+        // vsm+screen, the cascades under screen; AddFrameMegaLights logged why one is missing, a view without local
+        // lights has none to add): black adds no local light, never the unshadowed grid loop.
+        shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
         inputs.MegaLightsDiffuse  = megaLights.Diffuse.IsValid() ? megaLights.Diffuse : refs.System.Black;
         inputs.MegaLightsSpecular = megaLights.Specular.IsValid() ? megaLights.Specular : refs.System.Black;
         // SSS-PROFILE: the split's target, or a 1x1 transient the composite never writes (SubsurfaceSplit off).

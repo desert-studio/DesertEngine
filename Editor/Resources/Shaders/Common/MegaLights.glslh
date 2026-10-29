@@ -369,9 +369,12 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 #if defined(MEGALIGHTS_VISIBILITY_VSM)
 	// The occluders the screen does not hold: the light's virtual shadow map, its pages marked from this G-buffer
 	// ("VSM: Mark Local") - slot = the light's index in the frame's VsmLocalLights (AssignLocalShadowMaskSlots).
+	// The same sampled direction marched through the map (VsmLocalVisibilityRay, UE SMRT for a local light), so
+	// SourceRadius softens the shadow with the occluder's distance, as the traced ray does.
 	const int slot = MegaLightsLightShadowMaskSlot(light);
 	if (slot >= 0)
-		return contact * VsmLocalVisibility(vsmLocalLights[slot], p.Position, p.N);
+		return contact * VsmLocalVisibilityRay(vsmLocalLights[slot], p.Position, p.N, dir,
+		                                       max(reach - 2.0 * bias, 0.0), MegaLightsRandom(random));
 #endif
 	return contact;
 #else

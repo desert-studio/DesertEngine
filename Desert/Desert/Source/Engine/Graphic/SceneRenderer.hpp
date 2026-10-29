@@ -658,6 +658,10 @@ namespace Desert::Graphic
         // traced): "VSM: Project Local" per slot, read by the same RayTracedLocal programs, and every forward
         // reader (the mesh cells, the forward terrain) reads the virtual map in place of the atlas.
         [[nodiscard]] bool LocalShadowsAreVirtual() const;
+        // This frame's point/spot lights have virtual-shadow-map pages: LocalShadowsAreVirtual, or Shadows Stochastic
+        // whose visibility source is vsm+screen (MegaLights' trace and volume read the pages by ShadowMaskSlot). The
+        // one test every page reader asks: the page passes' local lights, the surface cache's cards.
+        [[nodiscard]] bool LocalLightsReadVirtualPages() const;
 
         // Shared GraphicsPipeline cache (keyed by shader + target + render-state). Renderers request
         // pipelines from here instead of creating their own; cleared on Init (full rebuild).
