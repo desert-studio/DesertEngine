@@ -108,6 +108,9 @@ namespace Desert::Editor
         // Any view's last frame drew a material's default-surface stand-in while its own pipeline compiled
         // (SceneRenderer::GetStandInDraws): the control gate's PendingWork::MaterialPipelines.
         [[nodiscard]] bool MaterialPipelinesCompiling() const;
+        // Any view's last frame drew grass whose instance buffers may be truncated (SceneRenderer::
+        // GrassInstancesSettling, a camera cut): the control gate's PendingWork::GrassInstances.
+        [[nodiscard]] bool GrassInstancesSettling() const;
 
         // THE ACTIVE SCENE'S WORLD WAS REPLACED (Open, New, Stop's snapshot restore): its entities were torn down
         // and rebuilt. Everything keyed by the old entities follows the world, in ONE place for all three paths:

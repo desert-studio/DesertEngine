@@ -752,6 +752,9 @@ namespace Desert::Graphic
         /// SSS-PROFILE: this view scatters and its Burley history has not yet averaged its full window (a Scale
         /// change, a camera cut, the first frames) - the control gate's PendingWork::SubsurfaceHistory.
         [[nodiscard]] bool SubsurfaceHistoryConverging() const;
+        /// GRASS-SETTLE p14: this view's last frame drew a grass variety that may hold fewer instances than its
+        /// generator keeps (GrassRenderer::InstancesSettling) - the control gate's PendingWork::GrassInstances.
+        [[nodiscard]] bool GrassInstancesSettling() const;
 
     private:
         // THIS VIEW in the resource ledger (RT-LEDGER-2). Its RT rows — the TLAS storage, the landscape tiles'

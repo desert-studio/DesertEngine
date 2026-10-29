@@ -89,9 +89,12 @@ namespace Desert::Editor
         // its way (DisplacementStats::Unsettled, read after the frame's EndFrame).
         // @p materialPipelinesCompiling: the presented frame drew a default-surface stand-in for a material
         // whose own pipeline was on a worker (SceneWorkspace::MaterialPipelinesCompiling).
+        // @p grassInstancesSettling: the presented frame drew grass whose instance buffers may be truncated
+        // (SceneWorkspace::GrassInstancesSettling).
         [[nodiscard]] std::optional<int32_t> OnFramePresented( bool displacementUnsettled,
                                                                bool subsurfaceHistoryConverging,
-                                                               bool materialPipelinesCompiling );
+                                                               bool materialPipelinesCompiling,
+                                                               bool grassInstancesSettling );
 
         // OnDetach: abandon a request still in flight (logged, never answered) and remove the socket file.
         void Close();

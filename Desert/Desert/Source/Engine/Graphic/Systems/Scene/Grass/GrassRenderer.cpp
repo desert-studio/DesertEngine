@@ -6,6 +6,7 @@
 // instead of a HISM component.
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
@@ -21,6 +22,7 @@
 #include <bit>
 #include <cmath>
 #include <format>
+#include <optional>
 
 namespace Desert::Graphic::System
 {
@@ -324,6 +326,9 @@ namespace Desert::Graphic::System
         constexpr uint32_t    kShrinkFrames = 60;
         std::vector<uint32_t> capacities( buckets );
         uint32_t              capacity = 0;
+        // The first bucket whose read-back count exceeds the capacity it was drawn with (GrassGenerate dropped the
+        // rest): the frames since drew a truncated field (InstancesSettling).
+        std::optional<uint32_t> overflowed;
         for ( uint32_t b = 0; b < buckets; ++b )
         {
             const double inner = buckets == 1u ? 0.0 : static_cast<double>( b ) * lodDistance;
@@ -338,6 +343,8 @@ namespace Desert::Graphic::System
             const uint32_t target = fedBack ? std::min( bound, counted[b] + counted[b] / 4u + 64u ) : 0u;
             const uint32_t step = CapacityStep( target );
             const uint32_t held = gpu.BucketCapacities.size() == buckets ? gpu.BucketCapacities[b] : 0u;
+            if ( fedBack && counted[b] > held && !overflowed )
+                overflowed = b;
             if ( step >= held || held > CapacityStep( bound ) )
             {
                 capacities[b]    = step;
@@ -356,6 +363,27 @@ namespace Desert::Graphic::System
             }
             capacity += capacities[b];
         }
+
+        // Settling (InstancesSettling): nothing counted yet (capacity zero, the field is not drawn), or an
+        // overflow read now - the frames still in flight were drawn with the old capacity too, so the variety
+        // settles only after that many read-backs within capacity.
+        const uint32_t settleReads = EngineContext::GetInstance().GetMaxFramesInFlight();
+        if ( !fedBack )
+            gpu.SettleReads = settleReads;
+        else if ( overflowed )
+        {
+            if ( !gpu.Truncated )
+                LOG_INFO( "[Grass] variety {:016x} (layer {}) truncated {}->{} in bucket {} of {}: the field drew "
+                          "without the rest until the capacity grows",
+                          variety.Key, variety.Layer, counted[*overflowed],
+                          gpu.BucketCapacities.size() == buckets ? gpu.BucketCapacities[*overflowed] : 0u,
+                          *overflowed, buckets );
+            gpu.Truncated   = true;
+            gpu.SettleReads = settleReads;
+        }
+        else if ( gpu.SettleReads > 0u && --gpu.SettleReads == 0u )
+            gpu.Truncated = false;
+        m_Settling = m_Settling || gpu.SettleReads > 0u;
 
         if ( gpu.Mesh != &mesh || gpu.Capacity != capacity || gpu.Buckets != buckets ||
              gpu.BucketCapacities != capacities || !gpu.Instances )
@@ -492,6 +520,7 @@ namespace Desert::Graphic::System
                                   const bool rayTracing )
     {
         m_Frame.clear();
+        m_Settling = false;
         m_BladeRayTracing.BeginFrame( rayTracing );
         if ( m_Queue.empty() || !m_Generate || !m_Finalize )
             return;

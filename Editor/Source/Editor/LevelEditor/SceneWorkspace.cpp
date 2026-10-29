@@ -57,6 +57,19 @@ namespace Desert::Editor
         m_PrimaryScene  = m_ActiveScene; // the always-present document #-1 (see SetActiveScene)
     }
 
+    bool SceneWorkspace::GrassInstancesSettling() const
+    {
+        if ( m_SceneRenderer && m_SceneRenderer->GrassInstancesSettling() )
+            return true;
+        for ( const auto& document : m_ExtraScenes )
+            if ( document->Renderer && document->Renderer->GrassInstancesSettling() )
+                return true;
+        for ( const auto& viewport : m_ExtraViewports )
+            if ( viewport->Renderer && viewport->Renderer->GrassInstancesSettling() )
+                return true;
+        return false;
+    }
+
     bool SceneWorkspace::SubsurfaceHistoryConverging() const
     {
         if ( m_SceneRenderer && m_SceneRenderer->SubsurfaceHistoryConverging() )
