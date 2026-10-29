@@ -9,6 +9,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -39,13 +40,11 @@ namespace Desert::Graphic::System
     // (the raster's GrassBladeShape buffer and the ray-tracing compute's alike).
     struct GrassBladeShapeGpu
     {
-        glm::vec4 Size; // Height, Width, Taper, Curvature
-        glm::vec4 Base; // BaseColor, Stiffness
-        glm::vec4 Tip;  // TipColor, DryTipShare
-        glm::vec4 Dry;  // DryTipColor, DryTipLength
-        glm::vec4 Bend; // CurvatureSpread, BendSpread
+        glm::vec4                Size;    // Height, Stiffness, Curvature, card count
+        glm::vec4                Bend;    // CurvatureSpread, BendSpread
+        std::array<glm::vec4, 8> Cards{}; // u0, v tip, u1, v root (GRASS_BLADE_MAX_CARDS)
     };
-    static_assert( sizeof( GrassBladeShapeGpu ) == 80 );
+    static_assert( sizeof( GrassBladeShapeGpu ) == 32 + 16 * 8 );
 
     // ONE level of the blade strip in blade space: (level + 1) rows of two vertices, position (side -1/+1, height
     // share t 0..1, 0), uv (side / 2 + 1/2, t), and two triangles per segment. GrassRenderer::BladeStrip draws it,

@@ -273,7 +273,7 @@ namespace Desert::Editor
         // anything, so it is stated once here and the drawing below refers to it.
         static constexpr const char* kLevelGroup[]    = { "Scene Outliner", "Collections",      "Details",
                                                           "World Settings", "Scene Validation", "World Partition" };
-        static constexpr const char* kContentGroup[]  = { "Assets", "Asset References", "Shader Library" };
+        static constexpr const char* kContentGroup[]  = { "Assets", "Asset References" };
         static constexpr const char* kOutputGroup[]   = { "Logs", "Lua Console", "History" };
         static constexpr const char* kViewportGroup[] = { "Scene###scene" };
         // "Anim Graph", "Particle Editor", "UI Editor" and "Sequencer" are gone from these lists because

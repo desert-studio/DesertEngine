@@ -3,6 +3,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Geometry/DisplacementTessellation.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 
@@ -31,6 +32,20 @@
 namespace Desert::Assets
 {
     class AssetManager;
+    class SurfaceMaterialAsset;
+
+    // The chain a material's values resolve through: the material first, its template-owning root last, and the
+    // template's metadata. MaterialService::CreateRuntimeInstance walks the same chain; the CPU readers of a
+    // material's textures (the displaced surface's heights, the grass cover's look) read it here.
+    struct MaterialChain
+    {
+        std::vector<std::shared_ptr<SurfaceMaterialAsset>> Links;
+        Core::Formats::ShaderProgramMeta                   Meta;
+    };
+    [[nodiscard]] Common::ResultStr<MaterialChain> ResolveMaterialChain( AssetManager&                     manager,
+                                                                         const Common::Content::AssetGuid& material );
+    // Child first, then each parent, then the template's default; zero when nobody declares it.
+    [[nodiscard]] glm::vec4 MaterialChainParam( const MaterialChain& chain, const std::string& name );
 
     // One section's height as its material resolves it on the CPU (parent chain, then the template's defaults),
     // the asset-side twin of Graphic::System::DisplacementMaterialRecord.

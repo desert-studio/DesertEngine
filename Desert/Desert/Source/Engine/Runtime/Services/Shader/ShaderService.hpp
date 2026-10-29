@@ -3,6 +3,7 @@
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
+#include <cstdint>
 #include <unordered_set>
 
 namespace Desert::Runtime
@@ -29,9 +30,11 @@ namespace Desert::Runtime
          * The default variant is refused rather than served: that is what GetByName is for, and answering
          * it here would build a second, unregistered copy of a program that already exists.
          *
-         * @return nullptr when the name is unknown, when @p variant is default, when the asset behind the
-         *         name has expired, or when the substituted source DID NOT COMPILE — each logged with the
-         *         name, never silently.
+         * @return the program, or an ERROR naming why not: the name is unknown, @p variant is default, the
+         *         asset behind the name has expired, or the substituted source DID NOT COMPILE OR REFLECT (the
+         *         compiler's / SPIRV-Cross's own text). The service does not log the refusal: the caller owns
+         *         the consequence (fall back, mark a path refused, fail its own Result) and logs or
+         *         propagates the reason with it, so a refusal reads once, in the caller's terms.
          *
          * The last of those was added by О1-G and is the one worth reading twice: a program with no
          * compiled stages used to be returned, on the stated ground that the caller would decide. Neither
@@ -39,8 +42,30 @@ namespace Desert::Runtime
          * element 0 of the stage list a failed compile leaves empty. An answer a caller cannot use is a
          * refusal; returning it as a success is the "empty successful answer" the contract forbids.
          */
-        std::shared_ptr<Graphic::Shader> AcquireVariant( const std::string&            name,
-                                                         const Graphic::ShaderVariant& variant );
+        Common::ResultStr<std::shared_ptr<Graphic::Shader>>
+        AcquireVariant( const std::string& name, const Graphic::ShaderVariant& variant );
+
+        /**
+         * @brief Whether the caller holding AcquireVariant's refusal of (@p name, @p variant) is the one to
+         *        report it: true exactly once per refusal REASON, false for every later frame that is refused
+         *        for the same reason. The one mechanism behind "a refused shader is said once, not every
+         *        frame" - the callers keep logging in their own terms, they only ask this first.
+         *
+         * The service remembers the last refusal of each (name, variant) AcquireVariant made. A different
+         * reason (the source was edited and fails elsewhere) is a new refusal and answers true again; a
+         * success, a recompile of the shader's file (Recompile: hot reload, the shader graph)
+         * and a re-Register of the name forget
+         * it, so a fixed shader that is broken again is reported again.
+         *
+         * Asked about a pair with no standing refusal it answers true: whoever asks has a refusal in hand,
+         * and suppressing one the service does not know of would be the silent failure this exists to avoid.
+         */
+        [[nodiscard]] bool ClaimRefusalReport( const std::string& name, const Graphic::ShaderVariant& variant );
+
+        /// Forget every standing refusal of the variants built from @p handle - the hot-reload poll calls it when
+        /// it re-read that file, so the next AcquireVariant compiles the new source and a refusal that remains is
+        /// reported again with its new reason (and one that is gone draws, and says nothing).
+        void ForgetRefusalsOf( const Assets::AssetHandle& handle );
 
         /// Every (name, variant) AcquireVariant was asked for with ShippedByCook this session, once each - the census
         /// the package cook (PackageCook CookShaderVariants) checks its cooked set against: a recorded request the
@@ -97,6 +122,33 @@ namespace Desert::Runtime
         /// @return how many variants were reloaded.
         int ReloadVariantsOf( const Assets::AssetHandle& handle );
 
+        /**
+         * @brief THE ONE RECOMPILE of a registered program from its asset's current text: every standing
+         *        refusal of its variants is forgotten (ForgetRefusalsOf), the program reloads, and so does
+         *        every live variant of the same file (ReloadVariantsOf). The hot-reload poll and every editor
+         *        action that recompiles a shader go through here, so a fixed shader draws on the next frame
+         *        and a refusal that remains is reported again, once, with its new reason - whoever asked.
+         *
+         * Waits for the pipeline builds in flight first: a compile on a worker reads the stage infos Reload
+         * replaces. The pipelines built from the old code follow on the next hot-reload poll
+         * (Graphic::AnyPipelineBehindItsShader), whichever caller recompiled.
+         *
+         * @return how many variants recompiled with it, or why the program did not: the handle names no
+         *         registered program (a medium or particle fragment has none), or the compiler's own text.
+         *         The refusals are forgotten either way - the bytes changed, so the old answer is stale.
+         */
+        Common::ResultStr<int> Recompile( const Assets::AssetHandle& handle );
+
+        /// A counter that moves every time the service forgets refusals because a program's bytes may have
+        /// changed (Recompile, a re-Register, Clear). A renderer that stopped drawing a method because one of
+        /// its programs did not build (SceneRenderer::RefuseProgramMethods) retries that method once this has
+        /// moved past the value it refused under - polled, not subscribed, so no renderer has to outlive or
+        /// unregister from the service.
+        [[nodiscard]] std::uint64_t RecompileGeneration() const
+        {
+            return m_RecompileGeneration;
+        }
+
         // All registered shader program names (for the editor's material shader picker).
         //
         // A NAME IN HERE DOES NOT PROMISE THAT GetByName RESOLVES IT. A Volume medium owns its name —
@@ -124,6 +176,27 @@ namespace Desert::Runtime
         };
         // Keyed "<name>#<16 hex digits of the variant hash>". Weak, for the reason in AcquireVariant.
         std::unordered_map<std::string, VariantEntry> m_Variants;
+
+        /// The standing refusal of one (name, variant), keyed as m_Variants is. A COMPILE refusal is also an
+        /// answer: the same bytes under the same variant fail the same way, so AcquireVariant returns it without
+        /// recompiling (UE: a failed shader map is not recompiled until its source changes) - otherwise every
+        /// frame that asks would pay a glslang compile to learn what it was told the frame before. The other
+        /// refusals (expired asset, unreadable source, unknown name) are re-asked, they can change by themselves.
+        struct Refusal
+        {
+            Assets::AssetHandle Handle;  ///< null when the name itself was unknown
+            std::string         Program; ///< the registered program the name resolved to (or the name)
+            std::string         Reason;
+            bool                Compile  = false;
+            bool                Reported = false; ///< ClaimRefusalReport answered true for this Reason
+        };
+        std::unordered_map<std::string, Refusal> m_Refusals;
+        /// RecompileGeneration: bumped by ForgetRefusalsOf, ForgetRefusalsOfProgram and Clear.
+        std::uint64_t m_RecompileGeneration = 0;
+        /// Record (or keep) the refusal of @p key and return it as AcquireVariant's error.
+        Common::ResultStr<std::shared_ptr<Graphic::Shader>> Refuse( const std::string& key, Refusal refusal );
+        /// Forget the refusals of names that resolve to @p program (Register of that name).
+        void ForgetRefusalsOfProgram( const std::string& program );
         // The ShippedByCook census (ShippedByCookRequests), keyed as m_Variants is. Never pruned: a request is a
         // fact about what the runtime selects, not about what is live.
         std::unordered_map<std::string, Core::CookedProgramVariant> m_ShippedByCookRequests;

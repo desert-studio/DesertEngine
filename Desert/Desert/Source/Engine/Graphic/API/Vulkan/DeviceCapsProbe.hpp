@@ -40,6 +40,6 @@ namespace Desert::Graphic::API::Vulkan
     // Probes every device the instance lists, keeps those that pass CheckRequired, and returns the best
     // by type (discrete > integrated > virtual > cpu). When none passes, the error names every device
     // and what each one lacks.
-    [[nodiscard]] Common::ResultStr<ProbedDevice> SelectDevice( const vkb::Instance&        instance,
-                                                                 const DeviceRestrictions& restrictions );
+    [[nodiscard]] Common::ResultStr<ProbedDevice> SelectDevice( const vkb::Instance&      instance,
+                                                                const DeviceRestrictions& restrictions );
 } // namespace Desert::Graphic::API::Vulkan

@@ -173,6 +173,12 @@ namespace Common::Settings
         // with no path is not a store, and guessing one would be the silent fallback §1.4 forbids.
         static bool Save();
 
+        // AN UNATTENDED RUN (a scenario, a capture: Editor::IsUnattendedSession) changes machine settings for THIS
+        // PROCESS only: from here on Save() keeps the values in Get() and writes nothing, for every writer
+        // (quality, display, the forced NN kernel path). UE: a cvar set by -ExecCmds or an automation run never
+        // reaches GameUserSettings.ini. Called once by QualityBoot::Start; `why` names the run in the log.
+        static void KeepInSession( std::string_view why );
+
         // Every level High, no override: the selection of a machine that never chose anything and has no valid
         // benchmark recommendation.
         [[nodiscard]] static Scalability::QualitySelection HighSelection();

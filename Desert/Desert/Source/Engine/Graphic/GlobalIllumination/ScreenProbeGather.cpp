@@ -21,6 +21,7 @@
 #include <limits>
 #include <span>
 #include <string>
+#include <utility>
 
 namespace
 {
@@ -289,10 +290,10 @@ namespace Desert::Graphic::GlobalIllumination
         if ( downsample == m_ProgramDownsample && tracedTexels == m_ProgramTracedTexels )
             return BOOLSUCCESS;
         if ( !ScreenProbeLayoutSupported( downsample, tracedTexels ) )
-            return Common::MakeFormattedError<bool>(
-                 "screen probes: the layout {} px / {} texels is not one the shaders compile (8, 16, 32 or 64 px "
-                 "a probe; 4..16 traced texels a side)",
-                 downsample, tracedTexels );
+            return RefuseLayout( downsample, tracedTexels, {}, false,
+                                 std::format( "screen probes: the layout {} px / {} texels is not one the shaders "
+                                              "compile (8, 16, 32 or 64 px a probe; 4..16 traced texels a side)",
+                                              downsample, tracedTexels ) );
         const auto                shaders = Runtime::ResourceRegistry::GetShaderService();
         const Core::ShaderVariant variant = LayoutVariant( downsample, tracedTexels );
         for ( uint32_t program = 0; program < ProgramCount; ++program )
@@ -300,19 +301,51 @@ namespace Desert::Graphic::GlobalIllumination
             if ( program == TraceNearField || program == TraceFarField )
                 continue; // tracer permutations, EnsureTraceProgram
             const std::string name( kScreenProbeShaderNames[program] );
-            auto              shader = shaders->AcquireVariant( name, variant );
-            if ( !shader )
-                return Common::MakeFormattedError<bool>( "screen probes: shader {} ({} px, {} texels) did not compile",
-                                                         name, downsample, tracedTexels );
+            auto              acquired = shaders->AcquireVariant( name, variant );
+            if ( !acquired )
+                return RefuseLayout( downsample, tracedTexels, name, true,
+                                     std::format( "screen probes: shader {} ({} px, {} texels) was refused: {}",
+                                                  name, downsample, tracedTexels, acquired.GetError() ) );
+            auto shader   = acquired.ExtractValue();
             auto pipeline = ComputePipeline::Create( { .Shader = shader, .DebugName = name } );
             if ( !pipeline )
-                return Common::MakeFormattedError<bool>( "screen probes: {}: {}", name, pipeline.GetError() );
+                return RefuseLayout( downsample, tracedTexels, name, false,
+                                     std::format( "screen probes: {}: {}", name, pipeline.GetError() ) );
             m_Shaders[program]   = std::move( shader );
             m_Pipelines[program] = pipeline.GetValue();
         }
         m_ProgramDownsample   = downsample;
         m_ProgramTracedTexels = tracedTexels;
+        m_LayoutRefusal.reset(); // a later refusal is a new one, and is reported
         return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr ScreenProbeGather::RefuseLayout( const uint32_t downsample, const uint32_t tracedTexels,
+                                                           std::string program, const bool service,
+                                                           std::string error )
+    {
+        // The same refusal asked again keeps its Reported; a different layout or program is a new one.
+        if ( !m_LayoutRefusal || m_LayoutRefusal->Downsample != downsample ||
+             m_LayoutRefusal->TracedTexels != tracedTexels || m_LayoutRefusal->Program != program ||
+             m_LayoutRefusal->Service != service )
+            m_LayoutRefusal = LayoutRefusal{ .Downsample   = downsample,
+                                             .TracedTexels = tracedTexels,
+                                             .Program      = std::move( program ),
+                                             .Service      = service };
+        return Common::MakeError<bool>( std::move( error ) );
+    }
+
+    bool ScreenProbeGather::ClaimLayoutRefusalReport()
+    {
+        // Asked with no standing refusal it answers true, as ShaderService::ClaimRefusalReport does: whoever asks
+        // holds a refusal, and suppressing one nobody recorded would be a silent failure.
+        if ( !m_LayoutRefusal )
+            return true;
+        if ( m_LayoutRefusal->Service )
+            return Runtime::ResourceRegistry::GetShaderService()->ClaimRefusalReport(
+                 m_LayoutRefusal->Program,
+                 LayoutVariant( m_LayoutRefusal->Downsample, m_LayoutRefusal->TracedTexels ) );
+        return !std::exchange( m_LayoutRefusal->Reported, true );
     }
 
     Common::BoolResultStr ScreenProbeGather::EnsureTraceProgram( const Pipeline& pipeline )
@@ -325,11 +358,13 @@ namespace Desert::Graphic::GlobalIllumination
         {
             const std::string   name( kScreenProbeShaderNames[program] );
             const Core::ShaderVariant variant = TraceVariant( pipeline, leg, m_ProgramDownsample, m_ProgramTracedTexels );
-            auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, variant );
-            if ( !shader )
-                return Common::MakeFormattedError<bool>( "screen probes: shader {} ({}, {}, {}) did not compile",
+            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, variant );
+            if ( !acquired )
+                return Common::MakeFormattedError<bool>( "screen probes: shader {} ({}, {}, {}) was refused: {}",
                                                          name, TracerDefine( pipeline.Tracer ),
-                                                         HitLightingDefine( pipeline.Hits ), leg );
+                                                         HitLightingDefine( pipeline.Hits ), leg,
+                                                         acquired.GetError() );
+            auto shader  = acquired.ExtractValue();
             auto compute = ComputePipeline::Create(
                  { .Shader    = shader,
                    .DebugName = std::format( "{} ({}, {})", name, TracerDefine( pipeline.Tracer ), leg ) } );

@@ -472,7 +472,8 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
-    Common::ResultStr<ProbedDevice> SelectDevice( const vkb::Instance& instance, const DeviceRestrictions& restrictions )
+    Common::ResultStr<ProbedDevice> SelectDevice( const vkb::Instance&      instance,
+                                                  const DeviceRestrictions& restrictions )
     {
         // vk-bootstrap lists and describes the devices; the judgement is DeviceCaps'. So the selector is
         // told to reject nothing: version 1.0 (CheckRequired names a too-old version itself), no present

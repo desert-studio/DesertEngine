@@ -392,7 +392,8 @@ namespace Desert::Graphic
                                                         const std::function<void( SceneRenderer& )>& record,
                                                         Common::Timestep timestep, Common::Timestep realTimestep,
                                                         const ShaderProtocols::DirectionLight& dirLights,
-                                                        const std::optional<Environment>&      environment )
+                                                        const std::optional<Environment>&      environment,
+                                                        const bool skyRecapturesForSun )
     {
         m_WriteCapture = false;
 
@@ -413,8 +414,10 @@ namespace Desert::Graphic
             m_Captured.clear();
             m_Presence.clear();
             m_Done.clear();
-            m_Signature         = 0;
-            m_LightingSignature = 0;
+            m_Signature            = 0;
+            m_LightingSignature    = 0;
+            m_LightingEnvironment  = 0;
+            m_LocalLightsSignature = 0;
             m_Pending           = kNoCapture;
             m_BlendCube         = kNoCapture;
             return;
@@ -440,7 +443,10 @@ namespace Desert::Graphic
             HashBytes( signature, &id, sizeof( id ) );
             HashBytes( signature, &capture.Gpu, sizeof( capture.Gpu ) );
         }
-        const uint64_t lighting = LightingSignature( scene.GetRegistry(), EnvironmentIdentity( environment ) );
+        const uint64_t skyBake     = EnvironmentIdentity( environment );
+        const uint64_t localLights = LightingSignature( scene.GetRegistry(), 0 );
+        uint64_t       lighting    = localLights;
+        HashBytes( lighting, &skyBake, sizeof( skyBake ) );
         if ( signature != m_Signature )
         {
             // UE recaptures every capture when any of them changes: a moved capture changes what its neighbours
@@ -448,8 +454,10 @@ namespace Desert::Graphic
             // again.
             m_Captures          = std::move( captures );
             m_Signature         = signature;
-            m_LightingSignature = lighting;
-            m_ReferenceSuns     = dirLights.DirectionLights;
+            m_LightingSignature    = lighting;
+            m_LightingEnvironment  = skyBake;
+            m_LocalLightsSignature = localLights;
+            m_ReferenceSuns        = dirLights.DirectionLights;
             m_Captured.assign( m_Captures.size(), false );
             m_Presence.assign( m_Captures.size(), 0u );
             m_Done.assign( m_Captures.size(), false );
@@ -458,14 +466,44 @@ namespace Desert::Graphic
             // The round starts at capture 0: the one after the "last", which is the final index.
             m_LastCaptured = m_Captures.empty() ? 0u : static_cast<uint32_t>( m_Captures.size() - 1u );
         }
-        else if ( lighting != m_LightingSignature ||
-                  ReflectionCaptureSunChanged( m_ReferenceSuns, dirLights.DirectionLights,
-                                               SunAngleThreshold( scene.GetRegistry() ) ) )
+        else if ( const bool sunChanged = ReflectionCaptureSunChanged( m_ReferenceSuns, dirLights.DirectionLights,
+                                                                       SunAngleThreshold( scene.GetRegistry() ) );
+                  lighting == m_LightingSignature && sunChanged && skyRecapturesForSun )
         {
+            // ONE ROUND PER LIGHTING STATE: the sun moved, and the sky light is being captured again for it. A
+            // round now would write the new sun under the old sky and be relit again when the bake lands (two
+            // rounds per sun change, the first one wrong); the bake landing relights, with both.
+            if ( !m_SunHeldForSky )
+                LOG_INFO( "[ReflectionCaptures] sun moved at frame {}: relit when the sky light captured for it "
+                          "lands",
+                          frames.GetAbsoluteFrameCount() );
+            m_SunHeldForSky = true;
+        }
+        else if ( lighting != m_LightingSignature || sunChanged )
+        {
+            m_SunHeldForSky = false;
             // RELIT: every cube is stale but still the best answer there is - it stays readable while the round
             // renders it again. The capture in flight is finished under the suns it started with (restarting it
             // would never finish under a lighting that changes faster than six faces settle) and stays stale.
-            m_LightingSignature = lighting;
+            // WHICH INPUT MOVED, said for every relight: a scene whose light stands still must log none.
+            float sunDeg = 0.0f;
+            if ( !m_ReferenceSuns.empty() && !dirLights.DirectionLights.empty() )
+            {
+                const glm::vec3 was = glm::vec3( m_ReferenceSuns.front().Direction );
+                const glm::vec3 now = glm::vec3( dirLights.DirectionLights.front().Direction );
+                if ( glm::length( was ) > 0.0f && glm::length( now ) > 0.0f )
+                    sunDeg = glm::degrees( std::acos(
+                         glm::clamp( glm::dot( glm::normalize( was ), glm::normalize( now ) ), -1.0f, 1.0f ) ) );
+            }
+            LOG_INFO( "[ReflectionCaptures] relit at frame {}: sky bake {:#x} -> {:#x}{}; local lights {}; sun {} "
+                      "-> {} light(s), the first {:.2f} deg from the captured one",
+                      frames.GetAbsoluteFrameCount(), m_LightingEnvironment, skyBake,
+                      skyBake != m_LightingEnvironment ? " (re-baked)" : " (same)",
+                      localLights != m_LocalLightsSignature ? "changed" : "same", m_ReferenceSuns.size(),
+                      dirLights.DirectionLights.size(), sunDeg );
+            m_LightingSignature    = lighting;
+            m_LightingEnvironment  = skyBake;
+            m_LocalLightsSignature = localLights;
             m_ReferenceSuns     = dirLights.DirectionLights;
             m_Done.assign( m_Captures.size(), false );
             m_PendingRelit = m_Pending != kNoCapture;

@@ -36,20 +36,20 @@ namespace Desert::Runtime
                 // acceleration structures: no BLAS is asked for, and the start says so once. Every RT consumer
                 // reads the same catalog, so nothing downstream expects one (RayTracingSceneRequired is false).
                 const Engine::DeviceCapabilities& capabilities = EngineContext::GetInstance().GetCapabilities();
-                const auto& modes = capabilities.Catalog.RayTracingModes;
+                const auto&                       modes        = capabilities.Catalog.RayTracingModes;
                 if ( std::none_of( modes.begin(), modes.end(), []( Common::Scalability::RayTracingMode m )
                                    { return m != Common::Scalability::RayTracingMode::None; } ) )
                 {
                     static std::once_flag s_Logged;
-                    std::call_once( s_Logged,
-                                    [&capabilities]
-                                    {
-                                        LOG_INFO( "[MeshService] no BLAS is built for meshes: ray tracing is {} on "
-                                                  "this device",
-                                                  capabilities.RayTracingHidden
-                                                       ? "hidden by machine.json (HideRayTracing)"
-                                                       : "not offered" );
-                                    } );
+                    std::call_once(
+                         s_Logged,
+                         [&capabilities]
+                         {
+                             LOG_INFO( "[MeshService] no BLAS is built for meshes: ray tracing is {} on "
+                                       "this device",
+                                       capabilities.RayTracingHidden ? "hidden by machine.json (HideRayTracing)"
+                                                                     : "not offered" );
+                         } );
                     return;
                 }
                 auto built = Graphic::API::Vulkan::VulkanRayTracingGeometry::BuildStatic(

@@ -242,9 +242,8 @@ namespace Desert::VFX
 
     uint8_t CpuModuleUsage( const Common::Content::AssetGuid& module )
     {
-        if ( module == kVFXSpawnBurstModule.Guid )
-            return static_cast<uint8_t>( UsageBit( VFXStage::EmitterSpawn ) | UsageBit( VFXStage::EmitterUpdate ) );
-        if ( module == kVFXSpawnRateModule.Guid || module == kVFXSpawnFromChannelModule.Guid )
+        if ( module == kVFXSpawnRateModule.Guid || module == kVFXSpawnBurstModule.Guid ||
+             module == kVFXSpawnFromChannelModule.Guid )
             return UsageBit( VFXStage::EmitterUpdate );
         return 0;
     }
@@ -304,30 +303,18 @@ namespace Desert::VFX
             return Common::MakeFormattedError<Result>( "emitter '{}': LoopDuration {} is not positive",
                                                        emitter.Name, plan.Lifecycle.LoopDuration );
 
-        // EmitterSpawn: once per instance (UE's Emitter Spawn script). Only a burst has a meaning there.
+        // EmitterSpawn takes no spawning module: births are Emitter Update's (UE SpawnBurst_Instantaneous and
+        // SpawnRate are Emitter Update modules - a burst fires once per loop, and Loop Once makes a one-shot).
         const auto& spawnGroup = emitter.Stack.EmitterSpawn;
         for ( std::size_t m = 0; m < spawnGroup.size(); ++m )
         {
             const S::VFXModuleUse& use = spawnGroup[m];
             if ( !use.Enabled )
                 continue;
-            const std::string where = std::format( "emitter '{}' EmitterSpawn module {} '{}' ({})", emitter.Name, m,
-                                                   use.Module.Path, use.Module.Guid );
-            if ( !UsesModule( use, kVFXSpawnBurstModule ) )
-                return Common::MakeFormattedError<Result>(
-                     "{}: EmitterSpawn runs once on the CPU and knows only {}", where, kVFXSpawnBurstModule.Name );
-            auto in = ReadInputs( system, overrides, use, kSpawnBurstInputs, where );
-            if ( !in.IsSuccess() )
-                return Common::MakeError<Result>( in.GetError() );
-            const float count = in.GetValue()[0];
-            const float time  = in.GetValue()[1];
-            if ( count < 0.0f )
-                return Common::MakeFormattedError<Result>( "{}: SpawnCount {} is negative", where, count );
-            if ( time < 0.0f || time >= plan.Lifecycle.LoopDuration )
-                return Common::MakeFormattedError<Result>(
-                     "{}: SpawnTime {} lies outside the first loop [0, {}) — it would never fire", where, time,
-                     plan.Lifecycle.LoopDuration );
-            plan.StartBursts.push_back( { time, static_cast<std::uint32_t>( count ) } );
+            return Common::MakeFormattedError<Result>(
+                 "emitter '{}' EmitterSpawn module {} '{}' ({}): the engine runs no CPU module in EmitterSpawn - "
+                 "a burst is {} in EmitterUpdate (once per loop; Loop Once for a one-shot)",
+                 emitter.Name, m, use.Module.Path, use.Module.Guid, kVFXSpawnBurstModule.Name );
         }
 
         const auto& group = emitter.Stack.EmitterUpdate;
@@ -400,11 +387,6 @@ namespace Desert::VFX
             return 0;
 
         std::uint32_t born = RateCarry.Step( plan.Rate * spawnCountScale, hi - lo );
-
-        // An EmitterSpawn burst fires once, in the step whose window holds its Time (inside the first loop).
-        for ( const VFXSpawnBurst& burst : plan.StartBursts )
-            if ( burst.Time >= lo && burst.Time < hi )
-                born += burst.Count;
 
         // A burst fires in the step whose window [lo, hi) holds k * LoopDuration + Time, for every loop k. The
         // windows of consecutive steps share their bounds exactly, so each firing lands in exactly one step.

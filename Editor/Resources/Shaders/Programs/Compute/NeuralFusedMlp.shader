@@ -15,7 +15,6 @@ Shader "NeuralFusedMlp"
         //              2 weight grad  dW_l = sum over the batch of g_l (x) h_l, fp32, deterministic (no atomics)
         //   NN_PATH    0 fp32 scalar, 1 fp16 scalar (fp16 products, fp32 sums), 2 cooperative matrix fp16
         //   NN_TM / NN_TN / NN_TK   the cooperative-matrix tile the device selected (NeuralComputeCaps::Tile)
-        //   NN_ACC_FP16             the tile accumulates in fp16 (a device with no fp32-accumulating fp16 shape)
         // The default variant (no define) is fp32 forward, so the program the boot compiles is a real one.
         #ifndef NN_KERNEL
         #define NN_KERNEL 0
@@ -46,11 +45,7 @@ Shader "NeuralFusedMlp"
         #endif
 
         #if NN_PATH == 2
-        #ifdef NN_ACC_FP16
-        #define nn_acc_t float16_t
-        #else
-        #define nn_acc_t float
-        #endif
+        #define nn_acc_t float // the tile accumulates in fp32 (IsFp16Shape)
         #define NN_THREADS 128
         #else
         #define NN_THREADS 256

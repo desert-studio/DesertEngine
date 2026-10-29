@@ -43,11 +43,18 @@ Shader "TerrainRayHit"
                     Ng = -Ng;
                 LandscapeRayHitConeLod( Ng );
 
-                const TerrainSurface s = EvaluateLandscapeSurface(
-                     tile, row.MaterialValues, position, Ng, distance( position, row.ViewOrigin.xyz ), w0, w1 );
+                const float    viewDistance = distance( position, row.ViewOrigin.xyz );
+                TerrainSurface s = EvaluateLandscapeSurface( tile, row.MaterialValues, position, Ng, viewDistance, w0, w1 );
+                s.Albedo *= row.Tint.rgb;
+                // The grass field's far cover as the raster lays it (GRASS-FIELD), seen along the ray: the ray's
+                // origin view is the one whose blades are thinned out. The payload has no shading model, so the
+                // cover's transmitted light is the raster's alone.
+                vec3 transmission;
+                LandscapeApplyGrassCover( LandscapeGrassCoverAt( tile, w0, w1, viewDistance ), -gl_WorldRayDirectionEXT,
+                                          Ng, s.Albedo, s.N, s.Roughness, s.AO, transmission );
 
                 payload.HitT      = gl_HitTEXT;
-                payload.BaseColor = s.Albedo * row.Tint.rgb;
+                payload.BaseColor = s.Albedo;
                 payload.Metallic  = 0.0;
                 payload.Roughness = s.Roughness;
                 payload.Emissive  = vec3( 0.0 );

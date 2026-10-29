@@ -447,12 +447,20 @@ namespace Desert::Graphic
     {
         if ( !RadianceCacheRuns() )
             return;
+        // A frame whose GI could not be recorded (an input missing, a pass refused) says so once per distinct
+        // reason, not every frame; a frame that records it again forgets the reason, so a later failure is said.
+        const auto refuse = [this]( std::string message )
+        {
+            if ( m_TracedGIRefusal.Claim( std::move( message ) ) )
+                LOG_ERROR( "[SceneRenderer] {}", m_TracedGIRefusal.Last() );
+        };
         FrameTransients& t = textures.Transients;
         if ( gbuffer.size() < 4 || !m_GBuffer || !t.Lights.WorldGridCells.IsValid() )
         {
-            LOG_ERROR( "[SceneRenderer] RadianceCache: not updated: {}",
-                       gbuffer.size() < 4 ? "the G-buffer has fewer than 4 colours"
-                                          : "the world light grid was not built" );
+            const std::string_view missing = gbuffer.size() < 4 ? "the G-buffer has fewer than 4 colours"
+                                             : !m_GBuffer       ? "the view has no G-buffer"
+                                                                : "the world light grid was not built";
+            refuse( std::format( "RadianceCache: not updated: {}", missing ) );
             return;
         }
         if ( !m_RadianceCache )
@@ -496,6 +504,21 @@ namespace Desert::Graphic
                                   TraceProgramName( m_GIPipeline, false ), traced.GetError() );
             return;
         }
+        // THE SCREEN-PROBE LAYOUT, validated here - where the method is chosen and before the trace legs compile
+        // under it - and not per frame in the gather: a layout the shaders do not compile, or a layout program the
+        // shader service refused, is said ONCE (ScreenProbeGather::ClaimLayoutRefusalReport, the shader service's
+        // refusal memory for a refused program), and the GI is not gathered while it stands. A recompile of the
+        // fixed shader (ShaderService::Recompile) forgets the refusal, so the next frame gathers.
+        if ( m_GIPipeline.ScreenProbes )
+            if ( const auto layout = m_ScreenProbeGather->EnsureLayoutPrograms( m_ScreenProbeDownsample,
+                                                                                m_ScreenProbeTracedTexels );
+                 !layout )
+            {
+                if ( m_ScreenProbeGather->ClaimLayoutRefusalReport() )
+                    LOG_ERROR( "[SceneRenderer] ScreenProbes: not gathered while its layout is refused: {}",
+                               layout.GetError() );
+                return;
+            }
         if ( m_GIPipeline.ScreenProbes )
             if ( const auto traced = m_ScreenProbeGather->EnsureTraceProgram( m_GIPipeline ); !traced )
             {
@@ -507,7 +530,7 @@ namespace Desert::Graphic
         const auto            desc  = graph.GetTextureDesc( depth );
         if ( !desc )
         {
-            LOG_ERROR( "[SceneRenderer] RadianceCache: {}", desc.GetError() );
+            refuse( std::format( "RadianceCache: {}", desc.GetError() ) );
             return;
         }
         const FrameGraphRefs                          refs = textures.GraphRefs();
@@ -541,7 +564,7 @@ namespace Desert::Graphic
         const auto cache = m_RadianceCache->AddUpdatePasses( graph, import, m_RadianceCacheInputs, inputs );
         if ( !cache )
         {
-            LOG_ERROR( "[SceneRenderer] RadianceCache: {}", cache.GetError() );
+            refuse( std::format( "RadianceCache: {}", cache.GetError() ) );
             return;
         }
         m_TracedFrameShared.RadianceCache = cache.GetValue();
@@ -577,7 +600,12 @@ namespace Desert::Graphic
                         .GBufferA        = inputs.GBufferA,
                         .GBufferEmissive = inputs.GBufferEmissive } );
                  !lit )
-                LOG_ERROR( "[SceneRenderer] Surface Cache: {}", lit.GetError() );
+            {
+                if ( m_TracedGICardLightingRefusal.Claim( lit.GetError() ) )
+                    LOG_ERROR( "[SceneRenderer] Surface Cache: {}", lit.GetError() );
+            }
+            else
+                m_TracedGICardLightingRefusal.Clear();
         }
 
         // ProbeVolume (UE Lumen's irradiance field gather): the cache IS the final gather, read per pixel.
@@ -591,9 +619,10 @@ namespace Desert::Graphic
             const auto gathered = m_IrradianceFieldGather->AddPasses( graph, import, field );
             if ( !gathered )
             {
-                LOG_ERROR( "[SceneRenderer] IrradianceField: {}", gathered.GetError() );
+                refuse( std::format( "IrradianceField: {}", gathered.GetError() ) );
                 return;
             }
+            m_TracedGIRefusal.Clear();
             t.GIDiffuse  = gathered.GetValue().Diffuse;
             t.GISpecular = gathered.GetValue().Specular;
             t.GIBackface = gathered.GetValue().Backface;
@@ -644,9 +673,10 @@ namespace Desert::Graphic
              m_ScreenProbeGather->AddPasses( graph, import, gather, m_ViewState.ScreenProbeGather() );
         if ( !gathered )
         {
-            LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", gathered.GetError() );
+            refuse( std::format( "ScreenProbes: {}", gathered.GetError() ) );
             return;
         }
+        m_TracedGIRefusal.Clear();
         t.GIDiffuse  = gathered.GetValue().Diffuse;
         t.GISpecular = gathered.GetValue().Specular;
         t.GIBackface = gathered.GetValue().Backface;
