@@ -232,6 +232,10 @@ namespace Desert::Graphic::System
     {
         RDG::TextureRef Depth;  // the G-buffer's reversed-Z depth
         RDG::TextureRef Normal; // the G-buffer's world normal
+        // Both invalid on the forward shading path (no G-buffer): no sun pages, the local lights' pages from the
+        // receivers' depths and the coarse mips. NoDepth: the texture a kernel that reads no depth binds in the
+        // depth's slot then (the graph's System.Black).
+        RDG::TextureRef NoDepth;
         glm::mat4       InvJitteredViewProjection{ 1.0f };
         glm::mat4       Projection{ 1.0f }; // the camera's (its [1][1] gives the pixel footprint)
         glm::vec3       CameraPosition{ 0.0f };

@@ -203,7 +203,10 @@ namespace Desert::Graphic::SurfaceCache
         // The direct lighting's program and pipeline for @p tracer's permutation (its shadow rays), built on the
         // first call for that tracer. Asked by the view before the frame's passes, so a permutation that does not
         // build refuses the methods it serves by name (SceneRenderer::AddFrameSurfaceCache, ProgramRefusals).
-        [[nodiscard]] Common::BoolResultStr EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer );
+        // @p virtualLocalShadows: Shadows.Method VirtualMaps - the DESERT_LOCAL_SHADOW_VSM permutation, whose
+        // point/spot lights read the view's virtual shadow map (SceneViewInputs::Vsm) in place of the atlas.
+        [[nodiscard]] Common::BoolResultStr EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer,
+                                                                   bool virtualLocalShadows );
         // The radiosity trace's program and pipeline for @p tracer's permutation, built on the first call for it.
         [[nodiscard]] Common::BoolResultStr EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer );
         // Every variant EnsureLightingProgram and EnsureRadiosityProgram can acquire (GlobalIllumination::
@@ -251,6 +254,7 @@ namespace Desert::Graphic::SurfaceCache
         mutable ShaderBindingLayoutCache                                      m_LightingLayout;
         std::shared_ptr<GraphicsPipeline>                                     m_LightingPipeline;
         GlobalIllumination::Pipeline                                          m_LightingProgramFor{};
+        bool                                                                  m_LightingProgramVsm = false;
         std::shared_ptr<Shader>                                               m_IndirectShader;
         mutable ShaderBindingLayoutCache                                      m_IndirectLayout;
         std::shared_ptr<GraphicsPipeline>                                     m_IndirectPipeline;

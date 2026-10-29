@@ -172,7 +172,8 @@ namespace Desert::Graphic
         // other reader - the software-traced GI methods and, whenever GI is not hardware traced, the traced
         // reflections' hits (SurfaceCacheTracer) - so it refuses those too.
         const GlobalIllumination::Pipeline cardTracer = SurfaceCacheTracer();
-        if ( const auto program = cache->EnsureLightingProgram( cardTracer ); !program )
+        if ( const auto program = cache->EnsureLightingProgram( cardTracer, LocalShadowsAreVirtual() );
+             !program )
         {
             RefuseProgramMethods( GlobalIllumination::TraceProgramGIMethods( cardTracer, false ),
                                   "SurfaceCacheDirectLighting", program.GetError() );

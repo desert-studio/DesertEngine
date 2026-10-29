@@ -322,6 +322,10 @@ namespace Desert::Graphic
     // The deferred composite's ray-traced local lights (Shadows HardwareTraced): each light with a ShadowMaskSlot
     // reads its layer of LocalShadowMasksTexture (System::RayTracedLocalShadowRenderer) in place of its shadow map.
     inline constexpr std::string_view kLocalShadowScreenMaskDefine = "DESERT_LOCAL_SHADOW_SCREEN_MASK";
+    // Shadows.Method VirtualMaps: every reader of the point/spot lights' shadows (the forward and translucent cells,
+    // the forward terrain, the composite's transmission, the surface cache's cards) reads the virtual shadow map
+    // (VirtualShadowMapReadRefs, Common/VirtualShadowMap.glslh's reader) in place of the atlas, which is not drawn.
+    inline constexpr std::string_view kLocalShadowVsmDefine = "DESERT_LOCAL_SHADOW_VSM";
     // The deferred composite's MegaLights program (Shadows Stochastic): the local lights from MegaLights'
     // MegaLightsDiffuseTexture / MegaLightsSpecularTexture (System::MegaLightsRenderer) in place of the light-grid loop.
     inline constexpr std::string_view kMegaLightsDefine = "DESERT_MEGALIGHTS";

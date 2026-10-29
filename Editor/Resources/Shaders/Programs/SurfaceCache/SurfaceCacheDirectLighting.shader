@@ -130,6 +130,27 @@ Shader "SurfaceCacheDirectLighting"
         };
         #include <Common/CloudShadowReceiver.glslh>
 
+        #ifdef DESERT_LOCAL_SHADOW_VSM
+        // Shadows.Method VirtualMaps: the point/spot lights' shadows from the view's virtual shadow map (the atlas is
+        // not drawn). A card texel no pass marked reads its light's coarse mip ("VSM: Mark Coarse").
+        #include <Common/VirtualShadowMap.glslh>
+        ReadBuffer(17) VsmFrameData
+        {
+            VsmFrame Frame;
+            VsmLevel Levels[];
+        };
+        ReadBuffer(18) VsmPageTable
+        {
+            VsmPageEntry Entries[];
+        };
+        layout(set = 0, binding = 10, r32ui) restrict readonly uniform uimage2D PhysicalPoolTexture; // 10..12 free
+        ReadBuffer(11) VsmLocalLightsUB
+        {
+            VsmLocalLight vsmLocalLights[];
+        };
+        #define DESERT_VSM_READ
+        #include <Common/VirtualShadowMap.glslh>
+        #else
         #include <Mesh/LocalLightShadowView.glslh>
         Uniform(17) texture2D LocalShadowAtlasTexture;
         #define LocalShadowAtlasTexture sampler2D(LocalShadowAtlasTexture, PointClampSampler)
@@ -137,6 +158,7 @@ Shader "SurfaceCacheDirectLighting"
         {
             LocalShadowView localShadowViews[];
         };
+        #endif
         #include <Mesh/LocalLightShadow.glslh>
 
         // The world light grid (SceneRenderer::AddFrameLightGridWorld): its parameters, then its cell lists.

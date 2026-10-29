@@ -474,10 +474,17 @@ namespace Desert::Graphic::System
         if ( !m_Kernels[Project].Pipeline )
             return Common::MakeError<VirtualShadowMapFrame>(
                  "Shadows: Virtual Shadow Map: the pipelines are not initialised" );
-        if ( view.Width == 0 || view.Height == 0 || !view.Depth.IsValid() || !view.Normal.IsValid() )
+        // The sun's pages are marked from the G-buffer alone; the local lights' also from the receivers' depths
+        // and their coarse mips, so a view without a G-buffer (the forward shading path) maps local lights only.
+        const bool gbuffer = view.Depth.IsValid() && view.Normal.IsValid();
+        if ( view.Width == 0 || view.Height == 0 || ( sun != nullptr && !gbuffer ) )
             return Common::MakeError<VirtualShadowMapFrame>(
-                 std::format( "Shadows: Virtual Shadow Map: the view has no G-buffer to mark pages from ({}x{})",
+                 std::format( "Shadows: Virtual Shadow Map: the view has no G-buffer to mark the sun's pages from "
+                              "({}x{})",
                               view.Width, view.Height ) );
+        if ( !view.NoDepth.IsValid() )
+            return Common::MakeError<VirtualShadowMapFrame>(
+                 "Shadows: Virtual Shadow Map: the view names no stand-in for an absent depth (NoDepth)" );
         if ( quality.MaxPhysicalPages == 0 )
             return Common::MakeError<VirtualShadowMapFrame>(
                  "Shadows: Virtual Shadow Map: Shadows.VirtualMaxPhysicalPages is 0" );
@@ -717,7 +724,8 @@ namespace Desert::Graphic::System
                      glm::uvec4( view.Width, view.Height, lightCount, mode ), groups );
             };
             const glm::uvec3 screen( Groups( view.Width, kScreenTile ), Groups( view.Height, kScreenTile ), 1u );
-            markLocal( view.Depth, kVsmMarkPixels, screen );
+            if ( gbuffer )
+                markLocal( view.Depth, kVsmMarkPixels, screen );
             for ( const RDG::TextureRef& receiver : receiverDepths )
                 if ( receiver.IsValid() )
                     markLocal( receiver, kVsmMarkReceivers, screen );
@@ -726,7 +734,8 @@ namespace Desert::Graphic::System
             static_assert( VsmLocalMipPages( kVsmLocalCoarseMip ) * VsmLocalMipPages( kVsmLocalCoarseMip ) <=
                                 kScreenTile &&
                            kPointShadowFaces <= kScreenTile );
-            markLocal( view.Depth, kVsmMarkCoarse, glm::uvec3( 1u, 1u, lightCount ) );
+            // The coarse mode reads no depth: the binding takes the G-buffer's, or the view's stand-in without one.
+            markLocal( gbuffer ? view.Depth : view.NoDepth, kVsmMarkCoarse, glm::uvec3( 1u, 1u, lightCount ) );
         }
 
         dispatch(

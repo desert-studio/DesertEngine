@@ -1056,9 +1056,13 @@ namespace Desert::Graphic
             RDG::TextureRef SunMask;
             RDG::TextureRef LocalMasks;
         };
+        // @p gbuffer empty: the forward shading path, before its base pass - no sun pages and no masks (its forward
+        // cells read the map itself, DESERT_LOCAL_SHADOW_VSM), the local lights' pages from @p receiverDepths and
+        // their coarse mips. @p receiverDepths: the forward receivers' device depths (the translucent front layer).
         FrameVirtualShadows AddFrameVirtualShadows( RDG::Builder& graph, FrameTextures& textures,
                                                     const std::vector<RDG::TextureRef>& gbuffer,
-                                                    const glm::vec3& directionToSun, const ViewFrame& frame );
+                                                    const glm::vec3& directionToSun, const ViewFrame& frame,
+                                                    std::span<const RDG::TextureRef> receiverDepths );
         bool            EnsureVirtualShadowResources();
         // GPU-DRIVEN CULL, only under DebugViewState::ValidateGpuCulling (the drawing stays on the CPU path): the
         // InstanceCulling phases over the main view (two-phase FURTHEST-HZB occlusion against m_CullHzbHistory),
@@ -1345,7 +1349,15 @@ namespace Desert::Graphic
         FrameFrontLayer AddFrameTranslucentFrontLayer( RDG::Builder& graph, FrameTextures& textures,
                                                        System::MeshRenderer*               meshRenderer,
                                                        const std::vector<RDG::TextureRef>& gbuffer,
-                                                       const FrameScreenTrace& screenTrace, const ViewFrame& frame );
+                                                       const FrameScreenTrace& screenTrace, const ViewFrame& frame,
+                                                       const FrontLayerSurface* prepared );
+        // "Translucency: Front Layer G-buffer": the nearest translucent surface of each pixel (FrontLayerSurface).
+        // Nothing when no translucent object is visible or a target cannot be described (logged). Under Shadows
+        // VirtualMaps it is drawn before the virtual shadow map, whose receivers its depth marks, and @p prepared
+        // above hands it to the reflections rather than drawing it twice.
+        std::optional<FrontLayerSurface> AddFrameFrontLayerSurface( RDG::Builder& graph, FrameTextures& textures,
+                                                                    System::MeshRenderer* meshRenderer,
+                                                                    const std::vector<RDG::TextureRef>& gbuffer );
         bool m_FrontLayerReflectionsFailed = false;
 
         struct FrameSSR
