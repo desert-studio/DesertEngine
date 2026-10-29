@@ -132,12 +132,13 @@ namespace Desert::Graphic::GlobalIllumination
         if ( m_Shaders[Trace] && m_Pipelines[Trace] && pipeline == m_TraceProgramFor )
             return BOOLSUCCESS;
         const std::string name( kRadianceCacheShaderNames[Trace] );
-        auto              shader =
+        auto              acquired =
              Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, TracerVariant( pipeline ) );
-        if ( !shader )
-            return Common::MakeFormattedError<bool>( "radiance cache: shader {} ({}, {}) did not compile", name,
+        if ( !acquired )
+            return Common::MakeFormattedError<bool>( "radiance cache: shader {} ({}, {}) was refused: {}", name,
                                                      TracerDefine( pipeline.Tracer ),
-                                                     HitLightingDefine( pipeline.Hits ) );
+                                                     HitLightingDefine( pipeline.Hits ), acquired.GetError() );
+        auto shader  = acquired.ExtractValue();
         auto compute = ComputePipeline::Create(
              { .Shader = shader, .DebugName = std::format( "{} ({})", name, TracerDefine( pipeline.Tracer ) ) } );
         if ( !compute )

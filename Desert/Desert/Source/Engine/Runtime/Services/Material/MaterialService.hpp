@@ -84,6 +84,12 @@ namespace Desert::Runtime
         /// The manager on-demand discovery creates `.demat` shells in (AL1-4): a handle nobody registered is
         /// found by its content-registry row on first use. Bound by ResourceRegistry::BindOnDemandAssets.
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
+        /// That manager, for a CPU reader of a material's chain (Assets::ResolveGrassCoverLookInput); null when
+        /// none is bound or it is gone.
+        [[nodiscard]] std::shared_ptr<Assets::AssetManager> LockAssetManager() const
+        {
+            return m_Assets.lock();
+        }
 
         /// THE TEMPLATE THE RENDERER'S OWN DRAWS USE, found BY ROLE and never by a name: the project's `.deproj`
         /// DefaultSurfaceTemplate when it states one, else the one loaded shader declaring `Default Surface`

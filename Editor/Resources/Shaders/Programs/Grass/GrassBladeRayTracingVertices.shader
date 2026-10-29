@@ -50,6 +50,8 @@ Shader "GrassBladeRayTracingVertices"
         // variety's Curvature, CurvatureSpread cancels to 1/256 of itself) and a bend draw of 1/2 (its low bits:
         // fract(w * 256) = 1/2).
         const float kMedianCurvatureDraw = 0.5 + 0.5 / 256.0;
+        // The median card draw: the shared BLAS is the variety's middle card.
+        const float kMedianCardDraw = 0.5;
 
         void main()
         {
@@ -62,7 +64,7 @@ Shader "GrassBladeRayTracingVertices"
             const float side = uintBitsToFloat( StripVertices[r + 0u] );
             const float t    = uintBitsToFloat( StripVertices[r + 1u] );
             const mat4  model =
-                 mat4( vec4( 1.0, 0.0, 0.0, 0.0 ), vec4( 0.0, 1.0, 0.0, kMedianCurvatureDraw ),
+                 mat4( vec4( 1.0, 0.0, 0.0, kMedianCardDraw ), vec4( 0.0, 1.0, 0.0, kMedianCurvatureDraw ),
                        vec4( 0.0, 0.0, 1.0, 0.0 ), vec4( 0.0, 0.0, 0.0, 1.0 ) );
             const BladePoint blade  = BladeAt( Blade, model, side, t, vec4( 0.0 ), vec4( 0.0 ) );
             const vec3       normal = BladeNormal( blade, side );
@@ -72,8 +74,11 @@ Shader "GrassBladeRayTracingVertices"
                                                     along.x, along.y, along.z );
             for ( uint w = 0u; w < 12u; ++w )
                 Vertices[r + w] = floatBitsToUint( words[w] );
-            Vertices[r + 12u] = StripVertices[r + 12u];
-            Vertices[r + 13u] = StripVertices[r + 13u];
+            // The card's atlas coordinate, in the stored (V-flipped) form the ray hit unpacks with
+            // DesertMeshTextureUV, so the hit samples the same scan the raster draws.
+            const vec2 uv     = BladeCardUV( BladeCard( Blade, kMedianCardDraw ), side, t );
+            Vertices[r + 12u] = floatBitsToUint( uv.x );
+            Vertices[r + 13u] = floatBitsToUint( 1.0 - uv.y );
         }
     }
 }

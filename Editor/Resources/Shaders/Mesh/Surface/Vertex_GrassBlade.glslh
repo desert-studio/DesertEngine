@@ -3,8 +3,10 @@
 // mesh). The drawn mesh is GrassRenderer's blade strip, whose position is (side -1/+1, height share t 0..1, 0); the
 // instance's matrix (InstanceTransforms, written by Programs/Grass/GrassGenerate.shader) carries the blade's root,
 // its width axis (column 0, scaled by the width multiplier), its up and forward axes (columns 1 and 2, scaled by
-// the height multiplier) and three per-blade draws in the columns' w: the colour / dry draw, the curvature
-// (and bend) draw and the clump tint. The variety's shape (GrassBladeShape) bends, tapers and colours it; the
+// the height multiplier) and three per-blade draws in the columns' w: the card draw, the curvature (and bend) draw
+// and the clump tint. The variety's shape (GrassBladeShape) picks its card and bends it; its look - outline,
+// colour, veins, dry tips - is the material's scanned atlas (Ghost of Tsushima's blade is coloured in code; here
+// the scan is the asset, the code only places, bends and sways it); the
 // scene's wind sways it as FoliageWind.glslh sways a mesh, resisted by the blade's stiffness. One function places
 // the blade for every pass, so the shadow and the depth a blade leaves are the blade that is drawn.
 // The vertex inputs — binding 0 (position, normal, tangent, bitangent, UV0) and the optional streams at binding 1
@@ -53,17 +55,15 @@ void main()
     const vec3       along  = normalize( blade.Along );
     const vec3       normal = BladeNormal( blade, side );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
-    // Root to tip, then the dry tip on the blades that drew one; the clump's tint varies the whole blade.
-    vec3 colour = mix( Blade.Base.rgb, Blade.Tip.rgb, t );
-    if ( model[0].w < Blade.Tip.w )
-        colour = mix( colour, Blade.Dry.rgb, smoothstep( 1.0 - Blade.Dry.w, 1.0, t ) );
-    // Cool and dark to warm and light, so clumps read as patches of one meadow and not as one green
-    colour *= mix( vec3( 0.75, 0.9, 0.85 ), vec3( 1.2, 1.1, 0.8 ), model[2].w );
+    // The blade's look is its material's: UV0 is the card's place on the scanned atlas (texture space, set
+    // directly, not a stored mesh UV), UV1 carries the clump's draw and the height share for the material's clump
+    // tint and root occlusion (GrassBladeSurface.shader), so neither is a colour decided here.
+    const vec4 card = BladeCard( Blade, model[0].w );
     v_Surface.WorldPosition = blade.Position;
     v_Surface.Normal        = normal;
-    v_Surface.UV0           = DesertMeshTextureUV( a_TextureCoord );
-    v_Surface.UV1           = DesertMeshTextureUV( a_TexCoord1 );
-    v_Surface.VertexColor   = vec4( colour, 1.0 ) * a_Color;
+    v_Surface.UV0           = BladeCardUV( card, side, t );
+    v_Surface.UV1           = vec2( model[2].w, t );
+    v_Surface.VertexColor   = a_Color;
     v_Surface.TBN           = mat3( blade.Right, along, normal );
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS

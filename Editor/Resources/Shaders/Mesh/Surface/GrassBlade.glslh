@@ -7,15 +7,31 @@
 
 #include <Common/FoliageWind.glslh>
 
-// Mirrors Graphic::System::GrassBladeShapeGpu (GrassBladeRayTracing.hpp), std430: a variety's shape.
+// The most cards a blade variety draws from (Assets::Serialization::kGrassBladeMaxCards).
+#define GRASS_BLADE_MAX_CARDS 8
+
+// Mirrors Graphic::System::GrassBladeShapeGpu (GrassBladeRayTracing.hpp), std430: a variety's shape. The blade's
+// look is its material's (a scanned blade atlas: albedo, normal, ORM, opacity); the shape carries only where on
+// that atlas each of its cards is and how the strip stands, bends and sways.
 struct GrassBladeShapeData
 {
-    vec4 Size; // Height cm, Width cm, Taper, Curvature
-    vec4 Base; // BaseColor, Stiffness
-    vec4 Tip;  // TipColor, DryTipShare
-    vec4 Dry;  // DryTipColor, DryTipLength
-    vec4 Bend; // CurvatureSpread, BendSpread
+    vec4 Size;                         // Height cm, Stiffness, Curvature, card count
+    vec4 Bend;                         // CurvatureSpread, BendSpread
+    vec4 Cards[GRASS_BLADE_MAX_CARDS]; // atlas rect: u0, v tip, u1, v root (texture space, v down the image)
 };
+
+// The card a blade draws: its colour draw (instance column 0's w) picks one of the variety's cards, uniformly.
+vec4 BladeCard( GrassBladeShapeData shape, float draw )
+{
+    const uint count = max( uint( shape.Size.w ), 1u );
+    return shape.Cards[min( uint( draw * float( count ) ), count - 1u )];
+}
+
+// The card's texture coordinate at @p side across (-1..1) and height share @p t (0 root, 1 tip).
+vec2 BladeCardUV( vec4 card, float side, float t )
+{
+    return vec2( mix( card.x, card.z, 0.5 + 0.5 * side ), mix( card.w, card.y, t ) );
+}
 
 struct BladePoint
 {
@@ -39,23 +55,26 @@ BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, 
     const vec3  right   = model[0].xyz / max( length( model[0].xyz ), 1e-6 );
     const vec3  forward = model[2].xyz / max( length( model[2].xyz ), 1e-6 );
     const float height  = shape.Size.x * heightK;
-    const float width   = shape.Size.y * length( model[0].xyz );
+    // The strip is as wide as its card is, at the blade's height: the scan keeps its proportions, and the
+    // card's opacity cuts the blade's outline (its taper, its ragged edge) out of the strip.
+    const vec4  card    = BladeCard( shape, model[0].w );
+    const float width   = shape.Size.x * ( card.z - card.x ) / max( card.w - card.y, 1e-4 ) * length( model[0].xyz );
 
     // The rest lean: the variety's curvature, varied per blade by CurvatureSpread either way. The bend's power
     // draws from the curvature draw's low 16 bits (it is a 24-bit fraction, so they are independent of the
     // top bits the lean mostly reads).
-    const float lean = shape.Size.w * ( 1.0 + shape.Bend.x * ( 2.0 * model[1].w - 1.0 ) );
+    const float lean = shape.Size.z * ( 1.0 + shape.Bend.x * ( 2.0 * model[1].w - 1.0 ) );
     const float bend = 2.0 + 3.0 * shape.Bend.y * fract( model[1].w * 256.0 );
     vec3        tip  = forward * ( height * lean );
     // The wind at the tip, as a mesh vertex at the blade's height would sway, less what the stiffness resists.
-    tip += FoliageWindOffset( vec3( 0.0, height, 0.0 ), root, windA, windB ) * ( 1.0 - shape.Base.w );
+    tip += FoliageWindOffset( vec3( 0.0, height, 0.0 ), root, windA, windB ) * ( 1.0 - shape.Size.y );
     const float reach = min( length( tip ) / max( height, 1e-3 ), 0.95 );
     const float rise  = height * sqrt( 1.0 - reach * reach );
 
     BladePoint p;
     p.Right    = right;
     p.Position = root + up * ( rise * t ) + tip * pow( t, bend ) +
-                 right * ( 0.5 * width * side * ( 1.0 - shape.Size.z * t ) );
+                 right * ( 0.5 * width * side );
     p.Along    = up * rise + tip * ( bend * pow( t, bend - 1.0 ) );
     return p;
 }
