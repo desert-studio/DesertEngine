@@ -68,6 +68,7 @@ namespace Desert::Graphic::VirtualGeometry
             DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningGroupArgs );
             DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningGroupCursor );
             DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningRows );
+            DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningGroupViewCounts );
         };
 
         constexpr const char* kClusterCutShader    = "ClusterCut";    // Programs/VirtualGeometry/ClusterCut.shader
@@ -386,7 +387,7 @@ namespace Desert::Graphic::VirtualGeometry
     Common::ResultStr<RasterBins> VirtualGeometryRenderer::AddRasterBinning(
          RDG::Builder& graph, const GpuDriven::GpuSceneBuffers& scene, const VirtualMeshBuffers& meshes,
          const GpuDriven::PassDrawTable& passTable, const GpuDriven::PassDrawBuffers& passSlots,
-         const ClusterCullResult& culled ) const
+         const ClusterCullResult& culled, const uint32_t countViews ) const
     {
         using Result = RasterBins;
         if ( passTable.Groups.empty() || passTable.Bins.empty() || passTable.DrawSlots.empty() )
@@ -411,6 +412,11 @@ namespace Desert::Graphic::VirtualGeometry
         // COUNT adds into instanceCount: every group starts at zero.
         const std::vector<uint32_t> zeros( std::size_t{ groupCount } * 4u, 0u );
         bins.GroupArgs = Upload( graph, "VirtualGeometry.RasterGroupArgs", Bytes( zeros ) );
+        // COUNT adds per (group, view) too: zeros, one placeholder entry when nothing is counted per view.
+        bins.CountViews = countViews;
+        const std::vector<uint32_t> viewZeros(
+             std::max<std::size_t>( 1u, std::size_t{ groupCount } * std::size_t{ countViews } ), 0u );
+        bins.GroupViewCounts = Upload( graph, "VirtualGeometry.RasterGroupViewCounts", Bytes( viewZeros ) );
         const RDG::BufferRef cursor =
              graph.CreateBuffer( RDG::BufferDesc{ .Bytes = uint64_t{ groupCount } * sizeof( uint32_t ) },
                                  "VirtualGeometry.RasterGroupCursor" );
@@ -427,7 +433,7 @@ namespace Desert::Graphic::VirtualGeometry
         for ( const uint32_t step : { kBinStepCount, kBinStepOffsets, kBinStepScatter } )
         {
             const CutPush push{ glm::uvec4( step, culled.VisibleCapacity, groupCount, primitive ),
-                                glm::uvec4( slots, binRows, Geometry::kClusterMaxTriangles * 3u, 0u ) };
+                                glm::uvec4( slots, binRows, Geometry::kClusterMaxTriangles * 3u, countViews ) };
             const uint32_t groupsX = step == kBinStepOffsets ? 1u : threads;
             graph.AddPass(
                  step == kBinStepCount     ? "VirtualGeometry: Raster Binning Count"
@@ -451,6 +457,7 @@ namespace Desert::Graphic::VirtualGeometry
                           .Storage( P::RasterBinningGroupArgs, bins.GroupArgs, W )
                           .Storage( P::RasterBinningGroupCursor, cursor, W )
                           .Storage( P::RasterBinningRows, bins.Rows, W )
+                          .Storage( P::RasterBinningGroupViewCounts, bins.GroupViewCounts, W )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( CutPush ) ) );
                  },
                  [pipeline = program.Pipeline, push, groupsX]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -480,8 +487,7 @@ namespace Desert::Graphic::VirtualGeometry
     }
 
     void ClusterCutCounts::Add( RDG::Builder& graph, const ClusterCutKind kind, const ClusterCullResult& culled,
-                                const RasterBins* bins, std::vector<uint8_t> drawnGroups,
-                                const uint32_t vsmLevel )
+                                const RasterBins* bins, std::vector<uint8_t> drawnGroups )
     {
         if ( m_Current == nullptr )
         {
@@ -494,14 +500,18 @@ namespace Desert::Graphic::VirtualGeometry
             return;
         }
         Entry& entry = m_Current->Entries.emplace_back();
-        entry.Kind     = kind;
-        entry.VsmLevel = vsmLevel;
+        entry.Kind   = kind;
         graph.Extract( culled.RasterArgs, entry.RasterArgs, RDG::Access::HostRead );
         graph.Extract( culled.Status, entry.Status, RDG::Access::HostRead );
         if ( bins != nullptr && bins->GroupArgs.IsValid() && drawnGroups.size() == bins->GroupCount )
         {
             graph.Extract( bins->GroupArgs, entry.GroupArgs, RDG::Access::HostRead );
             entry.DrawnGroups = std::move( drawnGroups );
+            if ( bins->CountViews > 0u && bins->GroupViewCounts.IsValid() )
+            {
+                graph.Extract( bins->GroupViewCounts, entry.GroupViewCounts, RDG::Access::HostRead );
+                entry.CountViews = bins->CountViews;
+            }
         }
     }
 
@@ -573,9 +583,31 @@ namespace Desert::Graphic::VirtualGeometry
                 count.ShadowClustersDrawn += clamped;
             else if ( entry.Kind == ClusterCutKind::VirtualShadow )
             {
-                if ( count.VsmClustersDrawn.size() <= entry.VsmLevel )
-                    count.VsmClustersDrawn.resize( size_t{ entry.VsmLevel } + 1u, 0u );
-                count.VsmClustersDrawn[entry.VsmLevel] += clamped;
+                // Per level: the drawn groups' GroupViewCounts (cut view = level).
+                if ( entry.GroupViewCounts.Physical && entry.CountViews > 0u )
+                {
+                    const std::span<const std::byte> perView = entry.GroupViewCounts.Physical->ReadForHost();
+                    const size_t views = entry.CountViews;
+                    const size_t rows  = std::min( entry.DrawnGroups.size(), perView.size() / ( views * 4u ) );
+                    std::vector<uint64_t> levels( views, 0u );
+                    for ( size_t g = 0; g < rows; ++g )
+                    {
+                        if ( entry.DrawnGroups[g] == 0u )
+                            continue;
+                        for ( size_t v = 0; v < views; ++v )
+                        {
+                            uint32_t n = 0;
+                            std::memcpy( &n, perView.data() + ( g * views + v ) * sizeof( uint32_t ), sizeof( n ) );
+                            levels[v] += n;
+                        }
+                    }
+                    count.VsmClustersDrawn.assign( views, 0u );
+                    for ( size_t v = 0; v < views; ++v )
+                        count.VsmClustersDrawn[v] =
+                             static_cast<uint32_t>( std::min<uint64_t>( levels[v], UINT32_MAX ) );
+                }
+                else if ( entry.GroupArgs.Physical )
+                    fail( std::format( "the {} cut was drawn with no per-level counts", kind ) );
             }
             else
                 count.ClustersDrawn += clamped;

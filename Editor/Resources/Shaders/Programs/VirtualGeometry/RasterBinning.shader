@@ -10,7 +10,8 @@ Shader "RasterBinning"
     // -> the bin's IndirectGroup. A slot with no bin in this pass (the submesh does not draw there) bins nothing.
     //
     // One program, three steps (Params.x), each its own dispatch (the RDG orders them):
-    //  0 COUNT    one thread per HW cluster: GroupArgs[group].instanceCount += 1.
+    //  0 COUNT    one thread per HW cluster: GroupArgs[group].instanceCount += 1 (and, when Params2.w names the
+    //             cut views, GroupViewCounts[group x views + its view] += 1: what each view of the cut drew).
     //  1 OFFSETS  one thread: the groups' exclusive prefix -> GroupArgs[g] = { kClusterMaxTriangles x 3, 0, 0,
     //             first }, the count kept in GroupCursor[g] for the step-2 check.
     //  2 SCATTER  one thread per HW cluster: Rows[first + atomicAdd( instanceCount )] = its VisibleClusters row.
@@ -67,11 +68,17 @@ Shader "RasterBinning"
         {
             uint Rows[]; // [VisibleCapacity]: the VisibleClusters row of each draw instance
         };
+        Buffer(11) RasterBinningGroupViewCounts
+        {
+            uint GroupViewCounts[]; // [groups x Params2.w]: the clusters of group g in cut view v (Params2.w > 0)
+        };
 
         PushConstant PushConstants
         {
             uvec4 Params;  // x = step, y = visible capacity, z = group count, w = primitive rows of the pass table
-            uvec4 Params2; // x = draw slot rows, y = bin rows, z = vertices per cluster draw, w = 0
+            // x = draw slot rows, y = bin rows, z = vertices per cluster draw, w = the cut views GroupViewCounts
+            // counts (0 = none)
+            uvec4 Params2;
         };
 
         #define kStepCount   0u
@@ -129,6 +136,9 @@ Shader "RasterBinning"
             if ( step == kStepCount )
             {
                 atomicAdd( GroupArgs[group * 4u + 1u], 1u );
+                const uint view = Visible[row].View;
+                if ( view < Params2.w )
+                    atomicAdd( GroupViewCounts[group * Params2.w + view], 1u );
                 return;
             }
             // SCATTER: the same clusters in the same groups as COUNT, so a group never takes more than its count.

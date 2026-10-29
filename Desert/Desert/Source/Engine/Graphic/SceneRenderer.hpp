@@ -435,8 +435,11 @@ namespace Desert::Graphic
             // the main view's main + post phase, and every shadow cascade's.
             uint32_t ClustersDrawn       = 0;
             uint32_t ShadowClustersDrawn = 0;
-            // Per VSM clipmap level (index = level): its cluster raster's drawn clusters.
+            // Per VSM clipmap level (index = level): the clusters "VSM: Raster VirtualGeometry" drew into it.
             std::vector<uint32_t> VsmClustersDrawn;
+            // VSM material groups with binned VG clusters and no `.VirtualGeometry` twin (held refusals: their
+            // primitives stay in the levels' CPU walk; MeshRenderer::VsmRefusedGroups). Must be 0.
+            uint32_t VsmRefusedGroups = 0;
             uint32_t Overflow         = 0;
             uint32_t OccludedClusters = 0;
             // VG instances still drawn by the bins of a view with a cut (main or cascade; must be 0: the cluster
@@ -444,6 +447,9 @@ namespace Desert::Graphic
             uint32_t BinnedVgInstances = 0;
         };
         [[nodiscard]] VirtualGeometryCounts GetVirtualGeometryCounts() const;
+        /// This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps). Public
+        /// for MeshRenderer: the VSM's own pass table (MeshPass::VirtualShadow) is resolved only while it is.
+        [[nodiscard]] bool SunShadowIsVirtual() const;
         /// The mesh passes' cached draw commands (MeshRenderer::GetDrawCommandCache): bins, slots and the CPU
         /// fallbacks per pass. Null before the first GpuScene sync.
         [[nodiscard]] const GpuDriven::DrawCommandCache* GetDrawCommandCache() const;
@@ -1080,8 +1086,6 @@ namespace Desert::Graphic
         // declared.
         void AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
                                        const LightGridParamsPayload& lightGrid );
-        // This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps).
-        [[nodiscard]] bool SunShadowIsVirtual() const;
         // THE ONE ANSWER TO "is the sun shadowed from a screen mask this frame" (the ray-traced sun or the virtual
         // shadow map, both ShadowMask.Sun): every mask READER asks it - the composite's and the opaque generic
         // programs' DESERT_SUN_SHADOW_SCREEN_MASK permutations, the depth/normal prepass, the cascade budget (the

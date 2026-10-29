@@ -794,14 +794,18 @@ namespace Desert::Graphic::System
                  { return ResolveBinnedPipeline( pass, primitive, materialRow ); },
                  [this]( const GpuDriven::MeshPass pass, const GraphicsPipeline& group ) -> const GraphicsPipeline*
                  { return ResolveVirtualGeometryPipeline( pass, group ); } );
-        // Answers resolved before a recompile or a wireframe toggle are stale: a reload can add or drop a cell
-        // (PipelineCache's InvalidateByShader point, Graphic::PipelineRebuildEpoch), and the Forward pass state is
-        // the line twin while the Wireframe view is on.
-        if ( const uint64_t epoch = Graphic::PipelineRebuildEpoch();
-             epoch != m_BinnedPipelineEpoch || WireframeView() != m_BinnedWireframe )
+        // Answers resolved before a recompile, a wireframe toggle or a shadow method change are stale: a reload can
+        // add or drop a cell (PipelineCache's InvalidateByShader point, Graphic::PipelineRebuildEpoch), the Forward
+        // pass state is the line twin while the Wireframe view is on, and the VirtualShadow table holds draws only
+        // while the sun shadow is the virtual shadow map (no VSM caster state or cell is built under cascades).
+        const bool virtualShadow = m_SceneRenderer != nullptr && m_SceneRenderer->SunShadowIsVirtual();
+        if ( const uint64_t epoch = Graphic::PipelineRebuildEpoch(); epoch != m_BinnedPipelineEpoch ||
+                                                                     WireframeView() != m_BinnedWireframe ||
+                                                                     virtualShadow != m_BinnedVirtualShadow )
         {
             m_BinnedPipelineEpoch = epoch;
             m_BinnedWireframe     = WireframeView();
+            m_BinnedVirtualShadow = virtualShadow;
             m_BinnedRefused.clear(); // a reload may have fixed what was refused; say a remaining refusal again
             m_BinnedAwaiting.clear(); // every answer is asked again below, so is every PSO still compiling
             m_DrawCommandCache->InvalidatePipelines();
@@ -1195,6 +1199,10 @@ namespace Desert::Graphic::System
             return GpuDriven::PassPipelineResolution{ pipeline, pipeline != nullptr ? BinFallback::None
                                                                                     : BinFallback::PipelineUnavailable };
         };
+        // The VSM's own table is resolved only while the sun shadow is the virtual shadow map (FeedDrawCommandCache
+        // re-resolves on a method change): under cascades no draw is in it and no VSM state or cell is built.
+        if ( pass == GpuDriven::MeshPass::VirtualShadow && !m_BinnedVirtualShadow )
+            return {};
         const BinnedPrimitiveFeed* feed = nullptr;
         if ( const auto it = m_ScratchBinnedFeed.find( primitive ); it != m_ScratchBinnedFeed.end() )
             feed = &it->second;

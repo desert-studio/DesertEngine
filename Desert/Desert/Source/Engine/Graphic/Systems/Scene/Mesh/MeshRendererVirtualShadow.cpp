@@ -338,29 +338,29 @@ namespace Desert::Graphic::System
         return result;
     }
 
-    bool MeshRenderer::VsmDrawsClusters( const StaticMeshRenderData& rd ) const
+    uint64_t MeshRenderer::VsmClusteredSubmeshes( const StaticMeshRenderData& rd ) const
     {
         if ( !m_VsmGeometry || !m_DrawCommandCache || rd.Mesh == nullptr )
-            return false;
+            return 0u;
         const auto* registration = rd.Mesh->GetVirtualMesh();
         if ( registration == nullptr || !*registration )
-            return false;
-        const size_t submeshes = rd.Mesh->GetSubmeshes().size();
-        bool         any       = false;
+            return 0u;
+        // The walk's hidden mask holds 64 submeshes (StaticMeshRenderData::HiddenSubmeshes): a submesh past it
+        // cannot be hidden, so the walk draws it and it is never clustered here.
+        const size_t submeshes = std::min<size_t>( rd.Mesh->GetSubmeshes().size(), 64u );
+        uint64_t     clustered = 0u;
         for ( const VirtualGeometry::VirtualMeshDagSpan& span :
               VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index() ) )
         {
-            if ( span.Submesh >= submeshes ||
-                 ( span.Submesh < 64u && ( ( rd.HiddenSubmeshes >> span.Submesh ) & 1u ) != 0u ) )
+            if ( span.Submesh >= submeshes || ( ( rd.HiddenSubmeshes >> span.Submesh ) & 1u ) != 0u )
                 continue;
-            // A submesh whose group has no twin (a held refusal, SetVirtualShadowGeometry): the walk draws the
-            // primitive, so its shadow is never lost.
+            // A submesh whose group has no twin (a held refusal, SetVirtualShadowGeometry) stays walked, so its
+            // shadow is never lost.
             if ( m_DrawCommandCache->SubmeshVirtualGeometryPipeline( GpuDriven::MeshPass::VirtualShadow,
-                                                                     rd.GpuPrimitive, span.Submesh ) == nullptr )
-                return false;
-            any = true;
+                                                                     rd.GpuPrimitive, span.Submesh ) != nullptr )
+                clustered |= uint64_t{ 1 } << span.Submesh;
         }
-        return any;
+        return clustered;
     }
 
     Common::ResultStr<std::vector<uint8_t>>

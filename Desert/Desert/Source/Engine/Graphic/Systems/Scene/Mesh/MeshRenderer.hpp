@@ -627,19 +627,20 @@ namespace Desert::Graphic::System
         // `.VirtualGeometry` twin (IndirectGroup::VirtualGeometryPipeline: `<T>/Static.VirtualShadowDepth
         // [.Parallax].Binned.VirtualGeometry` on the VSM caster state), whose vertex stage takes the level's matrix
         // and fragment stage the level's page table from the cluster's view. The carriers are made by
-        // AddVirtualShadowRasterPasses; from then the levels' CPU walk leaves out every primitive whose clusters a
-        // twin draws (VsmDrawsClusters). Returns per group whether its clusters are drawn. A group with clusters
+        // AddVirtualShadowRasterPasses; from then the levels' CPU walk leaves out every submesh whose clusters a
+        // twin draws (VsmClusteredSubmeshes). Returns per group whether its clusters are drawn. A group with clusters
         // binned and no twin is a HELD REFUSAL: logged once per cell, counted (VsmRefusedGroups), and its
-        // primitives stay in the CPU walk (no shadow is lost). Refused without the VSM caster pipelines, a draw
+        // submeshes stay in the CPU walk (no shadow is lost). Refused without the VSM caster pipelines, a draw
         // command cache or for bins of another group count; nothing is attached then.
         [[nodiscard]] Common::ResultStr<std::vector<uint8_t>>
         SetVirtualShadowGeometry( MeshRendererDetail::VirtualGeometryIssue issue,
                                   const GpuDriven::DrawCommandBuffers& upload, const GpuDriven::GpuSceneBuffers& scene );
-        // THE ONE RULE "this static entry is drawn as clusters into the virtual shadow map this frame": the VSM
-        // cluster raster is issued (SetVirtualShadowGeometry) and every submesh it shows with uploaded DAG rows is
-        // binned at lod 0 into a VirtualShadow group with a `.VirtualGeometry` twin
-        // (DrawCommandCache::SubmeshVirtualGeometryPipeline). False: the levels' CPU walk draws it.
-        [[nodiscard]] bool VsmDrawsClusters( const StaticMeshRenderData& rd ) const;
+        // THE ONE RULE "this submesh of a static entry is drawn as clusters into the virtual shadow map this
+        // frame": bit i set when the VSM cluster raster is issued (SetVirtualShadowGeometry) and submesh i, shown by
+        // @p rd with uploaded DAG rows, is binned at lod 0 into a VirtualShadow group with a `.VirtualGeometry` twin
+        // (DrawCommandCache::SubmeshVirtualGeometryPipeline). The levels' CPU walk hides exactly these submeshes
+        // and draws the rest (a mesh with VG on some submeshes keeps both shadows; a held refusal stays walked).
+        [[nodiscard]] uint64_t VsmClusteredSubmeshes( const StaticMeshRenderData& rd ) const;
         // Groups of the VirtualShadow table holding bins but no `.VirtualGeometry` twin in this frame's VSM cluster
         // raster (SetVirtualShadowGeometry): their clusters are not rastered, their primitives stay in the walk.
         [[nodiscard]] uint32_t VsmRefusedGroups() const
@@ -1678,7 +1679,7 @@ namespace Desert::Graphic::System
         std::array<MeshRendererDetail::MeshDrawList, kVsmClipmapLevelCount> m_VsmDraws;
         // This frame's VG-only issue of every level (SetVirtualShadowGeometry), consumed by AddVirtualShadowRasterPasses
         // into m_VsmGeometryDraws ("VSM: Raster VirtualGeometry"); while set, the levels' CPU walk leaves out the
-        // primitives whose clusters it draws (VsmDrawsClusters).
+        // submeshes whose clusters it draws (VsmClusteredSubmeshes).
         std::optional<MeshRendererDetail::BinnedIssue> m_VsmGeometry;
         MeshRendererDetail::MeshDrawList               m_VsmGeometryDraws;
         uint32_t                                       m_VsmRefusedGroups = 0;
@@ -1981,10 +1982,13 @@ namespace Desert::Graphic::System
         // The bins' PSOs BinnedCellPipeline found still compiling (their draws answered PipelineUnavailable): the
         // frame one of them leaves the driver, FeedDrawCommandCache re-resolves the cache's draws.
         std::vector<std::weak_ptr<GraphicsPipeline>> m_BinnedAwaiting;
-        // What the cache's answers were resolved at: a recompile (Graphic::PipelineRebuildEpoch) or a wireframe
-        // toggle (the Forward pass state's line twin) moves them, and the feed re-resolves every cached draw.
+        // What the cache's answers were resolved at: a recompile (Graphic::PipelineRebuildEpoch), a wireframe
+        // toggle (the Forward pass state's line twin) or a shadow method change (the VirtualShadow table is
+        // resolved only while the sun shadow is the virtual shadow map) moves them, and the feed re-resolves every
+        // cached draw.
         uint64_t m_BinnedPipelineEpoch = 0;
         bool     m_BinnedWireframe     = false;
+        bool     m_BinnedVirtualShadow = false;
         void FeedDrawCommandCache( const GpuDriven::GpuScene& scene, const GpuDriven::GpuSceneRecordRows& rows );
         // The PSO a submesh of @p primitive draws with in @p pass from material row @p materialRow: the pass's shared
         // state with the material's `.Binned` cell (GBuffer / Forward: the template's cell, two-sided as
@@ -2148,7 +2152,13 @@ namespace Desert::Graphic::System
         std::size_t                                     m_ScratchInstSetCount = 0;
         std::vector<ObjDraw>        m_ScratchSingles;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;
-        std::vector<const StaticMeshRenderData*> m_ScratchShadowSingles;
+        // A per-object caster: its entry and the submeshes it hides (the entry's, plus a VSM level's clustered ones).
+        struct ShadowSingle
+        {
+            const StaticMeshRenderData* Data   = nullptr;
+            uint64_t                    Hidden = 0;
+        };
+        std::vector<ShadowSingle> m_ScratchShadowSingles;
         // Masked casters of one cascade: per cascade copy, its rows / instance transforms / bone poses end to
         // end (each uploaded once before the copy's draws are recorded), and the draws naming their slice.
         struct MaskedCasterSet

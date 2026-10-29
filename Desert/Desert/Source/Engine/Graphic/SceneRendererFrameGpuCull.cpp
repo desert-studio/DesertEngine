@@ -816,7 +816,8 @@ namespace Desert::Graphic
             return;
         }
         const auto rasterBins = m_VirtualGeometry->AddRasterBinning( graph, bins.Scene, vgMeshes, passTable,
-                                                                     bins.Upload.Passes[tableIndex], cut.GetValue() );
+                                                                     bins.Upload.Passes[tableIndex], cut.GetValue(),
+                                                                     System::kVsmClipmapLevelCount );
         if ( !rasterBins )
         {
             m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), nullptr, {} );
@@ -840,21 +841,26 @@ namespace Desert::Graphic
             logOnce( std::format( "VSM levels: {}", drawn.GetError() ) );
             return;
         }
-        // The per-level split of the drawn clusters is not counted yet (REMAINDER-VIRT-GEOM-17): level 0 holds all.
         m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), &raster,
-                                 std::move( drawn.GetValue() ), 0u );
+                                 std::move( drawn.GetValue() ) );
     }
 
     SceneRenderer::VirtualGeometryCounts SceneRenderer::GetVirtualGeometryCounts() const
     {
+        const auto     meshSystem = m_RenderSystems.find( "MeshSystem" );
+        const uint32_t refused =
+             meshSystem == m_RenderSystems.end()
+                  ? 0u
+                  : static_cast<const System::MeshRenderer*>( meshSystem->second.get() )->VsmRefusedGroups();
         if ( !m_ClusterCutCounts )
-            return { .Instances = m_VirtualGeometryInstances };
+            return { .Instances = m_VirtualGeometryInstances, .VsmRefusedGroups = refused };
         const VirtualGeometry::ClusterCutCount& last = m_ClusterCutCounts->LastCount();
         return { .Instances           = m_VirtualGeometryInstances,
                  .ClustersVisible     = last.ClustersVisible,
                  .ClustersDrawn       = last.ClustersDrawn,
                  .ShadowClustersDrawn = last.ShadowClustersDrawn,
                  .VsmClustersDrawn    = last.VsmClustersDrawn,
+                 .VsmRefusedGroups    = refused,
                  .Overflow         = last.Status.StackOverflow + last.Status.VisibleOverflow + last.Status.MissingSlot,
                  .OccludedClusters  = last.Status.OccludedClusters,
                  .BinnedVgInstances = last.Status.BinnedVgInstances };

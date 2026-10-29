@@ -135,7 +135,11 @@ namespace Desert::Graphic::VirtualGeometry
         RDG::BufferRef GroupArgs;  // VkDrawIndirectCommand[GroupCount] - Access::IndirectArgs
         RDG::BufferRef Rows;       // uint32[VisibleCapacity]: a VisibleClusters row per draw instance - vertex input
         RDG::BufferRef VisibleClusters; // the cut's (Common/GpuScene.glslh VgRasterVisibleClusters)
+        // uint32[GroupCount x CountViews]: the clusters of group g in cut view v (AddRasterBinning's countViews;
+        // a one-entry placeholder when CountViews = 0).
+        RDG::BufferRef GroupViewCounts;
         uint32_t       GroupCount = 0;
+        uint32_t       CountViews = 0;
     };
     inline constexpr uint32_t kRasterBinsArgsStride = 16u; // sizeof( VkDrawIndirectCommand )
 
@@ -168,11 +172,14 @@ namespace Desert::Graphic::VirtualGeometry
         // Step 11: "VirtualGeometry: Raster Binning" (Programs/VirtualGeometry/RasterBinning.shader) of @p culled's
         // HW clusters into the material groups of the mesh pass @p passTable / @p passSlots describe (a cluster's
         // group: its DAG submesh's lod-0 slot -> bin -> IndirectGroup). Refused: a pass with no group, missing
-        // tables. A cluster whose submesh does not draw in the pass is binned nowhere.
+        // tables. A cluster whose submesh does not draw in the pass is binned nowhere. @p countViews > 0: the
+        // clusters of cut views [0, countViews) are also counted per (group, view) into RasterBins::GroupViewCounts
+        // (one cut of several views drawn by one raster, the VSM levels: what each view drew).
         [[nodiscard]] Common::ResultStr<RasterBins>
         AddRasterBinning( RDG::Builder& graph, const GpuDriven::GpuSceneBuffers& scene,
                           const VirtualMeshBuffers& meshes, const GpuDriven::PassDrawTable& passTable,
-                          const GpuDriven::PassDrawBuffers& passSlots, const ClusterCullResult& culled ) const;
+                          const GpuDriven::PassDrawBuffers& passSlots, const ClusterCullResult& culled,
+                          uint32_t countViews = 0u ) const;
 
         struct Programs;
 
@@ -206,8 +213,8 @@ namespace Desert::Graphic::VirtualGeometry
         // pass drew (a group with no `.VirtualGeometry` pipeline draws none of the clusters binned into it).
         uint32_t         ClustersDrawn       = 0; // the main view: main + post phase
         uint32_t         ShadowClustersDrawn = 0; // every shadow cascade
-        // Per virtual shadow map clipmap level (index = level): the clusters its "VSM: Raster L<level>" drew; a
-        // level with no cut this frame reads 0. Sized to the highest level cut + 1.
+        // Per virtual shadow map clipmap level (index = level = cut view): the clusters "VSM: Raster
+        // VirtualGeometry" drew into it (RasterBins::GroupViewCounts of the drawn groups); empty with no VSM cut.
         std::vector<uint32_t> VsmClustersDrawn;
         ClusterCutStatus      Status{}; // the main view's main phase
     };
@@ -218,7 +225,7 @@ namespace Desert::Graphic::VirtualGeometry
         Main,          // the main view, phase 1
         PostOcclusion, // the main view, phase 2
         ShadowCascade, // one cascade view
-        VirtualShadow, // one virtual shadow map clipmap level (ClusterCutCounts::Add's level)
+        VirtualShadow, // every virtual shadow map clipmap level, cut view = level (counted per view)
     };
 
     // HOW MANY CLUSTERS THE CUTS DREW (DesertCtl `state views.virtualGeometry`), the CullPhaseCounts pattern: each
@@ -232,9 +239,9 @@ namespace Desert::Graphic::VirtualGeometry
         void BeginFrame( uint64_t frameIndex );
         // Hands this frame's cut @p culled of @p kind. @p bins: its raster's bins when the pass drew them, with
         // @p drawnGroups (one flag per group of bins: the pass drew that group's clusters); null = drew nothing.
-        // @p vsmLevel: the clipmap level of a VirtualShadow cut (ignored for the other kinds).
+        // A VirtualShadow cut's bins carry GroupViewCounts (AddRasterBinning countViews = levels).
         void Add( RDG::Builder& graph, ClusterCutKind kind, const ClusterCullResult& culled, const RasterBins* bins,
-                  std::vector<uint8_t> drawnGroups, uint32_t vsmLevel = 0 );
+                  std::vector<uint8_t> drawnGroups );
         // A frame with no cut: nothing is handed, and the counts read so far are forgotten.
         void                                 Forget();
         [[nodiscard]] const ClusterCutCount& LastCount() const
@@ -245,11 +252,12 @@ namespace Desert::Graphic::VirtualGeometry
     private:
         struct Entry
         {
-            ClusterCutKind       Kind     = ClusterCutKind::Main;
-            uint32_t             VsmLevel = 0; // a VirtualShadow cut's clipmap level
+            ClusterCutKind       Kind = ClusterCutKind::Main;
             RDG::ExternalBuffer  RasterArgs;
             RDG::ExternalBuffer  Status;
-            RDG::ExternalBuffer  GroupArgs; // none: the cut was not drawn
+            RDG::ExternalBuffer  GroupArgs;       // none: the cut was not drawn
+            RDG::ExternalBuffer  GroupViewCounts; // none: not counted per view (RasterBins::CountViews = 0)
+            uint32_t             CountViews = 0;
             std::vector<uint8_t> DrawnGroups;
         };
         struct Slot

@@ -892,18 +892,30 @@ namespace Desert::Graphic::System
         if ( binnedLayer )
             AttachBinned( list, GpuDriven::MeshPass::ShadowCascade, c );
         // A VSM level while the levels' cluster raster is issued this frame (SetVirtualShadowGeometry): the
-        // primitives whose clusters it draws (VsmDrawsClusters) are rastered into the level's pages as clusters,
-        // never also by this walk.
+        // submeshes whose clusters it draws (VsmClusteredSubmeshes) are rastered into the level's pages as
+        // clusters, never also by this walk; the entry's other submeshes are walked as before.
         const bool clustersDrawn = IsVirtualShadowView( c ) && m_VsmGeometry.has_value();
         for ( const auto& rd : m_StaticQueue )
         {
             if ( !drawStatic || rd.Mesh == nullptr || !rd.CastShadows ||
                  !IsVisibleInView( cascadeFrustum, rd.Transform,
                                    Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) ||
-                 heldByBins( rd.GpuPrimitive, rd.HiddenSubmeshes ) ||
-                 ( clustersDrawn && VsmDrawsClusters( rd ) ) )
+                 heldByBins( rd.GpuPrimitive, rd.HiddenSubmeshes ) )
             {
                 continue;
+            }
+            uint64_t hidden = rd.HiddenSubmeshes;
+            if ( clustersDrawn )
+            {
+                const uint64_t clustered = VsmClusteredSubmeshes( rd );
+                if ( clustered != 0u )
+                {
+                    hidden |= clustered;
+                    const size_t   count = rd.Mesh->GetSubmeshes().size();
+                    const uint64_t all   = count >= 64u ? ~uint64_t{ 0 } : ( uint64_t{ 1 } << count ) - 1u;
+                    if ( count <= 64u && ( hidden & all ) == all )
+                        continue; // every submesh it shows is drawn as clusters
+                }
             }
             // The caster takes the material the LIT draw shows, by the same mapping: one entry per section
             // material (Rules::SplitMeshSlotDraws), shaded by SectionSurface, casting only its own submeshes - so
@@ -913,7 +925,7 @@ namespace Desert::Graphic::System
             const DataDrivenMaterial* mat  = slot.Surface;
             if ( !isMasked( mat ) )
             {
-                bucketFor( rd.Mesh, rd.HiddenSubmeshes ).push_back( &rd );
+                bucketFor( rd.Mesh, hidden ).push_back( &rd );
                 continue;
             }
             auto* caster = MaskedCasterMaterial( mat, MeshVertexPath::Static, c );
@@ -937,7 +949,7 @@ namespace Desert::Graphic::System
             draw.Instance  = inst;
             draw.Row       = *row;
             draw.LodLevel  = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
-            draw.HiddenSubmeshMask = rd.HiddenSubmeshes;
+            draw.HiddenSubmeshMask = hidden;
             m_ScratchMaskedDraws.push_back( draw );
         }
 
@@ -980,7 +992,7 @@ namespace Desert::Graphic::System
                         instTransforms.resize( first );
                         for ( std::size_t i = 0; i < bucket.size(); ++i )
                             if ( levels[i] == level )
-                                singles.push_back( bucket[i] );
+                                singles.push_back( { bucket[i], meshKey.second } );
                         continue;
                     }
                     batches.push_back(
@@ -990,7 +1002,7 @@ namespace Desert::Graphic::System
             else
             {
                 for ( const auto* rd : bucket )
-                    singles.push_back( rd );
+                    singles.push_back( { rd, meshKey.second } );
             }
         }
 
@@ -1086,13 +1098,14 @@ namespace Desert::Graphic::System
         }
 
         // Per-object path (singletons).
-        for ( const auto* rd : singles )
+        for ( const ShadowSingle& single : singles )
         {
+            const StaticMeshRenderData* rd = single.Data;
             list.Add( { .Pipeline          = casters.Static,
                         .Mesh              = rd->Mesh,
                         .Transform         = rd->Transform,
                         .Material          = casterExecutor,
-                        .HiddenSubmeshMask = rd->HiddenSubmeshes,
+                        .HiddenSubmeshMask = single.Hidden,
                         .LodLevel          = ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ) } );
         }
 
