@@ -249,6 +249,20 @@ namespace Desert::Graphic::API::Vulkan
                     f.computeFullSubgroups = VK_TRUE;
                     return EnableExtensionFeatures( device, f, spec );
                 }
+                case Capability::VulkanMemoryModel:
+                {
+                    if ( core )
+                    {
+                        VkPhysicalDeviceVulkan12Features f{
+                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+                        f.vulkanMemoryModel = VK_TRUE;
+                        return device.enable_extension_features_if_present( f );
+                    }
+                    VkPhysicalDeviceVulkanMemoryModelFeatures f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES };
+                    f.vulkanMemoryModel = VK_TRUE;
+                    return EnableExtensionFeatures( device, f, spec );
+                }
                 case Capability::CooperativeMatrix:
                 {
                     VkPhysicalDeviceCooperativeMatrixFeaturesKHR f{
@@ -342,6 +356,7 @@ namespace Desert::Graphic::API::Vulkan
             neural.StorageBuffer8BitAccess    = caps.Has( Capability::StorageBuffer8BitAccess );
             neural.SubgroupSizeControl        = caps.Has( Capability::SubgroupSizeControl );
             neural.CooperativeMatrix          = caps.Has( Capability::CooperativeMatrix );
+            neural.VulkanMemoryModel          = caps.Has( Capability::VulkanMemoryModel );
             neural.MaxPushConstantsSize       = device.properties.limits.maxPushConstantsSize;
             neural.MaxComputeSharedMemorySize = device.properties.limits.maxComputeSharedMemorySize;
 

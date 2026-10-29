@@ -29,6 +29,7 @@
 #include "Editor/Panels/Scalability/AntiAliasingPaletteCommands.hpp"
 #include "Editor/Panels/Scalability/QualityLevelPaletteCommands.hpp"
 #include "Editor/Panels/Scalability/DisplayOutputPaletteCommands.hpp"
+#include "Editor/Panels/Scalability/NeuralPaletteCommands.hpp"
 #include "Editor/Panels/SceneHierarchy/SceneHierarchyPanel.hpp"
 #include "Editor/Panels/UI/UICommands.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
@@ -105,6 +106,13 @@ namespace Desert::Editor
                              []( Out& out )
                              {
                                  for ( PaletteCommand& command : DisplayOutputPaletteCommands() )
+                                     out.push_back( std::move( command ) );
+                             } );
+        // The NN layer's forced kernel path (NN-RUNTIME): machine.json ForcedNeuralKernelPath, read by nn-check.
+        m_Commands.Register( "Neural",
+                             []( Out& out )
+                             {
+                                 for ( PaletteCommand& command : NeuralPaletteCommands() )
                                      out.push_back( std::move( command ) );
                              } );
         m_Commands.Register( "Clouds",

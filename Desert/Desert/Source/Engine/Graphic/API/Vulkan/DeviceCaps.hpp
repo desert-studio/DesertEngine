@@ -62,6 +62,9 @@ namespace Desert::Graphic::API::Vulkan
         StorageBuffer8BitAccess,
         SubgroupSizeControl,
         CooperativeMatrix,
+        // glslang declares every cooperative-matrix module under the Vulkan memory model (OpMemoryModel Vulkan,
+        // capability VulkanMemoryModel), so the coopmat kernels need the feature enabled (NN-RUNTIME step 2).
+        VulkanMemoryModel,
 
         Count
     };

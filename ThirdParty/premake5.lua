@@ -36,6 +36,9 @@ include( buildScripts .. "/FidelityFX.lua" )
 -- ever committed — the Release job died on LNK1181 from the day it existed.
 include( buildScripts .. "/ReflectCpp.lua" )
 
+-- SPIRV-Cross core + GLSL, from the vendored sources (ThirdParty/SPIRV-Cross/VERSION.txt); see the file.
+include( buildScripts .. "/SPIRVCross.lua" )
+
 -- gtest, from the vendored v1.17.0 sources — Windows only; the unix-likes link the
 -- package manager's build by name (see the file for why).
 if os.target() == "windows" then

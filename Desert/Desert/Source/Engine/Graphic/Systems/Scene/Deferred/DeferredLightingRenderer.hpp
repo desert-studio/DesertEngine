@@ -136,68 +136,22 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override
         {
-            auto* const shaders                = Runtime::ResourceRegistry::GetShaderService();
-            m_Programs[kCascadeProgram].Shader = shaders->GetByName( "DeferredLighting" );
+            m_Programs[kCascadeProgram].Shader =
+                 Runtime::ResourceRegistry::GetShaderService()->GetByName( "DeferredLighting" );
             if ( !m_Programs[kCascadeProgram].Shader )
                 return Common::MakeError( "DeferredLighting shader not found" );
-            // The screen-mask permutation (the ray-traced sun, the virtual shadow map): ScreenShadowMaskTexture in
-            // place of ShadowCascadesTexture.
-            // Shadows Stochastic: the ray-traced sun's mask, and the local lights from MegaLights in place of the
-            // light-grid loop and its shadow maps. Shadows HardwareTraced: the ray-traced sun's mask, and the local
-            // lights' ray-traced masks by slot. Each from the one list the cook ships (ProgramVariants).
-            for ( std::size_t index = kScreenMaskSunProgram; index < m_Programs.size(); ++index )
-                m_Programs[index].Shader = shaders->AcquireVariant( "DeferredLighting", ProgramVariant( index ) );
-
-            const auto& target = m_TargetFramebuffer.lock();
-            if ( !target )
-                return Common::MakeError( "Deferred lighting target framebuffer missing" );
-
-            GraphicsPipelineSpecification spec;
-            spec.TargetLayout = SceneTargetLayout();
-            // Fullscreen composite over the forward-rendered scene: no depth test/write (the quad has no
-            // meaningful depth), and LOAD the target so the real sky/grid drawn by the forward passes are
-            // preserved — the shader discards non-geometry texels so that scene shows through.
-            spec.DepthTestEnabled  = false;
-            spec.DepthWriteEnabled = false;
-            m_Refusals             = {};
+            m_Refusals = {};
             for ( std::size_t index = 0; index < m_Programs.size(); ++index )
             {
-                CompositeProgram& program = m_Programs[index];
-                // Each permutation names its own pipeline, so a device-lost report says which sun arm drew.
-                const std::string programName{ kProgramDebugNames[index] };
-                Common::BoolResultStr built = BOOLSUCCESS;
-                if ( !program.Shader )
-                    built =
-                         Common::MakeError( std::format( "the '{}' permutation did not compile", programName ) );
-                else
-                {
-                    spec.DebugName      = programName;
-                    spec.Shader         = program.Shader;
-                    const auto pipeline = Graphic::GraphicsPipeline::Create( spec );
-                    if ( pipeline )
-                        program.Pipeline = pipeline.GetValue();
-                    else
-                        built = Common::MakeError( pipeline.GetError() );
-                }
+                const Common::BoolResultStr built = BuildProgram( index );
                 if ( built )
-                {
-                    program.Material = std::make_unique<MaterialDeferredLighting>( program.Shader );
                     continue;
-                }
                 // The cascades' program draws CascadedMaps, the ladder's front: without it there is no deferred
                 // composite at all. Any other program serves only the Shadows methods it is named for: those are
                 // refused by name (ResolveRenderMethods walks on down the ladder), the composite keeps the rest.
-                const std::span<const Common::Scalability::ShadowMethod> methods = kProgramShadowMethods[index];
-                if ( methods.empty() )
+                if ( kProgramShadowMethods[index].empty() )
                     return Common::MakeError( std::format( "Deferred lighting: {}", built.GetError() ) );
-                program = CompositeProgram{};
-                for ( const Common::Scalability::ShadowMethod method : methods )
-                {
-                    m_Refusals.Shadows.push_back( { .Refused = method, .Program = kProgramDebugNames[index] } );
-                    LOG_ERROR( "[DeferredLighting] Shadows {} refused on this device: {}",
-                               Common::Scalability::kShadowMethodNames[static_cast<std::size_t>( method )],
-                               built.GetError() );
-                }
+                RefuseProgram( index, built.GetError() );
             }
 
             m_GridShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "LightGridBuild" );
@@ -220,6 +174,22 @@ namespace Desert::Graphic::System
         [[nodiscard]] const ProgramRefusals& Refusals() const
         {
             return m_Refusals;
+        }
+
+        // The programs refused at Initialize (or at the last retry) are acquired and built again - the shader
+        // service recompiled a program since (SceneRenderer::RetryRefusedProgramsAfterRecompile), so new bytes may
+        // build. Refusals() then holds exactly the programs that still do not, each with its current reason; the
+        // programs that built are left as they are. Says nothing: the scene renderer reports each refusal once.
+        void RetryRefusedPrograms()
+        {
+            m_Refusals = {};
+            for ( std::size_t index = kScreenMaskSunProgram; index < m_Programs.size(); ++index )
+            {
+                if ( m_Programs[index].Pipeline )
+                    continue;
+                if ( const Common::BoolResultStr built = BuildProgram( index ); !built )
+                    RefuseProgram( index, built.GetError() );
+            }
         }
 
         // The "Light Grid (World)" view mode's pipeline for a target of @p format at @p samples (the view's post
@@ -559,6 +529,61 @@ namespace Desert::Graphic::System
         static constexpr std::array<std::span<const Common::Scalability::ShadowMethod>, 4> kProgramShadowMethods =
              { std::span<const Common::Scalability::ShadowMethod>{}, kScreenMaskSunMethods, kMegaLightsMethods,
                kRayTracedLocalMethods };
+        // Program @p index made ready to draw: the permutation acquired from the shader service (the cascades'
+        // program keeps the shader Initialize looked up), its pipeline over the scene target and its material.
+        // On an error the program is left empty and the error is the reason it was refused.
+        Common::BoolResultStr BuildProgram( const std::size_t index )
+        {
+            CompositeProgram& program = m_Programs[index];
+            program                   = CompositeProgram{ .Shader = std::move( program.Shader ) };
+            // The screen-mask permutation (the ray-traced sun, the virtual shadow map): ScreenShadowMaskTexture in
+            // place of ShadowCascadesTexture.
+            // Shadows Stochastic: the ray-traced sun's mask, and the local lights from MegaLights in place of the
+            // light-grid loop and its shadow maps. Shadows HardwareTraced: the ray-traced sun's mask, and the local
+            // lights' ray-traced masks by slot. Each from the one list the cook ships (ProgramVariants).
+            if ( index != kCascadeProgram )
+            {
+                auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+                     "DeferredLighting", ProgramVariant( index ) );
+                if ( !acquired )
+                {
+                    program = CompositeProgram{};
+                    return Common::MakeError( std::string( acquired.GetError() ) );
+                }
+                program.Shader = acquired.ExtractValue();
+            }
+            const auto& target = m_TargetFramebuffer.lock();
+            if ( !target )
+            {
+                program = CompositeProgram{};
+                return Common::MakeError( "Deferred lighting target framebuffer missing" );
+            }
+            GraphicsPipelineSpecification spec;
+            spec.TargetLayout = SceneTargetLayout();
+            // Fullscreen composite over the forward-rendered scene: no depth test/write (the quad has no
+            // meaningful depth), and LOAD the target so the real sky/grid drawn by the forward passes are
+            // preserved — the shader discards non-geometry texels so that scene shows through.
+            spec.DepthTestEnabled  = false;
+            spec.DepthWriteEnabled = false;
+            // Each permutation names its own pipeline, so a device-lost report says which sun arm drew.
+            spec.DebugName      = std::string( kProgramDebugNames[index] );
+            spec.Shader         = program.Shader;
+            const auto pipeline = Graphic::GraphicsPipeline::Create( spec );
+            if ( !pipeline )
+            {
+                program = CompositeProgram{};
+                return Common::MakeError( std::string( pipeline.GetError() ) );
+            }
+            program.Pipeline = pipeline.GetValue();
+            program.Material = std::make_unique<MaterialDeferredLighting>( program.Shader );
+            return BOOLSUCCESS;
+        }
+        // Each Shadows method program @p index alone serves is refused by its name for @p reason.
+        void RefuseProgram( const std::size_t index, const std::string_view reason )
+        {
+            for ( const Common::Scalability::ShadowMethod method : kProgramShadowMethods[index] )
+                AddRefusal( m_Refusals.Shadows, method, kProgramDebugNames[index], reason );
+        }
         std::array<CompositeProgram, 4> m_Programs;
         ProgramRefusals                 m_Refusals;
         std::size_t                     m_Active = kCascadeProgram; // FillMaterial's arm, this frame

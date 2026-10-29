@@ -14,30 +14,25 @@ namespace Desert::Engine
             return value ? "yes" : "no";
         }
 
+        // The tile must accumulate in fp32: the weight gradient is a sum over the batch, and an fp16 accumulator's
+        // bound for it (batch * 2^-10, 1.0 at a 1024 batch) leaves nothing a training step can use (tiny-cuda-nn
+        // accumulates weight gradients in fp32 too). A device with only fp16-accumulating tiles takes the fp16 path.
         bool IsFp16Shape( const CooperativeMatrixShape& shape )
         {
-            const bool accumulates =
-                 ( shape.C == NeuralScalar::Float32 && shape.Result == NeuralScalar::Float32 ) ||
-                 ( shape.C == NeuralScalar::Float16 && shape.Result == NeuralScalar::Float16 );
             return shape.SubgroupScope && shape.A == NeuralScalar::Float16 && shape.B == NeuralScalar::Float16 &&
-                   accumulates && !shape.SaturatingAccumulation;
+                   shape.C == NeuralScalar::Float32 && shape.Result == NeuralScalar::Float32 &&
+                   !shape.SaturatingAccumulation;
         }
 
-        // fp32 accumulation first (a network's sums lose precision in fp16), then the largest tile, then the
-        // smallest K (fewer padding columns for a narrow layer).
+        // The largest tile, then the smallest K (fewer padding columns for a narrow layer).
         bool Better( const CooperativeMatrixShape& candidate, const CooperativeMatrixShape& best )
         {
-            const bool candidateFp32 = candidate.C == NeuralScalar::Float32;
-            const bool bestFp32      = best.C == NeuralScalar::Float32;
-            if ( candidateFp32 != bestFp32 )
-                return candidateFp32;
             const uint64_t candidateSize = uint64_t( candidate.M ) * candidate.N * candidate.K;
             const uint64_t bestSize      = uint64_t( best.M ) * best.N * best.K;
             if ( candidateSize != bestSize )
                 return candidateSize > bestSize;
             return candidate.K < best.K;
         }
-
     } // namespace
 
     const char* NeuralKernelPathName( NeuralKernelPath path )
@@ -98,6 +93,8 @@ namespace Desert::Engine
 
         std::vector<std::string>              coopMissing = fp16Missing;
         std::optional<CooperativeMatrixShape> tile;
+        if ( !caps.VulkanMemoryModel )
+            coopMissing.emplace_back( "vulkanMemoryModel" );
         if ( !caps.CooperativeMatrix )
             coopMissing.emplace_back( "cooperativeMatrix" );
         else
@@ -108,7 +105,7 @@ namespace Desert::Engine
                 if ( IsFp16Shape( shape ) && ( !tile || Better( shape, *tile ) ) )
                     tile = shape;
             if ( !tile )
-                coopMissing.emplace_back( "a subgroup f16*f16 cooperative-matrix shape" );
+                coopMissing.emplace_back( "a subgroup f16*f16+f32 cooperative-matrix shape" );
         }
 
         caps.Tile = {};
@@ -141,12 +138,14 @@ namespace Desert::Engine
             line += std::format( " ({})", caps.Reason );
         line += std::format(
              " | shaderFloat16={} shaderInt8={} storageBuffer16BitAccess={} storageBuffer8BitAccess={} "
-             "subgroupSizeControl={} cooperativeMatrix={} cooperativeMatrixCompute={} | subgroupSize={} "
+             "subgroupSizeControl={} cooperativeMatrix={} cooperativeMatrixCompute={} vulkanMemoryModel={} | "
+             "subgroupSize={} "
              "minSubgroupSize={} maxSubgroupSize={} computeRequiredSubgroupSize={} "
              "maxPushConstantsSize={} maxComputeSharedMemorySize={} | coopmat shapes {}:",
              YesNo( caps.ShaderFloat16 ), YesNo( caps.ShaderInt8 ), YesNo( caps.StorageBuffer16BitAccess ),
              YesNo( caps.StorageBuffer8BitAccess ), YesNo( caps.SubgroupSizeControl ),
-             YesNo( caps.CooperativeMatrix ), YesNo( caps.CooperativeMatrixInCompute ), caps.SubgroupSize,
+             YesNo( caps.CooperativeMatrix ), YesNo( caps.CooperativeMatrixInCompute ),
+             YesNo( caps.VulkanMemoryModel ), caps.SubgroupSize,
              caps.MinSubgroupSize, caps.MaxSubgroupSize, YesNo( caps.ComputeSubgroupSizeRequirable ),
              caps.MaxPushConstantsSize, caps.MaxComputeSharedMemorySize, caps.CooperativeMatrixShapes.size() );
         if ( caps.CooperativeMatrixShapes.empty() )

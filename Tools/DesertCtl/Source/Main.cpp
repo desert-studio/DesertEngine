@@ -86,6 +86,13 @@ namespace
                       "  advance <seconds>             during Play: answered once the simulated clock has\n"
                       "                                moved on that far (0 < seconds <= 2)\n"
                       "  quit [code]                   end the session with that exit status\n"
+                      "  nn-check                      run the NN layer's fused MLP on the GPU against its CPU\n"
+                      "                                reference: machine.json's forced kernel path, or every\n"
+                      "                                path; a path the device lacks is listed \"refused\" with\n"
+                      "                                its reason. Exit 0 when every run is within tolerance, or\n"
+                      "                                when the forced path is one the device lacks (expected\n"
+                      "                                refusal); a refusal of a path the device claims (compile,\n"
+                      "                                pipeline, readback) or an auto check that ran nothing is 1\n"
                       "  add-component <uuid|selected> <Type>\n"
                       "                                add a component as Details' Add Component does (one\n"
                       "                                undo step); Type = its Details or reflected name\n"
@@ -406,6 +413,10 @@ static int RunTool( int argc, char** argv )
     if ( operation == "commands" )
     {
         request = R"({"id":1,"op":"commands"})";
+    }
+    else if ( operation == "nn-check" )
+    {
+        request = R"({"id":1,"op":"nn-check"})";
     }
     else if ( operation == "run" )
     {

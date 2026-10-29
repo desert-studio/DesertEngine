@@ -271,7 +271,9 @@ namespace Desert::Graphic::API::Vulkan
         // Shared memory above the device's maxComputeSharedMemorySize is not an error the driver must report
         // (Vulkan guarantees only 16 KiB); the program is refused here, by name and with both numbers, so its
         // owner refuses itself instead of dispatching something undefined.
-        if ( stage == Core::Formats::ShaderStage::Compute )
+        // Only over a stage ReflectStage took: a module SPIRV-Cross refused to parse is refused already, and parsing
+        // it again here would throw the same exception past every handler (ReflectStage's function-try-block).
+        if ( stage == Core::Formats::ShaderStage::Compute && diagnostics.empty() )
         {
             const uint64_t shared  = ShaderReflection::ReflectWorkgroupMemoryBytes( spirv );
             const uint32_t allowed = EngineContext::GetInstance().GetCapabilities().MaxComputeSharedMemorySize;

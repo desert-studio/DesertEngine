@@ -248,14 +248,14 @@ namespace Desert::Graphic
             error = std::format( "{}: no shader service to compile '{}' ({})", DebugName(), kShaderName, define );
             return nullptr;
         }
-        const std::shared_ptr<Shader> shader = service->AcquireVariant( kShaderName, QualityVariant( index ) );
-        if ( !shader )
+        auto acquired = service->AcquireVariant( kShaderName, QualityVariant( index ) );
+        if ( !acquired )
         {
-            error = std::format( "{}: the shader '{}' ({}) did not compile — expected "
-                                 "Editor/Resources/Shaders/Programs/TemporalAA/TemporalAA.shader",
-                                 DebugName(), kShaderName, define );
+            error = std::format( "{}: the shader '{}' ({}) was refused: {}", DebugName(), kShaderName, define,
+                                 acquired.GetError() );
             return nullptr;
         }
+        const std::shared_ptr<Shader> shader = acquired.ExtractValue();
         const std::string pipelineName = std::format( "{} ({})", kShaderName, define );
         const auto        built = ComputePipeline::Create( { .Shader = shader, .DebugName = pipelineName } );
         if ( !built )

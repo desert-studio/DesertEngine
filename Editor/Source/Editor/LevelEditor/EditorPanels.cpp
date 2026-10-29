@@ -14,7 +14,6 @@
 #include "Editor/Panels/Build/ContentChunksPanel.hpp"
 #include "Editor/Panels/Clouds/CloudsPanel.hpp"
 #include "Editor/Panels/Collections/CollectionsPanel.hpp"
-#include "Editor/Panels/Debug/ShaderLibraryPanel.hpp"
 #include "Editor/Panels/Debug/ParticleDebuggerPanel.hpp"
 #include "Editor/Panels/Debug/UIDebuggerPanel.hpp"
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
@@ -51,7 +50,6 @@ namespace Desert::Editor
         EditorPanelHandles handles;
         panels.Add<Editor::SceneHierarchyPanel>( workspace.ActiveScene(), assetManager );
         panels.Add<Editor::ScenePropertiesPanel>( workspace.ActiveScene(), assetManager, animationLibrary.get() );
-        panels.Add<Editor::ShaderLibraryPanel>();
         panels.Add<Editor::ParticleDebuggerPanel>( workspace.ActiveScene() );
         {
             auto primaryViewport =
