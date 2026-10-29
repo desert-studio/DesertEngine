@@ -160,7 +160,16 @@ namespace Desert::Editor
             int64_t                                                       Id = 0;
             std::string                                                   Forced;
             std::vector<std::unique_ptr<Engine::Neural::FusedMlpCheckRun>> Runs;
-            std::vector<std::pair<std::string, std::string>>              Refused; ///< path, why not run
+            /// A path that did not run. DeviceLacksIt: the resolver refused it because the device does not
+            /// expose what it needs - an expected answer. Otherwise the device claims the path and the kernel,
+            /// its pipeline or its readback refused - a defect, and the check fails on it.
+            struct Refusal
+            {
+                std::string Path;
+                std::string Reason;
+                bool        DeviceLacksIt = false;
+            };
+            std::vector<Refusal> Refused;
         };
         /// DeviceSnapshot::NnLastCheck: the last completed nn-check's (path, verdict), every asked path once.
         std::vector<std::pair<std::string, std::string>> m_NnLastCheck;

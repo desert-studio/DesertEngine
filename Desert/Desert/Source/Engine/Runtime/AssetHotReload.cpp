@@ -538,6 +538,9 @@ namespace Desert::Runtime
                 LOG_ERROR( "[HotReload] Failed to re-read shader '{}': {}", key, res.GetError() );
                 continue;
             }
+            // The file's bytes changed: every variant refused from the old bytes is asked again on its next
+            // AcquireVariant, and a refusal that remains is reported again (ShaderService::ClaimRefusalReport).
+            shaderService->ForgetRefusalsOf( handle );
 
             // Pre-validate the DSL structure: the preprocessor treats a malformed file as a fatal
             // engine error (DESERT_VERIFY), which is right at startup but must not kill a live

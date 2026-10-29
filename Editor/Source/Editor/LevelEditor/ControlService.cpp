@@ -709,7 +709,7 @@ namespace Desert::Editor
             if ( const auto runnable = Neural::ResolveNeuralKernelPath( caps, path ); !runnable )
             {
                 LOG_INFO( "[nn_check] path={} not run: {}", name, runnable.GetError() );
-                pending.Refused.emplace_back( name, runnable.GetError() );
+                pending.Refused.push_back( { name, runnable.GetError(), true } );
                 continue;
             }
             // A refused kernel (ShaderService::AcquireVariant's compile/reflect reason, a pipeline refusal) is
@@ -718,7 +718,7 @@ namespace Desert::Editor
             if ( !submitted )
             {
                 LOG_ERROR( "[nn_check] path={} refused: {}", name, submitted.GetError() );
-                pending.Refused.emplace_back( name, submitted.GetError() );
+                pending.Refused.push_back( { name, submitted.GetError(), false } );
                 continue;
             }
             pending.Runs.push_back( submitted.ExtractValue() );
@@ -766,8 +766,12 @@ namespace Desert::Editor
             LOG_INFO( "[nn_check6] {}", line );
             appendSummary( line );
         };
-        for ( const auto& [name, reason] : m_NnCheck->Refused )
-            refuse( name, reason );
+        bool deviceRefused = false; // a path the device claims and the kernel/pipeline/readback refused
+        for ( const auto& refusal : m_NnCheck->Refused )
+        {
+            refuse( refusal.Path, refusal.Reason );
+            deviceRefused = deviceRefused || !refusal.DeviceLacksIt;
+        }
 
         bool pass = true;
         bool ran  = false;
@@ -778,6 +782,7 @@ namespace Desert::Editor
             if ( !checked )
             {
                 refuse( name, checked.GetError() );
+                deviceRefused = true;
                 continue;
             }
             ran                                    = true;
@@ -818,9 +823,16 @@ namespace Desert::Editor
                                                                    check.MaskFlips, check.Tolerance ) );
         }
         m_NnLastCheck = std::move( verdicts );
-        // Refused paths are reported, not failed: a device that cannot run coopmat_fp16 still passes on the paths
-        // it can. A check where NOTHING ran, or a path out of tolerance, is a failure - its text lists every path.
-        if ( !ran )
+        // A path the DEVICE LACKS is reported, not failed: a device without coopmat_fp16 still passes on the paths
+        // it can, and a forced path it lacks is the expected answer to that request (reply ok, the path listed
+        // "refused" with the resolver's reason, DesertCtl exit 0). A refusal on a path the device CLAIMS (the
+        // kernel did not compile/reflect, the pipeline or the readback failed) is a defect and fails the check,
+        // as does an unforced check where nothing ran or a path out of tolerance - the text lists every path.
+        if ( deviceRefused )
+            return Control::Response::Failure(
+                 id, std::format( "nn-check refused a path the device claims: {}", summary ) );
+        const bool expectedRefusal = !ran && m_NnCheck->Forced != "auto";
+        if ( !ran && !expectedRefusal )
             return Control::Response::Failure( id, std::format( "nn-check ran no path: {}", summary ) );
         if ( !pass )
             return Control::Response::Failure( id, std::format( "nn-check out of tolerance: {}", summary ) );
@@ -833,7 +845,9 @@ namespace Desert::Editor
                                                                     shape.OutputDims ) );
         payload["batch"]  = Control::StateDetail::Num( Neural::kFusedMlpCheckBatch );
         payload["runs"]   = Common::Json::Value( runs );
-        payload["pass"]   = Common::Json::Value( pass );
+        payload["pass"]   = Common::Json::Value( pass && ran );
+        if ( expectedRefusal )
+            payload["refused"] = Control::StateDetail::Str( summary );
         return Control::Response::Success( id, std::move( payload ) );
     }
 

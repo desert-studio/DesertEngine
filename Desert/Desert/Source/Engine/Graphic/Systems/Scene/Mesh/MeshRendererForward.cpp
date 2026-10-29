@@ -371,8 +371,9 @@ namespace Desert::Graphic::System
                     auto acquired = shaders->AcquireVariant( programName, permutation );
                     if ( !acquired )
                     {
-                        LOG_ERROR( "[MeshRenderer] forward program '{}' not drawn: {}", programName,
-                                   acquired.GetError() );
+                        if ( shaders->ClaimRefusalReport( programName, permutation ) )
+                            LOG_ERROR( "[MeshRenderer] forward program '{}' not drawn: {}", programName,
+                                       acquired.GetError() );
                         continue;
                     }
                     shader = acquired.ExtractValue();
@@ -765,11 +766,13 @@ namespace Desert::Graphic::System
         const Core::ShaderVariant permutation = ForwardShadowMaskVariant( *shader, rayTracedSun, localShadowMasks );
         if ( !permutation.IsDefault() )
         {
-            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
+            Runtime::ShaderService* shaders  = Runtime::ResourceRegistry::GetShaderService();
+            auto                    acquired = shaders->AcquireVariant( shaderName, permutation );
             if ( !acquired )
             {
-                LOG_ERROR( "[MeshRenderer] generic forward pipeline of '{}' not ready: {}", shaderName,
-                           acquired.GetError() );
+                if ( shaders->ClaimRefusalReport( shaderName, permutation ) )
+                    LOG_ERROR( "[MeshRenderer] generic forward pipeline of '{}' not ready: {}", shaderName,
+                               acquired.GetError() );
                 return false;
             }
             program = acquired.ExtractValue();

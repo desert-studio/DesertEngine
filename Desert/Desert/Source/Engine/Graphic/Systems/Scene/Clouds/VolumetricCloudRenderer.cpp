@@ -570,10 +570,11 @@ namespace Desert::Graphic::System
                 // Named, and then the SHIPPED program is used: an authored medium that will not compile
                 // must not take the sky away with it. The material editor's own error is the place the
                 // artist reads why; here the frame keeps drawing.
-                LOG_ERROR( "[Clouds] the authored medium could not be compiled into '{}' — that program "
-                           "falls back to the shipped medium, so this frame's sky is judged by two "
-                           "different fields: {}",
-                           name, acquired.GetError() );
+                if ( shaderService->ClaimRefusalReport( name, m_MediumVariant ) )
+                    LOG_ERROR( "[Clouds] the authored medium could not be compiled into '{}' — that program "
+                               "falls back to the shipped medium, so this frame's sky is judged by two "
+                               "different fields: {}",
+                               name, acquired.GetError() );
                 return shaderService->GetByName( name );
             }
             hold = acquired.ExtractValue();

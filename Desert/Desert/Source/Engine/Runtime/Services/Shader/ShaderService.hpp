@@ -44,6 +44,27 @@ namespace Desert::Runtime
         Common::ResultStr<std::shared_ptr<Graphic::Shader>> AcquireVariant( const std::string&            name,
                                                                             const Graphic::ShaderVariant& variant );
 
+        /**
+         * @brief Whether the caller holding AcquireVariant's refusal of (@p name, @p variant) is the one to
+         *        report it: true exactly once per refusal REASON, false for every later frame that is refused
+         *        for the same reason. The one mechanism behind "a refused shader is said once, not every
+         *        frame" - the callers keep logging in their own terms, they only ask this first.
+         *
+         * The service remembers the last refusal of each (name, variant) AcquireVariant made. A different
+         * reason (the source was edited and fails elsewhere) is a new refusal and answers true again; a
+         * success, a hot reload of the shader's file (ForgetRefusalsOf) and a re-Register of the name forget
+         * it, so a fixed shader that is broken again is reported again.
+         *
+         * Asked about a pair with no standing refusal it answers true: whoever asks has a refusal in hand,
+         * and suppressing one the service does not know of would be the silent failure this exists to avoid.
+         */
+        [[nodiscard]] bool ClaimRefusalReport( const std::string& name, const Graphic::ShaderVariant& variant );
+
+        /// Forget every standing refusal of the variants built from @p handle - the hot-reload poll calls it when
+        /// it re-read that file, so the next AcquireVariant compiles the new source and a refusal that remains is
+        /// reported again with its new reason (and one that is gone draws, and says nothing).
+        void ForgetRefusalsOf( const Assets::AssetHandle& handle );
+
         /// Every (name, variant) AcquireVariant was asked for with ShippedByCook this session, once each - the census
         /// the package cook (PackageCook CookShaderVariants) checks its cooked set against: a recorded request the
         /// cook does not ship is a permutation a package would refuse by name, so the cook fails on it instead.
@@ -126,6 +147,25 @@ namespace Desert::Runtime
         };
         // Keyed "<name>#<16 hex digits of the variant hash>". Weak, for the reason in AcquireVariant.
         std::unordered_map<std::string, VariantEntry> m_Variants;
+
+        /// The standing refusal of one (name, variant), keyed as m_Variants is. A COMPILE refusal is also an
+        /// answer: the same bytes under the same variant fail the same way, so AcquireVariant returns it without
+        /// recompiling (UE: a failed shader map is not recompiled until its source changes) - otherwise every
+        /// frame that asks would pay a glslang compile to learn what it was told the frame before. The other
+        /// refusals (expired asset, unreadable source, unknown name) are re-asked, they can change by themselves.
+        struct Refusal
+        {
+            Assets::AssetHandle Handle;  ///< null when the name itself was unknown
+            std::string         Program; ///< the registered program the name resolved to (or the name)
+            std::string         Reason;
+            bool                Compile  = false;
+            bool                Reported = false; ///< ClaimRefusalReport answered true for this Reason
+        };
+        std::unordered_map<std::string, Refusal> m_Refusals;
+        /// Record (or keep) the refusal of @p key and return it as AcquireVariant's error.
+        Common::ResultStr<std::shared_ptr<Graphic::Shader>> Refuse( const std::string& key, Refusal refusal );
+        /// Forget the refusals of names that resolve to @p program (Register of that name).
+        void ForgetRefusalsOfProgram( const std::string& program );
         // The ShippedByCook census (ShippedByCookRequests), keyed as m_Variants is. Never pruned: a request is a
         // fact about what the runtime selects, not about what is live.
         std::unordered_map<std::string, Core::CookedProgramVariant> m_ShippedByCookRequests;

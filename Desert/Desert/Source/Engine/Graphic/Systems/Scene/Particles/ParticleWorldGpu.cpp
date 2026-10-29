@@ -180,7 +180,8 @@ namespace Desert::Graphic::System
         auto acquired = shaders->AcquireVariant( "ParticleSimulate", variant );
         if ( !acquired )
         {
-            LOG_ERROR( "[VFX] stack {} has no host program: {}", name, acquired.GetError() );
+            if ( shaders->ClaimRefusalReport( "ParticleSimulate", variant ) )
+                LOG_ERROR( "[VFX] stack {} has no host program: {}", name, acquired.GetError() );
             return nullptr;
         }
         const auto shader = acquired.ExtractValue();

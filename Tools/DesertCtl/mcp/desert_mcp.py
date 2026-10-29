@@ -221,8 +221,9 @@ TOOLS = [
             "reference on a fixed seeded batch: machine.json's forced kernel path (palette group Neural, "
             "'Neural: Kernel path Fp32|Fp16|CoopMatFp16|Auto'), or every path the device runs. Returns per path "
             "max abs / rel error of outputs and weight gradients and the ReLU mask-flip count, or 'refused' with the reason (device cannot run it, or the kernel's "
-            "compile/reflect error); an error when no path ran or a "
-            "path is out of tolerance (1e-5 fp32, 1e-2 fp16)."
+            "compile/reflect error). An error when a path the device claims is refused (compile, pipeline, "
+            "readback), when an unforced check ran no path, or when a path is out of tolerance (1e-5 fp32, "
+            "1e-2 fp16); a FORCED path the device lacks is the expected answer: ok, listed 'refused'."
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },

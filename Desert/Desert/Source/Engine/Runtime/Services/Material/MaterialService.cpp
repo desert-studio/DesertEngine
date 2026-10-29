@@ -286,13 +286,15 @@ namespace Desert::Runtime
                            permutation.VirtualSources.size() );
                 return nullptr;
             }
-            auto acquired = ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
+            ShaderService* shaders  = ResourceRegistry::GetShaderService();
+            auto           acquired = shaders->AcquireVariant( shaderName, permutation );
             if ( !acquired )
             {
-                LOG_ERROR( "[Materials] Material '{}': the permutation ({} define(s)) of the cell '{}' was "
-                           "refused; the draw asking for it is refused: {}",
-                           asset->GetMetadata().Filepath.generic_string(), permutation.Defines.size(),
-                           shaderName, acquired.GetError() );
+                if ( shaders->ClaimRefusalReport( shaderName, permutation ) )
+                    LOG_ERROR( "[Materials] Material '{}': the permutation ({} define(s)) of the cell '{}' was "
+                               "refused; the draw asking for it is refused: {}",
+                               asset->GetMetadata().Filepath.generic_string(), permutation.Defines.size(),
+                               shaderName, acquired.GetError() );
                 return nullptr;
             }
             auto variant = std::make_shared<Graphic::DataDrivenMaterial>( acquired.ExtractValue() );

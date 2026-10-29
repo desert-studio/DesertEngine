@@ -190,7 +190,8 @@ namespace Desert::Graphic::System
                                                                                            *clouds.Medium );
             if ( acquired )
                 shader = acquired.ExtractValue();
-            else
+            else if ( Runtime::ResourceRegistry::GetShaderService()->ClaimRefusalReport( kCloudSkyBakeShaderName,
+                                                                                         *clouds.Medium ) )
                 LOG_ERROR( "[SkyCapture] the authored cloud medium could not be compiled into BakeProceduralSky "
                            "-- the sky light of this scene uses the shipped medium, so the world is lit "
                            "by a different sky than the one on screen: {}",
