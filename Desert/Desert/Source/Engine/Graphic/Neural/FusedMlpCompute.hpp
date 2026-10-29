@@ -167,7 +167,6 @@ namespace Desert::Engine::Neural
 
         NeuralKernelPath             m_Path = NeuralKernelPath::Fp32;
         std::string                  m_Tile;
-        bool                         m_AccumulateFp16 = false; ///< coopmat_fp16 on a tile with an fp16 C
         FusedMlpProblem              m_Problem;
         uint64_t                     m_SubmittedFrame = 0;
         Graphic::RDG::ExternalBuffer m_Output;

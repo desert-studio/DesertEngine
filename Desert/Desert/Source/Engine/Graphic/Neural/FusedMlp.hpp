@@ -136,8 +136,8 @@ namespace Desert::Engine::Neural
     // THE WEIGHT GRADIENT'S BOUND, derived, relative to WeightGradMagnitude: every backward layer rounds the
     // products, a 64-long sum and the store of g; the weight gradient rounds the product g h and a batch-long sum.
     // One ulp per rounding of the format it rounds to (products and stores: fp16 on the fp16 paths; sums: the
-    // accumulator, fp16 when `accumulateFp16` = the coopmat tile accumulates in fp16). The 5-hidden-layer,
-    // batch-1024 check: fp16 1.09e-2, fp32 1.6e-4; with an fp16 accumulator the batch sum alone is 1.0.
-    [[nodiscard]] double FusedMlpGradientTolerance( NeuralKernelPath path, bool accumulateFp16,
-                                                    const FusedMlpShape& shape, uint32_t batch );
+    // accumulator, always fp32: IsFp16Shape takes no fp16-accumulating tile). The 5-hidden-layer,
+    // batch-1024 check: fp16 1.09e-2, fp32 1.6e-4.
+    [[nodiscard]] double FusedMlpGradientTolerance( NeuralKernelPath path, const FusedMlpShape& shape,
+                                                    uint32_t batch );
 } // namespace Desert::Engine::Neural

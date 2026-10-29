@@ -275,14 +275,13 @@ namespace Desert::Engine::Neural
         return path == NeuralKernelPath::Fp32 ? 1e-5 : 1e-2;
     }
 
-    double FusedMlpGradientTolerance( const NeuralKernelPath path, const bool accumulateFp16,
-                                      const FusedMlpShape& shape, const uint32_t batch )
+    double FusedMlpGradientTolerance( const NeuralKernelPath path, const FusedMlpShape& shape, const uint32_t batch )
     {
         // One ulp of the format each operation rounds to: Vulkan leaves a conversion's and an fp16 product's
         // rounding mode to the implementation (round-to-nearest OR toward zero), so a rounding is bounded by one
         // ulp, not half. Products and stores round to nn_t (fp16 on the fp16 paths); sums to the accumulator.
         const double product    = std::ldexp( 1.0, path == NeuralKernelPath::Fp32 ? -23 : -10 );
-        const double accumulate = std::ldexp( 1.0, accumulateFp16 ? -10 : -23 );
+        const double accumulate = std::ldexp( 1.0, -23 ); // every accumulator is fp32 (IsFp16Shape)
         // Each backward layer adds, relative to the propagated magnitude m (RunReference): the product, a
         // W-long sum and the store of g. The deepest weight gradient (matrix 0) sits HiddenLayers backward layers
         // below dL/dy (stored exactly: the fp16 reference holds the fp16-rounded dL/dy); its own step adds the

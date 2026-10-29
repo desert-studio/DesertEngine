@@ -189,8 +189,6 @@ namespace Desert::Engine::Neural
             variant.Defines.push_back( std::format( "NN_TM={}", tile.M ) );
             variant.Defines.push_back( std::format( "NN_TN={}", tile.N ) );
             variant.Defines.push_back( std::format( "NN_TK={}", tile.K ) );
-            if ( tile.C == NeuralScalar::Float16 )
-                variant.Defines.emplace_back( "NN_ACC_FP16" );
 
             auto requested = CoopMatSubgroupRequest( m_Caps );
             if ( !requested )
@@ -373,10 +371,7 @@ namespace Desert::Engine::Neural
         run->m_Path    = path;
         run->m_Problem = MakeSeededFusedMlpProblem( kFusedMlpCheckShape, kFusedMlpCheckBatch, kFusedMlpCheckSeed );
         if ( path == NeuralKernelPath::CoopMatFp16 )
-        {
-            run->m_Tile           = FormatCooperativeMatrixShape( caps.Tile );
-            run->m_AccumulateFp16 = caps.Tile.C == NeuralScalar::Float16; // the kernel's NN_ACC_FP16
-        }
+            run->m_Tile = FormatCooperativeMatrixShape( caps.Tile );
         const FusedMlpProblem& problem = run->m_Problem;
 
         RDG::Builder graph( "NeuralFusedMlpCheck" );
@@ -487,7 +482,7 @@ namespace Desert::Engine::Neural
         check.MaskFlips =
              CountReluMaskFlips( gpu.Activations, reference->Activations, problem.Shape, problem.Batch );
         check.Tolerance         = FusedMlpTolerance( m_Path );
-        check.GradientTolerance = FusedMlpGradientTolerance( m_Path, m_AccumulateFp16, problem.Shape, problem.Batch );
+        check.GradientTolerance = FusedMlpGradientTolerance( m_Path, problem.Shape, problem.Batch );
         check.Pass = check.Output.Rel <= check.Tolerance && check.WeightGrad.Rel <= check.GradientTolerance;
         return Common::MakeSuccess( std::move( check ) );
     }
