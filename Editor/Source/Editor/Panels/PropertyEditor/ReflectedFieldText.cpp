@@ -351,16 +351,49 @@ namespace Desert::Editor
                     return Common::MakeError<bool>(
                          std::format( "'{}.{}' is not a list, so [{}] addresses nothing", type->Name, field->Name,
                                       *split.Index ) );
-                if ( dot != std::string_view::npos )
-                    return Common::MakeError<bool>( std::format(
-                         "'{}.{}[{}]' is a value, so '{}' addresses nothing inside it", type->Name, field->Name,
-                         *split.Index, rest.substr( dot + 1 ) ) );
                 void*             container = at + field->Offset;
                 const std::size_t count     = field->ContainerSize ? field->ContainerSize( container ) : 0;
                 if ( *split.Index >= count )
                     return Common::MakeError<bool>(
                          std::format( "'{}.{}' has {} element(s), so [{}] is past its end", type->Name,
                                       field->Name, count, *split.Index ) );
+                if ( dot != std::string_view::npos )
+                {
+                    // ONE FIELD OF A STRUCT ELEMENT (VFX.Overrides[0].Value, UE Remote Control's property path
+                    // through an array of structs): the element travels as a Value of its ScriptStruct, so its
+                    // field is parsed by that field's own type, set in the element, and the element written
+                    // back through ContainerSet as one undoable element edit.
+                    const std::string_view leaf    = rest.substr( dot + 1 );
+                    Value                  element = field->ContainerGet( container, *split.Index );
+                    const auto*            data    = element.Get<Value::StructData>();
+                    const TypeInfo*        inner =
+                         data != nullptr ? Reflection::ReflectionRegistry::Get().Find( data->Type ) : nullptr;
+                    if ( inner == nullptr || leaf.find( '.' ) != std::string_view::npos ||
+                         leaf.find( '[' ) != std::string_view::npos )
+                        return Common::MakeError<bool>(
+                             std::format( "'{}.{}[{}]' is a value, so '{}' addresses nothing inside it",
+                                          type->Name, field->Name, *split.Index, leaf ) );
+                    const FieldInfo* sub = nullptr;
+                    for ( const FieldInfo& candidate : inner->Fields )
+                        if ( candidate.Name == leaf )
+                            sub = &candidate;
+                    if ( sub == nullptr )
+                        return Common::MakeError<bool>(
+                             std::format( "'{}' has no field '{}'", inner->Name, leaf ) );
+                    const auto parsed = Parse( *sub, text );
+                    if ( !parsed )
+                        return Common::MakeError<bool>( parsed.GetError() );
+                    Value::StructData edited = *data;
+                    edited.Fields.Set( std::string( leaf ), parsed.GetValue() );
+                    Value after = Value::MakeStruct( edited.Type, std::move( edited.Fields ) );
+                    if ( !field->ContainerSet( container, *split.Index, after ) )
+                        return Common::MakeError<bool>( std::format( "'{}.{}[{}].{}' refused the value '{}'",
+                                                                     type->Name, field->Name, *split.Index, leaf,
+                                                                     text ) );
+                    history.PushFieldCommand( std::make_unique<ContainerElementCommand>(
+                         *field, container, *split.Index, std::move( element ), std::move( after ) ) );
+                    return Common::MakeSuccess( true );
+                }
                 FieldInfo element = *field;
                 element.Type      = field->ElementType;
                 const auto parsed = Parse( element, text );
