@@ -1,0 +1,74 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "8d2b6f4e1c9a4b7d9e3f5a2c7b1d4e66",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": [
+            "bcefeba392c545f6b95dcb1c2554b7a8"
+        ]
+    },
+    "Shader": {
+        "Guid": "bcefeba392c545f6b95dcb1c2554b7a8",
+        "Path": "engine:Shaders/Programs/Water/WaterSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "ScatteringCoefficients",
+            "Value": [
+                0.35,
+                0.4,
+                0.15,
+                1.0
+            ]
+        },
+        {
+            "Name": "AbsorptionCoefficients",
+            "Value": [
+                1.2,
+                0.9,
+                1.6,
+                1.0
+            ]
+        },
+        {
+            "Name": "PhaseG",
+            "Value": [
+                0.6,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "ColorScaleBehindWater",
+            "Value": [
+                0.7,
+                0.65,
+                0.45,
+                1.0
+            ]
+        },
+        {
+            "Name": "Roughness",
+            "Value": [
+                0.12,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "RefractionStrength",
+            "Value": [
+                15.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        }
+    ],
+    "Textures": [],
+    "CloudAssets": []
+}

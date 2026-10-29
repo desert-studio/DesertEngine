@@ -1,0 +1,20 @@
+// The water mesh's tile rows (Water::WaterTileInstance; UE's FStagingInstanceData, unpacked), read by the
+// WaterMesh vertex path (Mesh/Surface/Vertex_WaterMesh.glslh) and mirrored on the CPU by
+// Graphic/Systems/Scene/Water/WaterRenderer.cpp (WaterTileRow).
+#ifndef DESERT_WATER_MESH_TILES_GLSLH
+#define DESERT_WATER_MESH_TILES_GLSLH
+
+struct WaterTileRow
+{
+    vec4 Tile; // xy = lower (X, Z) corner relative to the zone origin, z = still level Y, w = side length
+    vec4 Lod;  // x = LOD level, y = 1 if it morphs, z = 1 if it can morph twice, w = height LOD factor
+    vec4 Zone; // xy = the zone's world (X, Z) origin, z = LOD scale (cm), w = quads per side
+};
+
+// Binding 24: free in every surface cell (the mesh paths' own are 1, 13, 17; the pass headers' 7-22, 27).
+layout( std430, binding = 24 ) readonly buffer WaterTiles
+{
+    WaterTileRow WaterTileRows[];
+};
+
+#endif // DESERT_WATER_MESH_TILES_GLSLH
