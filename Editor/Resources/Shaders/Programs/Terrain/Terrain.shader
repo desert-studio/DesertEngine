@@ -275,7 +275,8 @@ Shader "Terrain"
             // TwoSidedFoliage with the cover's SubsurfaceColor where the cover lies, DefaultLit on bare ground.
             vec3           transmission;
             float          cover;
-            TerrainSurface s = EvaluateTerrainSurfaceCovered( Material.Tint.rgb, transmission, cover );
+            float          opacity;
+            TerrainSurface s = EvaluateTerrainSurfaceCovered( Material.Tint.rgb, transmission, cover, opacity );
             vec3 N           = s.N;
             const int  model = cover > 0.0 ? SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE : SHADING_MODEL_INDEX_DEFAULT_LIT;
 
@@ -284,7 +285,7 @@ Shader "Terrain"
             const DesertSurface surface = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos, s.Albedo, 0.0, s.Roughness,
                                                              0.5 ); // UE's default Specular, as TerrainGBuffer packs
             const vec3          sss     = sqrt( clamp( transmission, 0.0, 1.0 ) );
-            const DesertPayload payload = cover > 0.0 ? DesertPayload( sss.r, sss.g, sss.b, cover )
+            const DesertPayload payload = cover > 0.0 ? DesertPayload( sss.r, sss.g, sss.b, opacity )
                                                       : DesertPayload( 0.0, 0.0, 0.0, 0.0 );
 
             // The sun, occluded by the cascades and its contact shadow, then by the cloud layer - the order

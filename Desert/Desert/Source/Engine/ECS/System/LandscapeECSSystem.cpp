@@ -431,7 +431,8 @@ namespace Desert::ECS
         // its material's tint, subsurface colour and roughness. Weighted by leaf area across the varieties.
         struct CoverSum
         {
-            float     Lai = 0.0f, ColourLai = 0.0f, Start = 0.0f, End = 0.0f, Roughness = 0.0f, MinWeight = 1.0f;
+            float     Lai = 0.0f, ColourLai = 0.0f, Start = 0.0f, End = 0.0f, Roughness = 0.0f, Opacity = 0.0f,
+                      MinWeight = 1.0f;
             glm::vec3 Albedo{ 0.0f }, Subsurface{ 0.0f };
         };
         std::vector<CoverSum> coverSums( grassLayers.size() );
@@ -618,7 +619,8 @@ namespace Desert::ECS
                                 for ( const auto& c : v.Blade->Cards )
                                     rects.emplace_back( c[0], c[1], c[2], c[3] );
                             GrassSections::CoverLook sum;
-                            float                    count = 0.0f;
+                            sum.Coverage = 0.0f;
+                            float count  = 0.0f;
                             for ( size_t si = 0; si < sections.Sections.size(); ++si )
                             {
                                 const std::optional<Common::Content::AssetGuid> material =
@@ -647,11 +649,14 @@ namespace Desert::ECS
                                                 glm::vec3( m.GetVec4( "ClumpTintWarm", glm::vec4( 1.0f ) ) ) );
                                 sum.Subsurface += glm::vec3( m.GetVec4( "SubsurfaceColor", glm::vec4( 1.0f ) ) );
                                 sum.Roughness += m.GetFloat( "RoughnessFactor", 1.0f );
+                                sum.Opacity += m.GetFloat( "SubsurfaceOpacity", 1.0f );
+                                sum.Coverage += look.GetValue().Coverage;
                                 count += 1.0f;
                             }
                             if ( count > 0.0f )
-                                sections.Cover = GrassSections::CoverLook{ sum.Albedo / count, sum.Subsurface / count,
-                                                                           sum.Roughness / count };
+                                sections.Cover = GrassSections::CoverLook{
+                                     sum.Albedo / count, sum.Subsurface / count, sum.Roughness / count,
+                                     sum.Opacity / count, sum.Coverage / count };
                         }
                     }
                     Graphic::System::GrassVarietyDraw variety;
@@ -717,7 +722,10 @@ namespace Desert::ECS
                             for ( const auto& c : v.Blade->Cards )
                                 aspect += ( c[2] - c[0] ) / std::max( c[3] - c[1], 1.0e-4f );
                             aspect /= static_cast<float>( std::max<size_t>( v.Blade->Cards.size(), 1u ) );
-                            area = v.Blade->Height * v.Blade->Height * aspect *
+                            // Only the share of the strip its mask keeps is leaf (GrassCoverLook::Coverage, from
+                            // the atlas): the rest is the soil the near field shows between its blades.
+                            const float leaf = sections.Cover ? sections.Cover->Coverage : 1.0f;
+                            area             = v.Blade->Height * v.Blade->Height * aspect * leaf *
                                    ( uniform ? meanX * meanX : meanX * meanUp ) *
                                    ( 1.0f - 0.5f * v.Blade->Patchiness );
                         }
@@ -740,6 +748,7 @@ namespace Desert::ECS
                             sum.Albedo += lai * sections.Cover->Albedo;
                             sum.Subsurface += lai * sections.Cover->Subsurface;
                             sum.Roughness += lai * sections.Cover->Roughness;
+                            sum.Opacity += lai * sections.Cover->Opacity;
                         }
                     }
                     variety.Wind =
@@ -758,7 +767,8 @@ namespace Desert::ECS
             GrassCoverValues& c = covers[grassLayers[k]->LayerName];
             c.Cover             = glm::vec4( sum.Albedo / sum.ColourLai, sum.Lai );
             c.Light             = glm::vec4( sum.Subsurface / sum.ColourLai, sum.Roughness / sum.ColourLai );
-            c.Range             = glm::vec4( sum.Start / sum.Lai, sum.End / sum.Lai, sum.MinWeight, 0.0f );
+            c.Range             = glm::vec4( sum.Start / sum.Lai, sum.End / sum.Lai, sum.MinWeight,
+                                                sum.Opacity / sum.ColourLai );
         }
         if ( !draw.Varieties.empty() )
             renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeGrassCommand>( std::move( draw ) );

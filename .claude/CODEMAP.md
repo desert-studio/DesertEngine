@@ -23,7 +23,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Animation/Rig` — 12 files, 4,516 lines: ControlBoneDrive, ControlDrag, ControlElement, ControlHierarchy, ControlKeyTarget, ControlKeyer, ControlLimit, ControlRigStage, ControlShape, ControlShapeDraw, ControlShapeLibrary, ControlShapePolyline, … (+16)
 - `Animation/Solvers` — 2 files, 270 lines: TwoBoneIKChain, TwoBoneIKGoal, TwoBoneIKSolution
 - `Animation/Timeline` — 18 files, 4,867 lines: AnimationSample, AnimationSectionContent, ApplyReport, AudioCommand, AudioSample, AudioSectionContent, AudioVoices, Binding, BindingGuid, BoneBindingTable, BoneRename, BoolChannel, … (+26)
-- `Assets` — 136 files, 29,836 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+139)
+- `Assets` — 136 files, 29,853 lines: AnimGraphAsset, AssetBase, AssetDependency, AssetEviction, AssetEvictionSchedule, AssetGuidRef, AssetKey, AssetManager, AssetMetadata, AssetRef, AssetRefSite, AssetRootPin, … (+139)
 - `Assets/Mesh` — 14 files, 2,929 lines: AnimationAsset, MeshAsset, ReloadTwinTag, SkeletonAsset, SkeletonReferrers, SkinnedMeshAsset, StaticMeshAsset, SurfaceMaterialAsset
 - `Assets/Prefab` — 9 files, 1,503 lines: AnimationComponentSer, EntityData, InstanceRootTransform, InstancedStaticMeshComponentSer, MaterialComponentSer, MaterialParamSer, MaterialTextureSer, PrefabAsset, PrefabBoundsSer, PrefabData, PrefabDiffReport, PrefabOverrideData, … (+6)
 - `Assets/Serialization` — 44 files, 11,285 lines: AnimationAssetData, Box, ControlDriveData, ControlElementData, ControlLimitData, ControlRigData, ControlSpaceData, CookedPanorama, Document, FoliageFloatInterval, FoliageProcedural, FoliageScaleCurveKey, … (+77)
@@ -42,7 +42,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Traits` — 1 files, 17 lines
 - `Destruction` — 16 files, 3,480 lines: BodyRef, BodyState, BoxFalloff, BrickSettings, CellBounds, ConvexCell, CutPlane, DestructibleDesc, DestructionEvent, DestructionSettings, DestructionWorld, FieldCommand, … (+25)
 - `ECS` — 46 files, 8,892 lines: AlwaysLoadedComponent, AnchorFieldComponent, AnchorFieldData, AnimationComponent, AppliedLayerLink, AtmosphereSunPick, AudioSourceComponent, AudioSourceData, Bound, CameraComponent, CameraData, CharacterControllerComponent, … (+175)
-- `ECS/System` — 53 files, 9,742 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, Built, ColliderMesh, ComponentEventCursor, ComponentEventSystem, CoverLook, … (+46)
+- `ECS/System` — 53 files, 9,754 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, Built, ColliderMesh, ComponentEventCursor, ComponentEventSystem, CoverLook, … (+46)
 - `GameplayDebugger` — 5 files, 566 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerShape, IGameplayDebuggerCategory
 - `GameplayTags` — 1 files, 113 lines: GameplayTag, GameplayTagContainer, GameplayTagRegistry
 - `Generated` — 31 files, 2,447 lines
@@ -248,7 +248,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `.` — 8 files, 2,817 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
-- `Common` — 104 files, 15,464 lines
+- `Common` — 104 files, 15,469 lines
 - `Editor` — 1 files, 147 lines
 - `Generated` — 2 files, 81 lines
 - `Mesh` — 15 files, 1,535 lines
@@ -289,11 +289,11 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/Sky` — 5 files, 737 lines
 - `Programs/Skybox` — 1 files, 87 lines
 - `Programs/Subsurface` — 2 files, 262 lines
-- `Programs/Surface` — 7 files, 665 lines
+- `Programs/Surface` — 7 files, 670 lines
 - `Programs/SurfaceCache` — 6 files, 968 lines
 - `Programs/TemporalAA` — 7 files, 904 lines
 - `Programs/TemporalSuperResolution` — 10 files, 1,882 lines
-- `Programs/Terrain` — 12 files, 1,695 lines
+- `Programs/Terrain` — 12 files, 1,701 lines
 - `Programs/Text` — 3 files, 158 lines
 - `Programs/Toon` — 2 files, 177 lines
 - `Programs/UI` — 7 files, 517 lines
