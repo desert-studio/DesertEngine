@@ -1,0 +1,11 @@
+# Desert/Render2DCore/premake5.lua: the Render2DCore static library (module "Render2DCore", own project).
+desert_glob(_sources "Source/Render2DCore/*.cpp" "Source/Render2DCore/*.hpp")
+desert_add_library(Render2DCore SOURCES "Source/pch.cpp" "Source/pch.hpp" ${_sources})
+desert_enable_unity(Render2DCore)
+target_precompile_headers(Render2DCore PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/pch.hpp")
+target_include_directories(Render2DCore PRIVATE "Source/")
+desert_closure_includes(Render2DCore Render2DCore)
+target_link_libraries(Render2DCore PRIVATE Common)
+desert_external_includes(Render2DCore ${DESERT_COMMON_INCLUDE_DIRS} ${DESERT_COMMONSPECIFIC_INCLUDE_DIRS})
+target_compile_definitions(Render2DCore PRIVATE ${DESERT_COMMON_DEFINES})
+desert_config_platform_defines(Render2DCore)

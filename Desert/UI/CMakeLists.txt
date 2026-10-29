@@ -1,0 +1,11 @@
+# Desert/UI/premake5.lua: the DesertUI static library (module "DesertUI", own project).
+desert_glob(_sources "Source/UI/*.cpp" "Source/UI/*.hpp")
+desert_add_library(DesertUI SOURCES "Source/pch.cpp" "Source/pch.hpp" ${_sources})
+desert_enable_unity(DesertUI)
+target_precompile_headers(DesertUI PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/pch.hpp")
+target_include_directories(DesertUI PRIVATE "Source/")
+desert_closure_includes(DesertUI DesertUI)
+target_link_libraries(DesertUI PRIVATE Render2DCore Common)
+desert_external_includes(DesertUI ${DESERT_COMMON_INCLUDE_DIRS} ${DESERT_COMMONSPECIFIC_INCLUDE_DIRS})
+target_compile_definitions(DesertUI PRIVATE ${DESERT_COMMON_DEFINES})
+desert_config_platform_defines(DesertUI)

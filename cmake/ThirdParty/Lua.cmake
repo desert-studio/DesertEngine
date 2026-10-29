@@ -1,0 +1,16 @@
+# BuildScripts/ThirdParty/Lua.lua: PUC Lua as a C library, archive named LuaPuc. `lua_ident` is renamed so it
+# cannot collide with Luau's symbol of the same name in one binary.
+set(_root "${DESERT_ROOT}/ThirdParty/lua")
+file(GLOB _src CONFIGURE_DEPENDS "${_root}/*.c" "${_root}/*.h")
+list(SORT _src)
+list(REMOVE_ITEM _src "${_root}/lua.c" "${_root}/onelua.c" "${_root}/ltests.c")
+desert_add_library(Lua FOLDER ThirdParty SOURCES ${_src})
+set_target_properties(Lua PROPERTIES OUTPUT_NAME LuaPuc)
+target_compile_definitions(Lua PRIVATE lua_ident=desert_puc_lua_ident)
+if(DESERT_IS_MACOS)
+    set_target_properties(Lua PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_compile_definitions(Lua PRIVATE LUA_USE_MACOSX)
+elseif(DESERT_IS_LINUX)
+    set_target_properties(Lua PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_compile_definitions(Lua PRIVATE LUA_USE_LINUX)
+endif()
