@@ -209,7 +209,9 @@ namespace Desert::ECS
                         Vertex vtx{};
                         vtx.Position = { x, y, 0.0F };
                         vtx.Normal   = { 0.0f, 0.0f, 1.0f };
-                        vtx.TexCoord = { u, v };
+                        // The ONE mesh UV convention (ShaderProtocols/VertexInputs.hpp MeshVertexAccessGlsl): stored
+                        // V up, so the mesh vertex factory's DesertMeshTextureUV hands the atlas its top-left V.
+                        vtx.TexCoord = { u, 1.0F - v };
                         verts.push_back( vtx );
                         mn = glm::min( mn, vtx.Position );
                         mx = glm::max( mx, vtx.Position );

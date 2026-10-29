@@ -8,6 +8,7 @@
 #include <Common/BindlessTextures.glslh>
 #include <Common/RayTracingHitTriangle.glslh>
 #include <Common/SdfText.glslh>
+#include <Mesh/MeshVertexAccess.glslh> // the stored glyph UV is the mesh convention (TextECSSystem)
 
 // The label's hit-group row. C++ twin: Graphic/Systems/RayTracing/TextRayTracing.hpp TextRayHit
 // (kTextRayHitRowSlots).

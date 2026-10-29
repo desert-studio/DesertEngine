@@ -2690,6 +2690,30 @@ namespace Desert::Core::Preprocess
             return fail();
         }
 
+        // A GENERIC PROGRAM (a mesh-domain program without a Surface block) writes fragment stages only: its
+        // vertex stage is the mesh vertex factory (kGenericVertexPath; assembled below by assembleGenericPass).
+        const bool genericProgram = !surfaceBlock && Formats::DrawnByMeshPath( result.Meta.Domain );
+        if ( genericProgram )
+        {
+            const auto refuseVertex = [&]( const PendingPass& pending )
+            {
+                const auto vertex = pending.Blocks.find( ShaderStage::Vertex );
+                if ( vertex == pending.Blocks.end() )
+                    return false;
+                err = {
+                     vertex->second.StartLine,
+                     std::format( "a generic program's vertex stage is the mesh vertex factory ({}): delete the "
+                                  "Vertex block and read v_Surface in the Fragment stage",
+                                  SurfaceVertexInclude( kGenericVertexPath ) ) };
+                return true;
+            };
+            if ( refuseVertex( defaultPass ) )
+                return fail();
+            for ( const auto& pass : namedPasses )
+                if ( refuseVertex( pass ) )
+                    return fail();
+        }
+
         // A Particle fragment and its domain come together, and nothing else beside them: stages next to it
         // would be a program no simulation ever selects.
         if ( !result.Meta.ParticleSource.empty() )
@@ -2801,6 +2825,54 @@ namespace Desert::Core::Preprocess
             out.State = state;
             for ( const auto& [stage, block] : pending.Blocks )
                 out.Stages.emplace( stage, AssembleStage( stage, block, includeBlock, autoDecls ) );
+            return out;
+        };
+
+        // A generic program's pass (kGenericVertexPath): the vertex stage is the mesh vertex factory, the author's
+        // fragment reads its varyings. @p binned assembles the `.Binned` twin the GPU-driven bins draw: the vertex
+        // stage resolves the draw from its instance id, the fragment's `Material` reads the row it handed down (a
+        // macro, expanded in the author's code after DESERT_SURFACE_VARYINGS declared v_Surface). A pass without a
+        // Fragment stage (a ray tracing pass) is assembled as written.
+        const auto assembleGenericPass = [&]( const PendingPass& pending, const ShaderRenderState& state,
+                                              const std::string& name, const bool binned )
+        {
+            const auto fragment = pending.Blocks.find( ShaderStage::Fragment );
+            if ( fragment == pending.Blocks.end() )
+            {
+                DShaderPass out = assemblePass( pending, state );
+                out.Name        = name;
+                return out;
+            }
+            const std::string_view kind =
+                 pending.Name == kGenericDepthNormalPass ? kGenericDepthNormalPass : kGenericForwardPassKind;
+            const std::string defines =
+                 std::format( "#define DESERT_SURFACE_PASS_{} 1\n#define {} 1\n{}", kind, kGenericProgramDefine,
+                              binned ? std::format( "#define {} 1\n", kSurfaceBinnedDefine ) : std::string() );
+            DShaderPass out;
+            out.Name  = name;
+            out.State = state;
+            for ( const auto& [stage, block] : pending.Blocks )
+            {
+                if ( stage == ShaderStage::Fragment )
+                    continue;
+                out.Stages.emplace( stage, AssembleStage( stage, block, includeBlock, autoDecls ) );
+            }
+            RawBlock vertex;
+            vertex.StartLine = 1;
+            vertex.Content   = std::format( "{}#include <{}>\n#include <{}>\n", defines, kSurfaceTypesInclude,
+                                            SurfaceVertexInclude( kGenericVertexPath ) );
+            out.Stages.emplace( ShaderStage::Vertex,
+                                AssembleStage( ShaderStage::Vertex, vertex, includeBlock, {} ) );
+            RawBlock fragmentCode;
+            fragmentCode.StartLine = 1;
+            fragmentCode.Content   = std::format(
+                 "{}#include <{}>\nDESERT_SURFACE_VARYINGS( in )\n#line {}\n{}\n", defines, kSurfaceTypesInclude,
+                 fragment->second.StartLine > 0 ? fragment->second.StartLine - 1 : 0, fragment->second.Content );
+            const std::string fragmentDecls = binned ? std::format( "#define {} v_Surface.MaterialRow\n{}",
+                                                                    kSurfaceMaterialRowMacro, autoDecls )
+                                                     : autoDecls;
+            out.Stages.emplace( ShaderStage::Fragment, AssembleStage( ShaderStage::Fragment, fragmentCode,
+                                                                      includeBlock, fragmentDecls ) );
             return out;
         };
 
@@ -3124,11 +3196,15 @@ namespace Desert::Core::Preprocess
         // The default program is the top-level stage set; when a shader consists solely of
         // named passes, the first pass IS the default program (ShaderProgramMeta::DefaultPassName, below).
         if ( !defaultPass.Blocks.empty() )
-            result.Passes.push_back( assemblePass( defaultPass, defaultPass.State ) );
+            result.Passes.push_back(
+                 genericProgram ? assembleGenericPass( defaultPass, defaultPass.State, defaultPass.Name, false )
+                                : assemblePass( defaultPass, defaultPass.State ) );
 
         for ( const auto& pass : namedPasses )
         {
-            result.Passes.push_back( assemblePass( pass, MergeState( defaultPass.State, pass.State ) ) );
+            const ShaderRenderState state = MergeState( defaultPass.State, pass.State );
+            result.Passes.push_back( genericProgram ? assembleGenericPass( pass, state, pass.Name, false )
+                                                    : assemblePass( pass, state ) );
             result.Meta.PassNames.push_back( pass.Name );
             if ( std::any_of( result.Passes.back().Stages.begin(), result.Passes.back().Stages.end(),
                               []( const auto& stage ) { return Formats::IsRayTracingStage( stage.first ); } ) )
@@ -3147,6 +3223,35 @@ namespace Desert::Core::Preprocess
                  "deferred path's depth/normal prepass draws it (write depth and DesertWriteDepthNormal, "
                  "Mesh/Generic/DepthNormal.glslh)",
                  result.Name, Formats::ShaderDomainName( result.Meta.Domain ), kGenericDepthNormalPass );
+
+        // THE BINNED TWINS of an opaque generic program (kGenericForwardBinnedPass,
+        // kGenericDepthNormalBinnedPass), after every declared pass so the default program and the pass order are
+        // unchanged. The forward twin is the default program's (the top-level stage set, or the first named pass
+        // that is not the depth-normal one).
+        if ( genericProgram && !defaultPass.State.Blend.value_or( false ) &&
+             defaultPass.State.DepthWrite.value_or( true ) )
+        {
+            const PendingPass* forward     = defaultPass.Blocks.empty() ? nullptr : &defaultPass;
+            const PendingPass* depthNormal = nullptr;
+            for ( const auto& pass : namedPasses )
+            {
+                if ( pass.Name == kGenericDepthNormalPass )
+                    depthNormal = &pass;
+                else if ( forward == nullptr )
+                    forward = &pass;
+            }
+            const auto twin = [&]( const PendingPass& pending, const std::string_view name )
+            {
+                const ShaderRenderState state =
+                     &pending == &defaultPass ? defaultPass.State : MergeState( defaultPass.State, pending.State );
+                result.Passes.push_back( assembleGenericPass( pending, state, std::string( name ), true ) );
+                result.Meta.PassNames.emplace_back( name );
+            };
+            if ( forward != nullptr )
+                twin( *forward, kGenericForwardBinnedPass );
+            if ( depthNormal != nullptr )
+                twin( *depthNormal, kGenericDepthNormalBinnedPass );
+        }
 
         // A surface template's default program is NAMED, never positional: kSurfaceDefaultCell. A template
         // whose cell set lost it is refused here by name, rather than having some other cell stand in for it.

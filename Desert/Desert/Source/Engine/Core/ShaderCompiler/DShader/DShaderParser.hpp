@@ -182,6 +182,26 @@ namespace Desert::Core::Preprocess
     // discards there exactly as its default program does. The deferred path draws it in "Deferred: Forward
     // Depth/Normal" so the G-buffer's screen-space readers see the forward-shaded mesh (UE: the depth prepass).
     inline constexpr std::string_view kGenericDepthNormalPass = "DepthNormal";
+    // THE GENERIC PROGRAM'S VERTEX STAGE IS THE MESH VERTEX FACTORY (UE: every material is drawn through a vertex
+    // factory, so every mesh draw can be cached and GPU-culled). A mesh-domain program without a Surface block
+    // writes FRAGMENT stages only; a `Vertex` block in it is a parse error. Every pass's vertex stage is
+    // Mesh/Surface/Vertex_<kGenericVertexPath>.glslh, the same header the Surface templates' Static cells use,
+    // assembled with DESERT_SURFACE_PASS_<kGenericForwardPassKind> (the default and every named pass) or
+    // DESERT_SURFACE_PASS_DepthNormal (the kGenericDepthNormalPass pass), plus kGenericProgramDefine. Each
+    // fragment stage is prefixed with SurfaceTypes.glslh and DESERT_SURFACE_VARYINGS( in ), and reads
+    // v_Surface.{WorldPosition, Normal, UV0, UV1, TBN, VertexColor}. A hand-written vertex stage is how 3D text
+    // came to multiply the GpuScene-relative push transform by the camera alone and draw every label at the
+    // origin.
+    inline constexpr std::string_view kGenericVertexPath      = "Static";
+    inline constexpr std::string_view kGenericForwardPassKind = "Forward";
+    inline constexpr std::string_view kGenericProgramDefine   = "DESERT_GENERIC_PROGRAM";
+    // THE BINNED TWINS of an OPAQUE generic program (no Blend, ZWrite on): its forward program and its
+    // depth-normal program again with kSurfaceBinnedDefine, the vertex stage resolving World / material row from
+    // the instance id and the fragment's `Material` reading v_Surface.MaterialRow. The GPU-driven bins draw them
+    // in GpuDriven::MeshPass::Forward (forward path) and GpuDriven::MeshPass::DepthPrepass (the deferred path's
+    // "Deferred: Forward Depth/Normal"). A translucent generic program (text) has none: it is sorted, not binned.
+    inline constexpr std::string_view kGenericForwardBinnedPass     = "Forward.Binned";
+    inline constexpr std::string_view kGenericDepthNormalBinnedPass = "DepthNormal.Binned";
     // THE DEFAULT PROGRAM AND THE DEFAULT CELL ARE ONE PROGRAM (UE: one FMaterialShaderMap entry per cell, not a
     // copy for the lookup by name). Every consumer that enumerates a template's cells — ShaderService's
     // registration, the boot content's shader maps, the package cook, the shader map key — compiles the default
