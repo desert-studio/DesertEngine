@@ -14,10 +14,6 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Engine/Graphic/TextureStreamingDemand.hpp>
-
-#include <format>
-#include <string>
-#include <unordered_map>
 #include <Engine/Graphic/VisibilityCulling.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -517,22 +513,6 @@ namespace Desert::Graphic::System
                                 static_cast<int32_t>( std::floor( lo.y / cell ) ) - 1,
                                 static_cast<int32_t>( std::ceil( ( hi.x - lo.x ) / cell ) ) + 2,
                                 static_cast<int32_t>( std::ceil( ( hi.y - lo.y ) / cell ) ) + 2 );
-        { // GRASS-SETTLE p17 probe (temporary): a variety's GPU count by bucket, when it moves by a fifth
-            static std::unordered_map<uint64_t, uint32_t> s_Last;
-            uint32_t& last = s_Last[variety.Key];
-            const uint32_t total = fedBack ? counted[buckets] : 0u;
-            if ( total * 5u > last * 6u || total * 6u < last * 5u )
-            {
-                std::string perBucket;
-                for ( uint32_t b = 0; b < buckets; ++b )
-                    perBucket += std::format( " {}/{}", counted[b], capacities[b] );
-                LOG_INFO( "[P17G] variety {:016x} layer {} idx {} total {} (was {}) buckets{} cells {},{} {}x{} "
-                          "settle {} radius {:.0f} eye {:.0f},{:.0f}",
-                          variety.Key, variety.Layer, gpu.Index, total, last, perBucket, gpu.Cells.x, gpu.Cells.y,
-                          gpu.Cells.z, gpu.Cells.w, gpu.SettleReads, radius, eye.x, eye.y );
-                last = total;
-            }
-        }
         return &gpu;
     }
 

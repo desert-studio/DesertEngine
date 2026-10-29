@@ -4,7 +4,6 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
-#include <unordered_map>
 #include <unordered_set>
 
 // GPU-INSTANCED SECTIONS (GpuInstances.hpp): the landscape grass. The transforms and the instance count are the
@@ -101,27 +100,6 @@ namespace Desert::Graphic::System
             if ( !materialRow || !LendMaterialTable( *cell ) )
                 continue;
             const uint32_t row = *materialRow;
-            { // GRASS-SETTLE p17 probe (temporary)
-                struct Seen { const void* Cell; const void* Inst; const void* Buf; uint32_t Row; const void* Mat; bool Bad; };
-                static std::unordered_map<uint32_t, Seen> s_Seen;
-                const auto  expect = MeshRendererDetail::EffectiveRow( parent, gpu.Material.get() );
-                const auto& image  = m_GpuScene->DebugMaterialSlots();
-                const size_t first = static_cast<size_t>( row ) * expect.size();
-                bool bad = first + expect.size() > image.size();
-                for ( size_t i = 0; !bad && i < expect.size(); ++i )
-                    bad = image[first + i] != expect[i];
-                const Seen now{ cell, instance.get(), m_GpuScene->GetMaterialsBuffer().get(), row, gpu.Material.get(), bad };
-                auto [it, ins] = s_Seen.try_emplace( view, now );
-                if ( ins || it->second.Cell != now.Cell || it->second.Inst != now.Inst || it->second.Buf != now.Buf ||
-                     it->second.Row != now.Row || it->second.Mat != now.Mat || it->second.Bad != now.Bad || bad )
-                    LOG_INFO( "[P17] view={} key={} tmpl={} '{}' inst={} cell={} instObj={} row={} stride={} buf={} "
-                              "imageSlots={} rowMismatch={} instCellChanged={}",
-                              view, gpu.Key, static_cast<const void*>( parent ), parent->GetShaderName(),
-                              static_cast<const void*>( gpu.Material.get() ), static_cast<const void*>( cell ),
-                              now.Inst, row, expect.size(), now.Buf, image.size(), bad,
-                              !ins && it->second.Cell != now.Cell && it->second.Inst == now.Inst );
-                it->second = now;
-            }
             frameState.ApplyTo( instance.get() );
             cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
 
