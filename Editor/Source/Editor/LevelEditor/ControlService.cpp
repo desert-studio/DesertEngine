@@ -1384,7 +1384,7 @@ namespace Desert::Editor
             for ( uint32_t pass = 0; pass < Graphic::kCountedMeshPasses; ++pass )
             {
                 const Graphic::MeshPassDrawCounters counted = Graphic::DrawCounter::LastFrameMeshPass( pass );
-                MeshPassDrawSnapshot item{ .Name          = kMeshPassNames[pass],
+                Control::MeshPassDrawSnapshot item{ .Name          = kMeshPassNames[pass],
                                            .CpuDraws      = counted.CpuDraws,
                                            .IndirectCalls = counted.IndirectCalls,
                                            .BinsIssued    = counted.BinsIssued };
@@ -1408,13 +1408,13 @@ namespace Desert::Editor
                 for ( const Graphic::GpuDriven::CullPhaseViewCount& view :
                       m_Workspace.PrimaryRenderer()->GetDrawBinPhaseCounts() )
                     snapshot.DrawBinViews.push_back(
-                         DrawBinViewSnapshot{ .Name = view.Name, .Phase1 = view.Phase1, .Phase2 = view.Phase2 } );
+                         Control::DrawBinViewSnapshot{ .Name = view.Name, .Phase1 = view.Phase1, .Phase2 = view.Phase2 } );
             snapshot.VirtualGeometry = {};
             if ( m_Workspace.PrimaryRenderer() != nullptr )
             {
                 const Graphic::SceneRenderer::VirtualGeometryCounts vg =
                      m_Workspace.PrimaryRenderer()->GetVirtualGeometryCounts();
-                snapshot.VirtualGeometry = VirtualGeometrySnapshot{ .Instances        = vg.Instances,
+                snapshot.VirtualGeometry = Control::VirtualGeometrySnapshot{ .Instances        = vg.Instances,
                                                                     .ClustersVisible  = vg.ClustersVisible,
                                                                     .ClustersDrawn    = vg.ClustersDrawn,
                                                                     .ShadowClustersDrawn = vg.ShadowClustersDrawn,
