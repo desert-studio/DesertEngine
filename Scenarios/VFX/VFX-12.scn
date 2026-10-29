@@ -5,7 +5,7 @@
 # (SurfaceNormal 1,0,0). The edit goes through the Details write path (`set <entity> <Type>.<Field>`: the same
 # reflected write, undo record and dirty scene as a hand edit); the User Parameters section then shows the row.
 # The scenario dirties the scene but does not save it.
-Дано run Scene "Open Scene VFX_Demo_Impacts.desce"
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/VFX_Demo_Impacts.desce
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position 0,30,700
 Дано --subject viewport set Camera.Direction 0,0,-1
