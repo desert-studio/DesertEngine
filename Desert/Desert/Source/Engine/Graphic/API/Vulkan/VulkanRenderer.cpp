@@ -3,6 +3,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <span>
@@ -76,6 +77,11 @@ namespace Desert::Graphic::API::Vulkan
         // The geometry pool's bind counters roll with the draw counter, and its released spans older than the
         // frames in flight return to the free lists before this frame uploads anything (GeometryPool).
         GeometryPool::Get().BeginFrame();
+        // The virtual-geometry cluster tables follow the pool's frame rule: released rows retire, rows registered
+        // since the last frame (StaticMesh::Invalidate) go up before any pass reads them.
+        if ( const Common::BoolResultStr uploaded = VirtualGeometry::VirtualMeshTable::Get().RT_Upload(); !uploaded )
+            LOG_ERROR( "{}; virtual-geometry meshes registered since the last frame are not on the device",
+                       uploaded.GetError() );
 
         // Before any view begins: a vendor runtime that refused a method since the catalog offered it withdraws
         // it here, and Resolve lowers it (VulkanPhysicalDevice::RefreshRuntimeOffers) - the frame's views read a

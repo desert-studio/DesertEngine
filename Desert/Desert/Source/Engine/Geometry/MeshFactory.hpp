@@ -54,7 +54,8 @@ namespace Desert::Graphic
             }
 
             const auto staticMesh = std::make_shared<StaticMesh>(
-                 asset->GetVertices(), asset->GetIndices(), asset->GetSubmeshes(), asset->GetVertexStreams() );
+                 asset->GetVertices(), asset->GetIndices(), asset->GetSubmeshes(), asset->GetVertexStreams(),
+                 VirtualGeometrySource{ asset->GetClusterDags(), asset->GetMetadata().Filepath.string() } );
             if ( !staticMesh->Invalidate() )
             {
                 DESERT_VERIFY( false );

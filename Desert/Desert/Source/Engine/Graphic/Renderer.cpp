@@ -3,6 +3,7 @@
 #include <Engine/Graphic/BRDFLut.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/GeometryPool.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 
 #include <Engine/Graphic/RendererContext.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
@@ -429,6 +430,7 @@ namespace Desert::Graphic
 
         // The pool's arena buffers are device memory owned by a static: dropped here, before the device.
         GeometryPool::Get().RT_Shutdown();
+        VirtualGeometry::VirtualMeshTable::Get().RT_Shutdown();
 
         s_RendererAPI->Shutdown();
         delete s_RendererAPI;
