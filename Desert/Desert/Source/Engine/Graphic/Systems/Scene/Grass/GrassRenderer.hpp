@@ -177,8 +177,8 @@ namespace Desert::Graphic::System
             std::vector<uint32_t>                           LowFrames;
             // Read-backs still to come, after the last one that overflowed a bucket, before this variety's draw is
             // known to hold every instance kept (InstancesSettling); Truncated: that overflow has been logged.
-            uint32_t SettleReads = 0;
-            bool     Truncated   = false;
+            uint32_t                                        SettleReads = 0;
+            bool                                            Truncated   = false;
             RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
             RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;

@@ -364,9 +364,9 @@ namespace Desert::Graphic::System
             capacity += capacities[b];
         }
 
-        // Settling (InstancesSettling): nothing counted yet (capacity zero, the field is not drawn), or an overflow
-        // read now - the frames still in flight were drawn with the old capacity too, so the variety settles only
-        // after that many read-backs within capacity.
+        // Settling (InstancesSettling): nothing counted yet (capacity zero, the field is not drawn), or an
+        // overflow read now - the frames still in flight were drawn with the old capacity too, so the variety
+        // settles only after that many read-backs within capacity.
         const uint32_t settleReads = EngineContext::GetInstance().GetMaxFramesInFlight();
         if ( !fedBack )
             gpu.SettleReads = settleReads;
