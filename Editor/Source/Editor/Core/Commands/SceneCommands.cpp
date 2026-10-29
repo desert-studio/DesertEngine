@@ -281,10 +281,7 @@ namespace Desert::Editor::Commands
                 auto e = FindEntity( m_Entity );
                 if ( !e || !e->HasComponent<ECS::TransformComponent>() )
                     return false;
-                auto& tc       = e->GetComponent<ECS::TransformComponent>();
-                tc.Translation = trs.T;
-                tc.Rotation    = trs.R;
-                tc.Scale       = trs.S;
+                e->SetLocalTransform( ECS::LocalTransform{ trs.T, trs.R, trs.S } );
                 return true;
             }
 
@@ -422,16 +419,16 @@ namespace Desert::Editor::Commands
                 auto& smc = e->GetComponent<ECS::StaticMeshComponent>();
                 // Null is the asset-only entity (a Modeling tool lifted its .stmesh): PlanMeshRestore drops
                 // the EditableMesh.
-                const MeshRestore plan = PlanMeshRestore( smc.EditableMesh, mesh );
+                const MeshRestore plan = PlanMeshRestore( smc.GetEditableMesh(), mesh );
                 if ( plan != MeshRestore::Set )
                 {
                     if ( plan == MeshRestore::Clear )
-                        ECS::ClearEditableMesh( smc );
+                        ECS::ClearEditableMesh( *e->GetRegistry(), e->GetHandle() );
                     return true;
                 }
                 // Both states were on the component once, so a refusal here means the device refused the
                 // upload; the entry is dropped (false) rather than claiming a state the screen does not show.
-                if ( auto set = ECS::SetEditableMesh( smc, mesh ); !set.IsSuccess() )
+                if ( auto set = ECS::SetEditableMesh( *e->GetRegistry(), e->GetHandle(), mesh ); !set.IsSuccess() )
                 {
                     LOG_ERROR( "[Undo] '{0}' could not restore the mesh: {1}", m_Label, set.GetError() );
                     return false;
@@ -567,7 +564,7 @@ namespace Desert::Editor::Commands
                 const ECS::Entity copy = RestoreSnapshot( m_Snapshot, /*preserveIds=*/true );
                 if ( !copy || !copy.HasComponent<ECS::StaticMeshComponent>() )
                     return false;
-                if ( auto set = ECS::SetEditableMesh( copy.GetComponent<ECS::StaticMeshComponent>(), m_Mesh );
+                if ( auto set = ECS::SetEditableMesh( *copy.GetRegistry(), copy.GetHandle(), m_Mesh );
                      !set.IsSuccess() )
                 {
                     LOG_ERROR(
@@ -600,32 +597,21 @@ namespace Desert::Editor::Commands
             auto& smc = e->GetComponent<ECS::StaticMeshComponent>();
             // A null mesh is a state too: the entity drawn from its asset alone (a Modeling tool lifted the
             // .stmesh), so undoing the edit drops the EditableMesh instead of keeping the edited one.
-            const MeshRestore plan = PlanMeshRestore( smc.EditableMesh, state.Mesh );
+            const MeshRestore plan = PlanMeshRestore( smc.GetEditableMesh(), state.Mesh );
+            ECS::StaticMeshDesc desc = smc.GetDesc();
             if ( plan == MeshRestore::Clear )
-                ECS::ClearEditableMesh( smc );
+                ECS::ClearEditableMesh( desc );
             else if ( plan == MeshRestore::Set )
-                if ( auto set = ECS::SetEditableMesh( smc, state.Mesh ); !set.IsSuccess() )
+                if ( auto set = ECS::SetEditableMesh( desc, state.Mesh ); !set.IsSuccess() )
                     return Common::MakeFormattedError<bool>( "entity {}: {}", static_cast<uint64_t>( id ),
                                                              set.GetError() );
-            if ( state.MaterialSlots && *state.MaterialSlots != smc.MaterialSlots )
-            {
-                smc.MaterialSlots = *state.MaterialSlots;
-                // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
-                smc.RuntimeMaterialInstances.clear();
-                smc.RuntimeSlots.reset();
-                smc.SeenMaterialsVersion = 0;
-            }
-            auto& tc       = e->GetComponent<ECS::TransformComponent>();
-            tc.Translation = state.Translation;
-            tc.Rotation    = state.Rotation;
-            tc.Scale       = state.Scale;
+            // The writer drops the runtime instances on a slot change, so the mesh system rebuilds them.
+            if ( state.MaterialSlots )
+                desc.MaterialSlots = *state.MaterialSlots;
+            ECS::SetStaticMesh( *e->GetRegistry(), e->GetHandle(), desc );
+            e->SetLocalTransform( ECS::LocalTransform{ state.Translation, state.Rotation, state.Scale } );
             if ( state.Visible )
-            {
-                if ( e->HasComponent<ECS::VisibilityComponent>() )
-                    e->GetComponent<ECS::VisibilityComponent>().Visible = *state.Visible;
-                else
-                    e->AddComponent<ECS::VisibilityComponent>().Visible = *state.Visible;
-            }
+                e->SetVisible( *state.Visible );
             return Common::MakeSuccess( true );
         }
 
@@ -638,14 +624,14 @@ namespace Desert::Editor::Commands
                 return std::nullopt;
             const auto&      smc = e->GetComponent<ECS::StaticMeshComponent>();
             const auto&      tc  = e->GetComponent<ECS::TransformComponent>();
-            XformEntityState out{ id,       smc.EditableMesh, tc.Translation, tc.Rotation,
-                                  tc.Scale, std::nullopt,     std::nullopt };
+            XformEntityState out{ id,       smc.GetEditableMesh(), tc.GetTranslation(), tc.GetRotation(),
+                                  tc.GetScale(), std::nullopt,     std::nullopt };
             if ( withSlots )
-                out.MaterialSlots = smc.MaterialSlots;
+                out.MaterialSlots = smc.GetMaterialSlots();
             // No component reads as shown (ECS::IsHidden), so undoing a hide leaves it shown either way.
             if ( withVisibility )
                 out.Visible = !e->HasComponent<ECS::VisibilityComponent>() ||
-                              e->GetComponent<ECS::VisibilityComponent>().Visible;
+                              e->GetComponent<ECS::VisibilityComponent>().IsVisible();
             return out;
         }
 
@@ -706,9 +692,9 @@ namespace Desert::Editor::Commands
                         continue;
                     }
                     // An asset-only part (null mesh) comes back from its snapshot's MeshHandle alone.
-                    auto& goneMesh = root.GetComponent<ECS::StaticMeshComponent>();
-                    if ( PlanMeshRestore( goneMesh.EditableMesh, gone.Mesh ) == MeshRestore::Set )
-                        ok &= Report( ECS::SetEditableMesh( goneMesh, gone.Mesh ) );
+                    const auto& goneMesh = root.GetComponent<ECS::StaticMeshComponent>();
+                    if ( PlanMeshRestore( goneMesh.GetEditableMesh(), gone.Mesh ) == MeshRestore::Set )
+                        ok &= Report( ECS::SetEditableMesh( *root.GetRegistry(), root.GetHandle(), gone.Mesh ) );
                 }
                 OnStructuralChange();
                 return ok;
@@ -990,10 +976,10 @@ namespace Desert::Editor::Commands
             if ( !e.HasComponent<ECS::StaticMeshComponent>() )
                 return Common::MakeFormattedError<WrittenStaticMesh>( "'{}' has no mesh component", tag );
             const auto& smc = e.GetComponent<ECS::StaticMeshComponent>();
-            if ( !smc.EditableMesh )
+            if ( !smc.GetEditableMesh() )
                 return Common::MakeFormattedError<WrittenStaticMesh>(
                      "'{}' has no editable mesh to convert; it already draws {}", tag,
-                     smc.MeshHandle.IsNull() ? std::string( "a primitive or nothing" )
+                     smc.GetMeshHandle().IsNull() ? std::string( "a primitive or nothing" )
                                              : std::string( "a mesh asset" ) );
 
             auto target = Editor::StaticMeshOutputFolder( folder );
@@ -1003,10 +989,10 @@ namespace Desert::Editor::Commands
             // The file names each slot's material by its header GUID (MeshBinary v3); the slot holds
             // HandleForGuid of it, which cannot be inverted, so the cooked registry row answers.
             std::vector<Common::Content::AssetGuid> slots;
-            slots.reserve( smc.MaterialSlots.size() );
-            for ( std::size_t k = 0; k < smc.MaterialSlots.size(); ++k )
+            slots.reserve( smc.GetMaterialSlots().size() );
+            for ( std::size_t k = 0; k < smc.GetMaterialSlots().size(); ++k )
             {
-                const uint64_t material = static_cast<uint64_t>( smc.MaterialSlots[k] );
+                const uint64_t material = static_cast<uint64_t>( smc.GetMaterialSlots()[k] );
                 if ( material == 0 )
                 {
                     slots.push_back( {} );
@@ -1020,7 +1006,7 @@ namespace Desert::Editor::Commands
                          tag, k, material );
                 slots.push_back( *guid );
             }
-            auto written = Editor::WriteStaticMeshAsset( *smc.EditableMesh, slots, target.GetValue(),
+            auto written = Editor::WriteStaticMeshAsset( *smc.GetEditableMesh(), slots, target.GetValue(),
                                                          name.empty() ? std::string_view( tag ) : name );
             if ( !written.IsSuccess() )
                 return Common::MakeError<WrittenStaticMesh>( written.GetError() );
@@ -1042,10 +1028,11 @@ namespace Desert::Editor::Commands
 
         void PointAtStaticMesh( ECS::Entity& e, const Assets::AssetHandle& handle )
         {
-            auto& smc      = e.GetComponent<ECS::StaticMeshComponent>();
-            smc.MeshHandle = handle;
-            smc.Primitive.reset();
-            ECS::ClearEditableMesh( smc );
+            ECS::StaticMeshDesc desc = e.GetComponent<ECS::StaticMeshComponent>().GetDesc();
+            desc.MeshHandle          = handle;
+            desc.Primitive.reset();
+            ECS::ClearEditableMesh( desc );
+            ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), desc );
         }
     } // namespace
 
@@ -1266,7 +1253,7 @@ namespace Desert::Editor::Commands
         if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
             return;
         std::shared_ptr<const Geometry::DynamicMesh3> after =
-             e->GetComponent<ECS::StaticMeshComponent>().EditableMesh;
+             e->GetComponent<ECS::StaticMeshComponent>().GetEditableMesh();
         if ( after == before )
             return;
         CommandHistory::Get().PushEntityEdit(
@@ -1301,7 +1288,7 @@ namespace Desert::Editor::Commands
             std::string& tag = copy.GetComponent<ECS::TagComponent>().Tag;
             tag              = std::format( "{} Half", tag );
         }
-        if ( auto set = ECS::SetEditableMesh( copy.GetComponent<ECS::StaticMeshComponent>(), otherHalf );
+        if ( auto set = ECS::SetEditableMesh( *copy.GetRegistry(), copy.GetHandle(), otherHalf );
              !set.IsSuccess() )
         {
             DestroyByUUID( copyId );
@@ -1376,7 +1363,7 @@ namespace Desert::Editor::Commands
             auto e = FindEntity( id );
             if ( !e || !e->HasComponent<ECS::StaticMeshComponent>() )
                 return rollback( fmt::format( "entity {} to delete has no mesh", static_cast<uint64_t>( id ) ) );
-            gone.push_back( { id, e->GetComponent<ECS::StaticMeshComponent>().EditableMesh, {} } );
+            gone.push_back( { id, e->GetComponent<ECS::StaticMeshComponent>().GetEditableMesh(), {} } );
         }
         // Destroyed last: nothing can refuse after this point.
         for ( XformCommand::Gone& g : gone )
@@ -1404,14 +1391,14 @@ namespace Desert::Editor::Commands
 
         const auto& tc      = e->GetComponent<ECS::TransformComponent>();
         const float epsilon = 1e-6f;
-        if ( glm::all( glm::epsilonEqual( tc.Translation, oldTranslation, epsilon ) ) &&
-             glm::all( glm::epsilonEqual( tc.Rotation, oldRotation, epsilon ) ) &&
-             glm::all( glm::epsilonEqual( tc.Scale, oldScale, epsilon ) ) )
+        if ( glm::all( glm::epsilonEqual( tc.GetTranslation(), oldTranslation, epsilon ) ) &&
+             glm::all( glm::epsilonEqual( tc.GetRotation(), oldRotation, epsilon ) ) &&
+             glm::all( glm::epsilonEqual( tc.GetScale(), oldScale, epsilon ) ) )
             return; // click without an actual drag
 
         CommandHistory::Get().PushEntityEdit(
-             std::make_unique<TransformCommand>( uuid, oldTranslation, oldRotation, oldScale, tc.Translation,
-                                                 tc.Rotation, tc.Scale ),
+             std::make_unique<TransformCommand>( uuid, oldTranslation, oldRotation, oldScale, tc.GetTranslation(),
+                                                 tc.GetRotation(), tc.GetScale() ),
              { uuid } );
     }
 
@@ -1428,13 +1415,13 @@ namespace Desert::Editor::Commands
             if ( !e || !e->HasComponent<ECS::TransformComponent>() )
                 continue;
             const auto& tc = e->GetComponent<ECS::TransformComponent>();
-            if ( glm::all( glm::epsilonEqual( tc.Translation, snap.Translation, epsilon ) ) &&
-                 glm::all( glm::epsilonEqual( tc.Rotation, snap.Rotation, epsilon ) ) &&
-                 glm::all( glm::epsilonEqual( tc.Scale, snap.Scale, epsilon ) ) )
+            if ( glm::all( glm::epsilonEqual( tc.GetTranslation(), snap.Translation, epsilon ) ) &&
+                 glm::all( glm::epsilonEqual( tc.GetRotation(), snap.Rotation, epsilon ) ) &&
+                 glm::all( glm::epsilonEqual( tc.GetScale(), snap.Scale, epsilon ) ) )
                 continue;
             composite->Add( std::make_unique<TransformCommand>( snap.Entity, snap.Translation,
-                                                                snap.Rotation, snap.Scale, tc.Translation,
-                                                                tc.Rotation, tc.Scale ) );
+                                                                snap.Rotation, snap.Scale, tc.GetTranslation(),
+                                                                tc.GetRotation(), tc.GetScale() ) );
         }
         if ( composite->Empty() )
             return false;
@@ -1544,7 +1531,7 @@ namespace Desert::Editor::Commands
         // Keep the instance's place in the world: same translation, same parent.
         glm::vec3 translation( 0.0f );
         if ( root->HasComponent<ECS::TransformComponent>() )
-            translation = root->GetComponent<ECS::TransformComponent>().Translation;
+            translation = root->GetComponent<ECS::TransformComponent>().GetTranslation();
         const Common::UUID parentId = ParentUUIDOf( *root );
 
         auto composite = std::make_unique<CompositeCommand>();
@@ -1641,15 +1628,15 @@ namespace Desert::Editor::Commands
             if ( old.HasComponent<ECS::TransformComponent>() )
             {
                 const auto& tc = old.GetComponent<ECS::TransformComponent>();
-                translation    = tc.Translation;
-                rotation       = tc.Rotation;
-                scale          = tc.Scale;
+                translation    = tc.GetTranslation();
+                rotation       = tc.GetRotation();
+                scale          = tc.GetScale();
             }
             const std::string tag =
                  old.HasComponent<ECS::TagComponent>() ? old.GetComponent<ECS::TagComponent>().Tag : std::string();
-            std::optional<ECS::StaticMeshComponent> keptMesh;
+            std::optional<ECS::StaticMeshDesc> keptMesh;
             if ( mesh == ReplaceMeshSource::KeepEntityMesh && old.HasComponent<ECS::StaticMeshComponent>() )
-                keptMesh = old.GetComponent<ECS::StaticMeshComponent>();
+                keptMesh = old.GetComponent<ECS::StaticMeshComponent>().GetDesc();
 
             auto snapshot = CaptureSubtree( old );
             DestroyByUUID( uuid );
@@ -1671,21 +1658,18 @@ namespace Desert::Editor::Commands
             ECS::Entity fresh = placed.GetValue();
             if ( fresh.HasComponent<ECS::TransformComponent>() )
             {
-                auto& tc       = fresh.GetComponent<ECS::TransformComponent>();
-                tc.Translation = translation;
-                tc.Rotation    = rotation;
-                tc.Scale       = scale;
+                fresh.SetLocalTransform( ECS::LocalTransform{ translation, rotation, scale } );
             }
             if ( !tag.empty() && fresh.HasComponent<ECS::TagComponent>() )
                 fresh.GetComponent<ECS::TagComponent>().Tag = tag;
             if ( keptMesh && fresh.HasComponent<ECS::StaticMeshComponent>() )
             {
-                auto& smc      = fresh.GetComponent<ECS::StaticMeshComponent>();
-                smc.MeshHandle = keptMesh->MeshHandle;
-                smc.Primitive  = keptMesh->Primitive;
+                ECS::StaticMeshDesc desc = fresh.GetComponent<ECS::StaticMeshComponent>().GetDesc();
+                desc.MeshHandle          = keptMesh->MeshHandle;
+                desc.Primitive           = keptMesh->Primitive;
                 if ( keptMesh->EditableMesh )
                 {
-                    if ( auto set = ECS::SetEditableMesh( smc, keptMesh->EditableMesh ); !set.IsSuccess() )
+                    if ( auto set = ECS::SetEditableMesh( desc, keptMesh->EditableMesh ); !set.IsSuccess() )
                     {
                         composite->Add(
                              std::make_unique<CreateCommand>( std::vector<Common::UUID>{ UUIDOf( fresh ) } ) );
@@ -1697,13 +1681,11 @@ namespace Desert::Editor::Commands
                 }
                 else
                 {
-                    ECS::ClearEditableMesh( smc );
+                    ECS::ClearEditableMesh( desc );
                 }
-                smc.MaterialSlots = keptMesh->MaterialSlots;
-                // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
-                smc.RuntimeMaterialInstances.clear();
-                smc.RuntimeSlots.reset();
-                smc.SeenMaterialsVersion = 0;
+                // The writer drops the runtime instances on a slot change, so the mesh system rebuilds them.
+                desc.MaterialSlots = keptMesh->MaterialSlots;
+                ECS::SetStaticMesh( *fresh.GetRegistry(), fresh.GetHandle(), desc );
             }
 
             const Common::UUID freshId = UUIDOf( fresh );
@@ -1729,11 +1711,11 @@ namespace Desert::Editor::Commands
                 return std::nullopt;
             const auto&      mesh = entity.GetComponent<ECS::StaticMeshComponent>();
             FoldMeshIdentity identity;
-            identity.Mesh        = mesh.MeshHandle;
-            identity.Primitive   = mesh.Primitive;
-            identity.Materials   = mesh.MaterialSlots;
-            identity.CastShadows = mesh.CastShadows;
-            identity.CastContactShadow = mesh.CastContactShadow;
+            identity.Mesh        = mesh.GetMeshHandle();
+            identity.Primitive   = mesh.GetPrimitive();
+            identity.Materials   = mesh.GetMaterialSlots();
+            identity.CastShadows = mesh.GetCastShadows();
+            identity.CastContactShadow = mesh.GetCastContactShadow();
             return identity;
         }
     } // namespace
@@ -1807,21 +1789,21 @@ namespace Desert::Editor::Commands
 
             // The static component's own fields that an ISM has no room for. Each one is a knob somebody
             // deliberately moved, so losing it silently is losing an authoring decision.
-            if ( mesh.OutlineDraw )
+            if ( mesh.GetOutlineDraw() )
                 candidate.Blockers.emplace_back( "a persistent outline" );
-            if ( mesh.ForcedLOD >= 0 )
+            if ( mesh.GetForcedLOD() >= 0 )
                 candidate.Blockers.emplace_back( "a forced LOD" );
-            if ( mesh.LODBias != 0 )
+            if ( mesh.GetLODBias() != 0 )
                 candidate.Blockers.emplace_back( "a LOD bias" );
-            if ( !mesh.ReceiveShadows )
+            if ( !mesh.GetReceiveShadows() )
                 candidate.Blockers.emplace_back( "receive-shadows off" );
-            if ( mesh.TranslucencySortPriority != 0 )
+            if ( mesh.GetTranslucencySortPriority() != 0 )
                 candidate.Blockers.emplace_back( "a translucency sort priority" );
-            if ( mesh.HiddenSubmeshes != 0 )
+            if ( mesh.GetHiddenSubmeshes() != 0 )
                 candidate.Blockers.emplace_back( "hidden submeshes" );
-            if ( mesh.MaxDrawDistance > 0.0f )
+            if ( mesh.GetMaxDrawDistance() > 0.0f )
                 candidate.Blockers.emplace_back( "a max draw distance" );
-            if ( mesh.EditableMesh )
+            if ( mesh.GetEditableMesh() )
                 candidate.Blockers.emplace_back( "a mesh built in the editor (an instanced mesh names an asset or "
                                                  "a primitive)" );
 
@@ -1842,7 +1824,7 @@ namespace Desert::Editor::Commands
                     continue;
                 if ( serializer.Key == "Visibility" &&
                      ( !entity.HasComponent<ECS::VisibilityComponent>() ||
-                       entity.GetComponent<ECS::VisibilityComponent>().Visible ) )
+                       entity.GetComponent<ECS::VisibilityComponent>().IsVisible() ) )
                     continue;
                 candidate.Blockers.push_back( "a " + serializer.Key + " component" );
             }
@@ -1884,13 +1866,15 @@ namespace Desert::Editor::Commands
 
         const Common::UUID folded  = Common::UUID::Generate();
         const ECS::Entity& created = s_Scene->CreateEntityWithUUID( folded, name );
-        auto&              ism     = created.AddComponent<ECS::InstancedStaticMeshComponent>();
-        ism.MeshHandle             = plan.Identity.Mesh;
-        ism.Primitive              = plan.Identity.Primitive;
-        ism.MaterialSlots          = plan.Identity.Materials;
-        ism.CastShadows            = plan.Identity.CastShadows;
-        ism.CastContactShadow      = plan.Identity.CastContactShadow;
-        ism.InstanceTransforms     = plan.InstanceTransforms;
+        ECS::InstancedStaticMeshDesc ismDesc;
+        ismDesc.MeshHandle         = plan.Identity.Mesh;
+        ismDesc.Primitive          = plan.Identity.Primitive;
+        ismDesc.MaterialSlots      = plan.Identity.Materials;
+        ismDesc.CastShadows        = plan.Identity.CastShadows;
+        ismDesc.CastContactShadow  = plan.Identity.CastContactShadow;
+        ismDesc.InstanceTransforms = plan.InstanceTransforms;
+        ECS::SetInstancedStaticMesh( *created.GetRegistry(), created.GetHandle(), ismDesc );
+        const auto& ism = created.GetComponent<ECS::InstancedStaticMeshComponent>();
         composite->Add( std::make_unique<CreateCommand>( std::vector<Common::UUID>{ folded } ) );
 
         CommandHistory::Get().PushCommand( std::move( composite ) );
@@ -1898,7 +1882,7 @@ namespace Desert::Editor::Commands
         Core::SelectionManager::SetSelected( folded );
 
         LOG_INFO( "[Collapse] {0} entities -> 1 instanced mesh with {1} instances.", plan.Sources.size(),
-                  ism.InstanceTransforms.size() );
+                  ism.GetInstanceTransforms().size() );
         return Common::MakeSuccess( Common::UUID( folded ) );
     }
 

@@ -26,7 +26,7 @@ Shader "MegaLightsGenerateSamples"
         	uint lightGridCells[];
         };
 
-        layout(binding = 11, rgba32f) writeonly uniform image2D OutReservoirsTexture; // MegaLightsReservoir, stacked layers
+        layout(binding = 11, rgba32f) writeonly uniform image2D OutReservoirsTexture; // RisReservoir, stacked layers
 
         LocalSize(8, 8, 1);
 
@@ -40,14 +40,11 @@ Shader "MegaLightsGenerateSamples"
         	const ivec2           screen  = MegaLightsScreenPixel(pixel);
         	const MegaLightsPixel p       = MegaLightsLoadPixel(screen);
 
-        	int   chosen[MEGALIGHTS_MAX_SAMPLES];
-        	float chosenTarget[MEGALIGHTS_MAX_SAMPLES];
+        	// One RIS stream per sample over EVERY light of the cell (M = 1: the whole cell was the candidate set, each
+        	// light with source density 1), each with its own draws (Common/RisReservoir.glslh).
+        	RisMerge streams[MEGALIGHTS_MAX_SAMPLES];
         	for (uint k = 0u; k < uint(MEGALIGHTS_MAX_SAMPLES); ++k)
-        	{
-        		chosen[k]       = -1;
-        		chosenTarget[k] = 0.0;
-        	}
-        	float weightSum = 0.0;
+        		streams[k] = RisBeginMerge();
         	if (p.Valid)
         	{
         		const uint cell       = LightGridCellAt(lightGrid, vec2(screen) + 0.5, p.Position);
@@ -62,27 +59,16 @@ Shader "MegaLightsGenerateSamples"
         			const float target = MegaLightsTargetPdf(p, light);
         			if (target <= 0.0)
         				continue;
-        			weightSum += target;
-        			// Streaming weighted reservoir sampling, one independent draw per reservoir.
         			for (uint k = 0u; k < samples; ++k)
-        				if (MegaLightsRandom(random) * weightSum < target)
-        				{
-        					chosen[k]       = light;
-        					chosenTarget[k] = target;
-        				}
+        				RisStreamCandidate(streams[k], light, target, 1.0, MegaLightsRandom(random));
         		}
         	}
         	for (uint k = 0u; k < samples; ++k)
         	{
-        		MegaLightsReservoir r = MegaLightsEmptyReservoir();
-        		if (chosen[k] >= 0)
-        		{
-        			r.Light     = chosen[k];
-        			r.TargetPdf = chosenTarget[k];
-        			r.W         = weightSum / chosenTarget[k];
-        			r.M         = 1.0; // one frame's confidence: the whole cell was the candidate set
-        		}
-        		imageStore(OutReservoirsTexture, MegaLightsReservoirTexel(pixel, k), MegaLightsPackReservoir(r));
+        		RisReservoir r = RisEndStream(streams[k], 1.0);
+        		if (r.Light < 0)
+        			r = RisEmptyReservoir(); // nothing lit the pixel: no confidence to carry
+        		imageStore(OutReservoirsTexture, MegaLightsReservoirTexel(pixel, k), RisPackReservoir(r));
         	}
         }
     }

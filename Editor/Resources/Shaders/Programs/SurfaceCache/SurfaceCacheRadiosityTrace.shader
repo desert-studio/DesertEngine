@@ -113,6 +113,12 @@ Shader "SurfaceCacheRadiosityTrace"
         // 0..6: the cards a hit reads first - and the card records, Depth and Opacity the probes stand on. Included
         // ahead of the hit lighting so that a permutation lighting hits in place still declares them.
         #define GI_SURFACE_CACHE_BINDING 0
+        // GI-EMISSIVE-LIGHTS: under either tracer the direct lighting samples the emissive triangles as
+        // lights (SurfaceCacheDirectLighting.shader), so the hits here leave their emission out - the card's
+        // Emissive layer (binding 23) subtracted from its FinalLighting, a hit lit in place without its emissive.
+        #define GI_HIT_EXCLUDES_EMISSION
+        layout(binding = 23) uniform texture2D SurfaceCacheEmissiveTexture;
+        #define SurfaceCacheEmissiveTexture sampler2D(SurfaceCacheEmissiveTexture, PointClampSampler)
         #include <Common/SurfaceCacheSampling.glslh>
         #include <Common/GIHitLighting.glslh>
 

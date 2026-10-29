@@ -76,7 +76,7 @@ namespace
     {
         const entt::entity pawn                                       = registry.create();
         registry.emplace<ECS::UUIDComponent>( pawn ).UUID             = Common::UUID( uuid );
-        registry.emplace<ECS::TransformComponent>( pawn ).Translation = at;
+        registry.emplace<ECS::TransformComponent>( pawn, ECS::LocalTransform{ .Translation = at } );
         return pawn;
     }
 
@@ -123,7 +123,7 @@ TEST( SaveGame, PawnTransformIsRestored )
     const auto     applied   = ApplySaveGame( next, respawned, kArena, document, LookupWith( type ), nullptr );
     ASSERT_TRUE( applied ) << applied.GetError();
     EXPECT_TRUE( applied.GetValue().PawnRestored );
-    EXPECT_EQ( next.get<ECS::TransformComponent>( respawned ).Translation, glm::vec3( 100.0f, 0.0f, -250.0f ) );
+    EXPECT_EQ( next.get<ECS::TransformComponent>( respawned ).GetTranslation(), glm::vec3( 100.0f, 0.0f, -250.0f ) );
 }
 
 TEST( SaveGame, MissingEntityIsReportedByNameAndTheRestStillLoads )

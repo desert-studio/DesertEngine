@@ -56,6 +56,11 @@ namespace Desert::Graphic::API::Vulkan
                                                   RDG::ExternalBuffer&                 into ) override;
         Common::BoolResultStr ImportVertexBufferRange( const std::shared_ptr<VertexBuffer>& buffer, uint64_t offset,
                                                        uint64_t bytes, RDG::ExternalBuffer& into ) override;
+        // VulkanSharedGpuMemory.hpp: refused unless CapabilityCatalog::Sharing is Win32 or Fd.
+        [[nodiscard]] Common::ResultStr<std::shared_ptr<SharedGpuBuffer>>
+        CreateSharedBuffer( std::string_view name, uint64_t bytes ) override;
+        [[nodiscard]] Common::ResultStr<std::shared_ptr<SharedGpuTimeline>>
+        CreateSharedTimeline( std::string_view name ) override;
 
         void InvalidateGeometryBinding() override
         {

@@ -16,6 +16,7 @@ Shader "PathTracerLightGrid"
             #include <Mesh/LightSources.glslh>
             #include <Common/PathTracingRandom.glslh>
             #include <Common/PathTracingLightGrid.glslh>
+            #include <Common/RisReservoir.glslh>
 
             layout(std430, binding = 0) readonly buffer PointLightsUB
             {
@@ -88,27 +89,18 @@ Shader "PathTracerLightGrid"
                 const uint lights     = LightCounts.x + LightCounts.y;
                 const uint candidates = LightCounts.z;
                 uint       rng        = PathTracingHash(slot + PathTracingHash(LightCounts.w));
-                uint       chosen       = kPathTracingLightGridNone;
-                float      chosenTarget = 0.0;
-                float      weightSum    = 0.0;
+                // Initial RIS (Common/RisReservoir.glslh): `candidates` uniform draws over the lights, source
+                // density 1 / lights, so M = candidates.
+                RisMerge stream = RisBeginMerge();
                 for (uint k = 0u; k < candidates; ++k)
                 {
-                    const uint  light  = min(uint(PathTracingRandom(rng) * float(lights)), lights - 1u);
-                    const float target = PathTracingLightGridTarget(light, cellMin, cellMax);
-                    // target / source density, the source uniform over the lights.
-                    const float weight = target * float(lights);
-                    if (weight <= 0.0)
-                        continue;
-                    weightSum += weight;
-                    if (PathTracingRandom(rng) * weightSum < weight)
-                    {
-                        chosen       = light;
-                        chosenTarget = target;
-                    }
+                    const uint light = min(uint(PathTracingRandom(rng) * float(lights)), lights - 1u);
+                    RisStreamCandidate(stream, int(light), PathTracingLightGridTarget(light, cellMin, cellMax),
+                                       float(lights), PathTracingRandom(rng));
                 }
-                const float W = chosen != kPathTracingLightGridNone ? weightSum / (float(candidates) * chosenTarget)
-                                                                    : 0.0;
-                lightGrid[slot] = uvec2(chosen, floatBitsToUint(W));
+                const RisReservoir chosen = RisEndStream(stream, float(candidates));
+                lightGrid[slot] = chosen.Light >= 0 ? uvec2(uint(chosen.Light), floatBitsToUint(chosen.W))
+                                                    : uvec2(kPathTracingLightGridNone, floatBitsToUint(0.0));
             }
         }
     }

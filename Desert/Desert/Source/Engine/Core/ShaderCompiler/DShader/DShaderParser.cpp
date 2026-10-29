@@ -1863,12 +1863,14 @@ namespace Desert::Core::Preprocess
             const bool        masked   = blend == SurfaceBlendMode::Masked;
             const bool        particle = path == kSurfaceParticleSpritePath || path == kSurfaceParticleRibbonPath;
             const std::string defines  = std::format(
-                 "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}{}#define {} {}\n", pass,
+                 "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}{}{}#define {} {}\n", pass,
                  // The hit cell's two stages share one pass header; the any-hit stage is told which it is.
                  stage == ShaderStage::AnyHit ? "#define DESERT_SURFACE_RAY_ANY_HIT 1\n" : "",
                  masked ? "#define DESERT_SURFACE_MASKED 1\n" : "",
                  Formats::IsTranslucentBlend( blend ) ? std::format( "#define {} 1\n", kSurfaceTranslucentDefine )
                                                        : std::string(),
+                 blend == SurfaceBlendMode::Additive ? std::format( "#define {} 1\n", kSurfaceAdditiveDefine )
+                                                      : std::string(),
                  particle ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine ) : std::string(),
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  parallax ? std::format( "#define {} 1\n", kSurfaceParallaxDefine ) : std::string(),
@@ -2841,7 +2843,8 @@ namespace Desert::Core::Preprocess
             }
             result.Surface.ShadingModel          = model->Manifest.Guid;
             const std::string shadingModelDefine = ShadingModels::ShadingModelIndexDefine( model->Manifest.Name );
-            result.Meta.Blend = result.Surface.Blend;
+            result.Meta.Blend        = result.Surface.Blend;
+            result.Meta.ShadingModel = result.Surface.ShadingModel;
             if ( result.Surface.UsedWithWaterMesh != ( model->Manifest.Name == kSingleLayerWaterShadingModel ) )
             {
                 err = {

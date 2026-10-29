@@ -3,6 +3,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <span>
+#include <string_view>
 
 // The access declarations of the deferred frame's graph nodes (SceneRendererFrameDeferred.cpp), device-free so
 // RenderGraphCompile compiles exactly these declarations and checks the barriers the graph plans from them.
@@ -73,14 +74,17 @@ namespace Desert::Graphic::DeferredFrameNodes
     // gl_FragDepth into the 1x SceneDepthResolved (its only target, old contents DontCare); every consumer
     // declares its read of that 1x texture. At one sample no node exists and the consumers read the scene depth.
     // @p declareResolve( pass, sceneDepth ) declares the node's read (the renderer's binding block, RDG-FAULT1).
+    // @p name: the node's (a frame that resolves the depth twice names each: the forward prepass's for the virtual
+    // shadow map's marking, the post-opaque one for the compute passes).
     template <typename ResolveDeclare, typename ResolveExec>
     void AddSceneDepthResolve( RDG::Builder& graph, uint32_t sceneSamples, RDG::TextureRef sceneDepth,
-                               RDG::TextureRef resolved, ResolveDeclare&& declareResolve, ResolveExec&& resolve )
+                               RDG::TextureRef resolved, ResolveDeclare&& declareResolve, ResolveExec&& resolve,
+                               const std::string_view name = "Scene: DepthResolve" )
     {
         if ( sceneSamples <= 1 )
             return;
         graph.AddPass(
-             "Scene: DepthResolve", RDG::PassFlags::Raster,
+             name, RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
                  declareResolve( pass, sceneDepth );

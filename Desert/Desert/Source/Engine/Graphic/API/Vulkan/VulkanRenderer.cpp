@@ -1,6 +1,7 @@
 #include <Engine/Graphic/GpuInstances.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRdgPassBindings.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanSharedGpuMemory.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
@@ -1516,6 +1517,8 @@ namespace Desert::Graphic::API::Vulkan
             VkPhysicalDeviceProperties properties{};
             vkGetPhysicalDeviceProperties( device->GetPhysicalDevice()->GetVulkanPhysicalDevice(), &properties );
             m_RdgDevice.Limits        = properties.limits;
+            // The same sharing rule VulkanAllocator creates every engine resource with (VulkanResourceSharing.hpp).
+            m_RdgDevice.Sharing       = device->GetPhysicalDevice()->GetResourceSharing();
             m_RdgPool                 = std::make_unique<VulkanRdgPool>( m_RdgDevice, slots );
             m_RdgBackend              = std::make_unique<VulkanRdgBackend>( m_RdgDevice, *m_RdgPool );
             // B2: while a graph runs, every renderer's Record() goes through this API, so this API records
@@ -1691,6 +1694,18 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeSuccess( true );
         };
         return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<std::shared_ptr<SharedGpuBuffer>>
+    VulkanRendererAPI::CreateSharedBuffer( const std::string_view name, const uint64_t bytes )
+    {
+        return CreateVulkanSharedBuffer( name, bytes );
+    }
+
+    Common::ResultStr<std::shared_ptr<SharedGpuTimeline>>
+    VulkanRendererAPI::CreateSharedTimeline( const std::string_view name )
+    {
+        return CreateVulkanSharedTimeline( name );
     }
 
     Common::BoolResultStr VulkanRendererAPI::ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,

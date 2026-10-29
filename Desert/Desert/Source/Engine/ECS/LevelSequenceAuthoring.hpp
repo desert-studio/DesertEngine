@@ -454,7 +454,7 @@ namespace Desert::ECS
         struct Saved
         {
             entt::entity                    Entity = entt::null;
-            TransformComponent              Transform;
+            LocalTransform                  Transform;
             bool                            HadTransform  = false;
             bool                            HadVisibility = false;
             bool                            Visible       = true;

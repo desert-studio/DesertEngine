@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <format>
 #include <limits>
@@ -368,6 +369,7 @@ namespace Desert::Graphic::GpuDriven
             m_WorldBoundsRow.push_back( kInvalidIndex );
             m_MovedMark.push_back( 0u );
             m_UndoMark.push_back( 0u );
+            m_Meshed.push_back( 0u );
         }
         m_Live[primitive]      = 1u;
         GpuScenePrimitive& row = m_Primitives[primitive];
@@ -375,6 +377,8 @@ namespace Desert::Graphic::GpuDriven
         row.FirstLodScreenSize = kInvalidIndex;
         row.LocalToWorld       = PackAffine( desc.LocalToWorld );
         row.PrevLocalToWorld   = row.LocalToWorld; // added this frame: no object motion
+        m_Meshed[primitive]    = desc.Mesh != nullptr ? 1u : 0u;
+        Publish( PrimitiveChangeKind::Added, primitive );
         UpdatePrimitive( primitive, desc );
         return primitive;
     }
@@ -383,6 +387,12 @@ namespace Desert::Graphic::GpuDriven
     {
         if ( !IsValid( primitive ) )
             return;
+        // A desc without a mesh after one with (or back) is the same primitive changing what it is: its Updated
+        // names it meshed when either side is.
+        const bool meshed   = desc.Mesh != nullptr;
+        m_Meshed[primitive] = ( m_Meshed[primitive] != 0u || meshed ) ? 1u : 0u;
+        Publish( PrimitiveChangeKind::Updated, primitive );
+        m_Meshed[primitive] = meshed ? 1u : 0u;
         SetTransform( primitive, desc.LocalToWorld );
         GpuScenePrimitive& row    = m_Primitives[primitive];
         const glm::vec3    centre = ( desc.LocalBoundsMin + desc.LocalBoundsMax ) * 0.5f;
@@ -418,8 +428,34 @@ namespace Desert::Graphic::GpuDriven
         }
         row               = GpuScenePrimitive{};
         m_Live[primitive] = 0u;
+        Publish( PrimitiveChangeKind::Removed, primitive );
         m_FreePrimitives.push_back( primitive );
         MarkPrimitive( primitive );
+    }
+
+    void GpuScene::Publish( const PrimitiveChangeKind kind, const PrimitiveIndex primitive, const glm::mat4& world )
+    {
+        const bool meshed = primitive < m_Meshed.size() ? m_Meshed[primitive] != 0u : true;
+        m_Changes.push_back( PrimitiveChange{ .Kind = kind, .Meshed = meshed, .Primitive = primitive, .World = world } );
+    }
+
+    uint64_t GpuScene::NextStreamId()
+    {
+        static std::atomic<uint64_t> next{ 1 };
+        return next.fetch_add( 1, std::memory_order_relaxed );
+    }
+
+    void GpuScene::MarkContent( const PrimitiveIndex primitive )
+    {
+        if ( IsValid( primitive ) )
+            Publish( PrimitiveChangeKind::Content, primitive );
+    }
+
+    std::optional<std::span<const PrimitiveChange>> GpuScene::ChangesSince( const uint64_t from ) const
+    {
+        if ( from < m_ChangeBase || from > GetChangeSerial() )
+            return std::nullopt;
+        return std::span<const PrimitiveChange>( m_Changes ).subspan( static_cast<std::size_t>( from - m_ChangeBase ) );
     }
 
     bool GpuScene::IsValid( const PrimitiveIndex primitive ) const
@@ -439,6 +475,7 @@ namespace Desert::Graphic::GpuDriven
         row.PrevLocalToWorld = row.LocalToWorld;
         row.LocalToWorld     = packed;
         MarkPrimitive( primitive );
+        Publish( PrimitiveChangeKind::Moved, primitive, world );
         if ( m_MovedMark[primitive] == 0u )
         {
             m_MovedMark[primitive] = 1u;
@@ -576,6 +613,8 @@ namespace Desert::Graphic::GpuDriven
 
     void GpuScene::DiscardFrame()
     {
+        // The transforms go back below without a Moved each: every reader of the stream starts over.
+        Publish( PrimitiveChangeKind::Discarded, kInvalidIndex );
         for ( const TransformUndo& undo : m_FrameUndo )
         {
             m_UndoMark[undo.Primitive] = 0u;
@@ -597,6 +636,17 @@ namespace Desert::Graphic::GpuDriven
 
     void GpuScene::BeginFrame()
     {
+        // The stream keeps the changes of the last kPrimitiveChangeFrames frames (this one included).
+        m_ChangeFrameStarts.push_back( GetChangeSerial() );
+        if ( m_ChangeFrameStarts.size() > kPrimitiveChangeFrames )
+        {
+            const uint64_t keepFrom = m_ChangeFrameStarts[m_ChangeFrameStarts.size() - kPrimitiveChangeFrames];
+            m_Changes.erase( m_Changes.begin(),
+                             m_Changes.begin() + static_cast<std::ptrdiff_t>( keepFrom - m_ChangeBase ) );
+            m_ChangeBase = keepFrom;
+            m_ChangeFrameStarts.erase( m_ChangeFrameStarts.begin(),
+                                       m_ChangeFrameStarts.end() - static_cast<std::ptrdiff_t>( kPrimitiveChangeFrames ) );
+        }
         // A new undo: the last frame was kept (or discarded already).
         for ( const TransformUndo& undo : m_FrameUndo )
             m_UndoMark[undo.Primitive] = 0u;

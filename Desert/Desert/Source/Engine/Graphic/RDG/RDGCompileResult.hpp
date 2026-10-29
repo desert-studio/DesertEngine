@@ -84,8 +84,36 @@ namespace Desert::Graphic::RDG
         ClearValue  Clear;
     };
 
+    // RDG-EXTERNAL. A value of a timeline semaphore the graph's queue shares with another API on the same GPU
+    // (UE has no equivalent: its OIDN plugin reads the image back to the host). Semaphore is the backend's handle
+    // (Vulkan: the VkSemaphore, created exportable by its owner, Graphic::SharedGpuTimeline); 0 = none.
+    struct ExternalTimelinePoint
+    {
+        uint64_t Semaphore                                        = 0;
+        uint64_t Value                                            = 0;
+        bool     operator==( const ExternalTimelinePoint& ) const = default;
+    };
+
+    // RDG-EXTERNAL. The work of a pass that another API runs on the same GPU, between two submissions of the
+    // graph's queue (PassBuilder::ExternalQueue): everything recorded before the pass, its own barriers included,
+    // signals Signal; the other API waits on Signal, runs, and signals Wait; everything recorded after the pass
+    // waits on Wait. Wait.Value > Signal.Value on the same semaphore. The pass's exec lambda records nothing on
+    // the graph's command buffer: it hands the other API its work (enqueued, not waited), so the frame is
+    // recorded and submitted without a host stall and the result is read in the same frame.
+    struct ExternalQueueSync
+    {
+        ExternalTimelinePoint Signal;
+        ExternalTimelinePoint Wait;
+        bool                  operator==( const ExternalQueueSync& ) const = default;
+    };
+
     struct CompiledPass
     {
+        // RDG-EXTERNAL: set on a pass declared with PassBuilder::ExternalQueue (always on Pipe::Graphics, a Copy
+        // pass, never inside a render pass). Its segment ends after it and signals External->Signal; the next
+        // segment waits External->Wait.
+        std::optional<ExternalQueueSync> External;
+
         uint32_t    Pass = 0;
         std::string Name;
         PassFlags   Flags = PassFlags::None;
@@ -174,6 +202,10 @@ namespace Desert::Graphic::RDG
         uint32_t              LastPosition  = 0;
         std::vector<uint32_t> WaitSyncs;   // union of WaitSyncs of its passes
         std::vector<uint32_t> SignalSyncs; // union of SignalSyncs of its passes
+        // RDG-EXTERNAL: the segment begins after an ExternalQueue pass and waits its Wait point / ends with an
+        // ExternalQueue pass and signals its Signal point (a segment never holds two: each one splits it).
+        std::vector<ExternalTimelinePoint>   WaitExternal;
+        std::optional<ExternalTimelinePoint> SignalExternal;
     };
 
     enum class DependencyKind : uint8_t

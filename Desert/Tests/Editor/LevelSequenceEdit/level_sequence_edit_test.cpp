@@ -59,6 +59,33 @@ namespace
         Value  m_Before;
         Value  m_After;
     };
+
+    /// The gizmo's half for an entity's translation: written through the one transform writer, never in place.
+    class TranslationRestore final : public Desert::Editor::ICommand
+    {
+    public:
+        TranslationRestore( entt::registry& registry, entt::entity entity, glm::vec3 before )
+             : m_Registry( registry ), m_Entity( entity ), m_Before( before ),
+               m_After( registry.get<ECS::TransformComponent>( entity ).GetTranslation() )
+        {
+        }
+        bool Undo() override
+        {
+            ECS::SetLocalTranslation( m_Registry, m_Entity, m_Before );
+            return true;
+        }
+        bool Redo() override
+        {
+            ECS::SetLocalTranslation( m_Registry, m_Entity, m_After );
+            return true;
+        }
+
+    private:
+        entt::registry& m_Registry;
+        entt::entity    m_Entity;
+        glm::vec3       m_Before;
+        glm::vec3       m_After;
+    };
 } // namespace
 
 // UE: an actor dragged with Auto Key on is ONE FScopedTransaction — the move and its key. The editor records
@@ -71,15 +98,15 @@ TEST( LevelSequenceKeys, AutoKeyedGizmoReleaseIsOneUndoStep )
     T::Sequence               sequence = AuthoredDoor();
     const auto                door     = sequence.Bindings.front().Guid;
     World                     world;
-    auto&                     moved = world.registry.get<ECS::TransformComponent>( world.door ).Translation;
+    const auto&               moved = world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation();
     ECS::LevelSequenceAutoKey autoKey;
     const A::FrameNumber      at{ 40 };
 
     // The gesture: press, drag, release — the gizmo pushes the move and remembers the revision it stood at.
     ASSERT_TRUE( autoKey.Observe( world.registry, sequence, at, true ).IsSuccess() );
     const glm::vec3 before = moved;
-    moved.x                = 777.0F;
-    history.PushCommand( std::make_unique<Restore<glm::vec3>>( moved, before ) );
+    ECS::SetLocalTranslation( world.registry, world.door, glm::vec3( 777.0F, before.y, before.z ) );
+    history.PushCommand( std::make_unique<TranslationRestore>( world.registry, world.door, before ) );
     const uint64_t move = history.Revision();
 
     // The Sequencer's release frame: its undo step opens, the key is written, the step closes.
@@ -103,7 +130,7 @@ TEST( LevelSequenceKeys, AutoKeyedGizmoReleaseIsOneUndoStep )
 
     // Anything recorded between the move and the key's step keeps them apart.
     history.Clear();
-    history.PushCommand( std::make_unique<Restore<glm::vec3>>( moved, before ) );
+    history.PushCommand( std::make_unique<TranslationRestore>( world.registry, world.door, before ) );
     const uint64_t lone  = history.Revision();
     float          other = 0.0F;
     history.PushCommand( std::make_unique<Restore<float>>( other, 1.0F ) );

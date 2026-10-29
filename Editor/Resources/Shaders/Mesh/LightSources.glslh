@@ -10,7 +10,7 @@
 #include <Mesh/BRDF.glslh> // LightFalloffFactor, the one distance model
 #include <ShadingModels/ShadingModelContract.glslh>
 
-// `struct PointLight` / `struct SpotLight` (std430, 80 / 96 bytes) are GENERATED from ShaderProtocols::PointLight /
+// `struct PointLight` / `struct SpotLight` (std430, 80 / 112 bytes) are GENERATED from ShaderProtocols::PointLight /
 // SpotLight's field lists (Engine/Graphic/ShaderProtocols/{PointLight,SpotLight}.hpp) by the shader includer.
 #include <Mesh/LightSourceLayouts.glslh>
 

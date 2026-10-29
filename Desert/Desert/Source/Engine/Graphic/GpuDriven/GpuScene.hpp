@@ -81,6 +81,36 @@ namespace Desert::Graphic::GpuDriven
         std::optional<GpuSceneWorldBounds> PoseBounds{};
     };
 
+    // THE PRIMITIVE CHANGE STREAM (GI-ALL-LIGHTS step 6; UE FScene's primitive add / remove / transform updates,
+    // FScene::UpdatePrimitiveTransform). Every change GpuScene learns of is one entry, in the order it learned it;
+    // a reader that keeps something per primitive (the ray-tracing scene gather, and through its moved primitives
+    // the emissive light list) follows the stream from its cursor instead of comparing the scene record by record.
+    //  - Added / Removed / Updated: the primitive's row set (mesh, LOD chain, instances, flags) - STRUCTURE.
+    //  - Moved: SetTransform changed LocalToWorld; World is the new world, bit-exact as the record gave it.
+    //  - Content: what the primitive's records draw besides mesh, world and flags (sections, materials, hidden
+    //    submeshes, ray-tracing visibility: MotionRecord::Content) - STRUCTURE for a reader of the sections.
+    //  - Discarded: DiscardFrame put transforms back - every reader starts over.
+    // Meshed: the primitive has a mesh. A meshless one (a landscape tile) is in no mesh queue.
+    enum class PrimitiveChangeKind : uint8_t
+    {
+        Added,
+        Removed,
+        Updated,
+        Moved,
+        Content,
+        Discarded,
+    };
+    struct PrimitiveChange
+    {
+        PrimitiveChangeKind Kind      = PrimitiveChangeKind::Updated;
+        bool                Meshed    = true;
+        PrimitiveIndex      Primitive = kInvalidIndex;
+        glm::mat4           World{ 1.0f }; // Moved only
+    };
+    // How many frames (BeginFrame calls) of changes the stream keeps: a reader that did not read for longer reads
+    // no changes (ChangesSince: none) and rebuilds from the scene.
+    inline constexpr std::size_t kPrimitiveChangeFrames = 4;
+
     // The graph handles of the tables after this frame's upload; every reader declares its read of these.
     struct GpuSceneBuffers
     {
@@ -145,6 +175,24 @@ namespace Desert::Graphic::GpuDriven
         // stays, with Prev == World; the caller removes it.
         void DiscardFrame();
 
+        // What a primitive's records draw besides its mesh, world and flags changed (GpuSceneRegistry::Sync,
+        // MotionRecord::Content): a Content change in the stream; the rows are not touched.
+        void MarkContent( PrimitiveIndex primitive );
+        // Which GpuScene the stream is (unique in the process): a reader's cursor is a serial of ONE stream, and a
+        // scene re-created at the same address (Scene::Clear) is another.
+        [[nodiscard]] uint64_t GetStreamId() const
+        {
+            return m_StreamId;
+        }
+        // The serial the next change of the stream takes (a reader's cursor after it read everything).
+        [[nodiscard]] uint64_t GetChangeSerial() const
+        {
+            return m_ChangeBase + m_Changes.size();
+        }
+        // The changes with serials [@p from, GetChangeSerial()), in order; nullopt when @p from is older than the
+        // kept window (kPrimitiveChangeFrames) or newer than the stream - the reader rebuilds from the scene.
+        [[nodiscard]] std::optional<std::span<const PrimitiveChange>> ChangesSince( uint64_t from ) const;
+
         // Rows or palettes changed since the last upload: AddUploadPass has passes to add.
         [[nodiscard]] bool HasPendingUpload() const;
 
@@ -200,6 +248,7 @@ namespace Desert::Graphic::GpuDriven
         struct Table;
 
     private:
+        void Publish( PrimitiveChangeKind kind, PrimitiveIndex primitive, const glm::mat4& world = glm::mat4( 1.0f ) );
         void MarkPrimitive( PrimitiveIndex primitive );
         // Records the primitive's transforms the first time this frame changes them (DiscardFrame's undo).
         void JournalTransform( PrimitiveIndex primitive );
@@ -244,6 +293,16 @@ namespace Desert::Graphic::GpuDriven
         std::vector<glm::vec4>  m_MaterialSlots;
         std::vector<glm::uvec2> m_FreeMaterialRanges;
         std::vector<uint32_t>   m_DirtyMaterialSlots;
+
+        // The change stream: m_Changes[i] has serial m_ChangeBase + i; m_ChangeFrameStarts the serial each of the
+        // last kPrimitiveChangeFrames BeginFrames started at (the oldest is where the kept window begins).
+        // m_Meshed: per primitive, its desc had a mesh (PrimitiveChange::Meshed).
+        std::vector<PrimitiveChange> m_Changes;
+        uint64_t                     m_ChangeBase = 0;
+        std::vector<uint64_t>        m_ChangeFrameStarts;
+        std::vector<uint8_t>         m_Meshed;
+        static uint64_t              NextStreamId();
+        uint64_t                     m_StreamId = NextStreamId();
 
         std::unique_ptr<Table> m_PrimitiveTable;
         std::unique_ptr<Table> m_InstanceTable;

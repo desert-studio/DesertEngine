@@ -1294,6 +1294,7 @@ namespace Desert::Graphic::RDG
         compiled.Flags       = pass.Flags;
         compiled.AreaWidth   = pass.AreaWidth;
         compiled.AreaHeight  = pass.AreaHeight;
+        compiled.External    = pass.External;
         compiled.OnPipe      = m_PipeAt[position];
         compiled.WaitSyncs   = m_WaitAt[position];
         compiled.SignalSyncs = m_SignalAt[position];
@@ -1623,16 +1624,33 @@ namespace Desert::Graphic::RDG
         }
         if ( !prologue.SignalSyncs.empty() )
             m_Result.Segments.push_back( std::move( prologue ) );
+        // RDG-EXTERNAL: Wait points of ExternalQueue passes the next segment of each pipe has to wait.
+        std::array<std::vector<ExternalTimelinePoint>, kPipeCount> pendingExternalWaits;
         for ( uint32_t position = 0; position < m_ExecutedCount; ++position )
         {
             const CompiledPass& pass = m_Result.Passes[position];
-            const bool          split =
-                 position == 0 || pass.OnPipe != m_Result.Passes[position - 1].OnPipe ||
+            // RDG-EXTERNAL: a segment ends with an ExternalQueue pass (it signals the pass's Signal point), and
+            // the FIRST segment of EACH pipe begun after it waits the pass's Wait point - an async run forked
+            // after the pass may read what the other API wrote, and the fork's binary semaphore is signalled
+            // before that work ran. A timeline wait consumes nothing, so both pipes wait the same value.
+            const bool afterExternal = position > 0 && m_Result.Passes[position - 1].External.has_value();
+            const bool split =
+                 position == 0 || afterExternal || pass.OnPipe != m_Result.Passes[position - 1].OnPipe ||
                  ( pass.OnPipe == Pipe::Graphics &&
                    ( !pass.WaitSyncs.empty() || !m_Result.Passes[position - 1].SignalSyncs.empty() ) );
             if ( split )
+            {
                 m_Result.Segments.push_back( { pass.OnPipe, position, position, {}, {} } );
+                auto& pending                         = pendingExternalWaits[static_cast<uint32_t>( pass.OnPipe )];
+                m_Result.Segments.back().WaitExternal = std::exchange( pending, {} );
+            }
             PipeSegment& segment = m_Result.Segments.back();
+            if ( pass.External.has_value() )
+            {
+                segment.SignalExternal = pass.External->Signal;
+                for ( auto& pending : pendingExternalWaits )
+                    pending.push_back( pass.External->Wait );
+            }
             segment.LastPosition = position;
             segment.WaitSyncs.insert( segment.WaitSyncs.end(), pass.WaitSyncs.begin(), pass.WaitSyncs.end() );
             segment.SignalSyncs.insert( segment.SignalSyncs.end(), pass.SignalSyncs.begin(),

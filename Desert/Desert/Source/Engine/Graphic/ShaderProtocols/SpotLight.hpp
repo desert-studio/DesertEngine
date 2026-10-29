@@ -14,7 +14,7 @@
 // ONE SPOT LIGHT AS THE SHADERS READ IT, listed ONCE: the members expand into SpotLightPayload and into
 // kSpotLightPayloadFields, from which the includer GENERATES `struct SpotLight` (Mesh/LightSourceLayouts.glslh)
 // and the SpotLightsUB storage buffer (Mesh/SpotLightsUB.glslh, binding 16, included by Mesh/Spotlight.glslh);
-// neither is a file on disk. std430, 96 bytes. CosInner/CosOuter are the COSINES of the inner/outer cone
+// neither is a file on disk. std430, 112 bytes. CosInner/CosOuter are the COSINES of the inner/outer cone
 // half-angles (precomputed on the CPU so the shader avoids acos).
 //
 // FIELD( C++ type, member, GLSL name, initialiser )
@@ -45,9 +45,15 @@
     /* Full intensity within this distance (cm), the falloff measured from it (BISTRO-LIGHTS). */                 \
     FIELD( float, MinRadius, minRadius, { 0.0f } ) /* 84 */                                                       \
     /* std430 rounds the array stride of a struct with a vec3 to 16 bytes: explicit, so sizeof matches. */        \
-    /* The light's layer in the view's ray-traced local shadow masks, or -1 (PointLight.hpp says how). */          \
-    FIELD( int32_t, ShadowMaskSlot, shadowMaskSlot, { -1 } ) /* 88 */                                              \
-    FIELD( float, Pad2, pad2, { 0.0f } ) /* -> 96 */
+    /* The light's layer in the view's ray-traced local shadow masks, or -1 (PointLight.hpp says how). */         \
+    FIELD( int32_t, ShadowMaskSlot, shadowMaskSlot, { -1 } ) /* 88 */                                             \
+    /* Under Shadows Stochastic, MegaLights' visibility source for the light (PointLight.hpp says how). */        \
+    FIELD( int32_t, ShadowVisibility, shadowVisibility, { 0 } ) /* 92 */                                          \
+    /* UE ULightComponent::VolumetricScatteringIntensity (PointLight.hpp says how). */                            \
+    FIELD( float, VolumetricScatteringIntensity, volumetricScatteringIntensity, { 1.0f } ) /* 96 */               \
+    FIELD( float, Pad2, pad2, { 0.0f } ) /* 100 */                                                                \
+    FIELD( float, Pad3, pad3, { 0.0f } ) /* 104 */                                                                \
+    FIELD( float, Pad4, pad4, { 0.0f } ) /* 108 -> 112 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -57,7 +63,7 @@ namespace Desert::Graphic::ShaderProtocols
          Std430StructLayoutMatches( kSpotLightPayloadFields, sizeof( SpotLightPayload ) ),
          "SpotLightPayload is not laid out (or strided) as std430 places the generated struct SpotLight: "
          "reorder or pad DESERT_SPOT_LIGHT_FIELDS" );
-    static_assert( sizeof( SpotLightPayload ) == 96 );
+    static_assert( sizeof( SpotLightPayload ) == 112 );
 
     struct SpotLight
     {

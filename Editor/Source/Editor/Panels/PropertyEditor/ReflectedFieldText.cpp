@@ -280,6 +280,57 @@ namespace Desert::Editor
             std::string m_Label;
         };
 
+        // A TEXT EDIT OF AN OWNED OBJECT (an entity's component), undone and redone by VALUE through the owner's
+        // write path (ReflectedEditRoute: the component entry's EditData, entity + type), never through an
+        // address: EnTT moves a component when its pool changes, and a component with one writer
+        // (StaticMeshComponent -> ECS::SetStaticMesh) is only changed through that writer, so a byte copy into
+        // its storage would both risk a dead address and skip the writer's on_update.
+        class RoutedFieldCommand final : public ICommand
+        {
+        public:
+            RoutedFieldCommand( ReflectedEditRoute route, std::size_t ownerOffset, const FieldInfo& field,
+                                std::optional<std::size_t> index, Value before, Value after )
+                 : m_Route( std::move( route ) ), m_OwnerOffset( ownerOffset ), m_Field( field ), m_Index( index ),
+                   m_Before( std::move( before ) ), m_After( std::move( after ) )
+            {
+            }
+            bool Undo() override
+            {
+                return Apply( m_Before );
+            }
+            bool Redo() override
+            {
+                return Apply( m_After );
+            }
+            std::string GetLabel() const override
+            {
+                return "Edit " + m_Field.DisplayName();
+            }
+
+        private:
+            bool Apply( const Value& value )
+            {
+                bool written = false;
+                const bool routed = m_Route(
+                     [&]( void* object )
+                     {
+                         char* owner = static_cast<char*>( object ) + m_OwnerOffset;
+                         if ( m_Index.has_value() )
+                             written = m_Field.ContainerSet( owner + m_Field.Offset, *m_Index, value );
+                         else
+                             written = static_cast<bool>( Reflection::WriteField( m_Field, owner, value ) );
+                     } );
+                return routed && written;
+            }
+
+            ReflectedEditRoute         m_Route;
+            std::size_t                m_OwnerOffset;
+            FieldInfo                  m_Field;
+            std::optional<std::size_t> m_Index;
+            Value                      m_Before;
+            Value                      m_After;
+        };
+
         // `Name[index]` -> {Name, index}; a segment without brackets has no index.
         struct SegmentIndex
         {
@@ -313,7 +364,7 @@ namespace Desert::Editor
 
     Common::BoolResultStr SetReflectedFieldFromText( void* object, const std::string& typeName,
                                                      std::string_view fieldPath, std::string_view text,
-                                                     CommandHistory& history )
+                                                     CommandHistory& history, const ReflectedEditRoute& route )
     {
         const TypeInfo* type = Reflection::ReflectionRegistry::Get().Find( typeName );
         if ( type == nullptr )
@@ -403,8 +454,13 @@ namespace Desert::Editor
                 if ( !field->ContainerSet( container, *split.Index, parsed.GetValue() ) )
                     return Common::MakeError<bool>( std::format( "'{}.{}[{}]' refused the value '{}'",
                                                                  type->Name, field->Name, *split.Index, text ) );
-                history.PushFieldCommand( std::make_unique<ContainerElementCommand>(
-                     *field, container, *split.Index, std::move( before ), parsed.GetValue() ) );
+                if ( route )
+                    history.PushFieldCommand( std::make_unique<RoutedFieldCommand>(
+                         route, static_cast<std::size_t>( at - static_cast<char*>( object ) ), *field,
+                         *split.Index, std::move( before ), parsed.GetValue() ) );
+                else
+                    history.PushFieldCommand( std::make_unique<ContainerElementCommand>(
+                         *field, container, *split.Index, std::move( before ), parsed.GetValue() ) );
                 return Common::MakeSuccess( true );
             }
 
@@ -426,6 +482,33 @@ namespace Desert::Editor
                 return Common::MakeError<bool>( parsed.GetError() );
 
             void* p = at + field->Offset;
+            if ( route )
+            {
+                // An owned object: the undo record holds the field's VALUES and replays them through the route.
+                auto before = Reflection::ReadField( *field, at );
+                if ( !before )
+                    return Common::MakeError<bool>( before.GetError() );
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — a live std::string member
+                const bool                isString = field->Type == FieldType::String;
+                const std::string         beforeText = isString ? *reinterpret_cast<std::string*>( p ) : std::string{};
+                std::vector<std::uint8_t> beforeBytes( isString ? 0 : field->Size );
+                if ( !isString )
+                    std::memcpy( beforeBytes.data(), p, field->Size );
+                if ( auto written = Reflection::WriteField( *field, at, parsed.GetValue() ); !written )
+                    return written;
+                // An unchanged value is no edit, as below.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                if ( isString ? beforeText == *reinterpret_cast<std::string*>( p )
+                              : std::memcmp( beforeBytes.data(), p, field->Size ) == 0 )
+                    return Common::MakeSuccess( true );
+                auto after = Reflection::ReadField( *field, at );
+                if ( !after )
+                    return Common::MakeError<bool>( after.GetError() );
+                history.PushFieldCommand( std::make_unique<RoutedFieldCommand>(
+                     route, static_cast<std::size_t>( at - static_cast<char*>( object ) ), *field, std::nullopt,
+                     before.ExtractValue(), after.ExtractValue() ) );
+                return Common::MakeSuccess( true );
+            }
             if ( field->Type == FieldType::String )
             {
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) — a live std::string member

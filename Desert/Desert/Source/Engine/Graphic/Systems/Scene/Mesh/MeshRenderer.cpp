@@ -9,7 +9,10 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
+#include <Engine/Geometry/Mesh.hpp>
+
 #include <algorithm>
+#include <cstdint>
 #include <optional>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
@@ -148,6 +151,10 @@ namespace Desert::Graphic::System
         if ( !SetupGeometryPass() )
             return Common::MakeError( "Failed to setup static geometry pass" );
 
+        // The forward path's depth prepass: required, its base pass tests against that depth and writes none.
+        if ( !SetupDepthPrepass() )
+            return Common::MakeError( "Failed to setup the forward depth prepass" );
+
         // Deferred G-buffer pipeline (optional; forward path is unaffected if it fails to set up). Creating it
         // here compiles the deferred shader + validates the MRT pipeline at startup.
         if ( !SetupGBufferPass() )
@@ -216,7 +223,7 @@ namespace Desert::Graphic::System
         // The same path test the forward list's build makes: on Deferred the forward list is cleared and the
         // meshes are in the G-buffer list, the forward-shaded generics in the generic one.
         const bool deferred =
-             m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_StaticGBufferPipeline;
+             m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_SceneRenderer->GetGBuffer();
         if ( !deferred )
             return m_ForwardDraws.Triangles();
         return m_GBufferDraws.Triangles() + m_GenericDraws.Triangles();
@@ -465,14 +472,32 @@ namespace Desert::Graphic::System
             // only: in Deferred the meshes are drawn into the G-buffer by "Deferred: GBuffer" instead (this
             // target keeps sky/grid/terrain for compositing). The cloud layer's shadow map is one of the inputs.
             m_ForwardDraws.Clear();
+            // SceneRenderer's own test (its deferred block runs exactly then, and it runs the deferred path only
+            // where DrawsGBuffer): every frame that draws meshes here ran "Forward: Depth Prepass" before it.
             const bool deferred =
-                 m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_StaticGBufferPipeline;
+                 m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_SceneRenderer->GetGBuffer();
             if ( deferred || m_SceneRenderer->GetMainCamera() == nullptr )
+            {
+                m_ForwardPrepassStats = {};
                 return;
+            }
+            const SceneViewInputs view = SceneViewInputsOf( refs );
+            // Shadows.Method VirtualMaps: every forward cell reads the view's virtual shadow map, not the atlas.
+            m_ForwardVirtualLocal = m_SceneRenderer->LocalShadowsAreVirtual();
             BuildStaticDraws( m_ForwardDraws );
             BuildSkinnedDraws( m_ForwardDraws );
             BuildGenericDraws( m_ForwardDraws, GenericSlice::Forward );
-            m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );
+            m_ForwardDraws.Declare( declared, view );
+            // What this frame's prepass admitted (DeclareDepthPrepassDraws ran before this node), and whether any
+            // base-pass draw writes the depth it tests against.
+            m_ForwardPrepassStats = ForwardPrepassStats{
+                 .Draws       = PrepassCurrent() ? static_cast<uint32_t>( m_DepthPrepassDraws.GetCommands().size() )
+                                                 : 0u,
+                 .Cells       = PrepassCurrent() ? static_cast<uint32_t>( m_PrepassCellDraws.size() ) : 0u,
+                 .GpuSections = PrepassCurrent() ? static_cast<uint32_t>( m_PrepassGpuSections.size() ) : 0u,
+                 .DepthWriteInBase = std::ranges::any_of( m_ForwardDraws.GetCommands(),
+                                                          []( const MeshRendererDetail::MeshDrawCommand& draw )
+                                                          { return draw.Pipeline->GetSpecification().DepthWriteEnabled; } ) };
             // The skin cache's streams the forward skinned cell fetches by address (Vertex_Skinned.glslh).
             for ( const RDG::BufferRef& streams : m_SkinCacheReads )
                 declared.Read( streams, RDG::Access::StorageRead );
@@ -530,7 +555,9 @@ namespace Desert::Graphic::System
 
         // The view's contact shadows, from the SAME settings the deferred composite packs. The forward meshes
         // and the glass march the opaque scene depth (SceneDepthTexture): the deferred path has it (the G-buffer
-        // depth, finished before any of them draws); the forward path has no prepass, so it marches nothing.
+        // depth, finished before any of them draws). The forward path's prepass depth is the base pass's own depth
+        // attachment (loaded, tested, never written), which a draw of that pass cannot also sample: it marches
+        // nothing.
         if ( view != nullptr )
             frame.ContactShadow = m_SceneRenderer->GetContactShadowSettings(
                  *view, m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred );
@@ -617,6 +644,76 @@ namespace Desert::Graphic::System
         registry.BeginFrame( frame );
         GpuDriven::GpuScene& scene = registry.Scene();
 
+        // MotionRecord::Content of each record: what the ray-tracing gather (RayTracingGather.hpp) reads of it
+        // besides its mesh, world, row and flags - its sections (visible submeshes, material instance, surface,
+        // masked / translucent, a generic record's own hit program), its ray-tracing visibility and the mesh's
+        // submesh list and residency. Bit-exact words folded per record; the registry turns a change into a
+        // Content change of the GpuScene stream.
+        struct ContentWords
+        {
+            uint64_t Hash = 0xCBF29CE484222325ull;
+            void     Value( const uint64_t value )
+            {
+                Hash = ( Hash ^ value ) * 0x100000001B3ull;
+            }
+            void Pointer( const void* pointer )
+            {
+                Value( static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( pointer ) ) );
+            }
+            void Section( const uint64_t hidden, const SectionShading& shading )
+            {
+                Value( hidden );
+                Pointer( shading.Instance );
+                Pointer( shading.Surface );
+                Value( ( shading.Masked ? 1u : 0u ) | ( shading.Translucent ? 2u : 0u ) );
+            }
+            void MeshOf( const Mesh* mesh )
+            {
+                Pointer( mesh );
+                if ( mesh == nullptr )
+                    return;
+                Pointer( mesh->GetSubmeshes().data() );
+                Value( mesh->GetSubmeshes().size() );
+                Value( mesh->GetGeometry().IndexCount );
+                Value( mesh->GetGeometry().IsResident() ? 1u : 0u );
+            }
+        };
+        const auto staticContent = []( const StaticMeshRenderData& data )
+        {
+            ContentWords words;
+            words.MeshOf( data.Mesh );
+            words.Section( data.HiddenSubmeshes, ShadingOf( data ) );
+            return words.Hash;
+        };
+        const auto genericContent = []( const GenericMeshRenderData& data )
+        {
+            ContentWords words;
+            words.Value( data.VisibleInRayTracing ? 1u : 0u );
+            words.MeshOf( data.Mesh );
+            words.Value( data.VisibleSubmeshMask );
+            words.Pointer( data.SlotMaterial );
+            // The gather keeps the record's hit program by address (SectionSource::ProgramHit).
+            words.Pointer( &data.RayHit );
+            words.Value( ( data.RayHit.Template.empty() ? 0u : 1u ) | ( data.RayHit.Opacity.has_value() ? 2u : 0u ) );
+            return words.Hash;
+        };
+        const auto skinnedContent = []( const SkinnedMeshRenderData& data )
+        {
+            ContentWords words;
+            words.MeshOf( data.Mesh );
+            words.Value( data.Sections.size() );
+            for ( const SkinnedSection& section : data.Sections )
+                words.Section( section.HiddenSubmeshes, ShadingOf( section ) );
+            return words.Hash;
+        };
+        const auto fieldContent = []( const InstancedMeshRenderData& data )
+        {
+            ContentWords words;
+            words.MeshOf( data.Mesh );
+            words.Section( data.HiddenSubmeshes, ShadingOf( data ) );
+            return words.Hash;
+        };
+
         // The queued records as the registry keys them (GpuSceneRegistry::Sync: one primitive per entity slot,
         // submesh records of one object share it, slots stable per submission); this function only gathers them,
         // writes each one's rows back and uploads the scene's deltas.
@@ -630,13 +727,15 @@ namespace Desert::Graphic::System
                                .Mesh      = data.Mesh,
                                .Flags     = rigidFlags( data.CastShadows, data.CastContactShadow ),
                                .ForcedLod = data.ForcedLOD,
-                               .LodBias   = data.LODBias } );
+                               .LodBias   = data.LODBias,
+                               .Content   = staticContent( data ) } );
         for ( const auto& data : m_GenericQueue )
             rigid.push_back( { .Entity = data.Entity,
                                .Part   = data.MotionPart,
                                .World  = data.Transform,
-                               .Mesh   = data.Mesh,
-                               .Flags  = rigidFlags( data.CastShadows, true ) } );
+                               .Mesh    = data.Mesh,
+                               .Flags   = rigidFlags( data.CastShadows, true ),
+                               .Content = genericContent( data ) } );
         rigid.insert( rigid.end(), otherRigid.begin(), otherRigid.end() );
 
         auto& skinned = m_ScratchSkinnedRecords;
@@ -646,8 +745,9 @@ namespace Desert::Graphic::System
             skinned.push_back( { .Entity = data.Entity,
                                  .World  = data.Transform,
                                  .Bones  = data.BoneMatrices,
-                                 .Mesh   = data.Mesh,
-                                 .Flags  = Flags::kSkinned | rigidFlags( data.CastShadows, true ) } );
+                                 .Mesh    = data.Mesh,
+                                 .Flags   = Flags::kSkinned | rigidFlags( data.CastShadows, true ),
+                                 .Content = skinnedContent( data ) } );
 
         // Every ISM / foliage field is ONE primitive whose GpuScene instances are its instances (UE instance
         // scene data; the GI card table and the TLAS custom index are keyed per instance).
@@ -661,7 +761,8 @@ namespace Desert::Graphic::System
                                 .CullDistanceStart = data.CullDistance.Min,
                                 .CullDistanceEnd   = data.CullDistance.Max,
                                 .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ),
-                                .BoundsPad         = WindBoundsPad( data.Wind ) } );
+                                .BoundsPad         = WindBoundsPad( data.Wind ),
+                                .Content           = fieldContent( data ) } );
 
         auto& rows = m_ScratchGpuSceneRows;
         registry.Sync( rigid, skinned, fields, rows );

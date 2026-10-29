@@ -35,9 +35,9 @@ namespace Desert::ECS
     Animation::BoneTransform EntityPose( const TransformComponent& transform )
     {
         Animation::BoneTransform pose;
-        pose.Translation = transform.Translation;
-        pose.Rotation    = glm::quat( transform.Rotation );
-        pose.Scale       = transform.Scale;
+        pose.Translation = transform.GetTranslation();
+        pose.Rotation    = glm::quat( transform.GetRotation() );
+        pose.Scale       = transform.GetScale();
         return pose;
     }
 
@@ -1325,10 +1325,10 @@ namespace Desert::ECS
                 saved.Entity       = entity;
                 saved.HadTransform = registry.has<TransformComponent>( entity );
                 if ( saved.HadTransform )
-                    saved.Transform = registry.get<TransformComponent>( entity );
+                    saved.Transform = registry.get<TransformComponent>( entity ).GetLocal();
                 saved.HadVisibility = registry.has<VisibilityComponent>( entity );
                 if ( saved.HadVisibility )
-                    saved.Visible = registry.get<VisibilityComponent>( entity ).Visible;
+                    saved.Visible = registry.get<VisibilityComponent>( entity ).IsVisible();
                 if ( const auto* animation = registry.try_get<AnimationComponent>( entity );
                      animation != nullptr && animation->Animator )
                 {
@@ -1368,9 +1368,9 @@ namespace Desert::ECS
             if ( !registry.valid( saved.Entity ) )
                 continue;
             if ( saved.HadTransform && registry.has<TransformComponent>( saved.Entity ) )
-                registry.get<TransformComponent>( saved.Entity ) = saved.Transform;
+                SetLocalTransform( registry, saved.Entity, saved.Transform );
             if ( saved.HadVisibility && registry.has<VisibilityComponent>( saved.Entity ) )
-                registry.get<VisibilityComponent>( saved.Entity ).Visible = saved.Visible;
+                SetVisible( registry, saved.Entity, saved.Visible );
             else if ( !saved.HadVisibility && registry.has<VisibilityComponent>( saved.Entity ) )
                 registry.remove<VisibilityComponent>( saved.Entity );
             if ( auto* animation = registry.try_get<AnimationComponent>( saved.Entity );

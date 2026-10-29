@@ -226,7 +226,7 @@ namespace Desert::ECS
                 const auto& transform = characters.get<TransformComponent>( entity );
 
                 if ( const auto created = CharacterMovement::CreateCharacter(
-                          cc, *m_World, transform.Translation ); // capsule centre
+                          cc, *m_World, transform.GetTranslation() ); // capsule centre
                      !created )
                 {
                     m_RefusedCharacters.insert( entity );
@@ -303,9 +303,10 @@ namespace Desert::ECS
                 auto& cc = characters.get<CharacterControllerComponent>( entity );
                 if ( cc.HasRootMotion )
                 {
-                    auto& transform    = characters.get<TransformComponent>( entity );
-                    transform.Rotation = glm::eulerAngles(
-                         glm::normalize( cc.RootMotionRotation * glm::quat( transform.Rotation ) ) );
+                    const auto& transform = characters.get<TransformComponent>( entity );
+                    SetLocalRotation( registry, entity,
+                                      glm::eulerAngles( glm::normalize( cc.RootMotionRotation *
+                                                                        glm::quat( transform.GetRotation() ) ) ) );
                 }
                 cc.HasRootMotion      = false;
                 cc.RootMotionRotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
@@ -328,9 +329,10 @@ namespace Desert::ECS
                 if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type != Physics::BodyType::Dynamic )
                     continue;
 
-                auto& transform       = bodies.get<TransformComponent>( entity );
-                transform.Translation = m_World->GetInterpolatedPosition( rb.RuntimeBody );
-                transform.Rotation    = glm::eulerAngles( m_World->GetInterpolatedRotation( rb.RuntimeBody ) );
+                LocalTransform transform = bodies.get<TransformComponent>( entity ).GetLocal();
+                transform.Translation    = m_World->GetInterpolatedPosition( rb.RuntimeBody );
+                transform.Rotation       = glm::eulerAngles( m_World->GetInterpolatedRotation( rb.RuntimeBody ) );
+                SetLocalTransform( registry, entity, transform );
             }
 
             for ( auto entity : characters )
@@ -338,8 +340,8 @@ namespace Desert::ECS
                 const auto& cc = characters.get<CharacterControllerComponent>( entity );
                 if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
                     continue;
-                characters.get<TransformComponent>( entity ).Translation =
-                     m_World->GetInterpolatedCharacterPosition( cc.RuntimeCharacter );
+                SetLocalTranslation( registry, entity,
+                                     m_World->GetInterpolatedCharacterPosition( cc.RuntimeCharacter ) );
             }
 
             // Projectiles after the step and its writeback (UE: UProjectileMovementComponent ticks in the frame
@@ -392,19 +394,19 @@ namespace Desert::ECS
             {
                 case ColliderMeshSource::RuntimeMesh:
                     return Common::MakeSuccess( Result( BuildColliderMesh(
-                         mesh.RuntimeMesh->GetVertices(), mesh.RuntimeMesh->GetIndices(), scale ) ) );
+                         mesh.GetRuntimeMesh()->GetVertices(), mesh.GetRuntimeMesh()->GetIndices(), scale ) ) );
                 case ColliderMeshSource::Primitive:
                 {
                     // PickColliderMeshSource only returns Primitive when mesh.Primitive.has_value(); re-checked
                     // here so the access below is never through an empty optional (tidy can't see across the
                     // call).
-                    if ( !mesh.Primitive.has_value() )
+                    if ( !mesh.GetPrimitive().has_value() )
                         return Common::MakeError<Result>(
                              "primitive collider mesh source picked without a primitive" );
-                    const DynamicMesh* shared = Geometry::PrimitiveMeshFactory::GetShared( *mesh.Primitive );
+                    const DynamicMesh* shared = Geometry::PrimitiveMeshFactory::GetShared( *mesh.GetPrimitive() );
                     if ( shared == nullptr )
                         return Common::MakeError<Result>( std::format( "primitive {} has no shared mesh",
-                                                                       static_cast<int>( *mesh.Primitive ) ) );
+                                                                       static_cast<int>( *mesh.GetPrimitive() ) ) );
                     return Common::MakeSuccess(
                          Result( BuildColliderMesh( shared->GetVertices(), shared->GetIndices(), scale ) ) );
                 }
@@ -413,7 +415,7 @@ namespace Desert::ECS
                     const auto* service = Runtime::ResourceRegistry::GetMeshService();
                     if ( service == nullptr )
                         return Common::MakeError<Result>( "no mesh service to read the collider's mesh from" );
-                    const Assets::MeshAsset* asset = service->GetAsset( mesh.MeshHandle );
+                    const Assets::MeshAsset* asset = service->GetAsset( mesh.GetMeshHandle() );
                     if ( asset == nullptr )
                         return Common::MakeSuccess( Result{} );
                     const auto* staticAsset = dynamic_cast<const Assets::StaticMeshAsset*>( asset );
@@ -482,11 +484,11 @@ namespace Desert::ECS
                 return Common::MakeError<Guid>( "it has no Skinned Mesh: a ragdoll's bodies follow a skinned "
                                                 "mesh's bones" );
             const auto& mesh = registry.get<SkinnedMeshComponent>( entity );
-            if ( mesh.RuntimeMesh )
+            if ( mesh.GetRuntimeMesh() )
                 return Common::MakeError<Guid>( "its mesh is an in-editor rig (Convert to Skinned) with no "
                                                 "skeleton asset, and a physics asset names its skeleton by GUID" );
             const auto* asset = dynamic_cast<const Assets::SkinnedMeshAsset*>(
-                 Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh.MeshHandle ) );
+                 Runtime::ResourceRegistry::GetMeshService()->GetAsset( mesh.GetMeshHandle() ) );
             if ( asset == nullptr )
                 return Common::MakeError<Guid>( "its mesh is not a parsed skinned mesh" );
             return Common::MakeSuccess( asset->GetSkeleton() );

@@ -17,39 +17,7 @@ Shader "MegaLightsTraceSamples"
         #define RAY_QUERY_VISIBILITY_MATERIALS_BINDING 9
         #include <Common/RayQueryVisibility.glslh>
         Uniform sampler PointClampSampler;
-        #define MEGALIGHTS_SHADING
-        #define MEGALIGHTS_TRACE
-        #include <Common/MegaLights.glslh>
-
-        Uniform(10) texture2D ReservoirsTexture; // "MegaLights: Spatial Resampling"
-        #define ReservoirsTexture sampler2D(ReservoirsTexture, PointClampSampler)
-        layout(binding = 11, rgba32f) writeonly uniform image2D OutReservoirsTexture; // shaded now, history next frame
-        layout(binding = 17, rgba16f) writeonly uniform image2D OutSurfaceTexture;    // xyz = normal, w = clip w (0 = none)
-
-        LocalSize(8, 8, 1);
-
-        void main()
-        {
-        	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy); // a sample pixel
-        	const ivec2 size  = MegaLightsSampleSize();
-        	if (pixel.x >= size.x || pixel.y >= size.y)
-        		return;
-        	const uint            samples = MegaLightsSamplesPerPixel();
-        	const ivec2           screen  = MegaLightsScreenPixel(pixel);
-        	const MegaLightsPixel p       = MegaLightsLoadPixel(screen);
-        	g_MegaLightsTracedPixel       = vec2(screen) + 0.5;
-        	uint random                   = MegaLightsSeed(pixel, 3u);
-        	for (uint k = 0u; k < samples; ++k)
-        	{
-        		const ivec2         texel = MegaLightsReservoirTexel(pixel, k);
-        		MegaLightsReservoir r     = MegaLightsUnpackReservoir(texelFetch(ReservoirsTexture, texel, 0));
-        		if (!p.Valid)
-        			r = MegaLightsEmptyReservoir();
-        		else if (r.Light >= 0 && r.W > 0.0)
-        			r.W *= MegaLightsVisibility(p, r.Light, random);
-        		imageStore(OutReservoirsTexture, texel, MegaLightsPackReservoir(r));
-        	}
-        	imageStore(OutSurfaceTexture, pixel, p.Valid ? vec4(p.N, p.ViewDepth) : vec4(0.0));
-        }
+        #define MEGALIGHTS_VISIBILITY_RAY_QUERY
+        #include <Common/MegaLightsTraceSamples.glslh>
     }
 }

@@ -31,26 +31,18 @@ Shader "VirtualShadowMapInvalidateCasters"
             const uint  level = gl_WorkGroupID.y;
             const vec3  lo    = Boxes[2u * box].xyz;
             const vec3  hi    = Boxes[2u * box + 1u].xyz;
-            const mat4  vp    = Levels[level].ViewProjection;
-            vec2        first = vec2( 1.0e30 );
-            vec2        last  = vec2( -1.0e30 );
-            for ( uint c = 0u; c < 8u; ++c )
-            {
-                const vec3 corner = mix( lo, hi, vec3( float( c & 1u ), float( ( c >> 1u ) & 1u ), float( ( c >> 2u ) & 1u ) ) );
-                const vec2 page   = ( ( vp * vec4( corner, 1.0 ) ).xy * 0.5 + 0.5 ) * float( VSM_LEVEL_PAGES );
-                first             = min( first, page );
-                last              = max( last, page );
-            }
-            const ivec2 lowPage  = max( ivec2( floor( first ) ), ivec2( 0 ) );
-            const ivec2 highPage = min( ivec2( floor( last ) ), ivec2( int( VSM_LEVEL_PAGES ) - 1 ) );
-            if ( any( greaterThan( lowPage, highPage ) ) )
+            // The pages the box covers in this level (a clipmap level or a local light's mip: the motion mask).
+            ivec2 lowPage;
+            ivec2 highPage;
+            float nearest;
+            if ( !VsmLevelPageRect( Levels[level], lo, hi, lowPage, highPage, nearest ) )
                 return;
             const ivec2 size  = highPage - lowPage + 1;
             const uint  count = uint( size.x * size.y );
             for ( uint k = gl_LocalInvocationID.x; k < count; k += 64u )
             {
                 const ivec2 windowPage = lowPage + ivec2( int( k ) % size.x, int( k ) / size.x );
-                const uint  index      = VsmEntryIndex( level, Levels[level].Window.xy + windowPage );
+                const uint  index      = VsmLevelEntryIndex( Levels[level], level, windowPage );
                 if ( ( Entries[index].Flags & VSM_FLAG_ALLOCATED ) != 0u )
                     atomicOr( Entries[index].Flags, VSM_FLAG_DIRTY );
             }

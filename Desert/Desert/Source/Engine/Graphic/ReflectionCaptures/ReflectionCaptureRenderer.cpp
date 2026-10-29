@@ -159,8 +159,8 @@ namespace Desert::Graphic
             HashBytes( hash, &environment, sizeof( environment ) );
             const auto hashTransform = [&hash]( const ECS::TransformComponent& transform )
             {
-                HashBytes( hash, &transform.Translation, sizeof( transform.Translation ) );
-                HashBytes( hash, &transform.Rotation, sizeof( transform.Rotation ) );
+                HashBytes( hash, &transform.GetTranslation(), sizeof( transform.GetTranslation() ) );
+                HashBytes( hash, &transform.GetRotation(), sizeof( transform.GetRotation() ) );
             };
             const auto points = registry.view<const ECS::PointLightComponent, const ECS::TransformComponent>();
             for ( const entt::entity entity : points )
@@ -287,15 +287,15 @@ namespace Desert::Graphic
             const bool      box        = data.Shape == ECS::ReflectionCaptureShape::Box;
             const glm::vec3 extent     = glm::max( data.BoxExtent, glm::vec3( 1.0f ) );
             const float     radius     = box ? glm::length( extent ) : std::max( data.InfluenceRadius, 1.0f );
-            const glm::mat4 boxToWorld = glm::translate( glm::mat4( 1.0f ), transform.Translation ) *
-                                         glm::toMat4( glm::quat( transform.Rotation ) ) *
+            const glm::mat4 boxToWorld = glm::translate( glm::mat4( 1.0f ), transform.GetTranslation() ) *
+                                         glm::toMat4( glm::quat( transform.GetRotation() ) ) *
                                          glm::scale( glm::mat4( 1.0f ), extent );
 
             ReflectionCaptureEntry entry;
             entry.Entity                      = entity;
             entry.InfluenceRadius             = radius;
-            entry.CapturePosition             = transform.Translation + data.CaptureOffset;
-            entry.Gpu.PositionRadius          = glm::vec4( transform.Translation, radius );
+            entry.CapturePosition             = transform.GetTranslation() + data.CaptureOffset;
+            entry.Gpu.PositionRadius          = glm::vec4( transform.GetTranslation(), radius );
             entry.Gpu.CaptureOffsetBrightness = glm::vec4( data.CaptureOffset, std::max( data.Brightness, 0.0f ) );
             entry.Gpu.BoxExtentTransition     = glm::vec4( extent, std::max( data.BoxTransitionDistance, 0.0f ) );
             entry.Gpu.ShapeCube               = glm::uvec4( box ? 1u : 0u, 0u, 0u, 0u );
@@ -583,7 +583,7 @@ namespace Desert::Graphic
         if ( !m_FaceField )
             m_FaceField = std::make_unique<DistanceField::GlobalDistanceField>( m_Scene ); // the scene's rows
         if ( !m_FaceSurfaceCache )
-            m_FaceSurfaceCache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>();
+            m_FaceSurfaceCache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>( m_Scene ); // the scene's rows
         if ( !m_Faces[face] )
         {
             m_Faces[face] = std::make_unique<FaceView>();
@@ -600,7 +600,10 @@ namespace Desert::Graphic
         view.Renderer->BorrowEnvironment( environment );
         // The capture point's one field (m_FaceField), shared by the six faces.
         view.Renderer->ShareGlobalDistanceField( m_FaceField.get() );
-        // ... and its one surface cache (m_FaceSurfaceCache).
+        // ... and its one surface cache (m_FaceSurfaceCache), whose one view this frame stands at the capture point.
+        m_FaceSurfaceCache->BeginFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
+                                        { capture.CapturePosition }, scene.GetRegistry(),
+                                        scene.GetSettings().RenderingPath == Core::RenderPath::Deferred );
         view.Renderer->ShareSurfaceCache( m_FaceSurfaceCache.get() );
         if ( const auto begun = view.Renderer->BeginScene( scene, &view.View ); !begun )
         {

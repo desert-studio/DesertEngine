@@ -1,0 +1,5 @@
+# VOLFOG-SHOWCASE: the froxel volumetric fog (VolumetricFogRenderer: LightScattering + Integration, composed by the height fog
+# and by every translucent surface through Mesh/Surface/SceneFog.glslh) in Fog_Showcase, whose height fog has VolumetricFog on.
+Дано run Scene "Open Scene Fog_Showcase.desce"
+# 60 frames: the froxel history (kVolumetricFogHistoryWeight 0.9) settles before the shot; add the scenario verb for a frame wait if play_scenario has one.
+Тогда volfog_showcase froxel fog visible in Fog_Showcase (sun shafts through the grid, lit fog around the local lights), 0 VUID

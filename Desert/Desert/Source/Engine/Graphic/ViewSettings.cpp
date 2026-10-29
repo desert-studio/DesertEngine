@@ -140,7 +140,7 @@ namespace Desert::Graphic
             const ECS::PostProcessVolumeData& volume =
                  volumes.get<const ECS::PostProcessVolumeComponent>( entity ).Data;
             const ECS::TransformComponent& transform = volumes.get<const ECS::TransformComponent>( entity );
-            const float weight = PostProcessVolumeWeight( volume, transform.Translation, viewPosition );
+            const float weight = PostProcessVolumeWeight( volume, transform.GetTranslation(), viewPosition );
             if ( weight > 0.0f )
                 contributions.push_back(
                      { volume.Priority, std::min( weight, 1.0f ), std::cref( volume.Settings ) } );

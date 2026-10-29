@@ -258,23 +258,29 @@ namespace Desert::Graphic
                                                         : nullptr;
     }
 
-    void SceneRenderer::AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures,
+                                                              const std::string_view name )
     {
         if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetDepthAttachmentCount() == 0 )
-            return;
+            return {};
+        const RDG::TextureRef sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
+        const uint32_t        samples    = m_TargetFramebuffer->GetSpecification().Samples;
+        if ( samples <= 1 )
+            return sceneDepth; // one sample: the consumers read the scene depth itself
         auto* resolve =
              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
              UNIQUE_GET_AS( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] );
         if ( resolve == nullptr || !resolve->IsReady() )
-            return;
-        const RDG::TextureRef sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
+            return {};
+        const RDG::TextureRef resolved = textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" );
         DeferredFrameNodes::AddSceneDepthResolve(
-             graph, m_TargetFramebuffer->GetSpecification().Samples, sceneDepth,
-             textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" ),
+             graph, samples, sceneDepth, resolved,
              [resolve]( RDG::PassBuilder& pass, RDG::TextureRef depth )
              { resolve->DeclareBindings( pass, depth ); },
              [resolve]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return resolve->Record( context ); } );
+             { return resolve->Record( context ); },
+             name );
+        return resolved;
     }
 
     void SceneRenderer::AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures )
@@ -352,26 +358,28 @@ namespace Desert::Graphic
         const RDG::TextureRef depth    = textures.Depth( m_GBuffer, "GBuffer" ); // world position reconstructed
         const RDG::TextureRef normal   = gbuffer[1]; // GBufferB
         textures.Transients.SSAO       = ao;         // -> Deferred: Composite (SsaoTexture)
+        // The G-buffer was rasterised with the jittered matrix: SSAO projects its samples through it and
+        // reconstructs positions with its inverse (both from the ViewFrame, one copy).
+        const RDG::BufferRef uniforms = System::SSAORenderer::UploadUniforms(
+             graph, System::SSAOUniforms::Inputs{ .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                                                  .View                      = frame.View,
+                                                  .Projection                = frame.Projection,
+                                                  .TargetSize       = { aoDesc.Size.Width, aoDesc.Size.Height },
+                                                  .FrameIndex       = frame.FrameIndex,
+                                                  .WorldRadius      = kGTAOWorldRadius,
+                                                  .ThicknessBlend   = kGTAOThicknessBlend,
+                                                  .TapsPerDirection = m_SSAOSamples,
+                                                  .Angles           = kGTAOAngles } );
+        // UE r.AmbientOcclusion.Compute: a compute dispatch whose every input is a graph resource, so it runs on
+        // the async compute pipe (RenderPipeline.AsyncCompute; the builder strips the flag when that is off). Fork:
+        // the last graphics writer of the depth / GBufferB (the G-buffer, its resolve / expand); join: the first
+        // graphics reader of the AO, Deferred: Composite. HZB and SSR (and everything else between) overlap it.
         graph.AddPass(
-             "Deferred: SSAO", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 ssao->DeclareBindings( pass, depth, normal );
-                 pass.ColorTarget( 0, ao, EngineClearColor() ); // AO is fully recomputed each frame
-             },
-             // The G-buffer was rasterised with the jittered matrix: SSAO projects its samples through it and
-             // reconstructs positions with its inverse (both from the ViewFrame, one copy).
-             [ssao, inputs = MaterialSSAO::Inputs{ .InvJitteredViewProjection = frame.InvJitteredViewProjection,
-                                                   .View                      = frame.View,
-                                                   .Projection                = frame.Projection,
-                                                   .TargetSize       = { aoDesc.Size.Width, aoDesc.Size.Height },
-                                                   .FrameIndex       = frame.FrameIndex,
-                                                   .WorldRadius      = kGTAOWorldRadius,
-                                                   .ThicknessBlend   = kGTAOThicknessBlend,
-                                                   .TapsPerDirection = m_SSAOSamples,
-                                                   .Angles           = kGTAOAngles }](
+             "Deferred: SSAO", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [&]( RDG::PassBuilder& pass ) { ssao->DeclareBindings( pass, depth, normal, ao, uniforms ); },
+             [ssao, width = aoDesc.Size.Width, height = aoDesc.Size.Height](
                   RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssao->Record( context, inputs ); } );
+             { return ssao->Record( context, width, height ); } );
     }
 
     LightGridParamsPayload SceneRenderer::AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures,
@@ -401,7 +409,10 @@ namespace Desert::Graphic
         // UE LightGridInjection (ComputeLightGrid, before the base pass): every froxel lists the lights that reach
         // it, before any lit node reads the lists.
         graph.AddPass(
-             "LightGrid", RDG::PassFlags::Compute, [deferred, lights]( RDG::PassBuilder& pass )
+             // ASYNC COMPUTE: reads only the light uploads above, its first reader (MegaLights volume when it runs,
+             // else the forward base pass or the deferred composite) comes after the G-buffer fill.
+             "LightGrid", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [deferred, lights]( RDG::PassBuilder& pass )
              { deferred->DeclareGridBindings( pass, lights, LightGridLayout::Frustum ); },
              [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->RecordGrid( context, cells ); } );
@@ -720,7 +731,9 @@ namespace Desert::Graphic
                                                                       GetPointLights(), GetSpotLights() );
         System::DeferredLightingRenderer::UploadWorldGrid( graph, grid, lights );
         graph.AddPass(
-             "LightGridWorld", RDG::PassFlags::Compute, [deferred, lights]( RDG::PassBuilder& pass )
+             // ASYNC COMPUTE: reads the world-grid upload above; read first by the traced GI after the G-buffer.
+             "LightGridWorld", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [deferred, lights]( RDG::PassBuilder& pass )
              { deferred->DeclareGridBindings( pass, lights, LightGridLayout::WorldClipmaps ); },
              [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->RecordGrid( context, cells ); } );
@@ -811,17 +824,22 @@ namespace Desert::Graphic
                                                    .Lights = meshRenderer != nullptr
                                                                   ? meshRenderer->DirectionalShadows()
                                                                   : SceneResources::DirectionalShadowViews{} };
-            // Shadows Stochastic: MegaLights' local lighting (AddFrameMegaLights logged why one is missing; a view
-            // without local lights has none to add): black adds no local light, never the unshadowed grid loop.
-            shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
             // Shadows HardwareTraced: the lights with a ShadowMaskSlot read the ray-traced masks
             // (AddFrameRayTracedLocalShadows logged why they are missing; the sun-mask program then reads the
             // lights' shadow views - their maps where drawn, otherwise unshadowed).
-            shadow.RayTracedLocalLights = LocalShadowsAreRayTraced() && localShadowMasks.IsValid();
+            shadow.RayTracedLocalLights = LocalShadowsAreScreenMask() && localShadowMasks.IsValid();
+            // Shadows VirtualMaps: the same masks, and the virtual map's tables (AddFrameVirtualShadows) for the
+            // subsurface transmission in place of the atlas, which is not drawn under VirtualMaps.
+            shadow.VirtualLocalLights =
+                 LocalShadowsAreVirtual() && localShadowMasks.IsValid() && textures.Transients.Vsm.IsValid();
             inputs.LocalShadowMasks     = localShadowMasks;
         }
         else if ( meshRenderer != nullptr )
             shadow.Sun = DeferredCascadeShadow{ .Lights = meshRenderer->DirectionalShadows() };
+        // Shadows Stochastic: MegaLights' local lighting under either sun arm (the mask under rayquery and
+        // vsm+screen, the cascades under screen; AddFrameMegaLights logged why one is missing, a view without local
+        // lights has none to add): black adds no local light, never the unshadowed grid loop.
+        shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
         inputs.MegaLightsDiffuse  = megaLights.Diffuse.IsValid() ? megaLights.Diffuse : refs.System.Black;
         inputs.MegaLightsSpecular = megaLights.Specular.IsValid() ? megaLights.Specular : refs.System.Black;
         // SSS-PROFILE: the split's target, or a 1x1 transient the composite never writes (SubsurfaceSplit off).
@@ -1267,20 +1285,25 @@ namespace Desert::Graphic
         return sceneCopy;
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameHZB( RDG::Builder& graph, FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::AddFrameHZB( RDG::Builder& graph, FrameTextures& textures,
+                                                const RDG::TextureRef depth )
     {
+        if ( textures.Transients.ClosestHzb.IsValid() )
+            return textures.Transients.ClosestHzb; // one hierarchy per graph: its first caller built it
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* hzb = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
         if ( hzb == nullptr )
             return {};
-        const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
-        const auto            desc  = graph.GetTextureDesc( depth );
+        const RDG::TextureRef source = depth.IsValid() ? depth : textures.Depth( m_GBuffer, "GBuffer" );
+        const auto            desc   = graph.GetTextureDesc( source );
         if ( !desc )
         {
             LOG_ERROR( "[SceneRenderer] HZB: {}", desc.GetError() );
             return {};
         }
-        return hzb->AddPasses( graph, depth, desc.GetValue().Size.Width, desc.GetValue().Size.Height );
+        textures.Transients.ClosestHzb =
+             hzb->AddPasses( graph, source, desc.GetValue().Size.Width, desc.GetValue().Size.Height );
+        return textures.Transients.ClosestHzb;
     }
 
     SceneRenderer::FrameScreenTrace
@@ -1395,20 +1418,26 @@ namespace Desert::Graphic
     Common::ResultStr<RayTracing::EmissiveLightsFrame> SceneRenderer::AddFrameEmissiveLights( RDG::Builder& graph )
     {
         using Result = RayTracing::EmissiveLightsFrame;
-        if ( !m_RayTracingScene.GetFrame().Built )
-            return Common::MakeError<Result>(
-                 "the emissive lights are built from the view's TLAS, which this frame "
-                 "did not build" );
-        // The estimate the tree's powers are made of: the segment's emissive colour x intensity in the row the
-        // raster draws it with. A landscape tile's hit group emits nothing (TerrainRayHit), a whole-entity
-        // override has no surface row.
-        const auto radianceOf = []( const RayTracing::RayTracingSegmentRecord& segment ) -> glm::vec3
+        // The list is built from the scene's rows (EmissiveLights.hpp): this frame's TLAS gather, or - on a frame
+        // that traces no TLAS (the software GI tracer) - a scene gather of the same queues.
+        const bool tlas = m_RayTracingScene.GetFrame().Built;
+        if ( const Common::BoolResultStr gathered = m_RayTracingScene.GatherScene(); !gathered )
+            return Common::MakeError<Result>( gathered.GetError() );
+        // Its programs, on the first frame that asks (the path tracer's bring-up, or the surface cache lighting
+        // under either GI tracer, GI-EMISSIVE-LIGHTS); made once, kept.
+        if ( const Common::BoolResultStr ready = m_EmissiveLights.Initialize(); !ready )
+            return Common::MakeError<Result>( ready.GetError() );
+        // The estimate the tree's powers are made of: the segment's emissive colour x intensity, emissive map and
+        // UV transform in the row the raster draws it with (the surface templates' SurfaceEmission). A landscape
+        // tile's hit group emits nothing (TerrainRayHit), a whole-entity override has no surface row.
+        const auto estimateOf = []( const RayTracing::RayTracingSegmentRecord& segment )
         {
+            RayTracing::EmissiveMaterialEstimate estimate;
             if ( segment.LandscapeTile != RayTracing::kNoLandscapeTile )
-                return glm::vec3( 0.0f );
+                return estimate;
             const auto* material = dynamic_cast<const DataDrivenMaterial*>( segment.SurfaceMaterial );
             if ( material == nullptr )
-                return glm::vec3( 0.0f );
+                return estimate;
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): EffectiveRow reads the instance's overrides
             const Core::Formats::MaterialParamRow row = System::MeshRendererDetail::EffectiveRow(
                  material, const_cast<MaterialInstance*>( segment.Instance ) );
@@ -1418,15 +1447,53 @@ namespace Desert::Graphic
             const std::optional<glm::vec4> intensity =
                  MaterialBinder::ReadRowParam( layout, row, RayTracing::kSurfaceEmissiveIntensityParam );
             if ( !color || !intensity )
-                return glm::vec3( 0.0f );
-            return glm::vec3( *color ) * intensity->x;
+                return estimate;
+            estimate.Radiance = glm::vec3( *color ) * intensity->x;
+            if ( const std::optional<glm::uvec2> map =
+                      MaterialBinder::ReadRowTexture( layout, row, RayTracing::kSurfaceEmissiveTextureParam ) )
+            {
+                estimate.Texture = map->x;
+                estimate.Sampler = map->y;
+            }
+            // The template's UV transform as EvaluateSurface applies it (a tiling <= 0 reads as 1).
+            if ( const auto offset = MaterialBinder::ReadRowParam( layout, row, RayTracing::kSurfaceUvOffsetParam ) )
+                estimate.UvOffset = glm::vec2( *offset );
+            if ( const auto tiling = MaterialBinder::ReadRowParam( layout, row, RayTracing::kSurfaceUvTilingParam ) )
+                estimate.UvTiling = glm::vec2( tiling->x > 0.0f ? tiling->x : 1.0f, tiling->y > 0.0f ? tiling->y : 1.0f );
+            if ( const auto rotation =
+                      MaterialBinder::ReadRowParam( layout, row, RayTracing::kSurfaceUvRotationParam ) )
+                estimate.UvRotation = rotation->x;
+            return estimate;
         };
-        auto list = RayTracing::BuildEmissiveTriangleList( m_RayTracingScene.GetInstances().Instances,
-                                                           m_RayTracingScene.GetPrimitives(),
-                                                           m_RayTracingScene.GetSegmentRecords(), radianceOf );
-        if ( !list )
-            return Common::MakeError<Result>( list.GetError() );
-        return m_EmissiveLights.AddPasses( graph, list.GetValue() );
+        // The CPU list is rebuilt only when the rows it indexes were laid out anew (GetLayoutSerial: a full gather,
+        // scene or TLAS, only when the GpuScene stream carried a structure change; a TLAS instance-list rebuild),
+        // when it holds this frame's skin-cache streams (graph refs of this graph only), or when a material's
+        // estimate moved (EmissiveTriangleListCache); a gather that only moved primitives moves their rows in place
+        // (GetSceneMovedPrimitives, on TLAS and scene frames alike). The GPU side then re-expands only what changed
+        // (EmissiveLightsRenderer::AddPasses).
+        const uint64_t layout     = m_RayTracingScene.GetLayoutSerial();
+        const bool     regathered = layout != m_EmissiveLayoutSerial || m_RayTracingScene.HasDeformedPositions();
+        m_EmissiveLayoutSerial    = layout;
+        {
+            DESERT_PROFILE_SCOPE( "EmissiveLights: List" );
+            const Common::BoolResultStr updated = m_EmissiveList.Update(
+                 m_RayTracingScene.GetPrimitives(), m_RayTracingScene.GetSegmentRecords(),
+                 tlas ? std::span<const RayTracing::RayTracingInstance>( m_RayTracingScene.GetInstances().Instances )
+                      : std::span<const RayTracing::RayTracingInstance>(),
+                 regathered, m_RayTracingScene.GetSceneMovedPrimitives(), estimateOf );
+            if ( !updated )
+                return Common::MakeError<Result>( updated.GetError() );
+        }
+        const RayTracing::EmissiveTriangleList& list = m_EmissiveList.GetList();
+        if ( list.UnplacedDeformedSegments != m_LoggedUnplacedEmissive )
+        {
+            m_LoggedUnplacedEmissive = list.UnplacedDeformedSegments;
+            if ( m_LoggedUnplacedEmissive > 0u )
+                LOG_WARN( "[SceneRenderer] {}: {} emissive segments of skinned meshes are not lights this frame "
+                          "(no skin-cache positions without a ray-traced scene)",
+                          m_ViewResources.GetName(), m_LoggedUnplacedEmissive );
+        }
+        return m_EmissiveLights.AddPasses( graph, list );
     }
 
     Common::BoolResultStr SceneRenderer::AddFramePathTracing( RDG::Builder& graph, FrameTextures& textures,
@@ -1900,11 +1967,13 @@ namespace Desert::Graphic
 
     SceneRenderer::FrameFrontLayer SceneRenderer::AddFrameTranslucentFrontLayer(
          RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
-         const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace, const ViewFrame& frame )
+         const std::vector<RDG::TextureRef>& gbuffer, const FrameScreenTrace& screenTrace, const ViewFrame& frame,
+         const FrontLayerSurface* const prepared )
     {
+        if ( meshRenderer == nullptr || gbuffer.size() < 2 || m_FrontLayerReflectionsFailed )
+            return {};
         // UE RenderFrontLayerTranslucency: the pass and its resources exist only when a view draws into it.
-        if ( meshRenderer == nullptr || gbuffer.size() < 2 || m_FrontLayerReflectionsFailed ||
-             !meshRenderer->BuildFrontLayerDraws() )
+        if ( prepared == nullptr && !meshRenderer->BuildFrontLayerDraws() )
             return {};
         if ( m_RenderSystems.find( "FrontLayerReflectionsSystem" ) == m_RenderSystems.end() )
         {
@@ -1924,6 +1993,27 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* reflections = UNIQUE_GET_AS( System::SSRRenderer, m_RenderSystems["FrontLayerReflectionsSystem"] );
 
+        // The same surface the virtual shadow map's receivers were marked from, or this frame's own.
+        const std::optional<FrontLayerSurface> drawn =
+             prepared != nullptr ? std::optional<FrontLayerSurface>( *prepared )
+                                 : AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer );
+        if ( !drawn )
+            return {};
+        const FrontLayerSurface& surface = *drawn;
+
+        const FrameSSR traced = AddFrameSSR( graph, textures, *reflections, gbuffer, screenTrace, frame, &surface );
+        if ( !traced.Resolved.IsValid() )
+            return {};
+        return FrameFrontLayer{ .Reflection = traced.Resolved, .Depth = surface.Depth };
+    }
+
+    std::optional<SceneRenderer::FrontLayerSurface> SceneRenderer::AddFrameFrontLayerSurface(
+         RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
+         const std::vector<RDG::TextureRef>& gbuffer )
+    {
+        // The caller asked MeshRenderer::BuildFrontLayerDraws first (a translucent object is visible).
+        if ( meshRenderer == nullptr || gbuffer.size() < 2 )
+            return std::nullopt;
         // The front layer's targets: the G-buffer normal slot's, the view velocity's and the G-buffer depth's
         // descriptions (FrontLayerTargetLayout), transients of this frame.
         const RDG::TextureRef opaqueDepth = textures.Depth( m_GBuffer, "GBuffer" );
@@ -1936,7 +2026,7 @@ namespace Desert::Graphic
                        !normalDesc ? normalDesc.GetError()
                        : !motionDesc ? motionDesc.GetError()
                                      : depthDesc.GetError() );
-            return {};
+            return std::nullopt;
         }
         const FrontLayerSurface surface{ .Normal   = graph.CreateTexture( normalDesc.GetValue(), "FrontLayer.Normal" ),
                                          .Velocity = graph.CreateTexture( motionDesc.GetValue(), "FrontLayer.Velocity" ),
@@ -1955,10 +2045,6 @@ namespace Desert::Graphic
              },
              [meshRenderer]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderFrontLayerManual( context ); } );
-
-        const FrameSSR traced = AddFrameSSR( graph, textures, *reflections, gbuffer, screenTrace, frame, &surface );
-        if ( !traced.Resolved.IsValid() )
-            return {};
-        return FrameFrontLayer{ .Reflection = traced.Resolved, .Depth = surface.Depth };
+        return surface;
     }
 } // namespace Desert::Graphic

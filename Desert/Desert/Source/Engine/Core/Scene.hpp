@@ -14,6 +14,9 @@
 #include <Engine/Core/Serialize/EntityPackages.hpp>
 #include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
+
+#include <mutex>
+#include <unordered_set>
 #include "WorldTime.hpp"
 #include "DebugDraw.hpp"
 #if DESERT_DEV_INSTRUMENTS
@@ -30,6 +33,7 @@
 #include <Common/Json/Carry.hpp>
 #include <cstdint>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
@@ -71,6 +75,11 @@ namespace Desert::Graphic
 namespace Desert::Graphic::DistanceField
 {
     class DistanceFieldSceneData;
+}
+
+namespace Desert::Graphic::SurfaceCache
+{
+    class SurfaceCacheRenderer;
 }
 
 namespace Common::Math
@@ -697,6 +706,15 @@ namespace Desert::Core
             return *m_DistanceFields;
         }
 
+        // THE SCENE'S SURFACE CACHE (UE: FScene's FLumenSceneData): one card atlas, one capture and one relight
+        // per engine frame for every view of this scene - the editor viewports and PIE, which plays in this Scene
+        // (Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp). Its device objects are made by the first view
+        // that brings it up. Renderer state cached on the scene, like the distance fields.
+        [[nodiscard]] Graphic::SurfaceCache::SurfaceCacheRenderer& GetSurfaceCache() const
+        {
+            return *m_SurfaceCache;
+        }
+
         // THE SCENE in the resource ledger: every device object of the scene's shared renderer state above — the
         // reflection-capture arrays, the ray-tracing cache, the sky light's capture — is a row of this instance,
         // and the scene's budget entry (SceneRenderer::SceneHoldings) is the sum of them.
@@ -765,6 +783,24 @@ namespace Desert::Core
 
         void DestroyEntity( ECS::Entity entity );
 
+        /**
+         * @brief THE RENDER-STATE DIRTY SET (UE UPrimitiveComponent::MarkRenderStateDirty).
+         *
+         * Every entity whose render-relevant state changed since the last frame boundary: fed AT THE SOURCE by
+         * EnTT's on_construct / on_update / on_destroy of TransformComponent (ECS::SetLocalTransform is a
+         * patch), the mesh components, MaterialComponent and VisibilityComponent, and by Attach / Detach. A
+         * transform or parent change dirties the whole subtree, because a child's world transform is its
+         * parent's times its own. The frame boundary is the top of OnUpdate: the set is latched into
+         * GetRenderStateDirtyCount() and emptied there. Thread-safe: a parallel system may write a transform.
+         */
+        void MarkRenderStateDirty( entt::entity entity, bool subtree );
+
+        // How many entities the last completed frame dirtied (the control state's scene.renderDirty).
+        [[nodiscard]] std::size_t GetRenderStateDirtyCount() const
+        {
+            return m_RenderStateDirtyLastFrame;
+        }
+
         // Sets VisibilityComponent on the entity and its entire subtree (UE-like hierarchical visibility).
         void SetVisibleRecursive( ECS::Entity entity, bool visible );
 
@@ -782,6 +818,11 @@ namespace Desert::Core
 
         void SetupRegistryCallbacks();
 
+        // EnTT signal handlers feeding MarkRenderStateDirty: a transform dirties its subtree, the others the
+        // entity alone.
+        void OnTransformRenderStateChanged( entt::registry& registry, entt::entity entity );
+        void OnRenderStateChanged( entt::registry& registry, entt::entity entity );
+
         // Creates every component pool a system may touch, serially, before any parallel group opens.
         // EnTT creates a pool on FIRST touch and that creation writes to the registry even through a
         // const reference, so two collectors first-touching a type on two threads race on a std::vector.
@@ -795,6 +836,11 @@ namespace Desert::Core
 
     private:
         entt::registry m_Registry;
+
+        // See MarkRenderStateDirty.
+        std::unordered_set<entt::entity> m_RenderStateDirty;
+        std::size_t                      m_RenderStateDirtyLastFrame = 0;
+        std::mutex                       m_RenderStateDirtyMutex;
 
         std::vector<std::unique_ptr<ECS::System>> m_Systems;
 
@@ -839,6 +885,12 @@ namespace Desert::Core
         std::unique_ptr<Graphic::LocalShadowCache> m_LocalShadows;
         // See GetDistanceFields. Never null: made by both constructors.
         std::unique_ptr<Graphic::DistanceField::DistanceFieldSceneData> m_DistanceFields;
+        // See GetSurfaceCache. Never null: made by both constructors.
+        std::unique_ptr<Graphic::SurfaceCache::SurfaceCacheRenderer> m_SurfaceCache;
+        // The surface caches and capture renderers Clear dropped with their world, kept until no frame in flight
+        // reads them (collected at the top of the views' render, OnUpdate).
+        Assets::FrameRetireQueue<std::unique_ptr<Graphic::SurfaceCache::SurfaceCacheRenderer>> m_RetiringSurfaceCaches;
+        Assets::FrameRetireQueue<std::unique_ptr<Graphic::ReflectionCaptureRenderer>>          m_RetiringReflectionCaptures;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)

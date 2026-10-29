@@ -75,6 +75,10 @@ namespace Desert::Graphic::API::Vulkan
                 case Capability::PortabilitySubset:
                 case Capability::MemoryBudget:
                 case Capability::DeferredHostOperations:
+                case Capability::ExternalMemoryWin32:
+                case Capability::ExternalSemaphoreWin32:
+                case Capability::ExternalMemoryFd:
+                case Capability::ExternalSemaphoreFd:
                     return device.enable_extension_if_present( std::string( spec.Extension ).c_str() );
 
                 case Capability::TimelineSemaphore:

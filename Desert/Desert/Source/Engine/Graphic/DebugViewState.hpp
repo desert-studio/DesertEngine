@@ -76,6 +76,15 @@ namespace Desert::Graphic
         LocalExposure = 19,
     };
 
+    // A G-buffer view (UE Buffer Visualization: BaseColor, WorldNormal, Metallic, Roughness, AO, ShadingModel, and
+    // the sun-shadow receive bit) shows the stored surface value: no height fog or cloud layer is composited over it
+    // (GRASS-ASSET p5: the Albedo view read +0.08 fog blue on the far cover).
+    [[nodiscard]] constexpr bool IsGBufferView( const DeferredDebugMode mode )
+    {
+        return ( mode >= DeferredDebugMode::Albedo && mode <= DeferredDebugMode::AO ) ||
+               mode == DeferredDebugMode::ShadingModel || mode == DeferredDebugMode::SunShadowReceive;
+    }
+
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a
     // property of the world.
     //

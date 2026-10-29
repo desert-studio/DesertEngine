@@ -1,0 +1,43 @@
+#ifndef MEGALIGHTS_TRACE_SAMPLES_GLSLH
+#define MEGALIGHTS_TRACE_SAMPLES_GLSLH
+// "MegaLights: Trace Samples", the one body of its three programs (one per Common::Scalability::
+// StochasticVisibility): Programs/Shadows/MegaLightsTraceSamples.shader (ray query),
+// MegaLightsTraceSamplesVirtual.shader (screen trace + virtual shadow map) and MegaLightsTraceSamplesScreen.shader
+// (screen trace). The includer defines its MEGALIGHTS_VISIBILITY_* source, declares that source's resources and
+// PointClampSampler, then includes this file (Common/MegaLights.glslh's MEGALIGHTS_TRACE contract).
+#define MEGALIGHTS_SHADING
+#define MEGALIGHTS_TRACE
+#include <Common/MegaLights.glslh>
+
+Uniform(10) texture2D ReservoirsTexture; // "MegaLights: Spatial Resampling"
+#define ReservoirsTexture sampler2D(ReservoirsTexture, PointClampSampler)
+layout(binding = 11, rgba32f) writeonly uniform image2D OutReservoirsTexture; // shaded now, history next frame
+layout(binding = 17, rgba16f) writeonly uniform image2D OutSurfaceTexture;    // xyz = normal, w = clip w (0 = none)
+
+LocalSize(8, 8, 1);
+
+void main()
+{
+	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy); // a sample pixel
+	const ivec2 size  = MegaLightsSampleSize();
+	if (pixel.x >= size.x || pixel.y >= size.y)
+		return;
+	const uint            samples = MegaLightsSamplesPerPixel();
+	const ivec2           screen  = MegaLightsScreenPixel(pixel);
+	const MegaLightsPixel p       = MegaLightsLoadPixel(screen);
+	g_MegaLightsTracedPixel       = vec2(screen) + 0.5;
+	uint random                   = MegaLightsSeed(pixel, 3u);
+	for (uint k = 0u; k < samples; ++k)
+	{
+		const ivec2         texel = MegaLightsReservoirTexel(pixel, k);
+		RisReservoir r     = RisUnpackReservoir(texelFetch(ReservoirsTexture, texel, 0));
+		if (!p.Valid)
+			r = RisEmptyReservoir();
+		else if (r.Light >= 0 && r.W > 0.0)
+			r.W *= MegaLightsVisibility(p, r.Light, random);
+		imageStore(OutReservoirsTexture, texel, RisPackReservoir(r));
+	}
+	imageStore(OutSurfaceTexture, pixel, p.Valid ? vec4(p.N, p.ViewDepth) : vec4(0.0));
+}
+
+#endif // MEGALIGHTS_TRACE_SAMPLES_GLSLH

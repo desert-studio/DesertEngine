@@ -8,6 +8,8 @@
 #include <Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp>
 #include <Engine/Graphic/LocalShadowCache.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Math/Ray.hpp>
@@ -57,12 +59,12 @@ namespace Desert::Core
         // belongs here, where Raycast and the mesh systems can share it.
         ::Desert::Mesh* ResolveMesh( const ECS::StaticMeshComponent& c )
         {
-            if ( c.MeshHandle )
-                return Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
-            if ( c.RuntimeMesh )
-                return c.RuntimeMesh.get();
-            if ( c.Primitive.has_value() )
-                return Geometry::PrimitiveMeshFactory::GetShared( c.Primitive.value() );
+            if ( c.GetMeshHandle() )
+                return Runtime::ResourceRegistry::GetMeshService()->Get( c.GetMeshHandle() );
+            if ( c.GetRuntimeMesh() )
+                return c.GetRuntimeMesh().get();
+            if ( c.GetPrimitive().has_value() )
+                return Geometry::PrimitiveMeshFactory::GetShared( c.GetPrimitive().value() );
             return nullptr;
         }
 
@@ -76,17 +78,17 @@ namespace Desert::Core
         };
         std::optional<MeshTriangles> StaticTriangles( const ECS::StaticMeshComponent& c )
         {
-            if ( c.MeshHandle )
+            if ( c.GetMeshHandle() )
             {
-                const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( c.MeshHandle );
+                const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( c.GetMeshHandle() );
                 const auto* data  = dynamic_cast<const Assets::StaticMeshAsset*>( asset );
                 if ( !data )
                     return std::nullopt;
                 return MeshTriangles{ data->GetVertices(), data->GetIndices(), data->GetSubmeshes() };
             }
-            const DynamicMesh* mesh = c.RuntimeMesh ? c.RuntimeMesh.get()
-                                      : c.Primitive.has_value()
-                                           ? Geometry::PrimitiveMeshFactory::GetShared( c.Primitive.value() )
+            const DynamicMesh* mesh = c.GetRuntimeMesh() ? c.GetRuntimeMesh().get()
+                                      : c.GetPrimitive().has_value()
+                                           ? Geometry::PrimitiveMeshFactory::GetShared( c.GetPrimitive().value() )
                                            : nullptr;
             if ( !mesh )
                 return std::nullopt;
@@ -119,10 +121,10 @@ namespace Desert::Core
         // Editor-built runtime rig takes priority over the cooked asset (mirrors the render path).
         ::Desert::Mesh* ResolveSkinnedMesh( const ECS::SkinnedMeshComponent& c )
         {
-            if ( c.RuntimeMesh )
-                return c.RuntimeMesh.get();
-            if ( c.MeshHandle )
-                return Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
+            if ( c.GetRuntimeMesh() )
+                return c.GetRuntimeMesh().get();
+            if ( c.GetMeshHandle() )
+                return Runtime::ResourceRegistry::GetMeshService()->Get( c.GetMeshHandle() );
             return nullptr;
         }
 
@@ -390,7 +392,8 @@ namespace Desert::Core
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) )
+           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) )
     {
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
@@ -403,7 +406,8 @@ namespace Desert::Core
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) )
+           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
@@ -631,6 +635,14 @@ namespace Desert::Core
         // snapshots them. The service logged a refusal once; the instance then holds none.
         (void)SyncWorldParameters();
 
+        // THE RENDER-STATE FRAME BOUNDARY: what the previous frame (its systems, its editor edits, its views)
+        // dirtied is latched for scene.renderDirty and the next frame starts from an empty set.
+        {
+            std::lock_guard lock( m_RenderStateDirtyMutex );
+            m_RenderStateDirtyLastFrame = m_RenderStateDirty.size();
+            m_RenderStateDirty.clear();
+        }
+
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a
         // per-frame overwrite, and it is why the preview rendered through the input-driven editor camera
@@ -782,6 +794,7 @@ namespace Desert::Core
             {
                 const auto&     light  = m_Registry.get<ECS::DirectionLightComponent>( *sun );
                 const glm::vec3 travel = ECS::DirectionalLightTravel( m_Registry, *sun );
+                sceneRendererInfo.SunVolumetricScatteringIntensity = light.Data.VolumetricScatteringIntensity;
                 sceneRendererInfo.DirLights.DirectionLights.push_back(
                      { glm::vec4( travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );
             }
@@ -866,6 +879,21 @@ namespace Desert::Core
         // arena is rewound by Clear, which happens after the last view), so replaying the SAME recording
         // into a second renderer is exactly what it already supports — the draws are identical because
         // the world is identical; only the camera each renderer was opened with differs.
+        {
+            // THE SCENE'S SURFACE CACHE, ONCE FOR EVERY VIEW (UE: the Lumen scene update gathers every view origin
+            // of the family before any view renders): the frame's view origins - the cameras just ticked above -
+            // and the scene's budget and card tracer are stated before the first view opens, so the one update the
+            // first view to reach the cache runs captures the cards in front of every viewport, not its own.
+            const auto& frames = Engine::FrameManager::GetInstance();
+            m_RetiringSurfaceCaches.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+            m_RetiringReflectionCaptures.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+            std::vector<glm::vec3> origins;
+            for ( const auto& view : m_Views.All() )
+                if ( view.Camera )
+                    origins.push_back( view.Camera->GetPosition() );
+            m_SurfaceCache->BeginFrame( frames.GetAbsoluteFrameCount(), std::move( origins ), m_Registry,
+                                        m_Settings.RenderingPath == RenderPath::Deferred );
+        }
         {
             // THE SCENE'S REFLECTION CAPTURES FIRST, ONCE: their face views are frames of their own, closed before
             // any view opens, fed the same recorded draws. Only when a view reads them; the sky light they are lit
@@ -1301,10 +1329,19 @@ namespace Desert::Core
         // depth and the ray-tracing variants of the old world stayed resident under the next scene and were
         // still there when a reopen built the same ones again (FIELD-MEM p3). Their device objects are queued for
         // deletion here; the opener drains the queue before the new world loads (SceneWorkspace).
+        // The captures' renderer records into the views' frame graphs (faces, its face surface cache and global
+        // distance field, its own retire queues): frames in flight still read them, so it is parked whole like the
+        // surface cache below and dies with its queues once those frames retired (OnUpdate collects).
+        const std::uint64_t clearFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        m_RetiringReflectionCaptures.Park( std::move( m_ReflectionCaptures ), clearFrame );
         m_ReflectionCaptures = std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance );
         m_RayTracingCache    = std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance );
         m_LocalShadows       = std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance );
         m_DistanceFields   = std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance );
+        // The surface cache's atlases, capture framebuffer and pipelines are still read by the frames in flight
+        // (its pipelines are released at once, not queued): parked until those frames retired (OnUpdate collects).
+        m_RetiringSurfaceCaches.Park( std::move( m_SurfaceCache ), clearFrame );
+        m_SurfaceCache     = std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance );
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
         m_PlayerController = entt::null;
@@ -1325,6 +1362,67 @@ namespace Desert::Core
         // across registry.clear(), so re-connecting without this accumulates duplicate handler invocations.
         m_Registry.on_construct<ECS::CameraComponent>().disconnect( this );
         m_Registry.on_construct<ECS::CameraComponent>().connect<&Scene::OnEntityCreated_Camera>( this );
+
+        // The render-state dirty set (MarkRenderStateDirty), fed at the source.
+        m_Registry.on_construct<ECS::TransformComponent>().disconnect( this );
+        m_Registry.on_update<ECS::TransformComponent>().disconnect( this );
+        m_Registry.on_destroy<ECS::TransformComponent>().disconnect( this );
+        m_Registry.on_construct<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
+        m_Registry.on_update<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
+        m_Registry.on_destroy<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
+        const auto connect = [this]<typename Component>()
+        {
+            m_Registry.on_construct<Component>().disconnect( this );
+            m_Registry.on_update<Component>().disconnect( this );
+            m_Registry.on_destroy<Component>().disconnect( this );
+            m_Registry.on_construct<Component>().template connect<&Scene::OnRenderStateChanged>( this );
+            m_Registry.on_update<Component>().template connect<&Scene::OnRenderStateChanged>( this );
+            m_Registry.on_destroy<Component>().template connect<&Scene::OnRenderStateChanged>( this );
+        };
+        connect.template operator()<ECS::StaticMeshComponent>();
+        connect.template operator()<ECS::SkinnedMeshComponent>();
+        connect.template operator()<ECS::InstancedStaticMeshComponent>();
+        connect.template operator()<ECS::MaterialComponent>();
+        connect.template operator()<ECS::VisibilityComponent>();
+        {
+            std::lock_guard lock( m_RenderStateDirtyMutex );
+            m_RenderStateDirty.clear();
+            m_RenderStateDirtyLastFrame = 0;
+        }
+    }
+
+    void Scene::OnTransformRenderStateChanged( entt::registry&, entt::entity entity )
+    {
+        MarkRenderStateDirty( entity, true );
+    }
+
+    void Scene::OnRenderStateChanged( entt::registry&, entt::entity entity )
+    {
+        MarkRenderStateDirty( entity, false );
+    }
+
+    void Scene::MarkRenderStateDirty( entt::entity entity, bool subtree )
+    {
+        std::lock_guard lock( m_RenderStateDirtyMutex );
+        if ( !subtree )
+        {
+            m_RenderStateDirty.insert( entity );
+            return;
+        }
+        // Iterative, so a deep hierarchy cannot overflow the stack. An entity already in the set had its
+        // subtree dirtied when it entered — unless it entered alone (a mesh / material / visibility change),
+        // so the walk goes on below every entity regardless.
+        std::vector<entt::entity> pending{ entity };
+        while ( !pending.empty() )
+        {
+            const entt::entity current = pending.back();
+            pending.pop_back();
+            m_RenderStateDirty.insert( current );
+            if ( !m_Registry.valid( current ) )
+                continue;
+            if ( const auto* relation = m_Registry.try_get<ECS::RelationshipComponent>( current ) )
+                pending.insert( pending.end(), relation->Children.begin(), relation->Children.end() );
+        }
     }
 
     void Scene::Attach( ECS::Entity parent, ECS::Entity child )
@@ -1353,6 +1451,8 @@ namespace Desert::Core
 
         childRel.Parent = parent.GetHandle();
         parentRel.Children.push_back( child.GetHandle() );
+        // A new parent is a new world transform for the child and everything under it.
+        MarkRenderStateDirty( child.GetHandle(), true );
     }
 
     void Scene::ArrangeRoots( const std::vector<ECS::Entity>& roots )
@@ -1380,16 +1480,14 @@ namespace Desert::Core
                             siblings.end() );
         }
         childRel.Parent = entt::null;
+        MarkRenderStateDirty( child.GetHandle(), true );
     }
 
     void Scene::SetVisibleRecursive( ECS::Entity entity, bool visible )
     {
         if ( !entity ) return;
 
-        if ( entity.HasComponent<ECS::VisibilityComponent>() )
-            entity.GetComponent<ECS::VisibilityComponent>().Visible = visible;
-        else
-            entity.AddComponent<ECS::VisibilityComponent>().Visible = visible;
+        entity.SetVisible( visible );
         if ( entity.HasComponent<ECS::UUIDComponent>() )
             MarkModified( entity.GetComponent<ECS::UUIDComponent>().UUID );
 
