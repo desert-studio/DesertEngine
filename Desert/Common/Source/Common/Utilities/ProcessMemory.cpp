@@ -10,7 +10,6 @@
 // clang-format off
 #include <windows.h>
 #include <psapi.h>
-#include <malloc.h>
 // clang-format on
 // LINKED FROM HERE RATHER THAN FROM THE BUILD SCRIPT. `GetProcessMemoryInfo` lives in psapi.lib, and
 // declaring that in `Desert/Common/premake5.lua` would put a Windows-only link line in a shared build
@@ -28,7 +27,6 @@
 #include <malloc/malloc.h>
 #elif defined( __linux__ )
 #include <cstdio>
-#include <malloc.h>
 #endif
 
 #include <algorithm>
@@ -242,22 +240,6 @@ namespace Common::Utils
         out.Known = true;
 #endif
         return out;
-    }
-
-    uint64_t TrimProcessHeap()
-    {
-#if defined( _WIN32 )
-        _heapmin();
-        return 0;
-#elif defined( __APPLE__ )
-        // nullptr = every zone; goal 0 = release everything that can be released.
-        return static_cast<uint64_t>( malloc_zone_pressure_relief( nullptr, 0 ) );
-#elif defined( __linux__ )
-        malloc_trim( 0 );
-        return 0;
-#else
-        return 0;
-#endif
     }
 
 } // namespace Common::Utils
