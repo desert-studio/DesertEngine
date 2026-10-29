@@ -598,18 +598,57 @@ namespace Desert::Graphic::System
     }
 
     DataDrivenMaterial* MeshRenderer::ForwardVirtualCell( DataDrivenMaterial* cell, const Material* built,
-                                                          const MeshVertexPath path, const MeshPass pass ) const
+                                                          const MeshVertexPath path, const MeshPass pass )
     {
         if ( !m_ForwardVirtualLocal || pass != MeshPass::Forward || cell == nullptr )
             return cell;
         auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr || !materials->Owns( built ) )
-            return cell; // a renderer-built cell: its own program, no `.demat` to permute
+        {
+            // A renderer-built cell (MeshECSSystem's default, a stand-in, the instanced spare): no `.demat` to
+            // permute, so its own twin (ForwardVsmTwin); null when that twin was refused (it said so).
+            const StandInCell* const twin = ForwardVsmTwin( *cell );
+            return twin == nullptr ? cell : twin->Material.get();
+        }
         const auto program = Runtime::ResourceRegistry::GetShaderService()->GetByName( cell->GetShaderName() );
         if ( program == nullptr )
             return cell; // the sibling is a registered cell (CreateSurfaceMaterial); nothing to ask otherwise
         const Core::ShaderVariant permutation = ForwardShadowMaskVariant( *program, false, false, true );
         return permutation.IsDefault() ? cell : materials->GetVariant( built, path, pass, permutation );
+    }
+
+    MeshRenderer::StandInCell* MeshRenderer::ForwardVsmTwin( const DataDrivenMaterial& source )
+    {
+        if ( !m_ForwardVirtualLocal )
+            return nullptr;
+        const std::string& name = source.GetShaderName();
+        // Keyed by the source's address and checked by its cell's name: a renderer-owned material rebuilt at the
+        // same address (a new MeshECSSystem) is a new source when its cell differs.
+        if ( const auto found = m_ForwardVsmTwins.find( &source );
+             found != m_ForwardVsmTwins.end() && found->second.Shader == name )
+            return found->second.Twin.has_value() ? &*found->second.Twin : nullptr;
+        auto& slot = m_ForwardVsmTwins[&source];
+        slot      = ForwardVsmTwinSlot{ .Shader = name };
+        auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
+        const auto         program = shaders->GetByName( name );
+        const Core::ShaderVariant permutation =
+             program != nullptr ? ForwardShadowMaskVariant( *program, false, false, true ) : Core::ShaderVariant{};
+        if ( permutation.IsDefault() )
+            return nullptr; // reads no local shadow atlas: drawn as itself (the slot stays empty)
+        StandInCell& twin = slot.Twin.emplace();
+        if ( const auto shader = shaders->AcquireVariant( name, permutation ); shader && shader->IsCompiled() )
+        {
+            twin.Material = std::make_shared<DataDrivenMaterial>( shader );
+            twin.Instance = twin.Material->CreateInstance( std::format( "ForwardVsmTwin_{}", name ) );
+        }
+        if ( !twin.Material || !twin.Instance )
+        {
+            LOG_ERROR( "[MeshRenderer] cell '{}' has no DESERT_LOCAL_SHADOW_VSM permutation (ShaderService named "
+                       "the error): its renderer-owned draws are not drawn forward under Shadows.Method VirtualMaps",
+                       name );
+            twin.Material.reset();
+        }
+        return &twin;
     }
 
     Core::ShaderVariant MeshRenderer::ForwardShadowMaskVariant( const Shader& shader, const bool rayTracedSun,
@@ -677,6 +716,19 @@ namespace Desert::Graphic::System
                 AppendForwardShadowMaskVariants( *program, cell.GetValue(), listed, variants,
                                                  path != MeshVertexPath::Static );
             }
+        }
+        // The renderer-owned forward cells (MeshECSSystem's default, the stand-ins, the instanced spare: the
+        // default surface's) are drawn through their VSM twin only (ForwardVsmTwin), whatever the handles are.
+        for ( const MeshVertexPath path :
+              { MeshVertexPath::Static, MeshVertexPath::Instanced, MeshVertexPath::Skinned } )
+        {
+            const auto cell = materials.DefaultSurfaceShader( path, MeshPass::Forward );
+            if ( !cell )
+                continue; // no Default Surface template loaded: nothing renderer-owned draws, nothing to cook
+            const auto program = shaders.GetByName( cell.GetValue() );
+            if ( program == nullptr )
+                continue;
+            AppendForwardShadowMaskVariants( *program, cell.GetValue(), listed, variants, /*virtualOnly*/ true );
         }
         return variants;
     }
@@ -1303,10 +1355,17 @@ namespace Desert::Graphic::System
         // the pass state is the only difference (WIREFRAME-ISM: a `!WireframeView()` here dropped every ISM).
         auto* instancedPipeline = m_DeferredGeometry ? m_InstancedGBufferPipeline.get()
                                                      : WireframePipelineOr( m_StaticInstancedPipeline.get() );
-        auto* instancedMaterial =
-             m_DeferredGeometry ? m_InstancedGBufferMaterial.get() : m_StaticInstancedMaterial.get();
-        auto* instancedInstance =
-             m_DeferredGeometry ? m_InstancedGBufferInstance.get() : m_StaticInstancedInstance.get();
+        // Forward under Shadows.Method VirtualMaps: the spare's DESERT_LOCAL_SHADOW_VSM twin, material AND instance
+        // (ForwardVsmTwin; a refused twin leaves no spare, so instancing is off and the refusal was said).
+        const StandInCell* const instancedTwin = !m_DeferredGeometry && m_StaticInstancedMaterial
+                                                      ? ForwardVsmTwin( *m_StaticInstancedMaterial )
+                                                      : nullptr;
+        auto* instancedMaterial = m_DeferredGeometry ? m_InstancedGBufferMaterial.get()
+                                  : instancedTwin    ? instancedTwin->Material.get()
+                                                     : m_StaticInstancedMaterial.get();
+        auto* instancedInstance = m_DeferredGeometry ? m_InstancedGBufferInstance.get()
+                                  : instancedTwin    ? instancedTwin->Instance.get()
+                                                     : m_StaticInstancedInstance.get();
         const bool instancingOn =
              instancedPipeline != nullptr && instancedMaterial != nullptr && instancedInstance != nullptr;
         const MeshPass instancedPass = m_DeferredGeometry ? MeshPass::GBuffer : MeshPass::Forward;
@@ -1408,8 +1467,12 @@ namespace Desert::Graphic::System
                                                        : WireframePipelineOr( m_StaticPipeline.get() );
         // The grouping key is the slot's (Static x Forward) cell; in the G-buffer pass the draw records its twin.
         StandInCell* const standIn = StandIn( MeshVertexPath::Static, MeshPass::Forward );
-        StandInCell* const standInDraw =
-             m_DeferredGeometry ? StandIn( MeshVertexPath::Static, MeshPass::GBuffer ) : standIn;
+        // Forward under Shadows.Method VirtualMaps the stand-in group records through the stand-in's own VSM twin
+        // (ForwardVirtualCell below), so its readiness is the twin pipeline's.
+        StandInCell* standInDraw = m_DeferredGeometry ? StandIn( MeshVertexPath::Static, MeshPass::GBuffer ) : standIn;
+        if ( !m_DeferredGeometry && standIn != nullptr )
+            if ( StandInCell* const twin = ForwardVsmTwin( *standIn->Material ) )
+                standInDraw = twin->Material ? twin : nullptr;
         const GraphicsPipeline* const standInPipeline =
              standIn != nullptr && standInDraw != nullptr ? CellPipeline( staticPassState, *standInDraw->Material )
                                                           : nullptr;
@@ -1422,8 +1485,21 @@ namespace Desert::Graphic::System
                                      const bool perObject ) -> CellDraw
         {
             auto* materials = Runtime::ResourceRegistry::GetMaterialService();
-            if ( mat == nullptr || materials == nullptr || !materials->Owns( mat ) )
-                return CellDraw::Own; // renderer-owned: the pass's own program, an engine pipeline
+            if ( mat == nullptr )
+                return CellDraw::Own;
+            if ( materials == nullptr || !materials->Owns( mat ) )
+            {
+                // Renderer-owned: the pass's own program, an engine pipeline - except its forward VSM twin, built
+                // on first use, whose pipeline leaves the driver like a content cell's.
+                if ( !perObject || m_DeferredGeometry )
+                    return CellDraw::Own;
+                DataDrivenMaterial* const cell =
+                     ForwardVirtualCell( mat, mat, MeshVertexPath::Static, MeshPass::Forward );
+                if ( cell == nullptr )
+                    return CellDraw::Nothing; // the twin was refused, said once by ForwardVsmTwin
+                return cell == mat ? CellDraw::Own
+                                   : ChooseCellDraw( staticPassState, *cell, twoSided, standInPipeline );
+            }
             CellDraw   worst = CellDraw::Own;
             const auto fold  = [&worst]( const CellDraw d )
             {
@@ -1987,7 +2063,11 @@ namespace Desert::Graphic::System
         // rows filled once in the pass; the bones come from the view's ObjectBones like every other group);
         // recording the cell itself would fail the node and drop the frame graph.
         using CellDraw                        = MaterialPipelineTracker::CellDraw;
-        StandInCell* const            standIn = StandIn( MeshVertexPath::Skinned, cellPass );
+        StandInCell* standIn = StandIn( MeshVertexPath::Skinned, cellPass );
+        // Forward under Shadows.Method VirtualMaps: the stand-in's own VSM twin (material and instance).
+        if ( !gbuffer && standIn != nullptr )
+            if ( StandInCell* const twin = ForwardVsmTwin( *standIn->Material ) )
+                standIn = twin->Material ? twin : nullptr;
         const GraphicsPipeline* const standInPipeline =
              standIn != nullptr ? CellPipeline( pipeline, *standIn->Material ) : nullptr;
         {

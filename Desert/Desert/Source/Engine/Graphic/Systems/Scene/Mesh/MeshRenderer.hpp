@@ -742,7 +742,7 @@ namespace Desert::Graphic::System
             return view < m_VirtualShadowViews.size() && m_VirtualShadowViews[view] != 0u;
         }
 
-        // THE SUN'S VIRTUAL SHADOW MAP, before its page passes (SceneRenderer::AddFrameVirtualSunShadow): what
+        // THE SUN'S VIRTUAL SHADOW MAP, before its page passes (SceneRenderer::AddFrameVirtualShadows): what
         // changed among the casters since the last frame the map was drawn. A static, generic or still instanced
         // caster and every non-mesh caster (IShadowCaster::AppendVirtualShadowEntries) that was added, removed or
         // changed hands its old and its new box; a caster that moves by itself (skinned, swaying foliage) hands
@@ -1330,10 +1330,12 @@ namespace Desert::Graphic::System
         // The forward cell @p cell (the (path x Forward) sibling of the service material @p built) as this frame
         // draws it: under m_ForwardVirtualLocal, when its program samples the local shadow atlas, the same
         // `.demat`'s DESERT_LOCAL_SHADOW_VSM permutation (MaterialService::GetVariant with that define); otherwise
-        // @p cell. Null when the service refused the permutation (it names it). A renderer-built material and a
-        // non-Forward @p pass are returned as given. The static, instanced and skinned forward draws ask it.
+        // @p cell. Null when the service refused the permutation (it names it). A renderer-built material (no
+        // `.demat`: MeshECSSystem's default, a stand-in, the instanced spare) is drawn through its own twin
+        // (ForwardVsmTwin). A non-Forward @p pass is returned as given. The static, instanced and skinned forward
+        // draws ask it.
         [[nodiscard]] DataDrivenMaterial* ForwardVirtualCell( DataDrivenMaterial* cell, const Material* built,
-                                                              MeshVertexPath path, MeshPass pass ) const;
+                                                              MeshVertexPath path, MeshPass pass );
         [[nodiscard]] static Core::ShaderVariant ForwardShadowMaskVariant( const Shader& shader, bool rayTracedSun,
                                                                            bool localShadowMasks,
                                                                            bool virtualLocal );
@@ -1341,8 +1343,9 @@ namespace Desert::Graphic::System
         // material's (Static x Forward) cell under every ForwardShadowMaskVariant the renderer can ask for (sun
         // only, local only, both), defaults omitted and duplicates listed once - the list PackageCook
         // CookShaderVariants cooks, from the same function the renderer acquires by. A material without that
-        // cell draws nothing forward (CreateSurfaceMaterial names it) and has nothing to cook. A Shader Override
-        // draw (no `.demat`) is OverrideProgramVariants'.
+        // cell draws nothing forward (CreateSurfaceMaterial names it) and has nothing to cook. Also the default
+        // surface's (Static|Instanced|Skinned x Forward) cells' DESERT_LOCAL_SHADOW_VSM permutation: the
+        // renderer-owned twins (ForwardVsmTwin). A Shader Override draw (no `.demat`) is OverrideProgramVariants'.
         [[nodiscard]] static std::vector<Core::CookedProgramVariant>
              MaterialProgramVariants( const Runtime::MaterialService& materials,
                                       const Runtime::ShaderService&   shaders,
@@ -1813,6 +1816,19 @@ namespace Desert::Graphic::System
         };
         StandInCell*                              StandIn( MeshVertexPath path, MeshPass pass );
         std::unordered_map<uint32_t, StandInCell> m_StandIns; // key: path * 16 + pass; Material null = refused
+        // Under m_ForwardVirtualLocal, the DESERT_LOCAL_SHADOW_VSM twin of the renderer-built forward cell
+        // @p source (MeshECSSystem's default, a stand-in, the instanced spare): a material and an instance of
+        // its own, ONE PER SOURCE (the default and the stand-in share a cell and must not share Materials[]), as
+        // a `.demat`'s twin is MaterialService::GetVariant's. Null when @p source is drawn as itself (no virtual
+        // shadow map this frame, or its program samples no local shadow atlas); Material null = refused (said
+        // once). UE: the default material's shader map holds every permutation the same way.
+        StandInCell* ForwardVsmTwin( const DataDrivenMaterial& source );
+        struct ForwardVsmTwinSlot
+        {
+            std::string                Shader; // the source's cell when the slot was built
+            std::optional<StandInCell> Twin;   // empty = drawn as itself
+        };
+        std::unordered_map<const DataDrivenMaterial*, ForwardVsmTwinSlot> m_ForwardVsmTwins;
         // The default surface's scene material table rows (the (Static x Forward) stand-in's), [0] receiving sun
         // shadows and [1] not (SyncGpuScene): the row any draw names while it stands in for a material whose cell
         // is not ready (static, instanced, skinned and glass stand-ins and the instanced spare all show the default

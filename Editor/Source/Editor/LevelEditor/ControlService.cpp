@@ -1346,7 +1346,9 @@ namespace Desert::Editor
                                                          .Views     = light.Views,
                                                          .Requested = light.Requested,
                                                          .Rendered  = light.Rendered,
-                                                         .Cached    = light.Cached } );
+                                                         .Cached    = light.Cached,
+                                                         .Coarse    = light.Coarse,
+                                                         .Receivers = light.Receivers } );
             }
         }
 

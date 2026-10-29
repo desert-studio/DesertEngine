@@ -134,6 +134,8 @@ namespace Desert::Editor::Control
         uint32_t Requested = 0; ///< pages a pixel asked for
         uint32_t Rendered  = 0; ///< of them, cleared and drawn that frame
         uint32_t Cached    = 0; ///< of them, kept from an earlier frame
+        uint32_t Coarse    = 0; ///< of them, asked for by "VSM: Mark Coarse" (the coarse mip, every frame)
+        uint32_t Receivers = 0; ///< of them, asked for by "VSM: Mark Receivers" (a forward receiver's own depth)
     };
 
     struct EditorSnapshot
@@ -369,6 +371,8 @@ namespace Desert::Editor::Control
                 entry["requested"] = Num( light.Requested );
                 entry["rendered"]  = Num( light.Rendered );
                 entry["cached"]    = Num( light.Cached );
+                entry["coarse"]    = Num( light.Coarse );
+                entry["receivers"] = Num( light.Receivers );
                 lights.push_back( Common::Json::Value( entry ) );
             }
             Common::Json::Object vsm;
