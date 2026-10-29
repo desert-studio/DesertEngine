@@ -285,14 +285,15 @@ namespace Desert::Editor
         };
 
         Attempt EncodeAndGrade( const Assets::Serialization::TextureAssetData& data,
-                                const Fmt::ImageFormat blockFormat, const VisibleTexels& visible )
+                                const Fmt::ImageFormat blockFormat, const VisibleTexels& visible,
+                                const Fmt::BlockEncodeSettings& encode )
         {
             Attempt attempt;
 
             const uint32_t levelCount = data.LevelCount();
             auto           blocks =
                  Assets::Serialization::BlockCompressChain( data.Width, data.Height, levelCount, data.LayerCount,
-                                                            data.Format, blockFormat, data.Levels, data.Pixels );
+                                                            data.Format, blockFormat, data.Levels, data.Pixels, encode );
             if ( !blocks.IsSuccess() )
             {
                 attempt.Problem = blocks.GetError();
@@ -608,8 +609,19 @@ namespace Desert::Editor
         const uint64_t                    sourceHash = asset.Import.SourceHash;
         // The asset's Intent setting; Unspecified = nobody said (the cook then measures).
         const Fmt::TextureIntent           authoredIntent = asset.Import.Settings.Intent;
-        const Assets::TextureBuildSettings buildSettings{ asset.Import.Settings, kBlockEncoderVersion };
+        // UE FetchFirst / FetchOrBuild: the role's plan (Project::TextureEncodingSettings) says the effort a miss
+        // is built at, and whether a final entry a cook already stored stands for this texture first.
+        const Assets::TextureEncodePlan    plan = Assets::PlanTextureEncode( m_Role );
+        const Fmt::BlockEncodeSettings     encodeSettings{ plan.BuildEffort };
+        const Assets::TextureBuildSettings buildSettings{ asset.Import.Settings, kBlockEncoderVersion, plan.BuildEffort };
         const uint64_t                     ddcKey = Assets::TextureDerivedDataKey( sourceHash, buildSettings );
+        const bool                         finalStored =
+             plan.FetchFirstEffort && *plan.FetchFirstEffort != plan.BuildEffort &&
+             Common::DDC::Get( Assets::kTextureDeriver,
+                               Assets::TextureDerivedDataKey( sourceHash, Assets::TextureBuildSettings{
+                                                                              asset.Import.Settings, kBlockEncoderVersion,
+                                                                              *plan.FetchFirstEffort } ) )
+                  .has_value();
         // Bit 48 folds the colour space in: a texture re-marked sRGB/Linear is a different cook.
         const uint64_t cookSignature =
              CookSignature( kBlockEncoderVersion, authoredIntent ) |
@@ -629,7 +641,7 @@ namespace Desert::Editor
         // `.detex`. FRESH == THE DDC HOLDS THE KEY (AF3c). There is no per-asset cooked file any more: the runtime
         // reads the asset's header and asks the DDC (Assets::LoadTexturePlatformData), so an entry under
         // this key IS the texture's platform data, whichever asset with the same source put it there.
-        if ( Common::DDC::Get( Assets::kTextureDeriver, ddcKey ).has_value() )
+        if ( finalStored || Common::DDC::Get( Assets::kTextureDeriver, ddcKey ).has_value() )
         {
             m_Cache[abs] = handle;
             Assets::ContentRegistry::NoteFile( assetPath );
@@ -936,7 +948,7 @@ namespace Desert::Editor
                           "block format.",
                           abs, Fmt::TextureIntentName( authoredIntent ) );
             }
-            else if ( Attempt encoded = EncodeAndGrade( data, ddsTarget, gateVisible ); encoded.Encoded )
+            else if ( Attempt encoded = EncodeAndGrade( data, ddsTarget, gateVisible, encodeSettings ); encoded.Encoded )
             {
                 // NO GATE: the grade is against blocks already decoded once, so it is reported, not obeyed.
                 LOG_INFO( "[TextureImporter] '{0}' (DDS blocks of another format) is re-encoded as format {1} for "
@@ -965,7 +977,7 @@ namespace Desert::Editor
             Attempt                probe;
             if ( probeFormat != Fmt::ImageFormat::Count )
             {
-                probe = EncodeAndGrade( data, probeFormat, gateVisible );
+                probe = EncodeAndGrade( data, probeFormat, gateVisible, encodeSettings );
                 if ( !probe.Encoded )
                 {
                     // NOT FATAL, AND SAID OUT LOUD. An uncompressed cook is a correct cook; a cook that
@@ -988,7 +1000,7 @@ namespace Desert::Editor
                 }
                 else
                 {
-                    chosen = EncodeAndGrade( data, policy.Format, gateVisible );
+                    chosen = EncodeAndGrade( data, policy.Format, gateVisible, encodeSettings );
                     if ( !chosen.Encoded )
                     {
                         LOG_WARN( "[TextureImporter] '{0}' is marked {1} and could not be encoded as the "
@@ -1218,7 +1230,7 @@ namespace Desert::Editor
         const auto key = Assets::ReadTextureAssetKey( asset );
         if ( !key.IsSuccess() )
             return Common::MakeError<std::string>( key.GetError() );
-        auto entry = Common::DDC::Get( Assets::kTextureDeriver, key.GetValue().DerivedDataKey );
+        auto entry = Assets::FetchTexturePlatformData( key.GetValue() );
         if ( !entry )
             return Common::MakeFormattedError<std::string>(
                  "texture asset '{}' was derived but its DDC entry {:016x} is not readable", asset.string(),

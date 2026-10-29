@@ -54,6 +54,7 @@ project "Runtime"
         "Optick",
         "MeshOptimizer",
         "Voro",
+        "Compressonator", -- BuildScripts/ThirdParty/Compressonator.lua: the BC7 encode
         "Embree",
         "Dav1d", -- Engine/Media (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua)
         "Opus",

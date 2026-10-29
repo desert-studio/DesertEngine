@@ -173,6 +173,7 @@ project "Editor"
         "Optick",
         "MeshOptimizer",
         "Voro",
+        "Compressonator", -- BuildScripts/ThirdParty/Compressonator.lua: the BC7 encode
         "OpenSubdiv",
         "Embree", -- BuildScripts/ThirdParty/Embree.lua: the distance-field builder
         -- THE TOOLKIT ITSELF, NAMED HERE RATHER THAN INHERITED. It used to arrive through Desert.vcxproj,

@@ -15,6 +15,7 @@ project "TextureCook"
     files {
         "Source/**.cpp",
         "%{_MAIN_SCRIPT_DIR}/Desert/Projects/Source/Projects/ProjectContext.cpp",
+        "%{_MAIN_SCRIPT_DIR}/Desert/Projects/Source/Projects/RendererSettings.cpp", -- the Texture Encoding efforts
         "%{_MAIN_SCRIPT_DIR}/Desert/Projects/Source/Projects/StartupLayout.cpp", -- ResolveEngineDir (Tools/Shared/ToolEngineDir.hpp)
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/TextureImporter.cpp",
         "%{_MAIN_SCRIPT_DIR}/Editor/Source/Editor/Import/DdsSource.cpp", -- the .dds source decoder TextureImporter calls (bcdec inside)
@@ -60,6 +61,7 @@ project "TextureCook"
 
     links { "Common", "Optick" } -- Common's JobSystem registers its workers with Optick
     links { "OpenEXRCore" } -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
+    links { "Compressonator" } -- the BC7 encode in BlockCompression.cpp (BuildScripts/ThirdParty/Compressonator.lua)
 
     filter "system:not windows"
         links { "ReflectCpp" }

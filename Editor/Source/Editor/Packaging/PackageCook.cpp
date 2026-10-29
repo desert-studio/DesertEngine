@@ -530,7 +530,7 @@ namespace Desert::Editor
             std::sort( sources.begin(), sources.end() );
             sources.erase( std::unique( sources.begin(), sources.end() ), sources.end() );
 
-            TextureImporter importer;
+            TextureImporter importer{ Assets::TextureEncodeRole::Cook }; // the package ships the final encode
             for ( const fs::path& source : sources )
             {
                 switch ( importer.Cook( source ).Outcome )
