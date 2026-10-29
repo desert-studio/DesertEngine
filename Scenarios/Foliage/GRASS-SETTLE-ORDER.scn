@@ -1,0 +1,18 @@
+# p19 probe: is the block the part of the view the previous frame did not see?
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1_first usual two-step cut (position, then direction)
+Когда --subject viewport set Camera.Position 0,900,2500
+Тогда-вид 1_again same pose, frames later
+Когда --subject viewport set Camera.Position 3000,1500,-2000
+Когда --subject viewport set Camera.Direction -1,-0.3,0.5
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Когда --subject viewport set Camera.Position 0,900,2500
+Тогда-вид 1_dirfirst cut with direction first: the previous frame saw none of this view
+Когда --subject viewport set Camera.Position 0,900,2500
+Тогда-вид 1_dirfirst_again same pose, frames later
