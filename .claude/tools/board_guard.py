@@ -127,6 +127,17 @@ def running_count(s):
 # end time; `night_mode.sh on [HH:MM]` / `off` write it. While it is in the future, Stop refuses an idle lead.
 NIGHT_FILE = os.path.expanduser("~/.claude/night_mode")
 NIGHT_MIN_AGENTS = 3
+# Day floor (owner 10-29 «у тебя опять 2 агента. я разрешил больше ... отслеживай через хуки»): ~/.claude/min_agents
+# holds the number of agents that must be running; Stop refuses a lead below it unless a merge is in progress.
+MIN_AGENTS_FILE = os.path.expanduser("~/.claude/min_agents")
+
+
+def min_agents():
+    try:
+        with open(MIN_AGENTS_FILE) as f:
+            return int(f.read().strip() or 0)
+    except (OSError, ValueError):
+        return 0
 
 
 def night_until():
@@ -385,6 +396,12 @@ def main():
         if gone and not late and not data.get("stop_hook_active"):
             emit({"decision": "block", "reason": "[board_guard] Брошено — «В работе» без живого агента: " + " ".join(gone) +
                   ". Запусти или поставь честный статус (Готово к старту / Заблокировано с причиной) — владелец 10-27: хвосты не бросать."})
+        floor = min_agents()
+        if floor and not night_until() and not late and not data.get("stop_hook_active"):
+            busy = running_count(s)
+            if busy < floor and not landing():
+                emit({"decision": "block", "reason": f"[board_guard] Работает агентов {busy} < {floor} (владелец 10-29 разрешил "
+                      "больше, ~/.claude/min_agents). Запусти следующие карточки из очереди HANDOVER, потом заканчивай ход."})
         night = night_until()
         if night and not data.get("stop_hook_active"):
             busy = running_count(s)
