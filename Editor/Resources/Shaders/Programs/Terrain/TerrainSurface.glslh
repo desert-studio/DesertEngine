@@ -168,8 +168,10 @@
         // GRASS-FIELD: the ground with the grass field's far cover over it (Common/LandscapeGrassCover.glslh) - the
         // blades the generator thinned out by this distance, carried on by the ground. @p tint is the landscape
         // material's Tint: it colours the ground beneath, not the blades. Returns the surface with the tinted
-        // albedo; @p transmission is the pixel's TwoSidedFoliage SubsurfaceColor, @p cover the cover's share.
-        TerrainSurface EvaluateTerrainSurfaceCovered( vec3 tint, out vec3 transmission, out float cover )
+        // albedo; @p transmission is the pixel's TwoSidedFoliage SubsurfaceColor, @p cover the cover's share,
+        // @p opacity the blades' subsurface Opacity (UE's pin, the payload's CustomData.a).
+        TerrainSurface EvaluateTerrainSurfaceCovered( vec3 tint, out vec3 transmission, out float cover,
+                                                      out float opacity )
         {
             vec4           w0, w1;
             float          dist;
@@ -177,7 +179,9 @@
             s.Albedo *= tint;
             // Towards the eye, in world space: the view-space position turned back by the view's rotation.
             vec3 V = normalize( transpose( mat3( u.View ) ) * -( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
-            cover  = LandscapeApplyGrassCover( LandscapeGrassCoverAt( CurrentTerrain, w0, w1, dist ), V,
-                                               normalize( v_Normal ), s.Albedo, s.N, s.Roughness, s.AO, transmission );
+            const LandscapeGrassCover c = LandscapeGrassCoverAt( CurrentTerrain, w0, w1, dist );
+            opacity                     = c.Opacity;
+            cover = LandscapeApplyGrassCover( c, V, normalize( v_Normal ), s.Albedo, s.N, s.Roughness, s.AO,
+                                              transmission );
             return s;
         }

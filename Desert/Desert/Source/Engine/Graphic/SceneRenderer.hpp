@@ -1281,9 +1281,7 @@ namespace Desert::Graphic
                            const FrameFrontLayer& frontLayer );
         // The water surface (WATER-W6), into the scene target with depth, after the scene copy and before the
         // glass.
-        // Returns whether a water node was added (it writes the scene depth: the depth consumers after it need the
-        // resolve again at MSAA > 1).
-        bool AddFrameWater( RDG::Builder& graph, FrameTextures& textures );
+        void AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
         // The Velocity view mode (DeferredDebugMode::Velocity, Deferred only): "Debug: Velocity" draws the view's

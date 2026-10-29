@@ -187,6 +187,18 @@ struct SurfaceOutput
     float SunSelfShadow;
 };
 
+// UE's Single Layer Water material output (the SingleLayerWaterMaterialOutput node): the water VOLUME under a
+// `ShadingModel SingleLayerWater` surface, returned by the template's EvaluateSingleLayerWater and read by
+// Pass_SingleLayerWater.glslh alone. Coefficients per METRE, as UE states them.
+struct SingleLayerWaterOutput
+{
+    vec3  ScatteringCoefficients; // 1/m
+    vec3  AbsorptionCoefficients; // 1/m
+    float PhaseG;                 // Henyey-Greenstein anisotropy of the in-scatter
+    vec3  ColorScaleBehindWater;  // tints the scene seen through the water before the absorption
+    float RefractionOffset;       // cm the scene behind shifts per unit of the normal's horizontal tilt
+};
+
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.
 SurfaceOutput DefaultSurfaceOutput()
 {

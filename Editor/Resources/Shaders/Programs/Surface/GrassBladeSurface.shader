@@ -34,6 +34,11 @@ Shader "GrassBladeSurface"
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
         // The light a blade lets through, as a tint of its own albedo (UE's SubsurfaceColor pin).
         Color       SubsurfaceColor ("Subsurface Color", Category("Foliage")) = (1, 1, 1, 1)
+        // UE's Opacity pin of a subsurface model: how dense the medium the sun crosses to reach the blade is
+        // (UE SubsurfaceDensityFromOpacity, Common/SubsurfaceDensity.glslh). The shadow map sees a field of thin
+        // blades as one solid slab from its sunward top to the receiver, so 1 (a solid leaf) put every blade below
+        // the field's top in the dark against a low sun; a canopy's density is its extinction G * LAI / height.
+        Float       SubsurfaceOpacity ("Opacity", Range(0,1), Category("Foliage")) = 1
         Texture2D   AlbedoTexture ("Albedo Map", Category("Textures"), Intent(Colour))
         Texture2D   NormalTexture ("Normal Map", Category("Textures"), Intent(NormalMap)) = "normal"
         Texture2D   OpacityTexture ("Opacity Map", Category("Textures"), Intent(Mask))
@@ -70,7 +75,7 @@ Shader "GrassBladeSurface"
             s.CustomData0       = subsurface.r;
             s.CustomData1       = subsurface.g;
             s.CustomData2       = subsurface.b;
-            s.CustomData3       = 1.0;
+            s.CustomData3       = Material.SubsurfaceOpacity;
             s.SampledTextureCount = float( int( BindlessTextureSize( Material.AlbedoTexture, 0 ).x > 1 ) +
                                            int( normalSize.x > 1 ) +
                                            int( BindlessTextureSize( Material.OpacityTexture, 0 ).x > 1 ) +

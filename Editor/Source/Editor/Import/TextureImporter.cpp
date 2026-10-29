@@ -10,6 +10,8 @@
 #include "TextureIntentFile.hpp"
 #include <Engine/Assets/TextureSourceAsset.hpp>
 #include <Common/Content/DerivedDataCache.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Editor/Import/TextureSourceFormats.hpp>
 #include <Editor/Import/DdsSource.hpp>
@@ -136,10 +138,63 @@ namespace Desert::Editor
         /// sampler returns. A byte-wise comparison would therefore have refused every narrow format on
         /// every image, and the authored intent would have looked implemented while being unable to
         /// take effect once. `PreservedChannelCount` is the promise; this is where it is collected.
+        /// WHICH TEXELS OF EACH LEVEL A VIEWER CAN EVER SEE, for a colour whose cut-away is another texture
+        /// (TextureDilationMask). Under the mask the colour is padding: DilateColorUnderMask wrote it so no mip
+        /// mixes the leaf with black, and the alpha test discards every pixel there. Grading BC7 on those texels
+        /// grades a colour nobody sees -- and padding is exactly where a hard edge meets a smeared fill inside one
+        /// 4x4 block, so it was the padding, not the blade, that kept four FieldBarn albedos at 16 MB uncompressed
+        /// (p6). Visible = the mask keeps it at level 0; a coarser texel is visible when any of its 2x2 children
+        /// is (the coverage-preserving opacity mips keep the cut-out's area, so a superset is conservative); every
+        /// level is then grown by one texel, the bilinear footprint that reaches into the padding from a visible
+        /// sample. Empty = no mask, every texel graded.
+        using VisibleTexels = std::vector<std::vector<uint8_t>>;
+
+        VisibleTexels BuildVisibleTexels( const std::vector<uint8_t>&                             keptAtBase,
+                                          const std::vector<Assets::Serialization::TextureLevel>& levels )
+        {
+            VisibleTexels visible;
+            if ( levels.empty() ||
+                 keptAtBase.size() != static_cast<std::size_t>( levels[0].Width ) * levels[0].Height )
+                return visible;
+            std::vector<uint8_t> core = keptAtBase;
+            for ( std::size_t row = 0; row < levels.size(); ++row )
+            {
+                const uint32_t lw = levels[row].Width, lh = levels[row].Height;
+                if ( row > 0 )
+                {
+                    const uint32_t       pw = levels[row - 1].Width, ph = levels[row - 1].Height;
+                    std::vector<uint8_t> coarser( static_cast<std::size_t>( lw ) * lh, 0 );
+                    for ( uint32_t y = 0; y < lh; ++y )
+                        for ( uint32_t x = 0; x < lw; ++x )
+                            for ( uint32_t dy = 0; dy < 2; ++dy )
+                                for ( uint32_t dx = 0; dx < 2; ++dx )
+                                {
+                                    const uint32_t cx = std::min( pw - 1, x * 2 + dx );
+                                    const uint32_t cy = std::min( ph - 1, y * 2 + dy );
+                                    coarser[static_cast<std::size_t>( y ) * lw + x] |=
+                                         core[static_cast<std::size_t>( cy ) * pw + cx];
+                                }
+                    core = std::move( coarser );
+                }
+                std::vector<uint8_t> grown( core.size(), 0 );
+                for ( uint32_t y = 0; y < lh; ++y )
+                    for ( uint32_t x = 0; x < lw; ++x )
+                    {
+                        if ( !core[static_cast<std::size_t>( y ) * lw + x] )
+                            continue;
+                        for ( uint32_t ny = ( y > 0 ? y - 1 : 0 ); ny <= std::min( lh - 1, y + 1 ); ++ny )
+                            for ( uint32_t nx = ( x > 0 ? x - 1 : 0 ); nx <= std::min( lw - 1, x + 1 ); ++nx )
+                                grown[static_cast<std::size_t>( ny ) * lw + nx] = 1;
+                    }
+                visible.push_back( std::move( grown ) );
+            }
+            return visible;
+        }
+
         Fidelity MeasureLdrChain( const Assets::Serialization::TextureAssetData&          source,
                                   const std::vector<Assets::Serialization::TextureLevel>& blockLevels,
                                   const std::vector<unsigned char>&                       blockPixels,
-                                  const Fmt::ImageFormat                                  blockFormat )
+                                  const Fmt::ImageFormat blockFormat, const VisibleTexels& visible )
         {
             Fidelity fidelity;
             double   squaredError = 0.0;
@@ -165,6 +220,8 @@ namespace Desert::Editor
             // `kSkyEnvBytesPerPixel` was.
             const uint32_t sourceChannels = Fmt::GetTexelBlock( source.Format ).Bytes;
             const uint32_t channels       = std::min( Fmt::PreservedChannelCount( blockFormat ), sourceChannels );
+            // One visibility per level of a single-layer chain; anything else grades every texel.
+            const bool masked = !visible.empty() && visible.size() == blockLevels.size();
 
             for ( std::size_t row = 0; row < blockLevels.size(); ++row )
             {
@@ -185,6 +242,8 @@ namespace Desert::Editor
                     const std::size_t at = texel * sourceChannels;
                     if ( at + channels > decoded.GetValue().size() || at + channels > original.ByteSize )
                         break;
+                    if ( masked && ( texel >= visible[row].size() || !visible[row][texel] ) )
+                        continue;
                     for ( uint32_t c = 0; c < channels; ++c )
                     {
                         const int delta = static_cast<int>( source.Pixels[original.ByteOffset + at + c] ) -
@@ -226,7 +285,7 @@ namespace Desert::Editor
         };
 
         Attempt EncodeAndGrade( const Assets::Serialization::TextureAssetData& data,
-                                const Fmt::ImageFormat                         blockFormat )
+                                const Fmt::ImageFormat blockFormat, const VisibleTexels& visible )
         {
             Attempt attempt;
 
@@ -251,7 +310,7 @@ namespace Desert::Editor
             }
 
             attempt.Levels  = table.ExtractValue();
-            attempt.Grade   = MeasureLdrChain( data, attempt.Levels, attempt.Pixels, blockFormat );
+            attempt.Grade   = MeasureLdrChain( data, attempt.Levels, attempt.Pixels, blockFormat, visible );
             attempt.Encoded = true;
             return attempt;
         }
@@ -786,6 +845,56 @@ namespace Desert::Editor
         // every load with `vkCmdBlitImage`, which is impossible for the block-compressed formats this
         // container exists to carry (`blitDst=0`) — so the chain has to be in the file before the
         // format can change, and that ordering is `Docs/World/PROGRAMME.md` §5.
+        // COLOUR PADDED UNDER THE MASK BEFORE THE CHAIN (GRASS-ASSET p5, TextureDilationMask). A foliage atlas
+        // whose opacity is another texture carries matte black under its cut-away; padded here, no mip mixes the
+        // blade with it. The mask is resolved by GUID (UE CompositeTexture); an unresolvable or undecodable mask is
+        // a failed cook, never a silent undilated one.
+        std::vector<uint8_t> keptByMask; // level-0 texels the dilation mask shows; empty = no mask
+        if ( const Assets::TextureDilationMask& dilation = asset.Import.Settings.ColorDilationMask; dilation.Enabled() )
+        {
+            auto failDilation = [&]( const std::string& why ) -> TextureCookResult {
+                LOG_ERROR( "[TextureImporter] '{0}': its colour dilation mask {1} {2}. The null handle is "
+                           "returned and nothing is cached.",
+                           abs, Common::Content::AssetGuidToText( dilation.Texture ), why );
+                return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
+            };
+            const std::string maskKey = Assets::ContentRegistry::KeyForHandle(
+                 static_cast<uint64_t>( Common::Content::HandleForGuid( dilation.Texture ) ) );
+            if ( maskKey.empty() )
+                return failDilation( "is not in the content registry" );
+            const auto maskSource = Assets::ReadTextureSourceImage( Common::AssetHandle::PathForStableKey( maskKey ) );
+            if ( !maskSource.IsSuccess() )
+                return failDilation( std::format( "could not be read ({})", maskSource.GetError() ) );
+            const std::vector<std::byte>& maskBytes = maskSource.GetValue();
+            int                           mw = 0, mh = 0, mch = 0;
+            stbi_uc* maskPixels = stbi_load_from_memory( reinterpret_cast<const stbi_uc*>( maskBytes.data() ),
+                                                         static_cast<int>( maskBytes.size() ), &mw, &mh, &mch, 4 );
+            if ( !maskPixels )
+                return failDilation( std::format( "could not be decoded ({})", stbi_failure_reason() ) );
+            // Nearest texel of the mask for each colour texel: the two images of one atlas share a layout and
+            // usually an extent; a different extent maps by UV.
+            std::vector<float> mask( static_cast<size_t>( w ) * h );
+            for ( int y = 0; y < h; ++y )
+                for ( int x = 0; x < w; ++x )
+                {
+                    const int mx = std::min( mw - 1, static_cast<int>( ( x + 0.5 ) * mw / w ) );
+                    const int my = std::min( mh - 1, static_cast<int>( ( y + 0.5 ) * mh / h ) );
+                    mask[static_cast<size_t>( y ) * w + x] =
+                         static_cast<float>( maskPixels[( static_cast<size_t>( my ) * mw + mx ) * 4 + dilation.Channel] ) /
+                         255.0f;
+                }
+            stbi_image_free( maskPixels );
+            keptByMask.resize( mask.size() );
+            for ( std::size_t t = 0; t < mask.size(); ++t )
+                keptByMask[t] = mask[t] >= dilation.Threshold ? 1 : 0;
+            const auto filled = Assets::Serialization::DilateColorUnderMask(
+                 data.Width, data.Height, data.Format, base, mask, dilation.Threshold, asset.Import.Settings.ColorSpace );
+            if ( !filled.IsSuccess() )
+                return failDilation( filled.GetError() );
+            LOG_INFO( "[TextureImporter] '{0}': colour padded into {1} of {2} texels under mask {3}.", abs,
+                      filled.GetValue(), mask.size(), Common::Content::AssetGuidToText( dilation.Texture ) );
+        }
+
         auto chain = Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base, data.Pixels,
                                                            asset.Import.Settings.ColorSpace,
                                                            asset.Import.Settings.AlphaCoverageThresholds );
@@ -797,6 +906,8 @@ namespace Desert::Editor
             return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
         }
         data.Levels      = chain.ExtractValue();
+        // The block gate below grades a masked colour where the mask shows it (BuildVisibleTexels).
+        const VisibleTexels gateVisible = BuildVisibleTexels( keptByMask, data.Levels );
         data.Intent      = authoredIntent;
         data.ColorSpace  = asset.Import.Settings.ColorSpace;
         data.EncoderHash = cookSignature;
@@ -825,7 +936,7 @@ namespace Desert::Editor
                           "block format.",
                           abs, Fmt::TextureIntentName( authoredIntent ) );
             }
-            else if ( Attempt encoded = EncodeAndGrade( data, ddsTarget ); encoded.Encoded )
+            else if ( Attempt encoded = EncodeAndGrade( data, ddsTarget, gateVisible ); encoded.Encoded )
             {
                 // NO GATE: the grade is against blocks already decoded once, so it is reported, not obeyed.
                 LOG_INFO( "[TextureImporter] '{0}' (DDS blocks of another format) is re-encoded as format {1} for "
@@ -854,7 +965,7 @@ namespace Desert::Editor
             Attempt                probe;
             if ( probeFormat != Fmt::ImageFormat::Count )
             {
-                probe = EncodeAndGrade( data, probeFormat );
+                probe = EncodeAndGrade( data, probeFormat, gateVisible );
                 if ( !probe.Encoded )
                 {
                     // NOT FATAL, AND SAID OUT LOUD. An uncompressed cook is a correct cook; a cook that
@@ -877,7 +988,7 @@ namespace Desert::Editor
                 }
                 else
                 {
-                    chosen = EncodeAndGrade( data, policy.Format );
+                    chosen = EncodeAndGrade( data, policy.Format, gateVisible );
                     if ( !chosen.Encoded )
                     {
                         LOG_WARN( "[TextureImporter] '{0}' is marked {1} and could not be encoded as the "
@@ -1154,43 +1265,6 @@ namespace Desert::Editor
             mips.push_back( { level.Width, level.Height, texels.ExtractValue() } );
         }
         return Common::MakeSuccess( std::move( mips ) );
-    }
-
-    Common::ResultStr<std::string> TextureImporter::BuildGrassCoverLook( const Assets::GrassCoverLookInput& input )
-    {
-        // 256 texels across: a blade card of a 2k atlas keeps a few dozen texels of its width, enough for the
-        // mean of its veins and dry tips; the level is the cooked one, so the mean is what the mip chain draws.
-        constexpr uint32_t kGrassCoverLookEdge = 256;
-        auto               albedo              = DecodePlatformMips( input.AlbedoAsset, kGrassCoverLookEdge );
-        if ( !albedo.IsSuccess() )
-            return Common::MakeError<std::string>( albedo.GetError() );
-        if ( albedo.GetValue().empty() )
-            return Common::MakeFormattedError<std::string>( "albedo map '{}' has no level within {} texels",
-                                                            input.AlbedoAsset.generic_string(), kGrassCoverLookEdge );
-        const PlatformMip&                               a = albedo.GetValue().front();
-        std::optional<std::vector<PlatformMip>>          maskMips;
-        std::optional<Assets::GrassCoverLookLevel>       maskLevel;
-        if ( !input.MaskAsset.empty() )
-        {
-            auto mask = DecodePlatformMips( input.MaskAsset, kGrassCoverLookEdge );
-            if ( !mask.IsSuccess() )
-                return Common::MakeError<std::string>( mask.GetError() );
-            if ( mask.GetValue().empty() )
-                return Common::MakeFormattedError<std::string>( "opacity mask '{}' has no level within {} texels",
-                                                                input.MaskAsset.generic_string(),
-                                                                kGrassCoverLookEdge );
-            maskMips             = mask.ExtractValue();
-            const PlatformMip& m = maskMips->front();
-            maskLevel            = Assets::GrassCoverLookLevel{ m.Width, m.Height, m.Texels };
-        }
-        const Assets::GrassCoverLook look =
-             Assets::AverageGrassCoverLook( input, { a.Width, a.Height, a.Texels }, maskLevel );
-        if ( look.Coverage <= 0.0f )
-            return Common::MakeFormattedError<std::string>(
-                 "albedo map '{}': no texel of its {} rect(s) passes the opacity mask '{}' (clip {})",
-                 input.AlbedoAsset.generic_string(), input.Rects.size(), input.MaskAsset.generic_string(),
-                 input.MaskClip );
-        return Common::MakeSuccess( Assets::EncodeGrassCoverLook( look ) );
     }
 
 } // namespace Desert::Editor

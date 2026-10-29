@@ -1,0 +1,39 @@
+// SingleLayerWater — UE's MSM_SingleLayerWater (ShadingModels.ush: the water interface is DefaultLit's specular lobe
+// with no diffuse; everything under the surface is the water VOLUME, which the single layer water pass computes from
+// the material's SingleLayerWaterOutput: Mesh/Surface/Pass_SingleLayerWater.glslh). So the model is the interface
+// alone: the light a source reflects off the water's surface (GGX at the material's Specular, UE's 0.255 -> F0 0.02)
+// and the environment's mirror image through the split sum. A template of this model declares `Usage WaterMesh`
+// (DShaderParser kSingleLayerWaterShadingModel) and is drawn by Graphic::System::WaterRenderer.
+Guid 4793518806216720431;
+Payload
+{
+}
+Inputs
+{
+    Roughness;
+    Specular;
+}
+
+#include <Mesh/BRDF.glslh>
+#include <Mesh/DirectLighting.glslh>
+#ifndef AMBIENT_IBL_GLSLH
+#define AMBIENT_IBL_NO_SAMPLERS
+#include <Mesh/AmbientIBL.glslh>
+#endif
+
+vec3 Evaluate( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Roughness ) * L.Shadow;
+}
+
+vec3 EvaluateSpecular( DesertLight L, DesertSurface S, DesertPayload P )
+{
+    return EvaluateDirectLightSpecular( L.L, L.Radiance, S.V, S.N, DesertSpecularF0( S ), S.Roughness ) * L.Shadow;
+}
+
+vec3 EvaluateAmbient( DesertAmbient A, DesertSurface S, DesertPayload P )
+{
+    const vec3  F0                = DesertSpecularF0( S );
+    const float specularOcclusion = DesertSpecularOcclusion( max( dot( S.N, S.V ), 0.0 ), S.Roughness, A.Occlusion );
+    return EvaluateAmbientIBLSpecular( A.Prefiltered, A.SpecularBRDF, F0 ) * specularOcclusion;
+}
