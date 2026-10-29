@@ -455,9 +455,11 @@ namespace Desert::Graphic
 
         // Refused while an upload is pending: this frame's tables are not what the CPU path culls. One import per
         // graph: AddFrameDrawBins' when it made one.
-        const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene =
-             m_FrameGpuSceneTables ? Common::ResultStr<GpuDriven::GpuSceneBuffers>( *m_FrameGpuSceneTables )
-                                   : gpuScene->ImportTables( graph );
+        const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene = [&]() -> Common::ResultStr<GpuDriven::GpuSceneBuffers> {
+            if ( m_FrameGpuSceneTables )
+                return Common::MakeSuccess( *m_FrameGpuSceneTables );
+            return gpuScene->ImportTables( graph );
+        }();
         if ( !scene )
         {
             refuse( std::format( "GPUDriven: Cull: {}", scene.GetError() ) );
@@ -757,7 +759,8 @@ namespace Desert::Graphic
         // its post cut runs (FrameDrawBins::ClusterMainTestsHzb, decided before this cut); otherwise frustum only:
         // the cut carries nothing (VirtualGeometryRenderer::AddClusterCull: no HZB -> no carry) and
         // AddFrameVirtualGeometryPostOcclusion has nothing to re-cut.
-        VirtualGeometry::ClusterCullView view = viewOf( 0 ).GetValue();
+        const auto mainView = viewOf( 0 );
+        VirtualGeometry::ClusterCullView view = mainView.GetValue();
         if ( !bins.ClusterMainTestsHzb )
         {
             view.Instance.PrevHzb = RDG::TextureRef{};
