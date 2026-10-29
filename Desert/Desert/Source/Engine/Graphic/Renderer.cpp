@@ -325,6 +325,18 @@ namespace Desert::Graphic
         return s_RendererAPI->ImportBuffer( buffer, into );
     }
 
+    Common::ResultStr<std::shared_ptr<SharedGpuBuffer>> Renderer::CreateSharedBuffer( const std::string_view name,
+                                                                                      const uint64_t bytes )
+    {
+        return s_RendererAPI->CreateSharedBuffer( name, bytes );
+    }
+
+    Common::ResultStr<std::shared_ptr<SharedGpuTimeline>>
+    Renderer::CreateSharedTimeline( const std::string_view name )
+    {
+        return s_RendererAPI->CreateSharedTimeline( name );
+    }
+
     Common::BoolResultStr Renderer::ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                         RDG::ExternalBuffer&                 into )
     {

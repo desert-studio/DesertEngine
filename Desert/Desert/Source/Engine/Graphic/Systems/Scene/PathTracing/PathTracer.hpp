@@ -34,7 +34,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <deque>
+#include <chrono>
 #include <format>
 #include <memory>
 #include <optional>
@@ -204,6 +204,12 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageBuffer, PathTracingOidnPackUB );
     };
 
+    struct PathTracingOidnUnpackShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, PathTracingOidnOutputUB );
+        DESERT_SHADER_PARAMETER( StorageTexture, OidnResultTexture );
+    };
+
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct PathTracingResolveShaderParameters
     {
@@ -290,21 +296,22 @@ namespace Desert::Graphic::System
     //  - OIDN (UE's OpenImageDenoise plugin): OIDN denoises the frame's estimate once it is FINAL - the sum holds
     //    PathTracing.SamplesPerPixel paths, or under Nrc every frame (the sum restarts each frame, THE NEURAL
     //    RADIANCE CACHE below; UE's real-time path tracer denoises every frame). Until then the view is ReLAX's,
-    //    as above. A final estimate not handed over yet goes to "PathTracing: OIDN Pack", which writes the mean
-    //    radiance and the paths' albedo (both lobes' reflectance, 1 for a path that met no surface) and normal
-    //    (PathTracerDenoise.shader "OidnPack"; means over the sum's paths, so valid from one path per pixel) into
-    //    one buffer the host reads back (RDG HostRead) once the frames in flight have retired it;
-    //    Graphic::Denoise::OidnDenoiser filters it (High, hdr, cleanAux guides) on the GPU OIDN finds for this
-    //    Vulkan device, else on the CPU, blocking that one graph build; the result is uploaded into
-    //    "PathTracing.OidnResult" and the resolve reads it, the ReLAX passes not run, until a newer image comes
-    //    back. A converged still sum is denoised once; under Nrc each frame's estimate is, and the image shown is
-    //    the one of GetMaxFramesInFlight frames before (the read-back's latency). An estimate that is no longer
-    //    final, or a sum not kept (a cut, a resize, the scene - anything but the camera's motion and Nrc's own
-    //    restart), drops every image handed over. A refusal (library missing, device or filter error, a read-back
-    //    that never ran) is logged with its reason, kept in OidnDenoiser::Status (the control channel's device
-    //    state) and the view shows the raw accumulation - never a silent ReLAX in its place. The image goes
-    //    through host memory; sharing the Vulkan memory with OIDN (external memory) is the next step of PT-OIDN,
-    //    and removes the latency. While OIDN's image is shown, THE DENOISER'S HISTORY is dropped (the ReLAX passes
+    //    as above. A final estimate not denoised yet is denoised IN ITS OWN FRAME'S GRAPH (AddOidnPasses):
+    //    "PathTracing: OIDN Pack" writes the mean radiance and the paths' albedo (both lobes' reflectance, 1 for a
+    //    path that met no surface) and normal (PathTracerDenoise.shader "OidnPack"; means over the sum's paths, so
+    //    valid from one path per pixel) into a buffer shared with OIDN (Renderer::CreateSharedBuffer: exported
+    //    Vulkan memory, imported by OIDN's CUDA / HIP / SYCL device); "PathTracing: OIDN", an ExternalQueue pass,
+    //    splits the frame's submission there on a shared timeline semaphore, and Graphic::Denoise::OidnDenoiser
+    //    filters it (High, hdr, cleanAux guides) on the GPU whose UUID is the Vulkan device's, enqueued and not
+    //    waited; "PathTracing: OIDN Unpack" writes "PathTracing.OidnResult", which the resolve of the SAME frame
+    //    reads, the ReLAX passes not run. A converged still sum is denoised once and its image kept; under Nrc
+    //    each frame's estimate is, with no latency. An estimate that is no longer final, or a sum not kept (a cut,
+    //    a resize, the scene - anything but the camera's motion and Nrc's own restart), drops the image. A refusal
+    //    (CapabilityCatalog::Sharing None, the library missing, no OIDN GPU device for this GPU, an export, import
+    //    or enqueue error) is logged with its reason, kept in OidnDenoiser::Status (the control channel's device
+    //    state) and the view shows the raw accumulation - never a silent ReLAX in its place, and never a host
+    //    copy. UE's OpenImageDenoise plugin reads the image back and blocks; this path neither copies nor stalls.
+    //    While OIDN's image is shown, THE DENOISER'S HISTORY is dropped (the ReLAX passes
     //    do not run), so the first frame after it that ReLAX shows starts ReLAX's history afresh, as after a cut.
     //
     // THE DENOISER'S HISTORY: the accumulation is the temporal integration of a still camera; a moving camera
@@ -514,9 +521,9 @@ namespace Desert::Graphic::System
                 return Common::MakeError( lightGrid.GetError() );
             m_LightGridPipeline = lightGrid.GetValue();
 
-            for ( DenoiseProgram* program : { &m_DenoiseSnapshot, &m_DenoiseTemporal, &m_DenoiseCombine,
-                                              &m_DenoiseAntiFirefly, &m_DenoiseFilter, &m_DenoiseRemodulate,
-                                              &m_DenoiseOidnPack } )
+            for ( DenoiseProgram* program :
+                  { &m_DenoiseSnapshot, &m_DenoiseTemporal, &m_DenoiseCombine, &m_DenoiseAntiFirefly,
+                    &m_DenoiseFilter, &m_DenoiseRemodulate, &m_DenoiseOidnPack, &m_DenoiseOidnUnpack } )
             {
                 const std::string name = std::format( "PathTracerDenoise/{}", program->Name );
                 program->PassShader    = shaders->GetByName( name );
@@ -901,11 +908,9 @@ namespace Desert::Graphic::System
                 AddDenoiseTemporalPass( graph, inputs.Camera, accumulation, snapshot, history, width, height );
                 m_HistoryValid = true;
             }
-            if ( m_Oidn.PackThisFrame )
-                AddOidnPackPass( graph, accumulation, width, height );
             RDG::TextureRef image = accumulation.Radiance;
             if ( oidnView == OidnView::Result )
-                image = AddOidnResult( graph, accumulation.Radiance, width, height );
+                image = AddOidnPasses( graph, accumulation, width, height );
             else if ( denoise )
                 image = AddDenoisePasses( graph, accumulation, history, settings.AntiFirefly, width, height );
             AddResolvePass( graph, image, sceneColor, frame.FrameIndex, frame.PreExposure );
@@ -1105,15 +1110,15 @@ namespace Desert::Graphic::System
         // PathTracing.Denoiser OIDN (THE DENOISER above): what the frame resolves.
         enum class OidnView : uint8_t
         {
-            Denoiser, // ReLAX's image (the sum is still growing, or OIDN's image is not back yet)
-            Result,   // "PathTracing.OidnResult", OIDN's image of the converged sum
-            Raw,      // the accumulation: OIDN refused this sum (logged, OidnDenoiser::Status().Error)
+            Denoiser, // ReLAX's image (the sum is still growing)
+            Result,   // "PathTracing.OidnResult", OIDN's image of the final estimate, written this frame or kept
+            Raw,      // the accumulation: OIDN refused (logged, OidnDenoiser::Status().Error)
         };
         enum class OidnPhase : uint8_t
         {
-            Idle,    // no OIDN image of the current estimates: ReLAX's image while a pack is in flight
-            Shown,   // m_Oidn.Result (or m_Oidn.Upload) holds OIDN's image of m_Oidn.ShownKey's estimate
-            Refused, // OIDN refused an estimate: the raw sum is shown until the estimates are dropped
+            Idle,    // no OIDN image of the current estimates
+            Shown,   // m_Oidn.Result holds OIDN's image of m_Oidn.ShownKey's estimate (or this graph writes it)
+            Refused, // OIDN refused: the raw sum is shown until the estimates are dropped
         };
         // One final estimate: the restart that began it, the paths summed in it, its size.
         struct OidnKey
@@ -1124,46 +1129,53 @@ namespace Desert::Graphic::System
             uint32_t Height  = 0;
             bool     operator==( const OidnKey& ) const = default;
         };
-        // One estimate handed to OIDN: packed in Frame's graph, read once that frame retired.
-        struct OidnRequest
-        {
-            OidnKey             Key;
-            uint64_t            Frame       = 0;     // the absolute frame whose graph packs it
-            uint64_t            Serial      = 0;     // names it to its pack pass's execution
-            bool                PackWritten = false; // that pass executed (set at execution)
-            RDG::ExternalBuffer Readback;            // the pack pass's buffer, HostRead
-        };
+        // The memory OIDN shares with the graph (Renderer::CreateSharedBuffer, SharedGpuMemory.hpp) and the
+        // timeline that orders the two queues, bound to the denoiser for one size.
         struct OidnState
         {
-            OidnPhase Phase = OidnPhase::Idle;
-            OidnKey   Requested; // the newest estimate handed over (a key equal to it is not packed again)
-            OidnKey   ShownKey;  // the estimate whose image Phase Shown shows
-            // In flight, oldest first. A deque: Extract keeps a reference to Readback until the graph ran, and
-            // push_back / pop_front leave the other elements where they are.
-            std::deque<OidnRequest> Requests;
-            uint64_t                NextSerial    = 0;
-            bool                    PackThisFrame = false; // UpdateOidn asked this graph for the pack pass
-            std::vector<float>      Upload; // OIDN's image as RGBA32F (a = 1), until the graph copies it
-            RDG::ExternalTexture    Result; // "PathTracing.OidnResult"
-            uint32_t                ResultWidth  = 0;
-            uint32_t                ResultHeight = 0;
+            OidnPhase                          Phase = OidnPhase::Idle;
+            OidnKey                            ShownKey;             // the estimate whose image Phase Shown shows
+            bool                               RunThisFrame = false; // UpdateOidn asked this graph for the run
+            Denoise::OidnDenoiser*             Denoiser     = nullptr;
+            std::shared_ptr<SharedGpuBuffer>   Input;  // OidnPack's three float3 planes: colour, albedo, normal
+            std::shared_ptr<SharedGpuBuffer>   Output; // OIDN's float3 image
+            std::shared_ptr<SharedGpuTimeline> Timeline;
+            uint32_t                           BoundWidth  = 0; // the size Input / Output are bound for (0: none)
+            uint32_t                           BoundHeight = 0;
+            RDG::ExternalBuffer                InputImport; // this graph's imports of Input / Output
+            RDG::ExternalBuffer                OutputImport;
+            RDG::ExternalTexture               Result; // "PathTracing.OidnResult"
+            uint32_t                           ResultWidth  = 0;
+            uint32_t                           ResultHeight = 0;
         };
 
-        // Forgets every estimate handed to OIDN and its image; the result texture is kept for reuse.
+        // Forgets the image of the estimates; the shared memory and the result texture are kept for reuse.
         void DropOidnEstimates()
         {
-            m_Oidn.Phase     = OidnPhase::Idle;
-            m_Oidn.Requested = {};
-            m_Oidn.ShownKey  = {};
-            m_Oidn.Requests.clear();
-            m_Oidn.Upload = {};
+            m_Oidn.Phase    = OidnPhase::Idle;
+            m_Oidn.ShownKey = {};
+        }
+
+        // Unbinds the denoiser and drops the shared memory (its Vulkan objects go through the frames-in-flight
+        // queue, OIDN's imports are released after OIDN's stream finished: OidnDenoiser::ReleaseShared).
+        void ReleaseOidnShared()
+        {
+            if ( m_Oidn.Denoiser )
+                m_Oidn.Denoiser->ReleaseShared();
+            m_Oidn.Input.reset();
+            m_Oidn.Output.reset();
+            m_Oidn.BoundWidth  = 0;
+            m_Oidn.BoundHeight = 0;
         }
 
         // Drops every OIDN resource: the denoiser is not OIDN, or the paths go to the upscaler raw.
         void ReleaseOidn()
         {
             DropOidnEstimates();
-            m_Oidn.PackThisFrame = false;
+            m_Oidn.RunThisFrame = false;
+            ReleaseOidnShared();
+            m_Oidn.Timeline.reset();
+            m_Oidn.Denoiser = nullptr;
             if ( m_Oidn.Result.Physical )
                 m_RetiringAccumulation.Park( std::move( m_Oidn.Result ),
                                              ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
@@ -1172,24 +1184,94 @@ namespace Desert::Graphic::System
             m_Oidn.ResultHeight = 0;
         }
 
+        // The denoiser, the shared buffers of this size and the timeline, bound once (again after a resize). An
+        // error names what refused: GpuSharing None, the denoiser (no OIDN GPU device for this GPU), an export or
+        // an import.
+        Common::BoolResultStr EnsureOidnShared( const uint32_t width, const uint32_t height )
+        {
+            if ( m_Oidn.Denoiser && m_Oidn.Input && m_Oidn.Output && m_Oidn.Timeline &&
+                 m_Oidn.BoundWidth == width && m_Oidn.BoundHeight == height )
+                return Common::MakeSuccess( true );
+            const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
+            const auto  denoiser =
+                 Denoise::OidnDenoiser::Acquire( capabilities.DeviceUuid, capabilities.Catalog.Sharing );
+            if ( !denoiser )
+                return Common::MakeError( denoiser.GetError() );
+            ReleaseOidnShared();
+            m_Oidn.Denoiser = denoiser.GetValue();
+
+            const uint64_t plane = static_cast<uint64_t>( width ) * height * 3u * sizeof( float );
+            auto           input = Renderer::CreateSharedBuffer( "PathTracing.OidnInput", 3u * plane );
+            if ( !input )
+                return Common::MakeError( input.GetError() );
+            auto output = Renderer::CreateSharedBuffer( "PathTracing.OidnOutput", plane );
+            if ( !output )
+                return Common::MakeError( output.GetError() );
+            if ( !m_Oidn.Timeline )
+            {
+                auto timeline = Renderer::CreateSharedTimeline( "PathTracing.OidnTimeline" );
+                if ( !timeline )
+                    return Common::MakeError( timeline.GetError() );
+                m_Oidn.Timeline = timeline.GetValue();
+            }
+            const auto inputHandle    = input.GetValue()->ExportHandle();
+            const auto outputHandle   = output.GetValue()->ExportHandle();
+            const auto timelineHandle = m_Oidn.Timeline->ExportHandle();
+            for ( const auto* handle : { &inputHandle, &outputHandle, &timelineHandle } )
+                if ( !*handle )
+                    return Common::MakeError( handle->GetError() );
+
+            Denoise::SharedDenoiseImages images{
+                 .Width    = width,
+                 .Height   = height,
+                 .Buffers  = { { .Handle = inputHandle.GetValue(), .Bytes = 3u * plane },
+                               { .Handle = outputHandle.GetValue(), .Bytes = plane } },
+                 .Color    = { .Buffer = 0, .ByteOffset = 0 },
+                 .Albedo   = { .Buffer = 0, .ByteOffset = plane },
+                 .Normal   = { .Buffer = 0, .ByteOffset = 2u * plane },
+                 .Output   = { .Buffer = 1, .ByteOffset = 0 },
+                 .Timeline = timelineHandle.GetValue() };
+            if ( const Common::BoolResultStr bound =
+                      m_Oidn.Denoiser->BindShared( images, Denoise::ImageDenoiseQuality::High );
+                 !bound )
+                return bound;
+            m_Oidn.Input       = input.GetValue();
+            m_Oidn.Output      = output.GetValue();
+            m_Oidn.BoundWidth  = width;
+            m_Oidn.BoundHeight = height;
+            return Common::MakeSuccess( true );
+        }
+
+        // A refusal: logged with its reason, kept in OidnDenoiser::Status, and the raw sum is shown until the
+        // estimates are dropped - never a silent ReLAX in its place.
+        OidnView RefuseOidn( const OidnKey& key, const std::string& reason )
+        {
+            LOG_ERROR(
+                 "[PathTracing] OIDN did not denoise the {}x{} image of {} paths per pixel: {}; the view shows "
+                 "the raw accumulation",
+                 key.Width, key.Height, key.Paths, reason );
+            Denoise::OidnDenoiser::NoteError( reason );
+            m_Oidn.Phase        = OidnPhase::Refused;
+            m_Oidn.RunThisFrame = false;
+            return OidnView::Raw;
+        }
+
         // GRAPH BUILD, after the restart decision: the OIDN step of the frame. The rule is one for both modes -
         // OIDN denoises the frame's estimate once it is final (@p estimateFinal: SamplesPerPixel paths summed, or
-        // under Nrc every frame that traces); a final estimate not handed over yet gets the pack pass
-        // (m_Oidn.PackThisFrame). Its buffer is read GetMaxFramesInFlight frames later, when the frame that wrote
-        // it has retired (VirtualShadowMap's read-back), and filtered there, blocking; the newest image is shown
-        // until a newer one comes back. A converged still sum is therefore denoised once; under Nrc (and a moving
-        // camera whose PathsPerFrame reach SamplesPerPixel) every frame, each image shown GetMaxFramesInFlight
-        // frames after its paths were traced. An estimate that is not final, or a sum that was not kept (@p
-        // sumKept false: a cut, a resize, the scene - anything but the camera's motion and Nrc's own restart),
-        // drops what was handed over: the images are of another scene.
+        // under Nrc every frame that traces), IN THIS FRAME'S GRAPH (AddOidnPasses: pack, OIDN between two
+        // submissions on the shared timeline, unpack), and the frame resolves that image. A converged still sum is
+        // denoised once and its image kept; under Nrc every frame is, with no latency. An estimate that is not
+        // final, or a sum that was not kept (@p sumKept false: a cut, a resize, the scene - anything but the
+        // camera's motion and Nrc's own restart), drops the image: it is of another scene.
         OidnView UpdateOidn( const Settings& settings, const bool rawToUpscaler, const bool sumKept,
                              const bool estimateFinal, const uint32_t pathsAfter, const uint32_t width,
                              const uint32_t height )
         {
-            m_Oidn.PackThisFrame = false;
+            m_Oidn.RunThisFrame = false;
             if ( settings.Denoiser != Common::Scalability::PathTracingDenoiserMethod::OIDN || rawToUpscaler )
             {
-                if ( m_Oidn.Phase != OidnPhase::Idle || !m_Oidn.Requests.empty() || m_Oidn.Result.Physical )
+                if ( m_Oidn.Phase != OidnPhase::Idle || m_Oidn.Denoiser || m_Oidn.Timeline ||
+                     m_Oidn.Result.Physical )
                     ReleaseOidn();
                 return OidnView::Denoiser;
             }
@@ -1200,103 +1282,69 @@ namespace Desert::Graphic::System
             if ( m_Oidn.Phase == OidnPhase::Refused )
                 return OidnView::Raw;
 
-            const auto&    frames = ::Desert::Engine::FrameManager::GetInstance();
-            const uint64_t now    = frames.GetAbsoluteFrameCount();
-            const OidnKey  key{ .Restart = m_Restarts, .Paths = pathsAfter, .Width = width, .Height = height };
-            if ( m_Oidn.Requested != key )
+            const OidnKey key{ .Restart = m_Restarts, .Paths = pathsAfter, .Width = width, .Height = height };
+            if ( m_Oidn.Phase == OidnPhase::Shown && m_Oidn.ShownKey == key )
             {
-                m_Oidn.Requested = key;
-                m_Oidn.Requests.push_back(
-                     OidnRequest{ .Key = key, .Frame = now, .Serial = m_Oidn.NextSerial++ } );
-                m_Oidn.PackThisFrame = true;
+                if ( m_Oidn.Result.Physical && m_Oidn.ResultWidth == width && m_Oidn.ResultHeight == height )
+                    return OidnView::Result; // the image of this estimate, kept
+                return RefuseOidn( key, "the denoised image of this estimate was lost before it was shown again" );
             }
-
-            // The newest retired request is filtered; the older retired ones are superseded by it.
-            const uint64_t inFlight = std::max( 1u, frames.GetMaxFramesInFlight() );
-            size_t         retired  = 0;
-            while ( retired < m_Oidn.Requests.size() && now >= m_Oidn.Requests[retired].Frame + inFlight )
-                ++retired;
-            if ( retired > 0u )
-            {
-                OidnRequest request = std::move( m_Oidn.Requests[retired - 1u] );
-                m_Oidn.Requests.erase( m_Oidn.Requests.begin(),
-                                       m_Oidn.Requests.begin() + static_cast<std::ptrdiff_t>( retired ) );
-                const OidnView filtered = FilterOidn( request );
-                if ( filtered == OidnView::Raw )
-                    m_Oidn.Requests.clear(); // refused: nothing more is filtered until the estimates are dropped
-                return filtered;
-            }
-            return m_Oidn.Phase == OidnPhase::Shown ? OidnView::Result : OidnView::Denoiser;
-        }
-
-        // A retired pack buffer through OIDN into m_Oidn.Upload (Shown), or the refusal logged (Refused).
-        OidnView FilterOidn( const OidnRequest& request )
-        {
-            const OidnKey key    = request.Key;
-            auto          refuse = [&]( const std::string& reason )
-            {
-                LOG_ERROR( "[PathTracing] OIDN did not denoise the {}x{} image of {} paths per pixel: {}; the view "
-                           "shows the raw accumulation",
-                           key.Width, key.Height, key.Paths, reason );
-                Denoise::OidnDenoiser::NoteError( reason );
-                m_Oidn.Phase  = OidnPhase::Refused;
-                m_Oidn.Upload = {};
-                return OidnView::Raw;
-            };
-            if ( !request.PackWritten || !request.Readback.Physical )
-                return refuse( "the pass \"PathTracing: OIDN Pack\" did not execute" );
-            const size_t                     floats = static_cast<size_t>( key.Width ) * key.Height * 3u;
-            const std::span<const std::byte> bytes  = request.Readback.Physical->ReadForHost();
-            if ( bytes.size() < 3u * floats * sizeof( float ) )
-                return refuse( std::format( "the pack buffer reads {} bytes on the host, {} expected", bytes.size(),
-                                            3u * floats * sizeof( float ) ) );
-            std::vector<float> planes( 3u * floats );
-            std::memcpy( planes.data(), bytes.data(), planes.size() * sizeof( float ) );
-
-            const auto denoiser =
-                 Denoise::OidnDenoiser::Acquire( EngineContext::GetInstance().GetCapabilities().DeviceUuid );
-            if ( !denoiser )
-                return refuse( denoiser.GetError() );
-            const std::span<const float>      all( planes );
-            const Denoise::ImageDenoiseInputs inputs{ .Width  = key.Width,
-                                                      .Height = key.Height,
-                                                      .Color  = all.subspan( 0, floats ),
-                                                      .Albedo = all.subspan( floats, floats ),
-                                                      .Normal = all.subspan( 2u * floats, floats ) };
-            std::vector<float> output( floats );
-            const auto         report =
-                 denoiser.GetValue()->Denoise( inputs, Denoise::ImageDenoiseQuality::High, output );
-            if ( !report )
-                return refuse( report.GetError() );
-            const double ms = report.GetValue().Milliseconds;
-            Denoise::OidnDenoiser::NoteRun( key.Paths, key.Width, key.Height, ms );
-            LOG_INFO(
-                 "[PathTracing] OIDN denoised the {}x{} image of {} paths per pixel (restart {}) on {} in {:.1f} "
-                 "ms",
-                 key.Width, key.Height, key.Paths, key.Restart, denoiser.GetValue()->GetDeviceName(), ms );
-
-            const size_t pixels = static_cast<size_t>( key.Width ) * key.Height;
-            m_Oidn.Upload.resize( pixels * 4u );
-            for ( size_t pixel = 0; pixel < pixels; ++pixel )
-            {
-                for ( size_t c = 0; c < 3u; ++c )
-                    m_Oidn.Upload[pixel * 4u + c] = std::max( output[pixel * 3u + c], 0.0f );
-                m_Oidn.Upload[pixel * 4u + 3u] = 1.0f; // the resolve's (mean, 1) form
-            }
-            m_Oidn.Phase    = OidnPhase::Shown;
-            m_Oidn.ShownKey = key;
+            if ( const Common::BoolResultStr ready = EnsureOidnShared( width, height ); !ready )
+                return RefuseOidn( key, ready.GetError() );
+            m_Oidn.Phase        = OidnPhase::Shown;
+            m_Oidn.ShownKey     = key;
+            m_Oidn.RunThisFrame = true;
             return OidnView::Result;
         }
 
-        // "PathTracing: OIDN Pack", after this frame's trace: the final estimate as OIDN's three planes
-        // (PathTracerDenoise.shader "OidnPack"), extracted for the host.
-        void AddOidnPackPass( RDG::Builder& graph, const AccumulationRefs& accumulation, const uint32_t width,
-                              const uint32_t height )
+        // "PathTracing.OidnResult" in this graph: registered when it exists at this size, else created and
+        // extracted (kept for the frames that show the same estimate).
+        RDG::TextureRef AcquireOidnResult( RDG::Builder& graph, const uint32_t width, const uint32_t height )
         {
-            constexpr RDG::Access kR    = RDG::Access::StorageRead;
-            const uint64_t        bytes = static_cast<uint64_t>( width ) * height * 9u * sizeof( float );
-            const RDG::BufferRef  pack  = graph.CreateBuffer( RDG::BufferDesc{ bytes }, "PathTracing.OidnPack" );
-            OidnRequest&          request = m_Oidn.Requests.back(); // UpdateOidn pushed it this build
+            if ( m_Oidn.Result.Physical && m_Oidn.ResultWidth == width && m_Oidn.ResultHeight == height )
+                return graph.RegisterExternal( m_Oidn.Result, "PathTracing.OidnResult" );
+            if ( m_Oidn.Result.Physical )
+                m_RetiringAccumulation.Park(
+                     std::move( m_Oidn.Result ),
+                     ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+            m_Oidn.Result = {};
+            const RDG::TextureDesc desc{ .Size   = { .Width = width, .Height = height },
+                                         .Format = ViewTargetFormats::kPathTracingDenoise };
+            const RDG::TextureRef  result = graph.CreateTexture( desc, "PathTracing.OidnResult" );
+            graph.Extract( result, m_Oidn.Result, RDG::Access::SampledGraphics,
+                           { RDG::Access::StorageWrite, RDG::Access::SampledGraphics } );
+            m_Oidn.ResultWidth  = width;
+            m_Oidn.ResultHeight = height;
+            return result;
+        }
+
+        // OIDN's image of the frame's final estimate, IN THIS GRAPH (THE DENOISER above). On a frame that runs it
+        // (m_Oidn.RunThisFrame), after this frame's trace:
+        //  1. "PathTracing: OIDN Pack" writes the estimate as OIDN's three float3 planes (PathTracerDenoise.shader
+        //     "OidnPack") into the shared input buffer;
+        //  2. "PathTracing: OIDN" is an ExternalQueue pass (RDG-EXTERNAL): the submission so far signals the
+        //     timeline's odd value, OIDN (CUDA / HIP / SYCL, enqueued by the exec, not waited) waits it, filters
+        //     the shared input into the shared output and signals the even value, and the rest of the frame waits
+        //     that on the GPU - no host stall, no copy;
+        //  3. "PathTracing: OIDN Unpack" turns the float3 output into "PathTracing.OidnResult" (RGBA32F, a = 1,
+        //  the
+        //     resolve's (mean, 1) form).
+        // A frame that shows a kept image only registers the result. @p raw is never shown here: a refusal turned
+        // the view to Raw before this graph was built.
+        RDG::TextureRef AddOidnPasses( RDG::Builder& graph, const AccumulationRefs& accumulation,
+                                       const uint32_t width, const uint32_t height )
+        {
+            const RDG::TextureRef result = AcquireOidnResult( graph, width, height );
+            if ( !m_Oidn.RunThisFrame )
+                return result;
+
+            constexpr RDG::Access kR = RDG::Access::StorageRead;
+            constexpr RDG::Access kW = RDG::Access::StorageWrite;
+            (void)m_Oidn.Input->Import( m_Oidn.InputImport );   // never fails: the buffers are bound
+            (void)m_Oidn.Output->Import( m_Oidn.OutputImport ); // (EnsureOidnShared made them this size)
+            const RDG::BufferRef input  = graph.RegisterExternal( m_Oidn.InputImport, "PathTracing.OidnInput" );
+            const RDG::BufferRef output = graph.RegisterExternal( m_Oidn.OutputImport, "PathTracing.OidnOutput" );
+
             graph.AddPass(
                  "PathTracing: OIDN Pack", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -1308,85 +1356,73 @@ namespace Desert::Graphic::System
                           .Storage( P::GuideAlbedoTexture, accumulation.GuideAlbedo, kR )
                           .Storage( P::GuideNormalTexture, accumulation.GuideNormal, kR )
                           .Storage( P::GuideSpecularTexture, accumulation.GuideSpecular, kR )
-                          .Storage( P::PathTracingOidnPackUB, pack, RDG::Access::StorageWrite );
+                          .Storage( P::PathTracingOidnPackUB, input, kW );
                  },
-                 [this, width, height,
-                  serial = request.Serial]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: OIDN Pack" );
-                     const Common::BoolResultStr dispatched =
-                          DispatchDenoise( context, m_DenoiseOidnPack, nullptr, width, height );
-                     // The request may have been dropped since this graph was built (a cut on the next build).
-                     if ( dispatched.IsSuccess() )
-                         for ( OidnRequest& inFlight : m_Oidn.Requests )
-                             if ( inFlight.Serial == serial )
-                                 inFlight.PackWritten = true;
-                     return dispatched;
+                     return DispatchDenoise( context, m_DenoiseOidnPack, nullptr, width, height );
                  } );
-            graph.Extract( pack, request.Readback, RDG::Access::HostRead );
-        }
 
-        // "PathTracing.OidnResult" in this graph: OIDN's image of the newest final estimate, uploaded on the frame
-        // it came back ("PathTracing: OIDN Upload") and kept for the frames after. @p raw: what is shown when the
-        // image is not there (logged; FilterOidn always leaves an upload before the first frame that reads it).
-        RDG::TextureRef AddOidnResult( RDG::Builder& graph, const RDG::TextureRef raw, const uint32_t width,
-                                       const uint32_t height )
-        {
-            const bool kept = m_Oidn.Result.Physical && m_Oidn.ResultWidth == width && m_Oidn.ResultHeight == height;
-            if ( !kept && m_Oidn.Upload.empty() )
-            {
-                LOG_ERROR( "[PathTracing] OIDN: the denoised image of the {}x{} sum is gone and no upload is "
-                           "pending; the view shows the raw accumulation",
-                           width, height );
-                Denoise::OidnDenoiser::NoteError( "the denoised image was lost before it was shown" );
-                m_Oidn.Phase = OidnPhase::Refused;
-                return raw;
-            }
-            RDG::TextureRef result;
-            if ( kept )
-                result = graph.RegisterExternal( m_Oidn.Result, "PathTracing.OidnResult" );
-            else
-            {
-                if ( m_Oidn.Result.Physical )
-                    m_RetiringAccumulation.Park(
-                         std::move( m_Oidn.Result ),
-                         ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
-                m_Oidn.Result = {};
-                const RDG::TextureDesc desc{ .Size   = { .Width = width, .Height = height },
-                                             .Format = ViewTargetFormats::kPathTracingDenoise };
-                result = graph.CreateTexture( desc, "PathTracing.OidnResult" );
-                graph.Extract( result, m_Oidn.Result, RDG::Access::SampledGraphics,
-                               { RDG::Access::CopyDst, RDG::Access::SampledGraphics } );
-                m_Oidn.ResultWidth  = width;
-                m_Oidn.ResultHeight = height;
-            }
-            if ( !m_Oidn.Upload.empty() )
-            {
-                const RDG::BufferRef staging = graph.CreateBuffer(
-                     RDG::BufferDesc{ m_Oidn.Upload.size() * sizeof( float ) }, "PathTracing.OidnResult.Texels" );
-                graph.QueueBufferUpload( staging, std::as_bytes( std::span<const float>( m_Oidn.Upload ) ) );
-                m_Oidn.Upload = {};
-                graph.AddPass(
-                     "PathTracing: OIDN Upload", RDG::PassFlags::Copy,
-                     [staging, result]( RDG::PassBuilder& pass )
+            const RDG::ExternalQueueSync sync = m_Oidn.Timeline->NextPair();
+            const OidnKey                key  = m_Oidn.ShownKey;
+            const uint64_t frame = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+            graph.AddPass(
+                 "PathTracing: OIDN", RDG::PassFlags::Copy,
+                 [input, output, sync]( RDG::PassBuilder& pass )
+                 {
+                     // OIDN reads and writes the shared memory as raw bytes: Copy accesses.
+                     pass.Read( input, RDG::Access::CopySrc );
+                     pass.Write( output, RDG::Access::CopyDst );
+                     pass.ExternalQueue( sync );
+                 },
+                 [this, sync, key, frame]( RDG::PassContext& ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS( "PathTracing: OIDN" );
+                     const auto            start    = std::chrono::steady_clock::now();
+                     Common::BoolResultStr enqueued = Common::MakeError( "OIDN: no denoiser is bound" );
+                     if ( m_Oidn.Denoiser )
+                         enqueued = m_Oidn.Denoiser->EnqueueShared( sync.Signal.Value, sync.Wait.Value );
+                     if ( !enqueued )
                      {
-                         pass.Read( staging, RDG::Access::CopySrc );
-                         pass.Write( result, RDG::Access::CopyDst );
-                     },
-                     [this, staging, result]( RDG::PassContext& context ) -> Common::BoolResultStr
-                     {
-                         DESERT_PROFILE_PASS( "PathTracing: OIDN Upload" );
-                         const Common::BoolResultStr copied =
-                              Renderer::CopyGraphBufferToTexture( context, staging, result );
-                         if ( !copied.IsSuccess() )
-                         {
-                             // The image is unwritten: the next frame shows the raw sum and says so.
-                             Denoise::OidnDenoiser::NoteError( "the upload of the denoised image failed" );
-                             m_Oidn.Phase = OidnPhase::Refused;
-                         }
-                         return copied;
-                     } );
-            }
+                         // The pass faults and the graph is abandoned: the recorder signals the odd value from the
+                         // host, the even one is never waited (the next pair is above it). The next frame shows
+                         // the raw sum and says why.
+                         LOG_ERROR(
+                              "[PathTracing] OIDN did not denoise the {}x{} image of {} paths per pixel: {}; "
+                              "the view shows the raw accumulation",
+                              key.Width, key.Height, key.Paths, enqueued.GetError() );
+                         Denoise::OidnDenoiser::NoteError( enqueued.GetError() );
+                         m_Oidn.Phase = OidnPhase::Refused;
+                         return enqueued;
+                     }
+                     const double ms =
+                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start )
+                               .count();
+                     Denoise::OidnDenoiser::NoteRun( key.Paths, key.Width, key.Height, ms );
+                     LOG_INFO(
+                          "[PathTracing] OIDN denoised the {}x{} image of {} paths per pixel (restart {}) on {} "
+                          "in frame {} (enqueued in {:.2f} ms, timeline {} -> {})",
+                          key.Width, key.Height, key.Paths, key.Restart, m_Oidn.Denoiser->GetDeviceName(), frame,
+                          ms, sync.Signal.Value, sync.Wait.Value );
+                     return enqueued;
+                 } );
+
+            graph.AddPass(
+                 "PathTracing: OIDN Unpack", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     using P = PathTracingOidnUnpackShaderParameters;
+                     pass.Bindings( m_DenoiseOidnUnpack.PassLayout.Get( m_DenoiseOidnUnpack.PassShader ),
+                                    Renderer::GetPipelineRouteFill( *m_DenoiseOidnUnpack.PassPipeline ) )
+                          .Storage( P::PathTracingOidnOutputUB, output, kR )
+                          .Storage( P::OidnResultTexture, result, kW );
+                 },
+                 [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS( "PathTracing: OIDN Unpack" );
+                     return DispatchDenoise( context, m_DenoiseOidnUnpack, nullptr, width, height );
+                 } );
             return result;
         }
 
@@ -1980,6 +2016,7 @@ namespace Desert::Graphic::System
         DenoiseProgram                      m_DenoiseFilter{ .Name = "Filter" };
         DenoiseProgram                      m_DenoiseRemodulate{ .Name = "Remodulate" };
         DenoiseProgram                      m_DenoiseOidnPack{ .Name = "OidnPack" };
+        DenoiseProgram                      m_DenoiseOidnUnpack{ .Name = "OidnUnpack" };
         std::shared_ptr<RayTracingPipeline> m_TracePipeline;
         std::vector<std::string>            m_PipelineTemplates;
         std::shared_ptr<ComputePipeline>    m_SkyPreparePipeline;

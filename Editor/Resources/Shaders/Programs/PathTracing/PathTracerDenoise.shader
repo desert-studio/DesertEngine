@@ -985,4 +985,33 @@ Shader "PathTracerDenoise"
             }
         }
     }
+
+    // PATH TRACING DENOISER OIDN, the way back (System::PathTracer::AddOidnPasses, "PathTracing: OIDN Unpack"): OIDN's
+    // image - tightly packed float3, row-major from the top row, written by OIDN into the buffer the path tracer
+    // shares with it - as PathTracing.OidnResult, (radiance, 1): the resolve's (mean, 1) form. Clamped at 0: OIDN's
+    // hdr output is a network's, and the resolve's exposure assumes radiance.
+    Pass "OidnUnpack"
+    {
+        Compute
+        {
+            LocalSize(8, 8, 1);
+
+            layout(std430, binding = 1) readonly buffer PathTracingOidnOutputUB
+            {
+                float oidnOutput[];
+            };
+            layout(binding = 2, rgba32f) writeonly uniform image2D OidnResultTexture;
+
+            void main()
+            {
+                const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+                const ivec2 size  = imageSize(OidnResultTexture);
+                if (pixel.x >= size.x || pixel.y >= size.y)
+                    return;
+                const uint base     = (uint(pixel.y) * uint(size.x) + uint(pixel.x)) * 3u;
+                const vec3 radiance = vec3(oidnOutput[base], oidnOutput[base + 1u], oidnOutput[base + 2u]);
+                imageStore(OidnResultTexture, pixel, vec4(max(radiance, vec3(0.0)), 1.0));
+            }
+        }
+    }
 }

@@ -124,17 +124,17 @@ namespace Desert::Editor::Control
         std::vector<std::string> NnCooperativeMatrixShapes; ///< FormatCooperativeMatrixShape, driver order
 
         /// PathTracing.Denoiser OIDN (Graphic::Denoise::OidnDenoiser::Status): the device OIDN filters on and why,
-        /// the last refusal, and the last successful run - so a scenario reads "GPU or CPU, and why" and the filter
-        /// time from the state, not from the log.
+        /// the last refusal, and the last successful run - so a scenario reads "which GPU, and why" (or the
+        /// refusal) and the enqueue time from the state, not from the log.
         bool        OidnCreated = false; ///< an OIDN device was made in this process
-        std::string OidnDevice;          ///< "CUDA: <name>" | "HIP: <name>" | "SYCL: <name>" | "Metal: <name>" | "CPU"
+        std::string OidnDevice; ///< "CUDA: <name>" | "HIP: <name>" | "SYCL: <name>" | "Metal: <name>" (a GPU only)
         std::string OidnReason;          ///< why that device
         std::string OidnError;           ///< the last refusal; empty when none since the last run
         uint64_t    OidnRuns             = 0;
         uint32_t    OidnLastPaths        = 0; ///< paths per pixel of the image the last run filtered
         uint32_t    OidnLastWidth        = 0;
         uint32_t    OidnLastHeight       = 0;
-        double      OidnLastMilliseconds = 0.0; ///< OIDN's Denoise call: its buffers written, filtered, read
+        double      OidnLastMilliseconds = 0.0; ///< host time of the last enqueue (GPU work not waited)
 
         // RAY TRACING (NO-RT): what the device offers and what the main viewport resolved to, so a scenario on a
         // card without RT (or with it hidden by machine.json) reads the fallback from one source.

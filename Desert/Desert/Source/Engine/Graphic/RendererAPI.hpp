@@ -13,6 +13,8 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <memory>
+#include <string>
+#include <string_view>
 
 namespace Desert::ShaderResources
 {
@@ -22,6 +24,8 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic
 {
     class VertexBuffer;
+    class SharedGpuBuffer;
+    class SharedGpuTimeline;
     namespace RDG
     {
         class Builder;
@@ -130,6 +134,25 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr ImportVertexBufferRange( const std::shared_ptr<VertexBuffer>& buffer,
                                                                uint64_t offset, uint64_t bytes,
                                                                RDG::ExternalBuffer& into ) = 0;
+
+        // GPU memory and order shared with another API on this GPU (SharedGpuMemory.hpp; the reader is the path
+        // tracer's OIDN). A device-local storage buffer of @p bytes and a timeline semaphore, both exportable by
+        // the handle type CapabilityCatalog::Sharing names. Refused by name when the catalog says
+        // GpuSharing::None. Not pure: a renderer API that shares nothing (the tests' fakes) refuses here.
+        [[nodiscard]] virtual Common::ResultStr<std::shared_ptr<SharedGpuBuffer>>
+        CreateSharedBuffer( std::string_view name, uint64_t /*bytes*/ )
+        {
+            return Common::MakeError<std::shared_ptr<SharedGpuBuffer>>( std::string( "CreateSharedBuffer(" ) +
+                                                                        std::string( name ) +
+                                                                        "): this renderer API shares no memory" );
+        }
+        [[nodiscard]] virtual Common::ResultStr<std::shared_ptr<SharedGpuTimeline>>
+        CreateSharedTimeline( std::string_view name )
+        {
+            return Common::MakeError<std::shared_ptr<SharedGpuTimeline>>(
+                 std::string( "CreateSharedTimeline(" ) + std::string( name ) +
+                 "): this renderer API shares no semaphore" );
+        }
 
         // Vertexless draw in the pipeline's topology (the vertex stage pulls from a storage buffer by index).
         // Code outside the renderer bound vertex / index buffers on the current command buffer (the ImGui

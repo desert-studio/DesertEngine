@@ -3,11 +3,11 @@
 #include <OpenImageDenoise/oidn.h>
 
 #include <algorithm>
-#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <format>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 #if defined( _WIN32 )
@@ -18,6 +18,7 @@
 #elif defined( __APPLE__ )
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
+#include <unistd.h>
 #endif
 
 namespace Desert::Graphic::Denoise
@@ -101,16 +102,23 @@ namespace Desert::Graphic::Denoise
         decltype( &oidnCommitDevice )            CommitDevice            = nullptr;
         decltype( &oidnReleaseDevice )           ReleaseDevice           = nullptr;
         decltype( &oidnGetDeviceError )          GetDeviceError          = nullptr;
-        decltype( &oidnNewBuffer )               NewBuffer               = nullptr;
-        decltype( &oidnWriteBuffer )             WriteBuffer             = nullptr;
-        decltype( &oidnReadBuffer )              ReadBuffer              = nullptr;
+        decltype( &oidnGetDeviceInt )                      GetDeviceInt                      = nullptr;
+        decltype( &oidnSyncDevice )                        SyncDevice                        = nullptr;
+        decltype( &oidnNewSharedBufferFromWin32Handle )    NewSharedBufferFromWin32Handle    = nullptr;
+        decltype( &oidnNewSharedBufferFromFD )             NewSharedBufferFromFD             = nullptr;
+        decltype( &oidnNewSharedBufferFromMetal )          NewSharedBufferFromMetal          = nullptr;
+        decltype( &oidnNewSharedSemaphoreFromWin32Handle ) NewSharedSemaphoreFromWin32Handle = nullptr;
+        decltype( &oidnNewSharedSemaphoreFromFD )          NewSharedSemaphoreFromFD          = nullptr;
+        decltype( &oidnWaitSemaphoresAsync )               WaitSemaphoresAsync               = nullptr;
+        decltype( &oidnSignalSemaphoresAsync )             SignalSemaphoresAsync             = nullptr;
+        decltype( &oidnReleaseSemaphore )                  ReleaseSemaphore                  = nullptr;
         decltype( &oidnReleaseBuffer )           ReleaseBuffer           = nullptr;
         decltype( &oidnNewFilter )               NewFilter               = nullptr;
         decltype( &oidnSetFilterImage )          SetFilterImage          = nullptr;
         decltype( &oidnSetFilterBool )           SetFilterBool           = nullptr;
         decltype( &oidnSetFilterInt )            SetFilterInt            = nullptr;
         decltype( &oidnCommitFilter )            CommitFilter            = nullptr;
-        decltype( &oidnExecuteFilter )           ExecuteFilter           = nullptr;
+        decltype( &oidnExecuteFilterAsync )                ExecuteFilterAsync                = nullptr;
         decltype( &oidnReleaseFilter )           ReleaseFilter           = nullptr;
 
         ~Library()
@@ -171,16 +179,23 @@ namespace Desert::Graphic::Denoise
             resolve( CommitDevice, "oidnCommitDevice" );
             resolve( ReleaseDevice, "oidnReleaseDevice" );
             resolve( GetDeviceError, "oidnGetDeviceError" );
-            resolve( NewBuffer, "oidnNewBuffer" );
-            resolve( WriteBuffer, "oidnWriteBuffer" );
-            resolve( ReadBuffer, "oidnReadBuffer" );
+            resolve( GetDeviceInt, "oidnGetDeviceInt" );
+            resolve( SyncDevice, "oidnSyncDevice" );
+            resolve( NewSharedBufferFromWin32Handle, "oidnNewSharedBufferFromWin32Handle" );
+            resolve( NewSharedBufferFromFD, "oidnNewSharedBufferFromFD" );
+            resolve( NewSharedBufferFromMetal, "oidnNewSharedBufferFromMetal" );
+            resolve( NewSharedSemaphoreFromWin32Handle, "oidnNewSharedSemaphoreFromWin32Handle" );
+            resolve( NewSharedSemaphoreFromFD, "oidnNewSharedSemaphoreFromFD" );
+            resolve( WaitSemaphoresAsync, "oidnWaitSemaphoresAsync" );
+            resolve( SignalSemaphoresAsync, "oidnSignalSemaphoresAsync" );
+            resolve( ReleaseSemaphore, "oidnReleaseSemaphore" );
             resolve( ReleaseBuffer, "oidnReleaseBuffer" );
             resolve( NewFilter, "oidnNewFilter" );
             resolve( SetFilterImage, "oidnSetFilterImage" );
             resolve( SetFilterBool, "oidnSetFilterBool" );
             resolve( SetFilterInt, "oidnSetFilterInt" );
             resolve( CommitFilter, "oidnCommitFilter" );
-            resolve( ExecuteFilter, "oidnExecuteFilter" );
+            resolve( ExecuteFilterAsync, "oidnExecuteFilterAsync" );
             resolve( ReleaseFilter, "oidnReleaseFilter" );
             if ( !missing.empty() )
                 return Common::MakeError( std::format(
@@ -202,19 +217,31 @@ namespace Desert::Graphic::Denoise
 
     OidnDenoiser::~OidnDenoiser()
     {
+        ReleaseShared();
         if ( m_Device && m_Library )
             m_Library->ReleaseDevice( static_cast<OIDNDevice>( m_Device ) );
     }
 
-    Common::ResultStr<OidnDenoiser*> OidnDenoiser::Acquire( const std::array<uint8_t, 16>& vulkanUuid )
+    Common::ResultStr<OidnDenoiser*> OidnDenoiser::Acquire( const std::array<uint8_t, 16>&        vulkanUuid,
+                                                            const Common::Scalability::GpuSharing sharing )
     {
+        using Common::Scalability::GpuSharing;
+        if ( sharing == GpuSharing::None )
+        {
+            const std::string error =
+                 "OIDN: CapabilityCatalog::Sharing is None - this device exports no memory or "
+                 "timeline semaphore to another API, and OIDN filters only shared GPU memory";
+            KeepError( error );
+            return Common::MakeError<OidnDenoiser*>( error );
+        }
         {
             const std::scoped_lock lock( g_Mutex );
-            if ( g_Instance && g_Instance->m_VulkanUuid == vulkanUuid )
+            if ( g_Instance && g_Instance->m_VulkanUuid == vulkanUuid && g_Instance->m_Sharing == sharing )
                 return Common::MakeSuccess( g_Instance.get() );
         }
         std::unique_ptr<OidnDenoiser> made( new OidnDenoiser() );
         made->m_VulkanUuid = vulkanUuid;
+        made->m_Sharing    = sharing;
         made->m_Library    = std::make_unique<Library>();
         if ( const Common::BoolResultStr loaded = made->m_Library->Load(); !loaded )
         {
@@ -223,7 +250,7 @@ namespace Desert::Graphic::Denoise
         }
         const Library& lib = *made->m_Library;
 
-        // THE DEVICE (header): OIDN's physical device carrying the Vulkan device's UUID, a GPU one; else the CPU.
+        // THE DEVICE (header): OIDN's physical device carrying the Vulkan device's UUID, a GPU one; else refused.
         const int   count = lib.GetNumPhysicalDevices();
         int         match = -1;
         std::string seen;
@@ -243,24 +270,20 @@ namespace Desert::Graphic::Denoise
                 break;
             }
         }
-        OIDNDevice device = nullptr;
-        if ( match >= 0 )
+        if ( match < 0 )
         {
-            device = lib.NewDeviceByID( match );
-            made->m_DeviceName =
-                 std::format( "{}: {}", DeviceTypeName( lib.GetPhysicalDeviceInt( match, "type" ) ),
-                              lib.GetPhysicalDeviceString( match, "name" ) );
-            made->m_DeviceReason = std::format( "OIDN physical device {} has the Vulkan device's UUID {}", match,
-                                                FormatUuid( vulkanUuid ) );
+            const std::string error = std::format(
+                 "OIDN: no OIDN GPU module offers the Vulkan device (UUID {}); OIDN's physical devices: "
+                 "{}",
+                 FormatUuid( vulkanUuid ), seen.empty() ? "none" : seen );
+            KeepError( error );
+            return Common::MakeError<OidnDenoiser*>( error );
         }
-        else
-        {
-            device             = lib.NewDevice( OIDN_DEVICE_TYPE_CPU );
-            made->m_DeviceName = "CPU";
-            made->m_DeviceReason =
-                 std::format( "no OIDN GPU module offers the Vulkan device (UUID {}); OIDN's physical devices: {}",
-                              FormatUuid( vulkanUuid ), seen.empty() ? "none" : seen );
-        }
+        OIDNDevice device    = lib.NewDeviceByID( match );
+        made->m_DeviceName   = std::format( "{}: {}", DeviceTypeName( lib.GetPhysicalDeviceInt( match, "type" ) ),
+                                            lib.GetPhysicalDeviceString( match, "name" ) );
+        made->m_DeviceReason = std::format( "OIDN physical device {} has the Vulkan device's UUID {}", match,
+                                            FormatUuid( vulkanUuid ) );
         if ( !device )
         {
             const std::string error = std::format( "OIDN: could not create the {} device: {}", made->m_DeviceName,
@@ -275,6 +298,29 @@ namespace Desert::Graphic::Denoise
             error = std::format( "OIDN: committing the {} device failed: {}", made->m_DeviceName, error );
             KeepError( error );
             return Common::MakeError<OidnDenoiser*>( error );
+        }
+        // The handle types the renderer exports (header: THE DEVICE). Metal shares MTLBuffers and the queue, not
+        // handles: nothing to ask.
+        if ( sharing != GpuSharing::Metal )
+        {
+            const int  memoryTypes    = lib.GetDeviceInt( device, "externalMemoryTypes" );
+            const int  semaphoreTypes = lib.GetDeviceInt( device, "externalSemaphoreTypes" );
+            const bool win32          = sharing == GpuSharing::Win32;
+            const int  memoryNeeded =
+                 win32 ? OIDN_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_WIN32 : OIDN_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_FD;
+            const int semaphoreNeeded = win32 ? OIDN_EXTERNAL_SEMAPHORE_TYPE_FLAG_TIMELINE_SEMAPHORE_WIN32
+                                              : OIDN_EXTERNAL_SEMAPHORE_TYPE_FLAG_TIMELINE_SEMAPHORE_FD;
+            if ( ( memoryTypes & memoryNeeded ) == 0 || ( semaphoreTypes & semaphoreNeeded ) == 0 )
+            {
+                lib.ReleaseDevice( device );
+                const std::string error = std::format(
+                     "OIDN: the {} device imports external memory types 0x{:x} and semaphore types 0x{:x}; the "
+                     "renderer exports {} (memory 0x{:x}, timeline 0x{:x})",
+                     made->m_DeviceName, memoryTypes, semaphoreTypes, win32 ? "Win32" : "Fd", memoryNeeded,
+                     semaphoreNeeded );
+                KeepError( error );
+                return Common::MakeError<OidnDenoiser*>( error );
+            }
         }
         made->m_Device = device;
         LOG_INFO( "[OIDN] Open Image Denoise {} device {} ({})", OIDN_VERSION_STRING, made->m_DeviceName,
@@ -312,107 +358,172 @@ namespace Desert::Graphic::Denoise
         KeepError( error );
     }
 
-    Common::ResultStr<ImageDenoiseReport> OidnDenoiser::Denoise( const ImageDenoiseInputs& inputs,
-                                                                 const ImageDenoiseQuality quality,
-                                                                 const std::span<float>    output )
+    void OidnDenoiser::ReleaseShared()
     {
-        const auto   start  = std::chrono::steady_clock::now();
-        const size_t pixels = static_cast<size_t>( inputs.Width ) * inputs.Height;
-        const size_t floats = pixels * 3u;
-        if ( pixels == 0u || inputs.Color.size() != floats || output.size() != floats ||
-             ( !inputs.Albedo.empty() && inputs.Albedo.size() != floats ) ||
-             ( !inputs.Normal.empty() && inputs.Normal.size() != floats ) )
-            return Common::MakeError<ImageDenoiseReport>( std::format(
-                 "OIDN: {}x{} needs {} floats per image; got colour {}, albedo {}, normal {}, output {}",
-                 inputs.Width, inputs.Height, floats, inputs.Color.size(), inputs.Albedo.size(),
-                 inputs.Normal.size(), output.size() ) );
-        if ( !inputs.Normal.empty() && inputs.Albedo.empty() )
-            return Common::MakeError<ImageDenoiseReport>( "OIDN: a normal guide needs the albedo guide as well (OIDN's RT filter)" );
-
+        if ( !m_Library || !m_Device )
+            return;
         const Library&   lib    = *m_Library;
         const OIDNDevice device = static_cast<OIDNDevice>( m_Device );
-        const size_t     bytes  = floats * sizeof( float );
-        const int oidnQuality   = quality == ImageDenoiseQuality::High ? OIDN_QUALITY_HIGH : OIDN_QUALITY_BALANCED;
+        // OIDN's stream may still run an enqueued filter on these buffers: it finishes before they go.
+        if ( !m_Filters.empty() || !m_Buffers.empty() || m_Semaphore )
+            lib.SyncDevice( device );
+        for ( void* filter : m_Filters )
+            lib.ReleaseFilter( static_cast<OIDNFilter>( filter ) );
+        for ( void* buffer : m_Buffers )
+            lib.ReleaseBuffer( static_cast<OIDNBuffer>( buffer ) );
+        if ( m_Semaphore )
+            lib.ReleaseSemaphore( static_cast<OIDNSemaphore>( m_Semaphore ) );
+        m_Filters.clear();
+        m_Buffers.clear();
+        m_Semaphore = nullptr;
+        (void)lib.TakeError( device );
+    }
 
-        // The device's own buffers: on a GPU device host memory is not addressable by the filter.
-        OIDNBuffer              color  = lib.NewBuffer( device, bytes );
-        OIDNBuffer              albedo = inputs.Albedo.empty() ? nullptr : lib.NewBuffer( device, bytes );
-        OIDNBuffer              normal = inputs.Normal.empty() ? nullptr : lib.NewBuffer( device, bytes );
-        OIDNBuffer              result = lib.NewBuffer( device, bytes );
-        std::vector<OIDNFilter> filters;
-        auto                    release = [&]()
+    Common::BoolResultStr OidnDenoiser::BindShared( const SharedDenoiseImages& images,
+                                                    const ImageDenoiseQuality  quality )
+    {
+        using Common::Scalability::GpuSharing;
+        ReleaseShared();
+        const Library&   lib    = *m_Library;
+        const OIDNDevice device = static_cast<OIDNDevice>( m_Device );
+        const uint64_t   bytes  = static_cast<uint64_t>( images.Width ) * images.Height * 3u * sizeof( float );
+        auto             fail   = [&]( const std::string& error ) -> Common::BoolResultStr
         {
-            for ( OIDNFilter filter : filters )
-                lib.ReleaseFilter( filter );
-            for ( OIDNBuffer buffer : { color, albedo, normal, result } )
-                if ( buffer )
-                    lib.ReleaseBuffer( buffer );
+            ReleaseShared();
+            return Common::MakeError( std::format( "OIDN ({}): {}", m_DeviceName, error ) );
         };
-        auto refuse = [&]( const char* stage ) -> std::string
-        {
-            const std::string error = lib.TakeError( device );
-            return error.empty() ? std::string{} : std::format( "OIDN {} ({}): {}", stage, m_DeviceName, error );
-        };
-        if ( std::string error = refuse( "buffers" ); !error.empty() || !color || !result )
-        {
-            release();
-            return Common::MakeError<ImageDenoiseReport>( error.empty() ? "OIDN: buffer allocation failed" : error );
-        }
-        lib.WriteBuffer( color, 0, bytes, inputs.Color.data() );
-        if ( albedo )
-            lib.WriteBuffer( albedo, 0, bytes, inputs.Albedo.data() );
-        if ( normal )
-            lib.WriteBuffer( normal, 0, bytes, inputs.Normal.data() );
+        if ( bytes == 0u )
+            return fail( "a zero-sized image" );
+        for ( const SharedDenoiseImage* image : { &images.Color, &images.Albedo, &images.Normal, &images.Output } )
+            if ( image->Buffer >= images.Buffers.size() ||
+                 image->ByteOffset + bytes > images.Buffers[image->Buffer].Bytes )
+                return fail( std::format( "an image of {}x{} float3 at byte {} lies outside its shared buffer",
+                                          images.Width, images.Height, image->ByteOffset ) );
 
-        auto image = [&]( OIDNFilter filter, const char* name, OIDNBuffer buffer )
-        { lib.SetFilterImage( filter, name, buffer, OIDN_FORMAT_FLOAT3, inputs.Width, inputs.Height, 0, 0, 0 ); };
-
-        // The guides' own pass (header: THE FILTER): each denoised in place by an RT filter of its own.
-        for ( auto [name, buffer] : { std::pair{ "albedo", albedo }, std::pair{ "normal", normal } } )
+        // The buffers (header: THE MEMORY).
+        for ( const SharedDenoiseBuffer& shared : images.Buffers )
         {
+            const SharedHandle& handle = shared.Handle;
+            if ( handle.Kind != m_Sharing )
+                return fail( "a shared buffer of another handle type than the device was made for" );
+            const int  dedicated = handle.Dedicated ? OIDN_EXTERNAL_MEMORY_TYPE_FLAG_DEDICATED : 0;
+            OIDNBuffer buffer    = nullptr;
+            switch ( handle.Kind )
+            {
+                case GpuSharing::Win32:
+                    buffer = lib.NewSharedBufferFromWin32Handle(
+                         device, OIDN_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_WIN32 | dedicated, handle.Win32, nullptr,
+                         static_cast<size_t>( handle.AllocationBytes ) );
+                    break;
+                case GpuSharing::Fd:
+                    buffer =
+                         lib.NewSharedBufferFromFD( device, OIDN_EXTERNAL_MEMORY_TYPE_FLAG_OPAQUE_FD | dedicated,
+                                                    handle.Fd, static_cast<size_t>( handle.AllocationBytes ) );
+#if !defined( _WIN32 )
+                    if ( !buffer && handle.Fd >= 0 )
+                        ::close( handle.Fd ); // FromFD takes the descriptor only on success
+#endif
+                    break;
+                case GpuSharing::Metal:
+                    buffer = lib.NewSharedBufferFromMetal( device, static_cast<MTLBuffer_id>( handle.Metal ) );
+                    break;
+                case GpuSharing::None:
+                    break;
+            }
             if ( !buffer )
-                continue;
+            {
+                const std::string error = lib.TakeError( device );
+                return fail( std::format( "importing a shared buffer of {} bytes failed: {}",
+                                          handle.AllocationBytes, error.empty() ? "no buffer" : error ) );
+            }
+            m_Buffers.push_back( buffer );
+        }
+
+        // The timeline (none on Metal: one queue).
+        if ( images.Timeline.Kind != GpuSharing::None )
+        {
+            if ( images.Timeline.Kind != m_Sharing )
+                return fail( "a timeline of another handle type than the device was made for" );
+            OIDNSemaphore semaphore = nullptr;
+            if ( images.Timeline.Kind == GpuSharing::Win32 )
+                semaphore = lib.NewSharedSemaphoreFromWin32Handle(
+                     device, OIDN_EXTERNAL_SEMAPHORE_TYPE_FLAG_TIMELINE_SEMAPHORE_WIN32, images.Timeline.Win32,
+                     nullptr );
+            else if ( images.Timeline.Kind == GpuSharing::Fd )
+            {
+                semaphore = lib.NewSharedSemaphoreFromFD(
+                     device, OIDN_EXTERNAL_SEMAPHORE_TYPE_FLAG_TIMELINE_SEMAPHORE_FD, images.Timeline.Fd );
+#if !defined( _WIN32 )
+                if ( !semaphore && images.Timeline.Fd >= 0 )
+                    ::close( images.Timeline.Fd );
+#endif
+            }
+            if ( !semaphore )
+            {
+                const std::string error = lib.TakeError( device );
+                return fail( std::format( "importing the shared timeline failed: {}",
+                                          error.empty() ? "no semaphore" : error ) );
+            }
+            m_Semaphore = semaphore;
+        }
+        else if ( m_Sharing != GpuSharing::Metal )
+            return fail( "no shared timeline: the renderer's queue and OIDN's would be unordered" );
+
+        // THE FILTER (header): the guides' prefilters in place, then the beauty with cleanAux.
+        const int  oidnQuality = quality == ImageDenoiseQuality::High ? OIDN_QUALITY_HIGH : OIDN_QUALITY_BALANCED;
+        const auto image       = [&]( OIDNFilter filter, const char* name, const SharedDenoiseImage& at )
+        {
+            lib.SetFilterImage( filter, name, static_cast<OIDNBuffer>( m_Buffers[at.Buffer] ), OIDN_FORMAT_FLOAT3,
+                                images.Width, images.Height, static_cast<size_t>( at.ByteOffset ), 0, 0 );
+        };
+        const std::pair<const char*, SharedDenoiseImage> guides[] = { { "albedo", images.Albedo },
+                                                                      { "normal", images.Normal } };
+        for ( const auto& [name, at] : guides )
+        {
             OIDNFilter prefilter = lib.NewFilter( device, "RT" );
-            filters.push_back( prefilter );
-            image( prefilter, name, buffer );
-            image( prefilter, "output", buffer );
+            if ( !prefilter )
+                return fail( std::format( "the {} prefilter: {}", name, lib.TakeError( device ) ) );
+            m_Filters.push_back( prefilter );
+            image( prefilter, name, at );
+            image( prefilter, "output", at );
             lib.SetFilterInt( prefilter, "quality", oidnQuality );
             lib.CommitFilter( prefilter );
-            lib.ExecuteFilter( prefilter );
-            if ( std::string error = refuse( name ); !error.empty() )
-            {
-                release();
-                return Common::MakeError<ImageDenoiseReport>( error );
-            }
+            if ( std::string error = lib.TakeError( device ); !error.empty() )
+                return fail( std::format( "the {} prefilter: {}", name, error ) );
         }
-
         OIDNFilter beauty = lib.NewFilter( device, "RT" );
-        filters.push_back( beauty );
-        image( beauty, "color", color );
-        if ( albedo )
-            image( beauty, "albedo", albedo );
-        if ( normal )
-            image( beauty, "normal", normal );
-        image( beauty, "output", result );
+        if ( !beauty )
+            return fail( std::format( "the beauty filter: {}", lib.TakeError( device ) ) );
+        m_Filters.push_back( beauty );
+        image( beauty, "color", images.Color );
+        image( beauty, "albedo", images.Albedo );
+        image( beauty, "normal", images.Normal );
+        image( beauty, "output", images.Output );
         lib.SetFilterBool( beauty, "hdr", true );
-        lib.SetFilterBool( beauty, "cleanAux", albedo != nullptr );
+        lib.SetFilterBool( beauty, "cleanAux", true );
         lib.SetFilterInt( beauty, "quality", oidnQuality );
         lib.CommitFilter( beauty );
-        lib.ExecuteFilter( beauty );
-        if ( std::string error = refuse( "filter" ); !error.empty() )
-        {
-            release();
-            return Common::MakeError<ImageDenoiseReport>( error );
-        }
-        lib.ReadBuffer( result, 0, bytes, output.data() );
-        if ( std::string error = refuse( "read-back" ); !error.empty() )
-        {
-            release();
-            return Common::MakeError<ImageDenoiseReport>( error );
-        }
-        release();
-        const double ms =
-             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start ).count();
-        return Common::MakeSuccess( ImageDenoiseReport{ .Milliseconds = ms } );
+        if ( std::string error = lib.TakeError( device ); !error.empty() )
+            return fail( std::format( "the beauty filter: {}", error ) );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr OidnDenoiser::EnqueueShared( const uint64_t waitValue, const uint64_t signalValue )
+    {
+        if ( m_Filters.empty() )
+            return Common::MakeError( std::format( "OIDN ({}): EnqueueShared before BindShared", m_DeviceName ) );
+        const Library&   lib       = *m_Library;
+        const OIDNDevice device    = static_cast<OIDNDevice>( m_Device );
+        OIDNSemaphore    semaphore = static_cast<OIDNSemaphore>( m_Semaphore );
+        if ( semaphore )
+            lib.WaitSemaphoresAsync( device, &semaphore, &waitValue, nullptr, 1 );
+        for ( void* filter : m_Filters )
+            lib.ExecuteFilterAsync( static_cast<OIDNFilter>( filter ) );
+        if ( semaphore )
+            lib.SignalSemaphoresAsync( device, &semaphore, &signalValue, 1 );
+        if ( std::string error = lib.TakeError( device ); !error.empty() )
+            return Common::MakeError(
+                 std::format( "OIDN ({}): enqueueing the denoise failed: {}", m_DeviceName, error ) );
+        return Common::MakeSuccess( true );
     }
 } // namespace Desert::Graphic::Denoise
