@@ -16,6 +16,7 @@
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <format>
 #include <utility>
 
@@ -194,6 +195,15 @@ namespace Desert::Graphic::System
             still.push_back( { .Signature = signature, .Min = box.Min, .Max = box.Max } );
         };
 
+        // A caster's rastered set enters its signature only when the raster draws some of it: "no raster" and
+        // "raster, none of its submeshes" both mean the walk draws it whole, so they hash alike and a non-VG
+        // caster's signature never moves with the carriers: a refusal / recovery redraws the moved casters' pages
+        const auto addRasteredSet = []( SignatureHash& hash, const std::vector<uint64_t>& words )
+        {
+            if ( std::any_of( words.begin(), words.end(), []( const uint64_t word ) { return word != 0u; } ) )
+                for ( const uint64_t word : words )
+                    hash.Add( word );
+        };
         for ( const auto& rd : m_StaticQueue )
         {
             if ( rd.Mesh == nullptr || !rd.CastShadows )
@@ -211,18 +221,17 @@ namespace Desert::Graphic::System
             hash.Add( rd.SectionSlot );
             hash.Add( shading.Surface );
             hash.Add( shading.Instance );
-            // Its clustered set (ClusterableSubmeshes): the clusters' depth is the cut's, the walk's the mesh
-            // LOD's, so a submesh moving between them redraws its pages. The set is this frame's clusterable
-            // submeshes under LAST frame's issue (this frame's cut is made after the pages, from their dirty
-            // mask): a twin's pipeline or a DAG upload redraws in the frame it lands, a refused or returning cut
-            // one frame later.
-            hash.Add( m_VsmClusteredLastFrame );
-            if ( m_VsmClusteredLastFrame )
+            // Its rastered set (VsmRasteredSubmeshes, the levels' walk rule): the clusters' depth is the cut's,
+            // the walk's the mesh LOD's, so a submesh moving between them redraws its pages. The set is this
+            // frame's clusterable submeshes under LAST frame's carrier outcome (this frame's cut and carriers are
+            // made after the pages, from their dirty mask): a refused or returning cut or carrier redraws exactly
+            // the pages of the casters it moved, one frame later (UE: a primitive's invalidation is applied to the
+            // next frame's cache).
+            if ( !m_VsmCarriedTwinsLastFrame.empty() )
             {
-                ClusterableSubmeshes( GpuDriven::MeshPass::VirtualShadow, rd.Mesh, rd.GpuPrimitive,
-                                      rd.HiddenSubmeshes, m_ClusterWalkScratch );
-                for ( const uint64_t word : m_ClusterWalkScratch )
-                    hash.Add( word );
+                VsmRasteredSubmeshes( rd.Mesh, rd.GpuPrimitive, rd.HiddenSubmeshes, m_VsmCarriedTwinsLastFrame,
+                                      m_ClusterWalkScratch );
+                addRasteredSet( hash, m_ClusterWalkScratch );
             }
             addStill( hash.Value,
                       [&rd] {
@@ -270,15 +279,12 @@ namespace Desert::Graphic::System
             hash.Add( ism.HiddenSubmeshes );
             // Its clustered set, as a static entry's (above): a submesh moving between the VSM cluster raster and
             // the levels' CPU walk redraws the field's pages.
-            hash.Add( m_VsmClusteredLastFrame );
             if ( const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
-                 m_VsmClusteredLastFrame && field < m_FieldPrimitives.size() )
+                 !m_VsmCarriedTwinsLastFrame.empty() && field < m_FieldPrimitives.size() )
             {
-                ClusterableSubmeshes( GpuDriven::MeshPass::VirtualShadow,
-                                      dynamic_cast<const Desert::StaticMesh*>( ism.Mesh ),
-                                      m_FieldPrimitives[field], ism.HiddenSubmeshes, m_ClusterWalkScratch );
-                for ( const uint64_t word : m_ClusterWalkScratch )
-                    hash.Add( word );
+                VsmRasteredSubmeshes( dynamic_cast<const Desert::StaticMesh*>( ism.Mesh ), m_FieldPrimitives[field],
+                                      ism.HiddenSubmeshes, m_VsmCarriedTwinsLastFrame, m_ClusterWalkScratch );
+                addRasteredSet( hash, m_ClusterWalkScratch );
             }
             addStill( hash.Value, [&ism, &local] { return InstancesBox( *ism.Transforms, local, ism.Wind ); } );
             snapshots.push_back( ism.Transforms );
@@ -434,6 +440,27 @@ namespace Desert::Graphic::System
         }
     }
 
+    void MeshRenderer::VsmRasteredSubmeshes( const Desert::StaticMesh* mesh, const GpuDriven::PrimitiveIndex primitive,
+                                             const uint64_t                                 hidden,
+                                             const std::span<const GraphicsPipeline* const> carriedTwins,
+                                             std::vector<uint64_t>&                         words ) const
+    {
+        constexpr GpuDriven::MeshPass kPass = GpuDriven::MeshPass::VirtualShadow;
+        ClusterableSubmeshes( kPass, mesh, primitive, hidden, words );
+        for ( std::size_t word = 0; word < words.size(); ++word )
+        {
+            for ( uint64_t bits = words[word]; bits != 0u; bits &= bits - 1u )
+            {
+                const auto submesh = static_cast<uint32_t>( word * 64u + std::countr_zero( bits ) );
+                // Set by ClusterableSubmeshes only for a group with a twin: carried or not is the whole question.
+                const GraphicsPipeline* twin =
+                     m_DrawCommandCache->SubmeshVirtualGeometryPipeline( kPass, primitive, submesh );
+                if ( !std::binary_search( carriedTwins.begin(), carriedTwins.end(), twin ) )
+                    words[word] &= ~( uint64_t{ 1 } << ( submesh % 64u ) );
+            }
+        }
+    }
+
     std::optional<SubmeshMask> MeshRenderer::CpuWalkHidden( const ClusterWalkView&           view,
                                                             const Desert::Mesh*             mesh,
                                                             const GpuDriven::PrimitiveIndex primitive,
@@ -447,24 +474,12 @@ namespace Desert::Graphic::System
             // A VSM level issues no bins: without its raster the walk draws the record whole.
             if ( view.RasterCarriers == nullptr || !m_DrawCommandCache )
                 return SubmeshMask{ hidden };
-            ClusterableSubmeshes( GpuDriven::MeshPass::VirtualShadow, dynamic_cast<const Desert::StaticMesh*>( mesh ),
-                                  primitive, hidden, words );
+            // The main view's rule: hidden is only what the raster DRAWS - a group whose carrier was refused
+            // (AddVirtualShadowRasterPasses) is walked. The same rule the page cache's signature keys on.
+            VsmRasteredSubmeshes( dynamic_cast<const Desert::StaticMesh*>( mesh ), primitive, hidden,
+                                  m_VsmCarriedTwins, words );
             if ( words.empty() )
                 return SubmeshMask{ hidden }; // not a VG primitive
-            // The main view's rule: hidden is only what the raster DRAWS - a group whose carrier was refused
-            // (AddVirtualShadowRasterPasses) is walked.
-            for ( std::size_t submesh = 0; submesh < submeshes; ++submesh )
-            {
-                const std::size_t word = submesh / 64u;
-                const uint64_t    bit  = uint64_t{ 1 } << ( submesh % 64u );
-                if ( word >= words.size() || ( words[word] & bit ) == 0u )
-                    continue;
-                const std::optional<uint32_t> group =
-                     m_DrawCommandCache->SubmeshGroup( view.Pass, primitive, static_cast<uint32_t>( submesh ) );
-                if ( !group || *group >= view.RasterCarriers->size() ||
-                     ( *view.RasterCarriers )[*group] == nullptr )
-                    words[word] &= ~bit;
-            }
         }
         else
         {
@@ -520,7 +535,12 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::ResetVirtualShadowGeometry()
     {
-        m_VsmClusteredLastFrame = std::exchange( m_VsmClusteredThisFrame, false );
+        // Only a recorded raster's carrier outcome is what last frame's pages hold (CollectVirtualShadowInvalidation).
+        if ( std::exchange( m_VsmClusteredThisFrame, false ) )
+            m_VsmCarriedTwinsLastFrame = std::move( m_VsmCarriedTwins );
+        else
+            m_VsmCarriedTwinsLastFrame.clear();
+        m_VsmCarriedTwins.clear();
         m_VsmGeometry.reset();
         m_VsmRefusedGroups     = 0;
         m_VsmFallbackSubmeshes = 0;
@@ -664,6 +684,19 @@ namespace Desert::Graphic::System
                 m_VsmGeometryDraws.Clear();
                 m_VsmGeometry.reset();
             }
+        }
+        // The carrier outcome the levels' walks and next frame's page signatures read (VsmRasteredSubmeshes): the
+        // twins carried under an accepted list; a refused list (m_VsmGeometry dropped above) carries none.
+        m_VsmCarriedTwins.clear();
+        if ( m_VsmGeometry )
+        {
+            const MeshRendererDetail::VirtualGeometryIssue& vg = *m_VsmGeometry->VirtualGeometry;
+            for ( size_t group = 0; group < vg.GroupCarriers.size(); ++group )
+                if ( vg.GroupCarriers[group] != nullptr )
+                    m_VsmCarriedTwins.push_back( m_VsmGeometry->Table->Groups[group].VirtualGeometryPipeline );
+            std::sort( m_VsmCarriedTwins.begin(), m_VsmCarriedTwins.end() );
+            m_VsmCarriedTwins.erase( std::unique( m_VsmCarriedTwins.begin(), m_VsmCarriedTwins.end() ),
+                                     m_VsmCarriedTwins.end() );
         }
 
         for ( uint32_t level = 0; level < kVsmClipmapLevelCount; ++level )

@@ -654,6 +654,15 @@ namespace Desert::Graphic::System
         void ClusterableSubmeshes( GpuDriven::MeshPass pass, const Desert::StaticMesh* mesh,
                                    GpuDriven::PrimitiveIndex primitive, uint64_t hidden,
                                    std::vector<uint64_t>& words ) const;
+        // THE VSM RASTER RULE, shared by the levels' CPU walk (CpuWalkHidden, this frame's carriers) and the page
+        // cache's signature (CollectVirtualShadowInvalidation, last frame's): ClusterableSubmeshes(VirtualShadow)
+        // with every submesh whose group's `.VirtualGeometry` twin is NOT in @p carriedTwins cleared - only what the
+        // cluster raster really draws. @p carriedTwins: sorted twins whose carrier AddVirtualShadowRasterPasses
+        // made under an accepted draw list (m_VsmCarriedTwins). Keyed by the twin, not the group index: a group
+        // table rebuilt between two frames keeps the meaning (a carrier depends only on the twin's shader).
+        void VsmRasteredSubmeshes( const Desert::StaticMesh* mesh, GpuDriven::PrimitiveIndex primitive,
+                                   uint64_t hidden, std::span<const GraphicsPipeline* const> carriedTwins,
+                                   std::vector<uint64_t>& words ) const;
         // VsmFallbackSubmeshes of this frame: the static and ISM queues' VG submeshes binned into a group flagged in
         // @p fallbackGroups (index = VirtualShadow table group). Called by SetVirtualShadowGeometry.
         [[nodiscard]] uint32_t CountVsmFallbackSubmeshes( const std::vector<uint8_t>& fallbackGroups ) const;
@@ -1757,13 +1766,16 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList               m_VsmGeometryDraws;
         uint32_t                                       m_VsmRefusedGroups     = 0;
         uint32_t                                       m_VsmFallbackSubmeshes = 0;
-        // Whether this frame / the last frame recorded the levels' cluster raster ("VSM: Raster VirtualGeometry",
-        // AddVirtualShadowRasterPasses; ResetVirtualShadowGeometry shifts this into last): the page cache's signature
-        // of a VG caster includes its clustered set under the last frame's raster, so a submesh moving between the
-        // clusters and the CPU walk (a twin's pipeline arrives, DAG rows upload, the cut is refused or comes back)
-        // re-renders its pages.
-        bool m_VsmClusteredThisFrame = false;
-        bool m_VsmClusteredLastFrame = false;
+        // THE CARRIER OUTCOME of the levels' cluster raster (VsmRasteredSubmeshes): the sorted `.VirtualGeometry`
+        // twins whose carrier AddVirtualShadowRasterPasses made this frame under an accepted draw list (empty: no
+        // raster, a refused cut / list, every carrier refused), and whether "VSM: Raster VirtualGeometry" was
+        // recorded. ResetVirtualShadowGeometry shifts a recorded frame's set into last frame's (an unrecorded one
+        // leaves it empty): the page cache's signature of a VG caster holds its rastered set under it, so a submesh
+        // moving between the clusters and the CPU walk (a twin's pipeline arrives, DAG rows upload, the cut or a
+        // carrier is refused or comes back) re-renders exactly its pages.
+        std::vector<const GraphicsPipeline*> m_VsmCarriedTwins;
+        std::vector<const GraphicsPipeline*> m_VsmCarriedTwinsLastFrame;
+        bool                                 m_VsmClusteredThisFrame = false;
         // CpuWalkHidden's interned words past submesh 63 (a std::set: its elements never move, so the views
         // the cascades' and levels' draws hold stay valid until ResetVirtualShadowGeometry), and its scratch.
         std::set<std::vector<uint64_t>> m_ClusterWalkWords;
