@@ -387,8 +387,9 @@ namespace Desert::Graphic
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderForwardDepthNormalManual( context ); },
              [meshRenderer, rayTracedSun = SunShadowIsScreenMask(),
-              localShadowMasks = LocalShadowsAreScreenMask()]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun, localShadowMasks ); } );
+              localShadowMasks = LocalShadowsAreScreenMask(),
+              virtualLocal     = LocalShadowsAreVirtual()]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun, localShadowMasks, virtualLocal ); } );
     }
 
     void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,

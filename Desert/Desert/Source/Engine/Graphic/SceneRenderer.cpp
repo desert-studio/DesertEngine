@@ -1881,6 +1881,8 @@ namespace Desert::Graphic
             // Under HardwareTraced the deferred composite reads "Shadows: Ray Traced Local" (ShadowMaskSlot), and
             // the maps are drawn only while a queued forward draw in view samples them
             // (LocalShadowMapsRead: meshes, forward terrain, particles) - no forward surface loses its shadows.
+            // Under VirtualMaps no atlas is drawn: every reader (the forward and translucent cells, the forward
+            // terrain, the composite, the surface cache) reads DESERT_LOCAL_SHADOW_VSM (ForwardShadowMaskVariant).
             {
                 DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
                 System::MeshRenderer* const localShadowMeshes =
@@ -1888,7 +1890,8 @@ namespace Desert::Graphic
                 localShadowMeshes->UpdateLocalShadows(
                      m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights, m_SpotLightShadows,
                      !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) &&
-                          ( !LocalShadowsAreScreenMask() || LocalShadowMapsRead() ) );
+                          ( !LocalShadowsAreScreenMask() ||
+                            ( LocalShadowsAreRayTraced() && LocalShadowMapsRead() ) ) );
                 // The terrain's draws into those views, at the LOD each light asks for (not the camera's, so a
                 // cached local shadow survives a camera move), and its cache key, before LocalShadowPasses asks
                 // for it (PlanLocalShadowCache). Before this ran, GetLocalShadowCasterLights was empty and every

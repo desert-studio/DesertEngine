@@ -642,6 +642,11 @@ namespace Desert::Graphic
             return m_RenderPath;
         }
 
+        // This frame's point/spot shadows are the virtual shadow map's (Shadows resolved to VirtualMaps, not path
+        // traced): "VSM: Project Local" per slot, read by the same RayTracedLocal programs, and every forward
+        // reader (the mesh cells, the forward terrain) reads the virtual map in place of the atlas.
+        [[nodiscard]] bool LocalShadowsAreVirtual() const;
+
         // Shared GraphicsPipeline cache (keyed by shader + target + render-state). Renderers request
         // pipelines from here instead of creating their own; cleared on Init (full rebuild).
         PipelineCache& GetPipelineCache()
@@ -1001,9 +1006,6 @@ namespace Desert::Graphic
         // This frame's point/spot shadows are ray traced (Shadows resolved to HardwareTraced, not path traced):
         // "Shadows: Ray Traced Local" per slot, read by the composite's RayTracedLocal program.
         [[nodiscard]] bool LocalShadowsAreRayTraced() const;
-        // This frame's point/spot shadows are the virtual shadow map's (Shadows resolved to VirtualMaps, not path
-        // traced): "VSM: Project Local" per slot, read by the same RayTracedLocal programs.
-        [[nodiscard]] bool LocalShadowsAreVirtual() const;
         // THE ONE ANSWER TO "do the point/spot lights read a screen mask per ShadowMaskSlot this frame" (traced or
         // virtual): the slots, the composite's and the opaque programs' mask permutations, the atlas gate ask it.
         [[nodiscard]] bool LocalShadowsAreScreenMask() const;

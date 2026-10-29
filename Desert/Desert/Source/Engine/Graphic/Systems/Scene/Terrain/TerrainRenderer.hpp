@@ -10,6 +10,7 @@
 #include <Engine/Graphic/Systems/Scene/ShadowCaster.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainBatch.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainLayerInputs.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 
 #include <glm/glm.hpp>
 #include <memory>
@@ -64,6 +65,14 @@ namespace Desert::Graphic::System
         using RenderSystem::RenderSystem;
 
         virtual Common::BoolResultStr Initialize() override;
+
+        // The forward terrain program's DESERT_LOCAL_SHADOW_VSM permutation (Shadows.Method VirtualMaps on the
+        // Forward path), ShippedByCook - the one statement EnsureForwardVsmPipeline acquires and the cook lists.
+        [[nodiscard]] static Core::ShaderVariant ForwardVsmVariant();
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
+        {
+            return { { "Terrain", ForwardVsmVariant() } };
+        }
 
         // The terrain draw on the scene target, after the meshes in SceneRenderer::AddFrameBasePass (LOAD: depth
         // shared, so terrain and meshes resolve against each other). Empty (no TargetFramebuffer) without a target
@@ -165,6 +174,9 @@ namespace Desert::Graphic::System
         struct ProgramMaterials
         {
             std::unique_ptr<DataDrivenMaterial> Forward;
+            // Forward's DESERT_LOCAL_SHADOW_VSM permutation (Shadows.Method VirtualMaps: the view's virtual shadow
+            // map in place of the atlas), made on the first frame that draws with it.
+            std::unique_ptr<DataDrivenMaterial> ForwardVsm;
             std::unique_ptr<DataDrivenMaterial> GBuffer;
             std::unique_ptr<DataDrivenMaterial> Shadow;
             // TerrainVirtualShadow.shader: the virtual shadow map's caster (the same vertex stage as Shadow).
@@ -220,6 +232,24 @@ namespace Desert::Graphic::System
                      const std::optional<VirtualShadowIndirect>& indirect = std::nullopt );
 
         std::shared_ptr<GraphicsPipeline> m_Pipeline;
+        // The forward program's DESERT_LOCAL_SHADOW_VSM permutation, built on the first frame whose local shadows
+        // are virtual (SceneRenderer::LocalShadowsAreVirtual); a refusal is logged once and kept.
+        std::shared_ptr<GraphicsPipeline> m_PipelineVsm;
+        bool                              m_PipelineVsmRefused = false;
+        // This frame's forward program (PrepareFrame): the VSM permutation while the local shadows are virtual.
+        bool m_ForwardVirtual = false;
+        bool m_ForwardRefused = false; // VirtualMaps asked for, its permutation refused: no forward terrain
+        // Builds m_PipelineVsm on first use; false (said once) when the permutation or its pipeline is refused.
+        [[nodiscard]] bool EnsureForwardVsmPipeline();
+        using ProgramSlot = std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*;
+        [[nodiscard]] ProgramSlot ForwardProgram() const
+        {
+            return m_ForwardVirtual ? &ProgramMaterials::ForwardVsm : &ProgramMaterials::Forward;
+        }
+        [[nodiscard]] const std::shared_ptr<GraphicsPipeline>& ForwardPipeline() const
+        {
+            return m_ForwardVirtual ? m_PipelineVsm : m_Pipeline;
+        }
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
         // The virtual shadow map's caster: no attachment, no depth test, depth clamp (the mesh renderer's VSM
@@ -232,6 +262,7 @@ namespace Desert::Graphic::System
         // Each program's block layout, keyed on the shader of the pipeline its draws record with (kept, not
         // re-derived per frame; a reload re-derives it).
         ShaderBindingLayoutCache m_ForwardLayout;
+        ShaderBindingLayoutCache m_ForwardVsmLayout;
         ShaderBindingLayoutCache m_GBufferLayout;
         ShaderBindingLayoutCache m_ShadowLayout;
 

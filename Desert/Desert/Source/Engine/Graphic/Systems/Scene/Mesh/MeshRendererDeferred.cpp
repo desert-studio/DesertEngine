@@ -38,7 +38,7 @@ namespace Desert::Graphic::System
     }
 
     void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const bool rayTracedSun,
-                                                       const bool localShadowMasks )
+                                                       const bool localShadowMasks, const bool virtualLocal )
     {
         m_DepthNormalDraws.Clear();
         // This frame's admissions start empty here, whatever returns below: "Deferred: Generic" reads only a set
@@ -48,6 +48,7 @@ namespace Desert::Graphic::System
         m_GenericPrepassFrame = frame != nullptr ? std::optional<uint64_t>( frame->FrameIndex ) : std::nullopt;
         m_GenericPrepassRayTracedSun = rayTracedSun;
         m_GenericPrepassLocalShadowMasks = localShadowMasks;
+        m_GenericPrepassVirtualLocal     = virtualLocal;
         const auto& gbuffer          = m_SceneRenderer != nullptr ? m_SceneRenderer->GetGBuffer() : nullptr;
         if ( !gbuffer || m_SceneRenderer->GetMainCamera() == nullptr || m_GenericQueue.empty() )
             return;

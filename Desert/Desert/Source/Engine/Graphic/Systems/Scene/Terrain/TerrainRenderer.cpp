@@ -242,6 +242,12 @@ namespace Desert::Graphic::System
 
     namespace
     {
+        std::shared_ptr<GraphicsPipeline> CreateTerrainPipeline( SceneRenderer*                 sceneRenderer,
+                                                                 const std::shared_ptr<Shader>& shader,
+                                                                 const char*                    debugName,
+                                                                 const RenderTargetLayout&      layout,
+                                                                 std::string&                   error );
+
         std::shared_ptr<GraphicsPipeline> CreateTerrainPipeline( SceneRenderer* sceneRenderer,
                                                                  const char* shaderName, const char* debugName,
                                                                  const RenderTargetLayout& layout,
@@ -253,7 +259,15 @@ namespace Desert::Graphic::System
                 error = std::string( "missing shader '" ) + shaderName + "'";
                 return nullptr;
             }
+            return CreateTerrainPipeline( sceneRenderer, shader, debugName, layout, error );
+        }
 
+        std::shared_ptr<GraphicsPipeline> CreateTerrainPipeline( SceneRenderer*                 sceneRenderer,
+                                                                 const std::shared_ptr<Shader>& shader,
+                                                                 const char*                    debugName,
+                                                                 const RenderTargetLayout&      layout,
+                                                                 std::string&                   error )
+        {
             GraphicsPipelineSpecification spec;
             spec.DebugName   = debugName;
             spec.Shader      = shader;
@@ -282,15 +296,18 @@ namespace Desert::Graphic::System
     bool TerrainRenderer::ForwardReadsTexture( const std::string_view textureName ) const
     {
         if ( m_SceneRenderer == nullptr || m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-             m_Queue.empty() || !m_Pipeline )
+             m_Queue.empty() || m_ForwardRefused || !ForwardPipeline() )
             return false;
-        const auto& shader = m_Pipeline->GetSpecification().Shader;
+        const auto& shader = ForwardPipeline()->GetSpecification().Shader;
         return shader && shader->SamplesTexture( textureName );
     }
 
     Common::BoolResultStr TerrainRenderer::Initialize()
     {
         std::string error;
+        // The VSM permutation's pipeline follows the target layout: built again on the next frame that asks.
+        m_PipelineVsm.reset();
+        m_PipelineVsmRefused = false;
         m_Pipeline =
              CreateTerrainPipeline( m_SceneRenderer, "Terrain", "TerrainPipeline", SceneTargetLayout(), error );
         if ( !m_Pipeline )
@@ -357,6 +374,13 @@ namespace Desert::Graphic::System
         // Only the program this frame's render path shades with gets its rows; the shadow caster always
         // does (it has no param rows, only the instances).
         const bool deferred = m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred;
+        // Shadows.Method VirtualMaps on the Forward path: the forward terrain reads the view's virtual shadow map
+        // (Terrain.shader's DESERT_LOCAL_SHADOW_VSM permutation), not the atlas, which is not drawn then. A
+        // refused permutation leaves the terrain undrawn on the forward path (said once), never on the atlas.
+        m_ForwardVirtual = !deferred && m_SceneRenderer->LocalShadowsAreVirtual();
+        m_ForwardRefused = m_ForwardVirtual && !EnsureForwardVsmPipeline();
+        if ( m_ForwardRefused )
+            m_ForwardVirtual = false; // the rows still go up (the casters read them); "TerrainPass" draws nothing
 
         // ── Resolve every terrain's material and pack its rows BEFORE any draw ──────────────
         //
@@ -401,6 +425,9 @@ namespace Desert::Graphic::System
                 materials.Shadow        = std::make_unique<DataDrivenMaterial>( "TerrainShadow" );
                 materials.VirtualShadow = std::make_unique<DataDrivenMaterial>( "TerrainVirtualShadow" );
             }
+            if ( m_ForwardVirtual && !materials.ForwardVsm )
+                materials.ForwardVsm =
+                     std::make_unique<DataDrivenMaterial>( m_PipelineVsm->GetSpecification().Shader );
 
             // The material's layer inputs (TerrainLayerInputs): keyed by the material's own textures, not the
             // tile's, so every tile of a landscape shares one set of arrays; resolved once per frame per material.
@@ -419,7 +446,7 @@ namespace Desert::Graphic::System
                 // Textures are identical for every terrain of this group BY CONSTRUCTION (the key), so they
                 // are bound once, from the terrain that opened the group. Unset samplers keep the backend
                 // white fallback, so this is purely additive.
-                DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : materials.Forward.get();
+                DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
                 const auto&         schema  = surface->GetSchema();
                 for ( const auto& [name, handle] : t.Overrides.Textures )
                 {
@@ -460,7 +487,7 @@ namespace Desert::Graphic::System
                 }
             }
             FrameGroup&         group   = m_FrameGroups[it->second];
-            DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : materials.Forward.get();
+            DataDrivenMaterial* surface = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
 
             surface->ApplyDefaults();
             for ( const auto& [name, value] : t.Overrides.Params )
@@ -496,7 +523,7 @@ namespace Desert::Graphic::System
         for ( const auto& group : m_FrameGroups )
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
-            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
+            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
             for ( DataDrivenMaterial* material :
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
             {
@@ -538,7 +565,7 @@ namespace Desert::Graphic::System
         if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
             return;
         for ( const auto& group : m_FrameGroups )
-            scene.ApplyTo( m_Materials.at( group.Key ).Forward.get() );
+            scene.ApplyTo( ( m_Materials.at( group.Key ).*ForwardProgram() ).get() );
     }
 
     void TerrainRenderer::PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights )
@@ -612,7 +639,7 @@ namespace Desert::Graphic::System
         for ( const auto& group : m_FrameGroups )
         {
             ProgramMaterials const& materials = m_Materials[group.Key];
-            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : materials.Forward.get();
+            DataDrivenMaterial*     surface   = deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get();
             for ( DataDrivenMaterial* material :
                   { surface, materials.Shadow.get(), materials.VirtualShadow.get() } )
                 if ( auto* instances =
@@ -719,12 +746,12 @@ namespace Desert::Graphic::System
                                    if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
                                        return BOOLSUCCESS;
                                    const auto* camera = m_SceneRenderer->GetMainCamera();
-                                   if ( ( camera == nullptr ) || m_FrameDraws.empty() )
+                                   if ( ( camera == nullptr ) || m_FrameDraws.empty() || m_ForwardRefused )
                                        return BOOLSUCCESS;
                                    // Through the blocks declared below (the scene/view inputs Terrain.shader
                                    // samples - the cloud shadow map - are entries of them).
                                    (void)refs;
-                                   return RecordDraws( context, 0, *m_Pipeline, &ProgramMaterials::Forward,
+                                   return RecordDraws( context, 0, *ForwardPipeline(), ForwardProgram(),
                                                        m_SceneRenderer->GetViewFrame()->JitteredViewProjection,
                                                        m_FrameDraws );
                                },
@@ -734,13 +761,14 @@ namespace Desert::Graphic::System
             // Exactly when the exec draws: one block per Forward material of the frame's groups, each binding the
             // scene/view inputs its shader has slots for (a block entry IS the read).
             if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
-                 m_SceneRenderer->GetMainCamera() == nullptr || m_FrameDraws.empty() )
+                 m_SceneRenderer->GetMainCamera() == nullptr || m_FrameDraws.empty() || m_ForwardRefused )
             {
                 return;
             }
             const SceneViewInputs view = SceneViewInputsOf( refs );
-            (void)DeclareGroupBlocks( declared, m_Pipeline.get(), m_ForwardLayout,
-                                      GroupExecutors( &ProgramMaterials::Forward ), &view );
+            (void)DeclareGroupBlocks( declared, ForwardPipeline().get(),
+                                      m_ForwardVirtual ? m_ForwardVsmLayout : m_ForwardLayout,
+                                      GroupExecutors( ForwardProgram() ), &view );
         };
         return pass;
     }
@@ -887,6 +915,32 @@ namespace Desert::Graphic::System
                                .Max       = box.Max,
                                .Arguments = { m_FrameDraws[k].VertexCount, 0u, 0u, 0u, 0u } } );
         }
+    }
+
+    Core::ShaderVariant TerrainRenderer::ForwardVsmVariant()
+    {
+        return Core::ShaderVariant{ .Defines = { std::string( kLocalShadowVsmDefine ) }, .ShippedByCook = true };
+    }
+
+    bool TerrainRenderer::EnsureForwardVsmPipeline()
+    {
+        if ( m_PipelineVsm )
+            return true;
+        if ( m_PipelineVsmRefused )
+            return false;
+        const auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "Terrain", ForwardVsmVariant() );
+        std::string error = "its DESERT_LOCAL_SHADOW_VSM permutation did not compile (ShaderService named the error)";
+        if ( shader && shader->IsCompiled() )
+            m_PipelineVsm = CreateTerrainPipeline( m_SceneRenderer, shader, "TerrainPipeline|DESERT_LOCAL_SHADOW_VSM",
+                                                   SceneTargetLayout(), error );
+        if ( !m_PipelineVsm )
+        {
+            m_PipelineVsmRefused = true;
+            LOG_ERROR( "[TerrainRenderer] the forward terrain is not drawn under Shadows.Method VirtualMaps: {}",
+                       error );
+            return false;
+        }
+        return true;
     }
 
     const GraphicsPipeline* TerrainRenderer::VirtualShadowPipeline()

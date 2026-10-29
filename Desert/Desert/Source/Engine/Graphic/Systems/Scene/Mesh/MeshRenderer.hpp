@@ -816,7 +816,8 @@ namespace Desert::Graphic::System
         // intends to ray trace the sun (SceneRenderer::SunShadowIsRayTraced), so "Deferred: Generic" shades the
         // sun-reading opaque programs through their DESERT_SUN_SHADOW_SCREEN_MASK permutation - the forward
         // pipeline whose readiness this prepass checks together with its own.
-        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun, bool localShadowMasks );
+        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun, bool localShadowMasks,
+                                             bool virtualLocal );
         [[nodiscard]] Common::BoolResultStr
         RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
@@ -1318,10 +1319,20 @@ namespace Desert::Graphic::System
         // opaque program reads DESERT_SUN_SHADOW_SCREEN_MASK when @p rayTracedSun and it samples the sun's shadow
         // (declares ShadowCascadesTexture), and DESERT_LOCAL_SHADOW_SCREEN_MASK when @p localShadowMasks (the view has
         // SceneViewInputs.LocalShadowMasks) and it samples the local shadow atlas; defines in that order (sun,
-        // then local), ShippedByCook. A blended program (TextSDF) or one that reads neither is the default
-        // permutation (shaded through itself).
+        // then local), ShippedByCook. Under @p virtualLocal (the view has SceneViewInputs.Vsm: Shadows.Method
+        // VirtualMaps) a program that samples the local shadow atlas - opaque OR blended, on either render path -
+        // also reads DESERT_LOCAL_SHADOW_VSM, the view's virtual shadow map in place of the atlas (appended last).
+        // A program that reads none of these is the default permutation (shaded through itself).
+        // The forward cell @p cell (the (path x Forward) sibling of the service material @p built) as this frame
+        // draws it: under m_ForwardVirtualLocal, when its program samples the local shadow atlas, the same
+        // `.demat`'s DESERT_LOCAL_SHADOW_VSM permutation (MaterialService::GetVariant with that define); otherwise
+        // @p cell. Null when the service refused the permutation (it names it). A renderer-built material and a
+        // non-Forward @p pass are returned as given. The static, instanced and skinned forward draws ask it.
+        [[nodiscard]] DataDrivenMaterial* ForwardVirtualCell( DataDrivenMaterial* cell, const Material* built,
+                                                              MeshVertexPath path, MeshPass pass ) const;
         [[nodiscard]] static Core::ShaderVariant ForwardShadowMaskVariant( const Shader& shader, bool rayTracedSun,
-                                                                           bool localShadowMasks );
+                                                                           bool localShadowMasks,
+                                                                           bool virtualLocal );
         // The permutations the mesh path can select for @p materials (UE: a material's cooked shader map): each
         // material's (Static x Forward) cell under every ForwardShadowMaskVariant the renderer can ask for (sun
         // only, local only, both), defaults omitted and duplicates listed once - the list PackageCook
@@ -1347,7 +1358,7 @@ namespace Desert::Graphic::System
         // permutation through ForwardShadowMaskVariant, as that pass does.
         [[nodiscard]] bool GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
                                                         const std::string& shaderName, bool rayTracedSun,
-                                                        bool localShadowMasks );
+                                                        bool localShadowMasks, bool virtualLocal );
         // THE ONE READINESS CHECK for an opaque generic draw on the deferred path: "Deferred: Forward
         // Depth/Normal" admits it when BOTH its depth-normal and its forward pipeline are Ready and records it
         // here; "Deferred: Generic" shades only what this frame admitted, so no draw is shaded forward against a
@@ -1359,6 +1370,10 @@ namespace Desert::Graphic::System
         bool                                             m_GenericPrepassRayTracedSun = false;
         bool                                             m_GenericPrepassLocalShadowMasks = false; // the prepass's DESERT_LOCAL_SHADOW_SCREEN_MASK choice
         bool                                             m_GenericLocalShadowMasks        = false; // "Deferred: Generic" (DeclareGenericDraws)
+        bool m_GenericPrepassVirtualLocal = false; // the prepass's DESERT_LOCAL_SHADOW_VSM choice
+        // DESERT_LOCAL_SHADOW_VSM for the forward cells this frame (static, instanced, skinned, generic, glass):
+        // set by each forward Declare from its SceneViewInputs.Vsm before it builds its draws.
+        bool m_ForwardVirtualLocal = false;
         std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
         // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
         // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —

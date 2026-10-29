@@ -317,6 +317,9 @@ namespace Desert::Graphic::System
             switch ( slice )
             {
                 case GenericSlice::Forward:
+                    // The forward render path: no screen masks (no G-buffer to trace against); the virtual shadow
+                    // map in place of the atlas under VirtualMaps (MeshGeometryPass's Declare set the flag).
+                    permutation = ForwardShadowMaskVariant( *shader, false, false, m_ForwardVirtualLocal );
                     break;
                 case GenericSlice::DeferredSurfaceGBuffer:
                     if ( !surfaceOverride )
@@ -356,8 +359,9 @@ namespace Desert::Graphic::System
                     // Ready); until then the prepass counted its compiling pipelines and nothing of it is drawn.
                     if ( opaque && !OpaqueGenericAdmitted( g ) )
                         continue;
-                    permutation = ForwardShadowMaskVariant(
-                        *shader, slice == GenericSlice::DeferredForwardRayTracedSun, m_GenericLocalShadowMasks );
+                    permutation = ForwardShadowMaskVariant( *shader,
+                                                            slice == GenericSlice::DeferredForwardRayTracedSun,
+                                                            m_GenericLocalShadowMasks, m_ForwardVirtualLocal );
                     break;
             }
             const std::shared_ptr<Shader> templateShader = shader;
@@ -449,7 +453,8 @@ namespace Desert::Graphic::System
                 {
                     if ( !choice.UseOwnPipeline ||
                          !GenericForwardPipelineReady( templateShader, shaderName, m_GenericPrepassRayTracedSun,
-                                                       m_GenericPrepassLocalShadowMasks ) )
+                                                       m_GenericPrepassLocalShadowMasks,
+                                                       m_GenericPrepassVirtualLocal ) )
                         continue;
                     m_GenericPrepassed.insert( &g );
                 }
@@ -592,35 +597,55 @@ namespace Desert::Graphic::System
         }
     }
 
-    Core::ShaderVariant MeshRenderer::ForwardShadowMaskVariant( const Shader& shader, const bool rayTracedSun,
-                                                                const bool localShadowMasks )
+    DataDrivenMaterial* MeshRenderer::ForwardVirtualCell( DataDrivenMaterial* cell, const Material* built,
+                                                          const MeshVertexPath path, const MeshPass pass ) const
     {
-        const auto&         state  = shader.GetProgramMeta().State;
-        const bool          opaque = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
+        if ( !m_ForwardVirtualLocal || pass != MeshPass::Forward || cell == nullptr )
+            return cell;
+        auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
+        if ( materials == nullptr || !materials->Owns( built ) )
+            return cell; // a renderer-built cell: its own program, no `.demat` to permute
+        const auto program = Runtime::ResourceRegistry::GetShaderService()->GetByName( cell->GetShaderName() );
+        if ( program == nullptr )
+            return cell; // the sibling is a registered cell (CreateSurfaceMaterial); nothing to ask otherwise
+        const Core::ShaderVariant permutation = ForwardShadowMaskVariant( *program, false, false, true );
+        return permutation.IsDefault() ? cell : materials->GetVariant( built, path, pass, permutation );
+    }
+
+    Core::ShaderVariant MeshRenderer::ForwardShadowMaskVariant( const Shader& shader, const bool rayTracedSun,
+                                                                const bool localShadowMasks, const bool virtualLocal )
+    {
+        const auto&         state      = shader.GetProgramMeta().State;
+        const bool          opaque     = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
+        const bool          readsLocal = shader.SamplesTexture( kSceneViewLocalShadowAtlasName );
         Core::ShaderVariant permutation;
-        if ( !opaque )
-            return permutation;
-        if ( rayTracedSun && shader.SamplesTexture( kSceneViewShadowCascadesName ) )
+        // The screen masks are the opaque pixels' (a blended draw is not in the depth they were traced against).
+        if ( opaque && rayTracedSun && shader.SamplesTexture( kSceneViewShadowCascadesName ) )
             permutation.Defines.emplace_back( kSunShadowScreenMaskDefine );
-        if ( localShadowMasks && shader.SamplesTexture( kSceneViewLocalShadowAtlasName ) )
+        if ( opaque && localShadowMasks && readsLocal )
             permutation.Defines.emplace_back( kLocalShadowScreenMaskDefine );
+        // The virtual shadow map is every local-shadow reader's under VirtualMaps: the atlas is not drawn then.
+        if ( virtualLocal && readsLocal )
+            permutation.Defines.emplace_back( kLocalShadowVsmDefine );
         permutation.ShippedByCook = !permutation.IsDefault();
         return permutation;
     }
 
     namespace
     {
-        // Every ForwardShadowMaskVariant the renderer can select for @p program (sun only, local only, both),
-        // defaults omitted, each distinct permutation of @p programName once.
+        // Every ForwardShadowMaskVariant the renderer can select for @p program (each combination of the sun mask,
+        // the local masks and the virtual shadow map; only the virtual shadow map when @p virtualOnly - the
+        // instanced and skinned forward cells, which ForwardVirtualCell permutes and nothing else does), defaults
+        // omitted, each distinct permutation of @p programName once.
         void AppendForwardShadowMaskVariants( const Shader& program, const std::string& programName,
                                               std::set<std::pair<std::string, uint64_t>>& listed,
-                                              std::vector<Core::CookedProgramVariant>&     variants )
+                                              std::vector<Core::CookedProgramVariant>&     variants,
+                                              const bool                                   virtualOnly = false )
         {
-            constexpr std::pair<bool, bool> kSelectable[] = { { true, false }, { false, true }, { true, true } };
-            for ( const auto& [rayTracedSun, localShadowMasks] : kSelectable )
+            for ( uint32_t bits = virtualOnly ? 4u : 1u; bits < 8; bits += virtualOnly ? 8u : 1u )
             {
-                Core::ShaderVariant permutation =
-                    MeshRenderer::ForwardShadowMaskVariant( program, rayTracedSun, localShadowMasks );
+                Core::ShaderVariant permutation = MeshRenderer::ForwardShadowMaskVariant(
+                     program, ( bits & 1u ) != 0, ( bits & 2u ) != 0, ( bits & 4u ) != 0 );
                 if ( permutation.IsDefault() || !listed.emplace( programName, permutation.Hash() ).second )
                     continue;
                 variants.push_back( { programName, std::move( permutation ) } );
@@ -637,14 +662,21 @@ namespace Desert::Graphic::System
         std::set<std::pair<std::string, uint64_t>> listed; // materials sharing a template share its cell
         for ( const ::Common::AssetHandle& handle : handles )
         {
-            // The cell MaterialService::GetVariant builds the forward sibling in (CreateSurfaceMaterial's rule).
-            const auto cell = materials.CellShaderNameOf( handle, MeshVertexPath::Static, MeshPass::Forward );
-            if ( !cell )
-                continue;
-            const auto program = shaders.GetByName( cell.GetValue() );
-            if ( program == nullptr )
-                continue; // CellShaderNameOf resolves registered cells only
-            AppendForwardShadowMaskVariants( *program, cell.GetValue(), listed, variants );
+            // The cell MaterialService::GetVariant builds the forward sibling in (CreateSurfaceMaterial's rule):
+            // the static one under every selectable permutation, the instanced and skinned ones under the
+            // virtual shadow map's (ForwardVirtualCell).
+            for ( const MeshVertexPath path :
+                  { MeshVertexPath::Static, MeshVertexPath::Instanced, MeshVertexPath::Skinned } )
+            {
+                const auto cell = materials.CellShaderNameOf( handle, path, MeshPass::Forward );
+                if ( !cell )
+                    continue;
+                const auto program = shaders.GetByName( cell.GetValue() );
+                if ( program == nullptr )
+                    continue; // CellShaderNameOf resolves registered cells only
+                AppendForwardShadowMaskVariants( *program, cell.GetValue(), listed, variants,
+                                                 path != MeshVertexPath::Static );
+            }
         }
         return variants;
     }
@@ -748,11 +780,12 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
                                                     const std::string& shaderName, const bool rayTracedSun,
-                                                    const bool localShadowMasks )
+                                                    const bool localShadowMasks, const bool virtualLocal )
     {
-        std::shared_ptr<Shader> program    = shader;
-        std::string             programKey = shaderName;
-        const Core::ShaderVariant permutation = ForwardShadowMaskVariant( *shader, rayTracedSun, localShadowMasks );
+        std::shared_ptr<Shader>   program     = shader;
+        std::string               programKey  = shaderName;
+        const Core::ShaderVariant permutation =
+             ForwardShadowMaskVariant( *shader, rayTracedSun, localShadowMasks, virtualLocal );
         if ( !permutation.IsDefault() )
         {
             program = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
@@ -914,6 +947,7 @@ namespace Desert::Graphic::System
         // the cascades - the same decision the depth/normal prepass was declared with.
         // Likewise the local shadow masks, in place of the atlas (AddFrameGeneric: valid exactly when traced).
         m_GenericLocalShadowMasks = view.LocalShadowMasks.IsValid();
+        m_ForwardVirtualLocal     = view.Vsm.IsValid();
         BuildGenericDraws( m_GenericDraws, view.SunShadowMask.IsValid() ? GenericSlice::DeferredForwardRayTracedSun
                                                                         : GenericSlice::DeferredForward );
         m_GenericDraws.Declare( pass, view );
@@ -928,6 +962,7 @@ namespace Desert::Graphic::System
                                              const SceneViewInputs& view, const GlassFrontLayer& frontLayer )
     {
         m_GlassDraws.Clear();
+        m_ForwardVirtualLocal = view.Vsm.IsValid(); // TranslucentDrawFor's DESERT_LOCAL_SHADOW_VSM choice
         if ( m_StaticQueue.empty() )
         {
             return;
@@ -1312,7 +1347,9 @@ namespace Desert::Graphic::System
             auto*               materials = Runtime::ResourceRegistry::GetMaterialService();
             const bool          hasAsset  = materials != nullptr && materials->Owns( group );
             DataDrivenMaterial* variant =
-                 hasAsset ? materials->GetVariant( group, MeshVertexPath::Instanced, instancedPass ) : nullptr;
+                 hasAsset ? ForwardVirtualCell( materials->GetVariant( group, MeshVertexPath::Instanced, instancedPass ),
+                                                group, MeshVertexPath::Instanced, instancedPass )
+                          : nullptr;
 
             switch ( SelectInstancedRecorder( hasAsset, variant != nullptr ) )
             {
@@ -1397,12 +1434,14 @@ namespace Desert::Graphic::System
             {
                 DataDrivenMaterial* cell =
                      m_DeferredGeometry ? materials->GetVariant( mat, MeshVertexPath::Static, MeshPass::GBuffer )
-                                        : mat;
+                                        : ForwardVirtualCell( mat, mat, MeshVertexPath::Static, MeshPass::Forward );
                 if ( cell != nullptr ) // no twin: refused out loud by the group loop below
                     fold( ChooseCellDraw( staticPassState, *cell, twoSided, standInPipeline ) );
             }
             if ( instancingOn )
-                if ( auto* variant = materials->GetVariant( mat, MeshVertexPath::Instanced, instancedPass ) )
+                if ( auto* variant =
+                          ForwardVirtualCell( materials->GetVariant( mat, MeshVertexPath::Instanced, instancedPass ),
+                                              mat, MeshVertexPath::Instanced, instancedPass ) )
                     fold( ChooseCellDraw( instancedPipeline, *variant, twoSided, instancedStandIn ) );
             return worst;
         };
@@ -1579,7 +1618,12 @@ namespace Desert::Graphic::System
             // Until this existed the pass borrowed the forward material's sets, and the borrow was legal
             // only because StaticMeshGBuffer.shader declared — and multiplied by 1e-20 — fourteen
             // descriptors it never reads. That dummy is gone with this.
-            DataDrivenMaterial* drawMat = mat;
+            // The forward pass under Shadows.Method VirtualMaps: the same `.demat`'s DESERT_LOCAL_SHADOW_VSM
+            // permutation (ForwardVirtualCell), which reads the view's virtual shadow map in place of the atlas.
+            DataDrivenMaterial* drawMat =
+                 m_DeferredGeometry ? mat : ForwardVirtualCell( mat, mat, MeshVertexPath::Static, MeshPass::Forward );
+            if ( drawMat == nullptr )
+                continue; // MaterialService named the material and the permutation it refused
             if ( m_DeferredGeometry )
             {
                 auto* materials = Runtime::ResourceRegistry::GetMaterialService();
@@ -1923,7 +1967,7 @@ namespace Desert::Graphic::System
         const auto  passMaterial = [&]( DataDrivenMaterial* mat ) -> DataDrivenMaterial*
         {
             if ( !gbuffer )
-                return mat;
+                return ForwardVirtualCell( mat, mat, MeshVertexPath::Skinned, MeshPass::Forward );
             if ( materials->Owns( mat ) )
                 return materials->GetVariant( mat, MeshVertexPath::Skinned, MeshPass::GBuffer );
             return m_SkinnedGBufferUnownedMaterial.get();
@@ -2101,23 +2145,38 @@ namespace Desert::Graphic::System
 
     MeshRenderer::TranslucentDraw* MeshRenderer::TranslucentDrawFor( const std::string& cellShader )
     {
-        if ( const auto found = m_Translucent.find( cellShader ); found != m_Translucent.end() )
+        auto* const shaders  = Runtime::ResourceRegistry::GetShaderService();
+        const auto  cellProgram = shaders->GetByName( cellShader );
+        // Under Shadows.Method VirtualMaps (m_ForwardVirtualLocal, set by DeclareGlassBindings from the view) a
+        // cell that samples the local shadow atlas is drawn through its DESERT_LOCAL_SHADOW_VSM permutation: a
+        // twin keyed by the permutation, with its own pipeline and its own material (its bindings differ).
+        const Core::ShaderVariant permutation =
+             cellProgram != nullptr ? ForwardShadowMaskVariant( *cellProgram, false, false, m_ForwardVirtualLocal )
+                                  : Core::ShaderVariant{};
+        std::string key = cellShader;
+        for ( const auto& define : permutation.Defines )
+            std::format_to( std::back_inserter( key ), "|{}", define );
+        if ( const auto found = m_Translucent.find( key ); found != m_Translucent.end() )
             return found->second.get(); // null = refused before (said once, below)
-        auto& slot = m_Translucent[cellShader];
+        auto& slot = m_Translucent[key];
 
         const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        auto        shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
-        if ( !shader || !target )
+        const auto  shader =
+             permutation.IsDefault() || cellProgram == nullptr ? cellProgram : shaders->AcquireVariant( cellShader, permutation );
+        if ( !shader || !shader->IsCompiled() || !target )
         {
-            LOG_ERROR( "[MeshRenderer] translucent cell '{}' will not draw: {}", cellShader,
-                       !shader ? "no such shader is registered" : "the renderer has no target framebuffer" );
+            LOG_ERROR( "[MeshRenderer] translucent cell '{}' will not draw: {}", key,
+                       !shader ? "no such shader is registered"
+                       : !shader->IsCompiled() ? "its program did not compile (ShaderService named the error)"
+                                               : "the renderer has no target framebuffer" );
             return nullptr;
         }
 
         // Dedicated to the translucency pass: its per-frame UBs / Materials rows are written once per frame, in
         // RenderGlassManual, and by no opaque pass (see TranslucentDraw).
         auto draw      = std::make_unique<TranslucentDraw>();
-        draw->Material = std::make_shared<DataDrivenMaterial>( cellShader );
+        draw->Material = permutation.IsDefault() ? std::make_shared<DataDrivenMaterial>( cellShader )
+                                                 : std::make_shared<DataDrivenMaterial>( shader );
         draw->Instance = draw->Material->CreateInstance();
         if ( !draw->Instance )
         {
@@ -2127,7 +2186,7 @@ namespace Desert::Graphic::System
         }
 
         GraphicsPipelineSpecification spec;
-        spec.DebugName      = cellShader;
+        spec.DebugName      = key;
         spec.Layout         = MeshVertexLayout( MeshVertexPath::Static );
         spec.Shader         = shader;
         spec.TargetLayout   = SceneTargetLayout();

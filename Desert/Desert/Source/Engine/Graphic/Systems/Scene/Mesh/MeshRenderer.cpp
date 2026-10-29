@@ -469,10 +469,13 @@ namespace Desert::Graphic::System
                  m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_StaticGBufferPipeline;
             if ( deferred || m_SceneRenderer->GetMainCamera() == nullptr )
                 return;
+            const SceneViewInputs view = SceneViewInputsOf( refs );
+            // Shadows.Method VirtualMaps: every forward cell reads the view's virtual shadow map, not the atlas.
+            m_ForwardVirtualLocal = view.Vsm.IsValid();
             BuildStaticDraws( m_ForwardDraws );
             BuildSkinnedDraws( m_ForwardDraws );
             BuildGenericDraws( m_ForwardDraws, GenericSlice::Forward );
-            m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );
+            m_ForwardDraws.Declare( declared, view );
             // The skin cache's streams the forward skinned cell fetches by address (Vertex_Skinned.glslh).
             for ( const RDG::BufferRef& streams : m_SkinCacheReads )
                 declared.Read( streams, RDG::Access::StorageRead );
