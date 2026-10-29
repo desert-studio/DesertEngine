@@ -2171,7 +2171,14 @@ namespace Desert::Graphic
         // editor's passes at the extension points still draw. The clouds reach its paths through the sky
         // capture (the environment) and the cloud shadow map (the sun), so the layer's sky-occlusion volume,
         // which the capture marches through, is still written.
-        if ( !pathTraced )
+        // A G-buffer view (UE Buffer Visualization: BaseColor, WorldNormal, Metallic, Roughness, AO, ShadingModel)
+        // shows the stored surface value: no height fog or cloud layer is composited over it (GRASS-ASSET p5: the
+        // Albedo view read +0.08 fog blue on the far cover). The clouds' sky-occlusion volume is still written.
+        const DeferredDebugMode debugView   = m_DebugView.DeferredDebug;
+        const bool              gbufferView = ( debugView >= DeferredDebugMode::Albedo && debugView <= DeferredDebugMode::AO ) ||
+                                 debugView == DeferredDebugMode::ShadingModel ||
+                                 debugView == DeferredDebugMode::SunShadowReceive;
+        if ( !pathTraced && !gbufferView )
         {
             AddFrameAtmosphericFog( graph, textures );
             AddFrameVolumetricClouds( graph, textures, frame );

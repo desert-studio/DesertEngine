@@ -566,7 +566,8 @@ namespace Desert::Assets
         TextureSourceAsset asset;
         asset.Kind      = e.Asset.Kind;
         asset.Guid      = e.Asset.Guid;
-        bool haveImport = false, haveSource = false;
+        bool     haveImport = false, haveSource = false;
+        uint32_t importVersion = 0;
         for ( const CC::EnvelopeSectionData& s : e.Sections )
         {
             if ( s.Tag == CC::EnvelopeSection::Meta )
@@ -578,11 +579,19 @@ namespace Desert::Assets
             }
             else if ( s.Tag == CC::EnvelopeSection::ImportInfo )
             {
-                auto info = DecodeImportInfo( s.Bytes, from );
+                // The IMPT section states its own layout version; an envelope raised earlier may carry an
+                // older IMPT (WP_Protocol_HLOD: envelope 3, IMPT 2), so the section is read at the version it states.
+                const uint32_t stated = TextureSourceReader{ s.Bytes }.Get( 4 );
+                if ( stated == 0 || stated > kImportInfoVersion )
+                    return Common::MakeFormattedError<Out>( "texture ImportInfo version {} is not one this build "
+                                                            "can raise (1..{})",
+                                                            stated, kImportInfoVersion );
+                auto info = DecodeImportInfo( s.Bytes, stated );
                 if ( !info.IsSuccess() )
                     return Common::MakeError<Out>( info.GetError() );
-                asset.Import = info.GetValue();
-                haveImport   = true;
+                asset.Import  = info.GetValue();
+                haveImport    = true;
+                importVersion = stated;
             }
             else if ( s.Tag == CC::EnvelopeSection::Source )
             {
@@ -593,7 +602,7 @@ namespace Desert::Assets
         if ( !haveImport || !haveSource )
             return Common::MakeFormattedError<Out>(
                  "a version-{} texture asset without IMPT or SRCE cannot be raised", from );
-        if ( from == 1 )
+        if ( importVersion == 1 )
             asset.Import.Settings.ColorSpace = DefaultTextureColorSpace( asset.Import.Settings.Intent, asset.Source );
         auto encoded                     = EncodeTextureSourceAsset( asset );
         if ( !encoded.IsSuccess() )
