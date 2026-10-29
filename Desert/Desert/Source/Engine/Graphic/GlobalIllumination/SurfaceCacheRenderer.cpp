@@ -574,12 +574,14 @@ namespace Desert::Graphic::SurfaceCache
     {
         if ( m_RadiosityPipeline && tracer == m_RadiosityProgramFor )
             return BOOLSUCCESS;
-        auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+        auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
              std::string( kRadiosityShaderName ), GlobalIllumination::TracerVariant( tracer ) );
-        if ( !shader )
-            return Common::MakeFormattedError<bool>( "surface cache: shader {} ({}) did not compile",
+        if ( !acquired )
+            return Common::MakeFormattedError<bool>( "surface cache: shader {} ({}) was refused: {}",
                                                      kRadiosityShaderName,
-                                                     GlobalIllumination::TracerDefine( tracer.Tracer ) );
+                                                     GlobalIllumination::TracerDefine( tracer.Tracer ),
+                                                     acquired.GetError() );
+        auto shader = acquired.ExtractValue();
         // One quad per relit page into the trace atlas, blended with the history by the sample's weight
         // (src alpha; the target keeps no alpha of its own).
         GraphicsPipelineSpecification spec;
