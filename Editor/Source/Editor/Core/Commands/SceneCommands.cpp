@@ -614,12 +614,7 @@ namespace Desert::Editor::Commands
             }
             e->SetLocalTransform( ECS::LocalTransform{ state.Translation, state.Rotation, state.Scale } );
             if ( state.Visible )
-            {
-                if ( e->HasComponent<ECS::VisibilityComponent>() )
-                    e->GetComponent<ECS::VisibilityComponent>().Visible = *state.Visible;
-                else
-                    e->AddComponent<ECS::VisibilityComponent>().Visible = *state.Visible;
-            }
+                e->SetVisible( *state.Visible );
             return Common::MakeSuccess( true );
         }
 
@@ -639,7 +634,7 @@ namespace Desert::Editor::Commands
             // No component reads as shown (ECS::IsHidden), so undoing a hide leaves it shown either way.
             if ( withVisibility )
                 out.Visible = !e->HasComponent<ECS::VisibilityComponent>() ||
-                              e->GetComponent<ECS::VisibilityComponent>().Visible;
+                              e->GetComponent<ECS::VisibilityComponent>().IsVisible();
             return out;
         }
 
@@ -1833,7 +1828,7 @@ namespace Desert::Editor::Commands
                     continue;
                 if ( serializer.Key == "Visibility" &&
                      ( !entity.HasComponent<ECS::VisibilityComponent>() ||
-                       entity.GetComponent<ECS::VisibilityComponent>().Visible ) )
+                       entity.GetComponent<ECS::VisibilityComponent>().IsVisible() ) )
                     continue;
                 candidate.Blockers.push_back( "a " + serializer.Key + " component" );
             }

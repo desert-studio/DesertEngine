@@ -500,12 +500,8 @@ namespace Desert::Editor::Tools
             return;
         ECS::Entity b = ref->get();
         if ( b.HasComponent<ECS::VisibilityComponent>() )
-        {
-            m_Session->OtherVisibility = b.GetComponent<ECS::VisibilityComponent>().Visible;
-            b.GetComponent<ECS::VisibilityComponent>().Visible = false;
-        }
-        else
-            b.AddComponent<ECS::VisibilityComponent>().Visible = false;
+            m_Session->OtherVisibility = b.GetComponent<ECS::VisibilityComponent>().IsVisible();
+        b.SetVisible( false );
         m_Session->OtherHidden = true;
     }
 
@@ -523,7 +519,7 @@ namespace Desert::Editor::Tools
                         b.RemoveComponent<ECS::VisibilityComponent>();
                 }
                 else if ( b.HasComponent<ECS::VisibilityComponent>() )
-                    b.GetComponent<ECS::VisibilityComponent>().Visible = *m_Session->OtherVisibility;
+                    b.SetVisible( *m_Session->OtherVisibility );
             }
         }
         ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );

@@ -258,7 +258,7 @@ namespace Desert::Editor
 
         // Hidden entities (VisibilityComponent.Visible == false) render dimmed with an "eye-off" toggle.
         const bool visible = !entity.HasComponent<ECS::VisibilityComponent>() ||
-                             entity.GetComponent<ECS::VisibilityComponent>().Visible;
+                             entity.GetComponent<ECS::VisibilityComponent>().IsVisible();
 
         // Locked entities (LockComponent present) refuse viewport picking and gizmo edits. Asked through
         // the shared predicate rather than HasComponent here, so the outliner's padlock and the two places

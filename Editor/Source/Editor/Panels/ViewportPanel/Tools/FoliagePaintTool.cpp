@@ -1173,7 +1173,7 @@ namespace Desert::Editor::Tools
                 const auto  tag     = CellFieldBase( leadTag ).value_or( leadTag );
                 const auto onGrid  = RuntimeGridOf( gather.Lead );
                 const bool visible = !gather.Lead.HasComponent<ECS::VisibilityComponent>() ||
-                                     gather.Lead.GetComponent<ECS::VisibilityComponent>().Visible;
+                                     gather.Lead.GetComponent<ECS::VisibilityComponent>().IsVisible();
                 for ( std::size_t i = unique.size(); i < out.size(); ++i )
                 {
                     const auto& cell  = out[i].Cell;
@@ -2232,7 +2232,7 @@ namespace Desert::Editor::Tools
             return Common::MakeFormattedError<bool>( "{}", e.GetError() );
         auto&      entity  = e.GetValue();
         const bool visible = !entity.HasComponent<ECS::VisibilityComponent>() ||
-                             entity.GetComponent<ECS::VisibilityComponent>().Visible;
+                             entity.GetComponent<ECS::VisibilityComponent>().IsVisible();
         for ( auto& each : FieldsOfType( scene, entity.GetComponent<ECS::FoliageComponent>().FoliageType ) )
             scene.SetVisibleRecursive( each, !visible );
         return BOOLSUCCESS;

@@ -1,4 +1,4 @@
-# RENDER-PROXY: the render-state dirty set is fed at the source - ECS::SetLocalTransform (the one TransformComponent writer, a registry.patch) dirties the entity and its subtree; an unchanged value dirties nothing.
+# RENDER-PROXY: the render-state dirty set is fed at the source - ECS::SetLocalTransform (the one TransformComponent writer, a registry.patch) dirties the entity and its subtree; ECS::SetVisible / ECS::SetMaterial and the Static Mesh reflected edit (PostEditStaticMesh) dirty the entity; an unchanged value dirties nothing.
 Проект F:/BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce (static in edit mode: nothing moves by itself)
 Дано run View "View mode: Lit"; select Bistro_Research_Exterior_Paris_StreetLight_Glass_01B_6337 (the glass)
 Тогда-вид 0_idle after 120 frames with nothing edited: DesertCtl state --sections scene -> scene.renderDirty == 0; editor.log 0 error lines, 0 VUID
@@ -8,3 +8,9 @@
 Тогда [render_proxy_dirty] 2_gizmo: the drag frame scene.renderDirty >= 1; the next idle frame after release == 0; 0 VUID
 Когда set selection Translation to the SAME value it already has
 Тогда 3_same: scene.renderDirty == 0 on that frame (an unchanged value is not a write)
+Когда set Bistro_Research_Exterior_Paris_StreetLight_Glass_01B_6337 StaticMeshComponent.MaterialSlots[0] to a different material asset than it has (DesertCtl `set` -> the reflected edit's ECS::PostEditStaticMesh, a registry.patch)
+Тогда [render_proxy_components] 4_material_swap: on that frame scene.renderDirty >= 1 (exactly the glass: no transform moved, so no subtree); the next idle frame scene.renderDirty == 0; the glass draws the new material; 0 VUID
+Когда untick the Details header Visible box (##ActiveCheckbox) of the selected glass (Scene::SetVisibleRecursive -> ECS::SetVisible, a registry.patch)
+Тогда [render_proxy_components] 5_visibility: on that frame scene.renderDirty >= 1 (the glass and its subtree, one entry each); the next idle frame scene.renderDirty == 0; the glass is gone from the frame; 0 VUID
+Когда tick the box again, then set StaticMeshComponent.MaterialSlots[0] to the material it already has
+Тогда [render_proxy_components] 6_same: the re-tick frame >= 1 then 0; the same-material set frame scene.renderDirty == 0 (an unchanged reference is no write); 0 VUID

@@ -147,10 +147,47 @@ namespace Desert::ECS
         CameraData                    Data;
     };
 
-    struct VisibilityComponent
+    class VisibilityComponent;
+    bool SetVisible( entt::registry& registry, entt::entity entity, bool visible );
+
+    // Whether the entity is drawn (UE USceneComponent::bVisible). READ-ONLY, for the reason TransformComponent
+    // is: every write goes through ECS::SetVisible, a registry.patch, so on_update<VisibilityComponent> fires
+    // and Core::Scene's render-state dirty set sees the toggle at the source. Construction with a value
+    // (emplace<VisibilityComponent>( e, false )) is not a write: it fires on_construct.
+    class VisibilityComponent
     {
-        bool Visible = true;
+    public:
+        VisibilityComponent() = default;
+        explicit VisibilityComponent( bool visible ) : m_Visible( visible ) {}
+
+        [[nodiscard]] bool IsVisible() const
+        {
+            return m_Visible;
+        }
+
+    private:
+        bool m_Visible = true;
+
+        friend bool SetVisible( entt::registry& registry, entt::entity entity, bool visible );
     };
+
+    // THE ONE WRITER of VisibilityComponent (UE USceneComponent::SetVisibility -> MarkRenderStateDirty). Adds
+    // the component when the entity has none (on_construct), patches it when the value changes (on_update), and
+    // is no write at all when the value is unchanged. Returns whether anything changed. Scene::SetVisibleRecursive
+    // calls it per entity of a subtree.
+    inline bool SetVisible( entt::registry& registry, entt::entity entity, bool visible )
+    {
+        if ( auto* component = registry.try_get<VisibilityComponent>( entity ) )
+        {
+            if ( component->m_Visible == visible )
+                return false;
+            registry.patch<VisibilityComponent>( entity, [visible]( VisibilityComponent& c )
+                                                 { c.m_Visible = visible; } );
+            return true;
+        }
+        registry.emplace<VisibilityComponent>( entity, visible );
+        return true;
+    }
 
     // One overridden material parameter (keyed by the shader's Properties name). vec4 stores any
     // scalar/vector value (float uses .x, color uses rgba). Data-driven: NOT a fixed C++ field per param.
@@ -158,6 +195,8 @@ namespace Desert::ECS
     {
         std::string Name;
         glm::vec4   Value = glm::vec4( 0.0f );
+
+        [[nodiscard]] bool operator==( const MaterialParamOverride& ) const = default;
     };
 
     // UE's UStaticMeshComponent: the two authored references (UPROPERTY StaticMesh, OverrideMaterials) are
@@ -478,6 +517,8 @@ namespace Desert::ECS
     {
         std::string Name;
         uint64_t    TextureHandle = 0; // Assets::AssetHandle as uint64 (0 = unset -> shader fallback)
+
+        [[nodiscard]] bool operator==( const MaterialTextureOverride& ) const = default;
     };
 
     // Assigns an arbitrary shader (by program name) to whatever renderer draws this entity, with its
@@ -488,12 +529,65 @@ namespace Desert::ECS
     // shader and to nothing else: a lit mesh's per-entity parameters are its slot instances' (script writes land
     // on StaticMeshComponent::ScriptSlotParams), and a scene block carrying Params with no Shader is refused at
     // load with its path. No decision compares ShaderName to a template's name.
-    struct MaterialComponent
+    //
+    // The authored state is a VALUE (MaterialDesc, as LocalTransform is for TransformComponent): a writer builds
+    // or copies one, changes it, and hands it to ECS::SetMaterial, the one writer, which is a registry.patch so
+    // Core::Scene's render-state dirty set sees a shader or parameter swap at the source.
+    struct MaterialDesc
     {
         std::string                          ShaderName;
         std::vector<MaterialParamOverride>   Params; // scalar/vector overrides (on top of the Properties defaults)
         std::vector<MaterialTextureOverride> Textures; // texture2D overrides (unset -> backend fallback)
+
+        [[nodiscard]] bool operator==( const MaterialDesc& ) const = default;
     };
+
+    class MaterialComponent;
+    bool SetMaterial( entt::registry& registry, entt::entity entity, const MaterialDesc& desc );
+
+    class MaterialComponent
+    {
+    public:
+        MaterialComponent() = default;
+        explicit MaterialComponent( MaterialDesc desc ) : m_Desc( std::move( desc ) ) {}
+
+        [[nodiscard]] const MaterialDesc& GetDesc() const
+        {
+            return m_Desc;
+        }
+        [[nodiscard]] const std::string& GetShaderName() const
+        {
+            return m_Desc.ShaderName;
+        }
+        [[nodiscard]] const std::vector<MaterialParamOverride>& GetParams() const
+        {
+            return m_Desc.Params;
+        }
+        [[nodiscard]] const std::vector<MaterialTextureOverride>& GetTextures() const
+        {
+            return m_Desc.Textures;
+        }
+
+    private:
+        MaterialDesc m_Desc;
+
+        friend bool SetMaterial( entt::registry& registry, entt::entity entity, const MaterialDesc& desc );
+    };
+
+    // THE ONE WRITER of MaterialComponent: adds it when absent (on_construct), patches it when the value differs
+    // (on_update), writes nothing when it is equal. Returns whether anything changed.
+    inline bool SetMaterial( entt::registry& registry, entt::entity entity, const MaterialDesc& desc )
+    {
+        if ( auto* component = registry.try_get<MaterialComponent>( entity ) )
+        {
+            if ( component->m_Desc == desc )
+                return false;
+            registry.patch<MaterialComponent>( entity, [&desc]( MaterialComponent& c ) { c.m_Desc = desc; } );
+            return true;
+        }
+        registry.emplace<MaterialComponent>( entity, desc );
+        return true;
+    }
 
     struct AnimationComponent
     {

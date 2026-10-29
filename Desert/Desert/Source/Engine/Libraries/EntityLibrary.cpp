@@ -254,10 +254,10 @@ namespace Desert::Libraries
         }
 
         // The Shader Override component, when the entity has one naming a shader: its Params are that draw.
-        ECS::MaterialComponent* ShaderOverrideOf( const ECS::Entity& entity )
+        const ECS::MaterialComponent* ShaderOverrideOf( const ECS::Entity& entity )
         {
-            auto* mc = Get<ECS::MaterialComponent>( entity );
-            return mc != nullptr && !mc->ShaderName.empty() ? mc : nullptr;
+            const auto* mc = Get<ECS::MaterialComponent>( entity );
+            return mc != nullptr && !mc->GetShaderName().empty() ? mc : nullptr;
         }
     } // namespace
 
@@ -270,9 +270,11 @@ namespace Desert::Libraries
     // An entity with neither has no material to write, and the call fails naming it.
     void MaterialLibrary::SetMaterialParam( ECS::Entity entity, const std::string& name, const glm::vec4& value )
     {
-        if ( auto* mc = ShaderOverrideOf( entity ) )
+        if ( const auto* mc = ShaderOverrideOf( entity ) )
         {
-            UpsertParam( mc->Params, name, value );
+            ECS::MaterialDesc desc = mc->GetDesc();
+            UpsertParam( desc.Params, name, value );
+            ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), desc );
             return;
         }
         auto* smc = Get<ECS::StaticMeshComponent>( entity );
@@ -295,7 +297,7 @@ namespace Desert::Libraries
     {
         if ( const auto* mc = ShaderOverrideOf( entity ) )
         {
-            for ( const auto& p : mc->Params )
+            for ( const auto& p : mc->GetParams() )
                 if ( p.Name == name )
                     return p.Value;
             return glm::vec4( 0.0f );
@@ -317,10 +319,12 @@ namespace Desert::Libraries
     // material-instance asset's own overrides, which the instance carries the same way.
     void MaterialLibrary::ClearMaterialParams( ECS::Entity entity )
     {
-        if ( auto* mc = ShaderOverrideOf( entity ) )
+        if ( const auto* mc = ShaderOverrideOf( entity ) )
         {
-            mc->Params.clear();
-            mc->Textures.clear();
+            ECS::MaterialDesc desc = mc->GetDesc();
+            desc.Params.clear();
+            desc.Textures.clear();
+            ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), desc );
         }
         if ( auto* smc = Get<ECS::StaticMeshComponent>( entity );
              smc != nullptr && !smc->ScriptSlotParams.empty() )
@@ -339,13 +343,18 @@ namespace Desert::Libraries
         if ( shader.empty() )
             entity.GetRegistry()->remove<ECS::MaterialComponent>( entity.GetHandle() );
         else
-            entity.GetRegistry()->get_or_emplace<ECS::MaterialComponent>( entity.GetHandle() ).ShaderName = shader;
+        {
+            const auto*       mc   = Get<ECS::MaterialComponent>( entity );
+            ECS::MaterialDesc desc = mc != nullptr ? mc->GetDesc() : ECS::MaterialDesc{};
+            desc.ShaderName        = shader;
+            ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), desc );
+        }
     }
 
     std::string MaterialLibrary::GetShader( ECS::Entity entity )
     {
         const auto* mc = Get<ECS::MaterialComponent>( entity );
-        return mc != nullptr ? mc->ShaderName : std::string();
+        return mc != nullptr ? mc->GetShaderName() : std::string();
     }
 
     // ── WorldLibrary ──
@@ -414,9 +423,10 @@ namespace Desert::Libraries
                                   : debugColor.GetError() );
             return e;
         }
-        auto& mc      = e.AddComponent<ECS::MaterialComponent>();
-        mc.ShaderName = template_->GetMetadata().Filepath.stem().string();
-        mc.Params.push_back( ECS::MaterialParamOverride{ "Color", glm::vec4( color, 1.0f ) } );
+        ECS::MaterialDesc desc;
+        desc.ShaderName = template_->GetMetadata().Filepath.stem().string();
+        desc.Params.push_back( ECS::MaterialParamOverride{ "Color", glm::vec4( color, 1.0f ) } );
+        ECS::SetMaterial( *e.GetRegistry(), e.GetHandle(), desc );
         return e;
     }
 

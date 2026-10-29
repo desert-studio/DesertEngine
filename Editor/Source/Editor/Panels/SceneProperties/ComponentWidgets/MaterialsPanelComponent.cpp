@@ -110,8 +110,8 @@ namespace Desert::Editor
         if ( entity.HasComponent<ECS::MaterialComponent>() )
         {
             const auto& matc = entity.GetComponent<ECS::MaterialComponent>();
-            if ( !matc.ShaderName.empty() )
-                overriddenBy = matc.ShaderName;
+            if ( !matc.GetShaderName().empty() )
+                overriddenBy = matc.GetShaderName();
         }
 
         // NOTE: the per-entity "Runtime Override" param editor was removed — meshes get their look ONLY

@@ -8,6 +8,8 @@
 #include <span>
 #include <vector>
 
+#include <entt/entt.hpp>
+
 namespace Desert::Geometry
 {
     class DynamicMesh3;
@@ -57,9 +59,12 @@ namespace Desert::ECS
     void ClearEditableMesh( StaticMeshComponent& component );
 
     // UE's UStaticMeshComponent::PostEditChangeProperty for the two reflected references: `before` is the
-    // component as it was before an edit (Details, DesertCtl `set`, undo), `after` the component now.
+    // component as it was before an edit (Details, DesertCtl `set`, undo), the entity's component the one now.
+    // A changed reference is re-stated INSIDE a registry.patch, so on_update<StaticMeshComponent> fires and
+    // Core::Scene's render-state dirty set sees the swap (UE MarkRenderStateDirty); an edit that changed
+    // neither reference is no write. Returns whether either reference changed.
     //   - a new MeshHandle IS the mesh: the Primitive and the edited mesh that would take priority over it in
     //     the draw are dropped (UE SetStaticMesh), and the material slots are re-fitted to the new mesh;
     //   - a changed MaterialSlots drops the runtime instances, so the draw builds them again from the slots.
-    void PostEditStaticMesh( const StaticMeshComponent& before, StaticMeshComponent& after );
+    bool PostEditStaticMesh( entt::registry& registry, entt::entity entity, const StaticMeshComponent& before );
 } // namespace Desert::ECS

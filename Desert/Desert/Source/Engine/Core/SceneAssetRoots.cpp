@@ -83,7 +83,7 @@ namespace Desert::Core
         // component, which is why this loop cannot be folded into the others.
         for ( const auto entity : registry.view<ECS::MaterialComponent>() )
         {
-            for ( const auto& texture : registry.get<ECS::MaterialComponent>( entity ).Textures )
+            for ( const auto& texture : registry.get<ECS::MaterialComponent>( entity ).GetTextures() )
                 roots.Mark( Assets::AssetHandle( texture.TextureHandle ),
                             "a MaterialComponent overrides a texture slot with it" );
         }

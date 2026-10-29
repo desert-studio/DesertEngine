@@ -363,12 +363,12 @@ TEST( PostProcessVolume, AHiddenVolumeAndAHiddenLightAreSkipped )
 {
     entt::registry     reg;
     const entt::entity v = AddVolume( reg, glm::vec3( 0.0f ), Volume( true, 0.0f, 1.0f, 9.0f, true ) );
-    reg.emplace<ECS::VisibilityComponent>( v ).Visible = false;
+    reg.emplace<ECS::VisibilityComponent>( v, false );
 
     const entt::entity hidden                                            = reg.create();
     reg.emplace<ECS::TransformComponent>( hidden, ECS::LocalTransform{ .Translation = glm::vec3( 0.0f, -1.0f, 0.0f ) } );
     reg.emplace<ECS::DirectionLightComponent>( hidden ).Data.CastShadows = false;
-    reg.emplace<ECS::VisibilityComponent>( hidden ).Visible              = false;
+    reg.emplace<ECS::VisibilityComponent>( hidden, false );
 
     const auto r = Graphic::ResolveViewSettings( reg, glm::vec3( 0.0f ) );
     EXPECT_EQ( r.Post.ManualExposureEV100, Core::PostProcessSettings{}.ManualExposureEV100 );

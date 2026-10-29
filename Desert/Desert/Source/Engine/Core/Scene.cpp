@@ -1451,10 +1451,7 @@ namespace Desert::Core
     {
         if ( !entity ) return;
 
-        if ( entity.HasComponent<ECS::VisibilityComponent>() )
-            entity.GetComponent<ECS::VisibilityComponent>().Visible = visible;
-        else
-            entity.AddComponent<ECS::VisibilityComponent>().Visible = visible;
+        entity.SetVisible( visible );
         if ( entity.HasComponent<ECS::UUIDComponent>() )
             MarkModified( entity.GetComponent<ECS::UUIDComponent>().UUID );
 

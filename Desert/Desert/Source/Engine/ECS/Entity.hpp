@@ -61,6 +61,12 @@ namespace Desert::ECS
             return ECS::SetLocalScale( *m_Registry, m_Handle, scale );
         }
 
+        // The entity's VisibilityComponent writer (adds it when absent): ECS::SetVisible.
+        bool SetVisible( bool visible ) const
+        {
+            return ECS::SetVisible( *m_Registry, m_Handle, visible );
+        }
+
         template <typename EntityT>
         void RemoveComponent() const
         {

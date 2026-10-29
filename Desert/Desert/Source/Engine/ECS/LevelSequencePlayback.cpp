@@ -135,10 +135,7 @@ namespace Desert::ECS
                 refuse();
                 return;
             }
-            auto& component   = m_Registry.has<VisibilityComponent>( entity )
-                                     ? m_Registry.get<VisibilityComponent>( entity )
-                                     : m_Registry.emplace<VisibilityComponent>( entity );
-            component.Visible = *visible;
+            SetVisible( m_Registry, entity, *visible );
             return;
         }
 

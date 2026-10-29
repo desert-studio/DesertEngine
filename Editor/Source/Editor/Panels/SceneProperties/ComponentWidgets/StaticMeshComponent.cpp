@@ -82,7 +82,7 @@ namespace Desert::Editor
             if ( PropertyEditorBuilder::Draw( &staticMesh, "StaticMeshComponent", m_AssetManager,
                                               m_Ctx ? m_Ctx->UIHelper : nullptr,
                                               m_Ctx ? m_Ctx->FieldFilter : nullptr ) )
-                ECS::PostEditStaticMesh( before, staticMesh );
+                ECS::PostEditStaticMesh( *entity.GetRegistry(), entity.GetHandle(), before );
         }
         else
         {
@@ -365,7 +365,7 @@ namespace Desert::Editor
                 C&      component = en.GetComponent<C>();
                 const C before    = component;
                 edit( &component );
-                ECS::PostEditStaticMesh( before, component );
+                ECS::PostEditStaticMesh( *en.GetRegistry(), en.GetHandle(), before );
             };
             return e;
         }

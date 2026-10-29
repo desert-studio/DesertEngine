@@ -1328,7 +1328,7 @@ namespace Desert::ECS
                     saved.Transform = registry.get<TransformComponent>( entity ).GetLocal();
                 saved.HadVisibility = registry.has<VisibilityComponent>( entity );
                 if ( saved.HadVisibility )
-                    saved.Visible = registry.get<VisibilityComponent>( entity ).Visible;
+                    saved.Visible = registry.get<VisibilityComponent>( entity ).IsVisible();
                 if ( const auto* animation = registry.try_get<AnimationComponent>( entity );
                      animation != nullptr && animation->Animator )
                 {
@@ -1370,7 +1370,7 @@ namespace Desert::ECS
             if ( saved.HadTransform && registry.has<TransformComponent>( saved.Entity ) )
                 SetLocalTransform( registry, saved.Entity, saved.Transform );
             if ( saved.HadVisibility && registry.has<VisibilityComponent>( saved.Entity ) )
-                registry.get<VisibilityComponent>( saved.Entity ).Visible = saved.Visible;
+                SetVisible( registry, saved.Entity, saved.Visible );
             else if ( !saved.HadVisibility && registry.has<VisibilityComponent>( saved.Entity ) )
                 registry.remove<VisibilityComponent>( saved.Entity );
             if ( auto* animation = registry.try_get<AnimationComponent>( saved.Entity );

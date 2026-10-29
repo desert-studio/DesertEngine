@@ -227,7 +227,7 @@ namespace Desert::Core::Serialize
             return s;
         }
 
-        // A component whose ENTIRE state is one bool (VisibilityComponent::Visible). It gets its own maker
+        // A component whose ENTIRE state is one bool (VisibilityComponent: IsVisible / ECS::SetVisible). It gets its own maker
         // rather than reusing MakeMarker above, because MakeMarker WOULD COMPILE AND WOULD BE WRONG: it
         // writes an empty object and re-adds the component on load, so the value comes back at the
         // struct's default. `Visible = false` would round-trip to `true` — the presence would survive and
@@ -237,23 +237,26 @@ namespace Desert::Core::Serialize
         // A record that carries the component but not its field is REPORTED and left at the default: an
         // entity is drawn either way, so a silent choice here is a scene that renders differently from
         // the file it claims to be.
+        // The value is read through `get` and written through `set`, the component's one writer (ECS::SetVisible),
+        // so a loaded flag reaches the render-state dirty set like any other write.
         template <class TComponent>
-        ComponentSerializer MakeFlag( std::string key, std::string field, bool TComponent::*member )
+        ComponentSerializer MakeFlag( std::string key, std::string field, bool ( TComponent::*get )() const,
+                                      bool ( *set )( entt::registry&, entt::entity, bool ) )
         {
             ComponentSerializer s;
             s.Key       = std::move( key );
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<TComponent>(); };
-            s.Serialize = [field, member]( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
+            s.Serialize = [field, get]( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
                 Common::Json::Object object;
-                object[field] = Common::Json::Value( e.GetComponent<TComponent>().*member );
+                object[field] = Common::Json::Value( ( e.GetComponent<TComponent>().*get )() );
                 return { object };
             };
-            s.Deserialize = [field, member]( ECS::Entity e, const Common::Json::Node&           g,
-                                             const Assets::AssetManager&, Common::Json::Issues& issues )
+            s.Deserialize = [field, set]( ECS::Entity e, const Common::Json::Node& g, const Assets::AssetManager&,
+                                          Common::Json::Issues& issues )
             {
-                auto& comp =
-                     e.HasComponent<TComponent>() ? e.GetComponent<TComponent>() : e.AddComponent<TComponent>();
+                if ( !e.HasComponent<TComponent>() )
+                    e.AddComponent<TComponent>();
 
                 if ( !g.ExpectKind( Common::Json::Kind::Object, issues ) )
                     return;
@@ -264,7 +267,9 @@ namespace Desert::Core::Serialize
                          { g.Where().Key( field ).ToString(), "bool", "nothing (the member is absent)" } );
                     return;
                 }
-                value->ReadValue( comp.*member, issues );
+                bool flag = ( e.GetComponent<TComponent>().*get )();
+                value->ReadValue( flag, issues );
+                set( *e.GetRegistry(), e.GetHandle(), flag );
             };
             return s;
         }
@@ -1629,33 +1634,33 @@ namespace Desert::Core::Serialize
             {
                 const auto&                  mc = entity.GetComponent<ECS::MaterialComponent>();
                 Assets::MaterialComponentSer ser;
-                if ( !mc.ShaderName.empty() )
+                if ( !mc.GetShaderName().empty() )
                 {
                     // BY GUID (SCNE 31): the runtime binds by name, the file names the shader's identity.
                     const std::string context = EntityContext( entity );
-                    if ( auto ref = Assets::FindShaderRefByName( assetManager, mc.ShaderName,
+                    if ( auto ref = Assets::FindShaderRefByName( assetManager, mc.GetShaderName(),
                                                                  { "shader", "Material.Shader", context } ) )
                         ser.Shader = ref.ExtractValue();
                     else
                         LOG_ERROR( "[Scene] {} - the shader slot is written EMPTY", ref.GetError() );
                 }
 
-                if ( !mc.Params.empty() )
+                if ( !mc.GetParams().empty() )
                 {
                     std::vector<Assets::MaterialParamSer> ps;
-                    for ( const auto& p : mc.Params )
+                    for ( const auto& p : mc.GetParams() )
                         ps.push_back( { p.Name, p.Value } );
                     ser.Params = std::move( ps );
                 }
 
-                if ( !mc.Textures.empty() )
+                if ( !mc.GetTextures().empty() )
                 {
                     // The handle alone (DC §4.2). This used to write the resolved path AND the handle into
                     // every entry; see MaterialTextureSer for why that pairing is worse than either half.
                     const auto                              resolver = MakeAssetResolver( assetManager );
                     std::vector<Assets::MaterialTextureSer> ts;
-                    ts.reserve( mc.Textures.size() );
-                    for ( const auto& t : mc.Textures )
+                    ts.reserve( mc.GetTextures().size() );
+                    for ( const auto& t : mc.GetTextures() )
                         ts.push_back( { t.Name, resolver.ToGuid( t.TextureHandle, "TextureAsset" ),
                                         resolver.ToPath( t.TextureHandle, "TextureAsset" ) } );
                     ser.Textures = std::move( ts );
@@ -1672,7 +1677,8 @@ namespace Desert::Core::Serialize
                     return;
                 const auto& data = parsed.value();
 
-                auto& mc = entity.AddComponent<ECS::MaterialComponent>();
+                // Built as a value and written once, through ECS::SetMaterial (the component's one writer).
+                ECS::MaterialDesc mc;
                 if ( data.Shader.has_value() )
                 {
                     const std::string context = EntityContext( entity );
@@ -1705,8 +1711,8 @@ namespace Desert::Core::Serialize
                          "[Scene] {}: Material.Params/Textures with no Shader - parameters belong to a Shader "
                          "Override, a lit mesh's values are its material slots'; the values are not loaded",
                          EntityContext( entity ) );
-                    if ( !data.Shader.has_value() )
-                        entity.RemoveComponent<ECS::MaterialComponent>();
+                    if ( data.Shader.has_value() )
+                        ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), mc );
                     return;
                 }
 
@@ -1730,6 +1736,7 @@ namespace Desert::Core::Serialize
                                                                          "material texture '" + t.Name + "'" ) } );
                     }
                 }
+                ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), mc );
             };
 
             Register( std::move( s ) );
@@ -2126,7 +2133,8 @@ namespace Desert::Core::Serialize
         // says so — the entity simply reappears. It was the lock's defect, already live for visibility,
         // in the same panel and one row up. No version bump: an added key is what ForeignKeys is for.
         Register(
-             MakeFlag<ECS::VisibilityComponent>( "Visibility", "Visible", &ECS::VisibilityComponent::Visible ) );
+             MakeFlag<ECS::VisibilityComponent>( "Visibility", "Visible", &ECS::VisibilityComponent::IsVisible,
+                                                &ECS::SetVisible ) );
 
         // ---- Level sequence actor: the `.dseq` it plays + playback settings + binding overrides (I11) ----
         // {SequenceGuid, SequencePath, Loop, AutoPlay, BindingOverrides[{Binding, Entity}]}: the Foliage shape

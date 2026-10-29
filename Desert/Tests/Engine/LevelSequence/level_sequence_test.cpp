@@ -398,7 +398,7 @@ TEST( LevelSequenceDocument, AVisibilityTrackHidesTheActorFromItsKeyOn )
         const auto step = ECS::StepLevelSequence( world.registry, component, playback, Step( tick ) );
         EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
         ASSERT_TRUE( world.registry.has<ECS::VisibilityComponent>( world.door ) ) << "tick " << tick;
-        EXPECT_EQ( world.registry.get<ECS::VisibilityComponent>( world.door ).Visible, visible )
+        EXPECT_EQ( world.registry.get<ECS::VisibilityComponent>( world.door ).IsVisible(), visible )
              << "tick " << tick;
     }
     EXPECT_FALSE( world.registry.has<ECS::VisibilityComponent>( world.other ) );

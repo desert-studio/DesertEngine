@@ -296,16 +296,16 @@ namespace Desert::ECS
                          if ( registry.has<MaterialComponent>( entity ) )
                          {
                              const auto& matc = registry.get<MaterialComponent>( entity );
-                             if ( !matc.ShaderName.empty() )
+                             if ( !matc.GetShaderName().empty() )
                              {
                                  std::vector<std::pair<std::string, glm::vec4>> overrides;
-                                 overrides.reserve( matc.Params.size() );
-                                 for ( const auto& p : matc.Params )
+                                 overrides.reserve( matc.GetParams().size() );
+                                 for ( const auto& p : matc.GetParams() )
                                      overrides.emplace_back( p.Name, p.Value );
 
                                  std::vector<std::pair<std::string, uint64_t>> texOverrides;
-                                 texOverrides.reserve( matc.Textures.size() );
-                                 for ( const auto& t : matc.Textures )
+                                 texOverrides.reserve( matc.GetTextures().size() );
+                                 for ( const auto& t : matc.GetTextures() )
                                      texOverrides.emplace_back( t.Name, t.TextureHandle );
 
                                  // This draw REPLACES the entity's lit draw (note the return), so it is
@@ -314,7 +314,7 @@ namespace Desert::ECS
                                  const bool overrideCasts = mesh.CastShadows;
 
                                  renderCommandBuffer.Emplace<Graphic::Render::DrawGenericMeshCommand>(
-                                      static_cast<uint32_t>( entity ), targetMesh, worldTransform, matc.ShaderName,
+                                      static_cast<uint32_t>( entity ), targetMesh, worldTransform, matc.GetShaderName(),
                                       Graphic::MaterialOverrides{ std::move( overrides ),
                                                                   std::move( texOverrides ) },
                                       outlined, /*directTexture*/ nullptr, /*directTextureSampler*/ std::string{},

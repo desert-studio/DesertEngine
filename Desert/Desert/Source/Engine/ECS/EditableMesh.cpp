@@ -46,20 +46,27 @@ namespace Desert::ECS
         component.RuntimeMesh.reset();
     }
 
-    void PostEditStaticMesh( const StaticMeshComponent& before, StaticMeshComponent& after )
+    bool PostEditStaticMesh( entt::registry& registry, entt::entity entity, const StaticMeshComponent& before )
     {
-        const bool meshChanged      = before.MeshHandle != after.MeshHandle;
-        const bool materialsChanged = before.MaterialSlots != after.MaterialSlots;
-        if ( meshChanged && after.MeshHandle )
-        {
-            after.Primitive.reset();
-            ClearEditableMesh( after );
-        }
-        if ( meshChanged || materialsChanged )
-        {
-            // Rebuilt by MeshECSSystem from the slots on the next frame (AdoptMeshMaterialSlots fills a new
-            // mesh's extra sections from its own materials) together with the binding that carries them.
-            after.RuntimeMaterialInstances.clear();
-        }
+        const StaticMeshComponent& now              = registry.get<StaticMeshComponent>( entity );
+        const bool                 meshChanged      = before.MeshHandle != now.MeshHandle;
+        const bool                 materialsChanged = before.MaterialSlots != now.MaterialSlots;
+        if ( !meshChanged && !materialsChanged )
+            return false;
+        registry.patch<StaticMeshComponent>(
+             entity,
+             [meshChanged]( StaticMeshComponent& after )
+             {
+                 if ( meshChanged && after.MeshHandle )
+                 {
+                     after.Primitive.reset();
+                     ClearEditableMesh( after );
+                 }
+                 // Rebuilt by MeshECSSystem from the slots on the next frame (AdoptMeshMaterialSlots fills a
+                 // new mesh's extra sections from its own materials) together with the binding that carries
+                 // them.
+                 after.RuntimeMaterialInstances.clear();
+             } );
+        return true;
     }
 } // namespace Desert::ECS

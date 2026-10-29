@@ -535,7 +535,7 @@ namespace Desert::Editor::Tools
                     const auto& ism    = field.GetComponent<ECS::InstancedStaticMeshComponent>();
                     const bool  hidden = !field.HasComponent<ECS::VisibilityComponent>()
                                               ? false
-                                              : !field.GetComponent<ECS::VisibilityComponent>().Visible;
+                                              : !field.GetComponent<ECS::VisibilityComponent>().IsVisible();
                     const auto  type =
                          manager ? ResolveType( *manager, field.GetComponent<ECS::FoliageComponent>().FoliageType )
                                   : nullptr;
