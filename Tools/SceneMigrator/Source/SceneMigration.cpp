@@ -3206,7 +3206,8 @@ namespace Desert::Migration
         C::MeshBinaryFileHeader header{};
         std::memcpy( header.Magic, bytes.data(), 8 );
         std::memcpy( &header.ByteOrder, bytes.data() + 8, 4 );
-        header.Version      = C::kMeshBinaryVersion;
+        // The 12-row layout built here is v6's; the engine's re-encode below writes the current version.
+        header.Version      = 6u;
         header.FileSize     = fileSize + delta;
         header.SectionCount = kRows;
         header.Flags        = flags & ~kOldSignatureBit;
@@ -3258,8 +3259,9 @@ namespace Desert::Migration
             return Common::MakeFormattedError<std::string>(
                  "'{}' is mesh version 5 with byte 72 = {}; v5 wrote zero there, so the file is not a v5 mesh",
                  path, header.DisplacementMode );
-        static_assert( C::kMeshBinaryVersion == 6u, "a later MeshBinary version adds its own raise after this one" );
-        header.Version = C::kMeshBinaryVersion;
+        // v6 is still read (C::kMeshBinaryOldestReadVersion); the engine's re-encode below writes the current version.
+        static_assert( C::kMeshBinaryOldestReadVersion == 6u, "the raise targets the oldest version the engine reads" );
+        header.Version = 6u;
         std::string raised( bytes );
         std::memcpy( raised.data(), &header, sizeof( header ) );
         auto decoded = Assets::Serialization::DecodeMeshBinary( raised, path );

@@ -9,6 +9,7 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
+#include <algorithm>
 #include <bit>
 #include <climits>
 #include <cstddef>
@@ -79,6 +80,18 @@ namespace Desert::Assets::Serialization
         };
         static_assert( sizeof( BinLODRange ) == 16 );
 
+        // One row per submesh (version 7): its slice of each cluster-DAG section. All zero = no DAG.
+        struct BinClusterDagRange
+        {
+            uint32_t ClustersFirst, ClustersCount;
+            uint32_t GroupsFirst, GroupsCount;
+            uint32_t HierarchyFirst, HierarchyCount;
+            uint32_t VertexRefsFirst, VertexRefsCount;
+            uint32_t TrianglesFirst, TrianglesCount;
+            uint32_t LevelCount, Pad;
+        };
+        static_assert( sizeof( BinClusterDagRange ) == 48 );
+
         struct BinMorphTarget
         {
             uint32_t NameOffset;
@@ -139,10 +152,17 @@ namespace Desert::Assets::Serialization
             SecPolyGroups, // version 2
             SecColors,     // version 4
             SecUV1,        // version 4
+            SecClusterDagRanges,  // version 7: BinClusterDagRange per submesh
+            SecClusterRecords,    // version 7: Geometry::ClusterRecord
+            SecClusterGroups,     // version 7: Geometry::ClusterGroupRecord
+            SecClusterHierarchy,  // version 7: Geometry::ClusterHierarchyNode
+            SecClusterVertexRefs, // version 7: uint32
+            SecClusterTriangles,  // version 7: uint32
             SecCount_      // one past the last id; also the number of rows in the table
         };
         static_assert( SecSubmeshes == Common::Content::kMeshBinarySubmeshSectionId );
-        constexpr uint32_t kSectionCount = SecCount_ - 1; // the one version read has every row
+        constexpr uint32_t kSectionCount   = SecCount_ - 1; // the current version has every row
+        constexpr uint32_t kSectionCountV6 = SecUV1;        // version 6: through UV1, no cluster DAG
 
         constexpr uint32_t kFlagIsSkinned = Common::Content::kMeshFlagIsSkinned;
 
@@ -176,6 +196,17 @@ namespace Desert::Assets::Serialization
                     return 4; // std::array<uint8_t, 4>
                 case SecUV1:
                     return sizeof( glm::vec2 );
+                case SecClusterDagRanges:
+                    return sizeof( BinClusterDagRange );
+                case SecClusterRecords:
+                    return sizeof( Geometry::ClusterRecord );
+                case SecClusterGroups:
+                    return sizeof( Geometry::ClusterGroupRecord );
+                case SecClusterHierarchy:
+                    return sizeof( Geometry::ClusterHierarchyNode );
+                case SecClusterVertexRefs:
+                case SecClusterTriangles:
+                    return sizeof( uint32_t );
                 default:
                     return 0;
             }
@@ -209,6 +240,18 @@ namespace Desert::Assets::Serialization
                     return "Colors";
                 case SecUV1:
                     return "UV1";
+                case SecClusterDagRanges:
+                    return "ClusterDagRanges";
+                case SecClusterRecords:
+                    return "ClusterRecords";
+                case SecClusterGroups:
+                    return "ClusterGroups";
+                case SecClusterHierarchy:
+                    return "ClusterHierarchy";
+                case SecClusterVertexRefs:
+                    return "ClusterVertexRefs";
+                case SecClusterTriangles:
+                    return "ClusterTriangles";
                 default:
                     return "<unknown>";
             }
@@ -325,6 +368,29 @@ namespace Desert::Assets::Serialization
             // the very property the static_asserts above pin.
             return std::as_bytes( std::span( first, count ) );
         };
+        // The cluster DAGs, flattened: none, or one range row per submesh (zeros for a submesh without a DAG).
+        std::vector<BinClusterDagRange>             dagRanges;
+        std::vector<Geometry::ClusterRecord>        dagClusters;
+        std::vector<Geometry::ClusterGroupRecord>   dagGroups;
+        std::vector<Geometry::ClusterHierarchyNode> dagHierarchy;
+        std::vector<uint32_t>                       dagVertexRefs, dagTriangles;
+        if ( std::ranges::any_of( data.Submeshes,
+                                  []( const SubmeshData& s ) { return !s.ClusterDag.Clusters.empty(); } ) )
+            for ( const SubmeshData& s : data.Submeshes )
+            {
+                const Geometry::ClusterDag& d     = s.ClusterDag;
+                const auto                  Count = []( const auto& v ) { return static_cast<uint32_t>( v.size() ); };
+                dagRanges.push_back( { Count( dagClusters ), Count( d.Clusters ), Count( dagGroups ), Count( d.Groups ),
+                                       Count( dagHierarchy ), Count( d.Hierarchy ), Count( dagVertexRefs ),
+                                       Count( d.VertexRefs ), Count( dagTriangles ), Count( d.Triangles ),
+                                       d.LevelCount, 0u } );
+                dagClusters.insert( dagClusters.end(), d.Clusters.begin(), d.Clusters.end() );
+                dagGroups.insert( dagGroups.end(), d.Groups.begin(), d.Groups.end() );
+                dagHierarchy.insert( dagHierarchy.end(), d.Hierarchy.begin(), d.Hierarchy.end() );
+                dagVertexRefs.insert( dagVertexRefs.end(), d.VertexRefs.begin(), d.VertexRefs.end() );
+                dagTriangles.insert( dagTriangles.end(), d.Triangles.begin(), d.Triangles.end() );
+            }
+
         const Payload payloads[kSectionCount] = {
              { SecStaticVertices, AsBytes( data.StaticVertices.data(), data.StaticVertices.size() ),
                data.StaticVertices.size() },
@@ -340,6 +406,12 @@ namespace Desert::Assets::Serialization
              { SecPolyGroups, AsBytes( data.PolyGroups.data(), data.PolyGroups.size() ), data.PolyGroups.size() },
              { SecColors, AsBytes( data.Colors.data(), data.Colors.size() ), data.Colors.size() },
              { SecUV1, AsBytes( data.UV1.data(), data.UV1.size() ), data.UV1.size() },
+             { SecClusterDagRanges, AsBytes( dagRanges.data(), dagRanges.size() ), dagRanges.size() },
+             { SecClusterRecords, AsBytes( dagClusters.data(), dagClusters.size() ), dagClusters.size() },
+             { SecClusterGroups, AsBytes( dagGroups.data(), dagGroups.size() ), dagGroups.size() },
+             { SecClusterHierarchy, AsBytes( dagHierarchy.data(), dagHierarchy.size() ), dagHierarchy.size() },
+             { SecClusterVertexRefs, AsBytes( dagVertexRefs.data(), dagVertexRefs.size() ), dagVertexRefs.size() },
+             { SecClusterTriangles, AsBytes( dagTriangles.data(), dagTriangles.size() ), dagTriangles.size() },
         };
 
         // Offsets are computed before anything is written, because the table sits in front of the
@@ -416,13 +488,14 @@ namespace Desert::Assets::Serialization
                  who, header.ByteOrder, kByteOrderTag );
         }
 
-        // ONE GENERATION IS READ. Versions 1-4 named the rig by a bone hash (SKEL-TREE replaced it with the
-        // skeleton's GUID); Tools/SceneMigrator raises them, this reader refuses them by name.
-        if ( header.Version != kMeshBinaryVersion )
+        // VERSIONS 6 AND 7 ARE READ: v6 is v7 without the cluster-DAG sections (one reader, a section count that
+        // depends on the version). Versions 1-4 named the rig by a bone hash (SKEL-TREE replaced it with the
+        // skeleton's GUID); Tools/SceneMigrator raises them and 5, this reader refuses them by name.
+        if ( !Common::Content::IsReadableMeshBinaryVersion( header.Version ) )
         {
             return Common::MakeFormattedError<MeshAssetData>(
-                 "'{}' is cooked-mesh format version {}, this build reads only version {}{}.", who, header.Version,
-                 kMeshBinaryVersion,
+                 "'{}' is cooked-mesh format version {}, this build reads versions {}-{}{}.", who, header.Version,
+                 Common::Content::kMeshBinaryOldestReadVersion, kMeshBinaryVersion,
                  header.Version < kMeshBinaryVersion
                       ? " - raise it with Tools/SceneMigrator (scripts/Dev/migrate.sh)"
                       : " - it was written by a later build" );
@@ -438,7 +511,7 @@ namespace Desert::Assets::Serialization
                  who, header.FileSize, bytes.size() );
         }
 
-        const uint32_t sectionCount = kSectionCount;
+        const uint32_t sectionCount = header.Version >= 7u ? kSectionCount : kSectionCountV6;
         if ( header.SectionCount != sectionCount )
         {
             return Common::MakeFormattedError<MeshAssetData>(
@@ -710,6 +783,46 @@ namespace Desert::Assets::Serialization
                 return Common::MakeFormattedError<MeshAssetData>(
                      "'{}' blendshape {} names deltas outside the {}-element delta section.", who, i,
                      N( SecMorphDeltas ) );
+            }
+        }
+
+        // THE CLUSTER DAGS (version 7): none, or one range row per submesh; every slice inside its section and
+        // every cluster's group / refs / triangles inside its DAG. A v6 file leaves the rows zero: N() reads 0.
+        if ( N( SecClusterDagRanges ) != 0 && N( SecClusterDagRanges ) != data.Submeshes.size() )
+            return Common::MakeFormattedError<MeshAssetData>( "'{}' has {} cluster-DAG range rows for {} submeshes.",
+                                                              who, N( SecClusterDagRanges ), data.Submeshes.size() );
+        for ( size_t i = 0; i < N( SecClusterDagRanges ); ++i )
+        {
+            BinClusterDagRange r{};
+            std::memcpy( &r, At( SecClusterDagRanges ) + i * sizeof( r ), sizeof( r ) );
+            const auto Slice = [&]( const uint32_t id, const uint32_t first, const uint32_t count, auto& into ) -> bool
+            {
+                if ( first > N( id ) || count > N( id ) - first )
+                    return false;
+                into.resize( count );
+                if ( count != 0 )
+                    std::memcpy( into.data(), At( id ) + size_t( first ) * sizeof( into[0] ),
+                                 size_t( count ) * sizeof( into[0] ) );
+                return true;
+            };
+            Geometry::ClusterDag& dag = data.Submeshes[i].ClusterDag;
+            dag.LevelCount            = r.LevelCount;
+            if ( !Slice( SecClusterRecords, r.ClustersFirst, r.ClustersCount, dag.Clusters ) ||
+                 !Slice( SecClusterGroups, r.GroupsFirst, r.GroupsCount, dag.Groups ) ||
+                 !Slice( SecClusterHierarchy, r.HierarchyFirst, r.HierarchyCount, dag.Hierarchy ) ||
+                 !Slice( SecClusterVertexRefs, r.VertexRefsFirst, r.VertexRefsCount, dag.VertexRefs ) ||
+                 !Slice( SecClusterTriangles, r.TrianglesFirst, r.TrianglesCount, dag.Triangles ) )
+                return Common::MakeFormattedError<MeshAssetData>(
+                     "'{}' submesh {} names a cluster-DAG slice outside its section.", who, i );
+            for ( size_t c = 0; c < dag.Clusters.size(); ++c )
+            {
+                const Geometry::ClusterRecord& k = dag.Clusters[c];
+                if ( k.Group >= dag.Groups.size() || k.FirstVertexRef > dag.VertexRefs.size() ||
+                     k.VertexCount > dag.VertexRefs.size() - k.FirstVertexRef ||
+                     k.FirstTriangle > dag.Triangles.size() || k.TriangleCount > dag.Triangles.size() - k.FirstTriangle )
+                    return Common::MakeFormattedError<MeshAssetData>(
+                         "'{}' submesh {} cluster {} names a group, vertex refs or triangles outside its DAG.", who,
+                         i, c );
             }
         }
 

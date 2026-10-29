@@ -14,6 +14,7 @@
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 #include <Engine/Geometry/DisplacementSurface.hpp>
 #include <Engine/Geometry/MeshLOD.hpp>
+#include <Engine/Geometry/ClusterDag.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -23,6 +24,7 @@
 #include <array>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -85,6 +87,99 @@ namespace Desert::Editor
                 sm.LODs.push_back( std::move( tris ) );
             }
         }
+    }
+
+    // VIRT-GEOM: each submesh's cluster LOD DAG (Geometry/ClusterDag.hpp) and, when @p cutLods, the discrete LOD
+    // chain CUT from it at kClusterDagCutErrors (no second simplification: the DAG is the one reduction). The cook
+    // refuses a DAG whose cut 0 is not LOD0 or whose error is not monotone - the two invariants the renderer's
+    // LOD rule stands on.
+    Common::BoolResultStr BuildMeshClusterDags( Ser::MeshAssetData& data, const std::string& name, const bool cutLods )
+    {
+        // A triangle up to rotation (the winding kept): its smallest rotation, so a cluster-local reorder compares.
+        const auto Canonical = []( const std::vector<uint32_t>& tris )
+        {
+            std::vector<std::array<uint32_t, 3>> out;
+            out.reserve( tris.size() / 3 );
+            for ( size_t i = 0; i + 2 < tris.size(); i += 3 )
+            {
+                const std::array<uint32_t, 3> a{ tris[i], tris[i + 1], tris[i + 2] }, b{ a[1], a[2], a[0] },
+                     c{ a[2], a[0], a[1] };
+                out.push_back( std::min( { a, b, c } ) );
+            }
+            std::sort( out.begin(), out.end() );
+            return out;
+        };
+        for ( size_t s = 0; s < data.Submeshes.size(); ++s )
+        {
+            Ser::SubmeshData& sm = data.Submeshes[s];
+            if ( sm.IndexCount < 3 || sm.VertexCount == 0 ||
+                 size_t( sm.VertexOffset ) + sm.VertexCount > data.StaticVertices.size() ||
+                 size_t( sm.IndexOffset / 3 ) + sm.IndexCount / 3 > data.Indices.size() )
+                return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): no triangles or ranges outside the mesh",
+                                                         name, s, sm.Name );
+            std::vector<float> pos, attrs;
+            pos.reserve( size_t( sm.VertexCount ) * 3 );
+            attrs.reserve( size_t( sm.VertexCount ) * Geometry::kSimplifyAttributeCount );
+            glm::vec3 lo( std::numeric_limits<float>::max() ), hi( -std::numeric_limits<float>::max() );
+            for ( uint32_t v = 0; v < sm.VertexCount; ++v )
+            {
+                const Ser::StaticVertexData& vertex = data.StaticVertices[sm.VertexOffset + v];
+                pos.insert( pos.end(), { vertex.Position.x, vertex.Position.y, vertex.Position.z } );
+                Geometry::AppendSimplifyAttributes( vertex.Normal, vertex.TexCoord, attrs );
+                lo = glm::min( lo, vertex.Position );
+                hi = glm::max( hi, vertex.Position );
+            }
+            std::vector<uint32_t> tris;
+            tris.reserve( sm.IndexCount );
+            for ( uint32_t t = 0; t < sm.IndexCount / 3; ++t )
+            {
+                const Ser::IndexData& f = data.Indices[sm.IndexOffset / 3 + t];
+                tris.insert( tris.end(), { f.V1, f.V2, f.V3 } );
+            }
+            auto built = Geometry::BuildClusterDag( pos, sm.VertexCount, tris, attrs.data(), Geometry::ClusterDagSettings{} );
+            if ( !built.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): {}", name, s, sm.Name, built.GetError() );
+            sm.ClusterDag             = built.ExtractValue();
+            const float boundsRadius  = 0.5f * glm::length( hi - lo );
+            if ( Canonical( Geometry::CutClusterDag( sm.ClusterDag, 0.0f, boundsRadius ) ) != Canonical( tris ) )
+                return Common::MakeFormattedError<bool>( "'{}' submesh {} ('{}'): the DAG's cut 0 is not LOD0", name, s,
+                                                         sm.Name );
+            uint32_t rootTriangles = 0;
+            for ( const Geometry::ClusterRecord& c : sm.ClusterDag.Clusters )
+            {
+                const Geometry::ClusterGroupRecord& g = sm.ClusterDag.Groups[c.Group];
+                if ( !( c.LodError < g.ParentLodError ) )
+                    return Common::MakeFormattedError<bool>(
+                         "'{}' submesh {} ('{}'): level {} cluster error {} is not below its group's parent error {}",
+                         name, s, sm.Name, c.Level, c.LodError, g.ParentLodError );
+                if ( g.ParentLodError == Geometry::kClusterRootError )
+                    rootTriangles = std::max( rootTriangles, c.TriangleCount );
+            }
+            LOG_INFO( "[VirtGeomCook] '{}' submesh {} ('{}'): {} triangles -> {} clusters, {} groups, {} levels, {} "
+                      "hierarchy nodes, largest root cluster {} triangles",
+                      name, s, sm.Name, tris.size() / 3, sm.ClusterDag.Clusters.size(), sm.ClusterDag.Groups.size(),
+                      sm.ClusterDag.LevelCount, sm.ClusterDag.Hierarchy.size(), rootTriangles );
+
+            sm.LODs.clear();
+            if ( !cutLods )
+                continue;
+            size_t previous = tris.size() / 3;
+            for ( size_t k = 1; k < std::size( Geometry::kClusterDagCutErrors ); ++k )
+            {
+                const std::vector<uint32_t> cut =
+                     Geometry::CutClusterDag( sm.ClusterDag, Geometry::kClusterDagCutErrors[k], boundsRadius );
+                // A cut no coarser than the level before it is not a level: the DAG has nothing to drop there.
+                if ( cut.size() / 3 >= previous )
+                    continue;
+                previous = cut.size() / 3;
+                std::vector<Ser::IndexData> faces;
+                faces.reserve( previous );
+                for ( size_t i = 0; i + 2 < cut.size(); i += 3 )
+                    faces.push_back( { cut[i], cut[i + 1], cut[i + 2] } );
+                sm.LODs.push_back( std::move( faces ) );
+            }
+        }
+        return Common::MakeSuccess( true );
     }
 
     namespace
@@ -242,8 +337,11 @@ namespace Desert::Editor
         // LodPolicy::None is LOD0 only: the authored models stay in the source, unused, so switching the policy
         // back re-derives them without a re-import.
         const bool         generate = asset.Import.Settings.LodPolicy == Assets::MeshLodPolicy::Generate;
+        // A virtual-geometry mesh's LODs are cut from its cluster DAG over LOD0 (one reduction, one vertex copy):
+        // its authored models are not folded, they stay in the source as with LodPolicy::None.
+        const bool         virtualGeometry = asset.Import.Settings.VirtualGeometry;
         Ser::MeshAssetData out;
-        if ( generate && asset.Source.Models.size() > 1 )
+        if ( generate && !virtualGeometry && asset.Source.Models.size() > 1 )
         {
             std::vector<BuiltModel> lods;
             for ( size_t k = 1; k < asset.Source.Models.size(); ++k )
@@ -261,7 +359,13 @@ namespace Desert::Editor
         else
             out = std::move( lod0.ExtractValue().Data );
         // Sections the authored models left without LODs are simplified; folded ones are kept as authored.
-        if ( generate )
+        if ( virtualGeometry )
+        {
+            const auto dags = BuildMeshClusterDags( out, asset.Name, generate );
+            if ( !dags.IsSuccess() )
+                return Common::MakeError<std::string>( dags.GetError() );
+        }
+        else if ( generate )
             BakeMeshLODs( out );
         return Common::MakeSuccess( Ser::EncodeMeshBinary( out ) );
     }

@@ -37,7 +37,8 @@ namespace Desert::Assets::Serialization
                       : std::optional<std::string>( Assets::MeshDisplacementModeName( settings.Mesh.Displacement ) ),
                  settings.Mesh.DisplacementBake == Assets::MeshDisplacementBakeSettings{}
                       ? std::nullopt
-                      : std::optional<float>( settings.Mesh.DisplacementBake.EdgeLengthCm ) };
+                      : std::optional<float>( settings.Mesh.DisplacementBake.EdgeLengthCm ),
+                 settings.Mesh.VirtualGeometry ? std::optional<bool>( true ) : std::nullopt };
     }
 
     Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )
@@ -98,6 +99,7 @@ namespace Desert::Assets::Serialization
                      *text.DisplacementEdgeLengthCm );
             out.Mesh.DisplacementBake.EdgeLengthCm = *text.DisplacementEdgeLengthCm;
         }
+        out.Mesh.VirtualGeometry = text.VirtualGeometry.value_or( false );
         out.CombineMeshes     = text.CombineMeshes;
         out.Mesh.UniformScale = text.UniformScale;
         out.Mesh.UpAxis       = *axis;

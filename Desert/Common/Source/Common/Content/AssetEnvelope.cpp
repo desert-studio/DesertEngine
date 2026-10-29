@@ -672,11 +672,11 @@ namespace Common::Content
                                                                 "(GUID), this build reads only version "
                                                                 "{} - re-import it from its source",
                                                                 version, kMeshBinaryVersion );
-                    if ( version < kMeshBinaryVersion )
+                    if ( version < kMeshBinaryOldestReadVersion )
                         return MakeFormattedError<AssetHeader>(
-                             "mesh header: mesh version {}, this build reads only version {} - raise it with "
+                             "mesh header: mesh version {}, this build reads versions {}-{} - raise it with "
                              "Tools/SceneMigrator (scripts/Dev/migrate.sh)",
-                             version, kMeshBinaryVersion );
+                             version, kMeshBinaryOldestReadVersion, kMeshBinaryVersion );
                 }
                 if ( static_cast<std::size_t>( in.gcount() ) != prefix.size() )
                     return MakeFormattedError<AssetHeader>( "mesh header: {} bytes where the prefix is {}",
@@ -694,7 +694,7 @@ namespace Common::Content
                 const std::optional<AssetGuid> guid = ReadMeshHeaderGuid( prefix );
                 if ( !guid || guid->IsNull() )
                     return MakeFormattedError<AssetHeader>( "mesh header: a version {} mesh states a null GUID",
-                                                            kMeshBinaryVersion );
+                                                            header.Version );
                 AssetHeader stated;
                 stated.Kind = ( header.Flags & kMeshFlagIsSkinned ) != 0 ? ContentKind::SkinnedMesh
                                                                          : ContentKind::StaticMesh;
