@@ -1064,15 +1064,16 @@ namespace Desert::Graphic
         // The view's memory census sizes the SSR trace from the profile, so the profile holds the factor.
         m_ViewProfile.ReflectionDownsampleFactor = quality.As<uint32_t>( Parameter::ReflectionDownsampleFactor );
         m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
-        m_PathTracingSettings                 = System::PathTracer::Settings{
-                             .SamplesPerPixel = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
-                             .PathsPerFrame   = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
-                             .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
-                             .MaxPathIntensity =
-                                  quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
-                             .Denoiser = quality.As<Common::Scalability::PathTracingDenoiserMethod>(
-                                  Parameter::PathTracingDenoiser ),
-                             .AntiFirefly = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ) };
+        m_PathTracingSettings                    = System::PathTracer::Settings{
+                                .SamplesPerPixel  = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
+                                .PathsPerFrame    = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
+                                .MaxBounces       = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
+                                .MaxPathIntensity = quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
+                                .Denoiser =
+                  quality.As<Common::Scalability::PathTracingDenoiserMethod>( Parameter::PathTracingDenoiser ),
+                                .AntiFirefly   = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ),
+                                .LightSampling = static_cast<System::PathTracer::LightSamplingMethod>(
+                  quality.As<uint32_t>( Parameter::PathTracingLightSampling ) ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
