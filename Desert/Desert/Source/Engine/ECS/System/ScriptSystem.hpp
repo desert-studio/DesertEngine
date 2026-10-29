@@ -52,6 +52,12 @@ namespace Desert::ECS
             return m_Engine.PlayerInput();
         }
 
+        /// The scene's scripts while they run: what the gameplay debugger reads a slot's live state from.
+        [[nodiscard]] const Scripting::ScriptEngine& GetEngine() const
+        {
+            return m_Engine;
+        }
+
         void Update( entt::registry& registry, Graphic::Render::RenderCommandBuffer&,
                      const Common::Timestep& ts ) override
         {

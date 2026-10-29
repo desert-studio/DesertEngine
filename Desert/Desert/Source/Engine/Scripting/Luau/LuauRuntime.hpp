@@ -183,7 +183,7 @@ namespace Desert::Scripting
         /// `Properties[property.Name] = <its value as the script reads it>` (an entity resolved in `world`).
         void SetProperty( LuauSlot slot, const ScriptProperty& property, const LuauPropertyWorld& world );
 
-        /// `Properties[name]` as a scalar of kind `type` (Number, Int, Bool, String, Enum): false when the slot,
+        /// `Properties[name]` as a scalar of kind `type` (LuauProperties::ReadScalar): false when the slot,
         /// the table or a value of that kind is not there.
         [[nodiscard]] bool ReadProperty( LuauSlot slot, const std::string& name, PropertyType type,
                                          ScriptValue& out ) const;
