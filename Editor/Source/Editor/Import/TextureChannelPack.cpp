@@ -147,7 +147,7 @@ namespace Desert::Editor
         created.Intent     = slot.ColorSpace == ::Desert::Core::Formats::TextureColorSpace::SRGB
                                   ? ::Desert::Core::Formats::TextureIntent::Colour
                                   : ::Desert::Core::Formats::TextureIntent::PackedMasks;
-        auto written = WriteDerivedTexture( encoded, out, ".png", created );
+        auto written       = WriteDerivedTexture( encoded, out, ".png", created );
         if ( !written.IsSuccess() )
             return Common::MakeError<PackOutcome>(
                  std::format( "[Import] slot '{}': {}", slot.Slot, written.GetError() ) );
@@ -166,9 +166,9 @@ namespace Desert::Editor
         std::filesystem::path       image  = onDisk;
         image.replace_extension( imageExtension );
         const auto view    = std::as_bytes( std::span( bytes ) );
-        const auto written = Assets::WriteTextureSource( onDisk, Common::Content::ContentKind::Texture,
-                                                         Common::AssetHandle::StableKeyForPath( image ),
-                                                         std::vector<std::byte>( view.begin(), view.end() ), settingsIfCreated );
+        const auto written = Assets::WriteTextureSource(
+             onDisk, Common::Content::ContentKind::Texture, Common::AssetHandle::StableKeyForPath( image ),
+             std::vector<std::byte>( view.begin(), view.end() ), settingsIfCreated );
         if ( !written.IsSuccess() )
             return Common::MakeError<PackOutcome>( std::format( "cannot write the texture asset '{}': {}",
                                                                 asset.generic_string(), written.GetError() ) );
