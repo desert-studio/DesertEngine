@@ -317,6 +317,10 @@ namespace Desert::Graphic::System
             switch ( slice )
             {
                 case GenericSlice::Forward:
+                    // An opaque draw is shaded only when this frame's depth prepass admitted it ("Forward: Depth
+                    // Prepass", ForwardDepth): the base pass tests against that depth and writes none.
+                    if ( opaque && !OpaqueGenericAdmitted( g ) )
+                        continue;
                     // The forward render path: no screen masks (no G-buffer to trace against); the virtual shadow
                     // map in place of the atlas under VirtualMaps (MeshGeometryPass's Declare set the flag).
                     permutation = ForwardShadowMaskVariant( *shader, false, false, m_ForwardVirtualLocal );
@@ -329,11 +333,15 @@ namespace Desert::Graphic::System
                     cellPass    = MeshPass::GBuffer;
                     break;
                 case GenericSlice::DeferredDepthNormal:
+                case GenericSlice::ForwardDepth:
                 {
-                    if ( surfaceOverride || !opaque )
+                    if ( !opaque || ( surfaceOverride && slice == GenericSlice::DeferredDepthNormal ) )
                         continue;
-                    auto depthNormal = TemplateCellShader( shaderName, MeshVertexPath::Static,
-                                                           MeshPass::DepthNormal, isRegistered );
+                    // The forward prepass draws a surface override through its template's (Static x Depth) cell
+                    // (its Forward-slice draw is shaded by the template itself); every other template through its
+                    // DepthNormal program.
+                    const MeshPass depthPass = surfaceOverride ? MeshPass::Depth : MeshPass::DepthNormal;
+                    auto depthNormal = TemplateCellShader( shaderName, MeshVertexPath::Static, depthPass, isRegistered );
                     if ( !depthNormal )
                     {
                         // The parser refuses an opaque mesh-path program without the pass, so this is a program
@@ -348,7 +356,7 @@ namespace Desert::Graphic::System
                         continue;
                     }
                     programName = std::move( *depthNormal );
-                    cellPass    = MeshPass::DepthNormal;
+                    cellPass    = depthPass;
                     break;
                 }
                 case GenericSlice::DeferredForward:
@@ -419,8 +427,16 @@ namespace Desert::Graphic::System
                 if ( slice == GenericSlice::DeferredDepthNormal )
                 {
                     // Into the G-buffer: its target layout; the program writes depth and the normal slot only.
-                    spec.TargetLayout   = GBufferLayout();
-                    spec.DepthCompareOp = DepthCompare::CloserOrEqual;
+                    spec.TargetLayout      = GBufferLayout();
+                    spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
+                    spec.DepthWriteEnabled = true;
+                }
+                else if ( slice == GenericSlice::ForwardDepth )
+                {
+                    // Into the scene depth alone, the prepass's state (its normal output has no attachment).
+                    spec.TargetLayout      = SceneDepthLayout();
+                    spec.DepthCompareOp    = DepthCompare::Closer;
+                    spec.DepthWriteEnabled = true;
                 }
                 else if ( slice != GenericSlice::Forward && opaque )
                 {
@@ -449,7 +465,7 @@ namespace Desert::Graphic::System
                 // depth-normal AND its forward pipeline are Ready (OpaqueGenericAdmitted), so it is drawn in both
                 // passes of a frame or in neither, and counted among the compiling pipelines meanwhile.
                 const auto choice = m_MaterialPipelines.Choose( programKey );
-                if ( slice == GenericSlice::DeferredDepthNormal )
+                if ( slice == GenericSlice::DeferredDepthNormal || slice == GenericSlice::ForwardDepth )
                 {
                     if ( !choice.UseOwnPipeline ||
                          !GenericForwardPipelineReady( templateShader, shaderName, m_GenericPrepassRayTracedSun,
@@ -468,8 +484,8 @@ namespace Desert::Graphic::System
                     // this pass shades another permutation than the one checked (the trace was refused this
                     // frame).
                     ++m_StandInDraws; // not the scene's picture yet (GetStandInDraws)
-                    if ( slice != GenericSlice::Forward && opaque )
-                        continue;
+                    if ( opaque )
+                        continue; // admitted only with its own pipelines Ready (OpaqueGenericAdmitted)
                     if ( choice.Announce )
                         LOG_INFO( "[MeshRenderer] material '{}' draws the default surface until its pipeline is "
                                   "ready (pipeline {})",
@@ -495,7 +511,7 @@ namespace Desert::Graphic::System
                 row = m_GenericStandInRow;
             else if ( g.SlotMaterial == nullptr )
                 // The depth-normal program declares only what it reads: a texture it lacks is no refusal.
-                ApplyGenericTextures( *material, g, shaderName, slice != GenericSlice::DeferredDepthNormal );
+                ApplyGenericTextures( *material, g, shaderName, slice != GenericSlice::DeferredDepthNormal && slice != GenericSlice::ForwardDepth );
             if ( !row )
                 continue; // the stand-in's row: SyncGpuScene registers it whenever the generic queue is not empty
 
@@ -578,6 +594,15 @@ namespace Desert::Graphic::System
         spec.TargetLayout = SceneTargetLayout();
         spec.Layout       = MeshVertexLayout( MeshVertexPath::Static );
         ApplyShaderRenderState( spec, shader->GetProgramMeta().State );
+        // An OPAQUE program is shaded against its own prepassed depth (the forward path's "Forward: Depth Prepass",
+        // the deferred path's "Deferred: Forward Depth/Normal") and writes none (UE: the base pass after a full
+        // depth pass); the prepass slices set their own state back.
+        const auto& state = shader->GetProgramMeta().State;
+        if ( !state.Blend.value_or( false ) && state.DepthWrite.value_or( true ) )
+        {
+            spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
+            spec.DepthWriteEnabled = false;
+        }
         return spec;
     }
 
@@ -1287,6 +1312,9 @@ namespace Desert::Graphic::System
         // counter still reported thousands of instances while the colour frame held none.
         if ( m_StaticQueue.empty() && m_InstancedQueue.empty() )
             return;
+        // The Wireframe view's static and instanced twins write their own depth: not prepassed.
+        if ( m_GeometryPass == MeshPass::Depth && WireframeView() )
+            return;
 
         auto* const camera = m_SceneRenderer->GetMainCamera();
         if ( camera == nullptr )
@@ -1353,22 +1381,33 @@ namespace Desert::Graphic::System
         // is.
         // Forward: the Wireframe view's twin when it is on, exactly as the per-object statics below — one path,
         // the pass state is the only difference (WIREFRAME-ISM: a `!WireframeView()` here dropped every ISM).
-        auto* instancedPipeline = m_DeferredGeometry ? m_InstancedGBufferPipeline.get()
-                                                     : WireframePipelineOr( m_StaticInstancedPipeline.get() );
-        // Forward under Shadows.Method VirtualMaps: the spare's DESERT_LOCAL_SHADOW_VSM twin, material AND instance
-        // (ForwardVsmTwin; a refused twin leaves no spare, so instancing is off and the refusal was said).
-        const StandInCell* const instancedTwin = !m_DeferredGeometry && m_StaticInstancedMaterial
-                                                      ? ForwardVsmTwin( *m_StaticInstancedMaterial )
-                                                      : nullptr;
-        auto* instancedMaterial = m_DeferredGeometry ? m_InstancedGBufferMaterial.get()
-                                  : instancedTwin    ? instancedTwin->Material.get()
-                                                     : m_StaticInstancedMaterial.get();
-        auto* instancedInstance = m_DeferredGeometry ? m_InstancedGBufferInstance.get()
-                                  : instancedTwin    ? instancedTwin->Instance.get()
-                                                     : m_StaticInstancedInstance.get();
-        const bool instancingOn =
-             instancedPipeline != nullptr && instancedMaterial != nullptr && instancedInstance != nullptr;
-        const MeshPass instancedPass = m_DeferredGeometry ? MeshPass::GBuffer : MeshPass::Forward;
+        // THE PASS's CELLS (StaticCellsOf), and on the forward path those of the other half of the depth prepass
+        // pairing: the prepass and the base pass admit the SAME objects through the SAME batching, so every choice
+        // below that depends on a cell asks both passes (cellDrawOf, setForGroup) and instancing is on only when
+        // both have their instanced cells.
+        const StaticPassCells          cells = StaticCellsOf( m_GeometryPass );
+        std::optional<StaticPassCells> companion;
+        if ( PairsWithPrepass( /*wireframeReplaced*/ true ) )
+            companion = StaticCellsOf( m_GeometryPass == MeshPass::Depth ? MeshPass::Forward : MeshPass::Depth );
+        GraphicsPipeline* const   instancedPipeline = cells.InstancedState;
+        DataDrivenMaterial* const instancedMaterial = cells.InstancedSpare;
+        MaterialInstance* const   instancedInstance = cells.InstancedInstance;
+        const bool     instancingOn  = cells.InstancingOn && ( !companion || companion->InstancingOn );
+        const MeshPass instancedPass = m_GeometryPass;
+        auto* const    materialService = Runtime::ResourceRegistry::GetMaterialService();
+        // A `.demat`'s (Instanced x pass) and per-object (Static x pass) cells: the Forward ones through their
+        // virtual-shadow permutation (ForwardVirtualCell), the others the service's sibling.
+        const auto instancedCellOf = [&]( const StaticPassCells& c, DataDrivenMaterial* mat ) -> DataDrivenMaterial*
+        {
+            return ForwardVirtualCell( materialService->GetVariant( mat, MeshVertexPath::Instanced, c.Pass ), mat,
+                                       MeshVertexPath::Instanced, c.Pass );
+        };
+        const auto perObjectCellOf = [&]( const StaticPassCells& c, DataDrivenMaterial* mat ) -> DataDrivenMaterial*
+        {
+            return c.Pass == MeshPass::Forward
+                        ? ForwardVirtualCell( mat, mat, MeshVertexPath::Static, MeshPass::Forward )
+                        : materialService->GetVariant( mat, MeshVertexPath::Static, c.Pass );
+        };
 
         // ONE ACCUMULATOR PER RECORDING MATERIAL, and that is Г28's change. There used to be a single
         // triple here — transforms, material rows, draws — shared by every batch in the pass, which is
@@ -1405,10 +1444,10 @@ namespace Desert::Graphic::System
 
             auto*               materials = Runtime::ResourceRegistry::GetMaterialService();
             const bool          hasAsset  = materials != nullptr && materials->Owns( group );
-            DataDrivenMaterial* variant =
-                 hasAsset ? ForwardVirtualCell( materials->GetVariant( group, MeshVertexPath::Instanced, instancedPass ),
-                                                group, MeshVertexPath::Instanced, instancedPass )
-                          : nullptr;
+            DataDrivenMaterial* variant = hasAsset ? instancedCellOf( cells, group ) : nullptr;
+            // Paired with the prepass: batched only when BOTH passes have the cell, so both batch alike.
+            if ( variant != nullptr && companion && instancedCellOf( *companion, group ) == nullptr )
+                variant = nullptr;
 
             switch ( SelectInstancedRecorder( hasAsset, variant != nullptr ) )
             {
@@ -1462,64 +1501,71 @@ namespace Desert::Graphic::System
         // stand-in group, appended last and recorded by the default surface's cell, so the stand-in's buffers
         // are filled once in the pass however many materials are waiting.
         using CellDraw                          = MaterialPipelineTracker::CellDraw;
-        GraphicsPipeline* const staticPassState = ( m_DeferredGeometry && m_StaticGBufferPipeline )
-                                                       ? m_StaticGBufferPipeline.get()
-                                                       : WireframePipelineOr( m_StaticPipeline.get() );
-        // The grouping key is the slot's (Static x Forward) cell; in the G-buffer pass the draw records its twin.
-        StandInCell* const standIn = StandIn( MeshVertexPath::Static, MeshPass::Forward );
-        // Forward under Shadows.Method VirtualMaps the stand-in group records through the stand-in's own VSM twin
-        // (ForwardVirtualCell below), so its readiness is the twin pipeline's.
-        StandInCell* standInDraw = m_DeferredGeometry ? StandIn( MeshVertexPath::Static, MeshPass::GBuffer ) : standIn;
-        if ( !m_DeferredGeometry && standIn != nullptr )
-            if ( StandInCell* const twin = ForwardVsmTwin( *standIn->Material ) )
-                standInDraw = twin->Material ? twin : nullptr;
-        const GraphicsPipeline* const standInPipeline =
-             standIn != nullptr && standInDraw != nullptr ? CellPipeline( staticPassState, *standInDraw->Material )
-                                                          : nullptr;
-        // Batched stand-ins are recorded by the renderer's instanced spare, which IS the default surface's cell.
-        const GraphicsPipeline* const instancedStandIn =
-             instancingOn ? CellPipeline( instancedPipeline, *instancedMaterial ) : nullptr;
+        GraphicsPipeline* const staticPassState = cells.StaticState;
+        // The grouping key is the slot's (Static x Forward) cell; in the G-buffer and depth passes the draw records
+        // its twin. Forward under Shadows.Method VirtualMaps the stand-in group records through the stand-in's own
+        // VSM twin, so its readiness is the twin pipeline's (StaticCellsOf).
+        StandInCell* const standIn     = StandIn( MeshVertexPath::Static, MeshPass::Forward );
+        StandInCell* const standInDraw = cells.StandInDraw;
 
         // Own when every cell the material would record through in this pass is Ready; Nothing dominates.
-        const auto cellDrawOf = [&]( DataDrivenMaterial* mat, const bool twoSided,
+        const auto worse = []( const CellDraw a, const CellDraw b )
+        {
+            if ( a == CellDraw::Nothing || b == CellDraw::Nothing )
+                return CellDraw::Nothing;
+            return a == CellDraw::DefaultSurface || b == CellDraw::DefaultSurface ? CellDraw::DefaultSurface
+                                                                                   : CellDraw::Own;
+        };
+        const auto cellDrawIn = [&]( const StaticPassCells& c, DataDrivenMaterial* mat, const bool twoSided,
                                      const bool perObject ) -> CellDraw
         {
-            auto* materials = Runtime::ResourceRegistry::GetMaterialService();
             if ( mat == nullptr )
                 return CellDraw::Own;
-            if ( materials == nullptr || !materials->Owns( mat ) )
+            if ( materialService == nullptr || !materialService->Owns( mat ) )
             {
                 // Renderer-owned: the pass's own program, an engine pipeline - except its forward VSM twin, built
                 // on first use, whose pipeline leaves the driver like a content cell's.
-                if ( !perObject || m_DeferredGeometry )
+                if ( !perObject || c.Pass != MeshPass::Forward )
                     return CellDraw::Own;
                 DataDrivenMaterial* const cell =
                      ForwardVirtualCell( mat, mat, MeshVertexPath::Static, MeshPass::Forward );
                 if ( cell == nullptr )
                     return CellDraw::Nothing; // the twin was refused, said once by ForwardVsmTwin
                 return cell == mat ? CellDraw::Own
-                                   : ChooseCellDraw( staticPassState, *cell, twoSided, standInPipeline );
+                                   : ChooseCellDraw( c.StaticState, *cell, twoSided, c.StandInPipeline );
             }
-            CellDraw   worst = CellDraw::Own;
-            const auto fold  = [&worst]( const CellDraw d )
-            {
-                if ( d == CellDraw::Nothing || ( d == CellDraw::DefaultSurface && worst == CellDraw::Own ) )
-                    worst = d;
-            };
+            CellDraw worst = CellDraw::Own;
             if ( perObject )
             {
-                DataDrivenMaterial* cell =
-                     m_DeferredGeometry ? materials->GetVariant( mat, MeshVertexPath::Static, MeshPass::GBuffer )
-                                        : ForwardVirtualCell( mat, mat, MeshVertexPath::Static, MeshPass::Forward );
-                if ( cell != nullptr ) // no twin: refused out loud by the group loop below
-                    fold( ChooseCellDraw( staticPassState, *cell, twoSided, standInPipeline ) );
+                if ( DataDrivenMaterial* const cell = perObjectCellOf( c, mat ) )
+                    worst = worse( worst, ChooseCellDraw( c.StaticState, *cell, twoSided, c.StandInPipeline ) );
+                else if ( companion )
+                    worst = CellDraw::Nothing; // one pass without the cell: in neither (refused out loud below)
+                // unpaired: no twin, refused out loud by the group loop below
             }
             if ( instancingOn )
-                if ( auto* variant =
-                          ForwardVirtualCell( materials->GetVariant( mat, MeshVertexPath::Instanced, instancedPass ),
-                                              mat, MeshVertexPath::Instanced, instancedPass ) )
-                    fold( ChooseCellDraw( instancedPipeline, *variant, twoSided, instancedStandIn ) );
+                if ( DataDrivenMaterial* const variant = instancedCellOf( c, mat ) )
+                    worst = worse( worst,
+                                   ChooseCellDraw( c.InstancedState, *variant, twoSided, c.InstancedStandIn ) );
             return worst;
+        };
+        // Paired with the prepass: the prepass folds both passes' readiness and records it; the base pass of the
+        // same frame takes that record (PrepassCellDraw), so a pipeline leaving the driver between the two changes
+        // nothing until the next frame.
+        const auto cellDrawOf = [&]( DataDrivenMaterial* mat, const bool twoSided,
+                                     const bool perObject ) -> CellDraw
+        {
+            if ( !companion )
+                return cellDrawIn( cells, mat, twoSided, perObject );
+            const PrepassCellKey key{ mat, MeshVertexPath::Static, twoSided, perObject };
+            if ( m_GeometryPass == MeshPass::Forward )
+                if ( const auto decided = PrepassCellDraw( key ) )
+                    return *decided;
+            const CellDraw draw =
+                 worse( cellDrawIn( cells, mat, twoSided, perObject ), cellDrawIn( *companion, mat, twoSided, perObject ) );
+            if ( m_GeometryPass == MeshPass::Depth )
+                m_PrepassCellDraws[key] = draw;
+            return draw;
         };
         const auto ownCellsReady = [&]( DataDrivenMaterial*                             mat,
                                         const std::vector<const StaticMeshRenderData*>& members ) -> CellDraw
@@ -1696,20 +1742,23 @@ namespace Desert::Graphic::System
             // descriptors it never reads. That dummy is gone with this.
             // The forward pass under Shadows.Method VirtualMaps: the same `.demat`'s DESERT_LOCAL_SHADOW_VSM
             // permutation (ForwardVirtualCell), which reads the view's virtual shadow map in place of the atlas.
+            // The G-buffer and depth passes record through the slot's twin of their own pass.
+            const bool          viewTwin = m_GeometryPass != MeshPass::Forward;
             DataDrivenMaterial* drawMat =
-                 m_DeferredGeometry ? mat : ForwardVirtualCell( mat, mat, MeshVertexPath::Static, MeshPass::Forward );
+                 viewTwin ? mat : ForwardVirtualCell( mat, mat, MeshVertexPath::Static, MeshPass::Forward );
             if ( drawMat == nullptr )
                 continue; // MaterialService named the material and the permutation it refused
-            if ( m_DeferredGeometry )
+            if ( viewTwin )
             {
                 auto* materials = Runtime::ResourceRegistry::GetMaterialService();
                 if ( mat == standInKey )
                 {
-                    drawMat = standInDraw->Material.get(); // the stand-in's own G-buffer cell, never the spare
+                    // the stand-in's own cell of this pass, never the spare
+                    drawMat = standInDraw != nullptr ? standInDraw->Material.get() : nullptr;
                 }
                 else if ( materials->Owns( mat ) )
                 {
-                    drawMat = materials->GetVariant( mat, MeshVertexPath::Static, MeshPass::GBuffer );
+                    drawMat = materials->GetVariant( mat, MeshVertexPath::Static, m_GeometryPass );
                 }
                 else
                 {
@@ -1732,7 +1781,8 @@ namespace Desert::Graphic::System
                         }
                     }
                     unownedServed = mat;
-                    drawMat       = m_GBufferUnownedMaterial.get();
+                    drawMat       = m_GeometryPass == MeshPass::GBuffer ? m_GBufferUnownedMaterial.get()
+                                                                        : m_DepthUnownedMaterial.get();
                 }
 
                 if ( drawMat == nullptr )
@@ -1791,10 +1841,7 @@ namespace Desert::Graphic::System
                 // state, drawMat's template fixes the program: its cell's sets are the ones Bind binds. A null
                 // pipeline (the cell's program refused) is refused by the list, the pass's error - never a
                 // skipped object.
-                GraphicsPipeline* pipeline = CellPipeline( ( m_DeferredGeometry && m_StaticGBufferPipeline )
-                                                                ? m_StaticGBufferPipeline.get()
-                                                                : WireframePipelineOr( m_StaticPipeline.get() ),
-                                                           *drawMat );
+                GraphicsPipeline* pipeline = CellPipeline( staticPassState, *drawMat );
                 pipeline =
                      CullPermutation( pipeline, inst != nullptr ? inst->IsTwoSided() : drawMat->IsTwoSided() );
                 // View pass (forward or G-buffer): World / PrevWorld come from the object's motion row; the push
@@ -1835,7 +1882,7 @@ namespace Desert::Graphic::System
                            "pass: it has no usable instanced cell (pipeline {}, material {}, instance {}"
                            "). An ISM is one entity holding N transforms and has no per-object path to "
                            "fall back to, so nothing of it reaches the frame.",
-                           m_InstancedQueue.size(), m_DeferredGeometry ? "G-buffer" : "forward",
+                           m_InstancedQueue.size(), MeshPassName( m_GeometryPass ),
                            instancedPipeline ? "ok" : "MISSING", instancedMaterial ? "ok" : "MISSING",
                            instancedInstance ? "ok" : "MISSING" );
             }
@@ -1983,7 +2030,62 @@ namespace Desert::Graphic::System
 
         // The GPU-generated sections (the landscape grass), through the same pass's instanced cells.
         if ( instancingOn )
-            BuildGpuInstancedDraws( list, instancedPipeline, instancedPass, frameState );
+            BuildGpuInstancedDraws( list, instancedPipeline, instancedPass, frameState,
+                                    companion ? &*companion : nullptr );
+    }
+
+    MeshRenderer::StaticPassCells MeshRenderer::StaticCellsOf( const MeshPass pass )
+    {
+        StaticPassCells cells;
+        cells.Pass                 = pass;
+        StandInCell* const standIn = StandIn( MeshVertexPath::Static, MeshPass::Forward );
+        switch ( pass )
+        {
+            case MeshPass::GBuffer:
+                cells.StaticState       = m_StaticGBufferPipeline ? m_StaticGBufferPipeline.get()
+                                                                  : WireframePipelineOr( m_StaticPipeline.get() );
+                cells.StandInDraw       = StandIn( MeshVertexPath::Static, MeshPass::GBuffer );
+                cells.InstancedState    = m_InstancedGBufferPipeline.get();
+                cells.InstancedSpare    = m_InstancedGBufferMaterial.get();
+                cells.InstancedInstance = m_InstancedGBufferInstance.get();
+                break;
+            case MeshPass::Depth:
+                cells.StaticState       = m_StaticDepthPipeline.get();
+                cells.StandInDraw       = StandIn( MeshVertexPath::Static, MeshPass::Depth );
+                cells.InstancedState    = m_InstancedDepthPipeline.get();
+                cells.InstancedSpare    = m_InstancedDepthMaterial.get();
+                cells.InstancedInstance = m_InstancedDepthInstance.get();
+                break;
+            default:
+            {
+                // Forward: the Wireframe view's twins when it is on (one path, the pass state is the only
+                // difference); under Shadows.Method VirtualMaps the stand-in's and the spare's
+                // DESERT_LOCAL_SHADOW_VSM twins, material AND instance (a refused twin leaves none: the refusal was
+                // said by ForwardVsmTwin).
+                cells.StaticState = WireframePipelineOr( m_StaticPipeline.get() );
+                cells.StandInDraw = standIn;
+                if ( standIn != nullptr )
+                    if ( StandInCell* const twin = ForwardVsmTwin( *standIn->Material ) )
+                        cells.StandInDraw = twin->Material ? twin : nullptr;
+                cells.InstancedState = WireframePipelineOr( m_StaticInstancedPipeline.get() );
+                const StandInCell* const spareTwin =
+                     m_StaticInstancedMaterial ? ForwardVsmTwin( *m_StaticInstancedMaterial ) : nullptr;
+                cells.InstancedSpare =
+                     spareTwin != nullptr ? spareTwin->Material.get() : m_StaticInstancedMaterial.get();
+                cells.InstancedInstance =
+                     spareTwin != nullptr ? spareTwin->Instance.get() : m_StaticInstancedInstance.get();
+                break;
+            }
+        }
+        cells.StandInPipeline = standIn != nullptr && cells.StandInDraw != nullptr && cells.StaticState != nullptr
+                                     ? CellPipeline( cells.StaticState, *cells.StandInDraw->Material )
+                                     : nullptr;
+        cells.InstancingOn =
+             cells.InstancedState != nullptr && cells.InstancedSpare != nullptr && cells.InstancedInstance != nullptr;
+        // Batched stand-ins are recorded by the renderer's instanced spare, which IS the default surface's cell.
+        cells.InstancedStandIn = cells.InstancingOn ? CellPipeline( cells.InstancedState, *cells.InstancedSpare )
+                                                    : nullptr;
+        return cells;
     }
 
     void MeshRenderer::BuildSkinnedDraws( MeshDrawList& list )
@@ -2002,11 +2104,23 @@ namespace Desert::Graphic::System
         // GBuffer", m_DeferredGeometry): the (Skinned x GBuffer) cell into the G-buffer, so the composite shades
         // it and the ray-traced sun trace reads its depth and normal. Forward (MeshGeometryPass): the (Skinned x
         // Forward) cell into the scene target.
-        const bool        gbuffer  = m_DeferredGeometry;
-        GraphicsPipeline* pipeline = gbuffer ? m_SkinnedGBufferPipeline.get() : m_SkinnedPipeline.get();
+        // Depth ("Forward: Depth Prepass"): the (Skinned x Depth) cell into the scene depth.
+        const auto skinnedPassState = [this]( const MeshPass pass ) -> GraphicsPipeline*
+        {
+            return pass == MeshPass::GBuffer ? m_SkinnedGBufferPipeline.get()
+                   : pass == MeshPass::Depth ? m_SkinnedDepthPipeline.get()
+                                             : m_SkinnedPipeline.get();
+        };
+        const MeshPass    cellPass = m_GeometryPass;
+        GraphicsPipeline* pipeline = skinnedPassState( cellPass );
         if ( pipeline == nullptr )
-            return; // SetupGBufferPass / SetupSkinnedGeometryPass said which cell is missing
-        const MeshPass cellPass = gbuffer ? MeshPass::GBuffer : MeshPass::Forward;
+            return; // SetupGBufferPass / SetupDepthPrepass / SetupSkinnedGeometryPass said which cell is missing
+        // The forward path's other half of the depth prepass pairing, whose readiness is folded in (a skinned mesh
+        // has no wireframe twin: it is always prepassed).
+        const std::optional<MeshPass> companionPass =
+             PairsWithPrepass( /*wireframeReplaced*/ false )
+                  ? std::optional<MeshPass>( cellPass == MeshPass::Depth ? MeshPass::Forward : MeshPass::Depth )
+                  : std::nullopt;
 
         // Grouped by material, exactly like DrawStaticMeshes — and for the same two reasons, which the
         // skinned path did not have before and paid for twice:
@@ -2040,14 +2154,16 @@ namespace Desert::Graphic::System
         // is bound (DrawStaticMeshes says why). A renderer-built material has no sibling; it takes the pass's
         // spare cell material, as the static path's m_GBufferUnownedMaterial.
         auto* const materials    = Runtime::ResourceRegistry::GetMaterialService();
-        const auto  passMaterial = [&]( DataDrivenMaterial* mat ) -> DataDrivenMaterial*
+        const auto  materialIn = [&]( const MeshPass pass, DataDrivenMaterial* mat ) -> DataDrivenMaterial*
         {
-            if ( !gbuffer )
+            if ( pass == MeshPass::Forward )
                 return ForwardVirtualCell( mat, mat, MeshVertexPath::Skinned, MeshPass::Forward );
             if ( materials->Owns( mat ) )
-                return materials->GetVariant( mat, MeshVertexPath::Skinned, MeshPass::GBuffer );
-            return m_SkinnedGBufferUnownedMaterial.get();
+                return materials->GetVariant( mat, MeshVertexPath::Skinned, pass );
+            return pass == MeshPass::GBuffer ? m_SkinnedGBufferUnownedMaterial.get()
+                                             : m_SkinnedDepthUnownedMaterial.get();
         };
+        const auto passMaterial = [&]( DataDrivenMaterial* mat ) { return materialIn( cellPass, mat ); };
         for ( const auto& data : m_SkinnedQueue )
         {
             if ( data.Mesh == nullptr )
@@ -2063,13 +2179,23 @@ namespace Desert::Graphic::System
         // rows filled once in the pass; the bones come from the view's ObjectBones like every other group);
         // recording the cell itself would fail the node and drop the frame graph.
         using CellDraw                        = MaterialPipelineTracker::CellDraw;
-        StandInCell* standIn = StandIn( MeshVertexPath::Skinned, cellPass );
-        // Forward under Shadows.Method VirtualMaps: the stand-in's own VSM twin (material and instance).
-        if ( !gbuffer && standIn != nullptr )
-            if ( StandInCell* const twin = ForwardVsmTwin( *standIn->Material ) )
-                standIn = twin->Material ? twin : nullptr;
-        const GraphicsPipeline* const standInPipeline =
-             standIn != nullptr ? CellPipeline( pipeline, *standIn->Material ) : nullptr;
+        const auto standInOf = [&]( const MeshPass pass ) -> StandInCell*
+        {
+            StandInCell* cell = StandIn( MeshVertexPath::Skinned, pass );
+            // Forward under Shadows.Method VirtualMaps: the stand-in's own VSM twin (material and instance).
+            if ( pass == MeshPass::Forward && cell != nullptr )
+                if ( StandInCell* const twin = ForwardVsmTwin( *cell->Material ) )
+                    cell = twin->Material ? twin : nullptr;
+            return cell;
+        };
+        const auto standInPipelineOf = [&]( const MeshPass pass ) -> const GraphicsPipeline*
+        {
+            StandInCell* const      cell  = standInOf( pass );
+            GraphicsPipeline* const state = skinnedPassState( pass );
+            return cell != nullptr && state != nullptr ? CellPipeline( state, *cell->Material ) : nullptr;
+        };
+        StandInCell* const            standIn         = standInOf( cellPass );
+        const GraphicsPipeline* const standInPipeline = standInPipelineOf( cellPass );
         {
             std::vector<SectionRef> standingIn;
             for ( auto& [mat, objects] : groups )
@@ -2077,7 +2203,33 @@ namespace Desert::Graphic::System
                 bool twoSided = mat->IsTwoSided();
                 for ( const auto& obj : objects )
                     twoSided = twoSided || obj.Section->Instance->IsTwoSided();
-                const CellDraw draw = ChooseCellDraw( pipeline, *mat, twoSided, standInPipeline );
+                CellDraw draw = ChooseCellDraw( pipeline, *mat, twoSided, standInPipeline );
+                if ( companionPass )
+                {
+                    // Paired with the prepass (as the static path's cellDrawOf): the prepass folds the other
+                    // pass's readiness in and records it, the base pass of the same frame takes the record.
+                    DataDrivenMaterial* const     source = objects.front().Section->Material;
+                    const PrepassCellKey          key{ source, MeshVertexPath::Skinned, twoSided, true };
+                    const std::optional<CellDraw> decided =
+                         cellPass == MeshPass::Forward ? PrepassCellDraw( key ) : std::nullopt;
+                    if ( decided )
+                        draw = *decided;
+                    else
+                    {
+                        DataDrivenMaterial* const twin  = materialIn( *companionPass, source );
+                        GraphicsPipeline* const   state = skinnedPassState( *companionPass );
+                        const CellDraw other =
+                             twin != nullptr && state != nullptr
+                                  ? ChooseCellDraw( state, *twin, twoSided, standInPipelineOf( *companionPass ) )
+                                  : CellDraw::Nothing;
+                        if ( other == CellDraw::Nothing || draw == CellDraw::Nothing )
+                            draw = CellDraw::Nothing;
+                        else if ( other == CellDraw::DefaultSurface )
+                            draw = CellDraw::DefaultSurface;
+                        if ( cellPass == MeshPass::Depth )
+                            m_PrepassCellDraws[key] = draw;
+                    }
+                }
                 if ( draw == CellDraw::DefaultSurface )
                     standingIn.insert( standingIn.end(), objects.begin(), objects.end() );
                 if ( draw != CellDraw::Own )
@@ -2157,6 +2309,9 @@ namespace Desert::Graphic::System
         spec.CullMode       = CullMode::Back;
         spec.Shader         = m_GeometryShader;
         spec.TargetLayout   = SceneTargetLayout();
+        // THE FORWARD BASE PASS after the full depth prepass (UE): tested CloserOrEqual against the prepass's depth
+        // ("Forward: Depth Prepass", the same gl_Position), none written.
+        spec.DepthWriteEnabled = false;
 
         // Pipelines come from the shared cache (deduped by shader + target + state). The mesh keeps its
         // explicit state for now; Lit's render-state moves to the shader's #pragma state in Phase 2.
@@ -2178,7 +2333,8 @@ namespace Desert::Graphic::System
         // SceneRenderer::SetDebugView has no caller in Runtime/Source, Desert/Desert/Source or
         // Desert/Common/Source. So in a Shipping build this pipeline could never be bound; it was built,
         // held and never used. Desert/Tests/Engine/ShippingPipelines is the census that keeps that true.
-        spec.DebugName   = "StaticMeshWireframe";
+        spec.DebugName         = "StaticMeshWireframe";
+        spec.DepthWriteEnabled = true; // the Wireframe view is not prepassed: it writes its own depth
         spec.PolygonMode = PrimitivePolygonMode::Wireframe;
         if ( const auto wireframe = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec ) )
             m_StaticWireframePipeline = wireframe.GetValue();
@@ -2199,6 +2355,7 @@ namespace Desert::Graphic::System
             ispec.CullMode       = CullMode::Back;
             ispec.Shader         = m_InstancedGeometryShader;
             ispec.TargetLayout   = SceneTargetLayout();
+            ispec.DepthWriteEnabled = false; // tested against the depth prepass, as the per-object pipeline
             if ( const auto instanced = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
                 m_StaticInstancedPipeline = instanced.GetValue();
             else
@@ -2209,7 +2366,8 @@ namespace Desert::Graphic::System
             // Mesh has no per-object path, so without it the Wireframe view had no way to draw one at all.
             if ( m_StaticInstancedPipeline )
             {
-                ispec.DebugName   = "StaticMeshInstancedWireframe";
+                ispec.DebugName         = "StaticMeshInstancedWireframe";
+                ispec.DepthWriteEnabled = true; // not prepassed: writes its own depth
                 ispec.PolygonMode = PrimitivePolygonMode::Wireframe;
                 if ( const auto wireframe = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
                     m_StaticInstancedWireframePipeline = wireframe.GetValue();
@@ -2352,6 +2510,7 @@ namespace Desert::Graphic::System
         spec.CullMode       = CullMode::Back;
         spec.Shader         = m_SkinnedShader;
         spec.TargetLayout   = SceneTargetLayout();
+        spec.DepthWriteEnabled = false; // tested against the depth prepass ((Skinned x Depth)), none written
 
         const auto skinned = GraphicsPipeline::Create( spec );
         if ( !skinned )

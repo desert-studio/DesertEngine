@@ -1995,7 +1995,13 @@ namespace Desert::Graphic
             if ( LocalShadowsAreVirtual() )
             {
                 m_FrameVsmPages.reset();
-                (void)AddFrameVirtualShadows( graph, textures, sceneDepth, {}, glm::vec3( 0.0f, 1.0f, 0.0f ), frame,
+                // "VSM: Mark Local" samples a single-sample depth: at MSAA the prepass's multisampled depth through
+                // its own resolve (the base pass writes no depth, so this is the opaque depth the receivers read).
+                const RDG::TextureRef markDepth =
+                     sceneDepth.IsValid()
+                          ? AddFrameSceneDepthResolve( graph, textures, "Forward: Prepass DepthResolve" )
+                          : RDG::TextureRef{};
+                (void)AddFrameVirtualShadows( graph, textures, markDepth, {}, glm::vec3( 0.0f, 1.0f, 0.0f ), frame,
                                               {} );
             }
         }

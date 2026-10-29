@@ -48,7 +48,8 @@ namespace Desert::Graphic::System
     }
 
     void MeshRenderer::BuildGpuInstancedDraws( MeshDrawList& list, GraphicsPipeline* instancedPipeline,
-                                               const MeshPass pass, const SceneFrameBinding& frameState )
+                                               const MeshPass pass, const SceneFrameBinding& frameState,
+                                               const StaticPassCells* companion )
     {
         if ( m_GpuInstancedQueue.empty() || instancedPipeline == nullptr )
             return;
@@ -73,7 +74,13 @@ namespace Desert::Graphic::System
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
             if ( materials->AwaitsTextures( parent ) )
                 continue; // a texture in flight: drawn from the frame its material is rebuilt bound (GRASS-SETTLE)
-            const uint32_t            view = kGpuInstancedViewBase + gpu.Key * 2u + ( pass == MeshPass::GBuffer );
+            // One cell (and instance) per section x view pass: Forward, GBuffer, Depth.
+            const auto viewOf = [&gpu]( const MeshPass of )
+            {
+                return kGpuInstancedViewBase + ( gpu.Key * 3u ) +
+                       ( of == MeshPass::GBuffer ? 1u : of == MeshPass::Depth ? 2u : 0u );
+            };
+            const uint32_t            view = viewOf( pass );
             DataDrivenMaterial*       cell = parent != nullptr && materials->Owns( parent )
                                                   ? materials->GetViewVariant( parent, gpu.Path, pass, view, this )
                                                   : nullptr;
@@ -90,6 +97,31 @@ namespace Desert::Graphic::System
                  CullPermutation( CellPipeline( instancedPipeline, *cell ), gpu.Material->IsTwoSided() );
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue; // still in the driver: drawn from the frame it is Ready (RDG-PSO)
+            if ( companion != nullptr )
+            {
+                // Paired with the forward depth prepass: the prepass draws a section only when its cell is Ready
+                // in BOTH passes (and its textures are in) and records it; the base pass of the same frame draws
+                // exactly the recorded ones.
+                if ( pass == MeshPass::Forward && PrepassCurrent() )
+                {
+                    if ( !m_PrepassGpuSections.contains( static_cast<uint64_t>( gpu.Key ) ) )
+                        continue;
+                }
+                else
+                {
+                    DataDrivenMaterial* const other =
+                         materials->GetViewVariant( parent, gpu.Path, companion->Pass, viewOf( companion->Pass ), this );
+                    GraphicsPipeline* const otherPipeline =
+                         other != nullptr && companion->InstancedState != nullptr
+                              ? CullPermutation( CellPipeline( companion->InstancedState, *other ),
+                                                 gpu.Material->IsTwoSided() )
+                              : nullptr;
+                    if ( otherPipeline == nullptr || otherPipeline->GetReadiness() != PipelineReadiness::Ready )
+                        continue;
+                    if ( pass == MeshPass::Depth )
+                        m_PrepassGpuSections.insert( static_cast<uint64_t>( gpu.Key ) );
+                }
+            }
 
             auto& instance = m_GpuInstancedInstances[view];
             if ( !instance )

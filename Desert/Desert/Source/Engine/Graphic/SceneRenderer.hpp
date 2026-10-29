@@ -1193,7 +1193,10 @@ namespace Desert::Graphic
 #endif // DESERT_DEV_INSTRUMENTS
         void AddFrameClearMainFramebuffer( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameDepthResolve( RDG::Builder& graph, FrameTextures& textures );
-        void AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures );
+        // "Scene: DepthResolve" (@p name): the scene depth as the single-sample texture a compute or sampling pass
+        // reads - the resolved copy at MSAA, the scene depth itself at one sample; invalid when MSAA has no resolve.
+        RDG::TextureRef AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures,
+                                                   std::string_view name = "Scene: DepthResolve" );
         // The shader resolves of the scene target's SampleZero graph colours ("Velocity: Resolve", MSAA only).
         void AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures );
         // THE PATH-TRACED FRAME (PathTraced( m_RenderMethods ), after the G-buffer): System::PathTracer's restart,

@@ -56,6 +56,8 @@
 #include <string>
 #include <utility>
 #include <unordered_map>
+#include <map>
+#include <compare>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 #include <Common/Core/AssetHandle.hpp>
 
@@ -818,6 +820,16 @@ namespace Desert::Graphic::System
         // pipeline whose readiness this prepass checks together with its own.
         void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun, bool localShadowMasks,
                                              bool virtualLocal );
+        // SETUP of "Forward: Depth Prepass" (UE: the forward renderer's full DepthPass, FDepthPassMeshProcessor), the
+        // forward path's first writer of the scene depth, every forward frame: every opaque mesh the base pass
+        // shades - static, instanced, skinned through their (path x Depth) cell, the landscape grass, the opaque
+        // generics through their template's DepthNormal program - into the scene depth alone. The base pass
+        // (MeshGeometryPass) then tests CloserOrEqual against it and writes none, so both admit the SAME objects:
+        // each records here what it drew (the cells' readiness of BOTH passes folded), and the base pass of the
+        // same frame draws exactly that (PrepassCellDraw). The Wireframe view keeps its own depth write: its static
+        // and instanced meshes are not prepassed. @p view: the scene/view inputs the cells sample.
+        void DeclareDepthPrepassDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
+        [[nodiscard]] Common::BoolResultStr RenderDepthPrepassManual( const RDG::PassContext& context ) const;
         [[nodiscard]] Common::BoolResultStr
         RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
@@ -1147,6 +1159,11 @@ namespace Desert::Graphic::System
     private:
         bool SetupGeometryPass();
         bool SetupGBufferPass(); // deferred: static-mesh G-buffer write pipeline
+        // The forward path's depth prepass cells (DeclareDepthPrepassDraws): (Static / Instanced / Skinned x Depth)
+        // of the default surface on SceneDepthLayout, Closer, depth written. The static one is REQUIRED (the forward
+        // base pass writes no depth); a refused instanced or skinned one costs those meshes in the forward path,
+        // said here.
+        bool SetupDepthPrepass();
         // The translucency pass's draw state for ONE translucent cell shader (a translucent template's
         // Static.Forward cell), built on first use and kept: UE draws each translucent material with its own
         // shader/PSO, so every translucent template gets its own pipeline here. Null (logged once per shader) when
@@ -1189,6 +1206,24 @@ namespace Desert::Graphic::System
         // here, at final size, before any draw is recorded; a refused build is the list's error.
         void BuildStaticDraws( MeshRendererDetail::MeshDrawList& list );
         void BuildSkinnedDraws( MeshRendererDetail::MeshDrawList& list );
+        // The static and instanced state of one geometry pass (Forward, GBuffer, Depth): the per-object pass state,
+        // the stand-in that records a waiting material's objects and its pipeline, the instanced pass state and
+        // the renderer's instanced spare. Forward under the Wireframe view: the wireframe twins; under VirtualMaps:
+        // the spare's and the stand-in's DESERT_LOCAL_SHADOW_VSM twins.
+        struct StandInCell;
+        struct StaticPassCells
+        {
+            MeshPass                Pass             = MeshPass::Forward;
+            GraphicsPipeline*       StaticState      = nullptr;
+            StandInCell*            StandInDraw      = nullptr;
+            const GraphicsPipeline* StandInPipeline  = nullptr;
+            GraphicsPipeline*       InstancedState   = nullptr;
+            DataDrivenMaterial*     InstancedSpare   = nullptr;
+            MaterialInstance*       InstancedInstance = nullptr;
+            const GraphicsPipeline* InstancedStandIn = nullptr;
+            bool                    InstancingOn     = false;
+        };
+        [[nodiscard]] StaticPassCells StaticCellsOf( MeshPass pass );
         // Which part of the generic queue a list takes, and through which program of each draw's template.
         enum class GenericSlice : uint8_t
         {
@@ -1209,6 +1244,10 @@ namespace Desert::Graphic::System
             // view's screen mask (SceneViewInputs.SunShadowMask) in place of the cascades; a blended one through
             // itself.
             DeferredForwardRayTracedSun,
+            // The forward path, "Forward: Depth Prepass": the opaque draws through their template's (Static x
+            // DepthNormal) program into the scene depth alone (its normal output has no attachment), admitted when
+            // that pipeline AND the Forward slice's are Ready (OpaqueGenericAdmitted), as DeferredDepthNormal.
+            ForwardDepth,
         };
         // per-object data-driven materials (v3 slots + overrides)
         void BuildGenericDraws( MeshRendererDetail::MeshDrawList& list, GenericSlice slice );
@@ -1251,6 +1290,7 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList m_GBufferDraws; // "Deferred: GBuffer": static, instanced, skinned
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
         MeshRendererDetail::MeshDrawList m_DepthNormalDraws; // "Deferred: Forward Depth/Normal"
+        MeshRendererDetail::MeshDrawList m_DepthPrepassDraws; // "Forward: Depth Prepass"
         // "MeshShadowCascade<c>": the cascade's casters, built by its Declare (BuildShadowCascadeDraws).
         MeshRendererDetail::MeshDrawList m_CascadeDraws[kCascadeViews];
         // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
@@ -1442,7 +1482,42 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>             m_SkinnedGBufferShader;
         std::shared_ptr<GraphicsPipeline>   m_SkinnedGBufferPipeline;
         std::shared_ptr<DataDrivenMaterial> m_SkinnedGBufferUnownedMaterial;
-        bool                              m_DeferredGeometry = false; // set true only while drawing the G-buffer pass
+        // The pass BuildStaticDraws / BuildSkinnedDraws build for: Forward (MeshGeometryPass), GBuffer ("Deferred:
+        // GBuffer") or Depth ("Forward: Depth Prepass"); set by the Declare that calls them, Forward otherwise.
+        MeshPass m_GeometryPass = MeshPass::Forward;
+        // THE FORWARD DEPTH PREPASS's cells (SetupDepthPrepass): the default surface's (path x Depth) programs as
+        // pass states, the instanced spare (material + instance), the unowned spares - the G-buffer pass's set,
+        // for the view's depth. Null = refused (said by SetupDepthPrepass).
+        std::shared_ptr<GraphicsPipeline>   m_StaticDepthPipeline;
+        std::shared_ptr<GraphicsPipeline>   m_InstancedDepthPipeline;
+        std::shared_ptr<GraphicsPipeline>   m_SkinnedDepthPipeline;
+        std::shared_ptr<DataDrivenMaterial> m_DepthUnownedMaterial;
+        std::shared_ptr<DataDrivenMaterial> m_SkinnedDepthUnownedMaterial;
+        std::shared_ptr<DataDrivenMaterial> m_InstancedDepthMaterial;
+        MaterialInstancePtr                 m_InstancedDepthInstance;
+        // THE PREPASS's ADMISSIONS, per frame (UE: the depth pass and the base pass draw one mesh-draw list): what
+        // "Forward: Depth Prepass" decided for each material group (CellDraw, the Depth and the Forward cells'
+        // readiness folded) and which landscape-grass sections it drew. The base pass of the SAME frame reads
+        // them instead of asking again, so a pipeline that leaves the driver between the two Declares changes
+        // nothing until the next frame (readiness only grows, so the Forward cells it checked are still Ready).
+        struct PrepassCellKey
+        {
+            const DataDrivenMaterial* Material = nullptr;
+            MeshVertexPath            Path     = MeshVertexPath::Static;
+            bool                      TwoSided = false;
+            bool                      PerObject = false;
+            auto operator<=>( const PrepassCellKey& ) const = default;
+        };
+        std::map<PrepassCellKey, MaterialPipelineTracker::CellDraw> m_PrepassCellDraws;
+        std::unordered_set<uint64_t>                                m_PrepassGpuSections; // GpuInstancedRenderData::Key
+        std::optional<uint64_t>                                     m_PrepassFrame;
+        // Whether the pass being built pairs with the other half of the forward prepass (m_GeometryPass Forward
+        // or Depth on the forward path, with the prepass's cells): static/instanced/grass not under the Wireframe
+        // view (@p wireframeReplaced), skinned always.
+        [[nodiscard]] bool PairsWithPrepass( bool wireframeReplaced ) const;
+        // This frame's prepass decision for @p key, when the prepass ran this frame and decided it.
+        [[nodiscard]] std::optional<MaterialPipelineTracker::CellDraw> PrepassCellDraw( const PrepassCellKey& key ) const;
+        [[nodiscard]] bool PrepassCurrent() const;
         // THE TRANSLUCENCY PASS, PER TRANSLUCENT CELL. One entry per translucent template's cell shader: its
         // blended pipeline and a DEDICATED material (+ instance) owning that pass's per-frame UBs / Materials
         // rows — never shared with an opaque material, whose per-frame ring would then be written twice a frame
@@ -1874,8 +1949,11 @@ namespace Desert::Graphic::System
         uint64_t                                          m_GpuInstancedStamp = 0;
         // MeshRendererGpuInstanced.cpp: the GPU-instanced sections into a geometry list (the pass's instanced
         // cell) and into a cascade's movable list (their own masked caster, or the shared instanced caster).
+        // @p companion: the other half of the forward prepass pairing (PairsWithPrepass) - the prepass draws a
+        // section only when its cell is Ready in both passes and records it; the base pass draws what was recorded.
         void BuildGpuInstancedDraws( MeshRendererDetail::MeshDrawList& list, GraphicsPipeline* instancedPipeline,
-                                     MeshPass pass, const SceneFrameBinding& frameState );
+                                     MeshPass pass, const SceneFrameBinding& frameState,
+                                     const StaticPassCells* companion );
         // `cascade` keys the caster cell (one per section x cascade); `shadowView` is the view drawn (the cascade
         // itself, or its movable layer kCascadeMovableViewBase + cascade over the cache) and names its light
         // camera.

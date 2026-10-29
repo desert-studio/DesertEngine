@@ -258,23 +258,29 @@ namespace Desert::Graphic
                                                         : nullptr;
     }
 
-    void SceneRenderer::AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::AddFrameSceneDepthResolve( RDG::Builder& graph, FrameTextures& textures,
+                                                              const std::string_view name )
     {
         if ( !m_TargetFramebuffer || m_TargetFramebuffer->GetDepthAttachmentCount() == 0 )
-            return;
+            return {};
+        const RDG::TextureRef sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
+        const uint32_t        samples    = m_TargetFramebuffer->GetSpecification().Samples;
+        if ( samples <= 1 )
+            return sceneDepth; // one sample: the consumers read the scene depth itself
         auto* resolve =
              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
              UNIQUE_GET_AS( System::SceneDepthResolveRenderer, m_RenderSystems["SceneDepthResolveSystem"] );
         if ( resolve == nullptr || !resolve->IsReady() )
-            return;
-        const RDG::TextureRef sceneDepth = textures.Depth( m_TargetFramebuffer, "SceneColor" );
+            return {};
+        const RDG::TextureRef resolved = textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" );
         DeferredFrameNodes::AddSceneDepthResolve(
-             graph, m_TargetFramebuffer->GetSpecification().Samples, sceneDepth,
-             textures.Depth( resolve->GetFramebuffer(), "SceneDepthResolved" ),
+             graph, samples, sceneDepth, resolved,
              [resolve]( RDG::PassBuilder& pass, RDG::TextureRef depth )
              { resolve->DeclareBindings( pass, depth ); },
              [resolve]( RDG::PassContext& context ) -> Common::BoolResultStr
-             { return resolve->Record( context ); } );
+             { return resolve->Record( context ); },
+             name );
+        return resolved;
     }
 
     void SceneRenderer::AddFrameGraphColorResolves( RDG::Builder& graph, FrameTextures& textures )

@@ -345,14 +345,23 @@ namespace Desert::Graphic
             return {};
         RasterTargets depthOnly;
         depthOnly.Depth = targets->Depth;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+        auto* const meshes  = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
         auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
-        // WIP (VSM-LOCAL step 9, REMAINDER): the meshes' node ("Forward: Depth Prepass", CLEARING, before the
-        // terrain's) lands with MeshRenderer::DeclareDepthPrepassDraws; until then the terrain's node clears.
+        // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        // The meshes' node CLEARS (it is the first writer of the frame's scene depth); without a mesh renderer the
+        // terrain's node does.
+        if ( meshes != nullptr )
+            AddRaster(
+                 graph, "Forward: Depth Prepass", depthOnly, {}, RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+                 [meshes]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshes->RenderDepthPrepassManual( context ); },
+                 [meshes, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+                 { meshes->DeclareDepthPrepassDraws( pass, view ); } );
         if ( terrain != nullptr )
             AddRaster(
-                 graph, "Forward: Terrain Depth Prepass", depthOnly, {}, RDG::LoadOp::ClearDepth( Core::kDepthClear ),
-                 {},
+                 graph, "Forward: Terrain Depth Prepass", depthOnly, {},
+                 meshes != nullptr ? RDG::LoadOp::Load() : RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
                  [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
                  { return terrain->RenderDepthManual( context ); },
                  [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthDraws( pass ); } );

@@ -148,6 +148,10 @@ namespace Desert::Graphic::System
         if ( !SetupGeometryPass() )
             return Common::MakeError( "Failed to setup static geometry pass" );
 
+        // The forward path's depth prepass: required, its base pass tests against that depth and writes none.
+        if ( !SetupDepthPrepass() )
+            return Common::MakeError( "Failed to setup the forward depth prepass" );
+
         // Deferred G-buffer pipeline (optional; forward path is unaffected if it fails to set up). Creating it
         // here compiles the deferred shader + validates the MRT pipeline at startup.
         if ( !SetupGBufferPass() )
@@ -533,7 +537,9 @@ namespace Desert::Graphic::System
 
         // The view's contact shadows, from the SAME settings the deferred composite packs. The forward meshes
         // and the glass march the opaque scene depth (SceneDepthTexture): the deferred path has it (the G-buffer
-        // depth, finished before any of them draws); the forward path has no prepass, so it marches nothing.
+        // depth, finished before any of them draws). The forward path's prepass depth is the base pass's own depth
+        // attachment (loaded, tested, never written), which a draw of that pass cannot also sample: it marches
+        // nothing.
         if ( view != nullptr )
             frame.ContactShadow = m_SceneRenderer->GetContactShadowSettings(
                  *view, m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred );
