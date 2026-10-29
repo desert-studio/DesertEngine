@@ -32,6 +32,22 @@
             "Value": [0.15, 0.0, 0.0, 0.0]
         },
         {
+            "Name": "DetailNormalScale",
+            "Value": [8.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DetailNormalStrength",
+            "Value": [0.8, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MacroHueSize",
+            "Value": [3000.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MacroHueStrength",
+            "Value": [0.35, 0.0, 0.0, 0.0]
+        },
+        {
             "Name": "Layer0Blend",
             "Value": [1.0, 0.0, 0.0, 0.0]
         },
@@ -44,6 +60,10 @@
             "Value": [0.16, 0.27, 0.19, 1.0]
         },
         {
+            "Name": "Layer0NormalStrength",
+            "Value": [1.6, 0.0, 0.0, 0.0]
+        },
+        {
             "Name": "Layer1Blend",
             "Value": [0.0, 0.0, 0.0, 0.0]
         },
@@ -54,6 +74,10 @@
         {
             "Name": "Layer1Tint",
             "Value": [0.22, 0.26, 0.19, 1.0]
+        },
+        {
+            "Name": "Layer1NormalStrength",
+            "Value": [1.6, 0.0, 0.0, 0.0]
         },
         {
             "Name": "Layer2Blend",
@@ -73,6 +97,10 @@
             "Name": "Layer0AlbedoTexture",
             "Guid": "33b6863a530bf3ee3e6d3872f0e274c4",
             "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_Diffuse_2k.detex"
+        },
+        {
+            "Name": "Layer2NormalStrength",
+            "Value": [1.4, 0.0, 0.0, 0.0]
         },
         {
             "Name": "Layer0NormalTexture",
