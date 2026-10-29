@@ -26,6 +26,19 @@ namespace Desert::Graphic::System
             return instance ? dynamic_cast<const DataDrivenMaterial*>( instance->GetParentMaterial() ) : nullptr;
         }
 
+        // The LOD levels a GPU-instanced section is drawn in (MeshRenderer::GpuInstancedRenderData::Levels): a
+        // blade strip's levels are its submeshes, drawn by one draw.
+        uint32_t LevelsOf( const MeshRenderer::GpuInstancedRenderData& gpu )
+        {
+            return gpu.Path == MeshVertexPath::Instanced ? std::max( 1u, gpu.Levels ) : 1u;
+        }
+
+        // Where level @p level's records begin: one record per submesh per level (GpuInstances.hpp).
+        uint64_t LevelArgsOffset( const MeshRenderer::GpuInstancedRenderData& gpu, uint32_t level )
+        {
+            return GpuInstanceArgsOffset( level * static_cast<uint32_t>( gpu.Mesh->GetSubmeshes().size() ) );
+        }
+
         // The producer's buffers into the cell: the instances, and a blade's shape (MeshPathOwnBinding).
         void BindGpuInstancedBuffers( DataDrivenMaterial& cell, const MeshRenderer::GpuInstancedRenderData& gpu )
         {
@@ -103,21 +116,24 @@ namespace Desert::Graphic::System
             frameState.ApplyTo( instance.get() );
             cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
 
-            list.Add( { .Pipeline          = pipeline,
-                        .Mesh              = gpu.Mesh,
-                        .Transform         = glm::mat4( 1.0f ),
-                        .Material          = cell->GetMaterialExecutor(),
-                        .HiddenSubmeshMask = gpu.HiddenSubmeshes,
-                        .IndirectArgs      = gpu.Refs->Args,
-                        .IndirectInstances = gpu.Refs->Instances,
-                        .BindState         = [cell, inst = instance.get(), row,
-                                      wind = PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset )]
-                        {
-                            cell->SetMaterialIndex( row );
-                            cell->SetInstancedWind( wind );
-                            cell->SetPrimitiveFlags( 0u );
-                            cell->Bind( inst );
-                        } } );
+            // One draw per LOD level the producer sorted its instances into, each reading its level's records.
+            for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
+                list.Add( { .Pipeline           = pipeline,
+                            .Mesh               = gpu.Mesh,
+                            .Transform          = glm::mat4( 1.0f ),
+                            .Material           = cell->GetMaterialExecutor(),
+                            .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
+                            .IndirectArgs       = gpu.Refs->Args,
+                            .IndirectInstances  = gpu.Refs->Instances,
+                            .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
+                            .BindState          = [cell, inst = instance.get(), row,
+                                          wind = PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset )]
+                            {
+                                cell->SetMaterialIndex( row );
+                                cell->SetInstancedWind( wind );
+                                cell->SetPrimitiveFlags( 0u );
+                                cell->Bind( inst );
+                            } } );
         }
     }
 
@@ -168,20 +184,22 @@ namespace Desert::Graphic::System
                 continue;
             const uint32_t row = *materialRow;
 
-            list.Add( { .Pipeline          = pipeline,
-                        .Mesh              = gpu.Mesh,
-                        .Transform         = glm::mat4( 1.0f ),
-                        .Material          = caster->GetMaterialExecutor(),
-                        .HiddenSubmeshMask = gpu.HiddenSubmeshes,
-                        .IndirectArgs      = gpu.Refs->Args,
-                        .IndirectInstances = gpu.Refs->Instances,
-                        .BindState = [caster, inst = gpu.Material.get(), row, wind = PackInstanceWind( gpu.Wind )]
-                        {
-                            caster->SetPushMatrix( glm::mat4( 1.0f ) );
-                            caster->SetMaterialIndex( row );
-                            caster->SetInstancedWind( wind );
-                            caster->Bind( inst );
-                        } } );
+            for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
+                list.Add( { .Pipeline           = pipeline,
+                            .Mesh               = gpu.Mesh,
+                            .Transform          = glm::mat4( 1.0f ),
+                            .Material           = caster->GetMaterialExecutor(),
+                            .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
+                            .IndirectArgs       = gpu.Refs->Args,
+                            .IndirectInstances  = gpu.Refs->Instances,
+                            .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
+                            .BindState = [caster, inst = gpu.Material.get(), row, wind = PackInstanceWind( gpu.Wind )]
+                            {
+                                caster->SetPushMatrix( glm::mat4( 1.0f ) );
+                                caster->SetMaterialIndex( row );
+                                caster->SetInstancedWind( wind );
+                                caster->Bind( inst );
+                            } } );
         }
     }
 } // namespace Desert::Graphic::System

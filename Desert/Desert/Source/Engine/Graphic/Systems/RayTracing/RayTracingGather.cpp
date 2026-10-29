@@ -355,19 +355,30 @@ namespace Desert::Graphic::RayTracing
             const void* geometry = nullptr;
             if ( !ResolveGeometry( variants, *data->Mesh, masks, out, geometry ) )
                 continue;
-            const auto           index     = static_cast<uint32_t>( out.Primitives.size() );
-            RayTracingPrimitive& primitive = out.Primitives.emplace_back();
-            primitive.Geometry             = geometry;
-            primitive.GpuSceneRow          = kNoGpuSceneRow;
-            primitive.SourceMesh           = data->Mesh;
-            primitive.CastShadows          = castShadows;
-            primitive.Submeshes = masks;
-            primitive.Kind      = RayTracingPrimitiveKind::GpuInstanced;
-            if ( geometry == nullptr && IsResident( *data->Mesh ) )
-                primitive.ProceduralMesh = data->Mesh;
-            AppendSegmentRecords( *data->Mesh, sections, primitive, out );
-            // One bucket for every section of a mesh (GpuInstances.hpp): record 0 states its count and first.
-            out.GpuInstanced.push_back( { .Primitive = index, .Refs = data->Refs, .Rows = data->Capacity } );
+            // One bucket per LOD level the producer sorted its instances into (MeshRenderer::GpuInstancedRenderData::
+            // Levels; one without a chain): each level's instances are rows of the mesh's BLAS, its first record
+            // (level x submesh count, GpuInstances.hpp) stating the bucket's count and first.
+            const uint32_t levels =
+                 data->BucketCapacities.size() == data->Levels && data->Levels > 1u ? data->Levels : 1u;
+            const auto submeshCount = static_cast<uint32_t>( data->Mesh->GetSubmeshes().size() );
+            for ( uint32_t level = 0; level < levels; ++level )
+            {
+                const auto           index     = static_cast<uint32_t>( out.Primitives.size() );
+                RayTracingPrimitive& primitive = out.Primitives.emplace_back();
+                primitive.Geometry             = geometry;
+                primitive.GpuSceneRow          = kNoGpuSceneRow;
+                primitive.SourceMesh           = data->Mesh;
+                primitive.CastShadows          = castShadows;
+                primitive.Submeshes            = masks;
+                primitive.Kind                 = RayTracingPrimitiveKind::GpuInstanced;
+                if ( geometry == nullptr && IsResident( *data->Mesh ) )
+                    primitive.ProceduralMesh = data->Mesh;
+                AppendSegmentRecords( *data->Mesh, sections, primitive, out );
+                out.GpuInstanced.push_back( { .Primitive = index,
+                                              .Refs      = data->Refs,
+                                              .Rows      = levels == 1u ? data->Capacity : data->BucketCapacities[level],
+                                              .Record    = level * submeshCount } );
+            }
         }
 
         // Skinned: the per-frame dynamic BLAS fills Geometry (SelectDynamicGeometry); until then counted Skinned.

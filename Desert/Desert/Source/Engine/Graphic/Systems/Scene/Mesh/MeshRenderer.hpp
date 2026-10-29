@@ -91,6 +91,9 @@ namespace Desert::Graphic::System
             // the node declares the reads of it and of Instances (the transforms its material binds).
             RDG::BufferRef IndirectArgs{};
             RDG::BufferRef IndirectInstances{};
+            // Where this draw's records begin in IndirectArgs: after the header, or a later level's group of
+            // records (one per submesh) when the producer draws a LOD chain (GpuInstancedRenderData::Levels).
+            uint64_t IndirectArgsOffset = kGpuInstanceArgsHeaderBytes;
             // The per-draw material state the draw records with (transform push constant, material row, bone
             // offset, wind, the instance's descriptor bind), written in exec right before the draw - the same
             // order as before the split. Empty: the draw has none.
@@ -360,6 +363,10 @@ namespace Desert::Graphic::System
             // Per bucket (a strip level for GrassBlade), the instances its record holds room for: the TLAS rows
             // reserved for that level (RayTracingGpuInstanceSource::Rows). Owned by the producer, this frame.
             std::span<const uint32_t> BucketCapacities;
+            // Instanced only: the mesh's LOD levels the producer sorts its instances into, one bucket and one
+            // group of records (one per submesh, level L at record L x submesh count) per level, each drawn by a
+            // draw of its own (UE grass HISM: the instance's LOD by screen size). 1: one bucket, level 0.
+            uint32_t Levels = 1;
             // Stable per section across frames: the view-variant key (several cascade views: Key * kCascadeViews + v).
             uint32_t Key = 0;
             // GrassBlade only: the shared BLAS of each strip level (GrassBladeRayTracing.hpp), indexed by submesh;
