@@ -92,15 +92,18 @@ namespace Desert::Graphic::System
     {
         /// FarTilingDistance (cm), FarTilingScale, MacroVariationSize (cm), MacroVariationStrength.
         glm::vec4 Tiling{ 0.0f };
+        /// DetailNormalScale (times the input's tile size), DetailNormalStrength, MacroHueSize (cm), MacroHueStrength
+        /// (radians).
+        glm::vec4 Detail{ 0.0f };
         /// Input k's LayerKTint.
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> LayerTint{};
-        /// Input k's (LayerKTileSize cm, LayerKBlend, 0, 0).
+        /// Input k's (LayerKTileSize cm, LayerKBlend, LayerKNormalStrength, 0).
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> LayerParams{};
     };
     static_assert( World::Landscape::kLandscapeMaxWeightLayers == 8u,
                    "Common/LandscapeSurface.glslh LandscapeMaterial declares eight inputs" );
-    static_assert( sizeof( LandscapeMaterialValues ) == 17u * sizeof( glm::vec4 ),
-                   "LandscapeMaterialValues is GLSL LandscapeMaterial's 17 vec4 slots" );
+    static_assert( sizeof( LandscapeMaterialValues ) == 18u * sizeof( glm::vec4 ),
+                   "LandscapeMaterialValues is GLSL LandscapeMaterial's 18 vec4 slots" );
 
     /**
      * @brief A tile's landscape material as the raster drew it this frame, outside the draw

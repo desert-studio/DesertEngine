@@ -13,6 +13,9 @@ description: >
   chase, or for an audit.
 ---
 
+**Владелец 10-29 — два параметра всегда: АРХИТЕКТУРА И NEXTGEN; вид — из ассетов, код — только размещение/LOD** (DEV_CONTRACT §00b).
+
+
 # The gauntlet loop, as this project runs it
 
 A method for getting past "pretty good": name a standard the work probably cannot

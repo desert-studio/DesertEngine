@@ -139,6 +139,18 @@ namespace Desert::Graphic::System
             return m_BladeRayTracing;
         }
 
+        // THE CONTROL GATE'S QUESTION (PendingWork::GrassInstances, GRASS-SETTLE p14): the last AddFrame drew a
+        // variety whose instance buffer may hold fewer instances than its generator keeps - its first count has
+        // not come back yet (capacity zero), or a read-back count overflowed the capacity the frame was drawn with
+        // (a camera cut: the buffers are sized by the PREVIOUS view's count, and GrassGenerate drops everything
+        // past them, a straight-edged block of cells losing its meshes). Clears once every drawn variety has had
+        // the swapchain's frames in flight worth of read-backs within its capacity since the last overflow. UE's
+        // automated screenshot waits for the grass builds the same way (the async grass tasks must finish).
+        [[nodiscard]] bool InstancesSettling() const noexcept
+        {
+            return m_Settling;
+        }
+
     private:
         struct FieldGpu
         {
@@ -163,6 +175,10 @@ namespace Desert::Graphic::System
             // capacity has been at least two steps above what the counts ask for (the shrink's hysteresis).
             std::shared_ptr<ShaderResources::StorageBuffer> Feedback;
             std::vector<uint32_t>                           LowFrames;
+            // Read-backs still to come, after the last one that overflowed a bucket, before this variety's draw is
+            // known to hold every instance kept (InstancesSettling); Truncated: that overflow has been logged.
+            uint32_t                                        SettleReads = 0;
+            bool                                            Truncated   = false;
             RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
             RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
@@ -182,6 +198,7 @@ namespace Desert::Graphic::System
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
         std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
+        bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
         std::shared_ptr<ComputePipeline> m_Generate;
         std::shared_ptr<ComputePipeline> m_Finalize;
         mutable ShaderBindingLayoutCache m_GenerateLayout;

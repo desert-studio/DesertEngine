@@ -23,6 +23,8 @@
 #include <Engine/ECS/System/ComponentEventSystem.hpp>
 #include <Engine/ECS/System/ScriptSystem.hpp>
 #include <Engine/ECS/System/GameModeSystem.hpp>
+#include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <array>
@@ -55,6 +57,19 @@ namespace Desert::Editor
         m_PrimaryScene  = m_ActiveScene; // the always-present document #-1 (see SetActiveScene)
     }
 
+    bool SceneWorkspace::GrassInstancesSettling() const
+    {
+        if ( m_SceneRenderer && m_SceneRenderer->GrassInstancesSettling() )
+            return true;
+        for ( const auto& document : m_ExtraScenes )
+            if ( document->Renderer && document->Renderer->GrassInstancesSettling() )
+                return true;
+        for ( const auto& viewport : m_ExtraViewports )
+            if ( viewport->Renderer && viewport->Renderer->GrassInstancesSettling() )
+                return true;
+        return false;
+    }
+
     bool SceneWorkspace::SubsurfaceHistoryConverging() const
     {
         if ( m_SceneRenderer && m_SceneRenderer->SubsurfaceHistoryConverging() )
@@ -85,6 +100,61 @@ namespace Desert::Editor
     {
         m_RenderRegistry.reset();
         m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_ActiveScene );
+    }
+
+    namespace
+    {
+        Graphic::API::Vulkan::VulkanAllocator* DeviceAllocator()
+        {
+            const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
+                 EngineContext::GetInstance().GetRendererContext() );
+            return context ? context->GetVulkanAllocator().get() : nullptr;
+        }
+    } // namespace
+
+    void SceneWorkspace::BeginSceneOpenMeasure( std::string_view scene )
+    {
+        if ( auto* allocator = DeviceAllocator() )
+            allocator->BeginSceneOpen( scene );
+    }
+
+    void SceneWorkspace::SampleSceneOpenMeasure()
+    {
+        if ( auto* allocator = DeviceAllocator() )
+            allocator->SampleSceneOpen();
+    }
+
+    void SceneWorkspace::ReleaseActiveWorld()
+    {
+        std::size_t views = 0;
+        if ( m_ActiveScene == m_PrimaryScene && m_SceneRenderer )
+        {
+            m_SceneRenderer->ReleaseWorldResources();
+            ++views;
+        }
+        for ( const auto& doc : m_ExtraScenes )
+            if ( doc->Scene == m_ActiveScene && doc->Renderer )
+            {
+                doc->Renderer->ReleaseWorldResources();
+                ++views;
+            }
+        for ( const auto& viewport : m_ExtraViewports )
+            if ( viewport->Scene.lock() == m_ActiveScene && viewport->Renderer )
+            {
+                viewport->Renderer->ReleaseWorldResources();
+                ++views;
+            }
+
+        // Nothing of the old world is in flight once the device is idle, so every queued destruction is due now
+        // rather than when the frame ring comes round - and no frame runs while the next world loads.
+        EngineContext::GetInstance().GetDevice()->WaitIdle();
+        const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
+             EngineContext::GetInstance().GetRendererContext() );
+        const std::size_t drained =
+             context && context->GetVulkanAllocator() ? context->GetVulkanAllocator()->DrainDeletionQueue() : 0;
+        LOG_INFO( "[SceneLoad] the old world released: {} view(s), {} deferred GPU destruction(s) drained before "
+                  "the next world loads",
+                  views, drained );
     }
 
     void SceneWorkspace::ActiveSceneReplaced()

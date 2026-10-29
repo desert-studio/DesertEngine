@@ -902,6 +902,15 @@ namespace Desert::Graphic
         return subsurface->IsReady() && profiles != nullptr && profiles->Registry().Count() > 0u;
     }
 
+    bool SceneRenderer::GrassInstancesSettling() const
+    {
+        const auto it = m_RenderSystems.find( "GrassSystem" );
+        if ( it == m_RenderSystems.end() || IsSceneCapture() )
+            return false;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        return static_cast<const System::GrassRenderer*>( it->second.get() )->InstancesSettling();
+    }
+
     bool SceneRenderer::SubsurfaceHistoryConverging() const
     {
         if ( !SubsurfaceRuns() )

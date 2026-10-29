@@ -535,7 +535,8 @@ namespace Desert::Editor
 
     std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled,
                                                              const bool subsurfaceHistoryConverging,
-                                                             const bool materialPipelinesCompiling )
+                                                             const bool materialPipelinesCompiling,
+                                                             const bool grassInstancesSettling )
     {
         ++m_FrameIndex;
         // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
@@ -553,6 +554,11 @@ namespace Desert::Editor
         // FinishAllCompilation first; here the reply/shot waits for a frame with no stand-in (FIELD_Barn
         // 1_first: a grey-blue foliage patch with a straight edge, its GBuffer_TwoSided cell compiling).
         m_FrameQuiescence.Set( Control::PendingWork::MaterialPipelines, materialPipelinesCompiling );
+        // And the grass (GRASS-SETTLE p14): after a camera cut its instance buffers are sized by the previous
+        // view's GPU count and the generator drops the rest, so a block of cells drew without its meshes until the
+        // count came back. UE's automated screenshot waits for the async grass builds; here the reply waits for a
+        // frame whose every grass variety read back within capacity (GrassRenderer::InstancesSettling).
+        m_FrameQuiescence.Set( Control::PendingWork::GrassInstances, grassInstancesSettling );
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;
@@ -1218,6 +1224,16 @@ namespace Desert::Editor
                                         : camera->GetDirection();
 
         PlaceEditorCamera( *camera, position, forward );
+        // A PLACED POSE IS A TELEPORT, so it is a camera cut for every view this camera feeds (UE
+        // FEditorViewportClient::SetIsCameraCut -> FSceneView::bCameraCut, as a bookmark jump makes it): the
+        // histories reprojected from the old pose are reset. Without it the temporal history of the pose before
+        // (a far view seconds away) was reprojected into the new one and settled over seconds as a pale block with
+        // a straight edge (GRASS-SETTLE p21). A camera a person flies is never cut.
+        if ( const auto& scene = m_Workspace.ActiveScene() )
+            for ( size_t view = 0; view < scene->GetViewCount(); ++view )
+                if ( scene->GetViewCamera( view ).get() == camera )
+                    if ( auto* renderer = scene->GetViewRenderer( view ) )
+                        renderer->ResetTemporalHistory();
 
         // INPUT IS NOT DISABLED, and the difference from the capture path is deliberate. `--shot` turns it
         // off because nothing may nudge the camera between the placement and the readback, and there is no

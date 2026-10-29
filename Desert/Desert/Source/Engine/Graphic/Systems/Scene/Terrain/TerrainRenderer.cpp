@@ -124,6 +124,9 @@ namespace Desert::Graphic::System
             material.Values.Tiling =
                  glm::vec4( read( "FarTilingDistance" ).x, read( "FarTilingScale" ).x,
                             read( "MacroVariationSize" ).x, read( "MacroVariationStrength" ).x );
+            material.Values.Detail =
+                 glm::vec4( read( "DetailNormalScale" ).x, read( "DetailNormalStrength" ).x, read( "MacroHueSize" ).x,
+                            read( "MacroHueStrength" ).x );
             for ( uint32_t k = 0; k < World::Landscape::kLandscapeMaxWeightLayers; ++k )
             {
                 const std::string layer      = std::format( "Layer{}", k );
@@ -131,7 +134,8 @@ namespace Desert::Graphic::System
                 // LayerKBlend is an Int: the row holds its bits (MaterialRowSlotValue).
                 material.Values.LayerParams[k] = glm::vec4(
                      read( layer + "TileSize" ).x,
-                     static_cast<float>( std::bit_cast<int32_t>( read( layer + "Blend" ).x ) ), 0.0f, 0.0f );
+                     static_cast<float>( std::bit_cast<int32_t>( read( layer + "Blend" ).x ) ),
+                     read( layer + "NormalStrength" ).x, 0.0f );
                 for ( uint32_t kind = 0; kind < kTerrainLayerMapKinds; ++kind )
                 {
                     const float slice = layers.Slices[k][static_cast<glm::length_t>( kind )];
