@@ -3,6 +3,7 @@
 #include <Engine/Graphic/API/NeuralComputeCaps.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -83,6 +84,15 @@ namespace Desert::Engine::Neural
     // The CPU fp32 reference: forward, then backward to the weight gradients, in the order the layouts above
     // define (sums accumulate in double so the reference is not the thing being measured).
     [[nodiscard]] FusedMlpResult RunFusedMlpReference( const FusedMlpProblem& problem );
+
+    // The same reference with the backward's ReLU mask taken from `maskActivations` (MatrixCount * Batch * 64,
+    // the layout of FusedMlpResult::Activations): [h_l > 0] of the KERNEL's stored activations. A unit whose
+    // pre-activation sits within fp16 rounding of zero flips its mask, which moves the gradient through it by
+    // O(1); that is a rounding of the forward, not an error of the backward arithmetic, so the gradient check
+    // runs against the kernel's own masks and reports the flips separately (CountReluMaskFlips). Output and
+    // Activations stay the reference's own forward. nullopt when the mask tensor is not that size.
+    [[nodiscard]] std::optional<FusedMlpResult>
+    RunFusedMlpReferenceWithMask( const FusedMlpProblem& problem, const std::vector<float>& maskActivations );
 
     // max |gpu - ref| and that divided by max |ref| (the error relative to the tensor's scale: an element-wise
     // ratio is meaningless where a ReLU zeroes the reference).

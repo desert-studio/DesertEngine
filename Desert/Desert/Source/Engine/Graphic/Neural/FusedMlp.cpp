@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <optional>
 
 namespace Desert::Engine::Neural
 {
@@ -73,65 +74,86 @@ namespace Desert::Engine::Neural
         return problem;
     }
 
+    namespace
+    {
+        // The reference's forward and backward; the backward's ReLU mask is [maskActivations > 0] when given
+        // (the kernel's stored h_l), else the reference's own forward activations.
+        FusedMlpResult RunReference( const FusedMlpProblem& problem, const std::vector<float>* maskActivations )
+        {
+            const uint32_t L     = problem.Shape.MatrixCount();
+            const uint32_t batch = problem.Batch;
+
+            // h[l] = the input of matrix l, for every batch row.
+            std::vector<std::vector<float>> h( L, std::vector<float>( size_t( batch ) * W, 0.0f ) );
+            h[0] = problem.Input;
+
+            FusedMlpResult result;
+            result.Output.assign( size_t( batch ) * W, 0.0f );
+            result.WeightGrad.assign( size_t( L ) * W * W, 0.0f );
+
+            for ( uint32_t l = 0; l < L; ++l )
+            {
+                const float* weights = &problem.Weights[size_t( l ) * W * W];
+                float*       out     = l + 1 < L ? h[l + 1].data() : result.Output.data();
+                for ( uint32_t b = 0; b < batch; ++b )
+                    for ( uint32_t j = 0; j < W; ++j )
+                    {
+                        double sum = 0.0;
+                        for ( uint32_t k = 0; k < W; ++k )
+                            sum += double( weights[j * W + k] ) * double( h[l][size_t( b ) * W + k] );
+                        const float z            = float( sum );
+                        out[size_t( b ) * W + j] = l + 1 < L ? std::max( z, 0.0f ) : z;
+                    }
+            }
+
+            std::vector<float> g = problem.OutputGrad;
+            std::vector<float> previous( size_t( batch ) * W, 0.0f );
+            for ( uint32_t l = L; l-- > 0; )
+            {
+                const float* weights = &problem.Weights[size_t( l ) * W * W];
+                float*       grad    = &result.WeightGrad[size_t( l ) * W * W];
+                for ( uint32_t j = 0; j < W; ++j )
+                    for ( uint32_t k = 0; k < W; ++k )
+                    {
+                        double sum = 0.0;
+                        for ( uint32_t b = 0; b < batch; ++b )
+                            sum += double( g[size_t( b ) * W + j] ) * double( h[l][size_t( b ) * W + k] );
+                        grad[j * W + k] = float( sum );
+                    }
+                if ( l == 0 )
+                    break;
+                for ( uint32_t b = 0; b < batch; ++b )
+                    for ( uint32_t k = 0; k < W; ++k )
+                    {
+                        double sum = 0.0;
+                        for ( uint32_t j = 0; j < W; ++j )
+                            sum += double( weights[j * W + k] ) * double( g[size_t( b ) * W + j] );
+                        const size_t row  = size_t( b ) * W + k;
+                        const float  mask = maskActivations ? ( *maskActivations )[size_t( l ) * batch * W + row]
+                                                            : h[l][row];
+                        previous[row] = mask > 0.0f ? float( sum ) : 0.0f;
+                    }
+                std::swap( g, previous );
+            }
+
+            result.Activations.reserve( size_t( L ) * batch * W );
+            for ( const std::vector<float>& layer : h )
+                result.Activations.insert( result.Activations.end(), layer.begin(), layer.end() );
+            return result;
+        }
+    } // namespace
+
     FusedMlpResult RunFusedMlpReference( const FusedMlpProblem& problem )
     {
-        const uint32_t L     = problem.Shape.MatrixCount();
-        const uint32_t batch = problem.Batch;
+        return RunReference( problem, nullptr );
+    }
 
-        // h[l] = the input of matrix l, for every batch row.
-        std::vector<std::vector<float>> h( L, std::vector<float>( size_t( batch ) * W, 0.0f ) );
-        h[0] = problem.Input;
-
-        FusedMlpResult result;
-        result.Output.assign( size_t( batch ) * W, 0.0f );
-        result.WeightGrad.assign( size_t( L ) * W * W, 0.0f );
-
-        for ( uint32_t l = 0; l < L; ++l )
-        {
-            const float* weights = &problem.Weights[size_t( l ) * W * W];
-            float*       out     = l + 1 < L ? h[l + 1].data() : result.Output.data();
-            for ( uint32_t b = 0; b < batch; ++b )
-                for ( uint32_t j = 0; j < W; ++j )
-                {
-                    double sum = 0.0;
-                    for ( uint32_t k = 0; k < W; ++k )
-                        sum += double( weights[j * W + k] ) * double( h[l][size_t( b ) * W + k] );
-                    const float z            = float( sum );
-                    out[size_t( b ) * W + j] = l + 1 < L ? std::max( z, 0.0f ) : z;
-                }
-        }
-
-        std::vector<float> g = problem.OutputGrad;
-        std::vector<float> previous( size_t( batch ) * W, 0.0f );
-        for ( uint32_t l = L; l-- > 0; )
-        {
-            const float* weights = &problem.Weights[size_t( l ) * W * W];
-            float*       grad    = &result.WeightGrad[size_t( l ) * W * W];
-            for ( uint32_t j = 0; j < W; ++j )
-                for ( uint32_t k = 0; k < W; ++k )
-                {
-                    double sum = 0.0;
-                    for ( uint32_t b = 0; b < batch; ++b )
-                        sum += double( g[size_t( b ) * W + j] ) * double( h[l][size_t( b ) * W + k] );
-                    grad[j * W + k] = float( sum );
-                }
-            if ( l == 0 )
-                break;
-            for ( uint32_t b = 0; b < batch; ++b )
-                for ( uint32_t k = 0; k < W; ++k )
-                {
-                    double sum = 0.0;
-                    for ( uint32_t j = 0; j < W; ++j )
-                        sum += double( weights[j * W + k] ) * double( g[size_t( b ) * W + j] );
-                    previous[size_t( b ) * W + k] = h[l][size_t( b ) * W + k] > 0.0f ? float( sum ) : 0.0f;
-                }
-            std::swap( g, previous );
-        }
-
-        result.Activations.reserve( size_t( L ) * batch * W );
-        for ( const std::vector<float>& layer : h )
-            result.Activations.insert( result.Activations.end(), layer.begin(), layer.end() );
-        return result;
+    std::optional<FusedMlpResult> RunFusedMlpReferenceWithMask( const FusedMlpProblem& problem,
+                                                                const std::vector<float>& maskActivations )
+    {
+        if ( maskActivations.size() != size_t( problem.Shape.MatrixCount() ) * problem.Batch * W )
+            return std::nullopt;
+        return RunReference( problem, &maskActivations );
     }
 
     namespace

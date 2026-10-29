@@ -465,16 +465,25 @@ namespace Desert::Engine::Neural
             return Common::MakeError<FusedMlpPathCheck>( activations.GetError() );
         gpu.Activations = FromStored( activations.GetValue(), m_Path );
 
-        // The fp16 networks hold fp16 weights and inputs: their reference is the exact MLP of those values.
-        const FusedMlpResult reference =
-             RunFusedMlpReference( m_Path == NeuralKernelPath::Fp32 ? problem : QuantizedToFp16( problem ) );
+        // The fp16 networks hold fp16 weights and inputs: their reference is the exact MLP of those values. Its
+        // backward runs through the kernel's own stored ReLU masks: an fp16-stored h_l that rounds a near-zero
+        // pre-activation across 0 flips the mask and moves that unit's gradient by O(1) (19 flips put the fp16
+        // weight gradient at rel 3e-2, all of it from the flips; against the kernel's masks it is 5e-4). The
+        // gradient check measures the backward arithmetic; the flips are a forward rounding, reported apart.
+        const std::optional<FusedMlpResult> reference = RunFusedMlpReferenceWithMask(
+             m_Path == NeuralKernelPath::Fp32 ? problem : QuantizedToFp16( problem ), gpu.Activations );
+        if ( !reference )
+            return Common::MakeFormattedError<FusedMlpPathCheck>(
+                 "NN {} activation read-back holds {} values, the shape needs {}", name, gpu.Activations.size(),
+                 size_t( L ) * problem.Batch * W );
 
         FusedMlpPathCheck check;
         check.Path       = m_Path;
         check.Tile       = m_Tile;
-        check.Output     = CompareFusedMlp( gpu.Output, reference.Output );
-        check.WeightGrad = CompareFusedMlp( gpu.WeightGrad, reference.WeightGrad );
-        check.MaskFlips  = CountReluMaskFlips( gpu.Activations, reference.Activations, problem.Shape, problem.Batch );
+        check.Output     = CompareFusedMlp( gpu.Output, reference->Output );
+        check.WeightGrad = CompareFusedMlp( gpu.WeightGrad, reference->WeightGrad );
+        check.MaskFlips =
+             CountReluMaskFlips( gpu.Activations, reference->Activations, problem.Shape, problem.Batch );
         check.Tolerance         = FusedMlpTolerance( m_Path );
         check.GradientTolerance = FusedMlpGradientTolerance( m_Path, problem.Batch );
         check.Pass = check.Output.Rel <= check.Tolerance && check.WeightGrad.Rel <= check.GradientTolerance;
