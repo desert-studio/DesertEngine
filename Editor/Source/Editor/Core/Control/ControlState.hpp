@@ -123,6 +123,24 @@ namespace Desert::Editor::Control
         std::vector<std::string> NnCooperativeMatrixShapes; ///< FormatCooperativeMatrixShape, driver order
     };
 
+    /// THE NEURAL RADIANCE CACHE OF THE MAIN VIEW (PathTracing.RadianceCache Nrc; Engine::Neural::NrcStats as
+    /// plain values, read back from the GPU a few frames late). A scenario judges the cache's training by
+    /// TrainLoss falling below FirstTrainLoss. Active false: no Nrc frame ran since the last reset (or never).
+    struct NrcSnapshot
+    {
+        bool               Active = false;
+        std::string        KernelPath;          ///< NeuralKernelPathName of the path the MLP runs
+        uint64_t           TrainingSteps   = 0; ///< Adam steps since the last reset
+        uint32_t           TrainingSamples = 0; ///< training samples of the last read-back frame
+        uint32_t           TrainingPaths   = 0;
+        uint32_t           SelfQueries     = 0;
+        uint32_t           RenderQueries   = 0; ///< paths of the image that ended in the cache
+        float              TrainLoss       = 0; ///< mean relative L2 of the last read-back frame's steps
+        float              FirstTrainLoss  = 0; ///< the first read-back after the last reset
+        std::vector<float> LossHistory;         ///< the last read-backs, oldest first
+        std::string        Error;               ///< the cache's last refusal, empty when none
+    };
+
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
     /// the documents most-recently-used first, exactly as Ctrl+Tab walks them — so a client reading this
     /// and a person reading the screen are reading the same sequence.
@@ -160,6 +178,8 @@ namespace Desert::Editor::Control
 
         DeviceSnapshot Device;
 
+        NrcSnapshot Nrc;
+
         EditorQuiescence Quiescence;
     };
 
@@ -167,7 +187,7 @@ namespace Desert::Editor::Control
     /// actually honoured — the same rule the command line follows for its flags, and for the same reason:
     /// a list written out by hand drifts, and the drift shows up as a section that silently returns nothing.
     inline constexpr const char* kStateSections[] = {
-         "scene", "selection", "authoring", "documents", "panels", "views", "log", "device", "quiescence",
+         "scene", "selection", "authoring", "documents", "panels", "views", "log", "device", "nrc", "quiescence",
     };
 
     [[nodiscard]] inline std::string KnownSectionList()
@@ -384,6 +404,28 @@ namespace Desert::Editor::Control
             section["name"] = Str( device.Name );
             section["nn"]   = Common::Json::Value( nn );
             root["device"]  = Common::Json::Value( section );
+        }
+
+        if ( Wanted( sections, "nrc" ) )
+        {
+            const NrcSnapshot&         nrc = snapshot.Nrc;
+            Common::Json::Value::Array history;
+            for ( const float loss : nrc.LossHistory )
+                history.push_back( Num( loss ) );
+
+            Common::Json::Object section;
+            section["active"]          = Common::Json::Value( nrc.Active );
+            section["kernelPath"]      = Str( nrc.KernelPath );
+            section["trainingSteps"]   = Num( static_cast<double>( nrc.TrainingSteps ) );
+            section["trainingSamples"] = Num( nrc.TrainingSamples );
+            section["trainingPaths"]   = Num( nrc.TrainingPaths );
+            section["selfQueries"]     = Num( nrc.SelfQueries );
+            section["renderQueries"]   = Num( nrc.RenderQueries );
+            section["trainLoss"]       = Num( nrc.TrainLoss );
+            section["firstTrainLoss"]  = Num( nrc.FirstTrainLoss );
+            section["lossHistory"]     = Common::Json::Value( history );
+            section["error"]           = Str( nrc.Error );
+            root["nrc"]                = Common::Json::Value( section );
         }
 
         if ( Wanted( sections, "quiescence" ) )

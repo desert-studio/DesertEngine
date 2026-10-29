@@ -1511,6 +1511,26 @@ namespace Desert::Editor
                 device.NnCooperativeMatrixShapes.push_back( Engine::FormatCooperativeMatrixShape( shape ) );
         }
 
+        // The main view's neural radiance cache (System::PathTracer's read-back), absent = inactive.
+        if ( const Graphic::SceneRenderer* renderer = m_Workspace.PrimaryRenderer() )
+        {
+            if ( const Engine::Neural::NrcStats* stats = renderer->GetRadianceCacheStats() )
+            {
+                Control::NrcSnapshot& nrc = snapshot.Nrc;
+                nrc.Active                = stats->Active;
+                nrc.KernelPath            = stats->KernelPath;
+                nrc.TrainingSteps         = stats->TrainingSteps;
+                nrc.TrainingSamples       = stats->TrainingSamples;
+                nrc.TrainingPaths         = stats->TrainingPaths;
+                nrc.SelfQueries           = stats->SelfQueries;
+                nrc.RenderQueries         = stats->RenderQueries;
+                nrc.TrainLoss             = stats->TrainLoss;
+                nrc.FirstTrainLoss        = stats->FirstTrainLoss;
+                nrc.LossHistory           = stats->LossHistory;
+                nrc.Error                 = stats->Error;
+            }
+        }
+
         snapshot.LogInfoCount    = LogsPanel::InfoCount();
         snapshot.LogWarningCount = LogsPanel::WarningCount();
         snapshot.LogErrorCount   = LogsPanel::ErrorCount();

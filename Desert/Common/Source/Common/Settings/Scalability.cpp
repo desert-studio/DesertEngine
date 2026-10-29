@@ -329,6 +329,10 @@ namespace Common::Scalability
                CL::None,
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the ReLAX denoiser's firefly clamp before "
                "the a-trous)", 1, Vis::Advanced },
+             { P::PathTracingRadianceCache, G::PathTracing, "PathTracing.RadianceCache", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths cut early into the neural "
+               "radiance cache: Off or Nrc)",
+               Of( PathTracingRadianceCacheMethod::Off ), Vis::Advanced },
              { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,
                CL::None,
                "SceneRenderer::BeginScene -> GlobalIllumination::ScreenProbeGather (pixels a uniform probe side: "
@@ -407,6 +411,8 @@ namespace Common::Scalability
                 return kReflectionMethodNames;
             if ( parameter == Parameter::ShadowsMethod )
                 return kShadowMethodNames;
+            if ( parameter == Parameter::PathTracingRadianceCache )
+                return kPathTracingRadianceCacheNames;
             if ( parameter >= Parameter::DlssPresetNative && parameter <= Parameter::DlssPresetUltraPerformance )
                 return kDlssPresetNames;
             if ( parameter >= Parameter::DlssRRPresetNative &&

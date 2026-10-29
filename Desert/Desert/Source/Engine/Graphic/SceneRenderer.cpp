@@ -1074,7 +1074,9 @@ namespace Desert::Graphic
                                   quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
                              .Denoiser = quality.As<Common::Scalability::PathTracingDenoiserMethod>(
                                   Parameter::PathTracingDenoiser ),
-                             .AntiFirefly = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ) };
+                             .AntiFirefly = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ),
+                             .RadianceCache = quality.As<Common::Scalability::PathTracingRadianceCacheMethod>(
+                                  Parameter::PathTracingRadianceCache ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
@@ -3273,6 +3275,14 @@ namespace Desert::Graphic
         if ( found == m_RenderSystems.end() )
             return 0;
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
+    }
+
+    const Engine::Neural::NrcStats* SceneRenderer::GetRadianceCacheStats() const
+    {
+        const auto found = m_RenderSystems.find( "PathTracerSystem" );
+        if ( found == m_RenderSystems.end() )
+            return nullptr;
+        return static_cast<const System::PathTracer*>( found->second.get() )->GetRadianceCacheStats();
     }
 
     uint64_t SceneRenderer::GetViewTrianglesDrawn() const
