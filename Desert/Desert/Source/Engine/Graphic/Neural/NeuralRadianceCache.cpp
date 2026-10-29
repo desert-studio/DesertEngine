@@ -125,6 +125,7 @@ namespace Desert::Engine::Neural
 
     Common::BoolResultStr NeuralRadianceCache::Initialize()
     {
+        m_ShaderRefusal.reset();
         const auto resolved =
              ResolveNeuralKernelPath( m_Caps, Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath );
         if ( !resolved )
@@ -132,6 +133,13 @@ namespace Desert::Engine::Neural
                                                resolved.GetError() );
         m_Path = resolved.GetValue();
         m_Mlp  = std::make_unique<FusedMlpCompute>( m_Caps );
+        // The MLP's kernels now: a refusal stops the cache before the frame's graph has any of its passes.
+        if ( const auto kernels = m_Mlp->PrepareKernels( m_Path ); !kernels )
+        {
+            m_ShaderRefusal = m_Mlp->GetShaderRefusal();
+            return Common::MakeFormattedError( "NRC: the NN layer's {} kernels are refused: {}",
+                                               NeuralKernelPathName( m_Path ), kernels.GetError() );
+        }
 
         Runtime::ShaderService* shaders = Runtime::ResourceRegistry::GetShaderService();
         if ( !shaders )
@@ -170,7 +178,14 @@ namespace Desert::Engine::Neural
             {
                 ::Desert::Core::ShaderVariant variant;
                 variant.Defines = { std::format( "NN_PATH={}", PathDefine( m_Path ) ) };
-                program->Shader = shaders->AcquireVariant( name, variant );
+                auto acquired = shaders->AcquireVariant( name, variant );
+                if ( !acquired )
+                {
+                    m_ShaderRefusal = NeuralShaderRefusal{ .Program = name, .Variant = variant };
+                    return Common::MakeFormattedError( "NRC: the program '{}' ({}) was refused: {}", name,
+                                                       variant.Defines.front(), acquired.GetError() );
+                }
+                program->Shader = acquired.ExtractValue();
             }
             else
                 program->Shader = shaders->GetByName( name );

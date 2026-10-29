@@ -146,6 +146,9 @@ namespace Desert::Editor::Control
         float              FirstTrainLoss  = 0; ///< the first read-back after the last reset
         std::vector<float> LossHistory;         ///< the last read-backs, oldest first
         std::string        Error;               ///< the cache's last refusal, empty when none
+        std::string        Requested = "Off";   ///< PathTracing.RadianceCache as set (kPathTracingRadianceCacheNames)
+        std::string        Status    = "Off";   ///< what the paths ran: Off when the cache was not asked or refused
+        std::string        Reason;              ///< why the cache that was asked is Off (its standing refusal)
     };
 
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
@@ -430,6 +433,9 @@ namespace Desert::Editor::Control
                 history.push_back( Num( loss ) );
 
             Common::Json::Object section;
+            section["requested"]       = Str( nrc.Requested );
+            section["status"]          = Str( nrc.Status );
+            section["reason"]          = Str( nrc.Reason );
             section["active"]          = Common::Json::Value( nrc.Active );
             section["kernelPath"]      = Str( nrc.KernelPath );
             section["trainingSteps"]   = Num( static_cast<double>( nrc.TrainingSteps ) );

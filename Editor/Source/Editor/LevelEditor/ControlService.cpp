@@ -1559,6 +1559,14 @@ namespace Desert::Editor
         // The main view's neural radiance cache (System::PathTracer's read-back), absent = inactive.
         if ( const Graphic::SceneRenderer* renderer = m_Workspace.PrimaryRenderer() )
         {
+            const auto status = renderer->GetRadianceCacheStatus();
+            const auto name   = []( const Common::Scalability::PathTracingRadianceCacheMethod method ) {
+                return std::string(
+                     Common::Scalability::kPathTracingRadianceCacheNames[static_cast<size_t>( method )] );
+            };
+            snapshot.Nrc.Requested = name( status.Requested );
+            snapshot.Nrc.Status    = name( status.Effective );
+            snapshot.Nrc.Reason    = status.Reason;
             if ( const Engine::Neural::NrcStats* stats = renderer->GetRadianceCacheStats() )
             {
                 Control::NrcSnapshot& nrc = snapshot.Nrc;

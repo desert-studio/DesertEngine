@@ -174,6 +174,7 @@ namespace Desert::Engine::Neural
                                                                                const NeuralKernelPath path )
     {
         using KernelResult = Kernel*;
+        m_ShaderRefusal.reset(); // GetShaderRefusal names this acquisition's refusal only
 
         ::Desert::Core::ShaderVariant variant;
         variant.Defines = { std::format( "NN_KERNEL={}", kernel ), std::format( "NN_PATH={}", PathDefine( path ) ) };
@@ -210,10 +211,13 @@ namespace Desert::Engine::Neural
                                                              key );
         auto acquired = service->AcquireVariant( kShaderName, variant );
         if ( !acquired )
+        {
+            m_ShaderRefusal = NeuralShaderRefusal{ .Program = kShaderName, .Variant = variant };
             return Common::MakeFormattedError<KernelResult>(
                  "the shader '{}' ({}) was refused: {} (source "
                  "Editor/Resources/Shaders/Programs/Compute/NeuralFusedMlp.shader)",
                  kShaderName, key, acquired.GetError() );
+        }
         const std::shared_ptr<Graphic::Shader> shader = acquired.ExtractValue();
 
         Graphic::ComputePipelineSpecification specification;
@@ -291,6 +295,14 @@ namespace Desert::Engine::Neural
             return Common::MakeFormattedError(
                  "fused MLP passes refused: an input handle is invalid (weights {}, input {}, output grad {})",
                  inputs.Weights.IsValid(), inputs.Input.IsValid(), inputs.OutputGrad.IsValid() );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr FusedMlpCompute::PrepareKernels( const NeuralKernelPath path )
+    {
+        for ( const uint32_t kernel : { kForward, kBackward, kWeightGrad, kInference } )
+            if ( const auto acquired = AcquireNamedKernel( kernel, path ); !acquired )
+                return Common::MakeFormattedError( "{}", acquired.GetError() );
         return BOOLSUCCESS;
     }
 

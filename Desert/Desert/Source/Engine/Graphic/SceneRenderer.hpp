@@ -398,6 +398,9 @@ namespace Desert::Graphic
         /// The neural radiance cache's last read-back (System::PathTracer::GetRadianceCacheStats; DesertCtl state
         /// "nrc"); nullptr while no PathTracing.RadianceCache Nrc frame made the cache.
         [[nodiscard]] const Engine::Neural::NrcStats* GetRadianceCacheStats() const;
+        /// PathTracing.RadianceCache as the path tracer last ran it (System::PathTracer::GetRadianceCacheStatus;
+        /// DesertCtl state "nrc" status / reason); all Off without a path tracer.
+        [[nodiscard]] System::PathTracer::RadianceCacheStatus GetRadianceCacheStatus() const;
         /// Triangles the last frame's view pass drew, at the LOD each mesh was drawn with
         /// (MeshRenderer::GetViewTrianglesDrawn).
         [[nodiscard]] uint64_t GetViewTrianglesDrawn() const;

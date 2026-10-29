@@ -11,6 +11,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -277,8 +278,16 @@ namespace Desert::Engine::Neural
         NeuralRadianceCache& operator=( const NeuralRadianceCache& ) = delete;
 
         // The NeuralRadianceCache.shader programs and pipelines, and the MLP path (ResolveNeuralKernelPath with
-        // MachineSettings::ForcedNeuralKernelPath). Refused naming what is missing.
+        // MachineSettings::ForcedNeuralKernelPath), with every MLP kernel of that path built. Refused naming what
+        // is missing; a refusal of the shader service is held (GetShaderRefusal) for its reporter.
         [[nodiscard]] Common::BoolResultStr Initialize();
+
+        // The program variant the shader service refused in the last Initialize, empty when that refusal was not
+        // the service's (the kernel path, a pipeline, a binding layout) or Initialize succeeded.
+        [[nodiscard]] const std::optional<NeuralShaderRefusal>& GetShaderRefusal() const
+        {
+            return m_ShaderRefusal;
+        }
 
         // A new world: the next frame starts from freshly initialised weights and hash table, the stats empty.
         void Reset();
@@ -365,6 +374,7 @@ namespace Desert::Engine::Neural
         uint32_t                         m_QueryCapacity = 0;  ///< THE QUERIES' capacity per segment, 0: start
         std::vector<uint32_t>            m_QueryDemand;        ///< per-segment demand of the last read-backs
         bool                             m_Initialized = false;
+        std::optional<NeuralShaderRefusal> m_ShaderRefusal; ///< GetShaderRefusal
         NrcStats                         m_Stats;
     };
 } // namespace Desert::Engine::Neural

@@ -33,9 +33,11 @@
 #include <cstdint>
 #include <format>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace Desert::Graphic::System
@@ -271,6 +273,10 @@ namespace Desert::Graphic::System
     // the image is the denoiser's history and the cache term (THE INFERENCE WEIGHTS: a moving average) is a stable
     // input to it, not a reset. Turning the cache on or off empties the history (a method change). The cached
     // contribution goes through the same path intensity clamp as the traced ones (NrcCompositeTargets).
+    // A cache that cannot run on this device (its NN kernel path refused, a program or pipeline refused) does not
+    // refuse the frame: the paths run without it (the cache Off, GetRadianceCacheStatus names why), the refusal is
+    // logged once per reason (ShaderService::ClaimRefusalReport for a refused shader variant), and every later Nrc
+    // frame asks again, so a hot-reloaded fix or a changed MachineSettings path takes the cache back.
     //
     // Not here (each is UE's and a task of its own): UE's offline denoiser plugin (OIDN), rough glass (the
     // raster's glass pass reads no roughness), participating media, a Sobol sequence, pixel filters other than a
@@ -477,7 +483,10 @@ namespace Desert::Graphic::System
                 auto cache = std::make_unique<Engine::Neural::NeuralRadianceCache>(
                      ::Desert::EngineContext::GetInstance().GetCapabilities().Neural );
                 if ( const auto made = cache->Initialize(); !made )
+                {
+                    m_CacheShaderRefusal = cache->GetShaderRefusal();
                     return made;
+                }
                 m_RadianceCache = std::move( cache );
             }
             if ( m_TracePipelineNrc && m_PipelineTemplatesNrc == m_PipelineTemplates )
@@ -485,10 +494,17 @@ namespace Desert::Graphic::System
             auto*                 shaders = Runtime::ResourceRegistry::GetShaderService();
             Core::ShaderVariant   variant;
             variant.Defines = { "PATH_TRACING_NRC=1" };
-            m_TraceShaderNrc = shaders->AcquireVariant( "PathTracer/PathTracing", variant );
-            if ( !m_TraceShaderNrc )
-                return Common::MakeError( "PathTracer: the radiance-cache trace ('PathTracer/PathTracing' with "
-                                          "PATH_TRACING_NRC=1) did not compile or is not registered" );
+            constexpr const char* kTraceProgram = "PathTracer/PathTracing";
+            auto                  acquired      = shaders->AcquireVariant( kTraceProgram, variant );
+            if ( !acquired )
+            {
+                m_CacheShaderRefusal =
+                     Engine::Neural::NeuralShaderRefusal{ .Program = kTraceProgram, .Variant = variant };
+                return Common::MakeFormattedError(
+                     "PathTracer: the radiance-cache trace ('{}' with PATH_TRACING_NRC=1) was refused: {}",
+                     kTraceProgram, acquired.GetError() );
+            }
+            m_TraceShaderNrc = acquired.ExtractValue();
             RayTracingPipelineSpecification spec{
                  .Program = m_TraceShaderNrc, .HitGroups = {}, .DebugName = "PathTracerNrc" };
             for ( const std::string& name : m_PipelineTemplates )
@@ -505,6 +521,26 @@ namespace Desert::Graphic::System
             m_TracePipelineNrc     = pipeline.GetValue();
             m_PipelineTemplatesNrc = m_PipelineTemplates;
             return BOOLSUCCESS;
+        }
+
+        // The cache's refusal @p reason this frame: kept as the standing refusal (a new reason replaces it) and
+        // logged when it is the one to report - once per reason; ShaderService::ClaimRefusalReport answers for a
+        // refused shader variant, so a recompile that refuses again is said again.
+        void RefuseRadianceCache( const std::string& reason )
+        {
+            std::optional<Engine::Neural::NeuralShaderRefusal> shader = std::exchange( m_CacheShaderRefusal, {} );
+            if ( !m_CacheRefusal || m_CacheRefusal->Reason != reason )
+                m_CacheRefusal = CacheRefusal{ .Reason = reason, .Shader = std::move( shader ) };
+            bool report = false;
+            if ( m_CacheRefusal->Shader )
+                report = Runtime::ResourceRegistry::GetShaderService()->ClaimRefusalReport(
+                     m_CacheRefusal->Shader->Program, m_CacheRefusal->Shader->Variant );
+            else
+                report = !std::exchange( m_CacheRefusal->Reported, true );
+            if ( report )
+                LOG_WARN( "[PathTracer] PathTracing.RadianceCache Nrc refused, the paths run without the cache "
+                          "(Off): {}",
+                          reason );
         }
 
         // A new world: nothing summed belongs to it (IRenderSystem::OnSceneReplaced).
@@ -557,11 +593,20 @@ namespace Desert::Graphic::System
                 return Common::MakeFormattedError<Refused>( "{}", envDesc.GetError() );
 
             m_TraceFailed = false;
-            // THE NEURAL RADIANCE CACHE: made on the first Nrc frame; a cache that cannot run refuses the frame.
-            const bool nrc = settings.RadianceCache == Common::Scalability::PathTracingRadianceCacheMethod::Nrc;
+            // THE NEURAL RADIANCE CACHE: made on the first Nrc frame; a cache that cannot run leaves the paths
+            // without it (Off, the reason kept and logged once: RefuseRadianceCache), never the frame refused.
+            m_NrcRequested = settings.RadianceCache == Common::Scalability::PathTracingRadianceCacheMethod::Nrc;
+            bool nrc       = m_NrcRequested;
             if ( nrc )
+            {
                 if ( const auto ready = EnsureRadianceCache(); !ready )
-                    return Common::MakeFormattedError<Refused>( "PathTracer: {}", ready.GetError() );
+                {
+                    RefuseRadianceCache( ready.GetError() );
+                    nrc = false;
+                }
+                else
+                    m_CacheRefusal.reset(); // a later refusal is a new one, and is reported
+            }
             const bool resized =
                  !m_Accumulation.Built || m_Accumulation.Width != width || m_Accumulation.Height != height;
             const bool exposureLeft =
@@ -658,6 +703,26 @@ namespace Desert::Graphic::System
         [[nodiscard]] uint32_t GetSummedSamples() const
         {
             return m_Summed;
+        }
+
+        // PathTracing.RadianceCache as the last frame ran it: Requested the setting, Effective what the paths ran
+        // (Off when the cache was refused), Reason the standing refusal (empty when the cache ran or was not asked).
+        struct RadianceCacheStatus
+        {
+            Common::Scalability::PathTracingRadianceCacheMethod Requested =
+                 Common::Scalability::PathTracingRadianceCacheMethod::Off;
+            Common::Scalability::PathTracingRadianceCacheMethod Effective =
+                 Common::Scalability::PathTracingRadianceCacheMethod::Off;
+            std::string Reason;
+        };
+        [[nodiscard]] RadianceCacheStatus GetRadianceCacheStatus() const
+        {
+            using Method = Common::Scalability::PathTracingRadianceCacheMethod;
+            RadianceCacheStatus status{ .Requested = m_NrcRequested ? Method::Nrc : Method::Off,
+                                        .Effective = m_Nrc ? Method::Nrc : Method::Off };
+            if ( m_NrcRequested && m_CacheRefusal )
+                status.Reason = m_CacheRefusal->Reason;
+            return status;
         }
 
         // The neural radiance cache's read-back (DesertCtl state "nrc"); nullptr while no Nrc frame made one.
@@ -1333,6 +1398,16 @@ namespace Desert::Graphic::System
         bool m_RawToUpscaler = false; // the sum holds one frame's pixel-centre paths for the upscaler
         // THE NEURAL RADIANCE CACHE: the cache, the PATH_TRACING_NRC=1 trace and its hit groups' templates.
         bool                                                  m_Nrc       = false; // the sum's frame ran the cache
+        bool m_NrcRequested = false; // the last frame's Settings::RadianceCache was Nrc
+        // The cache's standing refusal (RefuseRadianceCache); none while the cache runs.
+        struct CacheRefusal
+        {
+            std::string                                         Reason;
+            std::optional<Engine::Neural::NeuralShaderRefusal> Shader; ///< the variant the shader service refused
+            bool                                                Reported = false; ///< said, when not the service's
+        };
+        std::optional<CacheRefusal>                         m_CacheRefusal;
+        std::optional<Engine::Neural::NeuralShaderRefusal> m_CacheShaderRefusal; // EnsureRadianceCache's, if any
         uint32_t                                              m_NrcFrames = 0;     // the training offset's seed
         std::unique_ptr<Engine::Neural::NeuralRadianceCache> m_RadianceCache;
         std::shared_ptr<Shader>                               m_TraceShaderNrc;

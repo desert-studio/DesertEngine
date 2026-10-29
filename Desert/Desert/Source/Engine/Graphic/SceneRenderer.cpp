@@ -3285,6 +3285,14 @@ namespace Desert::Graphic
         return static_cast<const System::PathTracer*>( found->second.get() )->GetRadianceCacheStats();
     }
 
+    System::PathTracer::RadianceCacheStatus SceneRenderer::GetRadianceCacheStatus() const
+    {
+        const auto found = m_RenderSystems.find( "PathTracerSystem" );
+        if ( found == m_RenderSystems.end() )
+            return {};
+        return static_cast<const System::PathTracer*>( found->second.get() )->GetRadianceCacheStatus();
+    }
+
     uint64_t SceneRenderer::GetViewTrianglesDrawn() const
     {
         const auto found = m_RenderSystems.find( "MeshSystem" );
