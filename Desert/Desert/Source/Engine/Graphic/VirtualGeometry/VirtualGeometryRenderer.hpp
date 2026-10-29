@@ -82,6 +82,19 @@ namespace Desert::Graphic::VirtualGeometry
         RDG::BufferRef OccludedArgs;       // VkDispatchIndirectCommand of the post phase (Main only)
     };
 
+    // THE CUT'S HW CLUSTERS SORTED INTO ONE MESH PASS'S MATERIAL GROUPS (AddRasterBinning): what that pass's VG
+    // raster draws - per IndirectGroup g of the pass table, one VkDrawIndirectCommand at GroupArgs + g x 16
+    // (vertexCount = kClusterMaxTriangles x 3, instanceCount = its clusters, firstInstance = its first Rows entry),
+    // drawn with the group's `.VirtualGeometry` cell and Rows bound as the instance id stream (a_VisibleRow).
+    struct RasterBins
+    {
+        RDG::BufferRef GroupArgs;  // VkDrawIndirectCommand[GroupCount] - Access::IndirectArgs
+        RDG::BufferRef Rows;       // uint32[VisibleCapacity]: a VisibleClusters row per draw instance - vertex input
+        RDG::BufferRef VisibleClusters; // the cut's (Common/GpuScene.glslh VgRasterVisibleClusters)
+        uint32_t       GroupCount = 0;
+    };
+    inline constexpr uint32_t kRasterBinsArgsStride = 16u; // sizeof( VkDrawIndirectCommand )
+
     // Where a raster writes. Exactly one of the three is valid.
     struct RasterTarget
     {
@@ -124,6 +137,15 @@ namespace Desert::Graphic::VirtualGeometry
                         const GpuDriven::PassDrawBuffers& passSlots, RDG::BufferRef submeshTransforms,
                         const ClusterCandidates& candidates, std::span<const ClusterCullView> views,
                         RDG::TextureRef neutralHzb ) const;
+
+        // Step 11: "VirtualGeometry: Raster Binning" (Programs/VirtualGeometry/RasterBinning.shader) of @p culled's
+        // HW clusters into the material groups of the mesh pass @p passTable / @p passSlots describe (a cluster's
+        // group: its DAG submesh's lod-0 slot -> bin -> IndirectGroup). Refused: a pass with no group, missing
+        // tables. A cluster whose submesh does not draw in the pass is binned nowhere.
+        [[nodiscard]] Common::ResultStr<RasterBins>
+        AddRasterBinning( RDG::Builder& graph, const GpuDriven::GpuSceneBuffers& scene,
+                          const VirtualMeshBuffers& meshes, const GpuDriven::PassDrawTable& passTable,
+                          const GpuDriven::PassDrawBuffers& passSlots, const ClusterCullResult& culled ) const;
 
         // Step 3/5: SW then HW raster of @p culled into @p target.
         [[nodiscard]] Common::BoolResultStr

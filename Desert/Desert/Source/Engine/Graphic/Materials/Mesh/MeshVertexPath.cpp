@@ -124,8 +124,21 @@ namespace Desert::Graphic
         return shaderName.ends_with( Core::Preprocess::kSurfaceBinnedCellSuffix );
     }
 
+    std::string VirtualGeometryCellOf( const std::string_view binnedCell )
+    {
+        return std::format( "{}{}", binnedCell, Core::Preprocess::kSurfaceVirtualGeometryCellSuffix );
+    }
+
+    bool IsVirtualGeometryCell( const std::string_view shaderName )
+    {
+        return shaderName.ends_with( Core::Preprocess::kSurfaceVirtualGeometryCellSuffix );
+    }
+
     std::optional<MeshVertexPath> MeshCellPath( std::string_view shaderName )
     {
+        // A `.VirtualGeometry` permutation is its `.Binned` base's path (Static).
+        if ( IsVirtualGeometryCell( shaderName ) )
+            shaderName.remove_suffix( Core::Preprocess::kSurfaceVirtualGeometryCellSuffix.size() );
         // A `.Binned` permutation is drawn on its base cell's path (its `.Parallax` base included).
         if ( IsBinnedCell( shaderName ) )
             shaderName.remove_suffix( Core::Preprocess::kSurfaceBinnedCellSuffix.size() );

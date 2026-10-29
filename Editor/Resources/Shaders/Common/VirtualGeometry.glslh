@@ -54,16 +54,67 @@ layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer V
     float Floats[];
 };
 
-// The submesh-space position of corner @p corner (0..2) of triangle @p triangle of cluster @p c.
-vec3 VgClusterCornerPosition( VgClusterDag dag, VgCluster c, uint triangle, uint corner )
+// The submesh-relative vertex index of corner @p corner (0..2) of triangle @p triangle of cluster @p c.
+uint VgClusterCornerVertex( VgClusterDag dag, VgCluster c, uint triangle, uint corner )
 {
     uint word  = VgWords( dag.TriangleAddress ).Words[c.FirstTriangle + triangle];
     uint local = ( word >> ( 8u * corner ) ) & 0xFFu;
-    uint ref   = VgWords( dag.VertexRefAddress ).Words[c.FirstVertexRef + local];
+    return VgWords( dag.VertexRefAddress ).Words[c.FirstVertexRef + local];
+}
+
+vec3 VgFetchFloat3( VgFloats floats, uint first )
+{
+    return vec3( floats.Floats[first], floats.Floats[first + 1u], floats.Floats[first + 2u] );
+}
+
+// The submesh-space position of corner @p corner (0..2) of triangle @p triangle of cluster @p c.
+vec3 VgClusterCornerPosition( VgClusterDag dag, VgCluster c, uint triangle, uint corner )
+{
     // Desert::Vertex starts with its float3 Position.
-    VgFloats vertices = VgFloats( dag.VertexAddress );
-    uint     first    = ref * ( dag.VertexStride / 4u );
-    return vec3( vertices.Floats[first], vertices.Floats[first + 1u], vertices.Floats[first + 2u] );
+    const uint ref = VgClusterCornerVertex( dag, c, triangle, corner );
+    return VgFetchFloat3( VgFloats( dag.VertexAddress ), ref * ( dag.VertexStride / 4u ) );
+}
+
+// ONE MESH VERTEX FETCHED THROUGH ITS DAG (the VG raster's vertex stage, Mesh/Surface/Vertex_Static.glslh under
+// DESERT_SURFACE_VIRTUAL_GEOMETRY): the fields the vertex inputs carry in a binned draw, from the same buffers -
+// Desert::Vertex (Geometry/MeshTypes.hpp: Position, Normal, Tangent, Bitangent float3, TexCoord float2; the
+// attribute list ShaderProtocols/VertexInputs.hpp DESERT_MESH_VERTEX_FIELDS) and MeshVertexStreams (RGBA8 UNORM
+// Color, float2 UV1, 12 bytes; StreamAddress 0 = the shared default streams: white, (0,0)). The UV is the stored
+// one: the caller applies DesertMeshTextureUV as the attribute path does.
+struct VgMeshVertex
+{
+    vec3 Position;
+    vec3 Normal;
+    vec3 Tangent;
+    vec3 Bitangent;
+    vec2 TextureCoord;
+    vec4 Color;
+    vec2 TexCoord1;
+};
+
+#define VG_MESH_STREAM_STRIDE_WORDS 3u // sizeof( MeshVertexStreams ) / 4
+
+VgMeshVertex VgFetchMeshVertex( VgClusterDag dag, uint ref )
+{
+    const VgFloats vertices = VgFloats( dag.VertexAddress );
+    const uint     first    = ref * ( dag.VertexStride / 4u );
+    VgMeshVertex   v;
+    v.Position     = VgFetchFloat3( vertices, first );
+    v.Normal       = VgFetchFloat3( vertices, first + 3u );
+    v.Tangent      = VgFetchFloat3( vertices, first + 6u );
+    v.Bitangent    = VgFetchFloat3( vertices, first + 9u );
+    v.TextureCoord = vec2( vertices.Floats[first + 12u], vertices.Floats[first + 13u] );
+    if ( dag.StreamAddress == uvec2( 0u ) )
+    {
+        v.Color     = vec4( 1.0 );
+        v.TexCoord1 = vec2( 0.0 );
+        return v;
+    }
+    const uint stream = ref * VG_MESH_STREAM_STRIDE_WORDS;
+    v.Color           = unpackUnorm4x8( VgWords( dag.StreamAddress ).Words[stream] );
+    const VgFloats streams = VgFloats( dag.StreamAddress );
+    v.TexCoord1       = vec2( streams.Floats[stream + 1u], streams.Floats[stream + 2u] );
+    return v;
 }
 
 // One BVH node over cluster groups, 4 children (GpuClusterHierarchyNode). A leaf child (Child bit 31) names

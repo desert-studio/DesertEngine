@@ -260,6 +260,13 @@ namespace Desert::Graphic
     [[nodiscard]] std::string BinnedCellOf( std::string_view cellShader );
     [[nodiscard]] bool        IsBinnedCell( std::string_view shaderName );
 
+    // THE VIRTUAL GEOMETRY PERMUTATION of a binned Static cell (DShaderParser kSurfaceVirtualGeometryCellSuffix):
+    // "<Template>/<Cell>[.Parallax].Binned.VirtualGeometry", the cell the VG raster's material group draws (one
+    // instance = one visible cluster, Common/GpuScene.glslh DesertResolveVgDraw). @p binnedCell is the `.Binned`
+    // cell of the Static path whose group the clusters were binned into.
+    [[nodiscard]] std::string VirtualGeometryCellOf( std::string_view binnedCell );
+    [[nodiscard]] bool        IsVirtualGeometryCell( std::string_view shaderName );
+
     // The one binding a path adds to the surface's own set, or nothing for a path that adds none.
     // Set 0 binding 1 is the skinned path's `Bones`, binding 17 the instanced path's
     // `InstanceTransforms`; both are free in every other variant, which is what makes "same surface,

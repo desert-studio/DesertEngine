@@ -146,15 +146,36 @@ namespace Desert::Core
                binding < kVirtualShadowRasterBindingFirst + kVirtualShadowRasterBindingCount;
     }
 
+    /**
+     * THE VIRTUAL GEOMETRY RASTER'S OWN SLOTS (VIRT-GEOM step 11, the `.VirtualGeometry` surface cells,
+     * DShaderParser kSurfaceVirtualGeometryCellSuffix): what a cluster-drawing vertex stage resolves its triangle
+     * from (Common/GpuScene.glslh under DESERT_GPU_SCENE_VIRTUAL_GEOMETRY) beside the binned draw's 41/43/44 - the
+     * VirtualMeshTable's cluster rows (`VgRasterClusters`) and DAG rows (`VgRasterDags`), the cut's visible
+     * clusters (`VgRasterVisibleClusters`, the rows a_VisibleRow names) and the pass's per-primitive draw rows
+     * (`VgRasterPrimitiveDraws`: a cluster's draw slot = FirstDrawSlot + its DAG's submesh, lod 0). Declared into
+     * every template's and every graph's surface cells, so - like the virtual shadow raster's - a range of its
+     * own above that one and below the graph's window. Bound by name.
+     */
+    inline constexpr uint32_t kVirtualGeometryRasterBindingFirst =
+         kVirtualShadowRasterBindingFirst + kVirtualShadowRasterBindingCount;
+    inline constexpr uint32_t kVgRasterClustersBinding        = kVirtualGeometryRasterBindingFirst;
+    inline constexpr uint32_t kVgRasterDagsBinding            = kVirtualGeometryRasterBindingFirst + 1u;
+    inline constexpr uint32_t kVgRasterVisibleClustersBinding = kVirtualGeometryRasterBindingFirst + 2u;
+    inline constexpr uint32_t kVgRasterPrimitiveDrawsBinding  = kVirtualGeometryRasterBindingFirst + 3u;
+    inline constexpr uint32_t kVirtualGeometryRasterBindingCount = 4u;
+    static_assert( kVgRasterClustersBinding == 50u && kVgRasterPrimitiveDrawsBinding == 53u,
+                   "Common/GpuScene.glslh spells 50-53 under DESERT_GPU_SCENE_VIRTUAL_GEOMETRY" );
+
     // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the scene
     // shading word and the light grid joined it), then from 31 (the MegaLights volume joined it), then from 35 (the
     // world parameters joined it), then from 36 (the rain occlusion's map and block joined it), then from 38 (the
     // local shadow atlas and its views joined it), then from 40 (the ray-traced local shadow masks joined it), then
     // from 41 (the virtual shadow raster's slots got a range of their own), then from 46 (the binned draw's four
-    // tables joined the scene-read range and pushed the raster range up by four), to sit above both ranges; see the
+    // tables joined the scene-read range and pushed the raster range up by four), then from 50 (the virtual
+    // geometry raster's four slots got a range of their own), to sit above every range; see the
     // paragraph on moving it above (10-22: no generated `.shader` under Resources spells a TextureBinding).
     inline constexpr uint32_t kGraphOwnedBindingFirst =
-         kVirtualShadowRasterBindingFirst + kVirtualShadowRasterBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 50u,
-                   "the graph's window opens right above the virtual shadow raster's range" );
+         kVirtualGeometryRasterBindingFirst + kVirtualGeometryRasterBindingCount;
+    static_assert( kGraphOwnedBindingFirst == 54u,
+                   "the graph's window opens right above the virtual geometry raster's range" );
 } // namespace Desert::Core

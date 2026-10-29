@@ -51,7 +51,28 @@ namespace Desert::Graphic::VirtualGeometry
             DESERT_SHADER_PARAMETER( Texture, ClusterCutHzbTexture );
         };
 
-        constexpr const char* kClusterCutShader = "ClusterCut"; // Programs/VirtualGeometry/ClusterCut.shader
+        // The slot names of Programs/VirtualGeometry/RasterBinning.shader.
+        struct RasterBinningShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningInstances );
+            DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningPrimitiveDraws );
+            DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningDrawSlots );
+            DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningDrawBins );
+            DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningDags );
+            DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningClusters );
+            DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningVisibleClusters );
+            DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningRasterArgs );
+            DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningGroupArgs );
+            DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningGroupCursor );
+            DESERT_SHADER_PARAMETER( StorageBuffer, RasterBinningRows );
+        };
+
+        constexpr const char* kClusterCutShader    = "ClusterCut";    // Programs/VirtualGeometry/ClusterCut.shader
+        constexpr const char* kRasterBinningShader = "RasterBinning"; // Programs/VirtualGeometry/RasterBinning.shader
+        constexpr uint32_t    kBinStepCount        = 0u;
+        constexpr uint32_t    kBinStepOffsets      = 1u;
+        constexpr uint32_t    kBinStepScatter      = 2u;
+        constexpr uint32_t    kBinGroupSize        = 64u; // RasterBinning.shader LocalSize
         constexpr uint32_t    kStepArgs         = 0u;
         constexpr uint32_t    kStepCut          = 1u;
 
@@ -105,6 +126,7 @@ namespace Desert::Graphic::VirtualGeometry
         };
 
         Program ClusterCut;
+        Program RasterBinning;
     };
 
     VirtualGeometryRenderer::VirtualGeometryRenderer() : m_Programs( std::make_unique<Programs>() )
@@ -297,6 +319,86 @@ namespace Desert::Graphic::VirtualGeometry
         result.Status          = b.Status;
         result.VisibleCapacity = candidates.VisibleCapacity;
         return result;
+    }
+
+    Common::ResultStr<RasterBins> VirtualGeometryRenderer::AddRasterBinning(
+         RDG::Builder& graph, const GpuDriven::GpuSceneBuffers& scene, const VirtualMeshBuffers& meshes,
+         const GpuDriven::PassDrawTable& passTable, const GpuDriven::PassDrawBuffers& passSlots,
+         const ClusterCullResult& culled ) const
+    {
+        using Result = RasterBins;
+        if ( passTable.Groups.empty() || passTable.Bins.empty() || passTable.DrawSlots.empty() )
+            return Common::MakeError<Result>( std::format(
+                 "VirtualGeometry: Raster Binning: the pass has {} groups, {} bins, {} draw slots",
+                 passTable.Groups.size(), passTable.Bins.size(), passTable.DrawSlots.size() ) );
+        if ( !passSlots.PrimitiveDraws.IsValid() || !passSlots.DrawSlots.IsValid() || !passSlots.Bins.IsValid() )
+            return Common::MakeError<Result>( "VirtualGeometry: Raster Binning: the pass's draw tables are not uploaded" );
+        if ( !culled.VisibleClusters.IsValid() || !culled.RasterArgs.IsValid() || culled.VisibleCapacity == 0u )
+            return Common::MakeError<Result>( "VirtualGeometry: Raster Binning: no cluster cut to bin" );
+        if ( !meshes.Dags.IsValid() || !meshes.Clusters.IsValid() )
+            return Common::MakeError<Result>( "VirtualGeometry: Raster Binning: the VirtualMeshTable has no tables" );
+        if ( const Common::BoolResultStr ready = m_Programs->RasterBinning.Ensure(
+                  kRasterBinningShader, "Editor/Resources/Shaders/Programs/VirtualGeometry/RasterBinning.shader" );
+             !ready )
+            return Common::MakeError<Result>( std::format( "VirtualGeometry: Raster Binning: {}", ready.GetError() ) );
+
+        const auto groupCount = static_cast<uint32_t>( passTable.Groups.size() );
+        RasterBins bins;
+        bins.GroupCount      = groupCount;
+        bins.VisibleClusters = culled.VisibleClusters;
+        // COUNT adds into instanceCount: every group starts at zero.
+        const std::vector<uint32_t> zeros( std::size_t{ groupCount } * 4u, 0u );
+        bins.GroupArgs = Upload( graph, "VirtualGeometry.RasterGroupArgs", Bytes( zeros ) );
+        const RDG::BufferRef cursor =
+             graph.CreateBuffer( RDG::BufferDesc{ .Bytes = uint64_t{ groupCount } * sizeof( uint32_t ) },
+                                 "VirtualGeometry.RasterGroupCursor" );
+        bins.Rows = graph.CreateBuffer(
+             RDG::BufferDesc{ .Bytes = uint64_t{ culled.VisibleCapacity } * sizeof( uint32_t ) },
+             "VirtualGeometry.RasterRows" );
+
+        using P                            = RasterBinningShaderParameters;
+        const Programs::Program& program   = m_Programs->RasterBinning;
+        const auto               primitive = static_cast<uint32_t>( passTable.PrimitiveDraws.size() );
+        const auto               slots     = static_cast<uint32_t>( passTable.DrawSlots.size() );
+        const auto               binRows   = static_cast<uint32_t>( passTable.Bins.size() );
+        const uint32_t           threads   = ( culled.VisibleCapacity + kBinGroupSize - 1u ) / kBinGroupSize;
+        for ( const uint32_t step : { kBinStepCount, kBinStepOffsets, kBinStepScatter } )
+        {
+            const CutPush push{ glm::uvec4( step, culled.VisibleCapacity, groupCount, primitive ),
+                                glm::uvec4( slots, binRows, Geometry::kClusterMaxTriangles * 3u, 0u ) };
+            const uint32_t groupsX = step == kBinStepOffsets ? 1u : threads;
+            graph.AddPass(
+                 step == kBinStepCount     ? "VirtualGeometry: Raster Binning Count"
+                 : step == kBinStepOffsets ? "VirtualGeometry: Raster Binning Offsets"
+                                           : "VirtualGeometry: Raster Binning Scatter",
+                 RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& builder )
+                 {
+                     constexpr auto R = RDG::Access::StorageRead;
+                     constexpr auto W = RDG::Access::StorageWrite;
+                     auto blk = builder.Bindings( program.Layout.Get( program.Shader ),
+                                                  Renderer::GetPipelineRouteFill( *program.Pipeline ) );
+                     blk.Storage( P::RasterBinningInstances, scene.Instances, R )
+                          .Storage( P::RasterBinningPrimitiveDraws, passSlots.PrimitiveDraws, R )
+                          .Storage( P::RasterBinningDrawSlots, passSlots.DrawSlots, R )
+                          .Storage( P::RasterBinningDrawBins, passSlots.Bins, R )
+                          .Storage( P::RasterBinningDags, meshes.Dags, R )
+                          .Storage( P::RasterBinningClusters, meshes.Clusters, R )
+                          .Storage( P::RasterBinningVisibleClusters, culled.VisibleClusters, R )
+                          .Storage( P::RasterBinningRasterArgs, culled.RasterArgs, R )
+                          .Storage( P::RasterBinningGroupArgs, bins.GroupArgs, W )
+                          .Storage( P::RasterBinningGroupCursor, cursor, W )
+                          .Storage( P::RasterBinningRows, bins.Rows, W )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( CutPush ) ) );
+                 },
+                 [pipeline = program.Pipeline, push, groupsX]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                     bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                     return Renderer::DispatchCompute( bindings, *pipeline, groupsX, 1u, 1u );
+                 } );
+        }
+        return bins;
     }
 
     // --- ClusterCutCounts ------------------------------------------------------------------------------------

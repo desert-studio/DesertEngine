@@ -105,6 +105,15 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view                kSurfaceBinnedDefine     = "DESERT_SURFACE_BINNED";
     inline constexpr std::array<std::string_view, 3> kSurfaceBinnedCellPasses = { "Forward", "GBuffer",
                                                                                   "ShadowDepth" };
+    // THE VIRTUAL GEOMETRY PERMUTATION (VIRT-GEOM step 11; UE: the Nanite raster's vertex factory): every binned
+    // cell of the Static path (`.Parallax` too) once more, named `<Cell>[.Parallax].Binned.VirtualGeometry`, after
+    // the binned cells, with kSurfaceBinnedDefine AND kSurfaceVirtualGeometryDefine: the vertex stage draws one
+    // visible cluster per instance, fetching its triangles' vertices through the cluster's DAG
+    // (Mesh/Surface/Vertex_Static.glslh), everything else the binned cell's. Drawn by the VG raster's material
+    // groups only (MeshRenderer, VirtualGeometryRenderer::AddRasterBinning).
+    inline constexpr std::string_view kSurfaceVirtualGeometryCellSuffix = ".VirtualGeometry";
+    inline constexpr std::string_view kSurfaceVirtualGeometryDefine     = "DESERT_SURFACE_VIRTUAL_GEOMETRY";
+    inline constexpr std::string_view kSurfaceVirtualGeometryPath       = "Static";
     // The index the generated `#define Material MaterialRows[...]` reads: the push block's MaterialIndex unless
     // the stage defined it first (a binned cell: the vertex stage's resolved row, SurfaceTypes.glslh
     // g_SurfaceMaterialRow).

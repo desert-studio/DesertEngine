@@ -5,7 +5,16 @@
 // (vertex colour, UV1; a mesh without them binds the shared white / (0,0) buffer at the same stride) — and
 // DesertMeshTextureUV, GENERATED from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp). The full
 // set in every pass: an input a depth cell does not read costs nothing, a subset would be a second list.
+#ifdef DESERT_SURFACE_VIRTUAL_GEOMETRY
+// THE VIRTUAL GEOMETRY CELL (`.VirtualGeometry`, DShaderParser kSurfaceVirtualGeometryCellSuffix; a binned cell):
+// no vertex buffer - one draw instance is one visible cluster (Common/GpuScene.glslh DesertResolveVgDraw), the
+// vertex is triangle x 3 + corner of it, fetched through the cluster's DAG (Common/VirtualGeometry.glslh
+// VgFetchMeshVertex) into the very names the vertex inputs carry; the rest of this stage is the binned one.
+#define DESERT_GPU_SCENE_VIRTUAL_GEOMETRY 1
+#include <Mesh/MeshVertexAccess.glslh>
+#else
 #include <Mesh/MeshVertexInputs.glslh>
+#endif
 
 #include <Common/CameraUB.glslh>
 #ifdef DESERT_SURFACE_CASTER_PASS
@@ -35,7 +44,28 @@ m_PushConstants;
 
 void main()
 {
-#ifdef DESERT_SURFACE_BINNED
+#ifdef DESERT_SURFACE_VIRTUAL_GEOMETRY
+    const DesertVgDraw vg       = DesertResolveVgDraw();
+    const uint         triangle = uint( gl_VertexIndex ) / 3u;
+    if ( triangle >= VgClusterTriangleCount( vg.Cluster ) )
+    {
+        // Past the cluster's triangles (the draw is kClusterMaxTriangles x 3 vertices): a degenerate, clipped.
+        gl_Position = vec4( 0.0, 0.0, -2.0, 1.0 );
+        return;
+    }
+    const VgMeshVertex vertex =
+         VgFetchMeshVertex( vg.Dag, VgClusterCornerVertex( vg.Dag, vg.Cluster, triangle, uint( gl_VertexIndex ) % 3u ) );
+    const vec3 a_Position     = vertex.Position;
+    const vec3 a_Normal       = vertex.Normal;
+    const vec3 a_Tangent      = vertex.Tangent;
+    const vec3 a_Bitangent    = vertex.Bitangent;
+    const vec2 a_TextureCoord = vertex.TextureCoord;
+    const vec4 a_Color        = vertex.Color;
+    const vec2 a_TexCoord1    = vertex.TexCoord1;
+    const DesertMeshDraw draw      = vg.Draw;
+    const mat4           world     = draw.World;
+    const mat4           prevWorld = draw.PrevWorld;
+#elif defined( DESERT_SURFACE_BINNED )
     // Binned: the instance id names the instance, its primitive and its cached draw slot (Common/GpuScene.glslh).
     const DesertMeshDraw draw      = DesertResolveMeshDraw();
     const mat4           world     = draw.World;

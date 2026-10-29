@@ -236,11 +236,13 @@ layout( std430, binding = 41 ) readonly buffer GpuSceneInstances
     GpuSceneInstance Instances[];
 }
 gpuSceneInstances;
+#ifndef DESERT_GPU_SCENE_VIRTUAL_GEOMETRY
 layout( std430, binding = 42 ) readonly buffer GpuSceneVisibleInstances
 {
     GpuVisibleInstance VisibleInstances[];
 }
 gpuSceneVisible;
+#endif
 layout( std430, binding = 43 ) readonly buffer GpuSceneDrawSlots
 {
     GpuDrawSlot DrawSlots[];
@@ -265,9 +267,8 @@ struct DesertMeshDraw
     mat4 PrevWorld;
 };
 
-DesertMeshDraw DesertResolveMeshDraw()
+DesertMeshDraw DesertResolveDrawOf( const GpuVisibleInstance visible )
 {
-    const GpuVisibleInstance visible   = gpuSceneVisible.VisibleInstances[a_VisibleRow];
     const GpuSceneInstance   instance  = gpuSceneInstances.Instances[visible.Instance];
     const GpuDrawSlot        slot      = gpuSceneDrawSlots.DrawSlots[visible.DrawSlot];
     const GpuScenePrimitive  primitive = gpuScene.Primitives[instance.Primitive];
@@ -282,6 +283,62 @@ DesertMeshDraw DesertResolveMeshDraw()
     draw.PrevWorld   = GpuScene_PrevLocalToWorld( primitive ) * local;
     return draw;
 }
+
+#ifndef DESERT_GPU_SCENE_VIRTUAL_GEOMETRY
+DesertMeshDraw DesertResolveMeshDraw()
+{
+    return DesertResolveDrawOf( gpuSceneVisible.VisibleInstances[a_VisibleRow] );
+}
+#else
+// THE VIRTUAL GEOMETRY RASTER'S DRAW (the `.VirtualGeometry` surface cells; Core::kVgRaster*Binding 50-53): the
+// instance id names a row of the cluster cut's VisibleClusters (written per material group by "VirtualGeometry:
+// Raster Binning", Programs/VirtualGeometry/RasterBinning.shader), i.e. (instance, cluster); the draw slot is the
+// pass's lod-0 slot of the cluster's DAG submesh - the very slot the cut took the submesh transform from
+// (ClusterCut.shader) and the binning took the material group from. A draw instance is one cluster: vertex =
+// triangle x 3 + corner of it (Common/VirtualGeometry.glslh).
+#include <Common/VirtualGeometry.glslh>
+layout( std430, binding = 50 ) readonly buffer VgRasterClusters
+{
+    VgCluster Clusters[];
+}
+vgRasterClusters;
+layout( std430, binding = 51 ) readonly buffer VgRasterDags
+{
+    VgClusterDag Dags[];
+}
+vgRasterDags;
+layout( std430, binding = 52 ) readonly buffer VgRasterVisibleClusters
+{
+    VgVisibleCluster VisibleClusters[];
+}
+vgRasterVisible;
+layout( std430, binding = 53 ) readonly buffer VgRasterPrimitiveDraws
+{
+    GpuPrimitivePassDraws PrimitiveDraws[];
+}
+vgRasterPrimitiveDraws;
+
+struct DesertVgDraw
+{
+    DesertMeshDraw Draw;
+    VgClusterDag   Dag;
+    VgCluster      Cluster;
+};
+
+DesertVgDraw DesertResolveVgDraw()
+{
+    const VgVisibleCluster visible = vgRasterVisible.VisibleClusters[a_VisibleRow];
+    DesertVgDraw           vg;
+    vg.Cluster = vgRasterClusters.Clusters[visible.Cluster];
+    vg.Dag     = vgRasterDags.Dags[vg.Cluster.Dag];
+    const uint primitive = gpuSceneInstances.Instances[visible.Instance].Primitive;
+    GpuVisibleInstance row;
+    row.Instance = visible.Instance;
+    row.DrawSlot = vgRasterPrimitiveDraws.PrimitiveDraws[primitive].FirstDrawSlot + vg.Dag.Submesh;
+    vg.Draw      = DesertResolveDrawOf( row );
+    return vg;
+}
+#endif
 #endif
 
 #endif

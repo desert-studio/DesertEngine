@@ -1863,7 +1863,7 @@ namespace Desert::Core::Preprocess
                                               const std::string_view shadingModelDefine, const bool responsiveAA,
                                               const std::string& opacityMaskFunction, const bool parallax,
                                               const std::string& heightFunctions, const bool weather,
-                                              const bool binned = false )
+                                              const bool binned = false, const bool virtualGeometry = false )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
             const bool        particle = path == kSurfaceParticleSpritePath || path == kSurfaceParticleRibbonPath;
@@ -1878,7 +1878,9 @@ namespace Desert::Core::Preprocess
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  parallax ? std::format( "#define {} 1\n", kSurfaceParallaxDefine ) : std::string(),
                  kSurfaceShadingModelDefine, shadingModelDefine ) +
-                 ( binned ? std::format( "#define {} 1\n", kSurfaceBinnedDefine ) : std::string() );
+                 ( binned ? std::format( "#define {} 1\n", kSurfaceBinnedDefine ) : std::string() ) +
+                 ( virtualGeometry ? std::format( "#define {} 1\n", kSurfaceVirtualGeometryDefine )
+                                   : std::string() );
             // A binned cell's fragment `Material` reads the row its vertex stage resolved (kSurfaceMaterialRowMacro):
             // named ahead of the generated declarations, which default it to the push block's.
             const std::string cellDecls =
@@ -3118,6 +3120,33 @@ namespace Desert::Core::Preprocess
                             result.Surface.Cells.push_back( cell.Name );
                             result.Passes.push_back( std::move( cell ) );
                         }
+                }
+            // THE VIRTUAL GEOMETRY PERMUTATION (kSurfaceVirtualGeometryCellSuffix): the Static path's binned cells
+            // again, after every binned cell (the earlier cells' order is unchanged).
+            if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+                for ( const bool parallax : { false, true } )
+                {
+                    if ( parallax && !result.Meta.Height )
+                        continue;
+                    for ( const std::string_view pass : kSurfaceBinnedCellPasses )
+                    {
+                        DShaderPass cell;
+                        cell.Name = SurfaceCellName( kSurfaceVirtualGeometryPath, pass ) +
+                                    ( parallax ? std::string( kSurfaceParallaxCellSuffix ) : std::string() ) +
+                                    std::string( kSurfaceBinnedCellSuffix ) +
+                                    std::string( kSurfaceVirtualGeometryCellSuffix );
+                        cell.State = cellState;
+                        for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                            cell.Stages.emplace(
+                                 stage, AssembleSurfaceCellStage(
+                                             stage, kSurfaceVirtualGeometryPath, pass, *surfaceBlock, includeBlock,
+                                             autoDecls, result.Surface.Blend, shadingModelDefine,
+                                             result.Surface.ResponsiveAA, opacityMaskFunction, parallax,
+                                             heightFunctions, respondsToWeather, true, true ) );
+                        result.Meta.PassNames.push_back( cell.Name );
+                        result.Surface.Cells.push_back( cell.Name );
+                        result.Passes.push_back( std::move( cell ) );
+                    }
                 }
         }
 
