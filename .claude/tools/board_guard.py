@@ -58,7 +58,7 @@ def load():
 def save(s):
     tmp = STATE + ".tmp"
     with open(tmp, "w") as f:
-        json.dump(s, f, ensure_ascii=False)
+        json.dump(s, f)  # ASCII: open() uses the locale code page, which has no «→» / «≤» from board rows
     os.replace(tmp, STATE)
 
 
