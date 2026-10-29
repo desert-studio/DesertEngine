@@ -1365,12 +1365,13 @@ namespace Desert::Graphic
     Common::ResultStr<RayTracing::EmissiveLightsFrame> SceneRenderer::AddFrameEmissiveLights( RDG::Builder& graph )
     {
         using Result = RayTracing::EmissiveLightsFrame;
-        if ( !m_RayTracingScene.GetFrame().Built )
-            return Common::MakeError<Result>(
-                 "the emissive lights are built from the view's TLAS, which this frame "
-                 "did not build" );
-        // Its programs, on the first frame that asks (the path tracer's bring-up, or the hardware GI tracer's
-        // surface cache lighting, GI-EMISSIVE-LIGHTS); made once, kept.
+        // The list is built from the scene's rows (EmissiveLights.hpp): this frame's TLAS gather, or - on a frame
+        // that traces no TLAS (the software GI tracer) - a scene gather of the same queues.
+        const bool tlas = m_RayTracingScene.GetFrame().Built;
+        if ( const Common::BoolResultStr gathered = m_RayTracingScene.GatherScene(); !gathered )
+            return Common::MakeError<Result>( gathered.GetError() );
+        // Its programs, on the first frame that asks (the path tracer's bring-up, or the surface cache lighting
+        // under either GI tracer, GI-EMISSIVE-LIGHTS); made once, kept.
         if ( const Common::BoolResultStr ready = m_EmissiveLights.Initialize(); !ready )
             return Common::MakeError<Result>( ready.GetError() );
         // The estimate the tree's powers are made of: the segment's emissive colour x intensity in the row the
@@ -1395,11 +1396,21 @@ namespace Desert::Graphic
                 return glm::vec3( 0.0f );
             return glm::vec3( *color ) * intensity->x;
         };
-        auto list = RayTracing::BuildEmissiveTriangleList( m_RayTracingScene.GetInstances().Instances,
-                                                           m_RayTracingScene.GetPrimitives(),
-                                                           m_RayTracingScene.GetSegmentRecords(), radianceOf );
+        auto list = RayTracing::BuildEmissiveTriangleList(
+             m_RayTracingScene.GetPrimitives(), m_RayTracingScene.GetSegmentRecords(),
+             tlas ? std::span<const RayTracing::RayTracingInstance>( m_RayTracingScene.GetInstances().Instances )
+                  : std::span<const RayTracing::RayTracingInstance>(),
+             radianceOf );
         if ( !list )
             return Common::MakeError<Result>( list.GetError() );
+        if ( list.GetValue().UnplacedDeformedSegments != m_LoggedUnplacedEmissive )
+        {
+            m_LoggedUnplacedEmissive = list.GetValue().UnplacedDeformedSegments;
+            if ( m_LoggedUnplacedEmissive > 0u )
+                LOG_WARN( "[SceneRenderer] {}: {} emissive segments of skinned meshes are not lights this frame "
+                          "(no skin-cache positions without a ray-traced scene)",
+                          m_ViewResources.GetName(), m_LoggedUnplacedEmissive );
+        }
         return m_EmissiveLights.AddPasses( graph, list.GetValue() );
     }
 

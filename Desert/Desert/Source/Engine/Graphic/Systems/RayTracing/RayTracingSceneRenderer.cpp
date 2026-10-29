@@ -219,6 +219,35 @@ namespace Desert::Graphic::RayTracing
         return text;
     }
 
+    namespace
+    {
+        // The gather's inputs: the queues the raster drew and the view's ISM distance cull.
+        RayTracingGatherInputs GatherInputsOf( const System::MeshRenderer& meshes, const glm::vec3& viewOrigin,
+                                               const float drawDistanceScale )
+        {
+        return { .Static                = meshes.GetStaticQueue(),
+                 .Generic               = meshes.GetGenericQueue(),
+                 .Instanced             = meshes.GetInstancedQueue(),
+                 .InstancedGpuInstances = meshes.GetInstancedGpuInstances(),
+                 .Skinned               = meshes.GetSkinnedQueue(),
+                 .GpuInstanced          = meshes.GetGpuInstancedQueue(),
+                 .ViewOrigin            = viewOrigin,
+                 .DrawDistanceScale     = drawDistanceScale };
+        }
+    } // namespace
+
+    Common::BoolResultStr RayTracingSceneRenderer::GatherScene()
+    {
+        if ( m_Frame.Built )
+            return BOOLSUCCESS; // this frame's TLAS gather is the scene's rows already
+        if ( m_SceneMeshes == nullptr ||
+             m_SceneGatherFrame != Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() )
+            return Common::MakeError( "RayTracingScene: a scene gather before this frame's AddPasses" );
+        GatherRayTracingPrimitives( GatherInputsOf( *m_SceneMeshes, m_SceneViewOrigin, m_SceneLensScale ), nullptr,
+                                    m_Gather );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr RayTracingSceneRenderer::AddPasses(
          RDG::Builder& graph, bool required, const System::MeshRenderer& meshes, RayTracingSceneCache& cache,
          const glm::vec3& viewOrigin, const float drawDistanceScale, const RayTracingExternalPrimitives& external )
@@ -226,6 +255,11 @@ namespace Desert::Graphic::RayTracing
         m_Frame     = {};
         m_Instances = {};
         m_Stats     = {};
+        // What a scene gather of this frame reads (GatherScene), kept whether or not the TLAS is built.
+        m_SceneMeshes      = &meshes;
+        m_SceneViewOrigin  = viewOrigin;
+        m_SceneLensScale   = drawDistanceScale;
+        m_SceneGatherFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         if ( !required )
             return BOOLSUCCESS;
 
@@ -242,15 +276,8 @@ namespace Desert::Graphic::RayTracing
             const ResourceAttributionScope sceneRows = cache.OpenLedgerScope();
 
             // Everything the raster queued, frustum-independent (RayTracingGather.hpp).
-            GatherRayTracingPrimitives( { .Static              = meshes.GetStaticQueue(),
-                                          .Generic             = meshes.GetGenericQueue(),
-                                          .Instanced           = meshes.GetInstancedQueue(),
-                                          .InstancedGpuInstances = meshes.GetInstancedGpuInstances(),
-                                          .Skinned             = meshes.GetSkinnedQueue(),
-                                          .GpuInstanced        = meshes.GetGpuInstancedQueue(),
-                                          .ViewOrigin          = viewOrigin,
-                                          .DrawDistanceScale   = drawDistanceScale },
-                                        cache.GetVariants(), m_Gather );
+            GatherRayTracingPrimitives( GatherInputsOf( meshes, viewOrigin, drawDistanceScale ),
+                                        &cache.GetVariants(), m_Gather );
             // Skinned primitives trace their per-frame BLAS, built from the positions the scene's skin step
             // (RayTracingSkinCache::SkinFrame) already wrote this frame - no skinning here; an earlier view's
             // build is reused. The gather appends one skinned primitive per skinned record, last.

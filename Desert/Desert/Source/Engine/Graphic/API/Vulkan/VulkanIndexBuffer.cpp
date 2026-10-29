@@ -1,5 +1,6 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanIndexBuffer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanPooledBuffer.hpp>
 #include <Engine/Graphic/API/Vulkan/MeshBufferUsage.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -69,6 +70,11 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanIndexBuffer::Invalidate()
     {
         return RT_Invalidate();
+    }
+
+    uint64_t VulkanIndexBuffer::GetDeviceAddress() const
+    {
+        return CurrentBufferAddress( m_VulkanBuffer );
     }
 
     Common::BoolResultStr VulkanIndexBuffer::RT_Invalidate()

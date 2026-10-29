@@ -54,6 +54,21 @@ namespace Desert::Graphic::API::Vulkan
         return RT_Invalidate();
     }
 
+    uint64_t CurrentBufferAddress( const VkBuffer buffer )
+    {
+        if ( buffer == VK_NULL_HANDLE )
+            return 0;
+        const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+        if ( !logical || !logical->GetRayTracingFunctions().Complete() )
+            return 0;
+        return logical->GetRayTracingFunctions().BufferAddress( logical->GetVulkanLogicalDevice(), buffer );
+    }
+
+    uint64_t VulkanVertexBuffer::GetDeviceAddress() const
+    {
+        return CurrentBufferAddress( m_VulkanBuffer );
+    }
+
     [[nodiscard]] Common::BoolResultStr VulkanVertexBuffer::RT_Invalidate()
     {
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )

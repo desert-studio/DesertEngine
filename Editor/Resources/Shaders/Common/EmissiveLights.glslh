@@ -32,8 +32,8 @@ struct EmissiveSegment
     uint  FirstIndex; // in indices
     uint  FirstTriangle; // in its part
     uint  TriangleCount;
-    uint  Instance;      // the TLAS instance
-    uint  GeometryIndex; // the segment's geometry index in that instance's BLAS
+    uint  GpuSceneRow;  // the row the segment is drawn on (a TLAS hit's custom index)
+    uint  SubmeshIndex; // the submesh the segment is
 };
 
 struct EmissiveTriangle

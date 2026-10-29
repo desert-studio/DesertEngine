@@ -307,9 +307,8 @@ namespace Desert::Graphic
             lighting.Light1Color  = light1.ColorIntensity;
             // The shadow rays of the texels the view's maps do not hold: the active GI tracer's visibility.
             lighting.Tracer = MakeTracerFrame( graph, textures, SurfaceCacheTracer() );
-            // The emissive surfaces as lights (GI-EMISSIVE-LIGHTS): the hardware tracer's program samples the
-            // scene's one emissive triangle list (the path tracer's), built from this frame's TLAS segment records.
-            if ( lighting.Tracer.Pipeline.Tracer == GlobalIllumination::Tracer::HardwareRayQuery )
+            // The emissive surfaces as lights (GI-EMISSIVE-LIGHTS): either tracer's program samples the scene's one
+            // emissive triangle list (the path tracer's), built from the scene's meshes.
             {
                 auto emissive = AddFrameEmissiveLights( graph );
                 if ( !emissive )

@@ -42,6 +42,10 @@ namespace Desert::Graphic::RayTracing
     };
 
     // RayTracingGatherResult: RayTracingScene.hpp (held by RayTracingSceneRenderer without this header).
-    void GatherRayTracingPrimitives( const RayTracingGatherInputs& inputs, RayTracingGeometryVariants& variants,
+    // @p variants resolves each row's BLAS (the TLAS gather). Null: a SCENE gather - the same primitives and
+    // segment records (rows, transforms, sections, materials) with no BLAS resolved, Geometry null and no row
+    // skipped for want of one: what a reader of the scene's meshes that builds no TLAS uses (the emissive light
+    // list on a frame whose GI tracer is the software one, EmissiveLights.hpp).
+    void GatherRayTracingPrimitives( const RayTracingGatherInputs& inputs, RayTracingGeometryVariants* variants,
                                      RayTracingGatherResult& out );
 } // namespace Desert::Graphic::RayTracing

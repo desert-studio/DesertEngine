@@ -121,12 +121,16 @@ namespace Desert::Graphic::RayTracing
                  static_cast<uint32_t>( out.SegmentRecords.size() ) - primitive.FirstSegmentRecord;
         }
 
-        // Resolves @p mesh's BLAS for @p masks; false: the row is skipped (counted, the error kept).
-        bool ResolveGeometry( RayTracingGeometryVariants& variants, Mesh& mesh,
+        // Resolves @p mesh's BLAS for @p masks; false: the row is skipped (counted, the error kept). A SCENE gather
+        // (@p variants null: no TLAS is built from it) resolves nothing and keeps every row, Geometry null.
+        bool ResolveGeometry( RayTracingGeometryVariants* variants, Mesh& mesh,
                               const RayTracingSubmeshMasks& masks, RayTracingGatherResult& out,
                               const void*& geometry )
         {
-            const Common::ResultStr<const RayTracingGeometryResource*> resolved = variants.Resolve( mesh, masks );
+            geometry = nullptr;
+            if ( variants == nullptr )
+                return true;
+            const Common::ResultStr<const RayTracingGeometryResource*> resolved = variants->Resolve( mesh, masks );
             if ( !resolved )
             {
                 out.Errors.push_back( resolved.GetError() );
@@ -144,7 +148,7 @@ namespace Desert::Graphic::RayTracing
         }
     } // namespace
 
-    void GatherRayTracingPrimitives( const RayTracingGatherInputs& inputs, RayTracingGeometryVariants& variants,
+    void GatherRayTracingPrimitives( const RayTracingGatherInputs& inputs, RayTracingGeometryVariants* variants,
                                      RayTracingGatherResult& out )
     {
         out.Clear();
@@ -209,7 +213,7 @@ namespace Desert::Graphic::RayTracing
             primitive.Translucent          = AllTranslucent( record.Sections );
             primitive.Submeshes            = masks;
             primitive.Kind                 = record.Kind;
-            if ( geometry == nullptr && IsResident( *record.MeshPtr ) )
+            if ( variants != nullptr && geometry == nullptr && IsResident( *record.MeshPtr ) )
             {
                 primitive.ProceduralMesh = record.MeshPtr;
                 primitive.Kind           = RayTracingPrimitiveKind::Procedural;
@@ -271,7 +275,7 @@ namespace Desert::Graphic::RayTracing
                 primitive.Translucent          = AllTranslucent( field.Sections );
                 primitive.Submeshes            = masks;
                 primitive.Kind                 = RayTracingPrimitiveKind::Instanced;
-                if ( geometry == nullptr && IsResident( *data.Mesh ) )
+                if ( variants != nullptr && geometry == nullptr && IsResident( *data.Mesh ) )
                     primitive.ProceduralMesh = data.Mesh;
                 if ( !recordsAdded )
                 {
@@ -363,7 +367,7 @@ namespace Desert::Graphic::RayTracing
             primitive.CastShadows          = castShadows;
             primitive.Submeshes = masks;
             primitive.Kind      = RayTracingPrimitiveKind::GpuInstanced;
-            if ( geometry == nullptr && IsResident( *data->Mesh ) )
+            if ( variants != nullptr && geometry == nullptr && IsResident( *data->Mesh ) )
                 primitive.ProceduralMesh = data->Mesh;
             AppendSegmentRecords( *data->Mesh, sections, primitive, out );
             // One bucket for every section of a mesh (GpuInstances.hpp): record 0 states its count and first.

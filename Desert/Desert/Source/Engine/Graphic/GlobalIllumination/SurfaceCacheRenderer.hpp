@@ -89,8 +89,8 @@ namespace Desert::Graphic::SurfaceCache
             glm::vec4                       Light1Color{ 0.0f };
             GlobalIllumination::TracerFrame Tracer;
             // The scene's emissive triangles as lights (GI-EMISSIVE-LIGHTS; RayTracing::EmissiveLightsFrame, the
-            // path tracer's one list): required (Valid) under the hardware tracer, whose program samples them;
-            // the software tracer's program has no list to read (it is built from the TLAS segment records).
+            // path tracer's one list): required (Valid) under either GI tracer, whose programs sample them;
+            // the list is built from the scene's meshes, a TLAS only adds its hit lookup.
             RayTracing::EmissiveLightsFrame Emissive;
             // The indirect lighting runs this frame (AddIndirectLightingPass after the radiance cache update): a
             // page's FinalLighting keeps the IndirectLighting it last received; otherwise it is direct only.

@@ -1547,6 +1547,7 @@ namespace Desert::Graphic
         // The TLAS storage size the RT scene's [ViewMemory] lines were last logged at (logged again when it
         // steps).
         uint64_t m_LoggedRayTracingTlasBytes = 0;
+        uint32_t m_LoggedUnplacedEmissive = 0; // AddFrameEmissiveLights: skinned emitters left out, last logged
 #endif
         // SyncGpuScene's landscape tile records, kept across frames (no per-frame allocation).
         std::vector<MotionRecord> m_ScratchTileMotions;

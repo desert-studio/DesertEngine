@@ -316,6 +316,13 @@ namespace Desert::Graphic::RayTracing
                                                        float                               drawDistanceScale,
                                                        const RayTracingExternalPrimitives& external = {} );
 
+        // THE SCENE'S ROWS WITHOUT A TLAS: on a frame whose AddPasses built none, gathers this frame's primitives and
+        // segment records with no BLAS resolved (GatherRayTracingPrimitives with no variants) from the queues and
+        // view AddPasses was given, so GetPrimitives / GetSegmentRecords answer for a reader of the scene's meshes
+        // (the emissive light list under the software GI tracer, EmissiveLights.hpp). A frame with a TLAS keeps
+        // its gather (the same rows). Error: called before this frame's AddPasses.
+        [[nodiscard]] Common::BoolResultStr GatherScene();
+
         // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
         [[nodiscard]] const RayTracingSceneFrame& GetFrame() const
         {
@@ -358,6 +365,11 @@ namespace Desert::Graphic::RayTracing
         std::unique_ptr<RayTracingSceneTarget>      m_Target;
         std::unique_ptr<RayTracingGpuInstanceRows>  m_GpuInstanceRows; // made on the first frame with a source
         RayTracingGatherResult                      m_Gather;        // CPU scratch, capacity kept
+        // AddPasses' inputs of this frame, what GatherScene reads.
+        const System::MeshRenderer* m_SceneMeshes      = nullptr;
+        glm::vec3                   m_SceneViewOrigin{ 0.0f };
+        float                       m_SceneLensScale   = 1.0f;
+        uint64_t                    m_SceneGatherFrame = ~0ull;
         std::vector<RDG::BufferRef>                 m_DynamicBlas;   // CPU scratch: this frame's built BLASes
         std::vector<RayTracingDynamicGeometryBuild> m_DynamicBuilds; // CPU scratch: this frame's BLAS builds
         RayTracingSceneStats                        m_Stats;

@@ -128,7 +128,7 @@ namespace Desert::Graphic::SurfaceCache
             glm::vec4  Light1Dir{ 0.0f };   // atmosphere light 1 (the moon)
             glm::vec4  Light1Color{ 0.0f }; // a == 0: none
             glm::uvec4 Flags{ 0u }; // x = 1: the pages keep their IndirectLighting (it runs this frame); y = frame
-            glm::uvec4 Emissive{ 0u };        // EmissiveLightsFrame::StaticParams (hardware tracer; else 0)
+            glm::uvec4 Emissive{ 0u };        // EmissiveLightsFrame::StaticParams
             glm::uvec4 EmissiveDynamic{ 0u }; // EmissiveLightsFrame::DynamicParams
         };
         static_assert( sizeof( DirectLightingPush ) == 112 );
@@ -148,11 +148,12 @@ namespace Desert::Graphic::SurfaceCache
         // tracer, GI_HIT_EXCLUDES_EMISSION).
         constexpr RDG::TextureParameter kRadiosityExcludedEmissive{ "SurfaceCacheEmissiveTexture" };
 
-        // The tracer whose programs sample the emissive triangles as lights (GI-EMISSIVE-LIGHTS): the hardware
-        // one, whose frame carries the TLAS the list is built from.
-        [[nodiscard]] bool SamplesEmissiveLights( const GlobalIllumination::Pipeline& tracer )
+        // The tracers whose programs sample the emissive triangles as lights (GI-EMISSIVE-LIGHTS): both - the list
+        // is built from the scene's meshes (EmissiveLights.hpp), and each tracer shadows a sample by its own
+        // visibility ray (TracedShadow).
+        [[nodiscard]] bool SamplesEmissiveLights( const GlobalIllumination::Pipeline& /*tracer*/ )
         {
-            return tracer.Tracer == GlobalIllumination::Tracer::HardwareRayQuery;
+            return true;
         }
 
         // Programs/SurfaceCache/SurfaceCacheRadiosityTrace.shader SurfaceRadiosityPush.
@@ -682,7 +683,7 @@ namespace Desert::Graphic::SurfaceCache
                  "surface cache direct lighting: {} (its shadow rays off the view's shadow maps)", missing );
         const bool emissiveLights = SamplesEmissiveLights( inputs.Tracer.Pipeline );
         if ( emissiveLights && !inputs.Emissive.Valid )
-            return Common::MakeError<bool>( "surface cache direct lighting: the hardware tracer samples the emissive "
+            return Common::MakeError<bool>( "surface cache direct lighting: the GI tracer samples the emissive "
                                             "triangles, and the frame built no list (AddFrameEmissiveLights)" );
         if ( const auto program = EnsureLightingProgram( inputs.Tracer.Pipeline ); !program )
             return program;

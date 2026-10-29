@@ -40,7 +40,7 @@
 // "LightGridWorld" from the same point/spot buffers), not every light of the view.
 //
 // THE EMISSIVE SURFACES AS LIGHTS (GI-EMISSIVE-LIGHTS; NVIDIA RTXDI's emissive triangles in one light list, the
-// path tracer's next event estimation): under the hardware tracer a texel also receives the scene's emissive
+// path tracer's next event estimation): under either GI tracer a texel also receives the scene's emissive
 // triangles (Common/EmissiveLights.glslh, the ONE list RayTracing::EmissiveLightsFrame the path tracer samples):
 // kEmissiveSamplesPerTexel triangles picked by power, a point on each by area, the segment's radiance estimate
 // over the solid-angle density, shadowed by the tracer's visibility ray. A lamp's glowing shade lights the wall
@@ -187,11 +187,10 @@ Shader "SurfaceCacheDirectLighting"
             vec4  Light1Direction;  // atmosphere light 1 (the moon): xyz = the direction its light travels
             vec4  Light1Color;      // rgb = colour, a = intensity (after the atmosphere's transmittance); 0: none
             uvec4 LightingFlags;      // x = 1: the indirect lighting runs this frame (the pages keep their IndirectLighting); y = frame index (the emissive samples' seed)
-            uvec4 EmissiveCounts;        // the static part: x = triangles, y = power tree leaves, z = its levels, w = TLAS instances (hardware tracer; else 0)
+            uvec4 EmissiveCounts;        // the static part: x = triangles, y = power tree leaves, z = its levels, w = TLAS instances of the hit lookup (0 without a TLAS)
             uvec4 EmissiveDynamicCounts; // the dynamic part: x = triangles, y = power tree leaves, z = its levels
         };
 
-#if defined( DESERT_GI_TRACER_HARDWARE )
         // The scene's emissive triangles (RayTracing::EmissiveLightsFrame), bindings 40..46 after the tracer's.
         #include <Common/EmissiveLights.glslh>
         layout(std430, binding = 40) readonly buffer EmissiveSegmentsUB
@@ -243,7 +242,6 @@ Shader "SurfaceCacheDirectLighting"
             const uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
             return float((word >> 22u) ^ word) * (1.0 / 4294967296.0);
         }
-#endif
 
         // The shadow of a light in direction @p L (unit, toward the light) at most @p maxT away, by a visibility ray
         // of the active tracer: 0 when the ray meets a surface, 1 otherwise. The ray leaves the texel by the
@@ -306,7 +304,6 @@ Shader "SurfaceCacheDirectLighting"
                               : 1.0;
         }
 
-#if defined( DESERT_GI_TRACER_HARDWARE )
         // The emissive triangles' irradiance at the texel (front, +N, into @p irradiance; the far side, -N, into
         // @p back on a subsurface texel): an unbiased estimate of kEmissiveSamplesPerTexel samples, each a triangle by
         // power and a point on it by area (the path tracer's PathTracingSampleEmissive), radiance x |cos| / its
@@ -359,7 +356,6 @@ Shader "SurfaceCacheDirectLighting"
                     back += contribution;
             }
         }
-#endif
 
         layout(location = 0) in flat uint v_CardIndex;
         layout(location = 1) in flat vec4 v_CardUVRect;
@@ -459,10 +455,8 @@ Shader "SurfaceCacheDirectLighting"
                 }
             }
 
-#if defined( DESERT_GI_TRACER_HARDWARE )
             // The emissive surfaces of the scene (THE EMISSIVE SURFACES AS LIGHTS above).
             AddEmissiveLights(worldPos, N, through, uvec2(atlasTexel), irradiance, back);
-#endif
 
             const vec3 albedo   = texelFetch(AtlasAlbedoTexture, atlasTexel, 0).rgb;
             const vec3 emissive = texelFetch(AtlasEmissiveTexture, atlasTexel, 0).rgb;
