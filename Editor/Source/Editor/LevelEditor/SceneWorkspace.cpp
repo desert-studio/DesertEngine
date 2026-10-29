@@ -7,6 +7,7 @@
 #include "Editor/LevelEditor/PlaySession.hpp"
 #include <Common/Core/Profiler.hpp>
 #include <Common/Settings/MachineSettings.hpp>
+#include <Common/Utilities/ProcessMemory.hpp>
 #include "Editor/Panels/ViewportPanel/ViewportCameraPreset.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
 #include <Editor/Core/Selection/SelectionManager.hpp>
@@ -139,9 +140,12 @@ namespace Desert::Editor
              EngineContext::GetInstance().GetRendererContext() );
         const std::size_t drained =
              context && context->GetVulkanAllocator() ? context->GetVulkanAllocator()->DrainDeletionQueue() : 0;
-        LOG_INFO( "[SceneLoad] the old world released: {} view(s), {} deferred GPU destruction(s) drained before "
-                  "the next world loads",
-                  views, drained );
+        // The old world's blocks are free now, but the system allocator still holds their pages and the OS still
+        // charges them; hand them back before the next world loads on top of them (UE: LoadMap -> TrimMemory).
+        const uint64_t trimmed = Common::Utils::TrimProcessHeap();
+        LOG_INFO( "[SceneLoad] the old world released: {} view(s), {} deferred GPU destruction(s) drained, {:.1f} MB "
+                  "of free heap pages returned to the OS before the next world loads",
+                  views, drained, static_cast<double>( trimmed ) / ( 1024.0 * 1024.0 ) );
     }
 
     void SceneWorkspace::ActiveSceneReplaced()

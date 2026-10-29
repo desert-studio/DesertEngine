@@ -90,4 +90,20 @@ namespace Common::Utils
     /// Walks the whole address space: tens of milliseconds, for a census, never per frame.
     [[nodiscard]] FootprintBreakdown ReadFootprintBreakdown();
 
+    /**
+     * @brief HANDS THE HEAP'S FREE PAGES BACK TO THE OS - UE's `FMalloc::Trim`, called where UE calls it: after a
+     * world is torn down and before the next one loads (UEngine::LoadMap -> TrimMemory).
+     *
+     * Freeing a block does not lower the footprint: the system allocator keeps freed large regions (macOS
+     * "Malloc Large (empty)", glibc's top chunk, the Windows heap's free lists) dirty or compressed for reuse, and
+     * the OS charges them to the process. FIELD-MEM p6 measured the reopen FIELD_Barn -> Starter -> FIELD_Barn:
+     * live allocations at the second Barn were LOWER than at the first (1355 vs 1496 MB, malloc_history), yet
+     * 268 MB of freed large regions were still charged (vmmap "Malloc Large (empty)", 48 MB after the first
+     * open) - the next world's peak stood on them.
+     *
+     * Returns the bytes the allocator reports releasing (macOS `malloc_zone_pressure_relief`; Windows
+     * `_heapmin` reports none, so 0 there is "released, not counted"; Linux `malloc_trim` likewise).
+     */
+    uint64_t TrimProcessHeap();
+
 } // namespace Common::Utils
