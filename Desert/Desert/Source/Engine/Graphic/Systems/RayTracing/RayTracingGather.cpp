@@ -151,6 +151,8 @@ namespace Desert::Graphic::RayTracing
                 return false;
             }
             geometry = resolved.GetValue();
+            if ( masks != RayTracingSubmeshMasks{} )
+                out.VariantUses.push_back( { .MeshPtr = &mesh, .Masks = masks, .Geometry = geometry } );
             return true;
         }
         // A mesh without an uploader BLAS whose buffers are resident: the procedural cache builds its BLAS. A

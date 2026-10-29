@@ -37,7 +37,7 @@ namespace
         FakeTarget() : m_Storage( BufferDesc{ 4096 }, Access::None )
         {
         }
-        Common::ResultStr<TlasBuildSizes> Prepare( uint32_t instanceCount ) override
+        Common::ResultStr<TlasBuildSizes> Prepare( uint32_t instanceCount, bool ) override
         {
             PreparedFor = instanceCount;
             return Common::MakeSuccess( TlasBuildSizes{ 1024 } );
@@ -51,7 +51,7 @@ namespace
             return m_Storage.Desc.Bytes;
         }
         Common::BoolResultStr RecordBuild( const PassContext&, const BufferBinding&, const BufferBinding&,
-                                           uint32_t ) override
+                                           uint32_t, bool ) override
         {
             return BOOLSUCCESS;
         }
@@ -102,7 +102,7 @@ TEST( RayTracingScenePass, GateOffDeclaresNothing )
     const FakeGeometry geometry;
     FakeTarget         target;
     Builder            graph( "RayTracingScene.Off" );
-    const auto         frame = AddRayTracingScenePass( graph, false, OneInstance( geometry ), target, {} );
+    const auto         frame = AddRayTracingScenePass( graph, false, EncodeRayTracingSceneRows( OneInstance( geometry ) ), target, {} );
     ASSERT_TRUE( frame.IsSuccess() ) << frame.GetError();
     EXPECT_FALSE( frame.GetValue().Built );
     EXPECT_EQ( target.PreparedFor, ~0u );
@@ -118,7 +118,7 @@ TEST( RayTracingScenePass, GateOnWritesTheTlasAndLivesWithAReader )
     const FakeGeometry geometry;
     FakeTarget         target;
     Builder            graph( "RayTracingScene.On" );
-    const auto         frame = AddRayTracingScenePass( graph, true, OneInstance( geometry ), target, {} );
+    const auto         frame = AddRayTracingScenePass( graph, true, EncodeRayTracingSceneRows( OneInstance( geometry ) ), target, {} );
     ASSERT_TRUE( frame.IsSuccess() ) << frame.GetError();
     ASSERT_TRUE( frame.GetValue().Built );
     EXPECT_EQ( target.PreparedFor, 1u );
