@@ -422,7 +422,7 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}': the prefab instantiated no root", path );
         // A world prefab lands on the surface met; a UI prefab keeps the layout its canvas gives it.
         if ( !parentEntity && surface && root.HasComponent<ECS::TransformComponent>() )
-            root.GetComponent<ECS::TransformComponent>().Translation = *surface;
+            root.SetLocalTranslation( *surface );
         const auto uuid = root.GetComponent<ECS::UUIDComponent>().UUID;
         Core::SelectionManager::SetSelected( uuid );
         Commands::NotifyCreated( { uuid } );
@@ -461,7 +461,7 @@ namespace Desert::Editor
         const std::string name = std::filesystem::path( path ).stem().string();
         auto&             e    = m_Scene->CreateNewEntity( std::string( name ) );
         e.AddComponent<ECS::StaticMeshComponent>(); // pending: no MeshHandle until the cook completes
-        e.GetComponent<ECS::TransformComponent>().Translation = target.Point;
+        e.SetLocalTranslation( target.Point );
         const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
         m_PendingDrops[static_cast<uint64_t>( uuid )]         = target;
         Core::SelectionManager::SetSelected( uuid );
@@ -537,27 +537,33 @@ namespace Desert::Editor
                     // and its clips can be picked in Details immediately.
                     if ( e.HasComponent<ECS::StaticMeshComponent>() )
                         e.RemoveComponent<ECS::StaticMeshComponent>();
-                    if ( !e.HasComponent<ECS::SkinnedMeshComponent>() )
-                        e.AddComponent<ECS::SkinnedMeshComponent>();
-                    e.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle = resolved.Handle;
+                    ECS::SkinnedMeshDesc skinned = e.HasComponent<ECS::SkinnedMeshComponent>()
+                                                         ? e.GetComponent<ECS::SkinnedMeshComponent>().GetDesc()
+                                                         : ECS::SkinnedMeshDesc{};
+                    skinned.MeshHandle           = resolved.Handle;
+                    ECS::SetSkinnedMesh( *e.GetRegistry(), e.GetHandle(), skinned );
                     if ( !e.HasComponent<ECS::AnimationComponent>() )
                         e.AddComponent<ECS::AnimationComponent>();
                 }
                 else
                 {
                     if ( e.HasComponent<ECS::StaticMeshComponent>() )
-                        e.GetComponent<ECS::StaticMeshComponent>().MeshHandle = resolved.Handle;
+                    {
+                        ECS::StaticMeshDesc mesh = e.GetComponent<ECS::StaticMeshComponent>().GetDesc();
+                        mesh.MeshHandle          = resolved.Handle;
+                        ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), mesh );
+                    }
                     ApplySidecarMaterial( e, done.SourcePath );
                 }
                 // THE BOUNDS REST ON THE SURFACE (UE FActorPositioning): the mesh is resident now (the
                 // closure was awaited), so its box - skinned ones in their baked bind pose - is known. An
                 // entity the user already moved off the drop point keeps where they put it.
-                auto& transform = e.GetComponent<ECS::TransformComponent>();
-                if ( dropTarget && transform.Translation == dropTarget->Point )
+                const auto& transform = e.GetComponent<ECS::TransformComponent>();
+                if ( dropTarget && transform.GetTranslation() == dropTarget->Point )
                     if ( const auto* meshAsset =
                               Runtime::ResourceRegistry::GetMeshService()->GetAsset( resolved.Handle ) )
-                        transform.Translation = ActorDrop::PlacedOrigin(
-                             *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.Scale );
+                        e.SetLocalTranslation( ActorDrop::PlacedOrigin(
+                             *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.GetScale() ) );
                 PlaceRecordedLights( *m_Scene, done.UserData, done.SourcePath );
             }
         }
@@ -3096,15 +3102,15 @@ namespace Desert::Editor
             root.RemoveComponent<ECS::StaticMeshComponent>();
         for ( ECS::Entity child : PlaceNodeActors( *m_Scene, root, nodes ) )
         {
-            (void)Runtime::AwaitAssetClosure( child.GetComponent<ECS::StaticMeshComponent>().MeshHandle,
+            (void)Runtime::AwaitAssetClosure( child.GetComponent<ECS::StaticMeshComponent>().GetMeshHandle(),
                                               Common::Content::ContentKind::StaticMesh );
             ApplySidecarMaterial( child, sourcePath );
         }
         // THE SOURCE'S BOX RESTS ON THE SURFACE (UE FActorPositioning), the box its record states - every node at
         // its placement, in the engine's space (ImportRecord.hpp `Bounds`). A root the user already moved keeps
         // where they put it.
-        auto& transform = root.GetComponent<ECS::TransformComponent>();
-        if ( !dropTarget || transform.Translation != dropTarget->Point )
+        const auto& transform = root.GetComponent<ECS::TransformComponent>();
+        if ( !dropTarget || transform.GetTranslation() != dropTarget->Point )
             return;
         const auto record = Assets::Serialization::ReadImportRecord( sourcePath );
         if ( !record )
@@ -3113,11 +3119,11 @@ namespace Desert::Editor
         if ( !recordValue.has_value() || !recordValue->Bounds.has_value() )
             return;
         const auto& box = *recordValue->Bounds;
-        transform.Translation =
+        root.SetLocalTranslation(
              ActorDrop::PlacedOrigin( *dropTarget,
                                       ::Common::Math::AABB{ glm::vec3( box.Min[0], box.Min[1], box.Min[2] ),
                                                             glm::vec3( box.Max[0], box.Max[1], box.Max[2] ) },
-                                      transform.Scale );
+                                      transform.GetScale() ) );
     }
 
     void ViewportPanel::ApplySidecarMaterial( ECS::Entity& entity, const std::string& meshSourcePath )
@@ -3133,11 +3139,14 @@ namespace Desert::Editor
         // Assign to every material slot (one per submesh).
         auto&  smc   = entity.GetComponent<ECS::StaticMeshComponent>();
         size_t count = 1;
-        if ( auto* meshAsset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( smc.MeshHandle ) )
+        if ( auto* meshAsset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( smc.GetMeshHandle() ) )
             if ( const auto n = meshAsset->GetMaterialHandles().size(); n > 0 )
                 count = n;
-        smc.MaterialSlots.assign( count, h );
-        smc.RuntimeMaterialInstances.clear();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MaterialSlots.assign( count, h );
+        ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
+        // Unchanged slots keep the instances; a re-drop of the same material rebuilds them all the same.
+        smc.RuntimeMaterialInstances().clear();
     }
 
     std::optional<::Desert::Core::RaycastHit> ViewportPanel::SurfaceAtCursor() const
@@ -3200,9 +3209,12 @@ namespace Desert::Editor
         // Assign every element (the renderer repeats the last slot anyway) and select the entity so
         // the Materials panel shows the result of the drop immediately.
         auto& smc = m_Scene->GetRegistry().get<ECS::StaticMeshComponent>( entity.GetHandle() );
-        const size_t count = std::max<size_t>( size_t{ 1 }, smc.MaterialSlots.size() );
-        smc.MaterialSlots.assign( count, handle );
-        smc.RuntimeMaterialInstances.clear();
+        const size_t count = std::max<size_t>( size_t{ 1 }, smc.GetMaterialSlots().size() );
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MaterialSlots.assign( count, handle );
+        ECS::SetStaticMesh( m_Scene->GetRegistry(), entity.GetHandle(), desc );
+        // Unchanged slots keep the instances; a re-drop of the same material rebuilds them all the same.
+        smc.RuntimeMaterialInstances().clear();
         Core::SelectionManager::SetSelected( hit.Entity );
     }
 

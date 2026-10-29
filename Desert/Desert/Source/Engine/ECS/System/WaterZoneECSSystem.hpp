@@ -45,7 +45,7 @@ namespace Desert::ECS
             {
                 if ( ECS::IsHidden( registry, entity ) )
                     continue;
-                const glm::vec3& location = view.get<TransformComponent>( entity ).Translation;
+                const glm::vec3& location = view.get<TransformComponent>( entity ).GetTranslation();
                 const glm::vec2  half     = 0.5f * view.get<WaterBodyComponent>( entity ).Data.OceanExtents;
                 const glm::vec2  centre( location.x, location.z );
                 bodies.push_back(
@@ -60,7 +60,7 @@ namespace Desert::ECS
                 if ( ECS::IsHidden( registry, entity ) )
                     continue;
                 const WaterZoneData& data     = zones.get<WaterZoneComponent>( entity ).Data;
-                const glm::vec3&     location = zones.get<TransformComponent>( entity ).Translation;
+                const glm::vec3&     location = zones.get<TransformComponent>( entity ).GetTranslation();
 
                 Graphic::System::WaterZoneDraw draw;
                 draw.Zone.ZoneCenter         = glm::vec2( location.x, location.z );

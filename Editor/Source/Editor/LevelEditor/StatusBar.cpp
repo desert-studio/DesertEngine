@@ -55,7 +55,7 @@ namespace Desert::Editor
             // HIDDEN entities are excluded: the number sits beside the entity count in a bar that answers
             // "what is on screen", and a hidden mesh is not.
             if ( entity.HasComponent<ECS::VisibilityComponent>() &&
-                 !entity.GetComponent<ECS::VisibilityComponent>().Visible )
+                 !entity.GetComponent<ECS::VisibilityComponent>().IsVisible() )
             {
                 continue;
             }
@@ -152,7 +152,7 @@ namespace Desert::Editor
                     if ( const ::Desert::Mesh* mesh = ResolveDrawnMesh( entity );
                          mesh != nullptr && MeshLODRows::LevelCount( *mesh ) > 1 )
                         drawnLevel = MeshLODRows::DrawingLevel( m_Workspace.ActiveScene().get(), entity, *mesh,
-                                                                smc.ForcedLOD, smc.LODBias );
+                                                                smc.GetForcedLOD(), smc.GetLODBias() );
                 }
             }
             if ( drawnLevel )

@@ -74,16 +74,15 @@ namespace Desert::World::Foliage
                 if ( index >= list.size() )
                     return;
                 const ECS::Rules::DecomposedTransform parts = ECS::Rules::DecomposeTransform( local );
-                auto& tc       = registry.get_or_emplace<ECS::TransformComponent>( list[index] );
-                tc.Translation = parts.Translation;
-                tc.Rotation    = parts.Rotation;
-                tc.Scale       = parts.Scale;
+                registry.get_or_emplace<ECS::TransformComponent>( list[index] );
+                ECS::SetLocalTransform( registry, list[index],
+                                        ECS::LocalTransform{ parts.Translation, parts.Rotation, parts.Scale } );
             };
             // The field's transforms are world matrices; a child's transform is local to the field. A copy
             // either way: a spawned prefab may add to the component pools and move the field's vector.
             const glm::mat4        toField = glm::inverse( fieldEntity.GetWorldTransform() );
             std::vector<glm::mat4> wanted =
-                 registry.get<ECS::InstancedStaticMeshComponent>( field ).InstanceTransforms;
+                 registry.get<ECS::InstancedStaticMeshComponent>( field ).GetInstanceTransforms();
             for ( glm::mat4& instance : wanted )
                 instance = toField * instance;
             if ( auto realized = ApplyPrefabFoliage( wanted, host ); !realized )

@@ -89,7 +89,7 @@ namespace
         entt::entity Spawn( const glm::vec3& at, Assets::AssetHandle handle = kFractureHandle )
         {
             const entt::entity entity                                            = registry.create();
-            registry.emplace<ECS::TransformComponent>( entity ).Translation      = at;
+            registry.emplace<ECS::TransformComponent>( entity, ECS::LocalTransform{ .Translation = at } );
             registry.emplace<ECS::DestructibleComponent>( entity ).Data.Fracture = handle;
             return entity;
         }
@@ -168,7 +168,7 @@ TEST( DestructibleComponent, RefusalsAreNamedAndNotRetried )
     const auto empty   = f.Spawn( { 0.0f, 0.0f, 0.0f }, Assets::AssetHandle::Null() );
     const auto missing = f.Spawn( { 0.0f, 0.0f, 0.0f }, Assets::AssetHandle( uint64_t{ 99 } ) );
     const auto scaled  = f.Spawn( { 0.0f, 0.0f, 0.0f } );
-    f.registry.get<ECS::TransformComponent>( scaled ).Scale = glm::vec3( 2.0f );
+    ECS::SetLocalScale( f.registry, scaled, glm::vec3( 2.0f ) );
     f.Sync();
     f.Sync();
     EXPECT_EQ( f.Object( empty ), kInvalidDestructible );

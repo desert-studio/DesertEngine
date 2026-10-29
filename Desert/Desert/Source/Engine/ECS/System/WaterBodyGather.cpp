@@ -20,7 +20,7 @@ namespace Desert::ECS
             Water::WaterBodyState body;
             // The entity's position is the still water level (Y) and the WaveOrigin (X, Z), as UE's ocean
             // actor location is.
-            body.Location            = view.get<TransformComponent>( entity ).Translation;
+            body.Location            = view.get<TransformComponent>( entity ).GetTranslation();
             body.Extents             = data.OceanExtents;
             body.TargetWaveMaskDepth = data.TargetWaveMaskDepth;
 

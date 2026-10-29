@@ -10,6 +10,7 @@
 #include <Editor/Widgets/ThumbnailCache.hpp>
 
 #include <filesystem>
+#include <functional>
 #include <unordered_map>
 
 namespace Desert::Core
@@ -35,10 +36,26 @@ namespace Desert::Editor
         // meshes had no material UI at all. Everything below works on this.
         struct MaterialHost
         {
-            std::vector<Assets::AssetHandle>*          Slots            = nullptr;
-            std::vector<Graphic::MaterialInstancePtr>* RuntimeInstances = nullptr;
-            Assets::AssetHandle                        MeshHandle;
-            ::Desert::Mesh*                            Mesh = nullptr; // the mesh actually drawn
+            // A read view of the component's slots; every change goes through WriteSlots, which states the
+            // whole new list through the component's one writer (ECS::SetStaticMesh / SetSkinnedMesh /
+            // SetInstancedStaticMesh), so the change reaches the render dirty set and drops the runtime
+            // instances built from the old slots.
+            const std::vector<Assets::AssetHandle>*                Slots = nullptr;
+            std::function<void( std::vector<Assets::AssetHandle> )> WriteSlots;
+            std::vector<Graphic::MaterialInstancePtr>*              RuntimeInstances = nullptr;
+            Assets::AssetHandle                                     MeshHandle;
+            ::Desert::Mesh*                                         Mesh = nullptr; // the mesh actually drawn
+
+            // Puts `handle` in `slot`; a slot past the end is appended.
+            void SetSlot( size_t slot, Assets::AssetHandle handle ) const
+            {
+                std::vector<Assets::AssetHandle> slots = *Slots;
+                if ( slot < slots.size() )
+                    slots[slot] = handle;
+                else
+                    slots.push_back( handle );
+                WriteSlots( std::move( slots ) );
+            }
 
             // Drops the cached runtime instances so the renderer rebuilds them from the slots next tick.
             void Invalidate() const
