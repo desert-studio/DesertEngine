@@ -1286,7 +1286,6 @@ jobs:
       - name: Build ${{ matrix.config }}
         timeout-minutes: 130
         shell: cmd
-        run: |
         # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it --
         # --no-tests configures without the suites (DESERT_WITH_TESTS=OFF). Restore = drop the flag.
         run: |

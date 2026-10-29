@@ -1,0 +1,11 @@
+# actionlint config (https://github.com/rhysd/actionlint/blob/main/docs/config.md).
+self-hosted-runner:
+  # The GPU frame job runs on the studio's self-hosted Windows machine labelled `gpu`.
+  labels:
+    - gpu
+paths:
+  .github/workflows/ci.yml:
+    ignore:
+      # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): the test jobs are switched off with
+      # `if: false` until the owner lifts it; restoring them removes these conditions.
+      - 'constant expression "false" in condition'
