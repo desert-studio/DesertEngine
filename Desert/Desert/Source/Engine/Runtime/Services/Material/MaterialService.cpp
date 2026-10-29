@@ -414,6 +414,28 @@ namespace Desert::Runtime
         return Common::MakeSuccess( std::move( *shader ) );
     }
 
+    Common::ResultStr<std::string> MaterialService::StandInSurfaceShader( Graphic::MeshVertexPath path,
+                                                                          Graphic::MeshPass       pass ) const
+    {
+        const auto assets = m_Assets.lock();
+        if ( !assets )
+            return Common::MakeError<std::string>(
+                 std::string( "no asset manager is bound, so no template declares 'Role StandInSurface' yet" ) );
+        const auto handle = Assets::FindTemplateByRole( *assets, Common::Content::kStandInSurfaceRole );
+        if ( !handle )
+            return Common::MakeError<std::string>( handle.GetError() );
+        const auto shader = assets->FindByHandle<Assets::ShaderAsset>( handle.GetValue() );
+        if ( shader == nullptr )
+            return Common::MakeError<std::string>( std::string( "the 'StandInSurface' template is not loaded" ) );
+        const std::string templateName = shader->GetMetadata().Filepath.stem().string();
+        auto              cell         = Graphic::MeshShaderFor( templateName, path, pass );
+        if ( !cell )
+            return Common::MakeError<std::string>(
+                 std::format( "the stand-in surface template '{}' has no ({} x {}) cell", templateName,
+                              Graphic::MeshVertexPathName( path ), Graphic::MeshPassName( pass ) ) );
+        return Common::MakeSuccess( std::move( *cell ) );
+    }
+
     void MaterialService::PinDefaultSurfaceTemplate( const Common::AssetHandle& handle )
     {
         m_DefaultSurfacePin = std::make_unique<Assets::AssetRootPin>(

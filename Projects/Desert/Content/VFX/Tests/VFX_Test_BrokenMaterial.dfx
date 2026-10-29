@@ -1,0 +1,245 @@
+{
+    "Header": {
+        "Kind": "VFXSystem",
+        "Guid": "fa90621c7cb44d2e966ffb945e5cf1a4",
+        "Versions": {
+            "VFXS": 5
+        },
+        "Dependencies": [
+            "02637a2ef2774901a0a88452af542abd",
+            "0caef28c515f4a4e93363f1616ed3ca3",
+            "2d5323b9c4d349f8b91c4fc795599f4f",
+            "4088e09663904044ae838d2b40fc2380",
+            "55923c5734e04fc78e068ad051c4772c",
+            "8079c58d9d214db694607abaf9c1a4b2",
+            "dff69e4e958a45f5a4fd4f19ba7de22c",
+            "e64f581d72684d28ab4dc2f70e9c807a"
+        ]
+    },
+    "Category": "Impact",
+    "EffectType": "Default",
+    "Tags": [],
+    "Duration": 1.5,
+    "Loop": true,
+    "Seed": 7171,
+    "UserParams": [],
+    "Emitters": [
+        {
+            "Name": "BrokenMaterial",
+            "Enabled": true,
+            "Space": "World",
+            "Capacity": 16,
+            "Bounds": {
+                "Min": [
+                    -150.0,
+                    -150.0,
+                    -150.0
+                ],
+                "Max": [
+                    150.0,
+                    150.0,
+                    150.0
+                ]
+            },
+            "Lifecycle": {
+                "Delay": 0.0,
+                "LoopDuration": 1.5,
+                "Loop": "Infinite",
+                "LoopCount": 1
+            },
+            "Stack": {
+                "EmitterSpawn": [],
+                "EmitterUpdate": [
+                    {
+                        "Module": {
+                            "Guid": "02637a2ef2774901a0a88452af542abd",
+                            "Path": "engine:Engine/VFX/Modules/SpawnBurst.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "SpawnCount",
+                                "Type": "Int",
+                                "Source": "Value",
+                                "Value": [
+                                    1.0,
+                                    0,
+                                    0,
+                                    0
+                                ]
+                            },
+                            {
+                                "Name": "SpawnTime",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleSpawn": [
+                    {
+                        "Module": {
+                            "Guid": "8079c58d9d214db694607abaf9c1a4b2",
+                            "Path": "engine:Engine/VFX/Modules/ShapePoint.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Offset",
+                                "Type": "Vec3",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
+                            "Guid": "2d5323b9c4d349f8b91c4fc795599f4f",
+                            "Path": "engine:Engine/VFX/Modules/InitializeLifetime.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Lifetime",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        1.4,
+                                        0,
+                                        0,
+                                        0
+                                    ],
+                                    "Max": [
+                                        1.4,
+                                        0,
+                                        0,
+                                        0
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
+                            "Guid": "55923c5734e04fc78e068ad051c4772c",
+                            "Path": "engine:Engine/VFX/Modules/InitializeSpriteSize.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Size",
+                                "Type": "Vec2",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        140.0,
+                                        140.0,
+                                        0,
+                                        0
+                                    ],
+                                    "Max": [
+                                        160.0,
+                                        160.0,
+                                        0,
+                                        0
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
+                            "Guid": "e64f581d72684d28ab4dc2f70e9c807a",
+                            "Path": "engine:Engine/VFX/Modules/InitializeRotation.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Rotation",
+                                "Type": "Float",
+                                "Source": "Random",
+                                "Random": {
+                                    "Min": [
+                                        0.0,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ],
+                                    "Max": [
+                                        360.0,
+                                        0.0,
+                                        0.0,
+                                        0.0
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "RotationRate",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    0.0
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "Module": {
+                            "Guid": "dff69e4e958a45f5a4fd4f19ba7de22c",
+                            "Path": "engine:Engine/VFX/Modules/InitializeColor.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": [
+                            {
+                                "Name": "Color",
+                                "Type": "Vec4",
+                                "Source": "Value",
+                                "Value": [
+                                    1.0,
+                                    1.0,
+                                    1.0,
+                                    1.0
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "ParticleUpdate": [
+                    {
+                        "Module": {
+                            "Guid": "0caef28c515f4a4e93363f1616ed3ca3",
+                            "Path": "engine:Engine/VFX/Modules/UpdateAge.dfxmod"
+                        },
+                        "Enabled": true,
+                        "Inputs": []
+                    }
+                ]
+            },
+            "Renderers": [
+                {
+                    "Kind": "Sprite",
+                    "Enabled": true,
+                    "Material": {
+                        "Guid": "4088e09663904044ae838d2b40fc2380",
+                        "Path": "assets:VFX/Tests/M_Test_BrokenParticle.demat"
+                    }
+                }
+            ]
+        }
+    ]
+}
