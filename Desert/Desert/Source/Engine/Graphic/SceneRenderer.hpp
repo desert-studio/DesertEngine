@@ -334,6 +334,15 @@ namespace Desert::Graphic
         // when its frame count starts, a camera cut or a teleport asks for the same thing.
         void ResetTemporalHistory();
 
+        // THE WORLD THIS VIEW DREW WAS TORN DOWN (UE: the FSceneViewState and the Lumen/distance-field scene data
+        // die with their FScene). Releases everything this view built FROM the old world - its surface cache,
+        // radiance cache, probe gathers, global distance field and the terrain's materials and layer arrays - and
+        // cuts the temporal history. Each is made again on first use by the next world. Called between frames by
+        // the opener, after the world is cleared and before the next one loads
+        // (SceneWorkspace::ReleaseActiveWorld), so the old world's device memory is given back before the new
+        // one's is asked for (FIELD-MEM p3).
+        void ReleaseWorldResources();
+
         [[nodiscard]] const ViewExtent& GetViewExtent() const
         {
             return m_ViewExtent;
