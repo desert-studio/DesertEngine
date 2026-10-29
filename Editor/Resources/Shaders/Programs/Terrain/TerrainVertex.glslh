@@ -47,19 +47,28 @@
 
         #include <Programs/Terrain/LandscapeVertexEval.glslh>
 
+        // THE DISPLACEMENT'S INPUTS (LandscapeDisplacement.glslh): the tile's weightmap (as TerrainSurface.glslh and
+        // the casters' fragment stages declare it, same slots) and the landscape material's layer height array (as
+        // TerrainSurface.glslh declares it; its sampler state is named, numbered by the shared sampler rule), read
+        // here by every program so the casters and the camera displace one surface.
+        Uniform(10) texture2D WeightmapTexture;
+        Uniform(12) sampler WeightmapTextureSampler;
+        #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapTextureSampler)
+        Uniform(15) texture2DArray LayerHeightTexture;
+        Uniform sampler LayerHeightTextureSampler;
+        #define LayerHeightTexture sampler2DArray(LayerHeightTexture, LayerHeightTextureSampler)
+
+        #include <Common/LandscapeWeights.glslh>
+        #include <Programs/Terrain/LandscapeDisplacement.glslh>
+
         void main()
         {
-            int   iquads  = int( CurrentTerrain.LandscapeTile.z + 0.5 );
-            int   gridLod = int( CurrentTerrain.Params.w + 0.5 );
-            int   ix      = LandscapeLodGridCoord( gl_VertexIndex, iquads, gridLod, 0 );
-            int   iz      = LandscapeLodGridCoord( gl_VertexIndex, iquads, gridLod, 1 );
-
-            LandscapeMorphedVertex v = LandscapeEvaluateVertex( ix, iz );
+            // The tile's grid vertex, or a sub-vertex of a diced cell displaced by the layers' heights.
+            LandscapeDisplacedVertex v = LandscapeDisplacedEvaluate( gl_VertexIndex );
             vec4 worldPos = vec4( v.WorldPos, 1.0 );
             gl_Position    = m_PushConstants.Transform * worldPos;
 
-            vec2 d      = LandscapeVertexGradient( v );
-            vec3 normal = normalize( vec3( -d.x, 1.0, -d.y ) ); // the surface y = h(x, z)
+            vec3 normal = v.Normal;
 #ifndef TERRAIN_DEPTH_ONLY
             v_WorldPos = worldPos.xyz;
             v_Normal   = normal;

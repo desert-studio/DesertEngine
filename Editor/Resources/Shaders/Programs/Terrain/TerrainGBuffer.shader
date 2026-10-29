@@ -22,6 +22,14 @@ Shader "TerrainGBuffer"
         Float       DetailNormalStrength ("Detail Normal Strength", Range(0,4), Category("Layers")) = 0
         Float       MacroHueSize ("Macro Hue Size (cm)", Range(100,100000), Category("Layers")) = 6000
         Float       MacroHueStrength ("Macro Hue Strength (radians)", Range(0,1.5), Category("Layers")) = 0
+        // DISPLACEMENT (UE 5.4+ landscape displacement: the material's Displacement output, LandscapeDisplacement.glslh):
+        // the layers' blended height moves the ground by (height - Center) x Magnitude along its normal, full up to
+        // FadeStart from the camera and gone by FadeEnd. 0 cm = a flat ground; the dicing follows Scalability
+        // ViewDistance.DisplacementDicingRate, as mesh displacement does (0 = off).
+        Float       DisplacementMagnitude ("Displacement Magnitude (cm)", Range(0,200), Category("Displacement")) = 0
+        Float       DisplacementCenter ("Displacement Center", Range(0,1), Category("Displacement")) = 0.5
+        Float       DisplacementFadeStart ("Displacement Fade Start (cm)", Range(100,20000), Category("Displacement")) = 1500
+        Float       DisplacementFadeEnd ("Displacement Fade End (cm)", Range(200,30000), Category("Displacement")) = 2500
         LandscapeLayerInfo Layer0Layer ("Layer 0 Layer", Category("Layer 0"), Element(Layers, 0))
         Int         Layer0Blend ("Layer 0 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 0")) = 0
         Float       Layer0TileSize ("Layer 0 Tile Size (cm)", Range(10,10000), Category("Layer 0")) = 300
@@ -128,7 +136,7 @@ Shader "TerrainGBuffer"
         // The G-buffer's four targets, as StaticMeshGBuffer.shader writes them.
         Out(0) vec4 oGBufferA;        // Albedo.rgb, Metallic.a
         Out(1) vec4 oGBufferB;        // Normal.rgb, Roughness.a
-        Out(2) uvec2 oGBufferShadingWord; // shading word (DefaultLit, no maps, no payload); no world position
+        Out(2) uvec2 oGBufferShadingWord; // shading word (DefaultLit; TwoSidedFoliage under the grass cover); no world position
         Out(3) vec4 oGBufferEmissive; // Emissive.rgb
         Out(4) vec4 oVelocity;        // the view's velocity, slot 4 of the G-buffer target (TerrainSurface.glslh)
         Out(5) float oThinGeometryCoverage; // slot 5 of the G-buffer target (Common/ThinGeometryCoverage.glslh)
@@ -139,12 +147,23 @@ Shader "TerrainGBuffer"
 
         void main()
         {
-            TerrainSurface s = EvaluateTerrainSurface();
+            vec3           transmission;
+            float          cover;
+            TerrainSurface s = EvaluateTerrainSurfaceCovered( Material.Tint.rgb, transmission, cover );
 
-            // Ground is a dielectric; roughness and occlusion are the landscape material's layers'.
-            oGBufferA        = vec4( s.Albedo * Material.Tint.rgb, 0.0 );
+            // Ground is a dielectric; roughness and occlusion are the landscape material's layers'. Where the grass
+            // field's far cover lies over it (GRASS-FIELD) the pixel shades as the blades do - TwoSidedFoliage, its
+            // SubsurfaceColor the cover's share of the blades' (stored as its square root, UE
+            // EncodeSubsurfaceColor), so the transmitted light fades in with the cover and bare ground stays
+            // DefaultLit.
+            oGBufferA        = vec4( s.Albedo, 0.0 );
             oGBufferB        = vec4( s.N, s.Roughness );
-            oGBufferShadingWord = DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, 0.5, DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
+            const vec3 sss   = sqrt( clamp( transmission, 0.0, 1.0 ) );
+            oGBufferShadingWord = cover > 0.0
+                                       ? DesertPackShadingWord( SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE, 0.0, 0.5,
+                                                                DesertPayload( sss.r, sss.g, sss.b, cover ) )
+                                       : DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, 0.5,
+                                                                DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
             oGBufferEmissive = vec4( 0.0, 0.0, 0.0, s.AO ); // no emission; material AO from the layers' ARM maps
             oVelocity        = TerrainVelocity();
             oThinGeometryCoverage = DesertThinGeometryCoverage( SHADING_MODEL_INDEX_DEFAULT_LIT );
