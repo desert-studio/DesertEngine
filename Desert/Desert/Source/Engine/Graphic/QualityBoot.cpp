@@ -43,7 +43,7 @@ namespace Desert::Graphic::QualityBoot
         }
     } // namespace
 
-    Common::BoolResultStr Start( const std::filesystem::path& machineJson )
+    Common::BoolResultStr Start( const std::filesystem::path& machineJson, Persistence persistence )
     {
         const std::filesystem::path tableFile = Common::Constants::Path::CONFIG_PATH / "Scalability.json";
         const auto                  text      = Common::Utils::FileSystem::ReadFileContent( tableFile );
@@ -86,10 +86,13 @@ namespace Desert::Graphic::QualityBoot
              start.FromRecommended ? MachineSettings::HighSelection() : start.Selection;
         Common::Scalability::QualityState::Initialize( table.ExtractValue(), capabilities.Catalog,
                                                        std::move( initial ), &SaveSelection );
+        const bool thisProcess = persistence == Persistence::ThisProcess;
+        if ( thisProcess )
+            Common::Scalability::QualityState::KeepInSession( "unattended run" );
         Common::Scalability::QualityState::Subscribe( &PushSamplerState, nullptr );
         // Quality.Levels was read from the former positional list or missed a group of this build: the file is
         // rewritten by group name, with the level each group actually starts on (no legacy form kept on disk).
-        if ( MachineSettings::LevelsMigrated() && !start.FromRecommended )
+        if ( MachineSettings::LevelsMigrated() && !start.FromRecommended && !thisProcess )
             if ( const auto saved = SaveSelection( start.Selection ); !saved )
                 LOG_ERROR( "[Scalability] the migrated quality levels were not written back: {}",
                            saved.GetError() );

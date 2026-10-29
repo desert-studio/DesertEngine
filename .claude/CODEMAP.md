@@ -63,7 +63,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Geometry/MeshCore/Selections` — 4 files, 411 lines: Component, MeshConnectedComponents, QuadGridPatch
 - `Geometry/MeshCore/Solvers` — 2 files, 528 lines: SparseLDLT, SparseMatrixD, SpectralConformalMeshUVSolver, Triplet
 - `Geometry/MeshCore/Spatial` — 3 files, 1,208 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
-- `Graphic` — 127 files, 27,132 lines: ActiveViewScope, AllocationLedger, Arena, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, … (+206)
+- `Graphic` — 127 files, 27,144 lines: ActiveViewScope, AllocationLedger, Arena, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, … (+206)
 - `Graphic/API` — 4 files, 295 lines: CooperativeMatrixShape, NeuralComputeCaps
 - `Graphic/API/Vulkan` — 88 files, 25,624 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, BoundGeometry, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CatalogProbe, CommandBufferAllocator, DescriptorIndexingLimits, DescriptorPoolDeletionEntry, DescriptorSetInfo, … (+106)
 - `Graphic/API/Vulkan/FidelityFX` — 2 files, 225 lines: DeviceRequirements
@@ -171,7 +171,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Platform` — 1 files, 76 lines
 - `Platform/MacOS` — 1 files, 20 lines
 - `Project` — 2 files, 23 lines
-- `Settings` — 15 files, 4,404 lines: AntiAliasingPreset, ApplyReport, BenchmarkCacheKey, BenchmarkPass, BenchmarkReference, BenchmarkResult, CapabilityCatalog, DisplaySettings, Fallback, GroupLevels, MachineSettings, ParameterOverride, … (+11)
+- `Settings` — 15 files, 4,433 lines: AntiAliasingPreset, ApplyReport, BenchmarkCacheKey, BenchmarkPass, BenchmarkReference, BenchmarkResult, CapabilityCatalog, DisplaySettings, Fallback, GroupLevels, MachineSettings, ParameterOverride, … (+11)
 - `Utilities` — 28 files, 5,752 lines: AssetRegistry, AssetRegistryEntry, CameraCapture, ContentDiff, ContentManifest, ContentManifestEntry, ContentUpdatePlan, ContentUpdateReport, ContentUpdateStep, Entry, FileSystem, PakReader, … (+10)
 
 ## Editor — `Editor/Source/Editor`
@@ -244,7 +244,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Widgets/UIHelper` — 5 files, 352 lines: Entry, ImageTextureIds, UICacheTextureImGui, UIHelper
 
 ## Runtime — `Runtime/Source`
-- `.` — 8 files, 2,809 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
+- `.` — 8 files, 2,814 lines: ContentMountResult, CrashTestRequest, MovieRenderRequest, RuntimeLayer, RuntimeShot
 
 ## Shaders — `Editor/Resources/Shaders`
 - `Common` — 101 files, 15,259 lines
