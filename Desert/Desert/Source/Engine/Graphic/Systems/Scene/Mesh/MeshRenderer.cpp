@@ -568,7 +568,7 @@ namespace Desert::Graphic::System
                     return drawn;
             }
             // The GPU-culled bins, after the CPU commands (whatever the CPU lists still draw is what the bins do
-            // not hold: MeshRenderer::SkipsBinned).
+            // not hold: MeshRenderer::CpuWalkHidden).
             if ( m_Binned )
             {
                 std::vector<const RDG::PassBindings*> groupBindings( m_Binned->Table->Groups.size(), nullptr );
@@ -875,7 +875,7 @@ namespace Desert::Graphic::System
                        static_cast<uint32_t>( data.Transforms->size() ), data.HiddenSubmeshes, *row, false,
                        GpuDriven::BinFallback::None, data.Wind.Sways() );
         }
-        // The CPU ISM loops find an entry's primitive here (SkipsBinned): the queue's order is the rows' order.
+        // The CPU ISM loops find an entry's primitive here (CpuWalkHidden): the queue's order is the rows' order.
         m_FieldPrimitives.assign( rows.FieldPrimitives.begin(), rows.FieldPrimitives.end() );
         for ( const auto& data : m_SkinnedQueue )
             for ( const auto& section : data.Sections )
@@ -1152,7 +1152,11 @@ namespace Desert::Graphic::System
 
     MeshRenderer::ClusterWalkView MeshRenderer::VirtualShadowWalkView() const
     {
-        return ClusterWalkView{ .Pass = GpuDriven::MeshPass::VirtualShadow, .VirtualShadow = true };
+        // The carriers AddVirtualShadowRasterPasses made (null until then, and for a refused group).
+        return ClusterWalkView{ .Pass           = GpuDriven::MeshPass::VirtualShadow,
+                                .RasterCarriers = m_VsmGeometry ? &m_VsmGeometry->VirtualGeometry->GroupCarriers
+                                                                : nullptr,
+                                .VirtualShadow  = true };
     }
 
     MeshRenderer::ClusterWalkView MeshRenderer::UnbinnedWalkView( const GpuDriven::MeshPass pass ) const

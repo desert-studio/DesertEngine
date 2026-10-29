@@ -445,12 +445,26 @@ namespace Desert::Graphic::System
         if ( view.VirtualShadow )
         {
             // A VSM level issues no bins: without its raster the walk draws the record whole.
-            if ( !m_VsmGeometry )
+            if ( view.RasterCarriers == nullptr || !m_DrawCommandCache )
                 return SubmeshMask{ hidden };
             ClusterableSubmeshes( GpuDriven::MeshPass::VirtualShadow, dynamic_cast<const Desert::StaticMesh*>( mesh ),
                                   primitive, hidden, words );
             if ( words.empty() )
                 return SubmeshMask{ hidden }; // not a VG primitive
+            // The main view's rule: hidden is only what the raster DRAWS - a group whose carrier was refused
+            // (AddVirtualShadowRasterPasses) is walked.
+            for ( std::size_t submesh = 0; submesh < submeshes; ++submesh )
+            {
+                const std::size_t word = submesh / 64u;
+                const uint64_t    bit  = uint64_t{ 1 } << ( submesh % 64u );
+                if ( word >= words.size() || ( words[word] & bit ) == 0u )
+                    continue;
+                const std::optional<uint32_t> group =
+                     m_DrawCommandCache->SubmeshGroup( view.Pass, primitive, static_cast<uint32_t>( submesh ) );
+                if ( !group || *group >= view.RasterCarriers->size() ||
+                     ( *view.RasterCarriers )[*group] == nullptr )
+                    words[word] &= ~bit;
+            }
         }
         else
         {
@@ -610,8 +624,12 @@ namespace Desert::Graphic::System
 
         // The clusters of every level (SetVirtualShadowGeometry): one carrier per group with a twin. The level
         // comes from the cluster (its cut view), the matrix and the page table from the level (the cell's vertex
-        // and fragment stages), so the carrier's view is any VSM one: level 0's. Made before the walks below,
-        // which leave out the primitives the clusters draw while the issue is set.
+        // and fragment stages), so the carrier's view is any VSM one: level 0's. Made, and the raster's draw list
+        // set, BEFORE the walks below: the walks hide exactly the submeshes whose group carrier is held here
+        // (VirtualShadowWalkView -> CpuWalkHidden, the main view's rule), so nothing refused after them can lose a
+        // caster. A refused carrier leaves its group null - its submeshes are walked (UE: a primitive the cluster
+        // path cannot draw is drawn by its own mesh), counted in VsmRefusedGroups and logged once per cell; a
+        // refused raster list drops the whole cluster issue, so the walks draw every caster.
         if ( m_VsmGeometry )
         {
             MeshRendererDetail::VirtualGeometryIssue& vg         = *m_VsmGeometry->VirtualGeometry;
@@ -624,11 +642,27 @@ namespace Desert::Graphic::System
                 std::string error;
                 vg.GroupCarriers[group] =
                      PrepareBinnedCarrier( twin->GetSpecification().Shader, kVsmViewBase, frameState, error );
-                if ( vg.GroupCarriers[group] == nullptr )
-                {
-                    m_VsmGeometry.reset();
-                    return Common::MakeError( std::format( "virtual shadow map clusters: {}", error ) );
-                }
+                if ( vg.GroupCarriers[group] != nullptr )
+                    continue;
+                ++m_VsmRefusedGroups;
+                if ( const std::string& cell = twin->GetSpecification().Shader->GetName();
+                     m_BinnedRefused.insert( cell + "|vsm-vg-carrier" ).second )
+                    LOG_WARN( "[MeshRenderer] virtual shadow map clusters of '{}' have no carrier ({}): its "
+                              "virtual-geometry meshes cast through the CPU walk",
+                              cell, error );
+            }
+            m_VsmGeometryDraws.Clear();
+            m_VsmGeometryDraws.SetBinned( *m_VsmGeometry );
+            if ( m_VsmGeometryDraws.GetError() )
+            {
+                for ( const MaterialExecutor* carrier : vg.GroupCarriers )
+                    m_VsmRefusedGroups += carrier != nullptr ? 1u : 0u;
+                if ( m_BinnedRefused.insert( "|vsm-vg-raster" ).second )
+                    LOG_ERROR( "[MeshRenderer] virtual shadow map clusters refused ({}): every caster is drawn by "
+                               "the CPU walk",
+                               *m_VsmGeometryDraws.GetError() );
+                m_VsmGeometryDraws.Clear();
+                m_VsmGeometry.reset();
             }
         }
 
@@ -786,13 +820,9 @@ namespace Desert::Graphic::System
         // THE CLUSTERS OF EVERY LEVEL IN ONE PASS (UE: one Nanite raster for all the VSM views): each draw
         // instance is a cluster whose cut view is its level; the `.VirtualGeometry` VSM cell takes the level's
         // matrix (VsmFrameData Levels[]) in its vertex stage and the level's page table in its fragment stage.
+        // The list was set before the walks (above); without the issue the walks drew every caster.
         if ( !m_VsmGeometry )
             return BOOLSUCCESS;
-        m_VsmGeometryDraws.Clear();
-        m_VsmGeometryDraws.SetBinned( std::move( *m_VsmGeometry ) );
-        if ( m_VsmGeometryDraws.GetError() )
-            return Common::MakeError(
-                 std::format( "virtual shadow map clusters: {}", *m_VsmGeometryDraws.GetError() ) );
         m_VsmClusteredThisFrame = true;
         const VirtualShadowBlockParameters clusterParameters =
              [&frame]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& )

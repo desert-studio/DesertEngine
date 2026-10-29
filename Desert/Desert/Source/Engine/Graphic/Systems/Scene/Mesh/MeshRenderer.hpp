@@ -665,9 +665,9 @@ namespace Desert::Graphic::System
         //  - a VG primitive in the view (a binned view: InstanceCull took its instances out of the view's bins as
         //    cluster-cut candidates, m_FrameClusterCandidates; a VSM level: its mesh has uploaded DAG rows): the
         //    walk hides only the submeshes the view's cluster raster DRAWS - a candidate DAG binned into a group
-        //    whose `.VirtualGeometry` carrier the issued raster holds (a VSM level: whose twin pipeline exists,
-        //    its carriers are made later). A refused cut, a refused carrier, a twin-less group or a submesh with
-        //    no candidate DAG: walked, so the clusters it would have drawn are drawn by the mesh's own submeshes;
+        //    whose `.VirtualGeometry` carrier the issued raster holds (a VSM level: the carriers
+        //    AddVirtualShadowRasterPasses made before the levels' walks). A refused cut, a refused carrier, a
+        //    twin-less group or a submesh with no candidate DAG: walked, so the clusters it would have drawn are drawn by the mesh's own submeshes;
         //  - any other record of a binned view: empty when the bins hold every shown submesh
         //    (DrawCommandCache::SubmeshesBinned), else @p hidden;
         //  - a view with neither (a local light, a movable layer, a refused bins issue): @p hidden.
@@ -680,9 +680,10 @@ namespace Desert::Graphic::System
             // layer.
             bool BinsIssued = false;
             // The phase-1 cluster raster's carriers per Table->Groups (BinnedIssue::VirtualGeometry, made by
-            // SetFrameVirtualGeometry); null: no raster this frame (no cut, or the cut / its carriers refused).
+            // SetFrameVirtualGeometry; a VSM level: AddVirtualShadowRasterPasses, null entries until made); null: no
+            // raster this frame (no cut, or the cut / its carriers / its draw list refused).
             const std::vector<const MaterialExecutor*>* RasterCarriers = nullptr;
-            // A VSM level: the view issues no bins; its VG-only raster (m_VsmGeometry) is issued when set.
+            // A VSM level: the view issues no bins; its VG-only raster (m_VsmGeometry) carries RasterCarriers.
             bool VirtualShadow = false;
         };
         [[nodiscard]] ClusterWalkView BinnedWalkView( GpuDriven::MeshPass pass, uint32_t viewKey ) const;
