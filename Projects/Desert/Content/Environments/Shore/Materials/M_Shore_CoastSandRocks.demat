@@ -5,13 +5,7 @@
         "Versions": {
             "MATL": 7
         },
-        "Dependencies": [
-            "4f1cac6af403a010c792d835dd6f7d44",
-            "27b8f83777d6944d37e9eb7144613193",
-            "3c399950503552aea9de995d6eb42ee5",
-            "2a7a6e8f860d050ebec8e10b29c7b89f",
-            "0afdff21dd650e8e6ea63bb25b7feeea"
-        ]
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "27b8f83777d6944d37e9eb7144613193", "3c399950503552aea9de995d6eb42ee5", "2a7a6e8f860d050ebec8e10b29c7b89f", "0afdff21dd650e8e6ea63bb25b7feeea"]
     },
     "Shader": {
         "Guid": "4f1cac6af403a010c792d835dd6f7d44",
@@ -20,30 +14,15 @@
     "Params": [
         {
             "Name": "UVTiling",
-            "Value": [
-                30.0,
-                30.0,
-                0.0,
-                0.0
-            ]
+            "Value": [30.0, 30.0, 0.0, 0.0]
         },
         {
             "Name": "HeightScale",
-            "Value": [
-                15.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [15.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "HeightCenter",
-            "Value": [
-                0.5,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.5, 0.0, 0.0, 0.0]
         }
     ],
     "Textures": [

@@ -19,8 +19,8 @@
         "AmplitudeFalloff": 2.0,
         "WindAngleDeg": 90.0,
         "DirectionAngularSpreadDeg": 90.0,
-        "SmallWaveSteepness": 0.45,
-        "LargeWaveSteepness": 0.25,
+        "SmallWaveSteepness": 0.09,
+        "LargeWaveSteepness": 0.035,
         "SteepnessFalloff": 1.0
     }
 }
