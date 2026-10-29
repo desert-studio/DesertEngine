@@ -64,8 +64,22 @@ void main()
     const vec3  facing    = vec3( cameraUB.View[0][2], cameraUB.View[1][2], cameraUB.View[2][2] ); // towards the eye
     const float sinR      = sin( rotation );
     const float cosR      = cos( rotation );
-    const vec3  right     = cosR * viewRight + sinR * viewUp;
-    const vec3  up        = cosR * viewUp - sinR * viewRight;
+    vec3        right     = cosR * viewRight + sinR * viewUp;
+    vec3        up        = cosR * viewUp - sinR * viewRight;
+    // VelocityAligned (UE ENiagaraSpriteAlignment::VelocityAligned, NiagaraSpriteVertexFactory.ush): the quad's
+    // height runs along the particle's velocity, its width across it in the plane facing the eye - a spark's
+    // streak. A particle at rest, or flying straight at the eye, keeps the camera-facing axes above.
+    if ( DrawLayoutData.Range.w == 1u )
+    {
+        const vec3  velocity = ParticleWorldVelocity( n );
+        const vec3  across   = cross( facing, velocity );
+        const float acrossL  = length( across );
+        if ( acrossL > 1e-3 * max( length( velocity ), 1e-6 ) && dot( velocity, velocity ) > 1e-6 )
+        {
+            right = across / acrossL;
+            up    = normalize( velocity - facing * dot( velocity, facing ) );
+        }
+    }
     const vec3  worldPos  = position + right * ( c.x * size.x * 0.5 ) + up * ( c.y * size.y * 0.5 );
 
     v_Surface.WorldPosition  = worldPos;

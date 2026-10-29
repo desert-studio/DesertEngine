@@ -164,6 +164,8 @@ namespace Desert::Assets::Serialization
         {
             if ( r.Material && r.Material->Guid.empty() )
                 return Common::MakeFormattedError<bool>( "{}: Material states no Guid", at );
+            if ( r.Sprite && r.Kind != VFXRendererKind::Sprite )
+                return Common::MakeFormattedError<bool>( "{}: Sprite settings are stated only on a Sprite row", at );
             if ( r.Ribbon.has_value() != ( r.Kind == VFXRendererKind::Ribbon ) )
                 return Common::MakeFormattedError<bool>( "{}: Ribbon settings are stated exactly on a Ribbon row",
                                                          at );
