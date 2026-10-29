@@ -535,7 +535,8 @@ namespace Desert::Editor
 
     std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled,
                                                              const bool subsurfaceHistoryConverging,
-                                                             const bool materialPipelinesCompiling )
+                                                             const bool materialPipelinesCompiling,
+                                                             const bool grassInstancesSettling )
     {
         ++m_FrameIndex;
         // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
@@ -553,6 +554,11 @@ namespace Desert::Editor
         // FinishAllCompilation first; here the reply/shot waits for a frame with no stand-in (FIELD_Barn
         // 1_first: a grey-blue foliage patch with a straight edge, its GBuffer_TwoSided cell compiling).
         m_FrameQuiescence.Set( Control::PendingWork::MaterialPipelines, materialPipelinesCompiling );
+        // And the grass (GRASS-SETTLE p14): after a camera cut its instance buffers are sized by the previous
+        // view's GPU count and the generator drops the rest, so a block of cells drew without its meshes until the
+        // count came back. UE's automated screenshot waits for the async grass builds; here the reply waits for a
+        // frame whose every grass variety read back within capacity (GrassRenderer::InstancesSettling).
+        m_FrameQuiescence.Set( Control::PendingWork::GrassInstances, grassInstancesSettling );
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;
