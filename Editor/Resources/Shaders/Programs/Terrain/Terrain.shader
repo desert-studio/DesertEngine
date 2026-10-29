@@ -31,6 +31,14 @@ Shader "Terrain"
         Float       DetailNormalStrength ("Detail Normal Strength", Range(0,4), Category("Layers")) = 0
         Float       MacroHueSize ("Macro Hue Size (cm)", Range(100,100000), Category("Layers")) = 6000
         Float       MacroHueStrength ("Macro Hue Strength (radians)", Range(0,1.5), Category("Layers")) = 0
+        // DISPLACEMENT (UE 5.4+ landscape displacement: the material's Displacement output, LandscapeDisplacement.glslh):
+        // the layers' blended height moves the ground by (height - Center) x Magnitude along its normal, full up to
+        // FadeStart from the camera and gone by FadeEnd. 0 cm = a flat ground; the dicing follows Scalability
+        // ViewDistance.DisplacementDicingRate, as mesh displacement does (0 = off).
+        Float       DisplacementMagnitude ("Displacement Magnitude (cm)", Range(0,200), Category("Displacement")) = 0
+        Float       DisplacementCenter ("Displacement Center", Range(0,1), Category("Displacement")) = 0.5
+        Float       DisplacementFadeStart ("Displacement Fade Start (cm)", Range(100,20000), Category("Displacement")) = 1500
+        Float       DisplacementFadeEnd ("Displacement Fade End (cm)", Range(200,30000), Category("Displacement")) = 2500
         LandscapeLayerInfo Layer0Layer ("Layer 0 Layer", Category("Layer 0"), Element(Layers, 0))
         Int         Layer0Blend ("Layer 0 Blend (0 Weight, 1 Height, 2 Alpha)", Range(0,2), Category("Layer 0")) = 0
         Float       Layer0TileSize ("Layer 0 Tile Size (cm)", Range(10,10000), Category("Layer 0")) = 300

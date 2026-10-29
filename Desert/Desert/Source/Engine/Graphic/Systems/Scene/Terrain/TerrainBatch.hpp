@@ -93,14 +93,36 @@ namespace Desert::Graphic::System
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCover{};
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverLight{};
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverRange{};
+        // LANDSCAPE DISPLACEMENT (UE 5.4+ landscape Nanite displacement: the material's Displacement output, the
+        // layers' height x Magnitude around Center, faded out with distance). x = DisplacementMagnitude (cm; 0 = the
+        // tile is drawn flat), y = DisplacementCenter, z = DisplacementFadeStart, w = DisplacementFadeEnd (cm).
+        glm::vec4 Displacement{ 0.0f };
+        // xyz = the MAIN camera (cm): the fade's origin for the camera AND every caster view, so a cascade sees
+        // the surface the camera sees. w = 1: the tile is drawn diced in rings (DiceRings), 0: its plain LOD grid.
+        glm::vec4 DisplacementView{ 0.0f };
+        // THE DICE RINGS (LandscapeDisplacement.glslh), square rings of cells around the main camera on the tile's
+        // LOD-0 grid, each diced finer than the ring outside it (UE Nanite: finer where a triangle is larger on
+        // screen): x, y = the camera's cell (tile-local, may lie outside the tile), z = the half-extent (cells) of
+        // the fade's square - every cell the fade reaches, dice 1 and displaced -, w = DicingRate pixels' width in
+        // cm per cm of distance (the footprint the layer heights' mip is read at).
+        glm::vec4 DiceWindow{ 0.0f };
+        // x = FarTilingDistance (cm), y = FarTilingScale: the layer height's far fetch, as the surface blends it.
+        glm::vec4 DisplacementTiling{ 0.0f };
+        // Per material input k (four to a vec4): LayerKTileSize (cm) and LayerKBlend, the material values the
+        // displaced vertex needs in every program (the casters have no landscape material).
+        std::array<glm::vec4, 2> InputTileSize{};
+        std::array<glm::vec4, 2> InputBlend{};
+        // ...and the half-extents (cells) of the rings diced 2, 4, 8 and 16 sub-cells a side (x..w; -1 = no such
+        // ring). Each lies inside the one before: a cell's dice is the finest ring holding it.
+        glm::vec4 DiceRings{ -1.0f };
     };
 
     static_assert( World::Landscape::kLandscapeMaxWeightLayers ==
                         2u * World::Landscape::kLandscapeWeightmapChannels,
                    "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
                    "blends two RGBA8 pages" );
-    static_assert( sizeof( TerrainInstance ) == 52 * sizeof( glm::vec4 ),
-                   "TerrainInstance must stay fifty-two 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+    static_assert( sizeof( TerrainInstance ) == 61 * sizeof( glm::vec4 ),
+                   "TerrainInstance must stay sixty-one 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
                    "reads these offsets" );
     static_assert(
          offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
@@ -111,7 +133,13 @@ namespace Desert::Graphic::System
               offsetof( TerrainInstance, LayerInput ) == 272 && offsetof( TerrainInstance, InputSlices ) == 304 &&
               offsetof( TerrainInstance, GroundInput ) == 432 && offsetof( TerrainInstance, GrassCover ) == 448 &&
               offsetof( TerrainInstance, GrassCoverLight ) == 576 &&
-              offsetof( TerrainInstance, GrassCoverRange ) == 704,
+              offsetof( TerrainInstance, GrassCoverRange ) == 704 &&
+              offsetof( TerrainInstance, Displacement ) == 832 &&
+              offsetof( TerrainInstance, DisplacementView ) == 848 &&
+              offsetof( TerrainInstance, DiceWindow ) == 864 &&
+              offsetof( TerrainInstance, DisplacementTiling ) == 880 &&
+              offsetof( TerrainInstance, InputTileSize ) == 896 &&
+              offsetof( TerrainInstance, InputBlend ) == 928 && offsetof( TerrainInstance, DiceRings ) == 960,
          "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
@@ -276,6 +304,49 @@ namespace Desert::Graphic::System
         const uint32_t stride = 1u << gridLod;
         const uint32_t cells  = ( quadsPerTile + stride - 1u ) / stride;
         return cells * cells * 6u;
+    }
+
+    // The dice rings (LandscapeDisplacement.glslh): dice 1, 2, 4, 8, 16 sub-cells a side - the finest puts a
+    // vertex every 6.25 cm on a 1 m landscape.
+    constexpr int kLandscapeDiceLevels = 5;
+
+    // Dice ring @p level (dice 1 << level) of a row, clamped to the tile's @p cells x @p cells grid: [x0, x1) x
+    // [z0, z1); empty when the ring is absent. LandscapeDisplacement.glslh LandscapeDiceRingRect is the same.
+    inline glm::ivec4 LandscapeDiceRingRect( const TerrainInstance& row, int level, int cells )
+    {
+        const float half = level == 0 ? row.DiceWindow.z : row.DiceRings[static_cast<glm::length_t>( level - 1 )];
+        if ( row.DisplacementView.w < 0.5f || half < 0.0f )
+            return glm::ivec4( 0 );
+        const int cx = static_cast<int>( std::floor( row.DiceWindow.x + 0.5f ) );
+        const int cz = static_cast<int>( std::floor( row.DiceWindow.y + 0.5f ) );
+        const int h  = static_cast<int>( half + 0.5f );
+        return glm::ivec4( std::clamp( cx - h, 0, cells ), std::clamp( cz - h, 0, cells ),
+                           std::clamp( cx + h + 1, 0, cells ), std::clamp( cz + h + 1, 0, cells ) );
+    }
+
+    inline uint32_t LandscapeDiceRectArea( const glm::ivec4& r )
+    {
+        return r.z > r.x && r.w > r.y ? static_cast<uint32_t>( ( r.z - r.x ) * ( r.w - r.y ) ) : 0u;
+    }
+
+    // The draw's vertex count with the row's dice rings (LandscapeDisplacement.glslh decodes the same order: the
+    // ring diced 16, then 8, 4, 2, 1 - each the cells of its square outside the finer one, dice x dice sub-cells
+    // a cell - then every cell outside the fade's square, undiced; six vertices a (sub-)cell).
+    inline uint32_t LandscapeDicedVertexCount( uint32_t quadsPerTile, uint32_t gridLod,
+                                               const TerrainInstance& row )
+    {
+        const uint32_t all = LandscapeLodVertexCount( quadsPerTile, gridLod );
+        if ( gridLod != 0u || row.DisplacementView.w < 0.5f )
+            return all;
+        const int cells = static_cast<int>( quadsPerTile );
+        uint32_t  total = 0u, inner = 0u;
+        for ( int level = kLandscapeDiceLevels - 1; level >= 0; --level )
+        {
+            const uint32_t area = LandscapeDiceRectArea( LandscapeDiceRingRect( row, level, cells ) );
+            total += ( area - inner ) * ( 1u << ( 2 * level ) ) * 6u;
+            inner = area;
+        }
+        return total + all - inner * 6u;
     }
 
     // The texture half of a terrain material's identity. Two terrains may share one material only if
