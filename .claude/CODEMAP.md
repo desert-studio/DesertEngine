@@ -184,11 +184,11 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Selection` — 24 files, 4,561 lines: AuthoringContext, AuthoringContextHost, AuthoringOwner, BakeNormalMapArgs, BooleanToolArgs, LandscapeSculptSettings, LandscapeSculptState, LandscapeToolControl, LandscapeToolProperty, MeshElementSelection, MeshOperationArgs, ModelingState, … (+11)
 - `Generated` — 1 files, 13 lines
 - `ImGuiIntegration` — 5 files, 588 lines: ImGuiLayer, VulkanImGui
-- `Import` — 46 files, 9,204 lines: AsyncMeshLoader, DdsBlockChain, DdsSourceImage, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedLight, ImportedMaterial, … (+16)
+- `Import` — 46 files, 9,218 lines: AsyncMeshLoader, DdsBlockChain, DdsSourceImage, Done, IAssetImporter, ImportManager, ImportOutcome, ImportResult, ImportSettingsEdit, ImportTemplate, ImportedLight, ImportedMaterial, … (+16)
 - `Import/Assimp` — 12 files, 2,246 lines: AssimpImporter, SceneVertexStreams, SourceAlpha, SourceMaterialRead, SourceTextureFile
 - `Import/Blend` — 2 files, 236 lines: BlendImporter
-- `LevelEditor` — 53 files, 15,475 lines: AssetCompiling, ControlService, DockLayout, DocumentHost, EditorImGuiHost, EditorPanelHandles, EditorStartup, EntityCommands, LevelEditorCommands, LevelToolbar, MainMenu, MainMenuActions, … (+21)
-- `Packaging` — 8 files, 2,756 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
+- `LevelEditor` — 53 files, 15,473 lines: AssetCompiling, ControlService, DockLayout, DocumentHost, EditorImGuiHost, EditorPanelHandles, EditorStartup, EntityCommands, LevelEditorCommands, LevelToolbar, MainMenu, MainMenuActions, … (+21)
+- `Packaging` — 8 files, 2,764 lines: CookStats, PackageOptions, PackageResult, PackagedTree, TargetPlatformInfo
 - `Panels` — 1 files, 41 lines
 - `Panels/Animation` — 10 files, 4,146 lines: AnimGraphCanvas, AnimGraphPanel, ControlRigPanel, PoseFieldEdit, PoseGraphCanvas, PoseGraphTarget, PosePinRef, PoseWireRef, StatePosition, TransitionRef, WarningTarget
 - `Panels/AnimationEditor` — 9 files, 3,802 lines: AnimationEditorBase, AnimationEditorDocument, AnimationTransport, BoneTransformRows, NamedFrameRate, SkeletonTreeRow
@@ -323,7 +323,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `DomeSheet` — 1 files, 36 lines
 - `DomeSheet/Source` — 2 files, 698 lines: DomeSample, Image, SheetGeometry
 - `FbxMeshSplitter` — 4 files, 688 lines: FbxSplitResult
-- `GamePackager` — 1 files, 136 lines
+- `GamePackager` — 1 files, 135 lines
 - `GamePackager/Source` — 1 files, 208 lines
 - `ImageDiff` — 1 files, 37 lines
 - `ImageDiff/Source` — 2 files, 306 lines: DiffResult
@@ -340,11 +340,11 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `ShaderRename` — 1 files, 306 lines
 - `Shared` — 3 files, 147 lines: OpenedToolProject
 - `TextureCook` — 1 files, 87 lines
-- `TextureCook/Source` — 1 files, 258 lines
+- `TextureCook/Source` — 1 files, 256 lines
 - `UIMockup` — 1 files, 82 lines
 - `UIMockup/Source` — 3 files, 583 lines: Fonts, Mockup
 - `UIMockup/Source/Mockups` — 2 files, 810 lines
-- `WorldCook` — 1 files, 108 lines
+- `WorldCook` — 1 files, 107 lines
 - `WorldCook/Source` — 3 files, 343 lines
 - `WorldGen` — 1 files, 93 lines
 - `WorldGen/Source` — 5 files, 1,937 lines: FoliageTypeRef, LandscapeContent, LandscapeLayerRef, LandscapeWorld, LandscapeWorldSpec, LandscapeWorldTile, MaterialRef, MeshRef, PropRef, PropTheme, WorldSpec, WorldStats
