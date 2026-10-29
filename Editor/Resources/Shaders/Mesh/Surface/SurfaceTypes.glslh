@@ -7,7 +7,7 @@
 // the pass's targets. Every cell of every template compiles this file, so it is hashed into their keys.
 //
 // The parser defines, in BOTH stages of a cell: DESERT_SURFACE_PASS_<Pass> (Forward | GBuffer | ShadowDepth |
-// VirtualShadowDepth),
+// VirtualShadowDepth | Depth - the view's depth prepass, a VIEW pass),
 // DESERT_SHADING_MODEL_INDEX (the template's model, a SHADING_MODEL_INDEX_<NAME> of the generated
 // Generated/ShadingModels.glslh), for `BlendMode Masked`, DESERT_SURFACE_MASKED and, in the `.Parallax` cells of
 // a template that declares `Height <Texture2D> ... Scale(<Float>)`, DESERT_SURFACE_PARALLAX (SurfaceParallax.glslh). The headers shape their declarations on these so each

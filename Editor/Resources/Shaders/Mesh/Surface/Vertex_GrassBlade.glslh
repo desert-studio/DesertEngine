@@ -14,6 +14,11 @@
 #include <Mesh/MeshVertexInputs.glslh>
 
 #include <Common/CameraUB.glslh>
+#ifdef DESERT_SURFACE_VIEW_PASS
+// The view's depth prepass (Mesh/Surface/Pass_Depth.glslh) and the base pass test each other's depth for equality:
+// one gl_Position, bit for bit, whichever cell computes it (GLSL invariance, UE's precise position).
+invariant gl_Position;
+#endif
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
 #include <Common/ShadowCasterBias.glslh>
 #endif

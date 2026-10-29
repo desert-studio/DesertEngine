@@ -724,7 +724,9 @@ namespace Desert::Graphic::System
                      glm::uvec4( view.Width, view.Height, lightCount, mode ), groups );
             };
             const glm::uvec3 screen( Groups( view.Width, kScreenTile ), Groups( view.Height, kScreenTile ), 1u );
-            if ( gbuffer )
+            // The view's opaque depth: the G-buffer's, or the forward path's depth prepass (no normal: the local
+            // lights' pages need the pixel's position alone).
+            if ( view.Depth.IsValid() )
                 markLocal( view.Depth, kVsmMarkPixels, screen );
             for ( const RDG::TextureRef& receiver : receiverDepths )
                 if ( receiver.IsValid() )
@@ -735,7 +737,8 @@ namespace Desert::Graphic::System
                                 kScreenTile &&
                            kPointShadowFaces <= kScreenTile );
             // The coarse mode reads no depth: the binding takes the G-buffer's, or the view's stand-in without one.
-            markLocal( gbuffer ? view.Depth : view.NoDepth, kVsmMarkCoarse, glm::uvec3( 1u, 1u, lightCount ) );
+            markLocal( view.Depth.IsValid() ? view.Depth : view.NoDepth, kVsmMarkCoarse,
+                       glm::uvec3( 1u, 1u, lightCount ) );
         }
 
         dispatch(

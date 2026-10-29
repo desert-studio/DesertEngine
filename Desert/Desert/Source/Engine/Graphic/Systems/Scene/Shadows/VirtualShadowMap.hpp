@@ -230,11 +230,12 @@ namespace Desert::Graphic::System
 
     struct VirtualShadowMapViewInputs
     {
-        RDG::TextureRef Depth;  // the G-buffer's reversed-Z depth
-        RDG::TextureRef Normal; // the G-buffer's world normal
-        // Both invalid on the forward shading path (no G-buffer): no sun pages, the local lights' pages from the
-        // receivers' depths and the coarse mips. NoDepth: the texture a kernel that reads no depth binds in the
-        // depth's slot then (the graph's System.Black).
+        RDG::TextureRef Depth;  // the view's reversed-Z opaque depth: the G-buffer's, or the forward depth prepass's
+        RDG::TextureRef Normal; // the G-buffer's world normal; invalid on the forward shading path
+        // The sun's pages need both (its projection reads the normal); the local lights' are marked from Depth alone,
+        // then from the receivers' depths and the coarse mips. Neither valid: the receivers and the coarse mips only.
+        // NoDepth: the texture a kernel that reads no depth binds in the depth's slot then (the graph's
+        // System.Black).
         RDG::TextureRef NoDepth;
         glm::mat4       InvJitteredViewProjection{ 1.0f };
         glm::mat4       Projection{ 1.0f }; // the camera's (its [1][1] gives the pixel footprint)
