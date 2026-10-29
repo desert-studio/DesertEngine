@@ -522,6 +522,9 @@ namespace Desert::Graphic::API::Vulkan
             LOG_INFO( "[Memory] census at footprint peak {:.1f} MB, device memory by subsystem:{}\n largest tags:{}",
                       static_cast<double>( peak ) / MB, bySubsystem, largest );
             LOG_INFO( "[Memory] {}", MemoryReadout::Take().Report() );
+            // The CPU side of the same peak: the device rows above are what the GPU allocator holds; the rest of
+            // the footprint is named by the kind of region charging it.
+            LOG_INFO( "[Memory] {}", Common::Utils::ReadFootprintBreakdown().Describe( peak ) );
             LOG_INFO( "[Resources] {}", ResourceLedger::Report() );
         }
 #endif
