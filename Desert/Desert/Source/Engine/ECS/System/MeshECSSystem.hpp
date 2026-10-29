@@ -154,8 +154,7 @@ namespace Desert::ECS
                              return;
 
                          // --- Auto-Initialize Material Slots --- (the one rule, AdoptMeshMaterialSlots)
-                         AdoptMeshMaterialSlots( mesh.GetMaterialSlots(), mesh.RuntimeMaterialInstances(),
-                                                 mesh.GetMeshHandle() );
+                         AdoptComponentMaterialSlots( registry, entity, mesh, &ECS::SetStaticMesh );
 
                          // A MaterialService::Invalidate() this frame dropped some runtime Material —
                          // rebuild every cached instance set (parents may be graveyarded). One uint
@@ -382,8 +381,7 @@ namespace Desert::ECS
                          // dropped any slots copied in by hand. An edited RuntimeMesh or a primitive has no
                          // mesh asset to adopt from.
                          if ( !ism.RuntimeMesh() && !ism.GetPrimitive().has_value() )
-                             AdoptMeshMaterialSlots( ism.GetMaterialSlots(), ism.RuntimeMaterialInstances(),
-                                                     ism.GetMeshHandle() );
+                             AdoptComponentMaterialSlots( registry, entity, ism, &ECS::SetInstancedStaticMesh );
 
                          // Invalidation stamp (see the static path) — rebuild on any Invalidate().
                          if ( ism.SeenMaterialsVersion() != materialsVersion )
@@ -521,8 +519,7 @@ namespace Desert::ECS
                          // grey default although its .demat and textures were written (THM1l, live on Fox.glb). A
                          // runtime rig (Convert to Skinned) carries its own slots.
                          if ( !mesh.GetRuntimeMesh() )
-                             AdoptMeshMaterialSlots( mesh.GetMaterialSlots(), mesh.RuntimeMaterialInstances(),
-                                                     mesh.GetMeshHandle() );
+                             AdoptComponentMaterialSlots( registry, entity, mesh, &ECS::SetSkinnedMesh );
 
                          // One skinned lit material instance (default if no slot assigned), rebuilt only when
                          // the slot set changes.
@@ -699,6 +696,22 @@ namespace Desert::ECS
                                         [materials]( const Common::UUID& id )
                                         { return materials->GetAssetHandleByExternal( id ); } ) )
                 instances.clear();
+        }
+
+        // A component's slots go through its one writer (SetStaticMesh / SetSkinnedMesh / SetInstancedStaticMesh):
+        // the adopted set is computed on a copy and written only when it differs; the writer drops the runtime
+        // instances on a slot change, so the slot loop rebuilds them.
+        template <typename Component, typename Desc>
+        static void AdoptComponentMaterialSlots( entt::registry& registry, entt::entity entity, const Component& component,
+                                                 bool ( *write )( entt::registry&, entt::entity, const Desc& ) )
+        {
+            if ( !HasUnadoptedSlot( component.GetMaterialSlots() ) )
+                return;
+            Desc                                      desc = component.GetDesc();
+            std::vector<Graphic::MaterialInstancePtr> unused;
+            AdoptMeshMaterialSlots( desc.MaterialSlots, unused, component.GetMeshHandle() );
+            if ( desc.MaterialSlots != component.GetMaterialSlots() )
+                write( registry, entity, desc );
         }
 
         // The fallback for a mesh with no material slot at all — the DEFAULT SURFACE template's cell per vertex

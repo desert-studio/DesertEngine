@@ -770,7 +770,9 @@ namespace Desert::Core
 
             // WHERE THIS INSTANCE STANDS, which the record states itself since v37 and the overrides above
             // no longer do. After the overrides, so nothing the prefab or an override says can move it.
-            Assets::PlaceInstanceRoot( prefabRoot.GetComponent<ECS::TransformComponent>(), stated.GetValue() );
+            ECS::LocalTransform rootLocal = prefabRoot.GetComponent<ECS::TransformComponent>().GetLocal();
+            Assets::PlaceInstanceRoot( rootLocal, stated.GetValue() );
+            ECS::SetLocalTransform( *prefabRoot.GetRegistry(), prefabRoot.GetHandle(), rootLocal );
 
             // Register in map under the original saved UUID so parent links resolve. A prefab root saved
             // without an id has nothing for a child's `parent` to name, so there is nothing to register:
