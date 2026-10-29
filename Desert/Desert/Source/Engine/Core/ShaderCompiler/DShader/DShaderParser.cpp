@@ -2939,9 +2939,16 @@ namespace Desert::Core::Preprocess
                 cellOverride.Cull = StateCull::None;
             const ShaderRenderState cellState = MergeState( defaultPass.State, cellOverride );
 
+            // A SingleLayerWater template (`Usage WaterMesh`) is drawn by its own pass alone, as UE renders
+            // MSM_SingleLayerWater in the single layer water pass and never through the base pass, the deferred
+            // lighting, the shadow depths or a ray tracing hit group: no mesh, front layer, hit or parallax cell.
+            const bool meshCells = !result.Surface.UsedWithWaterMesh;
+
             for ( const std::string_view path : kSurfaceVertexPaths )
                 for ( const std::string_view pass : kSurfaceCellPasses )
                 {
+                    if ( !meshCells )
+                        break;
                     if ( !SurfaceBlendHasPass( result.Surface.Blend, pass ) )
                         continue;
                     DShaderPass cell;
@@ -2960,7 +2967,7 @@ namespace Desert::Core::Preprocess
 
             // THE TRANSLUCENT FRONT LAYER CELL (kSurfaceFrontLayerPass): a Translucent template's surface into the
             // front layer's G-buffer, after its Forward cells (their order is unchanged).
-            if ( result.Surface.Blend == SurfaceBlendMode::Translucent )
+            if ( meshCells && result.Surface.Blend == SurfaceBlendMode::Translucent )
             {
                 DShaderPass cell;
                 cell.Name  = SurfaceCellName( kSurfaceFrontLayerPath, kSurfaceFrontLayerPass );
@@ -2986,7 +2993,7 @@ namespace Desert::Core::Preprocess
             // only the path tracer's rays meet them (UE: the path tracer's translucent hit shaders). Additive has
             // no transmission to give and no cell. A template that binds a texture outside its row has nothing to
             // put in a shader record: no cell, and the reason is kept for the pipeline that asks for it.
-            if ( result.Surface.Blend != SurfaceBlendMode::Additive )
+            if ( meshCells && result.Surface.Blend != SurfaceBlendMode::Additive )
             {
                 if ( !result.Layout.Textures.empty() )
                     result.Surface.RayHitRefusal = std::format(
@@ -3094,7 +3101,7 @@ namespace Desert::Core::Preprocess
             // `Height <Texture2D> ... Scale(<Float>)`: every mesh cell again as its `.Parallax` permutation, after every other cell
             // (the base cells' order is unchanged). The ray tracing hit and the sprite have no screen derivatives
             // to size a march with (or no depth to offset) and stay single.
-            if ( result.Meta.Height )
+            if ( meshCells && result.Meta.Height )
                 for ( const std::string_view path : kSurfaceVertexPaths )
                     for ( const std::string_view pass : kSurfaceCellPasses )
                     {
