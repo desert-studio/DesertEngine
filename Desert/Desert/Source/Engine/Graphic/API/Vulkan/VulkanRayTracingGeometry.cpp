@@ -100,15 +100,38 @@ namespace Desert::Graphic::API::Vulkan
             allocator->RT_DestroyBuffer( scratch, scratchMemory.GetValue() );
             return Common::MakeError<std::shared_ptr<VulkanRayTracingGeometry>>( command.GetError() );
         }
+        // SUBMITTED, NOT WAITED FOR (FPS-CPU-2; UE builds a BLAS on the frame's command list and never sleeps
+        // the CPU on it). A BLAS variant (RayTracingGeometryVariants::Resolve) is built from inside the frame's
+        // graph setup, and the blocking flush made that frame wait for the whole GPU queue ahead of it. The two
+        // barriers are the whole dependency, both on this one queue:
+        //  * before: every earlier submission's writes (the geometry's own upload) are visible to the build's
+        //    reads of the vertex and index buffers;
+        //  * after: the built structure is visible to every later submission - the frame graph's TLAS build
+        //    and every ray query, all submitted after this on the same queue.
+        // The scratch buffer is released once the fence is seen signalled (CollectFinished, every frame).
+        const VkCommandBuffer cmd = command.GetValue();
+        const VkMemoryBarrier inputsReady{ .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+                                           .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+                                           .dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
+                                                            VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR };
+        vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                              VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &inputsReady, 0,
+                              nullptr, 0, nullptr );
         const VkAccelerationStructureBuildRangeInfoKHR* ranges = buildInput.Ranges.data();
-        functions.CmdBuildAccelerationStructures( command.GetValue(), 1, &build, &ranges );
-        const auto flushed =
-             CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( command.GetValue() );
-        // A waited fence frees the scratch now; a failed flush queues it on the frame ring (staging rule).
-        allocator->RT_ReleaseStaging( scratch, scratchMemory.GetValue(), flushed );
-        if ( !flushed.IsSuccess() )
+        functions.CmdBuildAccelerationStructures( cmd, 1, &build, &ranges );
+        const VkMemoryBarrier built{ .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+                                     .srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+                                     .dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR |
+                                                      VK_ACCESS_SHADER_READ_BIT };
+        vkCmdPipelineBarrier( cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                              VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &built, 0, nullptr, 0, nullptr );
+        const VmaAllocation scratchAllocation = scratchMemory.GetValue();
+        const auto          submitted         = CommandBufferAllocator::GetInstance().RT_SubmitGraphicThenRelease(
+             cmd, [allocator, scratch, scratchAllocation]
+             { allocator->RT_ReleaseStaging( scratch, scratchAllocation, Common::MakeSuccess( VK_SUCCESS ) ); } );
+        if ( !submitted.IsSuccess() )
             return Common::MakeFormattedError<std::shared_ptr<VulkanRayTracingGeometry>>( "BLAS build submit: {}",
-                                                                                          flushed.GetError() );
+                                                                                          submitted.GetError() );
 
         VkAccelerationStructureDeviceAddressInfoKHR addressInfo{
              VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };

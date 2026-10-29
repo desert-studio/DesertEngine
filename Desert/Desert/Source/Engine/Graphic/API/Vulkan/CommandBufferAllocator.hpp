@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 
+#include <atomic>
 #include <cstddef>
 #include <functional>
 #include <map>
@@ -72,7 +73,7 @@ namespace Desert::Graphic::API::Vulkan
         /// release of what the buffer reads, i.e. its staging copy) once its fence has signalled - polled by
         /// CollectFinished on every frame and on every later submission here, or waited for at Destroy.
         /// Readers on the graphics queue need nothing more: submission order is the dependency, the recorded
-        /// barriers make the copy visible. On a refused submit nothing reads the staging copy, so @p afterGpu
+        /// barriers make the copy visible. Readers on another queue wait the upload timeline it signals (NewestUploadSync). On a refused submit nothing reads the staging copy, so @p afterGpu
         /// runs at once and the refusal is answered.
         /// WHY: every texture the TextureService finished paid a blocking one-off flush behind the whole frame's
         /// GPU work. On warm Bistro (1296 distance fields) that was 2-8 s per texture and ~45% of a 6.4 s
@@ -82,6 +83,20 @@ namespace Desert::Graphic::API::Vulkan
 
         /// Releases every unwaited submission whose fence has signalled; answers how many. Never blocks.
         std::size_t CollectFinished();
+
+        /// THE UPLOAD SYNC POINT (UE: the async compute pipe waits on the graphics fence of the work submitted
+        /// before it). Every RT_SubmitCommandBufferGraphic signals @p Timeline with the next value, in queue
+        /// submission order; @p Value is the newest one already handed to the queue (0: none yet, nothing to
+        /// wait). A reader on ANOTHER queue (the frame's first async-compute submission, a one-off on the
+        /// compute or transfer queue) waits Timeline >= Value on the GPU and is then ordered after every
+        /// upload the CPU had submitted when it read this. Graphics-queue readers need nothing: submission
+        /// order already covers them.
+        struct UploadSyncPoint
+        {
+            VkSemaphore Timeline = VK_NULL_HANDLE;
+            uint64_t    Value    = 0;
+        };
+        [[nodiscard]] UploadSyncPoint NewestUploadSync() const;
 
         /// Destroys every thread's command pools, and with them every command buffer ever allocated from one.
         /// No thread may be recording a one-off buffer by then.
@@ -130,8 +145,17 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<InFlight> m_InFlight;
         /// Waits for every in-flight submission and releases it (teardown only).
         void WaitAndReleaseInFlight();
-        /// Host-waits every in-flight graphics upload: a one-off on another queue is not ordered behind them.
-        void WaitInFlightUploads();
+
+        /// The timeline semaphore of UploadSyncPoint, created with the allocator (VK_NULL_HANDLE when
+        /// vkCreateSemaphore refused: every graphics one-off submit is then refused by name).
+        VkSemaphore m_UploadTimeline = VK_NULL_HANDLE;
+        /// Held across "pick the next value + vkQueueSubmit": a timeline must be signalled with increasing
+        /// values in submission order, and uploads are submitted from several threads. Taken before the
+        /// device's queue mutex (inside SubmitToQueue), never after it.
+        std::mutex m_UploadSubmitMutex;
+        /// The newest value whose signal is already submitted; published after the submit returns, so a
+        /// reader never waits on a value nothing will signal. The ONE source of UploadSyncPoint::Value.
+        std::atomic<uint64_t> m_UploadSubmittedValue{ 0 };
 
         /// The pools, keyed by (thread, queue family). Pools are never destroyed before Destroy(), so a
         /// OneShotPool* in m_OneShotPools or in a Submitted stays valid for the allocator's whole life.
