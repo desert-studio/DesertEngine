@@ -544,14 +544,16 @@ namespace Desert::Editor
         auto& e = m_Scene->CreateNewEntity( "Reconstructed Model" );
         if ( resolved.Skinned )
         {
-            e.AddComponent<ECS::SkinnedMeshComponent>();
-            e.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle = resolved.Handle;
+            ECS::SkinnedMeshDesc mesh;
+            mesh.MeshHandle = resolved.Handle;
+            ECS::SetSkinnedMesh( *e.GetRegistry(), e.GetHandle(), mesh );
             e.AddComponent<ECS::AnimationComponent>();
         }
         else
         {
-            e.AddComponent<ECS::StaticMeshComponent>();
-            e.GetComponent<ECS::StaticMeshComponent>().MeshHandle = resolved.Handle;
+            ECS::StaticMeshDesc mesh;
+            mesh.MeshHandle = resolved.Handle;
+            ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), mesh );
         }
 
         if ( !resolved.Skinned )
@@ -706,12 +708,15 @@ namespace Desert::Editor
 
     void PhotogrammetryPanel::ApplyPreviewMesh()
     {
-        auto& smc = m_PreviewTarget.GetComponent<ECS::StaticMeshComponent>();
-        ECS::ClearEditableMesh( smc );
-        smc.Primitive.reset();
-        smc.RuntimeMaterialInstances.clear();
-        smc.MaterialSlots.clear();
-        smc.MeshHandle = m_PreviewMesh;
+        auto&               smc  = m_PreviewTarget.GetComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        ECS::ClearEditableMesh( desc );
+        desc.Primitive.reset();
+        desc.MaterialSlots.clear();
+        desc.MeshHandle = m_PreviewMesh;
+        ECS::SetStaticMesh( *m_PreviewTarget.GetRegistry(), m_PreviewTarget.GetHandle(), desc );
+        // A new handle with the same (empty) slots keeps the instances built for the old mesh; dropped here.
+        smc.RuntimeMaterialInstances().clear();
 
         // Center + scale the mesh to fill the fixed preview camera (which sits at ~distance 8.66).
         glm::vec3 center( 0.0f );
@@ -741,9 +746,10 @@ namespace Desert::Editor
 
         constexpr float kFitSpan = 4.0f;
         const float     scale    = extent > 1e-4f ? kFitSpan / extent : kFitSpan;
-        auto&           tc       = m_PreviewTarget.GetComponent<ECS::TransformComponent>();
+        ECS::LocalTransform tc   = m_PreviewTarget.GetComponent<ECS::TransformComponent>().GetLocal();
         tc.Scale                 = glm::vec3( scale );
         tc.Translation           = -center * scale;
+        m_PreviewTarget.SetLocalTransform( tc );
     }
 
     void PhotogrammetryPanel::RenderPreview( uint32_t w, uint32_t h )
@@ -760,7 +766,7 @@ namespace Desert::Editor
 
         // Slow orbit by spinning the model (the preview camera is fixed).
         m_Spin += 0.01f;
-        m_PreviewTarget.GetComponent<ECS::TransformComponent>().Rotation = glm::vec3( 0.0f, m_Spin, 0.0f );
+        m_PreviewTarget.SetLocalRotation( glm::vec3( 0.0f, m_Spin, 0.0f ) );
 
         // The scene brackets its own renderer now, so a frame that refuses cannot leave the editor's
         // command buffer holding half a pass — it is reported here and the preview skips a frame.

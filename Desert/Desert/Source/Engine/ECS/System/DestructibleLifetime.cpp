@@ -170,16 +170,16 @@ namespace Desert::ECS
                 request.InteriorMaterial = *guid;
 
         // The geometry the entity draws, in the mesh draw's order (MeshECSSystem): an edit, a primitive, an asset.
-        if ( mesh->EditableMesh )
+        if ( mesh->GetEditableMesh() )
         {
-            std::shared_ptr<const Geometry::DynamicMesh3> editable = mesh->EditableMesh;
+            std::shared_ptr<const Geometry::DynamicMesh3> editable = mesh->GetEditableMesh();
             request.SourceKey  = std::format( "edit:{}", static_cast<const void*>( editable.get() ) );
             request.MakeSource = [editable] { return Common::MakeSuccess( editable ); };
             return Common::MakeSuccess( std::move( request ) );
         }
-        if ( mesh->Primitive.has_value() )
+        if ( mesh->GetPrimitive().has_value() )
         {
-            const Geometry::PrimitiveType type = *mesh->Primitive;
+            const Geometry::PrimitiveType type = *mesh->GetPrimitive();
             request.SourceKey  = std::format( "primitive:{}", Geometry::PrimitiveTypeName( type ) );
             request.MakeSource = [type]() -> Common::ResultStr<std::shared_ptr<const Geometry::DynamicMesh3>>
             {
@@ -196,14 +196,14 @@ namespace Desert::ECS
             };
             return Common::MakeSuccess( std::move( request ) );
         }
-        if ( !mesh->MeshHandle )
+        if ( !mesh->GetMeshHandle() )
             return Common::MakeError<Result>( "its static mesh is unset" );
-        const std::filesystem::path file = meshFile ? meshFile( mesh->MeshHandle ) : std::filesystem::path();
+        const std::filesystem::path file = meshFile ? meshFile( mesh->GetMeshHandle() ) : std::filesystem::path();
         if ( file.empty() )
             return Common::MakeFormattedError<Result>( "its static mesh asset {} is not loaded",
-                                                       static_cast<uint64_t>( mesh->MeshHandle ) );
+                                                       static_cast<uint64_t>( mesh->GetMeshHandle() ) );
         if ( const auto guid =
-                  Assets::ContentRegistry::GuidForHandle( static_cast<uint64_t>( mesh->MeshHandle ) ) )
+                  Assets::ContentRegistry::GuidForHandle( static_cast<uint64_t>( mesh->GetMeshHandle() ) ) )
             request.SourceMesh = *guid;
         request.SourceKey  = file.string();
         request.MakeSource = [file]() -> Common::ResultStr<std::shared_ptr<const Geometry::DynamicMesh3>>

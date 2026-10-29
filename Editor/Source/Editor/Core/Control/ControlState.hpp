@@ -175,6 +175,7 @@ namespace Desert::Editor::Control
         std::string SceneName;
         bool        SceneHasUnsavedChanges = false;
         bool        InPlayMode             = false;
+        uint64_t    SceneRenderDirty       = 0; ///< Core::Scene::GetRenderStateDirtyCount: entities dirtied last frame
 
         std::vector<EntitySnapshot> Selection; ///< last element is the primary selection
 
@@ -297,6 +298,7 @@ namespace Desert::Editor::Control
             scene["name"]     = Str( snapshot.SceneName );
             scene["modified"] = Common::Json::Value( snapshot.SceneHasUnsavedChanges );
             scene["playing"]  = Common::Json::Value( snapshot.InPlayMode );
+            scene["renderDirty"] = Num( static_cast<double>( snapshot.SceneRenderDirty ) );
             root["scene"]     = Common::Json::Value( scene );
         }
 

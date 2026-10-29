@@ -130,19 +130,19 @@ namespace Desert::Editor
         const auto meshAssets = Assets::ContentRegistry::MeshRows( true );
 
         // The mesh that is ACTUALLY drawn: an in-editor rig (Convert to Skinned) overrides the asset.
-        ::Desert::Mesh* mesh = skinnedMesh.RuntimeMesh.get();
-        if ( !mesh && skinnedMesh.MeshHandle )
-            mesh = Runtime::ResourceRegistry::GetMeshService()->Get( skinnedMesh.MeshHandle );
+        ::Desert::Mesh* mesh = skinnedMesh.GetRuntimeMesh().get();
+        if ( !mesh && skinnedMesh.GetMeshHandle() )
+            mesh = Runtime::ResourceRegistry::GetMeshService()->Get( skinnedMesh.GetMeshHandle() );
 
         // What the slot says. A PROCEDURAL mesh (the built-in humanoid, or a mesh rigged in the editor)
         // is registered straight with the MeshService and has no MeshAsset at all, so looking it up in the
         // AssetManager returns nothing — the row used to call that "None", which reads as an empty slot on
         // a character that is plainly standing in the viewport. Say what it actually is instead.
-        auto        asset = assetManager->FindByHandle<Assets::MeshAsset>( skinnedMesh.MeshHandle );
+        auto        asset = assetManager->FindByHandle<Assets::MeshAsset>( skinnedMesh.GetMeshHandle() );
         std::string currentMeshName;
         if ( asset )
             currentMeshName = Common::Utils::FileSystem::GetFileName( asset->GetMetadata().Filepath );
-        else if ( skinnedMesh.RuntimeMesh )
+        else if ( skinnedMesh.GetRuntimeMesh() )
             currentMeshName = "Procedural (rigged in the editor)";
         else if ( mesh )
             currentMeshName = "Procedural (generated)";
@@ -172,8 +172,8 @@ namespace Desert::Editor
                  Utils::ImGuiUtilities::AssetSlot( "SkinnedMeshSlot", currentMeshName.c_str(), emptySlot );
             if ( TakeDetailsPickerRequest( "Skinned mesh" ) || clicked )
                 ImGui::OpenPopup( "skinned_mesh_selector" );
-            DrawAssetFieldOpen( emptySlot || !asset ? 0 : static_cast<uint64_t>( skinnedMesh.MeshHandle ) );
-            DrawAssetFieldButtons( emptySlot || !asset ? 0 : static_cast<uint64_t>( skinnedMesh.MeshHandle ) );
+            DrawAssetFieldOpen( emptySlot || !asset ? 0 : static_cast<uint64_t>( skinnedMesh.GetMeshHandle() ) );
+            DrawAssetFieldButtons( emptySlot || !asset ? 0 : static_cast<uint64_t>( skinnedMesh.GetMeshHandle() ) );
 
             if ( ImGui::BeginPopup( "skinned_mesh_selector" ) )
             {
@@ -187,10 +187,12 @@ namespace Desert::Editor
 
                     if ( filter.PassFilter( name.c_str() ) )
                     {
-                        const bool selected = skinnedMesh.MeshHandle == row.Handle;
+                        const bool selected = skinnedMesh.GetMeshHandle() == row.Handle;
                         if ( ImGui::Selectable( name.c_str(), selected ) )
                         {
-                            skinnedMesh.MeshHandle = row.Handle;
+                            ECS::SkinnedMeshDesc desc = skinnedMesh.GetDesc();
+                            desc.MeshHandle           = row.Handle;
+                            ECS::SetSkinnedMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
                         }
                     }
                 }

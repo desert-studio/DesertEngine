@@ -55,7 +55,7 @@ namespace Desert::ECS::SpringArm
             const glm::vec3 local( glm::inverse( armWorld ) * glm::vec4( solve.CameraPosition, 1.0f ) );
             for ( const entt::entity child : registry.get<RelationshipComponent>( entity ).Children )
                 if ( registry.has<CameraComponent>( child ) && registry.has<TransformComponent>( child ) )
-                    registry.get<TransformComponent>( child ).Translation = local;
+                    ECS::SetLocalTranslation( registry, child, local );
         }
     }
 } // namespace Desert::ECS::SpringArm

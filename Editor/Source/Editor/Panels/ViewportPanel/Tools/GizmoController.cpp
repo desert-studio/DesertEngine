@@ -346,7 +346,7 @@ namespace Desert::Editor::Tools
 
         auto& selectedEntity = selectedEntityOpt->get();
 
-        auto& transformComponent = selectedEntity.GetComponent<ECS::TransformComponent>();
+        const auto& transformComponent = selectedEntity.GetComponent<ECS::TransformComponent>();
         auto& reg                = scene.GetRegistry();
 
         // A LOCKED primary draws no gizmo at all, which is the whole second half of the lock: the picker
@@ -477,7 +477,7 @@ namespace Desert::Editor::Tools
                 if ( ECS::IsLocked( reg, e.GetHandle() ) )
                     continue;
                 const auto& tc = e.GetComponent<ECS::TransformComponent>();
-                m_DragSnapshots.push_back( { id, tc.Translation, tc.Rotation, tc.Scale } );
+                m_DragSnapshots.push_back( { id, tc.GetTranslation(), tc.GetRotation(), tc.GetScale() } );
             }
         }
 
@@ -488,9 +488,7 @@ namespace Desert::Editor::Tools
             // itself lives in GizmoTransformMath.hpp so the GizmoTransformSpace suite can reach it.
             const auto local = WorldToLocalTRS( parentWorld, modelMatrix );
 
-            transformComponent.Translation = local.Translation;
-            transformComponent.Rotation    = local.Rotation;
-            transformComponent.Scale       = local.Scale;
+            selectedEntity.SetLocalTransform( ECS::LocalTransform{ local.Translation, local.Rotation, local.Scale } );
 
             // Group manipulation: apply the same WORLD-space delta to every other selected top-level root,
             // so the whole selection moves/rotates/scales as one rigid group around the primary's gizmo.
@@ -514,13 +512,12 @@ namespace Desert::Editor::Tools
                     if ( ECS::IsLocked( reg, e.GetHandle() ) )
                         continue;
 
-                    auto&           tc = e.GetComponent<ECS::TransformComponent>();
+                    const auto&     tc = e.GetComponent<ECS::TransformComponent>();
                     const glm::mat4 pw = parentWorldOf( e.GetHandle() );
 
                     const auto follower = WorldToLocalTRS( pw, delta * ( pw * tc.GetTransform() ) );
-                    tc.Translation      = follower.Translation;
-                    tc.Rotation         = follower.Rotation;
-                    tc.Scale            = follower.Scale;
+                    e.SetLocalTransform(
+                         ECS::LocalTransform{ follower.Translation, follower.Rotation, follower.Scale } );
                 }
             }
         }
@@ -570,7 +567,7 @@ namespace Desert::Editor::Tools
             return;
 
         auto& smc  = entity.GetComponent<ECS::SkinnedMeshComponent>();
-        auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
+        auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( smc.GetMeshHandle() );
         if ( !mesh || !mesh->IsSkinned() )
             return;
         auto*       skeleton = static_cast<SkinnedMesh*>( mesh )->GetSkeletonMutable();
@@ -673,7 +670,7 @@ namespace Desert::Editor::Tools
         {
             m_BoneDragActive = true;
             m_BoneDragIndex  = boneIdx;
-            m_BoneDragMesh   = smc.MeshHandle;
+            m_BoneDragMesh   = smc.GetMeshHandle();
             m_BoneDragOld    = bones[boneIdx].LocalBindTransform;
         }
 
