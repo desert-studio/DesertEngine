@@ -50,8 +50,9 @@ bool LandscapeTileIsHole( TerrainInstance t, vec4 w0, vec4 w1 )
 struct LandscapeMaterial
 {
     vec4 Tiling;         // x FarTilingDistance (cm), y FarTilingScale, z MacroVariationSize (cm), w MacroVariationStrength
+    vec4 Detail;         // x DetailNormalScale (x tile size), y DetailNormalStrength, z MacroHueSize (cm), w MacroHueStrength
     vec4 LayerTint[8];   // input k's LayerKTint
-    vec4 LayerParams[8]; // input k's (LayerKTileSize cm, LayerKBlend, 0, 0)
+    vec4 LayerParams[8]; // input k's (LayerKTileSize cm, LayerKBlend, LayerKNormalStrength, 0)
 };
 
 // THE CALLER'S LAYER MAP FETCH: map @p kind (0 albedo, 1 normal, 2 ARM, 3 height; TerrainInstance.InputSlices'
@@ -126,7 +127,14 @@ int TerrainInputBlend( LandscapeMaterial m, int k )
 // (UE's distance-blended texture coordinates). Past the fade only the far fetch runs, close in only the near one. The
 // albedo is multiplied by the input's Tint (UE landscape materials' per-layer colour control: the scanned map's hue
 // moved toward the scene's without repainting it).
-TerrainLayer TerrainSampleInput( TerrainInstance t, LandscapeMaterial m, int k, vec3 worldPosition, float farMix )
+//
+// The normal is the landscape material's normal chain: the input's map at its NormalStrength (UE's FlattenNormal /
+// a strength on the tangent xy, 0 = flat, 1 = as authored), then the DETAIL NORMAL - the same normal map a second
+// time at DetailNormalScale times the tile size, laid over with a whiteout blend at DetailNormalStrength and faded in
+// by @p detailMix (0 at the camera, 1 by twice the far tiling distance). Close in the near map carries the relief;
+// where its mips flatten it out the broad second scale keeps the ground reading as ground, with no step anywhere.
+TerrainLayer TerrainSampleInput( TerrainInstance t, LandscapeMaterial m, int k, vec3 worldPosition, float farMix,
+                                 float detailMix )
 {
     const int   i       = clamp( k, 0, 7 );
     const vec4  slices  = t.InputSlices[i];
@@ -141,6 +149,16 @@ TerrainLayer TerrainSampleInput( TerrainInstance t, LandscapeMaterial m, int k, 
         TerrainLayer distant = TerrainFetchLayer( i, slices, uv / farScale + vec2( 0.37, 0.61 ), uvPerCm / farScale );
         l = farMix >= 1.0 ? distant : TerrainMixLayer( TerrainFetchLayer( i, slices, uv, uvPerCm ), distant, farMix );
     }
+    const float normalStrength = max( m.LayerParams[i].z, 0.0 );
+    l.Normal                   = vec3( l.Normal.xy * normalStrength, l.Normal.z );
+    const float detail         = m.Detail.y * detailMix * normalStrength;
+    if ( slices.y >= 0.0 && detail > 0.0 )
+    {
+        const float detailScale = max( m.Detail.x, 1.0 );
+        vec3        dn          = DecodeTangentNormal(
+             LandscapeLayerMapSample( i, 1, slices.y, uv / detailScale + vec2( 0.71, 0.13 ), uvPerCm / detailScale ).rg );
+        l.Normal = vec3( l.Normal.xy + dn.xy * detail, l.Normal.z * dn.z );
+    }
     l.Albedo *= m.LayerTint[i].rgb;
     return l;
 }
@@ -148,11 +166,11 @@ TerrainLayer TerrainSampleInput( TerrainInstance t, LandscapeMaterial m, int k, 
 // The layer a channel (or the ground) draws: input @p k's maps, or its flat colour when no input names its layer or
 // that input has no albedo map.
 TerrainLayer TerrainLayerOf( TerrainInstance t, LandscapeMaterial m, int k, vec3 colour, vec3 worldPosition,
-                             float farMix )
+                             float farMix, float detailMix )
 {
     if ( k < 0 || t.InputSlices[clamp( k, 0, 7 )].x < 0.0 )
         return TerrainFlatLayer( colour );
-    return TerrainSampleInput( t, m, k, worldPosition, farMix );
+    return TerrainSampleInput( t, m, k, worldPosition, farMix, detailMix );
 }
 
 // Value noise for the macro variation: a smooth 0..1 field with no texture behind it.
@@ -185,6 +203,7 @@ TerrainSurface EvaluateLandscapeSurface( TerrainInstance t, LandscapeMaterial m,
 {
     float start  = m.Tiling.x;
     float farMix = clamp( ( viewDistance - 0.5 * start ) / max( start, 1.0 ), 0.0, 1.0 );
+    float detailMix = smoothstep( 0.0, 2.0 * max( start, 1.0 ), viewDistance );
 
     // The ground: the root's first layer, through the input that names it (white, flat, when the root names none).
     int          groundInput = int( floor( t.GroundInput.x + 0.5 ) );
@@ -229,12 +248,12 @@ TerrainSurface EvaluateLandscapeSurface( TerrainInstance t, LandscapeMaterial m,
         {
             float w = i < 4 ? w0[i] : w1[i - 4];
             l[i]    = w > 0.0 && t.LayerColors[i].a > 0.5
-                          ? TerrainLayerOf( t, m, inputOf[i], t.LayerColors[i].rgb, worldPosition, farMix )
+                          ? TerrainLayerOf( t, m, inputOf[i], t.LayerColors[i].rgb, worldPosition, farMix, detailMix )
                           : TerrainFlatLayer( t.LayerColors[i].rgb );
         }
         float claimed = dot( w0, drawn0 * ( vec4( 1.0 ) - a0 ) ) + dot( w1, drawn1 * ( vec4( 1.0 ) - a1 ) );
         TerrainLayer ground = hasGround && claimed < 1.0
-                                   ? TerrainLayerOf( t, m, groundInput, t.GroundColor.rgb, worldPosition, farMix )
+                                   ? TerrainLayerOf( t, m, groundInput, t.GroundColor.rgb, worldPosition, farMix, detailMix )
                                    : TerrainFlatLayer( hasGround ? t.GroundColor.rgb : vec3( 1.0 ) );
 
         if ( dot( hb0, drawn0 ) + dot( hb1, drawn1 ) + groundHB > 0.0 )
@@ -266,13 +285,30 @@ TerrainSurface EvaluateLandscapeSurface( TerrainInstance t, LandscapeMaterial m,
         blended.AO        = ra.y;
     }
     else if ( hasGround )
-        blended = TerrainLayerOf( t, m, groundInput, t.GroundColor.rgb, worldPosition, farMix );
+        blended = TerrainLayerOf( t, m, groundInput, t.GroundColor.rgb, worldPosition, farMix, detailMix );
 
     // Macro variation (the other anti-tiling half): a broad brightness field over the whole landscape, two octaves of
     // value noise at MacroVariationSize, so no two tiles of a map read the same.
     vec2  mv    = worldPosition.xz / max( m.Tiling.z, 1.0 );
     float macro = 0.65 * TerrainValueNoise( mv ) + 0.35 * TerrainValueNoise( mv * 3.7 + vec2( 11.3, 4.1 ) );
     blended.Albedo *= 1.0 + m.Tiling.w * ( 2.0 * macro - 1.0 );
+
+    // Macro HUE variation (UE landscape materials' two-scale noise lerp between a warmer and a cooler colour): two
+    // value-noise samples at MacroHueSize and at 0.29 of it rotate the albedo's hue about its luminance axis (YIQ)
+    // by up to +-MacroHueStrength radians - warmer (toward red-yellow) and cooler (toward green-blue) patches with
+    // the brightness left to the field above.
+    if ( m.Detail.w > 0.0 )
+    {
+        vec2  hv  = worldPosition.xz / max( m.Detail.z, 1.0 );
+        float hue = 0.6 * TerrainValueNoise( hv + vec2( 23.7, 51.9 ) ) + 0.4 * TerrainValueNoise( hv / 0.29 + vec2( 7.3, 19.1 ) );
+        float a   = m.Detail.w * ( 2.0 * hue - 1.0 );
+        const mat3 toYiq = mat3( 0.299, 0.596, 0.211, 0.587, -0.274, -0.523, 0.114, -0.322, 0.312 );
+        const mat3 toRgb = mat3( 1.0, 1.0, 1.0, 0.956, -0.272, -1.106, 0.621, -0.647, 1.703 );
+        vec3  yiq = toYiq * blended.Albedo;
+        float c = cos( a ), sn = sin( a );
+        yiq.yz          = vec2( c * yiq.y - sn * yiq.z, sn * yiq.y + c * yiq.z );
+        blended.Albedo  = max( toRgb * yiq, vec3( 0.0 ) );
+    }
 
     // Tangent space of a world-aligned projection on the heightfield: T follows +X (u), B the image's up, which is -Z
     // for v = z / tile (OpenGL-convention maps: green = up), both projected onto the surface by the geometric normal.

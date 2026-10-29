@@ -2,6 +2,7 @@
 
 #include <Editor/Core/CommandPalette.hpp>
 
+#include <Common/Core/Logger.hpp>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/Neural/FusedMlpCompute.hpp>
@@ -15,9 +16,11 @@ namespace Desert::Editor
 {
     // THE NN LAYER'S FORCED KERNEL PATH as palette commands (NN-RUNTIME step 3; UE would keep it as a console
     // variable): "Neural: Kernel path Auto" clears machine.json ForcedNeuralKernelPath (the device's selection),
-    // "... Fp32" / "Fp16" / "CoopMatFp16" force that path. A path the device cannot run is refused here, with what
-    // it lacks (Neural::ResolveNeuralKernelPath), and machine.json is left as it was. The control channel reaches
-    // them as `run Neural "Neural: Kernel path Fp16"`; DesertCtl nn-check then runs the forced path.
+    // "... Fp32" / "Fp16" / "CoopMatFp16" force that path. Like a UE cvar, a path the device cannot run is still
+    // SET (with a warning naming what it lacks): every consumer asks Neural::ResolveNeuralKernelPath and refuses
+    // it with that reason (nn-check reports it "refused"). An unattended run keeps it in the process
+    // (MachineSettings:: KeepInSession), so a scenario never leaves it in machine.json. The control channel
+    // reaches them as `run Neural "Neural: Kernel path Fp16"`; DesertCtl nn-check then runs the forced path.
     [[nodiscard]] inline std::vector<PaletteCommand> NeuralPaletteCommands()
     {
         using Common::Settings::NeuralKernelPath;
@@ -31,12 +34,14 @@ namespace Desert::Editor
         std::vector<PaletteCommand> commands;
         for ( const auto& [name, forced] : choices )
             commands.push_back(
-                 { "Neural", std::format( "Neural: Kernel path {}", name ), [forced]() -> Common::BoolResultStr
+                 { "Neural", std::format( "Neural: Kernel path {}", name ),
+                   [forced, name]() -> Common::BoolResultStr
                    {
                        const auto resolved = Engine::Neural::ResolveNeuralKernelPath(
                             EngineContext::GetInstance().GetCapabilities().Neural, forced );
                        if ( !resolved )
-                           return Common::MakeError( resolved.GetError() );
+                           LOG_WARN( "[Neural] forced kernel path {} is set; this device cannot run it: {}", name,
+                                     resolved.GetError() );
                        Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath = forced;
                        if ( !Common::Settings::MachineSettings::Save() )
                            return Common::MakeError( "the NN kernel path is set but machine.json was not saved" );

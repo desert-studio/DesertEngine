@@ -120,6 +120,15 @@ namespace Desert::ECS
             uint32_t                                       Version      = 0;
             uint64_t                                       TypeRevision = 0;
             std::vector<Graphic::System::GrassSectionDraw> Sections;
+            // The look the variety leaves to the far cover, from its section materials (GRASS-ASSET p2): the
+            // albedo map's cooked mean over the drawn texels (Assets::LoadGrassCoverLook) times the material's
+            // tints, its subsurface colour and roughness; nullopt when no section has an albedo map.
+            struct CoverLook
+            {
+                glm::vec3 Albedo{ 0.0f }, Subsurface{ 0.0f };
+                float     Roughness = 0.0f;
+            };
+            std::optional<CoverLook> Cover;
         };
         std::unordered_map<uint64_t, GrassRootCache> m_Grass;
         std::unordered_map<uint64_t, GrassSections>  m_GrassSections;
@@ -127,6 +136,16 @@ namespace Desert::ECS
         double                                       m_WindSeconds     = 0.0;
         double                                       m_PrevWindSeconds = 0.0;
         std::unordered_set<std::string>              m_WarnedGrass;
+        // GRASS-FIELD: per root, per grass layer (by LayerName), the far cover its grass types give the ground
+        // (TerrainInstance::GrassCover*): EmitGrass derives it from the varieties it resolves, the tile rows of
+        // the next frame carry it to the landscape's shading (Common/LandscapeGrassCover.glslh).
+        struct GrassCoverValues
+        {
+            glm::vec4 Cover{ 0.0f }; // rgb = the blades' mean albedo, a = leaf area index at full weight
+            glm::vec4 Light{ 0.0f }; // rgb = the blade material's SubsurfaceColor, a = its roughness
+            glm::vec4 Range{ 0.0f }; // x/y = Start/EndCullDistance (cm), z = the lowest weight that grows grass
+        };
+        std::unordered_map<uint64_t, std::unordered_map<std::string, GrassCoverValues>> m_GrassCover;
 
         // Material handles already reported as unresolvable, so the warning is said once and not once a frame.
         std::unordered_set<uint64_t> m_WarnedMaterials;

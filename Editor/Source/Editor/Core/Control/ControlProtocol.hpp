@@ -76,7 +76,8 @@ namespace Desert::Editor::Control
                 ///< Level As")
         AddComponent, ///< add a component to an entity through Details' Add Component (one undo step)
         Advance,      ///< answered once Play's simulated time has moved on by the asked seconds (no client sleep)
-        NnCheck, ///< run the NN layer's fused MLP on the GPU against its CPU reference (the forced path, or every path)
+        NnCheck, ///< run the NN layer's fused MLP on the GPU against its CPU reference (the forced path, or every
+                 ///< path)
     };
 
     /**

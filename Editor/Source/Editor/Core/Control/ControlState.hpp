@@ -137,7 +137,7 @@ namespace Desert::Editor::Control
 
         // RAY TRACING (NO-RT): what the device offers and what the main viewport resolved to, so a scenario on a
         // card without RT (or with it hidden by machine.json) reads the fallback from one source.
-        std::string              Rt;      ///< "on" | "off" (the device has none) | "hidden" (machine.json HideRayTracing)
+        std::string Rt; ///< "on" | "off" (the device has none) | "hidden" (machine.json HideRayTracing)
         std::vector<std::string> RtModes; ///< Catalog RayTracingModes, kRayTracingModeNames, best first
         /// Graphic::PathTracingRefusal: empty when the device can path-trace, else why a PathTraced request is
         /// refused.
@@ -150,6 +150,11 @@ namespace Desert::Editor::Control
         std::string              GIMethod;
         std::string              ReflectionsMethod;
         std::string              ShadowsMethod;
+
+        /// The last nn-check's verdict per path it was asked for, in its order: (path, "pass" | "fail: <errors>" |
+        /// "refused: <reason>"). Empty until the first nn-check completes. Every asked path has an entry, so a
+        /// path that is silently missing from a check is visible as missing here.
+        std::vector<std::pair<std::string, std::string>> NnLastCheck;
     };
 
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
@@ -415,6 +420,15 @@ namespace Desert::Editor::Control
             nn["maxPushConstantsSize"]        = Num( device.NnMaxPushConstantsSize );
             nn["maxComputeSharedMemorySize"]  = Num( device.NnMaxComputeSharedMemorySize );
             nn["cooperativeMatrixShapes"]     = Common::Json::Value( shapes );
+            Common::Json::Value::Array lastCheck;
+            for ( const auto& [path, verdict] : device.NnLastCheck )
+            {
+                Common::Json::Object entry;
+                entry["path"]    = Str( path );
+                entry["verdict"] = Str( verdict );
+                lastCheck.push_back( Common::Json::Value( entry ) );
+            }
+            nn["lastCheck"] = Common::Json::Value( lastCheck );
 
             Common::Json::Object oidn;
             oidn["created"] = Common::Json::Value( device.OidnCreated );

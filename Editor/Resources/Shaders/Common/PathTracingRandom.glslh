@@ -1,0 +1,30 @@
+#ifndef DESERT_PATH_TRACING_RANDOM_GLSLH
+#define DESERT_PATH_TRACING_RANDOM_GLSLH
+
+// The path tracer's random numbers: a PCG hash chain (UE: FRandomSequence; a Sobol sequence is not here,
+// PathTracer.hpp). One text for every program of the path tracer - the trace (PathTracer.shader) and its light grid
+// (PathTracerLightGrid.shader) - so both draw from the same generator.
+uint PathTracingHash(uint v)
+{
+    const uint state = v * 747796405u + 2891336453u;
+    const uint word  = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+float PathTracingRandom(inout uint rng)
+{
+    rng = PathTracingHash(rng);
+    return float(rng >> 8u) * (1.0 / 16777216.0);
+}
+
+vec2 PathTracingRandom2(inout uint rng)
+{
+    return vec2(PathTracingRandom(rng), PathTracingRandom(rng));
+}
+
+float PathTracingLuminance(vec3 c)
+{
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+#endif // DESERT_PATH_TRACING_RANDOM_GLSLH
