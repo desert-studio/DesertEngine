@@ -1634,9 +1634,9 @@ namespace Desert::Editor::Commands
             }
             const std::string tag =
                  old.HasComponent<ECS::TagComponent>() ? old.GetComponent<ECS::TagComponent>().Tag : std::string();
-            std::optional<ECS::StaticMeshComponent> keptMesh;
+            std::optional<ECS::StaticMeshDesc> keptMesh;
             if ( mesh == ReplaceMeshSource::KeepEntityMesh && old.HasComponent<ECS::StaticMeshComponent>() )
-                keptMesh = old.GetComponent<ECS::StaticMeshComponent>();
+                keptMesh = old.GetComponent<ECS::StaticMeshComponent>().GetDesc();
 
             auto snapshot = CaptureSubtree( old );
             DestroyByUUID( uuid );
