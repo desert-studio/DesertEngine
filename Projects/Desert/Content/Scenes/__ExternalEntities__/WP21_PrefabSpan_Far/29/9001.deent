@@ -1,7 +1,6 @@
 {
     "id": 9001,
-    "siblingIndex": 2,
-    "PrefabPath": "Prefabs/WP21_Span.deprefab",
+    "PrefabPath": "assets:Prefabs/WP21_Span.deprefab",
     "Translation": [500.0, 500.0, 500.0],
     "Rotation": [0.0, 0.0, 0.0],
     "Scale": [10.0, 10.0, 10.0]
