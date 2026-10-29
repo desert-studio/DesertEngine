@@ -133,7 +133,7 @@ namespace Desert::Graphic::RayTracing
 
     // The hit group's row for one tile, as Programs/Terrain/TerrainRayHit.glslh LandscapeRayHitRow declares it:
     // TerrainInstance's slots, the Tint, (weightmap bindless slot, its sampler slot, the layer maps'
-    // sampler slot, 0) as bits, the 17 slots of the material's values (LandscapeMaterialValues), the eight inputs'
+    // sampler slot, 0) as bits, the 18 slots of the material's values (LandscapeMaterialValues), the eight inputs'
     // map slots as bits, the view origin.
     inline constexpr std::size_t kLandscapeRayHitRowSlots =
          ( sizeof( System::TerrainInstance ) / sizeof( glm::vec4 ) ) + 2u +

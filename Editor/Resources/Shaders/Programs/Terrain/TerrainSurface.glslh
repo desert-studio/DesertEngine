@@ -113,6 +113,8 @@
             LandscapeMaterial m;
             m.Tiling = vec4( Material.FarTilingDistance, Material.FarTilingScale, Material.MacroVariationSize,
                              Material.MacroVariationStrength );
+            m.Detail = vec4( Material.DetailNormalScale, Material.DetailNormalStrength, Material.MacroHueSize,
+                             Material.MacroHueStrength );
             m.LayerTint[0]   = Material.Layer0Tint;
             m.LayerTint[1]   = Material.Layer1Tint;
             m.LayerTint[2]   = Material.Layer2Tint;
@@ -121,14 +123,14 @@
             m.LayerTint[5]   = Material.Layer5Tint;
             m.LayerTint[6]   = Material.Layer6Tint;
             m.LayerTint[7]   = Material.Layer7Tint;
-            m.LayerParams[0] = vec4( Material.Layer0TileSize, float( Material.Layer0Blend ), 0.0, 0.0 );
-            m.LayerParams[1] = vec4( Material.Layer1TileSize, float( Material.Layer1Blend ), 0.0, 0.0 );
-            m.LayerParams[2] = vec4( Material.Layer2TileSize, float( Material.Layer2Blend ), 0.0, 0.0 );
-            m.LayerParams[3] = vec4( Material.Layer3TileSize, float( Material.Layer3Blend ), 0.0, 0.0 );
-            m.LayerParams[4] = vec4( Material.Layer4TileSize, float( Material.Layer4Blend ), 0.0, 0.0 );
-            m.LayerParams[5] = vec4( Material.Layer5TileSize, float( Material.Layer5Blend ), 0.0, 0.0 );
-            m.LayerParams[6] = vec4( Material.Layer6TileSize, float( Material.Layer6Blend ), 0.0, 0.0 );
-            m.LayerParams[7] = vec4( Material.Layer7TileSize, float( Material.Layer7Blend ), 0.0, 0.0 );
+            m.LayerParams[0] = vec4( Material.Layer0TileSize, float( Material.Layer0Blend ), Material.Layer0NormalStrength, 0.0 );
+            m.LayerParams[1] = vec4( Material.Layer1TileSize, float( Material.Layer1Blend ), Material.Layer1NormalStrength, 0.0 );
+            m.LayerParams[2] = vec4( Material.Layer2TileSize, float( Material.Layer2Blend ), Material.Layer2NormalStrength, 0.0 );
+            m.LayerParams[3] = vec4( Material.Layer3TileSize, float( Material.Layer3Blend ), Material.Layer3NormalStrength, 0.0 );
+            m.LayerParams[4] = vec4( Material.Layer4TileSize, float( Material.Layer4Blend ), Material.Layer4NormalStrength, 0.0 );
+            m.LayerParams[5] = vec4( Material.Layer5TileSize, float( Material.Layer5Blend ), Material.Layer5NormalStrength, 0.0 );
+            m.LayerParams[6] = vec4( Material.Layer6TileSize, float( Material.Layer6Blend ), Material.Layer6NormalStrength, 0.0 );
+            m.LayerParams[7] = vec4( Material.Layer7TileSize, float( Material.Layer7Blend ), Material.Layer7NormalStrength, 0.0 );
             return m;
         }
 
