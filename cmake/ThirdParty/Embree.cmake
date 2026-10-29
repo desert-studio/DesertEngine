@@ -37,6 +37,7 @@ set(_c
     lexers/stringstream.cpp lexers/tokenstream.cpp tasking/taskschedulerinternal.cpp)
 list(TRANSFORM _c PREPEND "${_root}/common/")
 desert_add_library(Embree FOLDER ThirdParty SOURCES ${_k} ${_c})
+desert_warnings_off(Embree)  # premake: warnings "Off"
 set_target_properties(Embree PROPERTIES CXX_STANDARD 17)
 target_include_directories(Embree PRIVATE
     "${_config}/kernels/common" "${_config}/include/embree4" "${_root}/include" "${_root}")

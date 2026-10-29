@@ -4,6 +4,7 @@ set(_root "${DESERT_ROOT}/ThirdParty/voro++")
 desert_glob(_src "${_root}/src/*.cc" "${_root}/src/*.hh")
 list(REMOVE_ITEM _src "${_root}/src/v_base_wl.cc")
 desert_add_library(Voro FOLDER ThirdParty SOURCES ${_src})
+desert_warnings_off(Voro)  # premake: warnings "Off"
 set_target_properties(Voro PROPERTIES CXX_STANDARD 17)
 target_include_directories(Voro PRIVATE "${_root}/src")
 if(NOT DESERT_IS_WINDOWS)

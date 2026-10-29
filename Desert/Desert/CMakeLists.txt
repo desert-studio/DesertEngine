@@ -50,24 +50,22 @@ function(_desert_engine_module_library name)
 
     # pch.hpp, force-included into every source (pchheader/pchsource/forceincludes).
     target_precompile_headers(${target} PRIVATE "${_source}/pch.hpp")
+    # Objective-C++ sources build without it (premake's .mm filter: NoPCH).
     set(_no_pch "")
-    foreach(src IN LISTS _common _mac)
-        if(src MATCHES "/Engine/Assets/(MeshDistanceFieldBuild|MeshCardBuild)\\.cpp$" OR src MATCHES "\\.mm$")
+    foreach(src IN LISTS _mac)
+        if(src MATCHES "\\.mm$")
             list(APPEND _no_pch "${src}")
         endif()
     endforeach()
     if(_no_pch)
         set_source_files_properties(${_no_pch} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
     endif()
-    # The distance-field and card builders are optimised even in Debug (a Debug bake is otherwise unusable).
+    # The distance-field and card builders are optimised even in Debug (a Debug bake is otherwise unusable):
+    # desert_finalize_targets() compiles them as <target>-DebugOptimized with Debug /O2, no runtime checks and the
+    # PCH off in Debug only, as premake's per-file Debug filter did.
     foreach(src IN LISTS _common)
         if(src MATCHES "/Engine/Assets/(MeshDistanceFieldBuild|MeshCardBuild)\\.cpp$")
-            if(MSVC)
-                set_property(SOURCE "${src}" APPEND PROPERTY COMPILE_OPTIONS "$<$<CONFIG:Debug>:/O2>")
-                set_property(SOURCE "${src}" PROPERTY DESERT_NO_RUNTIME_CHECKS ON)
-            else()
-                set_property(SOURCE "${src}" APPEND PROPERTY COMPILE_OPTIONS "$<$<CONFIG:Debug>:-O2>")
-            endif()
+            set_property(SOURCE "${src}" PROPERTY DESERT_DEBUG_OPTIMIZE ON)
         endif()
     endforeach()
 

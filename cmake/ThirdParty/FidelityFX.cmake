@@ -99,9 +99,10 @@ set(_src
     backends/vk/FrameInterpolationSwapchain/FrameInterpolationSwapchainVK_UiComposition.cpp)
 list(TRANSFORM _src PREPEND "${_root}/src/")
 desert_add_library(FidelityFX FOLDER ThirdParty SOURCES ${_src})
+desert_warnings_off(FidelityFX)  # premake: warnings "Off"
 set_target_properties(FidelityFX PROPERTIES CXX_STANDARD 17)
 target_include_directories(FidelityFX PRIVATE
     "${_root}/include" "${_root}/src/shared" "${_root}/src/components" "${_root}/src/backends/shared" "${_generated}")
-target_include_directories(FidelityFX SYSTEM PRIVATE "${_vulkan_sdk}/Include")
+desert_external_includes(FidelityFX "${_vulkan_sdk}/Include")
 target_compile_definitions(FidelityFX PRIVATE
     FFX_FSR3UPSCALER _CRT_SECURE_NO_WARNINGS _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING)

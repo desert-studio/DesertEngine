@@ -112,6 +112,7 @@ if(DESERT_IS_WINDOWS)
 endif()
 list(TRANSFORM _src PREPEND "${_root}/src/")
 desert_add_library(Dav1d FOLDER ThirdParty SOURCES ${_src} ${_instances_8} ${_instances_16})
+desert_warnings_off(Dav1d)  # premake: warnings "Off"
 set_target_properties(Dav1d PROPERTIES C_STANDARD 11)
 target_include_directories(Dav1d PRIVATE "${_generated}" "${_root}" "${_root}/include" "${_root}/include/dav1d")
 desert_optimize_speed(Dav1d)

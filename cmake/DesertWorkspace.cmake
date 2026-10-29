@@ -2,10 +2,11 @@
 # Workspace.lua, Configurations.lua, PlatformWindows.lua, PlatformMacOS.lua and UnityBuild.lua.
 #
 # Everything set here at directory scope reaches every target below the root, first-party and vendored
-# alike, exactly as premake's workspace scope did. The per-source rules premake expressed as
-# `filter "files:..."` (warnings off for vendored files, the unity opt-out list) cannot be expressed at
-# directory scope in CMake, so they are applied once, after every target exists, by desert_finalize_targets()
-# (called from the root CMakeLists.txt through cmake_language(DEFER)).
+# alike, exactly as premake's workspace scope did. The warning level, optimisation and runtime checks are set
+# per TARGET, and premake's per-file rules (`filter "files:..."`: warnings off for vendored files, the Debug-optimised
+# builders, the unity opt-out list) become per-target settings of split OBJECT libraries; both are applied once,
+# after every target exists, by desert_finalize_targets() (called from the root CMakeLists.txt through
+# cmake_language(DEFER)).
 
 include_guard(GLOBAL)
 
@@ -41,8 +42,8 @@ endif()
 # sources test to leave the development instruments out (see Configurations.lua for the full reasoning).
 # Flags spell premake's choices out explicitly instead of inheriting CMake's per-config defaults, so the
 # two build systems compile the same way:
-#   Debug     runtime Debug,  symbols On (/Zi or /Z7, never /ZI), no optimisation
-#   Release   runtime Release, optimize On  (MSVC /Ox, clang -O2), NDEBUG
+#   Debug     runtime Debug,  symbols On (/Zi or /Z7, never /ZI), no optimisation (MSVC /Od /RTC1 per target)
+#   Release   runtime Release, optimize On  (MSVC /Ox /Oi /Gy /GF per target, clang -O2), NDEBUG
 #   Shipping  runtime Release, optimize Full (MSVC /Ox, clang -O3), symbols Off, NDEBUG + DESERT_CONFIG_SHIPPING
 set(DESERT_CONFIGURATIONS Debug Release Shipping)
 get_property(_desert_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
@@ -54,11 +55,12 @@ endif()
 
 foreach(lang C CXX)
     if(MSVC)
-        set(CMAKE_${lang}_FLAGS_DEBUG    "/Od" CACHE STRING "" FORCE)  # /RTC1 per source, see desert_finalize_targets
-        # premake `optimize "On"/"Full"` on MSBuild: Optimization Full (/Ox) + IntrinsicFunctions (/Oi) +
-        # FunctionLevelLinking (/Gy) + StringPooling (/GF). No /DWIN32 /D_WINDOWS: MSBuild projects never had them.
-        set(CMAKE_${lang}_FLAGS_RELEASE  "/Ox /Oi /Gy /GF /DNDEBUG" CACHE STRING "" FORCE)
-        set(CMAKE_${lang}_FLAGS_SHIPPING "/Ox /Oi /Gy /GF /DNDEBUG" CACHE STRING "" FORCE)
+        # The optimisation level and /RTC1 are per TARGET (desert_finalize_targets, _desert_target_flags): a target
+        # premake optimises for speed must not also get /Od or /Ox from here (cl D9025). No /DWIN32 /D_WINDOWS:
+        # MSBuild projects never had them.
+        set(CMAKE_${lang}_FLAGS_DEBUG    "" CACHE STRING "" FORCE)
+        set(CMAKE_${lang}_FLAGS_RELEASE  "/DNDEBUG" CACHE STRING "" FORCE)
+        set(CMAKE_${lang}_FLAGS_SHIPPING "/DNDEBUG" CACHE STRING "" FORCE)
     else()
         set(CMAKE_${lang}_FLAGS_DEBUG    "-O0 -g" CACHE STRING "" FORCE)
         set(CMAKE_${lang}_FLAGS_RELEASE  "-O2 -DNDEBUG" CACHE STRING "" FORCE)
@@ -175,9 +177,10 @@ endif()
 
 # ── WARNINGS (Workspace.lua) ───────────────────────────────────────────────────────────────────────
 # First-party sources: /W3 on MSVC (a measured choice, see Workspace.lua), -Wall -Wextra on clang/gcc.
-# Vendored sources (any path containing /ThirdParty/): warnings off, per file, so a vendored .cpp compiled
-# INTO a first-party target (vk_mem_alloc.cpp, stb_image.cpp, miniaudio.cpp, ImGuizmo.cpp) is covered too.
-# Applied by desert_finalize_targets(); no warning level is set at directory scope (CMP0092: CMake adds none).
+# Vendored sources (any path containing /ThirdParty/): warnings off. A vendored .cpp compiled INTO a first-party
+# target (vk_mem_alloc.cpp, stb_image.cpp, miniaudio.cpp, ImGuizmo.cpp) moves to the OBJECT library
+# <target>-ThirdParty so both levels stay target-wide. Applied by desert_finalize_targets(); no warning level is
+# set at directory scope (CMP0092: CMake adds none).
 if(MSVC)
     set(DESERT_WARNINGS_ON  /W3)
     set(DESERT_WARNINGS_OFF /W0)
@@ -286,8 +289,18 @@ function(desert_add_executable name)
 endfunction()
 
 # premake `externalincludedirs`: SYSTEM include directories (MSVC /external:I + /external:W0).
+# The directories are also recorded in DESERT_SYSTEM_INCLUDES: CMake keeps a target's SYSTEM set internally (the
+# SYSTEM_INCLUDE_DIRECTORIES property reads back empty), and desert_finalize_targets() needs it to order the list and
+# to give a split OBJECT library the same SYSTEM directories.
 function(desert_external_includes target)
     target_include_directories(${target} SYSTEM PRIVATE ${ARGN})
+    foreach(dir IN LISTS ARGN)
+        if(NOT dir MATCHES "^\\$<")
+            cmake_path(ABSOLUTE_PATH dir BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE dir)
+            string(REGEX REPLACE "/+$" "" dir "${dir}")
+        endif()
+        set_property(TARGET ${target} APPEND PROPERTY DESERT_SYSTEM_INCLUDES "${dir}")
+    endforeach()
 endfunction()
 
 # DesertPlatform.LinkWholeArchive: every object of the static library reaches the binary, so a file whose
@@ -328,8 +341,125 @@ function(_desert_collect_targets dir out)
     set(${out} ${_targets} PARENT_SCOPE)
 endfunction()
 
-# The per-source rules premake expressed as workspace `filter "files:..."` (Workspace.lua, UnityBuild.lua):
-# warnings per file, and the unity opt-out list. Runs once, after every target is declared.
+# Compile flags premake set at PROJECT scope (Configurations.lua, Workspace.lua), applied ONCE PER TARGET so the
+# target's PCH (cmake_pch.cxx) and its unity files compile exactly like its sources, and no source carries a
+# per-file flag that conflicts with a target flag: cl answers /Od+/O2 and /W3+/W0 with D9025 and /RTC1+/O2 with
+# the error D8016, and CMake never puts a source with its own COMPILE_OPTIONS into a unity file. Three choices:
+#   warnings   ON: /W3 (-Wall -Wextra). OFF: /W0 (-w), for a project premake marks `warnings "Off"`
+#              (desert_warnings_off) and for a target whose every source is vendored (a path under /ThirdParty/).
+#   speed      premake `optimize "Speed"` (desert_optimize_speed): /O2 /Oi /Gy /GF in EVERY configuration and
+#              no Debug runtime checks (clang -O3).
+#   debug_opt  premake `optimize "Speed"` + `runtimechecks "Off"` filtered to Debug on single files
+#              (DESERT_DEBUG_OPTIMIZE, the mesh card/distance field builders): Debug /O2 (clang -O2).
+# Otherwise: Debug /Od /RTC1 (MSBuild's Optimization Disabled + EnableFastChecks under UseDebugLibraries),
+# Release and Shipping /Ox /Oi /Gy /GF (premake `optimize "On"/"Full"` on MSBuild: Full, IntrinsicFunctions,
+# FunctionLevelLinking, StringPooling). clang's per-configuration level stays in CMAKE_<LANG>_FLAGS_<CONFIG>.
+function(_desert_target_flags target warnings speed debug_opt)
+    set(_cc "$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>")
+    if(warnings)
+        target_compile_options(${target} PRIVATE "$<${_cc}:${DESERT_WARNINGS_ON}>")
+    else()
+        target_compile_options(${target} PRIVATE "$<${_cc}:${DESERT_WARNINGS_OFF}>")
+    endif()
+    if(MSVC)
+        if(speed)
+            target_compile_options(${target} PRIVATE "$<${_cc}:/O2;/Oi;/Gy;/GF>")
+        else()
+            if(debug_opt)
+                set(_debug /O2)
+            else()
+                set(_debug /Od /RTC1)
+            endif()
+            target_compile_options(${target} PRIVATE
+                "$<$<AND:$<CONFIG:Debug>,${_cc}>:${_debug}>"
+                "$<$<AND:$<NOT:$<CONFIG:Debug>>,${_cc}>:/Ox;/Oi;/Gy;/GF>")
+        endif()
+    elseif(speed)
+        target_compile_options(${target} PRIVATE "$<${_cc}:-O3>")
+    elseif(debug_opt)
+        target_compile_options(${target} PRIVATE "$<$<AND:$<CONFIG:Debug>,${_cc}>:-O2>")
+    endif()
+endfunction()
+
+# Moves <sources> (absolute paths) of <owner> into the OBJECT library <owner>-<suffix>: compiled with the owner's
+# include directories (already in premake order), definitions, options and usage requirements (the same link
+# libraries), and archived/linked into the owner through $<TARGET_OBJECTS>, so the owner's binary holds the same
+# objects premake's project did. The split target gets its OWN target-level flags (_desert_target_flags): this is
+# how a premake per-file setting (a vendored file's warnings off, a Debug-optimised builder) is expressed without
+# a conflicting per-source flag. <pch_holder> (may be empty): the target whose PCH the split target reuses.
+function(_desert_split_objects owner suffix pch_holder out)
+    set(_obj "${owner}-${suffix}")
+    get_target_property(_dir ${owner} SOURCE_DIR)
+    get_target_property(_srcs ${owner} SOURCES)
+    set(_keep "")
+    foreach(src IN LISTS _srcs)
+        if(NOT src MATCHES "^\\$<")
+            cmake_path(ABSOLUTE_PATH src BASE_DIRECTORY "${_dir}" OUTPUT_VARIABLE src)
+            if(src IN_LIST ARGN)
+                continue()
+            endif()
+        endif()
+        list(APPEND _keep "${src}")
+    endforeach()
+    set_property(TARGET ${owner} PROPERTY SOURCES ${_keep})
+
+    add_library(${_obj} OBJECT ${ARGN})
+    # SYSTEM directories through target_include_directories(SYSTEM), from the owner's DESERT_SYSTEM_INCLUDES
+    # (desert_external_includes). The owner's list is already ordinary-then-SYSTEM, so the order is kept.
+    get_target_property(_incs ${owner} INCLUDE_DIRECTORIES)
+    get_target_property(_sys ${owner} DESERT_SYSTEM_INCLUDES)
+    if(NOT _incs)
+        set(_incs "")
+    endif()
+    set(_plain "")
+    set(_system "")
+    foreach(dir IN LISTS _incs)
+        if(_sys AND dir IN_LIST _sys)
+            list(APPEND _system "${dir}")
+        else()
+            list(APPEND _plain "${dir}")
+        endif()
+    endforeach()
+    set_property(TARGET ${_obj} PROPERTY INCLUDE_DIRECTORIES ${_plain})
+    if(_system)
+        target_include_directories(${_obj} SYSTEM PRIVATE ${_system})
+    endif()
+    foreach(prop COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FEATURES
+                 C_STANDARD C_STANDARD_REQUIRED C_EXTENSIONS CXX_STANDARD CXX_STANDARD_REQUIRED CXX_EXTENSIONS
+                 OBJCXX_STANDARD OBJCXX_STANDARD_REQUIRED OBJCXX_EXTENSIONS MSVC_RUNTIME_LIBRARY
+                 MSVC_DEBUG_INFORMATION_FORMAT POSITION_INDEPENDENT_CODE C_COMPILER_LAUNCHER CXX_COMPILER_LAUNCHER
+                 OBJCXX_COMPILER_LAUNCHER FOLDER)
+        get_property(_v TARGET ${owner} PROPERTY ${prop})
+        set_property(TARGET ${_obj} PROPERTY ${prop} "${_v}")
+    endforeach()
+    # Usage requirements: the owner's link libraries, by name (an object library links nothing; the directory
+    # markers `::@` of a cross-directory target_link_libraries() and the WHOLE_ARCHIVE wrapper are link-only).
+    get_target_property(_libs ${owner} LINK_LIBRARIES)
+    if(_libs)
+        set(_names "")
+        foreach(lib IN LISTS _libs)
+            if(lib MATCHES "^::@")
+                continue()
+            endif()
+            string(REGEX REPLACE "^\\$<LINK_LIBRARY:[A-Z_]+,(.+)>$" "\\1" lib "${lib}")
+            list(APPEND _names "${lib}")
+        endforeach()
+        target_link_libraries(${_obj} PRIVATE ${_names})
+    endif()
+    # Ordering the owner's compile waits for (the header tool's codegen).
+    get_target_property(_deps ${owner} MANUALLY_ADDED_DEPENDENCIES)
+    if(_deps)
+        add_dependencies(${_obj} ${_deps})
+    endif()
+    if(pch_holder)
+        set_property(TARGET ${_obj} PROPERTY PRECOMPILE_HEADERS_REUSE_FROM ${pch_holder})
+    endif()
+    target_sources(${owner} PRIVATE "$<TARGET_OBJECTS:${_obj}>")
+    set(${out} ${_obj} PARENT_SCOPE)
+endfunction()
+
+# Runs once, after every target is declared: the per-target rules premake expressed at project scope plus the
+# workspace `filter "files:..."` rules (Workspace.lua, UnityBuild.lua, Configurations.lua).
 function(desert_finalize_targets)
     _desert_collect_targets("${CMAKE_SOURCE_DIR}" _targets)
     foreach(target IN LISTS _targets)
@@ -344,7 +474,7 @@ function(desert_finalize_targets)
         # premake's list fields keep the LAST occurrence of a repeated directory (CMake keeps the first): rebuild the
         # include list that way, ordinary directories (/I) before SYSTEM ones (/external:I), as MSBuild orders them.
         get_target_property(_incs ${target} INCLUDE_DIRECTORIES)
-        get_target_property(_sys ${target} SYSTEM_INCLUDE_DIRECTORIES)
+        get_target_property(_sys ${target} DESERT_SYSTEM_INCLUDES)
         if(_incs)
             if(NOT _sys)
                 set(_sys "")
@@ -355,7 +485,7 @@ function(desert_finalize_targets)
             list(REVERSE _incs)
             foreach(dir IN LISTS _incs)
                 # "Source/" and "Source" are one directory to premake: compare without the trailing slash.
-                if(NOT dir MATCHES "^\$<")
+                if(NOT dir MATCHES "^\\$<")
                     string(REGEX REPLACE "/+$" "" dir "${dir}")
                 endif()
                 if(dir IN_LIST _sys)
@@ -367,56 +497,114 @@ function(desert_finalize_targets)
                 endif()
             endforeach()
             set_property(TARGET ${target} PROPERTY INCLUDE_DIRECTORIES ${_plain} ${_system})
-            set_property(TARGET ${target} PROPERTY SYSTEM_INCLUDE_DIRECTORIES ${_sys})
         endif()
+
         get_target_property(_sources ${target} SOURCES)
         get_target_property(_srcdir ${target} SOURCE_DIR)
         get_target_property(_unity ${target} DESERT_UNITY_TARGET)
+        get_target_property(_off ${target} DESERT_WARNINGS_OFF)
+        get_target_property(_speed ${target} DESERT_OPTIMIZE_SPEED)
         set(_ours "")
         set(_vendored "")
+        set(_debug_opt "")
         set(_no_unity "")
         foreach(src IN LISTS _sources)
             if(NOT src MATCHES "\\.(c|cc|cpp|cxx|mm|m)$")
                 continue()
             endif()
-            cmake_path(ABSOLUTE_PATH src BASE_DIRECTORY "${_srcdir}" OUTPUT_VARIABLE _abs)
             # Absolute: a relative SOURCE path given to set_property() here resolves against the root directory
             # (this call is deferred there), not the target's, and silently names a different file.
-            if(_abs MATCHES "/ThirdParty/")
+            cmake_path(ABSOLUTE_PATH src BASE_DIRECTORY "${_srcdir}" OUTPUT_VARIABLE _abs)
+            get_property(_dopt SOURCE "${_abs}" TARGET_DIRECTORY ${target} PROPERTY DESERT_DEBUG_OPTIMIZE)
+            if(_dopt)
+                list(APPEND _debug_opt "${_abs}")
+            elseif(_abs MATCHES "/ThirdParty/" AND NOT _off)
                 list(APPEND _vendored "${_abs}")
             else()
                 list(APPEND _ours "${_abs}")
-            endif()
-            if(_unity)
-                foreach(pattern IN LISTS DESERT_UNITY_OPT_OUT)
-                    string(FIND "${_abs}" "${pattern}" _at)
-                    if(NOT _at EQUAL -1)
-                        list(APPEND _no_unity "${_abs}")
-                        break()
-                    endif()
-                endforeach()
+                if(_unity)
+                    foreach(pattern IN LISTS DESERT_UNITY_OPT_OUT)
+                        string(FIND "${_abs}" "${pattern}" _at)
+                        if(NOT _at EQUAL -1)
+                            list(APPEND _no_unity "${_abs}")
+                            break()
+                        endif()
+                    endforeach()
+                endif()
             endif()
         endforeach()
-        # MSVC Debug runtime checks (/RTC1, MSBuild's EnableFastChecks under UseDebugLibraries) on every source
-        # except one marked DESERT_NO_RUNTIME_CHECKS (premake `runtimechecks "Off"`, needed where Debug optimises a file).
-        if(MSVC)
-            set(_rtc "")
-            foreach(src IN LISTS _ours _vendored)
-                get_property(_off SOURCE "${src}" TARGET_DIRECTORY ${target} PROPERTY DESERT_NO_RUNTIME_CHECKS)
-                if(NOT _off)
-                    list(APPEND _rtc "${src}")
+        if(_speed AND _debug_opt)
+            message(FATAL_ERROR "${target}: DESERT_DEBUG_OPTIMIZE sources in a desert_optimize_speed target")
+        endif()
+        # Warnings off for the whole target: premake `warnings "Off"`, or nothing of ours in it (a vendored library).
+        set(_warnings ON)
+        if(_off OR NOT _ours)
+            set(_warnings OFF)
+            list(APPEND _ours ${_vendored})
+            set(_vendored "")
+        endif()
+
+        # A target that splits sources off and has a PCH: the PCH moves to <target>-Pch with the target's pchsource
+        # (premake's `pchsource`, the source named like the header), and the target and its split parts all reuse
+        # it -- the split parts cannot reuse the target's own PCH, the target links their objects (a cycle).
+        set(_holder "")
+        set(_pch_abs "")
+        set(_pch_src "")
+        get_target_property(_pch ${target} PRECOMPILE_HEADERS)
+        if(_pch)
+            foreach(hdr IN LISTS _pch)
+                if(NOT hdr MATCHES "^(\\$<|<)")
+                    cmake_path(ABSOLUTE_PATH hdr BASE_DIRECTORY "${_srcdir}" OUTPUT_VARIABLE hdr)
+                    cmake_path(REMOVE_EXTENSION hdr LAST_ONLY OUTPUT_VARIABLE _stem)
+                    foreach(ext cpp cc cxx c)
+                        if("${_stem}.${ext}" IN_LIST _ours)
+                            list(APPEND _pch_src "${_stem}.${ext}")
+                        endif()
+                    endforeach()
                 endif()
+                list(APPEND _pch_abs "${hdr}")
             endforeach()
-            if(_rtc)
-                set_property(SOURCE ${_rtc} TARGET_DIRECTORY ${target} APPEND PROPERTY COMPILE_OPTIONS "$<$<CONFIG:Debug>:/RTC1>")
+            # The pchsource stays its own translation unit in every target (premake compiles it with /Yc; in a target that
+            # splits sources off it moves to <target>-Pch, which is never a unity target).
+            if(_unity AND _pch_src)
+                list(APPEND _no_unity ${_pch_src})
             endif()
         endif()
-        if(_ours)
-            set_property(SOURCE ${_ours} TARGET_DIRECTORY ${target} APPEND PROPERTY COMPILE_OPTIONS ${DESERT_WARNINGS_ON})
+        if(_pch AND (_vendored OR _debug_opt))
+            list(LENGTH _pch_src _n)
+            if(NOT _n EQUAL 1)
+                message(FATAL_ERROR "${target}: splits sources off but has ${_n} PCH sources named like its "
+                                    "precompiled header (${_pch}); premake's pchsource must be one of its sources")
+            endif()
+            list(REMOVE_ITEM _ours ${_pch_src})
+            _desert_split_objects(${target} Pch "" _holder ${_pch_src})
+            set_property(TARGET ${_holder} PROPERTY PRECOMPILE_HEADERS ${_pch_abs})
+            set_property(TARGET ${target} PROPERTY PRECOMPILE_HEADERS "")
+            set_property(TARGET ${target} PROPERTY PRECOMPILE_HEADERS_REUSE_FROM ${_holder})
+            _desert_target_flags(${_holder} ${_warnings} "${_speed}" OFF)
         endif()
+        # Vendored single files compiled into a first-party target (stb_image, vk_mem_alloc, ImGuizmo, ...):
+        # warnings off for them only (Workspace.lua `filter "files:**/ThirdParty/**"`).
         if(_vendored)
-            set_property(SOURCE ${_vendored} TARGET_DIRECTORY ${target} APPEND PROPERTY COMPILE_OPTIONS ${DESERT_WARNINGS_OFF})
+            _desert_split_objects(${target} ThirdParty "${_holder}" _split ${_vendored})
+            _desert_target_flags(${_split} OFF "${_speed}" OFF)
         endif()
+        # Sources optimised in Debug. MSVC: premake's Debug `NotUsing` PCH with pch.hpp still force-included is the
+        # reused PCH ignored (/Y-) with cmake_pch.hxx still force-included; Release/Shipping use the PCH. clang has
+        # no per-configuration PCH switch: the header is force-included in every configuration instead.
+        if(_debug_opt)
+            if(MSVC)
+                _desert_split_objects(${target} DebugOptimized "${_holder}" _split ${_debug_opt})
+                target_compile_options(${_split} PRIVATE "$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C,CXX>>:/Y->")
+            else()
+                _desert_split_objects(${target} DebugOptimized "" _split ${_debug_opt})
+                foreach(hdr IN LISTS _pch_abs)
+                    target_compile_options(${_split} PRIVATE "SHELL:-include \"${hdr}\"")
+                endforeach()
+            endif()
+            _desert_target_flags(${_split} ON OFF ON)
+        endif()
+        _desert_target_flags(${target} ${_warnings} "${_speed}" OFF)
         if(_no_unity)
             set_property(SOURCE ${_no_unity} TARGET_DIRECTORY ${target} PROPERTY SKIP_UNITY_BUILD_INCLUSION ON)
         endif()
@@ -429,16 +617,17 @@ function(desert_ascii_characterset target)
     set_property(TARGET ${target} PROPERTY DESERT_ASCII ON)
 endfunction()
 
-# premake `optimize "Speed"` on a vendored project: optimised in EVERY configuration (MSVC /O2, clang -O3), and on
-# MSVC without the Debug runtime checks /O2 cannot be combined with (`runtimechecks "Off"`).
+# premake `optimize "Speed"` on a vendored project: optimised in EVERY configuration (MSVC /O2 /Oi /Gy /GF, clang -O3)
+# and without the Debug runtime checks /O2 cannot be combined with (`runtimechecks "Off"`). Applied per target by
+# desert_finalize_targets().
 function(desert_optimize_speed target)
-    if(MSVC)
-        target_compile_options(${target} PRIVATE "$<$<CONFIG:Debug>:/O2>")
-        get_target_property(_sources ${target} SOURCES)
-        set_property(SOURCE ${_sources} TARGET_DIRECTORY ${target} PROPERTY DESERT_NO_RUNTIME_CHECKS ON)
-    else()
-        target_compile_options(${target} PRIVATE -O3)
-    endif()
+    set_property(TARGET ${target} PROPERTY DESERT_OPTIMIZE_SPEED ON)
+endfunction()
+
+# premake `warnings "Off"` on a project: /W0 (-w) for every source of the target, including the ones outside
+# ThirdParty/ (Dav1d's generated bitdepth instances). Applied per target by desert_finalize_targets().
+function(desert_warnings_off target)
+    set_property(TARGET ${target} PROPERTY DESERT_WARNINGS_OFF ON)
 endfunction()
 
 # DesertPlatform.WriteGenerated: writes a file the compile needs (a third-party config.h, a template

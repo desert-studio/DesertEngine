@@ -33,6 +33,7 @@ _desert_opus_make_list(silk_sources.mk SILK_SOURCES_FLOAT _silk_float)
 _desert_opus_make_list(opus_sources.mk OPUS_SOURCES _opus)
 _desert_opus_make_list(opus_sources.mk OPUS_SOURCES_FLOAT _opus_float)
 desert_add_library(Opus FOLDER ThirdParty SOURCES ${_celt} ${_silk} ${_silk_float} ${_opus} ${_opus_float})
+desert_warnings_off(Opus)  # premake: warnings "Off"
 set_target_properties(Opus PROPERTIES C_STANDARD 11)
 target_include_directories(Opus PRIVATE
     "${_root}/include" "${_root}/celt" "${_root}/silk" "${_root}/silk/float" "${_root}")

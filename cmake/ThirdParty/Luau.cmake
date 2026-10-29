@@ -9,6 +9,7 @@ function(_desert_luau name module)
     file(GLOB _src CONFIGURE_DEPENDS "${_root}/${module}/src/*.cpp" "${_root}/${module}/src/*.h")
     list(SORT _src)
     desert_add_library(Luau${name} FOLDER ThirdParty SOURCES ${_headers} ${_src})
+    desert_warnings_off(Luau${name})  # premake: warnings "Off"
     set_target_properties(Luau${name} PROPERTIES CXX_STANDARD 17)
     set(_inc "")
     foreach(dir IN LISTS ARGN)

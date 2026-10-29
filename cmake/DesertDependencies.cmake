@@ -150,7 +150,7 @@ function(desert_editorspecific_includes target)
         cmake_path(ABSOLUTE_PATH d BASE_DIRECTORY "${_dir}" OUTPUT_VARIABLE _abs)
         list(APPEND _dirs "${_abs}")
     endforeach()
-    target_include_directories(${target} SYSTEM PRIVATE ${_dirs})
+    desert_external_includes(${target} ${_dirs})
 endfunction()
 
 # ── STREAMLINE RUNTIME (DesertCopyStreamlineRuntime) ───────────────────────────────────────────────

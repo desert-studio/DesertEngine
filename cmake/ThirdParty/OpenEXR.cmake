@@ -129,6 +129,7 @@ set(_zstd_src
     decompress/huf_decompress.c decompress/zstd_ddict.c decompress/zstd_decompress.c decompress/zstd_decompress_block.c)
 list(TRANSFORM _zstd_src PREPEND "${_zstd}/")
 desert_add_library(OpenEXRCore FOLDER ThirdParty SOURCES ${_core_src} ${_zstd_src} ${_ojph_src})
+desert_warnings_off(OpenEXRCore)  # premake: warnings "Off"
 set_target_properties(OpenEXRCore PROPERTIES CXX_STANDARD 17 C_STANDARD 11)
 target_include_directories(OpenEXRCore PRIVATE
     "${_core}" "${_generated}" "${_imath}/src/Imath" "${_zstd}" "${_ojph}" "${_ojph}/openjph" "${_ojph}/shared")

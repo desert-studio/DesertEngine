@@ -10,6 +10,7 @@ file(GLOB _src CONFIGURE_DEPENDS
 list(SORT _src)
 desert_add_library(OpenSubdiv FOLDER ThirdParty SOURCES
     "${_root}/opensubdiv/version.cpp" "${_root}/opensubdiv/version.h" ${_src})
+desert_warnings_off(OpenSubdiv)  # premake: warnings "Off"
 set_target_properties(OpenSubdiv PROPERTIES CXX_STANDARD 17)
 target_include_directories(OpenSubdiv PRIVATE "${_root}")
 if(DESERT_IS_WINDOWS)
