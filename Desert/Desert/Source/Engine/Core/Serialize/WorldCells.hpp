@@ -170,7 +170,7 @@ namespace Desert::Core::WorldCells
         std::vector<IndexReference> References;
         std::vector<IndexHLOD>      HLODs; // cell order; a cell that draws nothing has none
     };
-    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 6 )
+    DESERT_JSON_STRUCT( WorldIndex, "WorldIndex", 7 )
 
     // What a cell file's payload holds: which units, in order, then their records concatenated.
     struct CellPayload
@@ -179,7 +179,7 @@ namespace Desert::Core::WorldCells
         std::vector<std::string>        Units;
         std::vector<Assets::EntityData> Records;
     };
-    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 6 )
+    DESERT_JSON_STRUCT( CellPayload, "WorldCell", 7 )
     // Both payloads are stamped with the world format version by the envelope; the marks state the same number.
     static_assert( Common::Json::FormatOf<WorldIndex>.Version == kWorldFormatVersion &&
                    Common::Json::FormatOf<CellPayload>.Version == kWorldFormatVersion );
@@ -381,7 +381,7 @@ namespace Desert::Core::WorldCells
         std::string                SceneName;
         std::vector<BuiltHLODCell> Cells; // cell unit order
     };
-    DESERT_JSON_STRUCT( BuiltHLODIndex, "BuiltHLODIndex", 6 )
+    DESERT_JSON_STRUCT( BuiltHLODIndex, "BuiltHLODIndex", 7 )
     static_assert( Common::Json::FormatOf<BuiltHLODIndex>.Version == kWorldFormatVersion );
 
     // Where BuildWorldHLODs hands each cell's record file (CellPayload, kind WorldCell) the moment the cell is

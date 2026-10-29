@@ -1,0 +1,13 @@
+# WP21 p9 (Far): a prefab instance (WP21_Span: 4 cubes 1500 cm apart) is expanded when the world is cooked, so its
+# records land in 4 cells, each placed by its own bounds. Build HLODs cuts the same expanded world
+# (ExpandWorldForCook), so the cook finds every saved HLOD fresh.
+# Editor step here (the scenario player drives only the editor): Build HLODs on WP21_PrefabSpan_Far.
+# Then, outside the editor (CLI, the proof of the cook and the runtime):
+#   WorldCook Content/Scenes/WP21_PrefabSpan_Far.desce --project Projects/Desert/Desert.deproj --no-registry --verify
+#     --out <CookedWorldDirectory>  -> code 0, "records back from the cells, equal to the expanded source (1 prefab instances)"
+#   Runtime --project Projects/Desert/Desert.deproj --scene Content/Scenes/WP21_PrefabSpan_Far.desce --shot-frames …
+#     near: 4 cubes drawn as meshes, 4 cells loaded; far: 4 HLOD stand-ins, no holes, 0 cells loaded.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP21_PrefabSpan_Far.desce
+Дано run Panel "Open World Partition"
+Когда run Scene "Build HLODs"
+Тогда wp21_far_built HLODs построены без ошибки (в журнале «[Build HLODs] 'WP21_PrefabSpan_Far': 4 cell(s) … 0 stale»); вид сцены с префабом
