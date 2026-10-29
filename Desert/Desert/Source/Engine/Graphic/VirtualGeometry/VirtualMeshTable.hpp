@@ -9,6 +9,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Desert
 {
@@ -54,6 +55,15 @@ namespace Desert::Graphic::VirtualGeometry
         uint32_t Meshes   = 0;
         uint32_t Clusters = 0;
         uint64_t Bytes    = 0; // the four tables' device bytes
+    };
+
+    // One submesh DAG of a registered mesh as the CPU names it (VirtualMeshTable::DescribeUploaded).
+    struct VirtualMeshDagSpan
+    {
+        uint32_t Dag          = 0; // its row in Dags[]
+        uint32_t Submesh      = 0;
+        uint32_t FirstCluster = 0; // Clusters[FirstCluster, +ClusterCount)
+        uint32_t ClusterCount = 0;
     };
 
     class VirtualMeshTable;
@@ -120,6 +130,11 @@ namespace Desert::Graphic::VirtualGeometry
         [[nodiscard]] Common::BoolResultStr RT_Upload();
         // This frame's tables as graph imports (a table with no buffer yet: an invalid ref).
         [[nodiscard]] VirtualMeshBuffers Import( RDG::Builder& graph ) const;
+
+        // The submesh DAGs of mesh row @p mesh, in submesh order, once its rows reached the device (the RT_Upload
+        // after its RT_Register); empty for a row not registered, released, or registered since the last upload -
+        // a draw that names rows the device buffers do not hold yet would read the previous owner's.
+        [[nodiscard]] std::vector<VirtualMeshDagSpan> DescribeUploaded( VirtualMeshIndex mesh ) const;
 
         [[nodiscard]] VirtualMeshTableStats GetStats() const;
 

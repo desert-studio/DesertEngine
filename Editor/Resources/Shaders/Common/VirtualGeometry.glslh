@@ -1,0 +1,69 @@
+// THE VIRTUAL GEOMETRY TABLES as shaders read them: the std430 twins of Engine/Graphic/VirtualGeometry/
+// VirtualGeometryLayout.hpp (every offset static_asserted there) and the fetches through the device addresses a
+// GpuClusterDag row carries (the mesh's GeometryPool spans; GL_EXT_buffer_reference(_uvec2) is enabled for every
+// stage by the assembler, DShaderParser.cpp AssembleStage). A uint64 address is a uvec2 (lo, hi).
+#ifndef DESERT_VIRTUAL_GEOMETRY_GLSLH
+#define DESERT_VIRTUAL_GEOMETRY_GLSLH
+
+struct VgClusterDag
+{
+    uvec2 VertexAddress;    // 0  the submesh's first Desert::Vertex
+    uvec2 VertexRefAddress; // 8  submesh-relative vertex indices, uint32 each
+    uvec2 TriangleAddress;  // 16 one word per triangle: three cluster-local indices (bits 0-7, 8-15, 16-23)
+    uvec2 StreamAddress;    // 24
+    uint  RootNode;         // 32
+    uint  FirstCluster;     // 36
+    uint  ClusterCount;     // 40
+    uint  Submesh;          // 44
+    uint  SubmeshTransform; // 48
+    uint  VertexStride;     // 52 bytes
+    uint  Pad1;             // 56
+    uint  Pad2;             // 60
+};
+
+struct VgCluster
+{
+    vec4 BoxCenter;      // 0  xyz cm submesh space, w = LodError
+    vec4 BoxExtent;      // 16 w = MaxEdgeLength
+    vec4 LodBounds;      // 32
+    uint FirstVertexRef; // 48
+    uint FirstTriangle;  // 52
+    uint Counts;         // 56 bits 0-7 VertexCount, 8-15 TriangleCount, 16-23 Level (PackClusterCounts)
+    uint Dag;            // 60
+};
+
+uint VgClusterVertexCount( VgCluster c )
+{
+    return c.Counts & 0xFFu;
+}
+uint VgClusterTriangleCount( VgCluster c )
+{
+    return ( c.Counts >> 8u ) & 0xFFu;
+}
+uint VgClusterLevel( VgCluster c )
+{
+    return ( c.Counts >> 16u ) & 0xFFu;
+}
+
+layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer VgWords
+{
+    uint Words[];
+};
+layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer VgFloats
+{
+    float Floats[];
+};
+
+// The submesh-space position of corner @p corner (0..2) of triangle @p triangle of cluster @p c.
+vec3 VgClusterCornerPosition( VgClusterDag dag, VgCluster c, uint triangle, uint corner )
+{
+    uint word  = VgWords( dag.TriangleAddress ).Words[c.FirstTriangle + triangle];
+    uint local = ( word >> ( 8u * corner ) ) & 0xFFu;
+    uint ref   = VgWords( dag.VertexRefAddress ).Words[c.FirstVertexRef + local];
+    // Desert::Vertex starts with its float3 Position.
+    VgFloats vertices = VgFloats( dag.VertexAddress );
+    uint     first    = ref * ( dag.VertexStride / 4u );
+    return vec3( vertices.Floats[first], vertices.Floats[first + 1u], vertices.Floats[first + 2u] );
+}
+
+#endif

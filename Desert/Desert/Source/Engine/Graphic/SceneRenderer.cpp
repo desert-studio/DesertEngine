@@ -1,4 +1,5 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/TextureStreamingDemand.hpp>
@@ -2216,6 +2217,8 @@ namespace Desert::Graphic
         {
             AddFrameOverdraw( graph, textures );
         }
+        if ( m_DebugView.VirtualGeometry == VirtualGeometryView::Clusters )
+            AddFrameVirtualGeometryClusters( graph, textures );
 #endif // DESERT_DEV_INSTRUMENTS
 
         // After the last node that draws the scene geometry's velocity into the scene target (the translucency),

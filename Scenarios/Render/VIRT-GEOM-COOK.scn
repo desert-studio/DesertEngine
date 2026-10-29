@@ -1,0 +1,17 @@
+# VIRT-GEOM-COOK: a Bistro mesh imported with Virtual Geometry on -> cooked cluster DAGs (DDC) -> loaded -> its rows in
+# the VirtualMeshTable -> drawn in the vg_clusters view -> unloaded (rows released on the frame rule).
+# Project: F:/BistroFoliageProj (never the old BistroProj). Proof lines in editor.log:
+#   "[VirtualMeshTable] '<path>' registered N clusters, M groups, rows ..." and "... released N clusters".
+# UNVERIFIED (written unbuilt, VIRT-GEOM step 6): the "Import Options: Virtual Geometry On" command name and the mesh
+# path below must be confirmed against the Assets palette / the Bistro content before the first run.
+Дано run Scene "Open Scene Bistro.desce"
+Когда run Assets "Drop into the viewport: Meshes/Bistro/Bistro_Exterior_Lantern.fbx"
+Когда run Assets "Import Options: Virtual Geometry On"
+Когда run Assets "Import Options: Import"
+Тогда [virt_geom_cook] the mesh is imported and cooked with its cluster DAGs: editor.log 0 import errors, 0 "[VirtualGeometryGate]" refusals
+Тогда [vg_table] editor.log has "[VirtualMeshTable] '...Bistro_Exterior_Lantern...' registered" with N clusters > 0 and "(1 meshes resident)" or more
+Когда run View "View mode: Virtual Geometry Clusters"
+Тогда-вид [vg_clusters] the lantern shows flat per-cluster colours (patches of ~128 triangles), every other mesh lit as in "View mode: Lit"; 0 VUID
+Когда run View "View mode: Lit"
+Когда run Scene "Open Scene Bistro.desce"
+Тогда [vg_table] after the reload without save the lantern is gone: editor.log "[VirtualMeshTable] '...Bistro_Exterior_Lantern...' released"

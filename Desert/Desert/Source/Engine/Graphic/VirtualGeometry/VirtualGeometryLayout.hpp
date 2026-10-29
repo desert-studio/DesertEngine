@@ -38,13 +38,14 @@ namespace Desert::Graphic::VirtualGeometry
         // Submesh::Transform relative to the primitive: its row in DrawCommandCache::SubmeshTransforms[]
         // (the same row the binned path's GpuDrawSlot::SubmeshTransform names: one source).
         uint32_t SubmeshTransform = 0; // 48
-        uint32_t Pad0             = 0; // 52
+        uint32_t VertexStride     = 0; // 52 bytes between two vertices at VertexAddress (sizeof( Desert::Vertex ))
         uint32_t Pad1             = 0; // 56
         uint32_t Pad2             = 0; // 60
     };
     static_assert( sizeof( GpuClusterDag ) == 64, "std430 twin in Common/VirtualGeometry.glslh" );
     static_assert( offsetof( GpuClusterDag, RootNode ) == 32, "Common/VirtualGeometry.glslh" );
     static_assert( offsetof( GpuClusterDag, SubmeshTransform ) == 48, "Common/VirtualGeometry.glslh" );
+    static_assert( offsetof( GpuClusterDag, VertexStride ) == 52, "Common/VirtualGeometry.glslh" );
 
     // ONE ROW PER RESIDENT VIRTUAL-GEOMETRY MESH: its submesh DAGs. GpuScenePrimitive::VirtualMesh names it.
     struct GpuVirtualMesh
@@ -64,11 +65,19 @@ namespace Desert::Graphic::VirtualGeometry
         glm::vec4 LodBounds{ 0.0f };  // 32 xyz centre, w radius: the generating group's sphere
         uint32_t  FirstVertexRef = 0; // 48 words from GpuClusterDag::VertexRefAddress
         uint32_t  FirstTriangle  = 0; // 52 words from GpuClusterDag::TriangleAddress
-        uint32_t  Counts         = 0; // 56 bits 0-7 VertexCount, 8-15 TriangleCount (<= 128 each)
+        uint32_t  Counts         = 0; // 56 bits 0-7 VertexCount, 8-15 TriangleCount (<= 128 each), 16-23 Level
         uint32_t  Dag            = 0; // 60 its row in Dags[]
     };
     static_assert( sizeof( GpuCluster ) == 64, "std430 twin in Common/VirtualGeometry.glslh" );
     static_assert( offsetof( GpuCluster, FirstVertexRef ) == 48, "Common/VirtualGeometry.glslh" );
+    // GpuCluster::Counts (Common/VirtualGeometry.glslh VgClusterVertexCount / TriangleCount / Level).
+    inline constexpr uint32_t kClusterCountBits = 8u;
+    inline constexpr uint32_t kClusterMaxLevel  = ( 1u << kClusterCountBits ) - 1u;
+    [[nodiscard]] constexpr uint32_t PackClusterCounts( const uint32_t vertexCount, const uint32_t triangleCount,
+                                                        const uint32_t level )
+    {
+        return vertexCount | ( triangleCount << kClusterCountBits ) | ( level << ( 2u * kClusterCountBits ) );
+    }
 
     // ONE BVH NODE (Geometry::ClusterHierarchyNode packed). A leaf child is one group: LodBounds / the w of
     // BoxExtent are the group's LodBounds / ParentLodError, Child = kHierarchyLeaf | its first cluster (row in

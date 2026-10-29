@@ -55,6 +55,13 @@ namespace Desert
         // data and kept while the data is the same; null until it lands or when the mesh is not Baked.
         [[nodiscard]] std::shared_ptr<StaticMesh> GetBakedDisplaced();
 
+        // The mesh's rows in the VirtualMeshTable: null (or an empty registration) when it is not a
+        // virtual-geometry mesh or its DAGs were refused.
+        [[nodiscard]] const Graphic::VirtualGeometry::VirtualMeshRegistration* GetVirtualMesh() const
+        {
+            return m_VirtualMesh.get();
+        }
+
     private:
         StaticMesh() = default;
         std::shared_ptr<const Assets::DisplacedMeshData> m_BakedSource;

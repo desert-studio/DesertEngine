@@ -1345,6 +1345,7 @@ namespace Desert::Editor
                 VM_GI,
                 VM_LightComplexity,
                 VM_Overdraw,
+                VM_VirtualGeometryClusters,
                 VM_MaterialComplexity,
                 VM_ShadingModel,
                 VM_SunShadowReceive,
@@ -1371,6 +1372,7 @@ namespace Desert::Editor
                                          ICON_MDI_LIGHTBULB_OUTLINE "  Global Illumination",
                                          ICON_MDI_FIRE "  Light Complexity",
                                          ICON_MDI_LAYERS_TRIPLE "  Overdraw",
+                                         ICON_MDI_PALETTE_SWATCH "  Virtual Geometry Clusters",
                                          ICON_MDI_TEXTURE "  Material Complexity",
                                          ICON_MDI_PALETTE_SWATCH "  Shading Model",
                                          ICON_MDI_WEATHER_SUNNY "  Sun Shadow Receive",
@@ -1413,6 +1415,8 @@ namespace Desert::Editor
                 vm = VM_LightComplexity;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::Overdraw )
                 vm = VM_Overdraw;
+            else if ( view.VirtualGeometry == Graphic::VirtualGeometryView::Clusters )
+                vm = VM_VirtualGeometryClusters;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::MaterialComplexity )
                 vm = VM_MaterialComplexity;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::ShadingModel )
@@ -1607,6 +1611,9 @@ namespace Desert::Editor
                         break;
                     case VM_Overdraw:
                         view.DeferredDebug = Graphic::DeferredDebugMode::Overdraw;
+                        break;
+                    case VM_VirtualGeometryClusters:
+                        view.VirtualGeometry = Graphic::VirtualGeometryView::Clusters;
                         break;
                     case VM_MaterialComplexity:
                         view.DeferredDebug = Graphic::DeferredDebugMode::MaterialComplexity;

@@ -110,6 +110,15 @@ namespace Desert::Graphic
     // viewport and dies with the toggle, while the stored flag belongs to the user and outlives the
     // session. К10 exists because the two were once the same field, which made every unrelated save of
     // the preference file able to write a transient mode into the user's permanent answer.
+    // The virtual-geometry views (UE r.Nanite.Visualize). Clusters: every level-0 cluster of each drawn
+    // virtual-geometry mesh in its own colour over the lit scene (VirtualGeometry/VirtualGeometryClusterView.hpp);
+    // every other mesh unchanged.
+    enum class VirtualGeometryView : int
+    {
+        Off      = 0,
+        Clusters = 1,
+    };
+
     struct DebugViewState
     {
         // The editor's infinite ground grid. Drawn by Editor::Render::EditorGridPass, which is compiled
@@ -154,6 +163,7 @@ namespace Desert::Graphic
 
         ShadowDebugMode   ShadowDebug   = ShadowDebugMode::Off;
         DeferredDebugMode DeferredDebug = DeferredDebugMode::Off;
+        VirtualGeometryView VirtualGeometry = VirtualGeometryView::Off;
 
         // The view modes are ONE choice: every channel off, so the one the caller sets next is the only one
         // on. Shared by the View Mode dropdown and the palette's "View mode: ..." entries, so the two cannot
@@ -166,6 +176,7 @@ namespace Desert::Graphic
             LightingDebug = false;
             DeferredDebug = DeferredDebugMode::Off;
             ShadowDebug   = ShadowDebugMode::Off;
+            VirtualGeometry = VirtualGeometryView::Off;
         }
 
         // Render-graph pass culling off (RDG::Builder::SetPassCulling, set on the view's graph every frame).

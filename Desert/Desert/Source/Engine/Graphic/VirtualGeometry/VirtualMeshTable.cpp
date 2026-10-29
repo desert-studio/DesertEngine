@@ -197,6 +197,7 @@ namespace Desert::Graphic::VirtualGeometry
         uint64_t    ReleasedAt   = 0; // the frame it was released (when Retiring)
         bool        Live         = false;
         bool        Retiring     = false;
+        bool        Uploaded     = false; // its rows reached the device buffers (RT_Upload after RT_Register)
     };
 
     struct VirtualMeshTable::Storage
@@ -358,6 +359,7 @@ namespace Desert::Graphic::VirtualGeometry
             row.FirstCluster = clusterRow;
             row.ClusterCount = static_cast<uint32_t>( dag.Clusters.size() );
             row.Submesh      = static_cast<uint32_t>( i );
+            row.VertexStride = vertexStride;
             // The DrawCommandCache row is the GPU scene's to name when it places the primitive (cull step).
             row.SubmeshTransform = kInvalidIndex;
 
@@ -366,13 +368,14 @@ namespace Desert::Graphic::VirtualGeometry
                 const Geometry::ClusterRecord& record = dag.Clusters[c];
                 if ( record.VertexCount > Geometry::kClusterMaxVertices ||
                      record.TriangleCount > Geometry::kClusterMaxTriangles ||
+                     record.Level > kClusterMaxLevel ||
                      uint64_t{ record.FirstVertexRef } + record.VertexCount > dag.VertexRefs.size() ||
                      uint64_t{ record.FirstTriangle } + record.TriangleCount > dag.Triangles.size() )
                     return refuse( std::format(
                          "[VirtualMeshTable] '{}': submesh {} cluster {} ({} vertices from {}, {} triangles from "
-                         "{}) passes the caps or its DAG's {} refs / {} triangles",
+                         "{}, level {}) passes the caps or its DAG's {} refs / {} triangles",
                          name, i, c, record.VertexCount, record.FirstVertexRef, record.TriangleCount,
-                         record.FirstTriangle, dag.VertexRefs.size(), dag.Triangles.size() ) );
+                         record.FirstTriangle, record.Level, dag.VertexRefs.size(), dag.Triangles.size() ) );
                 GpuCluster& cluster  = s.Clusters.Rows[clusterRow + c];
                 const float lodError = record.Level == 0 ? 0.0f : record.LodError;
                 cluster.BoxCenter    = glm::vec4( Center( record.BoxMin, record.BoxMax ), lodError );
@@ -380,7 +383,7 @@ namespace Desert::Graphic::VirtualGeometry
                 cluster.LodBounds    = Sphere( record.LodBounds );
                 cluster.FirstVertexRef = record.FirstVertexRef;
                 cluster.FirstTriangle  = record.FirstTriangle;
-                cluster.Counts         = record.VertexCount | ( record.TriangleCount << 8u );
+                cluster.Counts = PackClusterCounts( record.VertexCount, record.TriangleCount, record.Level );
                 cluster.Dag            = dagRow;
             }
 
@@ -487,7 +490,29 @@ namespace Desert::Graphic::VirtualGeometry
             return uploaded;
         if ( auto uploaded = s.Hierarchy.Upload(); !uploaded )
             return uploaded;
+        for ( MeshRows& rows : s.Rows )
+            rows.Uploaded = rows.Live;
         return BOOLSUCCESS;
+    }
+
+    std::vector<VirtualMeshDagSpan> VirtualMeshTable::DescribeUploaded( const VirtualMeshIndex mesh ) const
+    {
+        const Storage&                  s = *m_Storage;
+        std::lock_guard                 lock( s.Mutex );
+        std::vector<VirtualMeshDagSpan> spans;
+        if ( mesh >= s.Rows.size() || !s.Rows[mesh].Live || !s.Rows[mesh].Uploaded )
+            return spans;
+        const MeshRows& rows = s.Rows[mesh];
+        spans.reserve( rows.DagCount );
+        for ( uint32_t d = rows.FirstDag; d < rows.FirstDag + rows.DagCount; ++d )
+        {
+            const GpuClusterDag& dag = s.Dags.Rows[d];
+            spans.push_back( { .Dag          = d,
+                               .Submesh      = dag.Submesh,
+                               .FirstCluster = dag.FirstCluster,
+                               .ClusterCount = dag.ClusterCount } );
+        }
+        return spans;
     }
 
     VirtualMeshBuffers VirtualMeshTable::Import( RDG::Builder& graph ) const

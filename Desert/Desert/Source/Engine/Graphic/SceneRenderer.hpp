@@ -146,6 +146,10 @@ namespace Desert::Graphic
     [[nodiscard]] std::string FormatViewLedgerMemory( const ViewLedgerMemory& memory );
 #if DESERT_DEV_INSTRUMENTS
     class DebugDrawRenderer;
+    namespace VirtualGeometry
+    {
+        class ClusterView;
+    }
 #endif
 
     class SceneRenderer final
@@ -1146,6 +1150,9 @@ namespace Desert::Graphic
         void AddFrameWater( RDG::Builder& graph, FrameTextures& textures );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
+        // The vg_clusters view (DebugViewState::VirtualGeometry = Clusters): "Debug: Virtual Geometry Clusters"
+        // over the scene target, after the translucency (VirtualGeometry/VirtualGeometryClusterView.hpp).
+        void AddFrameVirtualGeometryClusters( RDG::Builder& graph, FrameTextures& textures );
         // The Velocity view mode (DeferredDebugMode::Velocity, Deferred only): "Debug: Velocity" draws the view's
         // velocity over @p target, the post input, after the temporal resolve.
         void AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target );
@@ -1457,6 +1464,8 @@ namespace Desert::Graphic
         // The gameplay debug drawing of the scene BeginScene was handed (Core/DebugDraw.hpp): this view's lines
         // and strings passes, fed the scene's store by BeginScene and emptied by EndScene. Made on first use.
         std::unique_ptr<DebugDrawRenderer> m_DebugDraw;
+        // The vg_clusters view's shader and pipeline. Made on first use.
+        std::unique_ptr<VirtualGeometry::ClusterView> m_VirtualGeometryClusterView;
 #endif
 
     public:

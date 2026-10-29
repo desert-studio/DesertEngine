@@ -387,6 +387,8 @@ namespace
          { "LightingDebug", Owner::Machine },
          { "ShadowDebug", Owner::Machine },
          { "DeferredDebug", Owner::Machine },
+         // VIRT-GEOM: the virtual-geometry view (vg_clusters), one person's diagnostic view.
+         { "VirtualGeometry", Owner::Machine },
          { "ShowSkyBackdrop", Owner::Machine },
          // RDG-CULL: the render graph's pass-culling debug switch, one person's diagnostic view.
          { "DisablePassCulling", Owner::Machine },
