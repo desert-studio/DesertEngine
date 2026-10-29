@@ -10,8 +10,7 @@
 Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
 # Step 21: the VG mesh is an EXISTING B16 static mesh made Virtual Geometry by the new asset action "Static Mesh:
 # Virtual Geometry on" (UE Asset Actions > Nanite > Enable; ImportOptions::SetStoredVirtualGeometry) over the
-# Content Browser selection. Not a lantern: B16's lanterns (BistroExterior_Lantern_Wind_21..25) draw LanternEmissive,
-# a StandardSurfaceMasked material, which VirtualGeometryGate refuses (and their entities have CastShadows false).
+# Content Browser selection. The masked case (the lanterns) is [vg_masked] below.
 # The table Paris_Table_01___6__6503 draws only Paris_Table_Terrace (StandardSurface, opaque) and casts shadows;
 # its entity (tag Bistro_Research_Exterior_Paris_Table_01___6__6503) stands at world (-66, 37, 570).
 # The project must be on MSAS 3 (migrate.sh) for the file to be read. The last step turns the flag off again, so the Bistro repo is left as it was.
@@ -62,3 +61,68 @@
 Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Bistro_Research_Exterior_Paris_Table_01___6__6503.stmesh"
 Когда run Assets "Static Mesh: Virtual Geometry off"
 Тогда [vg_raster] editor.log: "[Import] '...Paris_Table_01___6__6503.stmesh': Virtual Geometry off" (the Bistro repo's file back to no clusters)
+# Step 22 [vg_masked] (lead decision, UE 5.1+ Nanite programmable raster): a Masked material IS drawn by the cluster
+# raster - its `.VirtualGeometry` cells clip with the same DESERT_SURFACE_CLIP (UV fetch + discard below
+# Material.OpacityMaskClipValue) as the binned cells, in GBuffer, ShadowDepth and VirtualShadowDepth; the gate no
+# longer refuses it. B16's lanterns BistroExterior_Lantern_Wind_21..25 draw LanternEmissive (StandardSurfaceMasked,
+# clip 0.5 on the albedo's alpha) and Emissive_StreetLight (StandardSurface, opaque). Their entities (parent
+# BistroExterior, identity) have CastShadows false: turned on here for this case, back off at the end. The VG-off
+# frames of the same steps are taken first, so the diff is inside this run. Lantern_Wind_22 stands at (258, 368, 339),
+# the camera looks at it from above the table.
+Когда set 6874263928107828902 StaticMeshComponent.CastShadows true
+Когда set 11465735529451314690 StaticMeshComponent.CastShadows true
+Когда set 1473812727855621592 StaticMeshComponent.CastShadows true
+Когда set 8483379365178206564 StaticMeshComponent.CastShadows true
+Когда set 18368481599785693751 StaticMeshComponent.CastShadows true
+Когда run View "View mode: Lit"
+Когда --subject viewport set Camera.Position -66,250,570
+Когда --subject viewport set Camera.Direction 0.78,0.28,-0.56
+Когда 60 frames render
+Когда shot viewport "vg_masked_off_csm.png"
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 1
+Когда 120 frames render
+Когда shot viewport "vg_masked_off_vsm.png"
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 0
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Lantern_Wind_21.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry on"
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Lantern_Wind_22.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry on"
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Lantern_Wind_23.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry on"
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Lantern_Wind_24.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry on"
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Lantern_Wind_25.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry on"
+Тогда [vg_masked] editor.log: "[Import] '...BistroExterior_Lantern_Wind_2N.stmesh': Virtual Geometry on" for N = 1..5 and "[VirtualMeshTable] '...Lantern_Wind_2N...' registered N clusters" with N > 0 for each; no "Virtual Geometry refused" (refused == 0: a Masked material stands)
+Когда 60 frames render
+Когда shot viewport "vg_masked_on_csm.png"
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_masked] views.virtualGeometry.instances >= 5, binnedVgInstances == 0, clustersDrawn > 0, shadowClustersDrawn > 0 (the lanterns cast into the cascades through their clusters), overflow 0
+Тогда-вид [vg_masked] vg_masked_on_csm.png vs vg_masked_off_csm.png: the lanterns' holes (albedo alpha < 0.5) open in the same places, on the lanterns and in their sun shadows - pixel diff ≈ 0 (< 0.5% of pixels, numeric diff, not thumbnails); a lantern drawn solid (no clip) or clipped with another row's mask (Pass_VirtualShadowDepth's material row) fails it
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 1
+Когда 120 frames render
+Когда shot viewport "vg_masked_on_vsm.png"
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_masked] views.virtualGeometry.vsmClustersDrawn > 0 on the levels that drew pages, vsmRefusedGroups == 0, vsmFallbackSubmeshes == 0 (StandardSurfaceMasked declares its VirtualShadowDepth twin)
+Тогда-вид [vg_masked] vg_masked_on_vsm.png vs vg_masked_off_vsm.png: the lanterns' VSM shadows with the same holes - pixel diff ≈ 0 (< 0.5% of pixels)
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 0
+Когда run View "View mode: Virtual Geometry Clusters"
+Тогда-вид [vg_masked] the lanterns show per-cluster colours with the same holes as the lit frame
+Когда run View "View mode: Lit"
+Тогда [vg_masked] editor.log: 0 VUID, no "has no `.VirtualGeometry` pipeline" / "has no `.VirtualGeometry` twin" for StandardSurfaceMasked
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Lantern_Wind_21.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry off"
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Lantern_Wind_22.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry off"
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Lantern_Wind_23.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry off"
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Lantern_Wind_24.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry off"
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Lantern_Wind_25.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry off"
+Когда set 6874263928107828902 StaticMeshComponent.CastShadows false
+Когда set 11465735529451314690 StaticMeshComponent.CastShadows false
+Когда set 1473812727855621592 StaticMeshComponent.CastShadows false
+Когда set 8483379365178206564 StaticMeshComponent.CastShadows false
+Когда set 18368481599785693751 StaticMeshComponent.CastShadows false
+Тогда [vg_masked] editor.log: "[Import] '...BistroExterior_Lantern_Wind_2N.stmesh': Virtual Geometry off" for N = 1..5 (the Bistro repo's files back to no clusters; the lanterns' CastShadows back to false)

@@ -15,10 +15,9 @@ namespace Desert::Editor
 {
     namespace
     {
-        using SurfaceBlendMode = ::Desert::Core::Formats::SurfaceBlendMode;
-
         // Why the material @p slot names cannot be drawn by the cluster raster; nullopt when it can. Only
-        // Masked / Translucent / Additive refuse; an Opaque material on any shader, import template or not, stands.
+        // Translucent / Additive refuse; an Opaque or Masked material on any shader, import template or not, stands
+        // (a Masked one clips in its `.VirtualGeometry` cells, Mesh/Surface/SurfaceTypes.glslh DESERT_SURFACE_CLIP).
         std::optional<std::string> MaterialRefusal( const Assets::MeshMaterialSlot& slot,
                                                     const std::filesystem::path&    source )
         {
@@ -46,10 +45,6 @@ namespace Desert::Editor
             if ( !blend )
                 return std::format( "material '{}' draws with a shader whose BlendMode was not published (not "
                                     "loaded, or not a DSL shader), so its blend mode is unknown",
-                                    path.generic_string() );
-            if ( *blend == SurfaceBlendMode::Masked )
-                return std::format( "material '{}' is Masked (the cluster raster has no per-pixel cut-out before "
-                                    "VIRT-GEOM step 4)",
                                     path.generic_string() );
             if ( ::Desert::Core::Formats::IsTranslucentBlend( *blend ) )
                 return std::format( "material '{}' is Translucent/Additive (drawn by the translucency pass, never "

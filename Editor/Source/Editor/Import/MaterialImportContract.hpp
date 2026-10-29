@@ -64,7 +64,7 @@ namespace Desert::Editor
         std::map<std::string, ::Desert::Core::Formats::TextureIntent, std::less<>> TextureIntents;
         std::string                        Guid;    // the shader's header GUID (the .demat's Shader reference)
         // The template's `BlendMode` (the DSL parser's, ShaderProgramMeta::Blend): what a material made from it
-        // draws as. The import reads it to refuse Virtual Geometry for a Masked / Translucent mesh
+        // draws as. The import reads it to refuse Virtual Geometry for a Translucent mesh
         // (VirtualGeometryGate.hpp).
         ::Desert::Core::Formats::SurfaceBlendMode Blend = ::Desert::Core::Formats::SurfaceBlendMode::Opaque;
         std::string                        Locator; // "engine:Shaders/..." — the reference's Path half
@@ -76,7 +76,7 @@ namespace Desert::Editor
 
     // A shader's BlendMode as the DSL parser reads it (ShaderProgramMeta::Blend), keyed by its header GUID: what a
     // material drawing with that shader draws as, whether or not the shader is an import template. The import
-    // reads it to refuse Virtual Geometry for a Masked / Translucent mesh (VirtualGeometryGate.hpp).
+    // reads it to refuse Virtual Geometry for a Translucent mesh (VirtualGeometryGate.hpp).
     struct ShaderBlendRow
     {
         std::string                               Guid; // the shader's header GUID (a .demat's Shader reference)
