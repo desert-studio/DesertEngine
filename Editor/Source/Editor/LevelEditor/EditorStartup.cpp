@@ -10,6 +10,7 @@
 #include "Editor/LevelEditor/ShotDirector.hpp"
 #include "Editor/Core/ProjectContext.hpp"
 #include "Editor/Core/ToastManager.hpp"
+#include <Projects/RendererSettings.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
@@ -228,6 +229,10 @@ namespace Desert::Editor
                    // The editor derives texture platform data on a DDC miss; a packaged game
                    // has no builder.
                    Assets::SetTexturePlatformDataBuilder( &TextureImporter::BuildPlatformData );
+                   // The builder's encode effort is the project's (Config/Engine.json, Texture Encoding), read at
+                   // every miss so a Project Settings change applies to the next derive.
+                   Assets::SetTextureEncodingSource(
+                        [] { return ::Desert::Project::CurrentRendererSettings().TextureEncoding; } );
                    Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
                    // A static mesh's envelope missing from the DDC is cooked from its source (UE: a DDC miss
                    // rebuilds from the package), so a fresh checkout's scene draws without a re-import.

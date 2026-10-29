@@ -229,8 +229,10 @@ CMP_EXPORT void init_BC7ramps()
                                               ((p1 & 0x1) * 2 * 16 * 2) + ((p2 & 0x1) * 16 * 2) + (index * 2) + 0] = p1;
                         BC7EncodeRamps.sp_idx[(CLT(clogBC7) * 4 * 256 * 2 * 2 * 16 * 2) + (BTT(bits) * 256 * 2 * 2 * 16 * 2) + (floatf * 2 * 2 * 16 * 2) +
                                               ((p1 & 0x1) * 2 * 16 * 2) + ((p2 & 0x1) * 16 * 2) + (index * 2) + 1] = p2;
+                        // DesertEngine patch (GRASS-ASSET p9): upstream wrote (p2 & 0x1 * 16), i.e. p2 & 16, so the exact-hit
+                        // marker of an odd second endpoint landed in another slot and the search below overwrote real entries.
                         BC7EncodeRamps.sp_err[(CLT(clogBC7) * 4 * 256 * 2 * 2 * 16) + (BTT(bits) * 256 * 2 * 2 * 16) + (floatf * 2 * 2 * 16) +
-                                              ((p1 & 0x1) * 2 * 16) + (p2 & 0x1 * 16) + index]                     = 0;
+                                              ((p1 & 0x1) * 2 * 16) + ((p2 & 0x1) * 16) + index]                   = 0;
                     }  //i<(1 << clogBC7)
                 }      //p2
             }          //p1<(1 << bits)
@@ -278,6 +280,14 @@ CMP_EXPORT void init_BC7ramps()
                                                               (j * 2 * 2 * 16 * 2) + (o1 * 2 * 16 * 2) + (o2 * 16 * 2) + (index * 2) + 0] =
                                             BC7EncodeRamps.sp_idx[(CLT(clogBC7) * 4 * 256 * 2 * 2 * 16 * 2) + (BTT(bits) * 256 * 2 * 2 * 16 * 2) +
                                                                   (tc * 2 * 2 * 16 * 2) + (o1 * 2 * 16 * 2) + (o2 * 16 * 2) + (index * 2) + 0];
+                                        // DesertEngine patch (GRASS-ASSET p9): upstream copied only the first endpoint from the
+                                        // nearest exact entry ABOVE j and left the second at its 255 sentinel, so a solid
+                                        // channel just under a ramp value (blue 2 in a 5-bit mode 2 subset) was written as
+                                        // endpoints (1, 255 & 31) and decoded 174. Both endpoints are copied, as the tf branch does.
+                                        BC7EncodeRamps.sp_idx[(CLT(clogBC7) * 4 * 256 * 2 * 2 * 16 * 2) + (BTT(bits) * 256 * 2 * 2 * 16 * 2) +
+                                                              (j * 2 * 2 * 16 * 2) + (o1 * 2 * 16 * 2) + (o2 * 16 * 2) + (index * 2) + 1] =
+                                            BC7EncodeRamps.sp_idx[(CLT(clogBC7) * 4 * 256 * 2 * 2 * 16 * 2) + (BTT(bits) * 256 * 2 * 2 * 16 * 2) +
+                                                                  (tc * 2 * 2 * 16 * 2) + (o1 * 2 * 16 * 2) + (o2 * 16 * 2) + (index * 2) + 1];
                                         break;
                                     }
                                 }

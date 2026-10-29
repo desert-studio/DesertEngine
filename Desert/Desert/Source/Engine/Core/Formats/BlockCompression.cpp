@@ -10,6 +10,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <mutex>
+#include <utility>
+#include <vector>
 
 // The BC7 encode (all eight modes) and its decode, both vendored, MIT; see the BC7 section below.
 #include "../../../../../../ThirdParty/compressonator/cmp_core/source/cmp_core.h"
@@ -315,28 +318,36 @@ namespace Desert::Core::Formats
         // nine masked albedos failed the gate on exactly those blocks (GRASS-ASSET p7). UE's cook does the
         // same search (ISPC texcomp / Oodle Texture).
         //
-        // QUALITY 1.0 IS THE KERNEL'S FULL SEARCH, measured on celandine_01_diff_2k (whole image, bcdec):
-        // 0.05 -> 50.51 dB / worst 24 in 0.6 s, 0.5 -> 51.41 / 23 in 2.0 s, 1.0 -> 52.33 / 23 in 9.1 s on
-        // ten cores. The cook runs once per source and lands in the DDC; the frame lives with the result.
-        constexpr float kBc7Quality = 1.0f;
+        // THE EFFORT IS THE CALLER'S, not a constant here: the project's Texture Encoding settings
+        // (Project::TextureEncodingSettings, UE UTextureEncodingProjectSettings) give a fast effort for the
+        // editor's DDC misses and a final one for the cook, and the effort is part of the texture's DDC key.
+        // Measured on celandine_01_diff_2k (whole image, bcdec, ten cores): 0.05 -> 50.51 dB / worst 24 in
+        // 0.6 s, 0.5 -> 51.41 / 23 in 2.0 s, 1.0 -> 52.33 / 23 in 9.1 s.
+        //
+        // The kernel is patched in two places (ThirdParty/compressonator/cmp_core/shaders/bc7_encode_kernel.cpp,
+        // "DesertEngine patch"): its solid-colour endpoint table left the second endpoint at a 255 sentinel for
+        // values just under a ramp value, and dandelion_01_diff_2k decoded blue 2 as 174 in a mode-2 block.
 
-        /// The kernel's options, built once: it reads them and never writes them, so every worker
-        /// encoding a row shares the one instance.
-        const void* Bc7Options()
+        /// The kernel's options for one effort, built once per effort: it reads them and never writes them,
+        /// so every worker encoding a row shares the instance.
+        const void* Bc7Options( const float effort )
         {
-            static void* const options = []
-            {
-                void* created = nullptr;
-                CreateOptionsBC7( &created );
-                SetQualityBC7( created, kBc7Quality );
-                return created;
-            }();
-            return options;
+            static std::mutex                             mutex;
+            static std::vector<std::pair<float, void*>>   built;
+            const std::lock_guard<std::mutex>             lock( mutex );
+            for ( const auto& [e, options] : built )
+                if ( e == effort )
+                    return options;
+            void* created = nullptr;
+            CreateOptionsBC7( &created );
+            SetQualityBC7( created, effort );
+            built.emplace_back( effort, created );
+            return created;
         }
 
-        void EncodeBc7Block( const unsigned char rgba[16 * 4], unsigned char* out )
+        void EncodeBc7Block( const unsigned char rgba[16 * 4], unsigned char* out, const void* options )
         {
-            CompressBlockBC7( rgba, 4u * 4u, out, Bc7Options() );
+            CompressBlockBC7( rgba, 4u * 4u, out, options );
         }
 
         /// The decode is bcdec's (ThirdParty/bcdec, MIT), which implements every mode — so what the gate
@@ -687,7 +698,8 @@ namespace Desert::Core::Formats
 
     Common::ResultStr<std::vector<unsigned char>>
     BlockCompressImage( const uint32_t width, const uint32_t height, const ImageFormat sourceFormat,
-                        const ImageFormat blockFormat, const unsigned char* source, const std::size_t sourceBytes )
+                        const ImageFormat blockFormat, const unsigned char* source, const std::size_t sourceBytes,
+                        const BlockEncodeSettings& settings )
     {
         if ( width == 0 || height == 0 )
         {
@@ -733,6 +745,7 @@ namespace Desert::Core::Formats
         // Four rows of a 1024 face's 256 is ~0.1 % of the face per claim: far above the pool's per-range
         // cost, and small enough that the slow rows (the sun) are absorbed by whoever finishes first.
         constexpr std::size_t kBlockRowsPerRange = 4;
+        const void* const     bc7Options = blockFormat == ImageFormat::BC7_UNORM ? Bc7Options( settings.Bc7Effort ) : nullptr;
         const auto            encodeRow          = [&]( const uint32_t by )
         {
             for ( uint32_t bx = 0; bx < blocksX; ++bx )
@@ -752,7 +765,7 @@ namespace Desert::Core::Formats
                             std::memcpy( texels + ( y * 4 + x ) * 4u, rgba, 4u );
                         }
                     }
-                    EncodeBc7Block( texels, block );
+                    EncodeBc7Block( texels, block, bc7Options );
                 }
                 else if ( blockFormat == ImageFormat::BC4_UNORM || blockFormat == ImageFormat::BC5_UNORM )
                 {

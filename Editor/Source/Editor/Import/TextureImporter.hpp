@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/TextureSourceAsset.hpp>
+
 #include <Engine/Core/Formats/TextureIntent.hpp>
 
 #include <array>
@@ -52,6 +54,13 @@ namespace Desert::Editor
     class TextureImporter
     {
     public:
+        // @p role picks the encode effort (Project::TextureEncodingSettings): the editor's DDC misses build fast
+        // and take a final entry when one exists; TextureCook and the packager build final (Assets::PlanTextureEncode).
+        explicit TextureImporter( ::Desert::Assets::TextureEncodeRole role = ::Desert::Assets::TextureEncodeRole::Editor )
+            : m_Role( role )
+        {
+        }
+
         Common::UUID Import( const std::filesystem::path& path );
 
         // `Import`, plus what the call did. Fresh == the DDC already holds the asset's key (source bytes +
@@ -93,6 +102,7 @@ namespace Desert::Editor
                                                                                uint32_t maxEdge = 0 );
 
     private:
+        ::Desert::Assets::TextureEncodeRole           m_Role;
         std::unordered_map<std::string, Common::UUID> m_Cache;
     };
 } // namespace Desert::Editor

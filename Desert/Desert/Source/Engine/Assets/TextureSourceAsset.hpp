@@ -28,6 +28,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
 #include <Engine/Core/Formats/TextureIntent.hpp>
+#include <Projects/RendererSettings.hpp>
 
 #include <array>
 #include <cstddef>
@@ -214,6 +215,10 @@ namespace Desert::Assets
     {
         TextureImportSettings Import;
         uint32_t              EncoderVersion = 0; // the block encoder's own version (TextureImporter)
+        // The BC7 kernel's effort the build runs at (Project::TextureEncodingSettings). Appended to the key only
+        // when it is not the full search, 1.0 -- the effort every key before the setting existed was built at --
+        // so a final entry keeps its key and a fast one never answers for it (UE keys the encode speed too).
+        float Bc7Effort = 1.0f;
     };
     std::vector<std::byte> SerializeTextureSettingsForKey( const TextureBuildSettings& settings );
 
@@ -227,7 +232,36 @@ namespace Desert::Assets
     // not in the editor that runs the encoder: the runtime computes the same key to find the entry.
     // 2: a DDS source keeps its blocks or is encoded by intent without the gates (IMP-DDS-BLOCKS).
     // 3: BC7 searches all eight modes (Compressonator CMP_Core, ThirdParty/compressonator) instead of mode 6 only.
-    inline constexpr uint32_t kTextureBlockEncoderVersion = 3;
+    // 4: the kernel's solid-colour endpoint table is patched (a 255 sentinel reached mode-2 endpoints).
+    inline constexpr uint32_t kTextureBlockEncoderVersion = 4;
+
+    // ── ENCODE SPEED: FAST FOR THE EDITOR, FINAL FOR THE COOK ─────────────────────────────────────────
+    // UE FTexturePlatformData::Cache with ETextureEncodeSpeed: the editor builds a DDC miss at the fast effort
+    // and, with FinalIfAvailable, first FETCHES the final entry a cook put there (FetchFirst / FetchOrBuild keys),
+    // so a texture TextureCook already baked is never re-encoded in the editor. Which process is which is the
+    // process's own statement (UE IsRunningCookCommandlet): the editor's builder is the Editor role; TextureCook
+    // and the packager are the Cook role.
+    enum class TextureEncodeRole : uint32_t
+    {
+        Editor,
+        Cook,
+    };
+
+    // Where the project's Texture Encoding settings come from (the editor and the tools register
+    // Project::CurrentRendererSettings().TextureEncoding; Projects/ is not compiled into every tool that keys a
+    // texture, so the engine does not call it itself). Unset = the settings' defaults, which is what a project
+    // without Config/Engine.json has.
+    using TextureEncodingSource = std::function<Project::TextureEncodingSettings()>;
+    void SetTextureEncodingSource( TextureEncodingSource source );
+
+    // What one role does for one texture: the effort a miss is built at, and the effort whose entry is fetched
+    // first when the role takes a final entry if one exists (nullopt = fetch only what it builds).
+    struct TextureEncodePlan
+    {
+        float                BuildEffort = 1.0f;
+        std::optional<float> FetchFirstEffort;
+    };
+    TextureEncodePlan PlanTextureEncode( TextureEncodeRole role );
     // Revision of how the block-format gate grades a colour under a ColorDilationMask (1 = only texels the mask
     // keeps visible, plus their bilinear neighbours, at every level). Part of the DDC key of masked textures only.
     inline constexpr uint32_t kTextureMaskedGateVersion = 1;
@@ -241,10 +275,16 @@ namespace Desert::Assets
         Common::Content::AssetGuid   Guid;               // the header's; the handle is HandleForGuid(Guid)
         std::string                  SourceFile;         // TextureImportInfo::SourceFile
         uint64_t                     SourceHash     = 0; // TextureImportInfo::SourceHash
-        uint64_t                     DerivedDataKey = 0;
+        uint64_t                     DerivedDataKey = 0; // FetchOrBuild: where a miss is built and put
+        uint64_t                     FetchFirstKey  = 0; // a final entry taken first when there is one; 0 = none
     };
-    // Reads a prefix of the file (header + TOC + IMPT or PAYL), never the source an editor asset carries.
-    Common::ResultStr<TextureAssetKey> ReadTextureAssetKey( const std::filesystem::path& asset );
+    // Reads a prefix of the file (header + TOC + IMPT or PAYL), never the source an editor asset carries. An
+    // editor asset's keys are the @p role's plan (PlanTextureEncode); a cooked asset's is the one it states.
+    Common::ResultStr<TextureAssetKey> ReadTextureAssetKey( const std::filesystem::path& asset,
+                                                            TextureEncodeRole role = TextureEncodeRole::Editor );
+
+    // The DDC entry the key names: FetchFirstKey's when it has one, else DerivedDataKey's; nullopt = a miss.
+    std::optional<std::string> FetchTexturePlatformData( const TextureAssetKey& key );
 
     // The cooked form of an editor `.detex` (see the top of this file): header and Meta kept, IMPT and
     // SRCE replaced by the PAYL key record. Refuses anything that is not an editor texture asset, so a

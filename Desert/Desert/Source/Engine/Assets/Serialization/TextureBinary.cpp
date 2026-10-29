@@ -644,7 +644,8 @@ namespace Desert::Assets::Serialization
     Common::ResultStr<std::vector<unsigned char>> BlockCompressChain(
          const uint32_t width, const uint32_t height, const uint32_t levelCount, const uint32_t layerCount,
          const Core::Formats::ImageFormat sourceFormat, const Core::Formats::ImageFormat blockFormat,
-         const std::vector<TextureLevel>& sourceLevels, const std::vector<unsigned char>& sourcePixels )
+         const std::vector<TextureLevel>& sourceLevels, const std::vector<unsigned char>& sourcePixels,
+         const Core::Formats::BlockEncodeSettings& settings )
     {
         if ( !Core::Formats::IsBlockCompressed( blockFormat ) )
         {
@@ -695,7 +696,7 @@ namespace Desert::Assets::Serialization
 
                 auto encoded = Core::Formats::BlockCompressImage(
                      source.Width, source.Height, sourceFormat, blockFormat,
-                     sourcePixels.data() + source.ByteOffset, static_cast<std::size_t>( source.ByteSize ) );
+                     sourcePixels.data() + source.ByteOffset, static_cast<std::size_t>( source.ByteSize ), settings );
                 if ( !encoded.IsSuccess() )
                     return Common::MakeError<std::vector<unsigned char>>( encoded.GetError() );
 
