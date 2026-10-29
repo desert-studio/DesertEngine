@@ -65,6 +65,7 @@
         #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapTextureSampler)
 
         #include <Common/LandscapeSurface.glslh>
+        #include <Common/LandscapeGrassCover.glslh>
 
         // THE LANDSCAPE MATERIAL'S LAYER INPUTS (UE: LandscapeLayerBlend's per-layer inputs). Up to eight inputs,
         // each matched to the tile channels painted with its layer info's LayerName (TerrainInstance.LayerInput,
@@ -138,10 +139,10 @@
         // (the texel centre of sample i is (i + 0.5) / size, so the filter blends neighbouring samples as the mesh
         // interpolates them); UE's Landscape Visibility Mask discards a hole (the shadow casters,
         // TerrainShadow.shader, discard on the same test).
-        TerrainSurface EvaluateTerrainSurface()
+        TerrainSurface EvaluateTerrainSurfaceHere( out vec4 w0, out vec4 w1, out float dist )
         {
-            vec4 w0 = vec4( 0.0 );
-            vec4 w1 = vec4( 0.0 );
+            w0 = vec4( 0.0 );
+            w1 = vec4( 0.0 );
             if ( LandscapeTileHasLayers( CurrentTerrain ) )
             {
                 vec2  g     = LandscapeTileSampleCoord( CurrentTerrain, v_WorldPos );
@@ -154,6 +155,29 @@
                     discard;
             }
             // Distance to the camera for the far tiling: the view-space length, from the matrix the frame has.
-            float dist = length( ( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
+            dist = length( ( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
             return EvaluateLandscapeSurface( CurrentTerrain, TerrainMaterial(), v_WorldPos, normalize( v_Normal ), dist, w0, w1 );
+        }
+        TerrainSurface EvaluateTerrainSurface()
+        {
+            vec4  w0, w1;
+            float dist;
+            return EvaluateTerrainSurfaceHere( w0, w1, dist );
+        }
+
+        // GRASS-FIELD: the ground with the grass field's far cover over it (Common/LandscapeGrassCover.glslh) - the
+        // blades the generator thinned out by this distance, carried on by the ground. @p tint is the landscape
+        // material's Tint: it colours the ground beneath, not the blades. Returns the surface with the tinted
+        // albedo; @p transmission is the pixel's TwoSidedFoliage SubsurfaceColor, @p cover the cover's share.
+        TerrainSurface EvaluateTerrainSurfaceCovered( vec3 tint, out vec3 transmission, out float cover )
+        {
+            vec4           w0, w1;
+            float          dist;
+            TerrainSurface s = EvaluateTerrainSurfaceHere( w0, w1, dist );
+            s.Albedo *= tint;
+            // Towards the eye, in world space: the view-space position turned back by the view's rotation.
+            vec3 V = normalize( transpose( mat3( u.View ) ) * -( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
+            cover  = LandscapeApplyGrassCover( LandscapeGrassCoverAt( CurrentTerrain, w0, w1, dist ), V,
+                                               normalize( v_Normal ), s.Albedo, s.N, s.Roughness, s.AO, transmission );
+            return s;
         }

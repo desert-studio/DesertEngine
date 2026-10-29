@@ -9,6 +9,7 @@
 #include <Common/BindlessTextures.glslh>
 #include <Common/RayTracingHitTriangle.glslh>
 #include <Common/LandscapeSurface.glslh>
+#include <Common/LandscapeGrassCover.glslh>
 
 // The tile's hit-group row. C++ twin: Graphic/Systems/Scene/Terrain/LandscapeRayTracing.cpp LandscapeRayHitRow
 // (kLandscapeRayHitRowSlots: TerrainInstance's slots, the Tint, the sampling slots, the material's 18 value slots,
