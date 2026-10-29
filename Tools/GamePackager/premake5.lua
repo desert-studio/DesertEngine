@@ -95,7 +95,6 @@ project "GamePackager"
         "MeshOptimizer",
         "Voro",
         "Compressonator", -- BuildScripts/ThirdParty/Compressonator.lua: the BC7 encode
-        "MikkTSpace",
         "OpenSubdiv",
         "Embree", -- BuildScripts/ThirdParty/Embree.lua: the distance-field builder
         "OpenEXRCore", -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
