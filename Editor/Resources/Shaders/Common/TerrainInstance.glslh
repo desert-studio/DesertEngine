@@ -22,11 +22,13 @@ struct TerrainInstance
     vec4 GroundInput;        // x = the ground's material input (the root's first layer; -1 none)
     // LANDSCAPE DISPLACEMENT (Programs/Terrain/LandscapeDisplacement.glslh; UE 5.4+ landscape Nanite displacement)
     vec4 Displacement;       // x = magnitude (cm), y = center (0..1), z = fade start (cm), w = fade end (cm); x 0 = off
-    vec4 DisplacementView;   // xyz = the MAIN camera (cm; the fade's origin for every view), w = dice (sub-cells per cell side, 1 = none)
-    vec4 DiceWindow;         // the diced cells on the tile's LOD grid: [x, z) .. [z, w) as x0, z0, x1, z1
+    vec4 DisplacementView;   // xyz = the MAIN camera (cm; the fade's origin for every view), w = 1: drawn diced in rings
+    vec4 DiceWindow;         // xy = the camera's cell (tile-local LOD-0 grid), z = the fade square's half-extent (cells),
+                             // w = cm per DicingRate pixels per cm of distance (the height's mip footprint)
     vec4 DisplacementTiling; // x = FarTilingDistance (cm), y = FarTilingScale: the far fetch the surface blends in
     vec4 InputTileSize[2];   // per material input, four to a vec4: LayerKTileSize (cm)
     vec4 InputBlend[2];      // per material input, four to a vec4: LayerKBlend (0 weight, 1 height, 2 alpha)
+    vec4 DiceRings;          // half-extents (cells) of the rings diced 2, 4, 8, 16 (x..w; -1 = none)
 };
 
 #endif // TERRAIN_INSTANCE_GLSLH

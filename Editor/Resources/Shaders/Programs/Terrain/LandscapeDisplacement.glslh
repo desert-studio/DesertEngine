@@ -2,8 +2,9 @@
 // maps the height blend reads) moved into the vertex positions, so the silhouette breaks, a bump casts a shadow and
 // the depth every pass writes is the displaced surface. UE 5.4+ does this with Nanite tessellation of the landscape
 // (the material's Displacement output = height x Magnitude around Center, faded out with distance); here the dicing
-// is the tile's own decoded grid: the cells of the tile's DiceWindow (the cells the fade reaches, chosen on the CPU
-// from the MAIN camera, TerrainRenderer) are split into dice x dice sub-cells, and every sub-vertex is the
+// is the tile's own decoded grid: the cells in square rings around the MAIN camera (TerrainRenderer: the fade's
+// square, inside it rings diced 2, 4, 8, 16 - finer where a cell is larger on screen) are split into dice x dice
+// sub-cells, and every sub-vertex is the
 // barycentric point of the cell's own triangle (LandscapeVertexEval.glslh's morphed corners) pushed along the
 // smooth base normal. Mac has no tessellation stage worth using (MoltenVK emulates it, see TerrainVertex.glslh),
 // and the decode keeps one draw per tile with no vertex or index buffer.
@@ -12,81 +13,165 @@
 //  - With the displacement at zero the diced cell IS the undiced cell: its sub-vertices lie on its two triangles.
 //  - A sub-vertex on a cell edge is a weighted sum of that edge's two corners only (the third weight is an exact
 //    zero), in the same order from both cells, and the corners are LandscapeEvaluateVertex's bit-exact points.
-//  - The window's border lies outside the fade (its cells cover the fade's disc), so diced and undiced cells meet
-//    where nothing is displaced.
+//  - Two diced cells of different dice share only the coarser one's edge vertices (LandscapeStitch); a cell's dice
+//    is a function of its global cell and the frame's integers, so the two tiles of a border agree on it.
+//  - The fade's square covers the fade's disc, so diced and undiced cells meet where nothing is displaced.
 //  - The displacement is zero wherever a vertex's continuous LOD reaches 1 (LandscapeDisplacementLodScale): a LOD
 //    >= 1 snaps to the coarser grid, where two tiles of different grids meet with different vertices, so nothing
-//    is moved there; LOD < 1 is the LOD-0 grid on both sides of every border, diced alike (one dice per frame).
+//    is moved there; LOD < 1 is the LOD-0 grid on both sides of every border, diced alike.
 //
 // The includer declares CurrentTerrain, HeightmapTexture, WeightmapTexture and LayerHeightTexture, and includes
 // LandscapeHeight.glslh, LandscapeLod.glslh, LandscapeWeights.glslh and LandscapeVertexEval.glslh first.
 #ifndef LANDSCAPE_DISPLACEMENT_GLSLH
 #define LANDSCAPE_DISPLACEMENT_GLSLH
 
-// A decoded vertex of the tile's draw: the cell (on the tile's LOD grid) and the sub-vertex in it, 0..Dice.
+// A decoded vertex of the tile's draw: the cell (on the tile's LOD grid), the sub-vertex in it (0..Dice) and
+// whether the cell is drawn by the displaced path (inside the fade's square; Dice may be 1 there).
 struct LandscapeDrawVertex
 {
-    int CellX;
-    int CellZ;
-    int SubX;
-    int SubZ;
-    int Dice;
+    int  CellX;
+    int  CellZ;
+    int  SubX;
+    int  SubZ;
+    int  Dice;
+    bool Diced;
 };
 
-// Draw vertex @p vertex of a tile whose grid has @p cells per side: first the window's cells, dice x dice sub-cells
-// each, six vertices a sub-cell in LandscapeLod's corner order; then every other cell, six vertices each, rows below
-// the window, the window's rows outside it, rows above (TerrainBatch.hpp LandscapeDicedVertexCount counts the same).
+// Dice ring @p level's half-extent (cells; < 0 = no such ring): level 0 is the fade's square, dice 1 << level.
+int LandscapeDiceRingHalf( int level )
+{
+    float h = level == 0 ? CurrentTerrain.DiceWindow.z : CurrentTerrain.DiceRings[clamp( level - 1, 0, 3 )];
+    return CurrentTerrain.DisplacementView.w > 0.5 && h >= 0.0 ? int( h + 0.5 ) : -1;
+}
+
+ivec2 LandscapeDiceCentre()
+{
+    return ivec2( floor( CurrentTerrain.DiceWindow.xy + vec2( 0.5 ) ) );
+}
+
+// Ring @p level clamped to the tile's grid of @p cells a side: [x0, x1) x [z0, z1) (TerrainBatch.hpp
+// LandscapeDiceRingRect); empty when the ring is absent.
+ivec4 LandscapeDiceRingRect( int level, int cells )
+{
+    int extent = LandscapeDiceRingHalf( level );
+    if ( extent < 0 )
+        return ivec4( 0 );
+    ivec2 c = LandscapeDiceCentre();
+    return clamp( ivec4( c - ivec2( extent ), c + ivec2( extent + 1 ) ), ivec4( 0 ), ivec4( cells ) );
+}
+
+int LandscapeDiceRectArea( ivec4 r )
+{
+    return r.z > r.x && r.w > r.y ? ( r.z - r.x ) * ( r.w - r.y ) : 0;
+}
+
+// The dice of cell (@p x, @p z) of the tile's LOD-0 grid, also for a cell just past the tile (a neighbour tile's,
+// whose rings are the same squares - the camera's GLOBAL cell, the same half-extents): the finest ring holding it;
+// 1 in the fade's square, 0 outside it (undiced).
+int LandscapeCellDice( int x, int z )
+{
+    ivec2 d = abs( ivec2( x, z ) - LandscapeDiceCentre() );
+    int   m = max( d.x, d.y );
+    for ( int level = 4; level >= 0; --level )
+    {
+        int extent = LandscapeDiceRingHalf( level );
+        if ( extent >= 0 && m <= extent )
+            return 1 << level;
+    }
+    return 0;
+}
+
+// Cell @p index of the cells of rectangle @p o outside rectangle @p i (inside @p o or empty), counted rows below
+// @p i, then @p i's rows left and right of it, then rows above.
+ivec2 LandscapeRectMinusRectCell( int index, ivec4 o, ivec4 i )
+{
+    int ow = o.z - o.x;
+    int iw = i.z - i.x;
+    int ih = i.w - i.y;
+    if ( iw <= 0 || ih <= 0 )
+    {
+        int row = index / ow;
+        return ivec2( o.x + index - row * ow, o.y + row );
+    }
+    int below = ( i.y - o.y ) * ow;
+    if ( index < below )
+    {
+        int row = index / ow;
+        return ivec2( o.x + index - row * ow, o.y + row );
+    }
+    index -= below;
+    int side = ow - iw;
+    if ( index < ih * side )
+    {
+        int row = index / side;
+        int k   = index - row * side;
+        int left = i.x - o.x;
+        return ivec2( k < left ? o.x + k : o.x + k + iw, i.y + row );
+    }
+    index -= ih * side;
+    int row = index / ow;
+    return ivec2( o.x + index - row * ow, i.w + row );
+}
+
+// Draw vertex @p vertex of a tile whose grid has @p cells per side: the ring diced 16, then 8, 4, 2, 1 (each its
+// square's cells outside the finer square, dice x dice sub-cells a cell, six vertices a sub-cell in LandscapeLod's
+// corner order), then every cell outside the fade's square, six vertices each (TerrainBatch.hpp
+// LandscapeDicedVertexCount counts the same).
 LandscapeDrawVertex LandscapeDecodeDrawVertex( int vertex, int cells )
 {
     LandscapeDrawVertex d;
-    d.Dice     = max( int( CurrentTerrain.DisplacementView.w + 0.5 ), 1 );
-    ivec4 win  = ivec4( CurrentTerrain.DiceWindow + vec4( 0.5 ) );
-    int   wx   = d.Dice > 1 ? max( win.z - win.x, 0 ) : 0;
-    int   wz   = d.Dice > 1 ? max( win.w - win.y, 0 ) : 0;
-    int   diced = wx * wz * d.Dice * d.Dice * 6;
-    if ( vertex < diced )
+    ivec4 inner = ivec4( 0 );
+    int   first = 0;
+    for ( int level = 4; level >= 0; --level )
     {
-        int sub    = vertex / 6;
-        int corner = vertex - sub * 6;
-        int per    = d.Dice * d.Dice;
-        int cell   = sub / per;
-        int s      = sub - cell * per;
-        int sz     = s / d.Dice;
-        int cz     = cell / wx;
-        d.CellX    = win.x + ( cell - cz * wx );
-        d.CellZ    = win.y + cz;
-        d.SubX     = ( s - sz * d.Dice ) + LandscapeLodCornerX( corner );
-        d.SubZ     = sz + LandscapeLodCornerZ( corner );
-        return d;
+        ivec4 outer = LandscapeDiceRingRect( level, cells );
+        int   area  = LandscapeDiceRectArea( outer );
+        int   dice  = 1 << level;
+        int   count = ( area - LandscapeDiceRectArea( inner ) ) * dice * dice * 6;
+        if ( vertex < first + count )
+        {
+            int   r      = vertex - first;
+            int   sub    = r / 6;
+            int   corner = r - sub * 6;
+            int   per    = dice * dice;
+            int   cell   = sub / per;
+            int   s      = sub - cell * per;
+            int   sz     = s / dice;
+            ivec2 at     = LandscapeRectMinusRectCell( cell, outer, inner );
+            d.CellX      = at.x;
+            d.CellZ      = at.y;
+            d.SubX       = ( s - sz * dice ) + LandscapeLodCornerX( corner );
+            d.SubZ       = sz + LandscapeLodCornerZ( corner );
+            d.Dice       = dice;
+            d.Diced      = true;
+            return d;
+        }
+        first += count;
+        if ( area > 0 )
+            inner = outer;
     }
-    int r      = vertex - diced;
-    int cell   = r / 6;
-    int corner = r - cell * 6;
-    d.Dice     = 1;
-    d.SubX     = LandscapeLodCornerX( corner );
-    d.SubZ     = LandscapeLodCornerZ( corner );
-    int below  = win.y * cells;
-    int side   = cells - wx;
-    if ( wx == 0 || wz == 0 || cell < below )
-    {
-        d.CellZ = cell / cells;
-        d.CellX = cell - d.CellZ * cells;
-        return d;
-    }
-    int r2 = cell - below;
-    if ( r2 < wz * side )
-    {
-        int row = r2 / side;
-        int k   = r2 - row * side;
-        d.CellZ = win.y + row;
-        d.CellX = k < win.x ? k : k + wx;
-        return d;
-    }
-    int r3  = r2 - wz * side;
-    int row = r3 / cells;
-    d.CellZ = win.w + row;
-    d.CellX = r3 - row * cells;
+    int   r      = vertex - first;
+    int   cell   = r / 6;
+    int   corner = r - cell * 6;
+    ivec2 at     = LandscapeRectMinusRectCell( cell, ivec4( 0, 0, cells, cells ), inner );
+    d.CellX      = at.x;
+    d.CellZ      = at.y;
+    d.SubX       = LandscapeLodCornerX( corner );
+    d.SubZ       = LandscapeLodCornerZ( corner );
+    d.Dice       = 1;
+    d.Diced      = false;
     return d;
+}
+
+// THE STITCH: a sub-vertex on an edge the neighbour cell dices coarser snaps DOWN to the coarser edge's vertex
+// (edge factor = min of the two dice, both powers of two), so both cells put the same vertices on the shared edge -
+// bit-exact, the snapped fraction being the same dyadic number on both sides. The interior keeps its dice; the
+// triangles of the edge row collapse or stretch, none folds (the snap keeps the edge's order).
+int LandscapeStitch( int sub, int dice, int neighbourDice )
+{
+    int edge = min( dice, max( neighbourDice, 1 ) );
+    int k    = dice / edge;
+    return ( sub / k ) * k;
 }
 
 // The tile-local grid coordinate of cell corner @p c (stride of the tile's grid LOD; the last cell is narrower).
@@ -212,7 +297,7 @@ LandscapeDisplacedVertex LandscapeDisplacedEvaluate( int vertex )
 
     // An undiced cell's vertex is its grid vertex, as TerrainVertex.glslh always drew it, and is never displaced:
     // undiced cells lie outside the fade (or the tile's grid is past LOD 0, or displacement is off).
-    if ( d.Dice == 1 )
+    if ( !d.Diced )
     {
         LandscapeMorphedVertex m = LandscapeEvaluateVertex( d.SubX == 1 ? x1 : x0, d.SubZ == 1 ? z1 : z0 );
         vec2 g0 = LandscapeVertexGradient( m );
@@ -221,6 +306,19 @@ LandscapeDisplacedVertex LandscapeDisplacedEvaluate( int vertex )
         u.Normal   = normalize( vec3( -g0.x, 1.0, -g0.y ) );
         u.Local    = m.Local;
         return u;
+    }
+
+    // Edge vertices snap to the neighbour's coarser dice (the stitch); corners stay corners.
+    if ( d.Dice > 1 )
+    {
+        if ( d.SubZ == 0 )
+            d.SubX = LandscapeStitch( d.SubX, d.Dice, LandscapeCellDice( d.CellX, d.CellZ - 1 ) );
+        else if ( d.SubZ == d.Dice )
+            d.SubX = LandscapeStitch( d.SubX, d.Dice, LandscapeCellDice( d.CellX, d.CellZ + 1 ) );
+        if ( d.SubX == 0 )
+            d.SubZ = LandscapeStitch( d.SubZ, d.Dice, LandscapeCellDice( d.CellX - 1, d.CellZ ) );
+        else if ( d.SubX == d.Dice )
+            d.SubZ = LandscapeStitch( d.SubZ, d.Dice, LandscapeCellDice( d.CellX + 1, d.CellZ ) );
     }
 
     // The cell's triangle the sub-vertex is on — (00, 10, 11) where SubX >= SubZ, (00, 01, 11) otherwise, the
@@ -251,7 +349,9 @@ LandscapeDisplacedVertex LandscapeDisplacedEvaluate( int vertex )
     float scale = fade * LandscapeDisplacementLodScale( lod );
     if ( scale <= 0.0 )
         return v;
-    float edgeCm = float( x1 - x0 ) * CurrentTerrain.LandscapeFrame.w / float( d.Dice );
+    // The height's mip from the vertex's own screen footprint (DicingRate pixels at its distance), not from its
+    // cell's dice: two cells of different dice share edge vertices, and a vertex must read the same height in both.
+    float edgeCm = dist * CurrentTerrain.DiceWindow.w;
     float h      = LandscapeDisplacementHeight( v.WorldPos, v.Local, dist, max( edgeCm, 1.0 ) );
     v.WorldPos += v.Normal * ( ( h - CurrentTerrain.Displacement.y ) * magnitude * scale );
     return v;
