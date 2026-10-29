@@ -25,6 +25,7 @@ namespace Desert::Graphic::System
         m_DeferredGeometry = false;
         // Shader Overrides naming a surface template are surface materials: their (Static x GBuffer) cell, here.
         BuildGenericDraws( m_GBufferDraws, GenericSlice::DeferredSurfaceGBuffer );
+        AttachBinned( m_GBufferDraws, GpuDriven::MeshPass::GBuffer, kBinnedMainView );
         m_GBufferDraws.Declare( pass, view );
         // The skin cache's streams the (Skinned x GBuffer) cell fetches by address (Vertex_Skinned.glslh): this
         // pass reads them after "SkinCache: Skin" wrote them.
@@ -35,6 +36,22 @@ namespace Desert::Graphic::System
     Common::BoolResultStr MeshRenderer::RenderGBufferManual( const RDG::PassContext& context ) const
     {
         return m_GBufferDraws.Record( context );
+    }
+
+    void MeshRenderer::DeclareGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_GBufferPostDraws.Clear();
+        const FrameBinnedView* const binned = FrameBinned( GpuDriven::MeshPass::GBuffer, kBinnedMainView );
+        if ( binned == nullptr || !binned->PostOcclusion )
+            return;
+        // Only bins: every CPU record of the view was drawn (or dropped for its phase-1 bin) by "Deferred: GBuffer".
+        m_GBufferPostDraws.SetBinned( *binned->PostOcclusion );
+        m_GBufferPostDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGBufferPostOcclusionManual( const RDG::PassContext& context ) const
+    {
+        return m_GBufferPostDraws.Record( context );
     }
 
     void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const bool rayTracedSun,

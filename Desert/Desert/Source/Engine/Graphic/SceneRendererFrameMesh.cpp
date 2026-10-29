@@ -355,6 +355,21 @@ namespace Desert::Graphic
              { meshRenderer->DeclareGBufferDraws( pass, view ); } );
     }
 
+    void SceneRenderer::AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                                      System::MeshRenderer* meshRenderer )
+    {
+        // LOAD: "Deferred: GBuffer" and "TerrainGBuffer" wrote it; only the main view's phase-2 bins are drawn.
+        const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer Post-Occlusion" );
+        if ( !targets || meshRenderer == nullptr )
+            return;
+        AddRaster(
+             graph, "Deferred: GBuffer Post-Occlusion", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
+             RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGBufferPostOcclusionManual( context ); },
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGBufferPostOcclusionDraws( pass, view ); } );
+    }
+
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
     {
         // Its own row, so the ground's G-buffer cost reads as a pass line (the forward path's is the

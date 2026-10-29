@@ -57,6 +57,19 @@ namespace Desert::Editor
         m_PrimaryScene  = m_ActiveScene; // the always-present document #-1 (see SetActiveScene)
     }
 
+    bool SceneWorkspace::GrassInstancesSettling() const
+    {
+        if ( m_SceneRenderer && m_SceneRenderer->GrassInstancesSettling() )
+            return true;
+        for ( const auto& document : m_ExtraScenes )
+            if ( document->Renderer && document->Renderer->GrassInstancesSettling() )
+                return true;
+        for ( const auto& viewport : m_ExtraViewports )
+            if ( viewport->Renderer && viewport->Renderer->GrassInstancesSettling() )
+                return true;
+        return false;
+    }
+
     bool SceneWorkspace::SubsurfaceHistoryConverging() const
     {
         if ( m_SceneRenderer && m_SceneRenderer->SubsurfaceHistoryConverging() )
@@ -87,6 +100,28 @@ namespace Desert::Editor
     {
         m_RenderRegistry.reset();
         m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_ActiveScene );
+    }
+
+    namespace
+    {
+        Graphic::API::Vulkan::VulkanAllocator* DeviceAllocator()
+        {
+            const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
+                 EngineContext::GetInstance().GetRendererContext() );
+            return context ? context->GetVulkanAllocator().get() : nullptr;
+        }
+    } // namespace
+
+    void SceneWorkspace::BeginSceneOpenMeasure( std::string_view scene )
+    {
+        if ( auto* allocator = DeviceAllocator() )
+            allocator->BeginSceneOpen( scene );
+    }
+
+    void SceneWorkspace::SampleSceneOpenMeasure()
+    {
+        if ( auto* allocator = DeviceAllocator() )
+            allocator->SampleSceneOpen();
     }
 
     void SceneWorkspace::ReleaseActiveWorld()

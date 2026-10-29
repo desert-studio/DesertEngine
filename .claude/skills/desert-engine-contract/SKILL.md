@@ -10,6 +10,9 @@ description: >
   serialized format, or working alongside other people on the same repo.
 ---
 
+**Владелец 10-29 — два параметра всегда: АРХИТЕКТУРА И NEXTGEN; вид — из ассетов, код — только размещение/LOD** (DEV_CONTRACT §00b).
+
+
 # The delivery contract
 
 **This applies to the whole repository, not to one programme.** The rules were first written down

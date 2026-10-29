@@ -70,6 +70,31 @@ namespace Desert::Editor::Control
         bool        Relevant   = true;
     };
 
+    // One GPU-driven mesh pass's last finished frame (Graphic::DrawCounter::LastFrameMeshPass): how its draws were
+    // issued - per-submesh CPU draws against the culled bins' indirect calls. Every view's draws of the pass summed.
+    struct MeshPassDrawSnapshot
+    {
+        std::string Name; ///< GpuDriven::MeshPass: depthPrepass, gbuffer, forward, shadowCascade, virtualShadow
+        uint32_t    CpuDraws      = 0;
+        uint32_t    IndirectCalls = 0;
+        uint32_t    BinsIssued    = 0;
+        // The pass's cached draw commands (GpuDriven::DrawCommandCache::Pass): the bins and draw slots it holds,
+        // and per BinFallback reason the submeshes drawn in the pass that stay on the CPU path (name -> count,
+        // only reasons with a non-zero count).
+        uint32_t                                     CachedBins  = 0;
+        uint32_t                                     CachedSlots = 0;
+        std::vector<std::pair<std::string, uint32_t>> CpuFallbacks;
+    };
+
+    // One view the GPU-culled draw bins served (SceneRenderer::GetDrawBinPhaseCounts, read back a few frames
+    // late): the instances drawn in occlusion phase 1 (last frame's HZB) and phase 2 (this frame's HZB).
+    struct DrawBinViewSnapshot
+    {
+        std::string Name; ///< gbuffer / forward (the main view), shadowCascade<c>
+        uint32_t    Phase1 = 0;
+        uint32_t    Phase2 = 0;
+    };
+
     struct EntitySnapshot
     {
         std::string Tag;
@@ -154,6 +179,10 @@ namespace Desert::Editor::Control
         // per-mesh binds, counted apart.
         uint32_t GeometryPoolBinds     = 0;
         uint32_t GeometryPoolMeshBinds = 0;
+        // Per GPU-driven mesh pass, in GpuDriven::MeshPass order.
+        std::vector<MeshPassDrawSnapshot> MeshPasses;
+        // Per view the draw bins served this frame, in cull order (main view first).
+        std::vector<DrawBinViewSnapshot> DrawBinViews;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -342,6 +371,31 @@ namespace Desert::Editor::Control
             views["ismInstancesDrawn"] = Num( snapshot.IsmInstancesDrawn );
             views["geometryPoolBinds"]     = Num( snapshot.GeometryPoolBinds );
             views["geometryPoolMeshBinds"] = Num( snapshot.GeometryPoolMeshBinds );
+            Common::Json::Object meshPasses;
+            for ( const MeshPassDrawSnapshot& pass : snapshot.MeshPasses )
+            {
+                Common::Json::Object item;
+                item["cpuDraws"]      = Num( pass.CpuDraws );
+                item["indirectCalls"] = Num( pass.IndirectCalls );
+                item["binsIssued"]    = Num( pass.BinsIssued );
+                item["cachedBins"]    = Num( pass.CachedBins );
+                item["cachedSlots"]   = Num( pass.CachedSlots );
+                Common::Json::Object fallbacks;
+                for ( const auto& [reason, count] : pass.CpuFallbacks )
+                    fallbacks.insert( reason, Num( count ) );
+                item["cpuFallbacks"] = Common::Json::Value( fallbacks );
+                meshPasses[pass.Name] = Common::Json::Value( item );
+            }
+            views["meshPasses"] = Common::Json::Value( meshPasses );
+            Common::Json::Object drawBinViews;
+            for ( const DrawBinViewSnapshot& view : snapshot.DrawBinViews )
+            {
+                Common::Json::Object item;
+                item["phase1"]          = Num( view.Phase1 );
+                item["phase2"]          = Num( view.Phase2 );
+                drawBinViews[view.Name] = Common::Json::Value( item );
+            }
+            views["drawBinViews"] = Common::Json::Value( drawBinViews );
             root["views"]         = Common::Json::Value( views );
         }
 

@@ -1988,6 +1988,7 @@ namespace Desert::Graphic
         // cache comes before the traced GI - so they are forgotten HERE, before any reader: a handle from the last
         // frame's graph is not a handle in this one.
         m_TracedFrameShared = {};
+        AddFrameDrawBins( graph, textures, frame );
         AddFrameShadowDepths( graph, textures );
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
@@ -2016,6 +2017,9 @@ namespace Desert::Graphic
 
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
+            // Two-phase occlusion: this frame's HZB of that depth, then what last frame's HZB held back from the
+            // bins and this one finds visible.
+            AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
 
@@ -3292,6 +3296,14 @@ namespace Desert::Graphic
         if ( found == m_RenderSystems.end() )
             return 0;
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
+    }
+
+    const GpuDriven::DrawCommandCache* SceneRenderer::GetDrawCommandCache() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return nullptr;
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetDrawCommandCache();
     }
 
     uint32_t SceneRenderer::GetStandInDraws() const

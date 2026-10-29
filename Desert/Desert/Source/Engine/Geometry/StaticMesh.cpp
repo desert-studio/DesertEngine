@@ -16,7 +16,11 @@ namespace Desert
         // CPU base indices stay untouched; only the GPU buffer + per-submesh LOD ranges carry the LODs.
         std::vector<Submesh> subs       = submeshes;
         std::vector<Index>   gpuIndices = Geometry::BuildLODIndexBuffer( vertices, indices, subs );
-        m_Submeshes                     = std::move( subs );
+        // The baked LOD triangle sets are now in gpuIndices (their LODRange chain in subs): transient input, not
+        // kept with the drawn mesh's submeshes.
+        for ( auto& sub : subs )
+            std::vector<std::vector<Index>>().swap( sub.BakedLODs );
+        m_Submeshes = std::move( subs );
         ResolveLODScreenSizes();
 
         // A virtual-geometry mesh's cluster words follow its indices in the same span: every DAG's VertexRefs

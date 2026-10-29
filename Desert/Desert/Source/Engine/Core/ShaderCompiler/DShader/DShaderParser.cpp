@@ -1186,7 +1186,11 @@ namespace Desert::Core::Preprocess
                 out << "};\n";
                 out << "layout( std430, binding = " << *layout.RowBinding << " ) readonly buffer Materials\n"
                     << "{\n    MaterialParams MaterialRows[];\n};\n";
-                out << "#define Material MaterialRows[m_PushConstants.MaterialIndex]\n";
+                // The row index: the push block's, unless the stage named its own first (a binned cell,
+                // kSurfaceMaterialRowMacro).
+                out << "#ifndef " << kSurfaceMaterialRowMacro << "\n#define " << kSurfaceMaterialRowMacro
+                    << " m_PushConstants.MaterialIndex\n#endif\n";
+                out << "#define Material MaterialRows[" << kSurfaceMaterialRowMacro << "]\n";
             }
 
             // A bound texture is a separate texture plus its own sampler state; the define keeps every read in
@@ -1858,7 +1862,8 @@ namespace Desert::Core::Preprocess
                                               const std::string& autoDecls, const SurfaceBlendMode blend,
                                               const std::string_view shadingModelDefine, const bool responsiveAA,
                                               const std::string& opacityMaskFunction, const bool parallax,
-                                              const std::string& heightFunctions, const bool weather )
+                                              const std::string& heightFunctions, const bool weather,
+                                              const bool binned = false )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
             const bool        particle = path == kSurfaceParticleSpritePath || path == kSurfaceParticleRibbonPath;
@@ -1872,7 +1877,13 @@ namespace Desert::Core::Preprocess
                  particle ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine ) : std::string(),
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  parallax ? std::format( "#define {} 1\n", kSurfaceParallaxDefine ) : std::string(),
-                 kSurfaceShadingModelDefine, shadingModelDefine );
+                 kSurfaceShadingModelDefine, shadingModelDefine ) +
+                 ( binned ? std::format( "#define {} 1\n", kSurfaceBinnedDefine ) : std::string() );
+            // A binned cell's fragment `Material` reads the row its vertex stage resolved (kSurfaceMaterialRowMacro):
+            // named ahead of the generated declarations, which default it to the push block's.
+            const std::string cellDecls =
+                 binned ? std::format( "#define {} g_SurfaceMaterialRow\n{}", kSurfaceMaterialRowMacro, autoDecls )
+                        : autoDecls;
             // A lit mesh pass of a template whose row carries the weather response (kSurfaceWeatherDefine).
             const bool wets =
                  weather && ( pass == "Forward" || pass == "GBuffer" ) && !particle && path != kSurfaceRayHitPath;
@@ -1919,7 +1930,7 @@ namespace Desert::Core::Preprocess
                                   heightFunctions, surface.StartLine > 0 ? surface.StartLine - 1 : 0, lowered,
                                   masked ? opacityMaskFunction : std::string(), passInclude );
             }
-            return AssembleStage( stage, code, include, autoDecls );
+            return AssembleStage( stage, code, include, cellDecls );
         }
 
     } // namespace
@@ -3079,6 +3090,35 @@ namespace Desert::Core::Preprocess
                         result.Surface.Cells.push_back( cell.Name );
                         result.Passes.push_back( std::move( cell ) );
                     }
+
+            // THE BINNED PERMUTATION (kSurfaceBinnedCellSuffix): every mesh cell of a binned pass again, the
+            // `.Parallax` ones too, after every other cell (the earlier cells' order is unchanged). A translucent
+            // template has none: its Forward cell is the translucency pass's, which is sorted, not binned.
+            if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+                for ( const bool parallax : { false, true } )
+                {
+                    if ( parallax && !result.Meta.Height )
+                        continue;
+                    for ( const std::string_view path : kSurfaceVertexPaths )
+                        for ( const std::string_view pass : kSurfaceBinnedCellPasses )
+                        {
+                            DShaderPass cell;
+                            cell.Name = SurfaceCellName( path, pass ) +
+                                        ( parallax ? std::string( kSurfaceParallaxCellSuffix ) : std::string() ) +
+                                        std::string( kSurfaceBinnedCellSuffix );
+                            cell.State = cellState;
+                            for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                                cell.Stages.emplace( stage,
+                                                     AssembleSurfaceCellStage(
+                                                          stage, path, pass, *surfaceBlock, includeBlock,
+                                                          autoDecls, result.Surface.Blend, shadingModelDefine,
+                                                          result.Surface.ResponsiveAA, opacityMaskFunction,
+                                                          parallax, heightFunctions, respondsToWeather, true ) );
+                            result.Meta.PassNames.push_back( cell.Name );
+                            result.Surface.Cells.push_back( cell.Name );
+                            result.Passes.push_back( std::move( cell ) );
+                        }
+                }
         }
 
         // The default program is the top-level stage set; when a shader consists solely of

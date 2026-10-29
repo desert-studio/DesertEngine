@@ -78,6 +78,9 @@ namespace Desert::Graphic
         uint32_t                   Flags             = 0;
         // WindBoundsPad( InstancedMeshRenderData::Wind ): how far the wind moves a vertex horizontally (cm).
         float BoundsPad = 0.0f;
+        // The wind itself, written to the row every frame it changes (GpuScene::SetWind): the binned instanced
+        // vertex stage reads it there.
+        GpuDriven::PrimitiveWind Wind{};
     };
 } // namespace Desert::Graphic
 
@@ -101,6 +104,7 @@ namespace Desert::Graphic::GpuDriven
         std::vector<PrimitiveIndex> SkinnedPrimitives;
         std::vector<InstanceIndex>  SkinnedInstances;
         std::vector<InstanceIndex>  FieldInstances;
+        std::vector<PrimitiveIndex> FieldPrimitives; // each field's primitive, beside FieldInstances
     };
 
     // A row's identity in the scene material table (GpuScene::AddMaterialRow): the template whose layout the row

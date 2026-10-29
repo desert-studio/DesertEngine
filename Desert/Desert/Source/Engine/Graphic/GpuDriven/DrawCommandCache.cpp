@@ -86,6 +86,32 @@ namespace Desert::Graphic::GpuDriven
         }
     } // namespace
 
+    const char* BinFallbackName( const BinFallback fallback )
+    {
+        switch ( fallback )
+        {
+            case BinFallback::None:
+                return "None";
+            case BinFallback::PassNotBinned:
+                return "PassNotBinned";
+            case BinFallback::NoBinnedCell:
+                return "NoBinnedCell";
+            case BinFallback::PipelineUnavailable:
+                return "PipelineUnavailable";
+            case BinFallback::NoMaterialRow:
+                return "NoMaterialRow";
+            case BinFallback::BoundTextures:
+                return "BoundTextures";
+            case BinFallback::GenericProgram:
+                return "GenericProgram";
+            case BinFallback::MovableCaster:
+                return "MovableCaster";
+            case BinFallback::Count:
+                break;
+        }
+        return "Unknown";
+    }
+
     DrawCommandCache::DrawCommandCache( PassPipelineResolver resolver )
          : m_Resolver( std::move( resolver ) ), m_TransformTable( MakeTable( "SubmeshTransforms" ) )
     {
@@ -103,7 +129,9 @@ namespace Desert::Graphic::GpuDriven
         for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
         {
             auto& pipelines = record.Pipelines[pass];
+            auto& fallbacks = record.Fallbacks[pass];
             pipelines.assign( submeshes, nullptr );
+            fallbacks.assign( submeshes, BinFallback::None );
             // UE bCastShadow: a primitive that does not cast is no shadow pass's draw at all.
             if ( IsShadowPass( static_cast<MeshPass>( pass ) ) &&
                  ( record.PrimitiveFlags & PrimitiveFlags::kCastsShadow ) == 0u )
@@ -112,8 +140,11 @@ namespace Desert::Graphic::GpuDriven
             {
                 if ( IsHidden( record.HiddenSubmeshMask, si ) )
                     continue;
-                pipelines[si] = m_Resolver( static_cast<MeshPass>( pass ), primitive, *record.Mesh,
-                                            static_cast<uint32_t>( si ), record.MaterialRows[si] );
+                const PassPipelineResolution resolved =
+                     m_Resolver( static_cast<MeshPass>( pass ), primitive, *record.Mesh, static_cast<uint32_t>( si ),
+                                 record.MaterialRows[si] );
+                pipelines[si] = resolved.Pipeline;
+                fallbacks[si] = resolved.Pipeline != nullptr ? BinFallback::None : resolved.Fallback;
             }
         }
     }
@@ -122,7 +153,9 @@ namespace Desert::Graphic::GpuDriven
     {
         for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
             if ( std::any_of( record.Pipelines[pass].begin(), record.Pipelines[pass].end(),
-                              []( const GraphicsPipeline* pipeline ) { return pipeline != nullptr; } ) )
+                              []( const GraphicsPipeline* pipeline ) { return pipeline != nullptr; } ) ||
+                 std::any_of( record.Fallbacks[pass].begin(), record.Fallbacks[pass].end(),
+                              []( const BinFallback fallback ) { return fallback != BinFallback::None; } ) )
                 m_Dirty[pass] = true;
     }
 
@@ -256,10 +289,11 @@ namespace Desert::Graphic::GpuDriven
             auto& record = m_Primitives[primitive];
             if ( !record )
                 continue;
-            const auto before = record->Pipelines;
+            const auto before         = record->Pipelines;
+            const auto fallbacksBefore = record->Fallbacks;
             ResolvePipelines( static_cast<PrimitiveIndex>( primitive ), *record );
             for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
-                if ( before[pass] != record->Pipelines[pass] )
+                if ( before[pass] != record->Pipelines[pass] || fallbacksBefore[pass] != record->Fallbacks[pass] )
                     m_Dirty[pass] = true;
         }
     }
@@ -320,6 +354,9 @@ namespace Desert::Graphic::GpuDriven
             if ( !record )
                 continue;
             const auto& pipelines = record->Pipelines[passIndex];
+            for ( const BinFallback fallback : record->Fallbacks[passIndex] )
+                if ( fallback != BinFallback::None )
+                    ++table.Fallbacks[static_cast<uint32_t>( fallback )];
             if ( std::none_of( pipelines.begin(), pipelines.end(),
                                []( const GraphicsPipeline* pipeline ) { return pipeline != nullptr; } ) )
                 continue;
@@ -448,6 +485,26 @@ namespace Desert::Graphic::GpuDriven
         if ( slot >= table.SlotFirstVisible.size() || table.SlotFirstVisible[slot] == kInvalidIndex )
             return std::nullopt;
         return table.SlotFirstVisible[slot];
+    }
+
+    bool DrawCommandCache::SubmeshesBinned( const MeshPass pass, const PrimitiveIndex primitive,
+                                            const uint64_t hiddenSubmeshMask ) const
+    {
+        if ( primitive >= m_Primitives.size() || !m_Primitives[primitive] )
+            return false;
+        const PrimitiveRecord& record    = *m_Primitives[primitive];
+        const auto&            pipelines = record.Pipelines[static_cast<uint32_t>( pass )];
+        bool                   any       = false;
+        for ( size_t si = 0; si < pipelines.size(); ++si )
+        {
+            if ( IsHidden( hiddenSubmeshMask, si ) )
+                continue;
+            // A submesh the primitive hides has no bin: the CPU record must not leave it to one.
+            if ( pipelines[si] == nullptr || IsHidden( record.HiddenSubmeshMask, si ) )
+                return false;
+            any = true;
+        }
+        return any;
     }
 
     Common::ResultStr<DrawCommandBuffers> DrawCommandCache::AddUploadPass( RDG::Builder& graph )

@@ -77,32 +77,8 @@ namespace Desert::Assets
         m_MaterialAssetHandles.clear();
         m_MaterialGuids.clear();
 
-        m_Vertices.reserve( data.StaticVertices.size() );
-        m_Indices.reserve( data.Indices.size() );
         m_Submeshes.reserve( data.Submeshes.size() );
         m_MaterialAssetHandles.reserve( data.Submeshes.size() );
-
-        for ( const auto& v : data.StaticVertices )
-        {
-            Vertex vertex;
-            vertex.Position  = v.Position;
-            vertex.Normal    = v.Normal;
-            vertex.Tangent   = v.Tangent;
-            vertex.Bitangent = v.Bitangent;
-            vertex.TexCoord  = v.TexCoord;
-
-            m_Vertices.emplace_back( std::move( vertex ) );
-        }
-
-        for ( const auto& i : data.Indices )
-        {
-            Index index;
-            index.V1 = i.V1;
-            index.V2 = i.V2;
-            index.V3 = i.V3;
-
-            m_Indices.emplace_back( index );
-        }
 
         for ( const auto& s : data.Submeshes )
         {
@@ -115,24 +91,18 @@ namespace Desert::Assets
             submesh.Transform    = s.Transform;
             submesh.BoundingBox  = s.BoundingBox;
 
-            // Baked LOD chain (if the asset was cooked with LODs): copy the simplified triangle sets so
-            // StaticMesh appends them instead of re-simplifying at load. Empty -> generated at load.
-            submesh.BakedLODs.reserve( s.LODs.size() );
-            for ( const auto& lvl : s.LODs )
-            {
-                std::vector<Index> tris;
-                tris.reserve( lvl.size() );
-                for ( const auto& t : lvl )
-                    tris.push_back( { t.V1, t.V2, t.V3 } );
-                submesh.BakedLODs.push_back( std::move( tris ) );
-            }
-
             m_MaterialGuids.push_back( s.MaterialGuid );
             m_MaterialAssetHandles.emplace_back(
                  s.MaterialGuid.IsNull() ? Common::UUID::Null()
                                          : Common::UUID( static_cast<uint64_t>(
                                                 Common::Content::HandleForGuid( s.MaterialGuid ) ) ) );
             m_Submeshes.emplace_back( std::move( submesh ) );
+        }
+        {
+            std::scoped_lock lock( m_CpuGeometryMutex );
+            m_CpuGeometryReleased = false;
+            m_CpuAccessRequested  = false;
+            FillCpuGeometry( data );
         }
 
         // Every submesh or none carries a DAG (the cook builds one per submesh when the import flag is on).
@@ -149,7 +119,6 @@ namespace Desert::Assets
         m_MorphTargets.reserve( data.MorphTargets.size() );
         for ( const auto& mt : data.MorphTargets )
             m_MorphTargets.push_back( MorphTarget{ mt.Name, mt.DeltaPositions, mt.DeltaNormals } );
-        m_VertexStreams = PackMeshVertexStreams( data.Colors, data.UV1, m_Vertices.size() );
 
         // The displaced products are keyed on this render data (the cards and the undisplaced field on their own
         // triangles, MeshDistanceFieldInputContentKey); ResolveDependencies derives them once the materials load.
@@ -161,6 +130,100 @@ namespace Desert::Assets
 
         m_IsReadyForUse = true;
         return BOOLSUCCESS;
+    }
+
+    void StaticMeshAsset::FillCpuGeometry( const Serialization::MeshAssetData& data )
+    {
+        m_Vertices.clear();
+        m_Indices.clear();
+        m_Vertices.reserve( data.StaticVertices.size() );
+        m_Indices.reserve( data.Indices.size() );
+        for ( const auto& v : data.StaticVertices )
+        {
+            Vertex vertex;
+            vertex.Position  = v.Position;
+            vertex.Normal    = v.Normal;
+            vertex.Tangent   = v.Tangent;
+            vertex.Bitangent = v.Bitangent;
+            vertex.TexCoord  = v.TexCoord;
+            m_Vertices.emplace_back( std::move( vertex ) );
+        }
+        for ( const auto& i : data.Indices )
+            m_Indices.push_back( { i.V1, i.V2, i.V3 } );
+
+        // Baked LOD chain (if the asset was cooked with LODs): the simplified triangle sets StaticMesh appends
+        // instead of re-simplifying at load. Empty -> generated at load. CPU render data like the arrays above.
+        for ( size_t s = 0; s < m_Submeshes.size() && s < data.Submeshes.size(); ++s )
+        {
+            auto& baked = m_Submeshes[s].BakedLODs;
+            baked.clear();
+            baked.reserve( data.Submeshes[s].LODs.size() );
+            for ( const auto& lvl : data.Submeshes[s].LODs )
+            {
+                std::vector<Index> tris;
+                tris.reserve( lvl.size() );
+                for ( const auto& t : lvl )
+                    tris.push_back( { t.V1, t.V2, t.V3 } );
+                baked.push_back( std::move( tris ) );
+            }
+        }
+        m_VertexStreams = PackMeshVertexStreams( data.Colors, data.UV1, m_Vertices.size() );
+    }
+
+    void StaticMeshAsset::ReleaseCpuGeometry()
+    {
+        std::scoped_lock lock( m_CpuGeometryMutex );
+        if ( !m_IsReadyForUse || m_CpuGeometryReleased || m_CpuAccessRequested )
+            return;
+        // UE bAllowCPUAccess=false: once the GPU buffers hold the render data, the CPU arrays are released (UE
+        // FStaticMeshVertexBuffer::bNeedsCPUAccess=false discards them after InitRHI). Swapped with empties, not
+        // clear(): clear keeps the capacity, and the capacity is the memory.
+        std::vector<Vertex>().swap( m_Vertices );
+        std::vector<Index>().swap( m_Indices );
+        std::vector<MeshVertexStreams>().swap( m_VertexStreams );
+        for ( auto& submesh : m_Submeshes )
+            std::vector<std::vector<Index>>().swap( submesh.BakedLODs );
+        m_CpuGeometryReleased = true;
+    }
+
+    void StaticMeshAsset::EnsureCpuGeometry( const bool keep ) const
+    {
+        std::scoped_lock lock( m_CpuGeometryMutex );
+        if ( !m_CpuGeometryReleased )
+            return;
+        // A CPU reader after the GPU upload: read the same render data back (the key the load decoded) and keep it
+        // for the rest of this load. A different key is a different mesh behind the same arrays' ranges - refused.
+        auto* self                  = const_cast<StaticMeshAsset*>( this );
+        self->m_CpuAccessRequested  = self->m_CpuAccessRequested || keep;
+        self->m_CpuGeometryReleased = false;
+        const auto raw              = LoadMeshPlatformDataKeyed( m_Metadata.Filepath );
+        if ( !raw )
+        {
+            LOG_ERROR( "StaticMeshAsset '{}': CPU access after the GPU upload could not re-read the render data "
+                       "({}); CPU readers (collision, picking) see no triangles",
+                       m_Metadata.Filepath.string(), raw.GetError() );
+            return;
+        }
+        if ( raw.GetValue().Key != m_RenderDataKey )
+        {
+            LOG_ERROR( "StaticMeshAsset '{}': CPU access after the GPU upload found render data {:016x}, the GPU "
+                       "holds {:016x} - the source changed without a reload; CPU readers see no triangles",
+                       m_Metadata.Filepath.string(), raw.GetValue().Key, m_RenderDataKey );
+            return;
+        }
+        const auto data = Serialization::ReadMeshAssetData( raw.GetValue().Bytes, m_Metadata.Filepath.string() );
+        if ( !data )
+        {
+            LOG_ERROR(
+                 "StaticMeshAsset '{}': CPU access after the GPU upload could not decode the render data ({})",
+                 m_Metadata.Filepath.string(), data.GetError() );
+            return;
+        }
+        self->FillCpuGeometry( data.GetValue() );
+        if ( keep )
+            LOG_INFO(
+                 "StaticMeshAsset '{}': CPU geometry read back for a CPU reader ({} vertices); kept for this load",
+                 m_Metadata.Filepath.string(), m_Vertices.size() );
     }
 
     Common::BoolResultStr StaticMeshAsset::Unload()
@@ -180,6 +243,11 @@ namespace Desert::Assets
         m_MaterialGuids.clear();
         m_MaterialGuids.shrink_to_fit();
         m_DependenciesResolved = false;
+        {
+            std::scoped_lock lock( m_CpuGeometryMutex );
+            m_CpuGeometryReleased = false;
+            m_CpuAccessRequested  = false;
+        }
 
         m_Vertices.shrink_to_fit();
         m_Indices.shrink_to_fit();
@@ -458,6 +526,7 @@ namespace Desert::Assets
         // mesh (the queue logs it), never a field guessed from a different input. The job owns copies of what it
         // reads: this asset may be reloaded or unloaded while it runs, and a reload makes a new slot, so a late
         // field lands in a slot nothing reads any more.
+        EnsureCpuGeometry(); // a re-resolve after the GPU upload reads the triangles back
         auto inputs = ResolveFieldInputs( manager, m_MaterialGuids, m_Vertices, m_Indices, m_Submeshes );
         if ( !inputs )
         {
@@ -526,6 +595,7 @@ namespace Desert::Assets
         if ( !m_IsReadyForUse )
             return Common::MakeError(
                  std::format( "static mesh '{}' has no render data loaded", m_Metadata.Filepath.string() ) );
+        EnsureCpuGeometry();
         auto inputs = ResolveFieldInputs( manager, m_MaterialGuids, m_Vertices, m_Indices, m_Submeshes );
         if ( !inputs )
             return Common::MakeError( std::string( inputs.GetError() ) );

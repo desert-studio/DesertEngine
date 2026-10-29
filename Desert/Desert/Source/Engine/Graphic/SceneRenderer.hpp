@@ -29,6 +29,8 @@
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
+#include <Engine/Graphic/GpuDriven/CullPhaseCounts.hpp>
+#include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
 #include <Engine/Graphic/GpuDriven/InstanceCullValidation.hpp>
@@ -408,6 +410,16 @@ namespace Desert::Graphic
 
         /// ISM instances the last geometry pass drew (MeshRenderer::GetIsmInstancesDrawn).
         [[nodiscard]] uint32_t GetIsmInstancesDrawn() const;
+        /// Per view the GPU-culled draw bins served (main view, drawn sun cascades): the instances drawn in
+        /// occlusion phase 1 and phase 2, read back slots-in-flight late (GpuDriven::CullPhaseCounts). Empty while
+        /// no view draws from bins.
+        [[nodiscard]] const std::vector<GpuDriven::CullPhaseViewCount>& GetDrawBinPhaseCounts() const
+        {
+            return m_DrawBinPhaseCounts.LastCounts();
+        }
+        /// The mesh passes' cached draw commands (MeshRenderer::GetDrawCommandCache): bins, slots and the CPU
+        /// fallbacks per pass. Null before the first GpuScene sync.
+        [[nodiscard]] const GpuDriven::DrawCommandCache* GetDrawCommandCache() const;
         /// Draws the last frame gave to the default surface while their own pipeline compiled
         /// (MeshRenderer::GetStandInDraws): the control gate's PendingWork::MaterialPipelines.
         [[nodiscard]] uint32_t GetStandInDraws() const;
@@ -756,6 +768,9 @@ namespace Desert::Graphic
         /// SSS-PROFILE: this view scatters and its Burley history has not yet averaged its full window (a Scale
         /// change, a camera cut, the first frames) - the control gate's PendingWork::SubsurfaceHistory.
         [[nodiscard]] bool SubsurfaceHistoryConverging() const;
+        /// GRASS-SETTLE p14: this view's last frame drew a grass variety that may hold fewer instances than its
+        /// generator keeps (GrassRenderer::InstancesSettling) - the control gate's PendingWork::GrassInstances.
+        [[nodiscard]] bool GrassInstancesSettling() const;
 
     private:
         // THIS VIEW in the resource ledger (RT-LEDGER-2). Its RT rows — the TLAS storage, the landscape tiles'
@@ -1057,6 +1072,21 @@ namespace Desert::Graphic
         // the sun's cascades (m_FrameCascades) and the VSM clipmap levels (m_FrameVsmPages), then this frame's
         // furthest HZB extracted into m_CullHzbHistory. A refusal is logged once per message and skips the frame.
         void AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // GPU-DRIVEN PASSES, before the cascade depths and the base pass: the draw command cache's upload, the GPU
+        // scene's tables (m_FrameGpuSceneTables, reused by AddFrameGpuCull) and the phase-1 cull of the main view
+        // (MeshRenderer::MainViewPass) - against last frame's furthest HZB (m_CullHzbHistory) when the view is the
+        // deferred G-buffer and the history is its size and previous frame, else frustum only - and of the sun
+        // cascades whose static layer is drawn (frustum only), each view's culled draws handed to
+        // MeshRenderer::SetFrameBinned. What phase 2 needs is kept in m_FrameDrawBins. A refusal is logged once
+        // per message and leaves every pass on the CPU path.
+        void AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // TWO-PHASE OCCLUSION, after the phase-1 G-buffer ("Deferred: GBuffer" + "TerrainGBuffer"; UE
+        // FInstanceCullingContext's post pass, HZB.cpp): this frame's furthest HZB of that depth, extracted into
+        // m_CullHzbHistory for the next frame's phase 1; when phase 1 tested last frame's HZB, the instances it
+        // held back re-tested against this one and the visible drawn by "Deferred: GBuffer Post-Occlusion" (same
+        // carriers, their own indirect args). Then the per-view phase counts' readback. No-op without draw bins.
+        void AddFrameDrawBinsPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                            System::MeshRenderer* meshRenderer, const ViewFrame& frame );
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
         // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
@@ -1115,6 +1145,10 @@ namespace Desert::Graphic
 
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
         void AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
+        // "Deferred: GBuffer Post-Occlusion" (AddFrameDrawBinsPostOcclusion): the main view's phase-2 bins over the
+        // loaded G-buffer.
+        void AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                           System::MeshRenderer* meshRenderer );
         void AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures );
         // "Deferred: Forward Depth/Normal": the generic queue's opaque draws into G-buffer depth + normal.
         void AddFrameForwardDepthNormal( RDG::Builder& graph, FrameTextures& textures,
@@ -1683,10 +1717,34 @@ namespace Desert::Graphic
         // which nothing drew them.
         bool m_FrameCascades          = true;
         bool m_CascadesDrawnLastFrame = false;
-        // GPU-DRIVEN CULL (DebugViewState::ValidateGpuCulling): last frame's FURTHEST HZB of the main view, phase 1's
-        // occlusion input (registered only when its size is this frame's depth size).
+        // Last frame's FURTHEST HZB of the main view, phase 1's occlusion input (registered only when its size is
+        // this frame's depth size): written by the draw bins' phase 2 (AddFrameDrawBinsPostOcclusion), or by the
+        // GPU-DRIVEN CULL validation (DebugViewState::ValidateGpuCulling) on a frame without them.
         RDG::ExternalTexture m_CullHzbHistory;
         GpuDriven::InstanceCulling m_GpuCull;
+        // This frame graph's import of the GPU scene's tables (AddFrameDrawBins), reset before it each frame.
+        std::optional<GpuDriven::GpuSceneBuffers> m_FrameGpuSceneTables;
+        std::string                               m_DrawBinsLastError;
+        // This frame's draw-bin cull (AddFrameDrawBins) as phase 2 (AddFrameDrawBinsPostOcclusion) re-runs it:
+        // the views in cull order, their MeshRenderer view keys and names, phase 1's carry, the upload, and
+        // whether the main view (Views[0]) tested last frame's HZB. Reset at the start of AddFrameDrawBins.
+        struct FrameDrawBins
+        {
+            std::vector<GpuDriven::CullViewInput> Views;
+            std::vector<uint32_t>                 ViewKeys;
+            std::vector<std::string>              ViewNames;
+            GpuDriven::OcclusionCarry             Carry;
+            GpuDriven::DrawCommandBuffers         Upload;
+            GpuDriven::GpuSceneBuffers            Scene;
+            bool                                  MainTestsHzb = false;
+        };
+        std::optional<FrameDrawBins> m_FrameDrawBins;
+        // This graph's furthest HZBs of the main view when the draw bins built them: last frame's (registered from
+        // m_CullHzbHistory; invalid when phase 1 did not test it) and this frame's. AddFrameGpuCull reuses them
+        // instead of registering and building its own. Reset at the start of AddFrameDrawBins.
+        RDG::TextureRef m_FramePrevHzb{};
+        RDG::TextureRef m_FrameFurthestHzb{};
+        GpuDriven::CullPhaseCounts m_DrawBinPhaseCounts;
         // The CPU recount of the cull's Visibility words, logged per view (one frame-in-flight late).
         GpuDriven::InstanceCullValidation m_GpuCullValidation;
         // This frame's VSM page passes (AddFrameVirtualSunShadow), for the cull's VSM level views; reset before

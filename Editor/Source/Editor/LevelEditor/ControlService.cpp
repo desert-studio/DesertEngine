@@ -34,7 +34,10 @@
 #include "Editor/Core/CommandHistory.hpp"
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Graphic/DrawCounters.hpp>
+#include <array>
 #include <Engine/Graphic/GeometryPool.hpp>
+#include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -535,7 +538,8 @@ namespace Desert::Editor
 
     std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled,
                                                              const bool subsurfaceHistoryConverging,
-                                                             const bool materialPipelinesCompiling )
+                                                             const bool materialPipelinesCompiling,
+                                                             const bool grassInstancesSettling )
     {
         ++m_FrameIndex;
         // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
@@ -553,6 +557,11 @@ namespace Desert::Editor
         // FinishAllCompilation first; here the reply/shot waits for a frame with no stand-in (FIELD_Barn
         // 1_first: a grey-blue foliage patch with a straight edge, its GBuffer_TwoSided cell compiling).
         m_FrameQuiescence.Set( Control::PendingWork::MaterialPipelines, materialPipelinesCompiling );
+        // And the grass (GRASS-SETTLE p14): after a camera cut its instance buffers are sized by the previous
+        // view's GPU count and the generator drops the rest, so a block of cells drew without its meshes until the
+        // count came back. UE's automated screenshot waits for the async grass builds; here the reply waits for a
+        // frame whose every grass variety read back within capacity (GrassRenderer::InstancesSettling).
+        m_FrameQuiescence.Set( Control::PendingWork::GrassInstances, grassInstancesSettling );
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;
@@ -1218,6 +1227,16 @@ namespace Desert::Editor
                                         : camera->GetDirection();
 
         PlaceEditorCamera( *camera, position, forward );
+        // A PLACED POSE IS A TELEPORT, so it is a camera cut for every view this camera feeds (UE
+        // FEditorViewportClient::SetIsCameraCut -> FSceneView::bCameraCut, as a bookmark jump makes it): the
+        // histories reprojected from the old pose are reset. Without it the temporal history of the pose before
+        // (a far view seconds away) was reprojected into the new one and settled over seconds as a pale block with
+        // a straight edge (GRASS-SETTLE p21). A camera a person flies is never cut.
+        if ( const auto& scene = m_Workspace.ActiveScene() )
+            for ( size_t view = 0; view < scene->GetViewCount(); ++view )
+                if ( scene->GetViewCamera( view ).get() == camera )
+                    if ( auto* renderer = scene->GetViewRenderer( view ) )
+                        renderer->ResetTemporalHistory();
 
         // INPUT IS NOT DISABLED, and the difference from the capture path is deliberate. `--shot` turns it
         // off because nothing may nudge the camera between the placement and the readback, and there is no
@@ -1339,6 +1358,42 @@ namespace Desert::Editor
             const Graphic::GeometryPoolStats pool = Graphic::GeometryPool::Get().GetStats();
             snapshot.GeometryPoolBinds            = pool.Binds;
             snapshot.GeometryPoolMeshBinds        = pool.MeshBinds;
+            // GpuDriven::MeshPass order (DrawCounters.hpp kCountedMeshPasses).
+            static constexpr std::array<const char*, Graphic::kCountedMeshPasses> kMeshPassNames{
+                 "depthPrepass", "gbuffer", "forward", "shadowCascade", "virtualShadow" };
+            static_assert( Graphic::kCountedMeshPasses == Graphic::GpuDriven::kMeshPassCount );
+            const Graphic::GpuDriven::DrawCommandCache* const cache =
+                 m_Workspace.PrimaryRenderer() != nullptr ? m_Workspace.PrimaryRenderer()->GetDrawCommandCache()
+                                                          : nullptr;
+            snapshot.MeshPasses.clear();
+            for ( uint32_t pass = 0; pass < Graphic::kCountedMeshPasses; ++pass )
+            {
+                const Graphic::MeshPassDrawCounters counted = Graphic::DrawCounter::LastFrameMeshPass( pass );
+                MeshPassDrawSnapshot item{ .Name          = kMeshPassNames[pass],
+                                           .CpuDraws      = counted.CpuDraws,
+                                           .IndirectCalls = counted.IndirectCalls,
+                                           .BinsIssued    = counted.BinsIssued };
+                if ( cache != nullptr )
+                {
+                    const Graphic::GpuDriven::PassDrawTable& table =
+                         cache->Pass( static_cast<Graphic::GpuDriven::MeshPass>( pass ) );
+                    item.CachedBins  = static_cast<uint32_t>( table.Bins.size() );
+                    item.CachedSlots = static_cast<uint32_t>( table.DrawSlots.size() );
+                    for ( uint32_t reason = 0; reason < Graphic::GpuDriven::kBinFallbackCount; ++reason )
+                        if ( table.Fallbacks[reason] > 0u )
+                            item.CpuFallbacks.emplace_back(
+                                 Graphic::GpuDriven::BinFallbackName(
+                                      static_cast<Graphic::GpuDriven::BinFallback>( reason ) ),
+                                 table.Fallbacks[reason] );
+                }
+                snapshot.MeshPasses.push_back( std::move( item ) );
+            }
+            snapshot.DrawBinViews.clear();
+            if ( m_Workspace.PrimaryRenderer() != nullptr )
+                for ( const Graphic::GpuDriven::CullPhaseViewCount& view :
+                      m_Workspace.PrimaryRenderer()->GetDrawBinPhaseCounts() )
+                    snapshot.DrawBinViews.push_back(
+                         DrawBinViewSnapshot{ .Name = view.Name, .Phase1 = view.Phase1, .Phase2 = view.Phase2 } );
         }
 
         {

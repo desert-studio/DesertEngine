@@ -253,6 +253,13 @@ namespace Desert::Graphic
     // Whether a compiled cell shader is a `.Parallax` permutation (its caster is its own; see ShadowCasterCellFor).
     [[nodiscard]] bool IsParallaxCell( std::string_view shaderName );
 
+    // THE BINNED PERMUTATION of a cell (DShaderParser kSurfaceBinnedCellSuffix): "<Template>/<Cell>[.Parallax].Binned",
+    // the cell a GPU-driven bin draws (GpuDriven::DrawCommandCache): it reads World / PrevWorld / material row /
+    // primitive flags through its instance id and pushes nothing. Registered for every Forward / GBuffer / ShadowDepth
+    // mesh cell of a non-translucent template.
+    [[nodiscard]] std::string BinnedCellOf( std::string_view cellShader );
+    [[nodiscard]] bool        IsBinnedCell( std::string_view shaderName );
+
     // The one binding a path adds to the surface's own set, or nothing for a path that adds none.
     // Set 0 binding 1 is the skinned path's `Bones`, binding 17 the instanced path's
     // `InstanceTransforms`; both are free in every other variant, which is what makes "same surface,
