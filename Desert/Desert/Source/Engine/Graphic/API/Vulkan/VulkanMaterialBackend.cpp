@@ -362,7 +362,15 @@ namespace Desert::Graphic::API::Vulkan
             if ( auto fallback = sp_cast<VulkanImage2D>(
                       FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ) ) )
                 descriptorImageInfo = fallback->GetResource().GetDescriptorInfo();
-        const auto handle = std::bit_cast<uint64_t>( descriptorImageInfo.imageView );
+        // A VkImageView handle is not an identity: a streamed mip change (Image2D::TakeDeviceImageFrom) releases
+        // the old view, and on MoltenVK a later view comes back at the released one's address. A set that last
+        // recorded that address then skipped the write and kept sampling the released image - a whole grass
+        // section drew pale after a camera cut streamed its textures out (GRASS-SETTLE p15). The image's resource
+        // generation is never reused, so it is part of what the set records.
+        const auto*    sampled    = textureProp->GetImage();
+        const uint64_t generation = sampled != nullptr ? sampled->GetResourceGeneration() : 0u;
+        const auto     handle =
+             std::bit_cast<uint64_t>( descriptorImageInfo.imageView ) ^ ( generation * 0x9E3779B97F4A7C15ull );
 
         // A set that already points at this image view with this version has nothing to learn; a new set
         // (a view that first records now, however late) has an empty record and takes the write.

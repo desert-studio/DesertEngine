@@ -1,7 +1,7 @@
-# GRASS-SETTLE: the first frame after opening FIELD_Barn must not show a grass cell of another colour with a straight
-# edge (FOLIAGE-PROOF 10-28, 1_field_grass lower left). p13: not textures - after a camera cut the grass buffers are
-# sized by the PREVIOUS view's GPU count (+25 %) and the generator drops every instance past it (GrassGenerate), so a
-# block of cells loses its green meshes until the count comes back. The reply now waits for the grass to settle.
+# GRASS-SETTLE: the first frame after a camera cut onto FIELD_Barn must not show a grass area of another tone with a
+# straight edge (FOLIAGE-PROOF 10-28, 1_field_grass lower left). p14: not instance-buffer truncation (the block
+# came without any "truncated" line). p15: the block is screen-space - each cut is shot in Lit, then cut again and
+# shot in Albedo and Velocity, and once with anti-aliasing off, three times over, to name the pass it appears in.
 Дано run Scene "Open Scene FIELD_Barn.desce"
 Дано run View "View mode: Lit"
 Дано run Entity "Sun"
@@ -9,7 +9,29 @@
 Дано --subject selection set SunAzimuth 20
 Дано --subject viewport set Camera.Position 0,900,2500
 Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
-Тогда-вид 1_first taken right after the camera is set: left of the path the grass has the same tone as on 2_fov70; no pale block with a straight edge
-Тогда editor.log has "[Grass] variety ... truncated N->cap" after the camera cut (the cause), and 1_first still shows no pale block (the reply waited for the grass)
+Тогда-вид 1_first taken right after the camera cut: left of the path the grass has the same tone as on 2_fov70; no pale block with a straight edge
+Когда --subject viewport set Camera.Position 3000,1500,-2000
+Когда --subject viewport set Camera.Direction -1,-0.3,0.5
+Когда --subject viewport set Camera.Position 0,900,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1b_cut2 second cut, Lit: same tone left of the path, no block
+Когда run View "View mode: Albedo"
+Когда --subject viewport set Camera.Position 3000,1500,-2000
+Когда --subject viewport set Camera.Direction -1,-0.3,0.5
+Когда --subject viewport set Camera.Position 0,900,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1c_albedo cut in Albedo: grass albedo uniform left and right of the path
+Когда run View "View mode: Velocity"
+Когда --subject viewport set Camera.Position 3000,1500,-2000
+Когда --subject viewport set Camera.Direction -1,-0.3,0.5
+Когда --subject viewport set Camera.Position 0,900,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1d_velocity cut in Velocity: no screen block of its own
+Когда run View "View mode: Lit"
+Когда --subject viewport set Camera.Position 3000,1500,-2000
+Когда --subject viewport set Camera.Direction -1,-0.3,0.5
+Когда --subject viewport set Camera.Position 0,900,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1e_cut3 third cut, Lit: same tone left of the path, no block
 Когда --subject viewport set Camera.FOV 70
 Тогда-вид 2_fov70 FOV 70: the grass is uniform
