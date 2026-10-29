@@ -1245,6 +1245,17 @@ namespace Desert::Core::Serialize
                     return 0;
                 return fromPath( key, type ) == guid ? guid : 0;
             }
+            if ( type == "WaterWavesAsset" )
+            {
+                // BY GUID through the content registry, as the foliage type: a wave set's handle IS HandleForGuid
+                // of its header GUID, so the row under that handle is the `.dwaves` wherever it has since moved.
+                if ( mgr.FindByHandle<Assets::WaterWavesAsset>( handle ) )
+                    return guid;
+                const std::string key = Assets::ContentRegistry::KeyForHandle( guid );
+                if ( key.empty() )
+                    return 0;
+                return fromPath( key, type ) == guid ? guid : 0;
+            }
             if ( type == "SoundAsset" )
             {
                 // A sound's handle IS HandleForGuid of its header GUID, so the registry row under it is the

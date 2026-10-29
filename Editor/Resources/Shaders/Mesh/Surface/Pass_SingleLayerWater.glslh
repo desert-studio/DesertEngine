@@ -59,7 +59,8 @@ const float kWaterPi = 3.14159265;
 
 vec3 WaterWorldAt( vec2 uv, float deviceDepth )
 {
-    const vec4 w = cameraUB.InvJitteredViewProjection * vec4( uv * 2.0 - 1.0, deviceDepth, 1.0 );
+    // Texture v runs down the screen, clip y up (the view's flipped viewport): NDC y is 1 - 2v.
+    const vec4 w = cameraUB.InvJitteredViewProjection * vec4( uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, deviceDepth, 1.0 );
     return w.xyz / w.w;
 }
 
@@ -95,7 +96,7 @@ void main()
     const float baseLen  = baseDev <= 0.0 ? 1e7 : distance( i.WorldPosition, baseBack );
     const vec3  bent     = i.WorldPosition + vec3( N.x, 0.0, N.z ) * w.RefractionOffset * clamp( baseLen / 100.0, 0.0, 1.0 );
     const vec4  clipOff  = cameraUB.JitteredViewProjection * vec4( bent, 1.0 );
-    vec2        refrUv   = clamp( ( clipOff.xy / clipOff.w ) * 0.5 + 0.5, vec2( 0.0 ), vec2( 1.0 ) );
+    vec2        refrUv   = clamp( vec2( 0.5, -0.5 ) * ( clipOff.xy / clipOff.w ) + 0.5, vec2( 0.0 ), vec2( 1.0 ) );
     float       refrDev  = texture( WaterSceneDepth, refrUv ).r;
     vec3        refrBack = WaterWorldAt( refrUv, refrDev );
     const bool  inFront  = refrDev > 0.0 && dot( refrBack - i.CameraPosition, -V ) < dot( i.WorldPosition - i.CameraPosition, -V );
