@@ -6,7 +6,9 @@
             "MATL": 7
         },
         "Dependencies": [
-            "bcefeba392c545f6b95dcb1c2554b7a8"
+            "bcefeba392c545f6b95dcb1c2554b7a8",
+            "8fc480b103b1d6b8a324ca01e7863f9c",
+            "2086ff8d8f71cd90d6fa58c8f13334ff"
         ]
     },
     "Shader": {
@@ -69,6 +71,17 @@
             ]
         }
     ],
-    "Textures": [],
+    "Textures": [
+        {
+            "Name": "RippleNormalA",
+            "Guid": "8fc480b103b1d6b8a324ca01e7863f9c",
+            "Path": "assets:Water/Textures/T_WaterRipple_A_N.detex"
+        },
+        {
+            "Name": "RippleNormalB",
+            "Guid": "2086ff8d8f71cd90d6fa58c8f13334ff",
+            "Path": "assets:Water/Textures/T_WaterRipple_B_N.detex"
+        }
+    ],
     "CloudAssets": []
 }

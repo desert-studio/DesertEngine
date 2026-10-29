@@ -9,10 +9,30 @@
             "UNIT": 1,
             "WPAR": 1
         },
-        "Dependencies": ["f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
+        "Dependencies": ["5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91", "615ae6cde51242b39947fd6224df80b6", "8254b0475d555accf00b0c7a929c73e4", "d97a0cb255554c92a315a3330db71f5f", "f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
     },
     "SceneName": "Water_Ocean",
     "Entities": [
+        {
+            "id": 4200000000000000013,
+            "siblingIndex": 14,
+            "Tag": "Seabed",
+            "Translation": [0.0, -190.0, -1500.0],
+            "Rotation": [-0.11200000345706940, 0.0, 0.0],
+            "Scale": [15.0, 1.0, 15.0],
+            "StaticMesh": {
+                "MeshHandle": {
+                    "Guid": "8254b0475d555accf00b0c7a929c73e4",
+                    "Path": "assets:Meshes/Displace/DisplaceSlab.stmesh"
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "615ae6cde51242b39947fd6224df80b6",
+                        "Path": "assets:Environments/Shore/Materials/M_Shore_CoastSandRocks.demat"
+                    }
+                ]
+            }
+        },
         {
             "id": 371561652986549398,
             "siblingIndex": 13,

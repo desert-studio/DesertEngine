@@ -1,0 +1,72 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "615ae6cde51242b39947fd6224df80b6",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": [
+            "4f1cac6af403a010c792d835dd6f7d44",
+            "27b8f83777d6944d37e9eb7144613193",
+            "3c399950503552aea9de995d6eb42ee5",
+            "2a7a6e8f860d050ebec8e10b29c7b89f",
+            "0afdff21dd650e8e6ea63bb25b7feeea"
+        ]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "UVTiling",
+            "Value": [
+                30.0,
+                30.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "HeightScale",
+            "Value": [
+                15.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "HeightCenter",
+            "Value": [
+                0.5,
+                0.0,
+                0.0,
+                0.0
+            ]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "27b8f83777d6944d37e9eb7144613193",
+            "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_diff_2k.detex"
+        },
+        {
+            "Name": "NormalTexture",
+            "Guid": "3c399950503552aea9de995d6eb42ee5",
+            "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_nor_gl_2k.detex"
+        },
+        {
+            "Name": "OrmTexture",
+            "Guid": "2a7a6e8f860d050ebec8e10b29c7b89f",
+            "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_arm_2k.detex"
+        },
+        {
+            "Name": "Height",
+            "Guid": "0afdff21dd650e8e6ea63bb25b7feeea",
+            "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_disp_2k.detex"
+        }
+    ],
+    "CloudAssets": []
+}

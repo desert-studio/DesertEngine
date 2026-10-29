@@ -39,9 +39,13 @@ void main()
     // The LOD rings are centred on the view the quadtree was traversed from (WaterRenderer::PrepareFrame).
     const vec3 observer = cameraUB.CameraPos.xyz;
 
-    // Two triangles per quad, quads row by row.
-    const ivec2 kCorner[6] = ivec2[]( ivec2( 0, 0 ), ivec2( 1, 0 ), ivec2( 0, 1 ), ivec2( 1, 0 ), ivec2( 1, 1 ),
-                                      ivec2( 0, 1 ) );
+    // Two triangles per quad, quads row by row, wound counter-clockwise SEEN FROM ABOVE (corner x along +X, y along
+    // +Z: (0,0) -> (0,1) -> (1,0) has the geometric normal +Y), so the surface's top is its front face. Wound the
+    // other way, every fragment seen from above was a back face: the two-sided flip (DesertSurfaceInput) turned the
+    // shading normal down, Pass_SingleLayerWater bent it to grazing, and the water became a near-total mirror of
+    // the sky with the bottom unseen.
+    const ivec2 kCorner[6] = ivec2[]( ivec2( 0, 0 ), ivec2( 0, 1 ), ivec2( 1, 0 ), ivec2( 1, 0 ), ivec2( 0, 1 ),
+                                      ivec2( 1, 1 ) );
     const int   quads    = int( t.Zone.w + 0.5 );
     const int   quad     = gl_VertexIndex / 6;
     const ivec2 q        = ivec2( quad % quads, quad / quads ) + kCorner[gl_VertexIndex % 6];

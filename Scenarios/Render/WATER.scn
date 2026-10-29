@@ -3,10 +3,13 @@
 # M_Water_Swamp changes the look with the same code.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Ocean.desce
 Дано --subject viewport set Camera.Position 0,170,0
+Дано --subject viewport set Camera.Direction 0.35,-0.6,-0.72
 Дано run View "View mode: Lit"
-Тогда-вид 1_shore камера 1.7 м над водой: вода не константа - Френель, синевато-зелёная толща по поглощению (M_Water_Ocean), без резкой границы; лог без "[Water]" отказов
-Когда --subject viewport set Camera.Position 0,40,0
-Тогда-вид 2_grazing скользящий взгляд: по Френелю отражается небо, блик солнца
+Тогда-вид 1_shore камера 1.7 м над водой у берега, взгляд вниз: на мелководье видно дно (Seabed: DisplaceSlab + M_Shore_CoastSandRocks, Poly Haven CC0), преломлённое рябью (T_WaterRipple_A/B_N); вода не константа - Френель, синевато-зелёная толща по поглощению (M_Water_Ocean), без резкой границы; лог без "[Water]" отказов
+Когда --subject viewport set Camera.Position 0,40,-200
+Когда --subject viewport set Camera.Direction -0.15,-0.2,-0.97
+Тогда-вид 2_grazing скользящий взгляд на солнце (кадр отличается от 1_shore): по Френелю отражается небо, блик солнца на ряби
 Когда set 2646278175089776126 WaterBodyData.WaterMaterial assets:Water/Materials/M_Water_Swamp.demat
 Когда --subject viewport set Camera.Position 0,170,0
+Когда --subject viewport set Camera.Direction 0.35,-0.6,-0.72
 Тогда-вид 3_material тот же вид с M_Water_Swamp: мутная зеленовато-бурая вода, меняется только ассет
