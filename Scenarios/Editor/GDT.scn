@@ -1,0 +1,18 @@
+# GDT-1: the gameplay debugger's Physics and Script categories (digits 2 and 3 after Basic) about the selected entity in
+# Play. GDT_GameplayDebugger.desce: its GameplayDebuggerDemo entity (script GameplayDebuggerDemo.lua) shows the
+# debugger from the first frame of Play and turns Basic off after 1 s; Ground 9810771712317175157 is a static
+# RigidBody (profile BlockAll) the Cube and the player stand on.
+# THE AI CATEGORY IS NOT HERE: the AI controller / State Tree / navigation exist as header contracts only (no
+# AIControllerSystem, no StateTreeExecution body, no path following) - an AI pawn has nothing to show yet
+# (REMAINDER-GDT-1.md). When AI-CONTROLLER lands, this scenario gains the AI pawn and its [gdt_categories] row.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/GDT_GameplayDebugger.desce
+Дано run View "View mode: Lit"
+Когда run Action "Play"
+Когда advance 0.5
+# The view's centre picks what it looks at while nothing is selected; selecting Ground makes it the target.
+Когда select 9810771712317175157
+Когда advance 0.5
+Тогда-вид 1_physics_ground the panel at the top-left names Ground; its category list reads "1 Basic [on]  2 Physics [on]  3 Script [on]"; Physics shows "Body Static, profile BlockAll", "State static (never simulated)", "Contacts N this frame" with the player / Cube hits listed; Script shows "no scripts"; 0 VUID in editor.log
+Когда select GameplayDebuggerDemo
+Когда advance 1.0
+Тогда-вид 2_script_demo the panel names GameplayDebuggerDemo; Basic is off (the script turned it off at 1 s); Physics shows "no physics: neither a RigidBody nor a CharacterController"; Script shows "Slot 0 GameplayDebuggerDemo.lua running" and "BasicOffAfter = 1.000"; 0 VUID in editor.log
