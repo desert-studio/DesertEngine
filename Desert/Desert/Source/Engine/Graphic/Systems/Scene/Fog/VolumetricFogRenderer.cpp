@@ -67,6 +67,14 @@ namespace Desert::Graphic::System
              kVolumetricFogParamsBinding, /*persistent=*/false );
         if ( !m_ParamsBuffer )
             return Common::MakeError( "VolumetricFogRenderer: could not create the parameter buffer" );
+        if ( const auto valid = m_ScatteringLayout.Validate( m_ScatteringPipeline->GetShader(),
+                                                             VolumetricFogLightScatteringShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_IntegrationLayout.Validate( m_IntegrationPipeline->GetShader(),
+                                                              VolumetricFogIntegrationShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -279,28 +287,33 @@ namespace Desert::Graphic::System
             historyImageName = historyName;
         }
 
+        using Scattering = VolumetricFogLightScatteringShaderParameters;
         ComputeNodeDeclaration scattering;
         scattering.Name = "VolumetricFog: LightScattering";
         scattering.Access
              .Bindings( m_ScatteringLayout.Get( m_ScatteringPipeline->GetShader() ),
                         Renderer::GetPipelineRouteFill( *m_ScatteringPipeline ) )
-             .Storage( "u_LightScattering", std::shared_ptr<Image>( m_LightScattering[current] ),
+             .Storage( Scattering::LightScatteringTexture, std::shared_ptr<Image>( m_LightScattering[current] ),
                        RDG::Access::StorageWrite, currentName )
-             .Sampled( "u_LightScatteringHistory", historyImage, RDG::Access::SampledCompute, VolumeSampler(),
+             .Texture( Scattering::LightScatteringHistoryTexture, historyImage, RDG::Access::SampledCompute,
                        historyImageName )
+             .Sampler( Scattering::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
              // Read with textureGather (raw depths), so the filter mode is never used.
-             .Sampled( kSceneViewShadowCascadesName, t.ShadowCascades, RDG::Access::SampledCompute,
-                       RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
-             .Sampled( kSceneViewLocalShadowAtlasName, atlas, RDG::Access::SampledCompute,
-                       RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() )
-             .Sampled( "u_DistantSkyLight", distantSkyLight, RDG::Access::SampledCompute,
-                       GlobalTextureFilterSampler(),
+             .Texture( Scattering::ShadowCascadesTexture, t.ShadowCascades, RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All() )
+             .Sampler( Scattering::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
+             // Read with texelFetch and filtered by hand inside each tile (Mesh/LocalLightShadowLookup.glslh).
+             .Texture( Scattering::LocalShadowAtlasTexture, atlas, RDG::Access::SampledCompute,
+                       RDG::SubresourceRange::All() )
+             .Sampler( Scattering::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+             // Read with texelFetch at its sphere texel.
+             .Texture( Scattering::DistantSkyLightTexture, distantSkyLight, RDG::Access::SampledCompute,
                        atmosphere.DistantSkyLight ? "Sky.DistantLight" : "VolumetricFog.DistantSkyLightFallback" )
-             .Storage( ShaderProtocols::PointLight::Name, t.Lights.Point, RDG::Access::StorageRead )
-             .Storage( ShaderProtocols::SpotLight::Name, t.Lights.Spot, RDG::Access::StorageRead )
-             .Storage( "LocalShadowViewsUB", t.Lights.ShadowViews, RDG::Access::StorageRead )
-             .Storage( kLightGridParamsBlockName, t.Lights.GridParams, RDG::Access::StorageRead )
-             .Storage( kLightGridCellsBlockName, t.Lights.GridCells, RDG::Access::StorageRead );
+             .Storage( Scattering::PointLightsUB, t.Lights.Point, RDG::Access::StorageRead )
+             .Storage( Scattering::SpotLightsUB, t.Lights.Spot, RDG::Access::StorageRead )
+             .Storage( Scattering::LocalShadowViewsUB, t.Lights.ShadowViews, RDG::Access::StorageRead )
+             .Storage( Scattering::LightGridParamsUB, t.Lights.GridParams, RDG::Access::StorageRead )
+             .Storage( Scattering::LightGridCellsUB, t.Lights.GridCells, RDG::Access::StorageRead );
         scattering.Record = [this, grid, current, frameIndex = frame.FrameIndex](
                                  RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
@@ -323,10 +336,13 @@ namespace Desert::Graphic::System
         integration.Access
              .Bindings( m_IntegrationLayout.Get( m_IntegrationPipeline->GetShader() ),
                         Renderer::GetPipelineRouteFill( *m_IntegrationPipeline ) )
-             .Storage( "u_IntegratedLightScattering", std::shared_ptr<Image>( m_Integrated ),
-                       RDG::Access::StorageWrite, "VolumetricFog.Integrated" )
-             .Sampled( "u_LightScattering", std::shared_ptr<Image>( m_LightScattering[current] ),
-                       RDG::Access::SampledCompute, VolumeSampler(), currentName );
+             .Storage( VolumetricFogIntegrationShaderParameters::IntegratedLightScatteringTexture,
+                       std::shared_ptr<Image>( m_Integrated ), RDG::Access::StorageWrite, "VolumetricFog.Integrated" )
+             // Read with texelFetch, slice by slice.
+             .Texture( VolumetricFogIntegrationShaderParameters::LightScatteringTexture,
+                       std::shared_ptr<Image>( m_LightScattering[current] ), RDG::Access::SampledCompute,
+                       currentName )
+             .Sampler( VolumetricFogIntegrationShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
         integration.Record = [this, grid]( RDG::PassContext& context,
                                            const FrameGraphRefs& ) -> Common::BoolResultStr
         {

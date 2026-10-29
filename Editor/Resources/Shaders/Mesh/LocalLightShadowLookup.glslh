@@ -4,8 +4,20 @@
 // THE LOOKUP of a point or spot light's shadow in the view's local shadow atlas, without the contact shadow:
 // what a receiver with no screen position (a froxel of Programs/Fog/VolumetricFogLightScattering.shader) can
 // read. Mesh/LocalLightShadow.glslh adds the contact shadow on top for surfaces. Declares no binding: the
-// includer declares sampler2D u_LocalShadowAtlas and ReadBuffer LocalShadowViewsUB { LocalShadowView
-// localShadowViews[]; } first (see Mesh/LocalLightShadow.glslh).
+// includer declares LocalShadowAtlasTexture, ReadBuffer LocalShadowViewsUB { LocalShadowView localShadowViews[]; }
+// and the view's ShadowUB (ShadowFilter, unless LOCAL_SHADOW_FILTER_TAPS is defined) first (see Mesh/LocalLightShadow.glslh).
+//
+// The PCF disc's rotation is keyed on a pixel: LOCAL_SHADOW_FILTER_PIXEL, the fragment's gl_FragCoord.xy unless the
+// includer names another (a compute receiver has no fragment: the froxel fog names its froxel's xy).
+#ifndef LOCAL_SHADOW_FILTER_PIXEL
+#define LOCAL_SHADOW_FILTER_PIXEL gl_FragCoord.xy
+#endif
+// The PCF's taps: the view's Shadows.FilterTaps (ShadowUB's ShadowFilter.y) unless the includer names a count (the
+// froxel fog has no ShadowUB and takes one bilinear tap per froxel, its temporal reprojection filtering the rest).
+#ifndef LOCAL_SHADOW_FILTER_TAPS
+#define LOCAL_SHADOW_FILTER_TAPS ShadowFilter.y
+#endif
+#include <Common/ShadowFilterDisk.glslh>
 #include <Mesh/LightSources.glslh>
 #include <Mesh/LocalLightShadowView.glslh>
 
@@ -15,35 +27,50 @@ float LocalShadowLinearDepth(float z, float nearPlane, float farPlane)
     return nearPlane * farPlane / (farPlane - z * (farPlane - nearPlane));
 }
 
-// 3x3 PCF with bilinear weights over a 4x4 texel footprint (UE's Manual3x3PCF shape), every tap clamped into the
-// view's own tile so a filter at its edge never reads the neighbouring view. 1 = lit.
-float LocalShadowPCF(LocalShadowView v, vec2 tileUV, float receiverDepth)
+// The PCF disc's radius in atlas texels: the reach of the 4x4 bilinear footprint of UE's Manual3x3PCF.
+const float kLocalShadowFilterRadiusTexels = 1.5;
+
+// Bilinear percentage-closer comparison at the atlas texel position `texel` (texel centres at .5 removed): 1 lit,
+// 0 shadowed. Each of the four texels is clamped into [lo, hi], the view's own tile, so a filter at its edge never
+// reads the neighbouring view.
+float LocalShadowCompare2x2(LocalShadowView v, vec2 texel, vec2 lo, vec2 hi, float receiverDepth)
 {
-    const float side   = 1.0 / v.params2.y;
-    const vec2  lo     = v.atlasRect.xy * side;
-    const vec2  hi     = lo + v.atlasRect.zw * side - 1.0;
-    const vec2  texel  = (v.atlasRect.xy + tileUV * v.atlasRect.zw) * side - 0.5;
-    const vec2  base   = floor(texel);
-    const vec2  f      = texel - base;
-    const vec4  wx     = vec4(1.0 - f.x, 1.0, 1.0, f.x);
-    const vec4  wy     = vec4(1.0 - f.y, 1.0, 1.0, f.y);
-    float       lit    = 0.0;
-    for (int j = 0; j < 4; ++j)
+    const vec2 base = floor(texel);
+    const vec2 f    = texel - base;
+    vec4       lit;
+    for (int k = 0; k < 4; ++k)
     {
-        for (int i = 0; i < 4; ++i)
-        {
-            const vec2  t        = clamp(base + vec2(float(i - 1), float(j - 1)), lo, hi);
-            const float occluder = LocalShadowLinearDepth(texelFetch(u_LocalShadowAtlas, ivec2(t), 0).r,
-                                                          v.params.x, v.params.y);
-            lit += wx[i] * wy[j] * (receiverDepth <= occluder ? 1.0 : 0.0);
-        }
+        const vec2  t        = clamp(base + vec2(float(k & 1), float(k >> 1)), lo, hi);
+        const float occluder = LocalShadowLinearDepth(texelFetch(LocalShadowAtlasTexture, ivec2(t), 0).r, v.params.x,
+                                                      v.params.y);
+        lit[k] = receiverDepth <= occluder ? 1.0 : 0.0;
     }
-    return lit / 9.0;
+    return mix(mix(lit.x, lit.y, f.x), mix(lit.z, lit.w, f.x), f.y);
 }
 
-// One view's verdict on a receiver. The receiver is moved along its normal by a fraction of a texel (more as the
-// light grazes it) and compared with a depth bias in texels at its own distance: one texel of a perspective map
-// grows with the distance from the light, so both biases are measured in it rather than in centimetres.
+// PCF over the shadow filters' Vogel disc (Common/ShadowFilterDisk.glslh) with Shadows.FilterTaps taps - the
+// count the sun's PCSS filter takes (ShadowFilter.y), so one quality level sets both - each tap a bilinear 2x2
+// comparison, the disc kLocalShadowFilterRadiusTexels wide. 1 = lit.
+float LocalShadowPCF(LocalShadowView v, vec2 tileUV, float receiverDepth)
+{
+    const float side  = 1.0 / v.params2.y;
+    const vec2  lo    = v.atlasRect.xy * side;
+    const vec2  hi    = lo + v.atlasRect.zw * side - 1.0;
+    const vec2  texel = (v.atlasRect.xy + tileUV * v.atlasRect.zw) * side - 0.5;
+    const int   taps  = int(LOCAL_SHADOW_FILTER_TAPS + 0.5);
+    const float phi   = 6.28318531 * shadowInterleavedGradientNoise(LOCAL_SHADOW_FILTER_PIXEL);
+    float       lit   = 0.0;
+    for (int i = 0; i < taps; ++i)
+        lit += LocalShadowCompare2x2(v, texel + shadowVogelDisk(i, taps, phi) * kLocalShadowFilterRadiusTexels, lo,
+                                     hi, receiverDepth);
+    return lit / float(taps);
+}
+
+// One view's verdict on a receiver. The receiver is moved along its normal by a fraction of a texel at its own
+// distance (more as the light grazes it): one texel of a perspective map grows with the distance from the light,
+// so the offset is measured in it rather than in centimetres. The depth bias is not applied here: every caster
+// of the view drew its depth already pushed back by the light's Shadow Bias / Shadow Slope Bias
+// (Graphic::LocalCasterBias, Common/ShadowCasterBias.glslh), the mesh cells and the terrain by one rule.
 float LocalShadowAt(int viewIndex, vec3 worldPosition, vec3 N, vec3 L)
 {
     const LocalShadowView v       = localShadowViews[viewIndex];
@@ -58,9 +85,46 @@ float LocalShadowAt(int viewIndex, vec3 worldPosition, vec3 N, vec3 L)
     const vec2 uv  = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
         return 1.0;
-    const float tanTheta = sqrt(max(1.0 - NdotL * NdotL, 0.0)) / max(NdotL, 1e-3);
-    const float bias     = v.params.z * clip.w * (v.params.w + v.params2.x * min(tanTheta, 4.0));
-    return LocalShadowPCF(v, uv, clip.w - bias);
+    return LocalShadowPCF(v, uv, clip.w);
+}
+
+// THE LIGHT THROUGH A SUBSURFACE RECEIVER'S OCCLUDERS (DesertLight::TransmissionShadow) for one view: the
+// cascades' TransmissionShadowFactor (Mesh/CascadedShadow.glslh, ported from UE ShadowProjectionPixelShader.usf's
+// subsurface branch) on the atlas - the receiver at its own position (no normal offset, no bias: the leaf's far
+// side reads the leaf at its own depth and passes), its linear distance against each occluder's, in centimetres,
+// as exp( -thickness * density ), filtered with LocalShadowPCF's 3x3 bilinear shape. A texel at the far plane was
+// never written and transmits all (UE: depth > .99).
+float LocalShadowTransmissionAt(int viewIndex, vec3 worldPosition, float density)
+{
+    const LocalShadowView v    = localShadowViews[viewIndex];
+    const vec4            clip = v.viewProj * vec4(worldPosition, 1.0);
+    if (clip.w <= v.params.x)
+        return 1.0;
+    const vec3 ndc = clip.xyz / clip.w;
+    const vec2 uv  = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
+        return 1.0;
+    const float side    = 1.0 / v.params2.y;
+    const vec2  lo      = v.atlasRect.xy * side;
+    const vec2  hi      = lo + v.atlasRect.zw * side - 1.0;
+    const vec2  texel   = (v.atlasRect.xy + uv * v.atlasRect.zw) * side - 0.5;
+    const vec2  base    = floor(texel);
+    const vec2  f       = texel - base;
+    const vec4  wx      = vec4(1.0 - f.x, 1.0, 1.0, f.x);
+    const vec4  wy      = vec4(1.0 - f.y, 1.0, 1.0, f.y);
+    float       through = 0.0;
+    for (int j = 0; j < 4; ++j)
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            const vec2  t        = clamp(base + vec2(float(i - 1), float(j - 1)), lo, hi);
+            const float raw      = texelFetch(LocalShadowAtlasTexture, ivec2(t), 0).r;
+            const float occluder = LocalShadowLinearDepth(raw, v.params.x, v.params.y);
+            const float tap      = raw > 0.99 ? 1.0 : clamp(exp(-max(clip.w - occluder, 0.0) * density), 0.0, 1.0);
+            through += wx[i] * wy[j] * tap;
+        }
+    }
+    return through / 9.0;
 }
 
 // The cube face a direction FROM the light falls in, in the order the faces were drawn
@@ -77,6 +141,11 @@ int PointShadowFace(vec3 fromLight)
 
 float PointLightShadow(PointLight source, vec3 worldPosition, vec3 N)
 {
+#ifdef DESERT_LOCAL_SHADOW_SCREEN_MASK
+    // The deferred composite under Shadows HardwareTraced: the light's ray-traced screen mask.
+    if (source.shadowMaskSlot >= 0)
+        return DesertLocalShadowScreenMask(source.shadowMaskSlot);
+#endif
     if (source.shadowView < 0)
         return 1.0;
     const vec3 fromLight = worldPosition - source.position;
@@ -85,6 +154,10 @@ float PointLightShadow(PointLight source, vec3 worldPosition, vec3 N)
 
 float SpotLightShadow(SpotLight source, vec3 worldPosition, vec3 N)
 {
+#ifdef DESERT_LOCAL_SHADOW_SCREEN_MASK
+    if (source.shadowMaskSlot >= 0)
+        return DesertLocalShadowScreenMask(source.shadowMaskSlot);
+#endif
     if (source.shadowView < 0)
         return 1.0;
     return LocalShadowAt(source.shadowView, worldPosition, N, normalize(source.position - worldPosition));

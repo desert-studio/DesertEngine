@@ -27,27 +27,38 @@ Shader "VolumetricFogLightScattering"
         #include <Common/SkyMedium.glslh>
         #include <Common/SkyScattering.glslh>
 
-        layout(binding = 0, rgba16f) restrict writeonly uniform image3D u_LightScattering;
+        layout(binding = 0, rgba16f) restrict writeonly uniform image3D LightScatteringTexture;
 
-        // Last frame's u_LightScattering (the renderer's ping-pong pair). Read only when u_VfGridPixel.w says
+        // Last frame's LightScatteringTexture (the renderer's ping-pong pair). Read only when VfGridPixel.w says
         // it is this view's previous frame at this grid size.
-        Uniform(2) sampler3D u_LightScatteringHistory;
+        // The pass's shared sampler states (separate textures, RDGShaderParameters.hpp).
+        Uniform sampler LinearClampSampler;
+        Uniform sampler LinearRepeatSampler;
+        Uniform sampler PointClampSampler;
+        Uniform(2) texture3D LightScatteringHistoryTexture;
+        #define LightScatteringHistoryTexture sampler3D(LightScatteringHistoryTexture, LinearClampSampler)
 
         // The sun's cascades: one D32F array, standard Z, read raw with textureGather (Mesh/CascadedShadow.glslh
         // explains the format; that header itself needs gl_FragCoord and cannot be included in compute).
-        Uniform(3) sampler2DArray u_ShadowCascades;
+        Uniform(3) texture2DArray ShadowCascadesTexture;
+        #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
 
         // The point/spot shadow atlas and its views (Mesh/LocalLightShadowLookup.glslh reads them).
-        Uniform(4) sampler2D u_LocalShadowAtlas;
+        Uniform(4) texture2D LocalShadowAtlasTexture;
+        #define LocalShadowAtlasTexture sampler2D(LocalShadowAtlasTexture, PointClampSampler)
         ReadBuffer(5) LocalShadowViewsUB { LocalShadowView localShadowViews[]; };
 
         // The sky's distant light texel (Programs/Sky/SkyDistantLight.shader), or the fallback when
-        // u_VfSkyAmbient.w is 0.
-        Uniform(7) sampler2D u_DistantSkyLight;
+        // VfSkyAmbient.w is 0.
+        Uniform(7) texture2D DistantSkyLightTexture;
+        #define DistantSkyLightTexture sampler2D(DistantSkyLightTexture, LinearClampSampler)
 
         ReadBuffer(8) LightGridParamsUB { LightGridParams lightGrid; };
         ReadBuffer(9) LightGridCellsUB { uint lightGridCells[]; };
 
+        // A froxel has no fragment and no ShadowUB: its froxel keys the PCF rotation, one tap per froxel.
+        #define LOCAL_SHADOW_FILTER_PIXEL vec2(gl_GlobalInvocationID.xy)
+        #define LOCAL_SHADOW_FILTER_TAPS 1.0
         #include <Mesh/LocalLightShadowLookup.glslh>
 
         LocalSize(4, 4, 4);
@@ -56,16 +67,16 @@ Shader "VolumetricFogLightScattering"
         // shadowing is a single filtered lookup too; the froxel jitter and the history blur it further).
         float SunShadow(vec3 p)
         {
-            for (int c = 0; c < int(u_VfSunRadiance.w); ++c)
+            for (int c = 0; c < int(VfSunRadiance.w); ++c)
             {
-                vec4 lc  = u_LightViewProj[c] * vec4(p, 1.0);
+                vec4 lc  = VfCascadeViewProj[c] * vec4(p, 1.0);
                 vec3 ndc = lc.xyz / lc.w;
                 vec2 uv  = ndc.xy * 0.5 + 0.5;
                 if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
                     continue;
-                vec2  size  = vec2(textureSize(u_ShadowCascades, 0).xy);
-                vec4  d     = textureGather(u_ShadowCascades, vec3(uv, float(c)), 0);
-                vec4  lit   = step(vec4(ndc.z - u_VfCascadeBias[c]), d);
+                vec2  size  = vec2(textureSize(ShadowCascadesTexture, 0).xy);
+                vec4  d     = textureGather(ShadowCascadesTexture, vec3(uv, float(c)), 0);
+                vec4  lit   = step(vec4(ndc.z - VfCascadeBias[c]), d);
                 vec2  f     = fract(uv * size - 0.5);
                 return mix(mix(lit.w, lit.z, f.x), mix(lit.x, lit.y, f.x), f.y);
             }
@@ -94,30 +105,30 @@ Shader "VolumetricFogLightScattering"
         void main()
         {
             uvec3 froxel = gl_GlobalInvocationID;
-            if (any(greaterThanEqual(froxel, u_VfGridSize.xyz)))
+            if (any(greaterThanEqual(froxel, VfGridSize.xyz)))
                 return;
 
-            vec3  cell   = vec3(froxel) + u_VfJitter.xyz;
+            vec3  cell   = vec3(froxel) + VfJitter.xyz;
             float depth  = VolumetricFogDepthFromSlice(cell.z);
             vec3  viewDir;
             vec3  p        = VolumetricFogWorldPosition(cell.xy, depth, viewDir);
-            float distance = length(p - u_VfCamera.xyz);
-            float g        = u_VfCamera.w;
+            float distance = length(p - VfCamera.xyz);
+            float g        = VfCamera.w;
 
             float extinction = VolumetricFogExtinction(p, distance);
-            vec3  scattering = u_VfAlbedo.rgb * extinction;
+            vec3  scattering = VfAlbedo.rgb * extinction;
 
             vec3 lighting = vec3(0.0);
             if (extinction > 0.0)
             {
-                if (u_VfSunDirection.w > 0.5)
-                    lighting += u_VfSunRadiance.rgb * SunShadow(p) *
-                                VolumetricFogPhaseHG(g, dot(u_VfSunDirection.xyz, viewDir));
+                if (VfSunDirection.w > 0.5)
+                    lighting += VfSunRadiance.rgb * SunShadow(p) *
+                                VolumetricFogPhaseHG(g, dot(VfSunDirection.xyz, viewDir));
 
                 // The point's own cell of the light grid: the pixel it projects to and its view depth.
-                vec4 clip = u_VfViewProjection * vec4(p, 1.0);
+                vec4 clip = VfViewProjection * vec4(p, 1.0);
                 vec2 ndc  = clip.xy / max(clip.w, 1e-6);
-                vec2 pixel = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * u_VfGridPixel.yz;
+                vec2 pixel = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * VfGridPixel.yz;
                 uint gridCell = LightGridCellAt(lightGrid, pixel, p);
                 uint count    = lightGridCells[gridCell];
                 if (LightGridCellOverflowed(lightGrid, count))
@@ -133,36 +144,36 @@ Shader "VolumetricFogLightScattering"
                 }
 
                 // The sky from every direction at once: the phase integrates to 1 over the sphere.
-                vec3 sky = u_VfSkyAmbient.rgb;
-                if (u_VfSkyAmbient.w > 0.5)
-                    sky += u_VfSkyAmbientScale.rgb *
-                           texelFetch(u_DistantSkyLight, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
+                vec3 sky = VfSkyAmbient.rgb;
+                if (VfSkyAmbient.w > 0.5)
+                    sky += VfSkyAmbientScale.rgb *
+                           texelFetch(DistantSkyLightTexture, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
                 lighting += sky;
             }
 
-            vec4 current = vec4(scattering * lighting + u_VfEmissive.rgb * extinction, extinction);
+            vec4 current = vec4(scattering * lighting + VfEmissive.rgb * extinction, extinction);
 
             // Reprojection of the froxel CENTRE (not the jittered point) into last frame's grid.
-            if (u_VfGridPixel.w > 0.5)
+            if (VfGridPixel.w > 0.5)
             {
                 vec3  centreDir;
                 vec3  centre    = VolumetricFogWorldPosition(vec2(froxel.xy) + 0.5,
                                                              VolumetricFogDepthFromSlice(float(froxel.z) + 0.5),
                                                              centreDir);
-                vec4  prevClip  = u_VfPrevViewProjection * vec4(centre, 1.0);
-                float prevDepth = dot(centre - u_VfPrevCamera.xyz, u_VfPrevCameraForward.xyz);
+                vec4  prevClip  = VfPrevViewProjection * vec4(centre, 1.0);
+                float prevDepth = dot(centre - VfPrevCamera.xyz, VfPrevCameraForward.xyz);
                 if (prevClip.w > 0.0 && prevDepth > 0.0)
                 {
                     vec2 prevNdc = prevClip.xy / prevClip.w;
                     vec2 prevUV  = vec2(prevNdc.x * 0.5 + 0.5, 0.5 - prevNdc.y * 0.5);
                     vec3 uvw = vec3(VolumetricFogVolumeUV(prevUV),
-                                    VolumetricFogSliceFromDepth(prevDepth) / float(u_VfGridSize.z));
+                                    VolumetricFogSliceFromDepth(prevDepth) / float(VfGridSize.z));
                     if (all(greaterThanEqual(uvw, vec3(0.0))) && all(lessThanEqual(uvw, vec3(1.0))))
-                        current = mix(current, texture(u_LightScatteringHistory, uvw), u_VfJitter.w);
+                        current = mix(current, texture(LightScatteringHistoryTexture, uvw), VfJitter.w);
                 }
             }
 
-            imageStore(u_LightScattering, ivec3(froxel), current);
+            imageStore(LightScatteringTexture, ivec3(froxel), current);
         }
     }
 }

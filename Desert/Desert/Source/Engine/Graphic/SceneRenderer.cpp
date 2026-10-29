@@ -1110,7 +1110,6 @@ namespace Desert::Graphic
              LightGridQuality{ .TilePixels       = quality.As<uint32_t>( Parameter::LightGridPixelSize ),
                                .Slices           = quality.As<uint32_t>( Parameter::LightGridSlices ),
                                .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
-<<<<<<< HEAD
         // The volumetric fog's ceiling and grid (Scalability Effects.VolumetricFog*), handed to its system each
         // BeginScene like the knobs above.
         if ( const auto it = m_RenderSystems.find( "VolumetricFogSystem" ); it != m_RenderSystems.end() )
@@ -1120,10 +1119,8 @@ namespace Desert::Graphic
                       .Enabled    = quality.As<uint32_t>( Parameter::VolumetricFog ) != 0,
                       .GridPixels = quality.As<uint32_t>( Parameter::VolumetricFogGridPixelSize ),
                       .GridSizeZ  = quality.As<uint32_t>( Parameter::VolumetricFogGridSizeZ ) } );
-=======
         m_RadianceCacheInputs =
              RadianceCache::MakeRadianceCacheInputs( quality, m_RenderMethods.GlobalIllumination.Effective );
->>>>>>> origin/dev
 
         // THE SHADOW BUDGET is not taken here: OnUpdate takes it at the head of the frame, before the cascades are
         // fitted (RebudgetShadowsFor), from the m_RenderMethods resolved above.
@@ -1375,11 +1372,8 @@ namespace Desert::Graphic
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
-<<<<<<< HEAD
         m_SunVolumetricScatteringIntensity = sceneRenderInfo.SunVolumetricScatteringIntensity;
-=======
         m_AtmosphereLight1       = sceneRenderInfo.AtmosphereLight1;
->>>>>>> origin/dev
 
         // THE SUN THE ATMOSPHERE LETS THROUGH (UE's PrepareSunLightProxy). The light's authored colour
         // is its OUTER-SPACE illuminance in the physical model; what reaches the ground has crossed the
@@ -2031,7 +2025,6 @@ namespace Desert::Graphic
 
         // Deferred: fill the G-buffer, then shade it (or show a debug channel) into the scene target before
         // the post chain.
-        bool opaqueFogged = false;
         if ( m_RenderPath == Core::RenderPath::Deferred && m_GBuffer )
         {
             auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
@@ -2145,6 +2138,11 @@ namespace Desert::Graphic
                     AddFrameSubsurface( graph, textures, gbuffer, subsurfaceDiffuse, frame );
                 AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask, localShadowMasks );
 
+                // The opaque scene is complete: its fog (and the fog volumes the translucency below reads) BEFORE
+                // the scene copy, so the refraction sees the fogged scene, and before every translucent draw, which
+                // fogs itself at its own depth rather than being fogged by the opaque depth behind it (UE's order).
+                AddFrameOpaqueFog( graph, textures, frame );
+
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
                 // With a screen trace on, the copy IS the view's scene colour history (what next frame's traces
@@ -2166,44 +2164,6 @@ namespace Desert::Graphic
                 AddFrameWater( graph, textures );
                 AddFrameGlass( graph, textures, sceneCopy, meshRenderer, frontLayer );
             }
-<<<<<<< HEAD
-
-            // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
-            // with their neutral defaults), not as a second, separately resolved read list.
-            AddFrameComposite( graph, textures, gbuffer, giAccum, ssrFrame.Resolved, meshRenderer, lightDir,
-                               lightColor, frame );
-            AddFrameGeneric( graph, textures, meshRenderer );
-            AddFrameSkinned( graph, textures, meshRenderer );
-
-            // The opaque scene is complete: its fog (and the fog volumes the translucency below reads) BEFORE the
-            // scene copy, so the refraction sees the fogged scene, and before every translucent draw, which fogs
-            // itself at its own depth rather than being fogged by the opaque depth behind it (UE's order).
-            AddFrameOpaqueFog( graph, textures, frame );
-            opaqueFogged = true;
-
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-            auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
-            // With SSR on, the copy IS SSR's scene colour history (what next frame's trace reflects): one copy
-            // serves this frame's refraction and next frame's reflections.
-            std::function<void()> stampHistory;
-            if ( ssrFrame.SceneHistory.IsValid() )
-                stampHistory = [ssr, index = frame.FrameIndex]() { ssr->StampSceneColorHistory( index ); };
-            const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
-                 graph, textures, sceneColor(), copy, ssrFrame.SceneHistory, std::move( stampHistory ) );
-
-            // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
-            // the glass, which then refracts the water behind it.
-            // The water writes the scene depth: the clouds and the particles after it read the resolve again.
-            if ( AddFrameWater( graph, textures ) )
-                AddFrameSceneDepthResolve( graph, textures );
-            AddFrameGlass( graph, textures, sceneCopy, meshRenderer );
-        }
-
-        // The forward path's opaque scene is the base pass: its fog here, before the particles.
-        if ( !opaqueFogged )
-            AddFrameOpaqueFog( graph, textures, frame );
-        AddFrameVolumetricClouds( graph, textures, frame );
-=======
         }
         else
         {
@@ -2215,25 +2175,28 @@ namespace Desert::Graphic
             auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             auto* copy         = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+            // The opaque scene is complete: its fog, and the fog inputs the glass reads, before the copy.
+            AddFrameOpaqueFog( graph, textures, frame );
             const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy, {}, {} );
             AddFrameGlass( graph, textures, sceneCopy, meshRenderer, FrameFrontLayer{} );
         }
 
+        // The water writes the scene depth: the clouds and the particles after it read the resolve again.
         AddFrameSceneDepthResolve( graph, textures );
-        AddFrameSkyAtmosphereLuts( graph, textures );
         // The path tracer's paths carry no participating media (PathTracer.hpp: a task of its own), so a
         // path-traced frame composites no height fog, cloud layer or particles over its accumulation; the
         // editor's passes at the extension points still draw. The clouds reach its paths through the sky
         // capture (the environment) and the cloud shadow map (the sun), so the layer's sky-occlusion volume,
         // which the capture marches through, is still written.
+        // The opaque fog (and the fog inputs every translucent draw reads) was added in both paths before the
+        // scene copy (AddFrameOpaqueFog); a path-traced frame added none, so its sky LUTs are added here.
         if ( !pathTraced )
-        {
-            AddFrameAtmosphericFog( graph, textures );
             AddFrameVolumetricClouds( graph, textures, frame );
-        }
         else
+        {
+            AddFrameSkyAtmosphereLuts( graph, textures );
             AddFrameCloudSkyOcclusion( graph, textures );
->>>>>>> origin/dev
+        }
 
         // The opaque scene is complete (lit, composited, the sky/fog/cloud nodes declared): passes from outside
         // the engine that belong under every translucent layer join here.

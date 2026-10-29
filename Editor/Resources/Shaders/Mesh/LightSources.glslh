@@ -10,45 +10,9 @@
 #include <Mesh/BRDF.glslh> // LightFalloffFactor, the one distance model
 #include <ShadingModels/ShadingModelContract.glslh>
 
-<<<<<<< HEAD
-// std430 layout — must match ShaderProtocols::PointLightPayload (64 bytes).
-struct PointLight {
-    vec3  color;
-    float intensity;
-    vec3  position;
-    float radius;
-    float minRadius;
-    int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
-    int   shadowView;  // first row in LocalShadowViewsUB (a point light: +X -X +Y -Y +Z -Z), or -1
-    float contactShadowLength;  // UE ContactShadowLength: screen fraction, or cm when contactShadowInWorld; 0 = none
-    int   contactShadowInWorld; // 1 = contactShadowLength is in world centimetres
-    float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
-    float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
-    float volumetricScatteringIntensity; // UE VolumetricScatteringIntensity (volumetric fog)
-};
-
-// std430 layout — must match ShaderProtocols::SpotLightPayload (80 bytes).
-struct SpotLight {
-    vec3  color;
-    float intensity;
-    vec3  position;
-    float range;
-    vec3  direction;   // normalized, pointing OUT of the cone apex
-    float cosInner;    // cos(inner half-angle) — full intensity inside this
-    float cosOuter;    // cos(outer half-angle) — zero intensity outside this
-    int   falloff;     // LightFalloff: 0=Linear, 1=Quadratic, 2=InverseSquare
-    int   shadowView;  // first row in LocalShadowViewsUB (a point light: +X -X +Y -Y +Z -Z), or -1
-    float contactShadowLength;  // UE ContactShadowLength: screen fraction, or cm when contactShadowInWorld; 0 = none
-    int   contactShadowInWorld; // 1 = contactShadowLength is in world centimetres
-    float contactShadowCastingIntensity;    // UE ContactShadowCastingIntensity (a hit on a caster)
-    float contactShadowNonCastingIntensity; // UE ContactShadowNonCastingIntensity (a hit on a non-caster)
-    float volumetricScatteringIntensity; // UE VolumetricScatteringIntensity (volumetric fog)
-};
-=======
 // `struct PointLight` / `struct SpotLight` (std430, 80 / 96 bytes) are GENERATED from ShaderProtocols::PointLight /
 // SpotLight's field lists (Engine/Graphic/ShaderProtocols/{PointLight,SpotLight}.hpp) by the shader includer.
 #include <Mesh/LightSourceLayouts.glslh>
->>>>>>> origin/dev
 
 // A local light's half of its contact shadow, as Common/ContactShadow.glslh takes it: (length, in world space,
 // casting intensity, non-casting intensity).

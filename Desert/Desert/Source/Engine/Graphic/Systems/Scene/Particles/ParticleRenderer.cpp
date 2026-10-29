@@ -951,11 +951,6 @@ namespace Desert::Graphic::System
             }
 
             // The scene depth the cells fade against: the single-sample depth (the attachment itself at MSAA 1,
-<<<<<<< HEAD
-            // read-only in this node), bound only where the cell's layout samples it.
-            const std::shared_ptr<Image2D> depth = m_SceneRenderer->GetComputeSceneDepth();
-            const SceneViewInputs          fogInputs = SceneViewInputsOf( refs );
-=======
             // read-only in this node), on BOTH paths (SceneViewInputs::SceneDepth is the G-buffer's, absent on the
             // forward path). Every other scene/view input a cell samples comes from THE one list, as the forward
             // meshes and the glass take them — the shading word the lit cell's contact shadow tests, the cascades,
@@ -963,28 +958,10 @@ namespace Desert::Graphic::System
             // (ValidatePassBindings), so a sprite cell that gains a scene read must not need this pass to name it.
             const std::shared_ptr<Image2D> depth  = m_SceneRenderer->GetComputeSceneDepth();
             const SceneViewInputs          inputs = SceneViewInputsOf( refs );
->>>>>>> origin/dev
             for ( const ViewEmitter& ve : m_ViewEmitters )
             {
                 if ( !IsDrawn( ve ) )
                     continue;
-<<<<<<< HEAD
-                const auto& layout = ve.Sprite->Layout.Get( ve.Sprite->Pipeline->GetSpecification().Shader );
-                // A translucent / additive emitter reads its alive half back to front from this view's SortedAlive
-                // (AddSortPasses), at the same offset; an opaque / masked one reads AliveList unsorted.
-                auto block =
-                     declared.Bindings( layout, ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill() )
-                          .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageRead )
-                          .Storage( "DrawLayout", ve.DrawLayoutRef, RDG::Access::StorageRead )
-                          .Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
-                                    RDG::Access::StorageRead );
-                if ( SceneViewDetail::LayoutSamples( *layout, "u_SceneDepth" ) && depth )
-                    block.Sampled( "u_SceneDepth", depth, RDG::Access::SampledGraphics,
-                                   RDG::SamplerDesc::PointClamp(), "SceneDepth.Compute" );
-                // Every sprite fogs itself at its own depth (Mesh/Surface/SceneFog.glslh): the frame's fog block
-                // and images, published by the opaque fog before this node.
-                BindSceneFogInputs( block, fogInputs, *layout );
-=======
                 for ( const ViewDraw& draw : ve.Draws )
                 {
                     const SpriteDraw& sprite = *draw.Sprite;
@@ -1025,7 +1002,6 @@ namespace Desert::Graphic::System
                                    } );
                     BindSceneViewInputs( block, inputs, others );
                 }
->>>>>>> origin/dev
                 declared.Read( ve.CountersRef, RDG::Access::IndirectArgs );
             }
         };

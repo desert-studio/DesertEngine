@@ -302,18 +302,10 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         {
             const bool sceneReadHeader = entry.path().filename() == "GpuScene.glslh" ||
                                          ( entry.path().filename() == "SurfaceTypes.glslh" &&
-<<<<<<< HEAD
-                                           ( name == "u_SceneDepth" || name == "u_SceneShadingWord" ) ) ||
-                                         entry.path().filename() == "SceneFog.glslh";
-            // The view's light grid: the forward cell declares its two blocks at their two numbers of the range
-            // (the deferred composite at set-0 slots 22/23 and the build shader's compute layout from 0, both
-            // outside it).
-            if ( name == "LightGridParamsUB" || name == "LightGridCellsUB" )
-=======
                                            ( name == "SceneDepthTexture" || name == "SceneShadingWordTexture" ) ) ||
-                                         entry.path().filename() == "MegaLightsVolume.glslh";
+                                         entry.path().filename() == "MegaLightsVolume.glslh" ||
+                                         entry.path().filename() == "SceneFog.glslh";
             if ( const auto forward = forwardSceneRead.find( name ); forward != forwardSceneRead.end() )
->>>>>>> origin/dev
             {
                 if ( viewPassLayout )
                 {
@@ -333,10 +325,7 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-<<<<<<< HEAD
-    ASSERT_EQ( sceneRead.size(), 9u );
-=======
-    ASSERT_EQ( sceneRead.size(), 17u );
+    ASSERT_EQ( sceneRead.size(), 20u );
     EXPECT_EQ( sceneRead["GpuSceneInstances"], Desert::Core::kGpuSceneInstancesBinding );
     EXPECT_EQ( sceneRead["GpuSceneVisibleInstances"], Desert::Core::kGpuSceneVisibleInstancesBinding );
     EXPECT_EQ( sceneRead["GpuSceneDrawSlots"], Desert::Core::kGpuSceneDrawSlotsBinding );
@@ -347,29 +336,23 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
     EXPECT_EQ( sceneRead["MegaLightsVolumeRTexture"], Desert::Core::kMegaLightsVolumeFirstBinding );
     EXPECT_EQ( sceneRead["MegaLightsVolumeGTexture"], Desert::Core::kMegaLightsVolumeFirstBinding + 1u );
     EXPECT_EQ( sceneRead["MegaLightsVolumeBTexture"], Desert::Core::kMegaLightsVolumeFirstBinding + 2u );
->>>>>>> origin/dev
     EXPECT_EQ( sceneRead["LightGridParamsUB"], Desert::Core::kLightGridParamsBinding );
     EXPECT_EQ( sceneRead["LightGridCellsUB"], Desert::Core::kLightGridCellsBinding );
     EXPECT_EQ( sceneRead["GpuScenePrimitives"], Desert::Core::kGpuScenePrimitivesBinding );
     EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
-<<<<<<< HEAD
-    EXPECT_EQ( sceneRead["u_SceneDepth"], Desert::Core::kSceneDepthBinding );
-    EXPECT_EQ( sceneRead["u_SceneShadingWord"], Desert::Core::kSceneShadingWordBinding );
+    EXPECT_EQ( sceneRead["SceneDepthTexture"], Desert::Core::kSceneDepthBinding );
+    EXPECT_EQ( sceneRead["SceneShadingWordTexture"], Desert::Core::kSceneShadingWordBinding );
     // VOLFOG-2: the view's fog a translucent surface applies at its own depth (Mesh/Surface/SceneFog.glslh). Its
     // parameter block is declared through Common/FogParams.glslh at FOG_PARAMS_BINDING, which the header defines
     // first - a macro the declaration walk above cannot read, so the define itself is checked.
-    EXPECT_EQ( sceneRead["u_SceneFogAerialPerspective"], Desert::Core::kSceneFogAerialPerspectiveBinding );
-    EXPECT_EQ( sceneRead["u_SceneFogDistantSkyLight"], Desert::Core::kSceneFogDistantSkyLightBinding );
-    EXPECT_EQ( sceneRead["u_SceneFogVolume"], Desert::Core::kSceneFogVolumeBinding );
+    EXPECT_EQ( sceneRead["SceneFogAerialPerspectiveTexture"], Desert::Core::kSceneFogAerialPerspectiveBinding );
+    EXPECT_EQ( sceneRead["SceneFogDistantSkyLightTexture"], Desert::Core::kSceneFogDistantSkyLightBinding );
+    EXPECT_EQ( sceneRead["SceneFogVolumeTexture"], Desert::Core::kSceneFogVolumeBinding );
     const std::string sceneFog = ReadFile( shaders / "Mesh/Surface/SceneFog.glslh" );
     EXPECT_NE(
          sceneFog.find( std::format( "#define FOG_PARAMS_BINDING {}", Desert::Core::kSceneFogParamsBinding ) ),
          std::string::npos )
          << "Mesh/Surface/SceneFog.glslh does not put the fog block at Core::kSceneFogParamsBinding";
-=======
-    EXPECT_EQ( sceneRead["SceneDepthTexture"], Desert::Core::kSceneDepthBinding );
-    EXPECT_EQ( sceneRead["SceneShadingWordTexture"], Desert::Core::kSceneShadingWordBinding );
->>>>>>> origin/dev
 }
 
 TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )

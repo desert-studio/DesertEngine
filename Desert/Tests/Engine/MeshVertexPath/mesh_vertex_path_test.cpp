@@ -788,13 +788,8 @@ TEST_F( MeshVertexPathShaderRoot, AMockTemplatesLayoutIsItsPropertiesAndItsPushB
     EXPECT_EQ( *cell.Layout.RowBinding, 30u );
     ASSERT_NE( cell.Layout.FindParam( "Tiling" ), nullptr );
     EXPECT_EQ( cell.Layout.FindParam( "Tiling" )->Offset, 16u );
-<<<<<<< HEAD
-    ASSERT_NE( cell.Layout.FindTexture( "u_Mask" ), nullptr );
-    EXPECT_EQ( cell.Layout.FindTexture( "u_Mask" )->Binding, 35u );
-=======
     ASSERT_NE( cell.Layout.FindTexture( "MaskTexture" ), nullptr );
     EXPECT_EQ( cell.Layout.FindTexture( "MaskTexture" )->Binding, 31u );
->>>>>>> origin/dev
 
     const auto* index = cell.Layout.FindPush( "MaterialIndex" );
     ASSERT_NE( index, nullptr );

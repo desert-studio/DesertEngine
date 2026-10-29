@@ -9,7 +9,7 @@
 // bound by name from the frame graph (BindSceneFogInputs): the height fog's parameter block (always uploaded; its
 // gates are 0 on a frame without fog, and every reader then leaves its colour untouched), the sky's aerial
 // perspective volume, its distant sky light and the volumetric fog's integrated froxels (each the engine's fallback
-// when absent, never sampled then).
+// when absent, never sampled then). The includer declares `LinearClampSampler` first.
 #ifndef DESERT_SCENE_FOG_GLSLH
 #define DESERT_SCENE_FOG_GLSLH
 
@@ -18,9 +18,14 @@
 #include <Common/FogParams.glslh>
 #include <Common/ViewFog.glslh>
 
-layout( binding = 46 ) uniform sampler3D u_SceneFogAerialPerspective; // 46 = Core::kSceneFogAerialPerspectiveBinding
-layout( binding = 47 ) uniform sampler2D u_SceneFogDistantSkyLight;   // 47 = Core::kSceneFogDistantSkyLightBinding
-layout( binding = 48 ) uniform sampler3D u_SceneFogVolume;            // 48 = Core::kSceneFogVolumeBinding
+// Separate textures read through the includer's `LinearClampSampler` (trilinear, clamped at the volumes' edges;
+// the binding side is BindSceneFogInputs), as Common/MegaLightsVolume.glslh does.
+layout( binding = 46 ) uniform texture3D SceneFogAerialPerspectiveTexture; // 46 = Core::kSceneFogAerialPerspectiveBinding
+#define SceneFogAerialPerspectiveTexture sampler3D( SceneFogAerialPerspectiveTexture, LinearClampSampler )
+layout( binding = 47 ) uniform texture2D SceneFogDistantSkyLightTexture; // 47 = Core::kSceneFogDistantSkyLightBinding
+#define SceneFogDistantSkyLightTexture sampler2D( SceneFogDistantSkyLightTexture, LinearClampSampler )
+layout( binding = 48 ) uniform texture3D SceneFogVolumeTexture; // 48 = Core::kSceneFogVolumeBinding
+#define SceneFogVolumeTexture sampler3D( SceneFogVolumeTexture, LinearClampSampler )
 
 // The fog between the camera and this fragment (@p worldPosition, world units): premultiplied inscattering in .rgb,
 // transmittance in .a. An alpha-blended surface writes colour * a + rgb (its coverage multiplies both); an additive
@@ -28,8 +33,8 @@ layout( binding = 48 ) uniform sampler3D u_SceneFogVolume;            // 48 = Co
 vec4 DesertSceneFog( vec3 worldPosition )
 {
     const vec2 viewUv = gl_FragCoord.xy / max( FogView.xy, vec2( 1.0 ) );
-    return ViewFogEvaluate( viewUv, worldPosition, true, u_SceneFogAerialPerspective, u_SceneFogDistantSkyLight,
-                            u_SceneFogVolume );
+    return ViewFogEvaluate( viewUv, worldPosition, true, SceneFogAerialPerspectiveTexture,
+                            SceneFogDistantSkyLightTexture, SceneFogVolumeTexture );
 }
 
 #endif // DESERT_SCENE_FOG_GLSLH

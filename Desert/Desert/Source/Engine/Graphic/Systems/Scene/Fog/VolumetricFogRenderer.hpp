@@ -52,6 +52,44 @@ namespace Desert::Graphic::System
         glm::vec4                CascadeDepthRange{ 1.0f };
     };
 
+    // The LightScattering shader's parameters (Programs/Fog/VolumetricFogLightScattering.shader): the one spelling
+    // the froxel lighting node binds and Initialize checks. The parameter block (VolumetricFogParamsBuffer) is the
+    // pipeline's own (SetStorageBuffer), not a graph binding.
+    struct VolumetricFogLightScatteringShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, LightScatteringTexture );
+        DESERT_SHADER_PARAMETER( Texture, LightScatteringHistoryTexture );
+        DESERT_SHADER_PARAMETER( Texture, ShadowCascadesTexture );
+        DESERT_SHADER_PARAMETER( Texture, LocalShadowAtlasTexture );
+        DESERT_SHADER_PARAMETER( Texture, DistantSkyLightTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PointLightsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SpotLightsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LocalShadowViewsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LightGridParamsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LightGridCellsUB );
+        static constexpr std::array kAll{
+             RDG::Erase( LightScatteringTexture ), RDG::Erase( LightScatteringHistoryTexture ),
+             RDG::Erase( ShadowCascadesTexture ),  RDG::Erase( LocalShadowAtlasTexture ),
+             RDG::Erase( DistantSkyLightTexture ), RDG::Erase( LinearClampSampler ),
+             RDG::Erase( LinearRepeatSampler ),    RDG::Erase( PointClampSampler ),
+             RDG::Erase( PointLightsUB ),          RDG::Erase( SpotLightsUB ),
+             RDG::Erase( LocalShadowViewsUB ),     RDG::Erase( LightGridParamsUB ),
+             RDG::Erase( LightGridCellsUB ) };
+    };
+
+    // The Integration shader's parameters (Programs/Fog/VolumetricFogIntegration.shader).
+    struct VolumetricFogIntegrationShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, IntegratedLightScatteringTexture );
+        DESERT_SHADER_PARAMETER( Texture, LightScatteringTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( IntegratedLightScatteringTexture ),
+                                          RDG::Erase( LightScatteringTexture ), RDG::Erase( PointClampSampler ) };
+    };
+
     /**
      * @brief UE's Volumetric Fog (VolumetricFog.cpp / VolumetricFog.usf, reimplemented): the exponential height
      *        fog's medium evaluated per FROXEL of a camera-aligned grid and lit by every light, so that fog shows

@@ -11,6 +11,8 @@ DESERT_SURFACE_VARYINGS( in )
 layout( location = 12 ) in flat vec4 v_ParticleColor;
 layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
 
+// The fog's three images are read through this sampler (Mesh/Surface/SceneFog.glslh).
+Uniform sampler LinearClampSampler;
 #include <Mesh/Surface/SceneFog.glslh>
 
 layout( location = 0 ) out vec4 oColor;
@@ -30,34 +32,26 @@ void main()
 
     DESERT_SURFACE_CLIP( i );
     const SurfaceOutput s = EvaluateSurface( i );
-<<<<<<< HEAD
     DESERT_SURFACE_CLIP( s );
+    // The sprite fogs itself at its own depth (Mesh/Surface/SceneFog.glslh); the fog's inscattering is pre-exposed
+    // by the fog block (FogGates.z), the sprite's own light by the camera's pre-exposure.
     const vec4 fog = DesertSceneFog( v_Surface.WorldPosition );
+    const vec3 lit = ( s.BaseColor + s.Emissive ) * cameraUB.PreExposure;
 #ifdef DESERT_SURFACE_TRANSLUCENT
     if ( s.Opacity <= 0.0 )
         discard;
 #ifdef DESERT_SURFACE_ADDITIVE
     // Added light: attenuated by the fog in front of it, and none of the fog's own light (that is already in the
     // scene it is added to).
-    oColor = vec4( ( s.BaseColor + s.Emissive ) * fog.a, clamp( s.Opacity, 0.0, 1.0 ) );
+    oColor = vec4( lit * fog.a, clamp( s.Opacity, 0.0, 1.0 ) );
 #else
     // Blended by its coverage (SrcAlpha): colour * transmittance + inscattering, both scaled by the coverage.
-    oColor = vec4( ( s.BaseColor + s.Emissive ) * fog.a + fog.rgb, clamp( s.Opacity, 0.0, 1.0 ) );
+    oColor = vec4( lit * fog.a + fog.rgb, clamp( s.Opacity, 0.0, 1.0 ) );
 #endif
-=======
-#ifdef DESERT_SURFACE_TRANSLUCENT
-    if ( s.Opacity <= 0.0 )
-        discard;
-    oColor = vec4( ( s.BaseColor + s.Emissive ) * cameraUB.PreExposure, clamp( s.Opacity, 0.0, 1.0 ) );
->>>>>>> origin/dev
 #ifdef DESERT_SURFACE_RESPONSIVE_AA
     oResponsiveAA = vec4( 1.0, 0.0, 0.0, oColor.a );
 #endif
 #else
-<<<<<<< HEAD
-    oColor = vec4( ( s.BaseColor + s.Emissive ) * fog.a + fog.rgb, 1.0 );
-=======
-    oColor = vec4( ( s.BaseColor + s.Emissive ) * cameraUB.PreExposure, 1.0 );
->>>>>>> origin/dev
+    oColor = vec4( lit * fog.a + fog.rgb, 1.0 );
 #endif
 }

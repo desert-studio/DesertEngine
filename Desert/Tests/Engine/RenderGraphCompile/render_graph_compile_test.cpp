@@ -2445,17 +2445,10 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: SSR",
          "Deferred: Composite",
          "Deferred: Generic",
-<<<<<<< HEAD
-         "Deferred: Skinned",
          // VOLFOG-2: the opaque scene is complete - its fog (UE: the fog volumes built before the translucency):
          // the depth resolve, the sky's LUTs, the volumetric fog's froxels lit and integrated, the height fog's
          // evaluation of the OPAQUE depth and its apply over the scene, all before the scene copy (the refraction
          // reads the fogged scene) and before every translucent draw, which fogs itself at its own depth.
-=======
-         "Deferred: SceneCopy",
-         "Deferred: Water",
-         "Deferred: Glass",
->>>>>>> origin/dev
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
          "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun)]",
@@ -2463,8 +2456,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "system[fog->ApplyPass()]",
          "Deferred: SceneCopy",
          "Deferred: Water",
-         // The water wrote the scene depth: the clouds and the particles read it resolved again.
-         "Scene: DepthResolve",
          "Deferred: Glass",
          // The forward path's opaque fog (the same call; the deferred path took it above).
          "Scene: DepthResolve",
@@ -2472,7 +2463,11 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun)]",
          "compute[fog->DeclareFrameNodes(graph,textures.Transients,volumeResult)]",
          "system[fog->ApplyPass()]",
+         // The water wrote the scene depth: the clouds and the particles read it resolved again.
+         "Scene: DepthResolve",
          "compute[clouds->DeclareFrameNodes(graph,frame)]",
+         // A path-traced frame took no opaque fog: its sky LUTs here.
+         "compute[sky->DeclareAtmosphereLutNodes()]",
          // ARCH1b-2: passes from outside the engine join at named extension points, each invoked at its place.
          "extension[AfterOpaque]",
          // ARCH1b: the translucency in draw order by call order (AddFrameTranslucency), no numeric placement:

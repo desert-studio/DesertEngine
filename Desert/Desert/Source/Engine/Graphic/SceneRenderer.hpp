@@ -177,17 +177,14 @@ namespace Desert::Graphic
             // would never be re-baked).
             Common::Timestep                RealTimestep;
             ShaderProtocols::DirectionLight DirLights;
-<<<<<<< HEAD
             // The sun's (DirLights[0]) VolumetricScatteringIntensity: how much of it the volumetric fog scatters.
             // Beside the payload rather than in it: DirectionLightsUB is a GPU layout every lit shader shares, and
             // only the volumetric fog reads this.
             float SunVolumetricScatteringIntensity = 1.0f;
-=======
             // Atmosphere light 1 (UE's Atmosphere Sun Light Index 1, the moon), when the scene marks one:
             // direction it travels and colour/intensity, as DirLights' sun. Shaded by the deferred pass, and lit
             // by the path tracer and the GI hit lighting through the GI frame record.
             std::optional<AtmosphereLight1Frame> AtmosphereLight1;
->>>>>>> origin/dev
         };
 
         struct RenderSubmissionExtra
@@ -1433,13 +1430,10 @@ namespace Desert::Graphic
         SunLightFx m_SunLightFx;
 
         ShaderProtocols::DirectionLight m_DirectionLights;
-<<<<<<< HEAD
         float                           m_SunVolumetricScatteringIntensity = 1.0f; // this frame's, see RenderInfo
-=======
         // This frame's atmosphere light 1 (the moon) as the deferred pass shades it: the scene's value times
         // AtmosphereEnv::Light1TransmittanceAtGround (OnUpdate), or nothing.
         std::optional<AtmosphereLight1Frame> m_AtmosphereLight1;
->>>>>>> origin/dev
         ShaderProtocols::PointLight     m_PointLight;
         ShaderProtocols::SpotLight      m_SpotLight;
         // What each light of m_PointLight / m_SpotLight asks of its shadow, index for index.

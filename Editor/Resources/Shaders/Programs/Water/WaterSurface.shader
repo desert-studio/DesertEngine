@@ -87,14 +87,12 @@ Shader "WaterSurface"
         Out(3) float oThinGeometryCoverage;
 
         #include <Programs/Water/WaterSurfaceData.glslh>
-<<<<<<< HEAD
-        #include <Common/ObjectMotion.glslh>
-        // The view's fog at the surface's own depth: the water is drawn after the opaque fog composite.
-        #include <Mesh/Surface/SceneFog.glslh>
-=======
         #include <Common/Velocity.glslh>
         #include <Common/ThinGeometryCoverage.glslh>
->>>>>>> origin/dev
+        // The view's fog at the surface's own depth: the water is drawn after the opaque fog composite. Its three
+        // images are read through this sampler (Mesh/Surface/SceneFog.glslh).
+        Uniform sampler LinearClampSampler;
+        #include <Mesh/Surface/SceneFog.glslh>
 
         void main()
         {
@@ -114,12 +112,10 @@ Shader "WaterSurface"
             vec3 H        = normalize( V + L );
             vec3 glint    = sun * pow( max( dot( N, H ), 0.0 ), 400.0 ) * fres * step( 0.0, L.y );
 
-<<<<<<< HEAD
+            // Fogged at its own depth: the surface's light (pre-exposed here) attenuated by the fog in front of it,
+            // plus the fog's inscattering (pre-exposed by the fog block, FogGates.z).
             const vec4 fog = DesertSceneFog( v_WorldPos );
-            o_Color        = vec4( ( mix( body, skyCol, fres ) + glint ) * fog.a + fog.rgb, 1.0 );
-=======
-            o_Color   = vec4( ( mix( body, skyCol, fres ) + glint ) * u.Exposure.x, 1.0 );
->>>>>>> origin/dev
+            o_Color        = vec4( ( mix( body, skyCol, fres ) + glint ) * u.Exposure.x * fog.a + fog.rgb, 1.0 );
             vec4 world = vec4( v_WorldPos, 1.0 );
             oVelocity  = DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world, 0.0 ); // waves deform, the water does not move (Common/Velocity.glslh)
             oThinGeometryCoverage = kThinGeometryCoverageSurface;

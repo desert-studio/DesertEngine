@@ -15,37 +15,39 @@ Shader "VolumetricFogIntegration"
 
         #include <Common/VolumetricFog.glslh>
 
-        layout(binding = 0, rgba16f) restrict writeonly uniform image3D u_IntegratedLightScattering;
-        Uniform(2) sampler3D u_LightScattering;
+        layout(binding = 0, rgba16f) restrict writeonly uniform image3D IntegratedLightScatteringTexture;
+        Uniform sampler PointClampSampler;
+        Uniform(2) texture3D LightScatteringTexture;
+        #define LightScatteringTexture sampler3D(LightScatteringTexture, PointClampSampler)
 
         LocalSize(8, 8, 1);
 
         void main()
         {
             uvec2 column = gl_GlobalInvocationID.xy;
-            if (any(greaterThanEqual(column, u_VfGridSize.xy)))
+            if (any(greaterThanEqual(column, VfGridSize.xy)))
                 return;
 
             vec3  rayDir;
             VolumetricFogWorldPosition(vec2(column) + 0.5, 1.0, rayDir);
             // Ray length per centimetre of view depth along this column.
-            float lengthPerDepth = 1.0 / max(dot(rayDir, u_VfCameraForward.xyz), 1e-4);
+            float lengthPerDepth = 1.0 / max(dot(rayDir, VfCameraForward.xyz), 1e-4);
 
             vec3  accumulated   = vec3(0.0);
             float transmittance = 1.0;
             // Slice 0's near edge is the camera's near plane, not the camera; the fog in front of it is counted
             // with slice 0's medium (the march starts at depth 0) so a camera inside dense fog has no clear bubble.
             float nearDepth     = 0.0;
-            for (uint z = 0u; z < u_VfGridSize.z; ++z)
+            for (uint z = 0u; z < VfGridSize.z; ++z)
             {
                 float farDepth  = VolumetricFogDepthFromSlice(float(z + 1u));
                 float stepLen   = (farDepth - nearDepth) * lengthPerDepth;
-                vec4  medium    = texelFetch(u_LightScattering, ivec3(column, z), 0);
+                vec4  medium    = texelFetch(LightScatteringTexture, ivec3(column, z), 0);
                 float ext       = max(medium.a, 1e-7);
                 float stepTrans = exp(-ext * stepLen);
                 accumulated += transmittance * medium.rgb * (1.0 - stepTrans) / ext;
                 transmittance *= stepTrans;
-                imageStore(u_IntegratedLightScattering, ivec3(column, z), vec4(accumulated, transmittance));
+                imageStore(IntegratedLightScatteringTexture, ivec3(column, z), vec4(accumulated, transmittance));
                 nearDepth = farDepth;
             }
         }
