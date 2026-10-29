@@ -335,6 +335,9 @@ def main():
     s = load()
 
     if event == "UserPromptSubmit":
+        text = str(data.get("prompt") or "")
+        if text.lstrip().startswith(("<task-notification>", "<system-reminder>", "<cross-session-message")):
+            sys.exit(0)  # a background notice, not the owner's words: it must not crowd the owner's quotes out
         s["prompts"] = [p for p in s["prompts"] if time.time() - p[0] < 48 * 3600][-40:] + \
             [[time.time(), str(data.get("prompt") or "")[:4000]]]
         save(s)
