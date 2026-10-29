@@ -1,0 +1,80 @@
+#ifndef DESERT_WEATHER_SNOW_GLSLH
+#define DESERT_WEATHER_SNOW_GLSLH
+
+// THE WORLD'S SNOW LAYER (FIELD-WINTER): the snow a weather preset lays on every lit surface that faces the sky,
+// the way UE's winter projects layer a snow material function over every master material driven by a parameter
+// collection (CitySample-style weather, Lagarde's "Water drop" for the wet half). Here the layer is the engine's,
+// written once and read by the surface pass headers (Mesh/Surface/SurfaceWeather.glslh) and the landscape
+// (Programs/Terrain/*.shader), and its LOOK is an asset: the scene's world parameter collection names the snow's
+// albedo / normal / ARM textures (a scanned CC0 snow set) as Texture parameters, and the weather preset drives
+// SnowCover. Nothing here invents a colour: with no texture resolved the layer is absent, not white.
+//
+// The parameter keys are Serialization::WorldParameterKey of the names below (FNV-1a 32); WorldParameterTable.hpp
+// pins the same literals with static_asserts, so a renamed parameter fails the C++ build, not a frame.
+// Needs the bindless table (injected into every material-row cell by DShaderParser).
+#include <Common/WorldParameters.glslh>
+
+const uint kDesertSnowCoverKey    = 0x0b8bf081u; // "SnowCover": 0 = none, 1 = everything that faces up is white
+const uint kDesertSnowAlbedoKey   = 0xc0678c8bu; // "SnowAlbedo" (Texture)
+const uint kDesertSnowNormalKey   = 0x253367e1u; // "SnowNormal" (Texture, OpenGL tangent space)
+const uint kDesertSnowArmKey      = 0xc2d545c4u; // "SnowArm" (Texture: R = occlusion, G = roughness, B = metal)
+const uint kDesertSnowTileSizeKey = 0x2fe67b17u; // "SnowTileSize": cm one texture repeat covers on the ground
+
+struct DesertSnowLayer
+{
+    vec3  Albedo;
+    vec3  NormalWS; // world space
+    float Roughness;
+    float AO;
+    float Weight; // 0 = no snow here, 1 = only snow
+};
+
+// A Texture world parameter as a bindless texture; false while the collection names none or it is not resident.
+bool DesertWorldTexture( const uint key, out BindlessTexture t )
+{
+    const vec4 v = DesertWorldParameter( key );
+    t            = BindlessTexture( floatBitsToUint( v.x ), floatBitsToUint( v.y ), 0u, 0u );
+    return v.w > 0.5;
+}
+
+// The snow at @p worldPos on a surface whose world normal is @p normalWS, with @p exposure the share of the
+// open sky that reaches it (1 - the view's precipitation occlusion; 1 where the caller has none).
+// Projected from above (snow falls, it does not wrap): u = +X, v = -Z, so the map's tangent frame is
+// T = +X, B = -Z, N = +Y. Coverage is a threshold on how much the surface faces up that falls as SnowCover rises,
+// broken up by the snow's own height (its occlusion channel), so the edge on a roof or a branch is ragged like
+// drifted snow, not a contour line.
+DesertSnowLayer DesertEvaluateSnow( const vec3 worldPos, const vec3 normalWS, const float exposure )
+{
+    DesertSnowLayer snow;
+    snow.Albedo    = vec3( 0.0 );
+    snow.NormalWS  = normalWS;
+    snow.Roughness = 1.0;
+    snow.AO        = 1.0;
+    snow.Weight    = 0.0;
+
+    const float cover = clamp( DesertWorldParameter( kDesertSnowCoverKey ).x, 0.0, 1.0 );
+    BindlessTexture albedoMap, normalMap, armMap;
+    if ( cover <= 0.0 || exposure <= 0.0 || !DesertWorldTexture( kDesertSnowAlbedoKey, albedoMap ) ||
+         !DesertWorldTexture( kDesertSnowNormalKey, normalMap ) || !DesertWorldTexture( kDesertSnowArmKey, armMap ) )
+        return snow;
+
+    const float tile = max( DesertWorldParameter( kDesertSnowTileSizeKey ).x, 1.0 );
+    const vec2  uv   = vec2( worldPos.x, -worldPos.z ) / tile;
+    const vec3  arm  = SampleBindless( armMap, uv ).rgb;
+
+    const float up        = normalWS.y;
+    const float threshold = mix( 1.05, -0.35, cover ); // the up-ness above which the surface holds snow
+    const float drift     = ( arm.r - 0.5 ) * 0.35;      // the snow's own relief breaks the edge up
+    snow.Weight           = smoothstep( threshold, threshold + 0.25, up + drift ) * clamp( exposure, 0.0, 1.0 );
+    if ( snow.Weight <= 0.0 )
+        return snow;
+
+    const vec3 n   = SampleBindless( normalMap, uv ).xyz * 2.0 - 1.0;
+    snow.NormalWS  = normalize( vec3( n.x, n.z, -n.y ) );
+    snow.Albedo    = SampleBindless( albedoMap, uv ).rgb;
+    snow.Roughness = arm.g;
+    snow.AO        = arm.r;
+    return snow;
+}
+
+#endif

@@ -55,6 +55,7 @@
 #include <Engine/Graphic/Systems/Scene/Debug/DebugDrawRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/AutoExposureRules.hpp>
 #include <Engine/Graphic/WorldParameterTable.hpp>
+#include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 
 #include <cstring>
@@ -840,7 +841,23 @@ namespace Desert::Graphic
 
     Common::BoolResultStr SceneRenderer::UploadWorldParameters( const Desert::Core::Scene& scene )
     {
-        const WorldParameterTable table = BuildWorldParameterTable( scene.GetWorldParameters().Values() );
+        // A Texture parameter's slot carries its texture's bindless image and sampler (x, y as uint bits) and w =
+        // 1 once the texture is resident; until then the slot is zero and the surface reads no such texture.
+        std::vector<Desert::Core::WorldParameterValue> values( scene.GetWorldParameters().Values().begin(),
+                                                               scene.GetWorldParameters().Values().end() );
+        for ( auto& value : values )
+        {
+            if ( value.Type != Assets::Serialization::WorldParameterType::Texture )
+                continue;
+            value.Value              = glm::vec4( 0.0f );
+            const Texture2D* texture = Runtime::ResourceRegistry::GetTextureService()->Get( value.Texture );
+            if ( texture == nullptr || !texture->GetBindlessSlot().IsValid() )
+                continue;
+            value.Value = glm::vec4(
+                 glm::uintBitsToFloat( texture->GetBindlessSlot().Index ),
+                 glm::uintBitsToFloat( BindlessSamplerFor( Core::Formats::SamplerState{} ).Index ), 0.0f, 1.0f );
+        }
+        const WorldParameterTable table = BuildWorldParameterTable( values );
         std::vector<std::byte>    bytes( sizeof( table.Header ) +
                                          table.Slots.size() * sizeof( GpuWorldParameterSlot ) );
         std::memcpy( bytes.data(), &table.Header, sizeof( table.Header ) );

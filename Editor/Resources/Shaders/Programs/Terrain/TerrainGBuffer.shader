@@ -143,6 +143,7 @@ Shader "TerrainGBuffer"
 
         #include <Programs/Terrain/TerrainSurface.glslh>
         #include <Generated/ShadingModels.glslh>
+        #include <Common/WeatherSnow.glslh>
         #include <Common/ThinGeometryCoverage.glslh>
 
         void main()
@@ -151,6 +152,15 @@ Shader "TerrainGBuffer"
             float          cover;
             float          opacity;
             TerrainSurface s = EvaluateTerrainSurfaceCovered( Material.Tint.rgb, transmission, cover, opacity );
+            // The world's snow (Common/WeatherSnow.glslh) over the ground and the grass's far cover alike: where it
+            // lies the ground is snow, DefaultLit, and the cover's transmission is buried with it.
+            const DesertSnowLayer snow = DesertEvaluateSnow( v_WorldPos, s.N, 1.0 );
+            s.Albedo    = mix( s.Albedo, snow.Albedo, snow.Weight );
+            s.Roughness = mix( s.Roughness, snow.Roughness, snow.Weight );
+            s.AO        = mix( s.AO, snow.AO, snow.Weight );
+            s.N         = normalize( mix( s.N, snow.NormalWS, snow.Weight ) );
+            cover        = snow.Weight > 0.5 ? 0.0 : cover * ( 1.0 - snow.Weight );
+            transmission *= 1.0 - snow.Weight;
 
             // Ground is a dielectric; roughness and occlusion are the landscape material's layers'. Where the grass
             // field's far cover lies over it (GRASS-FIELD) the pixel shades as the blades do - TwoSidedFoliage, its

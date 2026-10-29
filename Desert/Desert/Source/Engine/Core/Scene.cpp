@@ -621,7 +621,23 @@ namespace Desert::Core
             return Common::MakeFormattedError<bool>( "the scene's world parameters {}: {}",
                                                      static_cast<uint64_t>( named ), data.GetError() );
         }
-        m_WorldParameters.Adopt( named, data.GetValue() );
+        // A Texture row names its .detex by path; the world holds the handle, each view its bindless slot.
+        std::string unresolved;
+        m_WorldParameters.Adopt( named, data.GetValue(),
+                                 [&unresolved]( const std::string& path )
+                                 {
+                                     const auto handle =
+                                          Runtime::ResourceRegistry::GetTextureService()->HandleForPath( path );
+                                     if ( !handle )
+                                     {
+                                         unresolved = handle.GetError();
+                                         return Common::AssetHandle{};
+                                     }
+                                     return Common::AssetHandle( handle.GetValue() );
+                                 } );
+        if ( !unresolved.empty() )
+            return Common::MakeFormattedError<bool>( "the scene's world parameters {}: {}",
+                                                     static_cast<uint64_t>( named ), unresolved );
         return BOOLSUCCESS;
     }
 
