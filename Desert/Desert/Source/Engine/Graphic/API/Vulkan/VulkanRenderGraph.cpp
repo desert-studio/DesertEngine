@@ -1243,7 +1243,7 @@ namespace Desert::Graphic::API::Vulkan
                         graph.Result->Passes[segment.LastPosition].Name + ": " +
                         std::to_string( segment.LastPosition - segment.FirstPosition + 1 ) + " passes]";
             }
-            std::string& logged = m_AsyncSegmentsLogged[graph.Name];
+            std::string& logged = m_AsyncSegmentsLogged[std::string( graph.Name )];
             if ( line != logged )
             {
                 LOG_INFO( "[RDG] graph '{}' async compute segments:{}", graph.Name, line );
