@@ -127,6 +127,22 @@ namespace Desert::Graphic
     // forward) reads one decision and the overlay / log name the cause. PURE. The next BeginScene resolves afresh.
     void LowerShadowsForFrame( RenderMethods& methods, bool rayTracedSceneReady );
 
+    // One light's Shadow Method this frame and what it resolved to (ResolveLightVisibility); SourceId =
+    // LocalLightShadowSettings::SourceId (entity + 1).
+    struct StochasticLightMethod
+    {
+        uint32_t                                  SourceId  = 0;
+        Common::Scalability::LightShadowMethod    Requested = Common::Scalability::LightShadowMethod::Auto;
+        Common::Scalability::StochasticVisibility Effective = Common::Scalability::StochasticVisibility::Screen;
+    };
+
+    // THE VISIBILITY SOURCE OF ONE LIGHT'S MegaLights SAMPLES this frame (Common::Scalability::LightShadowMethod,
+    // the light component's Shadow Method), after LowerShadowsForFrame: Auto is the frame's Visibility; RayQuery
+    // only while the frame traces the ray query (its TLAS built), else the frame's Visibility; VirtualMaps only on a
+    // device that runs them (RaylessVisibility vsm+screen), else RaylessVisibility; Screen always. PURE.
+    [[nodiscard]] Common::Scalability::StochasticVisibility
+    ResolveLightVisibility( Common::Scalability::LightShadowMethod requested, const RenderMethods& methods );
+
     // This frame's Shadows trace hardware rays: HardwareTraced, or Stochastic whose visibility is the ray query.
     [[nodiscard]] bool ShadowsTraceRays( const RenderMethods& methods );
 

@@ -45,6 +45,7 @@ namespace Desert::Assets::Serialization
 // here so that "the components" remains one include for every consumer.
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/ECS/LightUnits.hpp>
+#include <Common/Settings/RenderMethods.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/ProceduralFoliageComponent.hpp>
 #include <Engine/ECS/DestructibleComponent.hpp>
@@ -1153,6 +1154,14 @@ namespace Desert::ECS
                            "the atlas still caps it." ) )
         float ShadowResolutionScale = 1.0f;
 
+        // UE ULightComponent::MegaLightsShadowMethod: under Shadows Stochastic, the source MegaLights tests this
+        // light's samples with (Common::Scalability::LightShadowMethod); Auto = the view's. Clamped to what the
+        // device runs - DesertCtl state render.shadows.lights names the effective one.
+        PROPERTY( DisplayName( "Shadow Method" ), Category( "Shadows" ), Advanced,
+                  Tooltip( "Shadows Stochastic only: Auto follows the view; Ray Query, Virtual Maps or Screen "
+                           "trace this light's samples that way when the device runs it." ) )
+        Common::Scalability::LightShadowMethod ShadowMethod = Common::Scalability::LightShadowMethod::Auto;
+
         // CONTACT SHADOWS (UE: ULightComponent::ContactShadowLength / bContactShadowLengthInWS, the same default 0
         // = off). A short screen-space ray toward the light through the scene depth, marched by the deferred
         // composite (Common/ContactShadow.glslh), that grounds the small and near-contact detail the shadow map is
@@ -1265,6 +1274,14 @@ namespace Desert::ECS
                   Tooltip( "Scales the atlas tile this light asks for (its screen size decides the base); "
                            "the atlas still caps it." ) )
         float ShadowResolutionScale = 1.0f;
+
+        // UE ULightComponent::MegaLightsShadowMethod: under Shadows Stochastic, the source MegaLights tests this
+        // light's samples with (Common::Scalability::LightShadowMethod); Auto = the view's. Clamped to what the
+        // device runs - DesertCtl state render.shadows.lights names the effective one.
+        PROPERTY( DisplayName( "Shadow Method" ), Category( "Shadows" ), Advanced,
+                  Tooltip( "Shadows Stochastic only: Auto follows the view; Ray Query, Virtual Maps or Screen "
+                           "trace this light's samples that way when the device runs it." ) )
+        Common::Scalability::LightShadowMethod ShadowMethod = Common::Scalability::LightShadowMethod::Auto;
 
         // CONTACT SHADOWS (UE: ULightComponent::ContactShadowLength / bContactShadowLengthInWS, the same default 0
         // = off). A short screen-space ray toward the light through the scene depth, marched by the deferred

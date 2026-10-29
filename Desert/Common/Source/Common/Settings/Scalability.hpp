@@ -165,12 +165,14 @@ namespace Common::Scalability
         // pool's size in 128 x 128 pages (MaxPhysicalPages; a frame whose requests exceed it shades the rest from
         // coarser levels), the clipmap's resolution LOD bias in tenths of a level (ResolutionLodBiasDirectional;
         // negative = finer), and the shadow-map ray tracing's rays per pixel inside the SourceAngle cone and
-        // samples per ray (SMRT.RayCountDirectional / SamplesPerRayDirectional; 0 rays = one hard lookup).
-        // 256..8192, -30..30, 0..16 and 1..16.
+        // samples per ray (SMRT.RayCountDirectional / SamplesPerRayDirectional; 0 rays = one hard lookup), and
+        // the samples along a local light's ray (MegaLights traces one per light sample through the light's
+        // perspective map; UE SMRT.SamplesPerRayLocal). 256..8192, -30..30, 0..16, 1..16 and 1..16.
         ShadowVirtualMaxPhysicalPages,
         ShadowVirtualResolutionLodBias,
         ShadowVirtualSMRTRayCount,
         ShadowVirtualSMRTSamplesPerRay,
+        ShadowVirtualSMRTSamplesPerRayLocal,
         // Shadows Stochastic (MegaLights, System::MegaLightsRenderer; UE r.MegaLights.*): the traced light samples
         // per sample pixel (reservoirs, each traced once after the reuse; UE NumSamplesPerPixel), the ReSTIR
         // spatial reuse's neighbours per sample (0 = no spatial reuse), the temporal reuse's history cap in frames

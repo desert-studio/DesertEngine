@@ -1369,6 +1369,14 @@ namespace Desert::Editor
                          methods.Shadows.Effective == ShadowMethod::Stochastic
                               ? kStochasticVisibilityNames[static_cast<std::size_t>( methods.Visibility )]
                               : std::string_view{};
+                    snapshot.ShadowsSmrtSamplesLocal = primary->GetVirtualShadowQuality().SmrtSamplesPerRayLocal;
+                    for ( const Graphic::StochasticLightMethod& light : primary->GetStochasticLightMethods() )
+                        snapshot.ShadowsLights.push_back(
+                             { .Source    = light.SourceId,
+                               .Requested = std::string(
+                                    kLightShadowMethodNames[static_cast<std::size_t>( light.Requested )] ),
+                               .Effective = std::string(
+                                    kStochasticVisibilityNames[static_cast<std::size_t>( light.Effective )] ) } );
                 }
                 snapshot.ForwardPrepass = { .Draws            = prepass.Draws,
                                             .Cells            = prepass.Cells,

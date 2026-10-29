@@ -154,6 +154,11 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Smrt.y: "
                "VirtualShadowMapProject.shader samples per ray)",
                4, Vis::Advanced },
+             { P::ShadowVirtualSMRTSamplesPerRayLocal, G::Shadows, "Shadows.VirtualSMRTSamplesPerRayLocal", 1, 16,
+               CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame SmrtLocal.x: "
+               "VsmLocalVisibilityRay samples, MegaLights vsm visibility)",
+               8, Vis::Advanced },
              { P::ShadowMegaLightsSamplesPerPixel, G::Shadows, "Shadows.MegaLightsSamplesPerPixel", 1, 4, CL::None,
                "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (reservoirs per pixel)", 2,
                Vis::Advanced },

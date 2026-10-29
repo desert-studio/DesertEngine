@@ -47,7 +47,8 @@
     /* std430 rounds the array stride of a struct with a vec3 to 16 bytes: explicit, so sizeof matches. */        \
     /* The light's layer in the view's ray-traced local shadow masks, or -1 (PointLight.hpp says how). */          \
     FIELD( int32_t, ShadowMaskSlot, shadowMaskSlot, { -1 } ) /* 88 */                                              \
-    FIELD( float, Pad2, pad2, { 0.0f } ) /* -> 96 */
+    /* Under Shadows Stochastic, MegaLights' visibility source for the light (PointLight.hpp says how). */        \
+    FIELD( int32_t, ShadowVisibility, shadowVisibility, { 0 } ) /* 92 -> 96 */
 
 namespace Desert::Graphic::ShaderProtocols
 {

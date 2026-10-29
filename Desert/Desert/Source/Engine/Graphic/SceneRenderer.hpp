@@ -1,4 +1,5 @@
 #pragma once
+#include <unordered_set>
 
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/InstanceCullDistance.hpp>
@@ -662,6 +663,20 @@ namespace Desert::Graphic
         // whose visibility source is vsm+screen (MegaLights' trace and volume read the pages by ShadowMaskSlot). The
         // one test every page reader asks: the page passes' local lights, the surface cache's cards.
         [[nodiscard]] bool LocalLightsReadVirtualPages() const;
+        // MegaLights' trace and volume program this frame: the frame's Visibility, except a vsm+screen frame none
+        // of whose lights resolved to vsm+screen (no local page drawn) traces the screen program. A ray-query frame
+        // still traces every light with the ray query (REMAINDER-MEGALIGHTS-NORT-4: the mixed programs).
+        [[nodiscard]] Common::Scalability::StochasticVisibility StochasticTraceVisibility() const;
+        // The lights whose Shadow Method is not Auto, as AssignLocalShadowMaskSlots resolved them this frame
+        // (DesertCtl state render.shadows.lights).
+        [[nodiscard]] const std::vector<StochasticLightMethod>& GetStochasticLightMethods() const
+        {
+            return m_StochasticLightMethods;
+        }
+        [[nodiscard]] const System::VirtualShadowMapQuality& GetVirtualShadowQuality() const
+        {
+            return m_VirtualShadowQuality;
+        }
 
         // Shared GraphicsPipeline cache (keyed by shader + target + render-state). Renderers request
         // pipelines from here instead of creating their own; cleared on Init (full rebuild).
@@ -1705,6 +1720,12 @@ namespace Desert::Graphic
         // its shadow denoiser history per light too). Pruned each frame to the frame's lights.
         System::RayTracedLocalShadowRenderer                                     m_RayTracedLocalShadow;
         std::vector<System::RayTracedLocalShadowLight>                           m_LocalShadowMaskLights;
+        // Shadows Stochastic, this frame (AssignLocalShadowMaskSlots): the lights per resolved source
+        // (StochasticVisibility order), the non-Auto lights' methods, and the (SourceId, method) pairs whose clamp
+        // was logged (once per light and method).
+        std::array<uint32_t, 3>            m_StochasticSourceLights{};
+        std::vector<StochasticLightMethod> m_StochasticLightMethods;
+        std::unordered_set<uint64_t>       m_ReportedLightMethodClamps;
         std::unordered_map<uint32_t, std::unique_ptr<System::ScreenSpaceDenoiser>> m_LocalShadowDenoisers;
         // A pruned light's denoiser (its extracted history textures) is PARKED here, not destroyed: frames still
         // in flight may read its history; released once no frame recorded before the prune can (FrameRetireQueue).

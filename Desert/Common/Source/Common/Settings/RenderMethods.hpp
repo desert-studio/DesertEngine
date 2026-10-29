@@ -106,6 +106,27 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( StochasticVisibility::Screen ) + 1 ==
                    kStochasticVisibilityNames.size() );
 
+    // A POINT / SPOT LIGHT'S OWN SHADOW METHOD UNDER Shadows Stochastic (UE ULightComponent::MegaLightsShadowMethod,
+    // the per-light MegaLights shadow method): the visibility source MegaLights' trace tests this light's samples
+    // with, clamped to what the device and the frame run (Graphic::ResolveLightVisibility):
+    //  Auto        - the frame's source (Graphic::RenderMethods::Visibility).
+    //  RayQuery    - the ray query over the TLAS; a frame without one (a device without ray queries, ray tracing
+    //                hidden, a frame whose TLAS was not built) tests the frame's source instead.
+    //  VirtualMaps - the screen trace, then the light's virtual shadow map pages; a device without what
+    //                VirtualMaps needs tests its rayless source (the screen trace) instead.
+    //  Screen      - the screen trace alone: no page of a virtual map is drawn for the light.
+    // Meaningless under any other Shadows method (the light's shadow is the method's).
+    enum class LightShadowMethod : int
+    {
+        Auto = 0,
+        RayQuery,
+        VirtualMaps,
+        Screen,
+    };
+    inline constexpr std::array<std::string_view, 4> kLightShadowMethodNames{ "Auto", "RayQuery", "VirtualMaps",
+                                                                              "Screen" };
+    static_assert( static_cast<std::size_t>( LightShadowMethod::Screen ) + 1 == kLightShadowMethodNames.size() );
+
     // By name: Scalability.json, the log line and the overlay print these, one list per enum.
     inline constexpr std::array<std::string_view, 7> kGIMethodNames{
          "Off", "Lightmaps", "ScreenSpace", "ProbeVolume", "SoftwareTraced", "HardwareTraced", "PathTraced" };

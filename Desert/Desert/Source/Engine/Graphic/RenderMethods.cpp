@@ -236,6 +236,25 @@ namespace Desert::Graphic
             methods.Shadows.Limit = MethodLimit::FrameScene;
     }
 
+    StochasticVisibility ResolveLightVisibility( const LightShadowMethod requested, const RenderMethods& methods )
+    {
+        switch ( requested )
+        {
+        case LightShadowMethod::Auto:
+            return methods.Visibility;
+        case LightShadowMethod::RayQuery:
+            return methods.Visibility == StochasticVisibility::RayQuery ? StochasticVisibility::RayQuery
+                                                                         : methods.Visibility;
+        case LightShadowMethod::VirtualMaps:
+            return methods.RaylessVisibility == StochasticVisibility::VirtualMapsAndScreen
+                        ? StochasticVisibility::VirtualMapsAndScreen
+                        : methods.RaylessVisibility;
+        case LightShadowMethod::Screen:
+            return StochasticVisibility::Screen;
+        }
+        return methods.Visibility;
+    }
+
     bool ShadowsTraceRays( const RenderMethods& methods )
     {
         return NeedsRayQuery( methods.Shadows.Effective ) ||

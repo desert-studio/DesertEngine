@@ -54,7 +54,10 @@
     /* The light's layer in the view's ray-traced local shadow masks (Shadows HardwareTraced), or -1: then */      \
     /* ShadowView is the light's shadow. Written by SceneRenderer::AssignLocalShadowMaskSlots. */                  \
     FIELD( int32_t, ShadowMaskSlot, shadowMaskSlot, { -1 } ) /* 68 */                                              \
-    FIELD( float, Pad1, pad1, { 0.0f } )                                                                          \
+    /* Under Shadows Stochastic, the source MegaLights' trace tests this light's samples with */                  \
+    /* (Common::Scalability::StochasticVisibility: 0 ray query, 1 vsm+screen, 2 screen; the component's Shadow */ \
+    /* Method clamped, Graphic::ResolveLightVisibility). Written by SceneRenderer::AssignLocalShadowMaskSlots. */ \
+    FIELD( int32_t, ShadowVisibility, shadowVisibility, { 0 } ) /* 72 */                                          \
     FIELD( float, Pad2, pad2, { 0.0f } ) /* -> 80 */
 
 namespace Desert::Graphic::ShaderProtocols
