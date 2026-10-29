@@ -57,9 +57,23 @@ namespace Desert::Engine::Neural
     // What a forward + backward pass produces.
     struct FusedMlpResult
     {
-        std::vector<float> Output;     ///< Batch * 64
-        std::vector<float> WeightGrad; ///< MatrixCount * 64 * 64
+        std::vector<float> Output;      ///< Batch * 64
+        std::vector<float> WeightGrad;  ///< MatrixCount * 64 * 64
+        std::vector<float> Activations; ///< MatrixCount * Batch * 64: h_l, the input of matrix l (h_0 = input)
     };
+
+    // THE REFERENCE OF AN FP16 PATH: the problem whose weights, inputs and output gradients are rounded to
+    // the nearest fp16 (ties to even; subnormals kept). An fp16 network holds fp16 weights, so what it is
+    // measured against is the exact MLP of THOSE weights, not of the fp32 ones it was handed; the remaining
+    // difference is the kernel's own (fp16 activations and products).
+    [[nodiscard]] FusedMlpProblem QuantizedToFp16( const FusedMlpProblem& problem );
+
+    // How many hidden units (layers 1..MatrixCount-1, every batch row, every column) the two activation tensors
+    // disagree on being active (h > 0): a flipped ReLU mask changes the gradient through that unit by O(1),
+    // which is what pushes an fp16 weight-gradient error toward its tolerance.
+    [[nodiscard]] uint64_t CountReluMaskFlips( const std::vector<float>& gpuActivations,
+                                               const std::vector<float>& referenceActivations,
+                                               const FusedMlpShape& shape, uint32_t batch );
 
     // A seeded problem: He-uniform weights (|w| <= sqrt(6 / fan_in)), inputs and output gradients uniform in
     // [-1, 1], zero outside the shape's dimensions. The same seed gives the same bytes on every machine.

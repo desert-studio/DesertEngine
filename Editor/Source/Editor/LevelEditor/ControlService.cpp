@@ -42,7 +42,9 @@
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
+#include <Engine/Graphic/Neural/FusedMlpCompute.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <ImGui/imgui.h>
 #include <ImGui/imgui_internal.h>
@@ -662,6 +664,102 @@ namespace Desert::Editor
         return std::nullopt;
     }
 
+    // nn-check (NN-RUNTIME step 3): the fused MLP on the GPU against its CPU reference, on the seeded nn-check
+    // problem. machine.json ForcedNeuralKernelPath set = that one path (refused, naming what the device lacks, when
+    // it cannot run); absent = every path, a path the device cannot run reported with why and not run. The reply
+    // is a success only when every path that ran is within its tolerance; otherwise a refusal quoting the numbers.
+    Control::Response ControlService::RunNnCheck( const int64_t id )
+    {
+        namespace Neural                    = Engine::Neural;
+        using Engine::NeuralKernelPath;
+        const Engine::NeuralComputeCaps& caps = EngineContext::GetInstance().GetCapabilities().Neural;
+        const std::optional<NeuralKernelPath> forced = Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath;
+
+        std::vector<NeuralKernelPath> paths;
+        if ( forced )
+        {
+            if ( const auto resolved = Neural::ResolveNeuralKernelPath( caps, forced ); !resolved )
+                return Control::Response::Failure( id, resolved.GetError() );
+            paths.push_back( *forced );
+        }
+        else
+            paths = { NeuralKernelPath::Fp32, NeuralKernelPath::Fp16, NeuralKernelPath::CoopMatFp16 };
+
+        Neural::FusedMlpCompute  compute( caps );
+        Common::Json::Value::Array runs;
+        std::string              summary;
+        bool                     pass = true;
+        uint32_t                 ran  = 0;
+        for ( const NeuralKernelPath path : paths )
+        {
+            const char*          name = Engine::NeuralKernelPathName( path );
+            Common::Json::Object run;
+            run["path"] = Control::StateDetail::Str( name );
+            if ( const auto runnable = Neural::ResolveNeuralKernelPath( caps, path ); !runnable )
+            {
+                run["refused"] = Control::StateDetail::Str( runnable.GetError() );
+                LOG_INFO( "[nn_check] path={} not run: {}", name, runnable.GetError() );
+                runs.push_back( Common::Json::Value( run ) );
+                continue;
+            }
+            const auto checked = Neural::CheckFusedMlpPath( compute, caps, path );
+            if ( !checked )
+                return Control::Response::Failure( id, std::format( "nn-check {}: {}", name, checked.GetError() ) );
+            const Neural::FusedMlpPathCheck& check = checked.GetValue();
+            ++ran;
+            pass = pass && check.Pass;
+
+            const auto errorJson = []( const Neural::FusedMlpError& error )
+            {
+                Common::Json::Object object;
+                object["maxAbs"] = Control::StateDetail::Num( error.MaxAbs );
+                object["maxRef"] = Control::StateDetail::Num( error.MaxRef );
+                object["rel"]    = Control::StateDetail::Num( error.Rel );
+                return Common::Json::Value( object );
+            };
+            run["tile"]       = Control::StateDetail::Str( check.Tile );
+            run["output"]     = errorJson( check.Output );
+            run["weightGrad"] = errorJson( check.WeightGrad );
+            run["maskFlips"]  = Control::StateDetail::Num( static_cast<double>( check.MaskFlips ) );
+            run["tolerance"]  = Control::StateDetail::Num( check.Tolerance );
+            run["pass"]       = Common::Json::Value( check.Pass );
+            runs.push_back( Common::Json::Value( run ) );
+
+            const char* tileLabel = "";
+            if ( !check.Tile.empty() )
+                tileLabel = " tile=";
+            const char* verdict = check.Pass ? "PASS" : "FAIL";
+            const std::string line = std::format(
+                 "path={}{}{} output abs={:.3e} rel={:.3e} | weightGrad abs={:.3e} rel={:.3e} | maskFlips={} | "
+                 "tolerance={:.0e} {}",
+                 name, tileLabel, check.Tile, check.Output.MaxAbs, check.Output.Rel,
+                 check.WeightGrad.MaxAbs, check.WeightGrad.Rel, check.MaskFlips, check.Tolerance,
+                 verdict );
+            LOG_INFO( "[nn_check] {}", line );
+            if ( !summary.empty() )
+                summary += "; ";
+            summary += line;
+        }
+        if ( ran == 0 )
+            return Control::Response::Failure( id, "nn-check ran no path: the device can run none of them" );
+        if ( !pass )
+            return Control::Response::Failure( id, std::format( "nn-check out of tolerance: {}", summary ) );
+
+        const Neural::FusedMlpShape& shape = Neural::kFusedMlpCheckShape;
+        Common::Json::Object         payload;
+        std::string forcedName = "auto";
+        if ( forced )
+            forcedName = Engine::NeuralKernelPathName( *forced );
+        payload["forced"] = Control::StateDetail::Str( forcedName );
+        payload["shape"]  = Control::StateDetail::Str(
+             std::format( "{} -> {} x {} -> {}", shape.InputDims, shape.HiddenLayers, Neural::kFusedMlpWidth,
+                          shape.OutputDims ) );
+        payload["batch"]  = Control::StateDetail::Num( Neural::kFusedMlpCheckBatch );
+        payload["runs"]   = Common::Json::Value( runs );
+        payload["pass"]   = Common::Json::Value( pass );
+        return Control::Response::Success( id, std::move( payload ) );
+    }
+
     Control::Response ControlService::ExecuteControlRequest( const Control::Request& request )
     {
         switch ( request.Operation )
@@ -1005,6 +1103,9 @@ namespace Desert::Editor
                     return Control::Response::Failure( request.Id, saved.GetError() );
                 return Control::Response::Success( request.Id );
             }
+
+            case Control::Op::NnCheck:
+                return RunNnCheck( request.Id );
 
             case Control::Op::State:
             {
@@ -1350,6 +1451,7 @@ namespace Desert::Editor
             device.NnSubgroupSizeControl                   = neural.SubgroupSizeControl;
             device.NnCooperativeMatrix                     = neural.CooperativeMatrix;
             device.NnCooperativeMatrixCompute              = neural.CooperativeMatrixInCompute;
+            device.NnVulkanMemoryModel                     = neural.VulkanMemoryModel;
             device.NnComputeRequiredSubgroupSize           = neural.ComputeSubgroupSizeRequirable;
             device.NnSubgroupSize                          = neural.SubgroupSize;
             device.NnMinSubgroupSize                       = neural.MinSubgroupSize;

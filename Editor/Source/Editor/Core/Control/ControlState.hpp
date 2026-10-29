@@ -111,6 +111,7 @@ namespace Desert::Editor::Control
         bool NnSubgroupSizeControl         = false;
         bool NnCooperativeMatrix           = false;
         bool NnCooperativeMatrixCompute    = false;
+        bool NnVulkanMemoryModel           = false;
         bool NnComputeRequiredSubgroupSize = false;
 
         uint32_t NnSubgroupSize               = 0;
@@ -370,6 +371,7 @@ namespace Desert::Editor::Control
             nn["subgroupSizeControl"]         = Common::Json::Value( device.NnSubgroupSizeControl );
             nn["cooperativeMatrix"]           = Common::Json::Value( device.NnCooperativeMatrix );
             nn["cooperativeMatrixCompute"]    = Common::Json::Value( device.NnCooperativeMatrixCompute );
+            nn["vulkanMemoryModel"]           = Common::Json::Value( device.NnVulkanMemoryModel );
             nn["computeRequiredSubgroupSize"] = Common::Json::Value( device.NnComputeRequiredSubgroupSize );
             nn["subgroupSize"]                = Num( device.NnSubgroupSize );
             nn["minSubgroupSize"]             = Num( device.NnMinSubgroupSize );

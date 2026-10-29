@@ -103,6 +103,8 @@ namespace Desert::Editor
         [[nodiscard]] bool AbandonControlRequestIfItsAskerIsGone();
         // Runs one request against the live editor. Never throws, always answers.
         [[nodiscard]] Control::Response ExecuteControlRequest( const Control::Request& request );
+        // nn-check: the NN layer's fused MLP on the GPU against its CPU reference (see the definition).
+        [[nodiscard]] Control::Response RunNnCheck( int64_t id );
         // The palette's dictionary, built from the CommandRegistry the palette reads (one list, two readers).
         [[nodiscard]] std::vector<PaletteCommand> BuildDictionary() const;
         // The `set` for the channel's second subject — the editor's own view. See

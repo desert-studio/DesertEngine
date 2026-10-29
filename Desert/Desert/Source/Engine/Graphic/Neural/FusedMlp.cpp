@@ -127,7 +127,56 @@ namespace Desert::Engine::Neural
                 }
             std::swap( g, previous );
         }
+
+        result.Activations.reserve( size_t( L ) * batch * W );
+        for ( const std::vector<float>& layer : h )
+            result.Activations.insert( result.Activations.end(), layer.begin(), layer.end() );
         return result;
+    }
+
+    namespace
+    {
+        // Round to the nearest fp16 value (ties to even), kept as fp32. fp16: 10 mantissa bits, normal
+        // exponent >= -14, subnormal spacing 2^-24; values past the largest fp16 become infinite.
+        float RoundToFp16( const float value )
+        {
+            if ( !std::isfinite( value ) || value == 0.0f )
+                return value;
+            int exponent = 0;
+            std::frexp( value, &exponent ); // value = m * 2^exponent, 0.5 <= |m| < 1
+            const float quantum = std::ldexp( 1.0f, std::max( exponent, -13 ) - 11 );
+            const float rounded = std::nearbyint( value / quantum ) * quantum;
+            return std::abs( rounded ) > 65504.0f ? std::copysign( INFINITY, rounded ) : rounded;
+        }
+
+        std::vector<float> RoundedToFp16( const std::vector<float>& values )
+        {
+            std::vector<float> rounded( values.size() );
+            std::transform( values.begin(), values.end(), rounded.begin(), RoundToFp16 );
+            return rounded;
+        }
+    } // namespace
+
+    FusedMlpProblem QuantizedToFp16( const FusedMlpProblem& problem )
+    {
+        FusedMlpProblem quantized = problem;
+        quantized.Weights         = RoundedToFp16( problem.Weights );
+        quantized.Input           = RoundedToFp16( problem.Input );
+        quantized.OutputGrad      = RoundedToFp16( problem.OutputGrad );
+        return quantized;
+    }
+
+    uint64_t CountReluMaskFlips( const std::vector<float>& gpuActivations,
+                                 const std::vector<float>& referenceActivations, const FusedMlpShape& shape,
+                                 const uint32_t batch )
+    {
+        const size_t layerElements = size_t( batch ) * W;
+        const size_t end           = std::min( { gpuActivations.size(), referenceActivations.size(),
+                                                 size_t( shape.MatrixCount() ) * layerElements } );
+        uint64_t     flips         = 0;
+        for ( size_t i = layerElements; i < end; ++i ) // layer 0 is the input, not a ReLU
+            flips += ( gpuActivations[i] > 0.0f ) != ( referenceActivations[i] > 0.0f ) ? 1u : 0u;
+        return flips;
     }
 
     FusedMlpError CompareFusedMlp( const std::vector<float>& gpu, const std::vector<float>& reference )
