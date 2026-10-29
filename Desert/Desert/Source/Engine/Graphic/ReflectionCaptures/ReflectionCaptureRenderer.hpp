@@ -297,7 +297,7 @@ namespace Desert::Graphic
         uint64_t                                            m_LightingSignature = 0;
         // Its two parts, kept apart so a relight names which one moved: the sky bake's EnvironmentIdentity and
         // the visible point and spot lights (LightingSignature with no sky).
-        uint64_t                                            m_LightingEnvironment = 0;
+        uint64_t                                            m_LightingEnvironment  = 0;
         uint64_t                                            m_LocalLightsSignature = 0;
         std::vector<ShaderProtocols::DirectionLightPayload> m_ReferenceSuns;
         uint32_t                                            m_LastCaptured = 0; // the round-robin's last capture

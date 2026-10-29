@@ -479,9 +479,8 @@ namespace Desert::Graphic
                 const glm::vec3 was = glm::vec3( m_ReferenceSuns.front().Direction );
                 const glm::vec3 now = glm::vec3( dirLights.DirectionLights.front().Direction );
                 if ( glm::length( was ) > 0.0f && glm::length( now ) > 0.0f )
-                    sunDeg = glm::degrees(
-                         std::acos( glm::clamp( glm::dot( glm::normalize( was ), glm::normalize( now ) ), -1.0f,
-                                                1.0f ) ) );
+                    sunDeg = glm::degrees( std::acos(
+                         glm::clamp( glm::dot( glm::normalize( was ), glm::normalize( now ) ), -1.0f, 1.0f ) ) );
             }
             LOG_INFO( "[ReflectionCaptures] relit at frame {}: sky bake {:#x} -> {:#x}{}; local lights {}; sun {} "
                       "-> {} light(s), the first {:.2f} deg from the captured one",
