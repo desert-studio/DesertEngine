@@ -5,7 +5,22 @@
 # (SurfaceNormal 1,0,0). The edit goes through the Details write path (`set <entity> <Type>.<Field>`: the same
 # reflected write, undo record and dirty scene as a hand edit); the User Parameters section then shows the row.
 # The scenario dirties the scene but does not save it.
-Проект Projects/Desert/Desert.deproj --scene Content/Scenes/VFX_Demo_Impacts.desce
+# p29: first the BROKEN-MATERIAL check (UE WorldGridMaterial), on its own test scene so the demo scene is opened
+# clean afterwards: Content/VFX/Tests/VFX_Test_BrokenMaterial.dfx draws one 150 cm sprite with
+# Content/VFX/Tests/M_Test_BrokenParticle.demat, whose Intensity is DELIBERATELY a scalar (the loader reads [x,y,z,w]).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/VFX_Test_BrokenParticleMaterial.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,30,320
+Дано --subject viewport set Camera.Direction 0,0,-1
+Дано run Debug "Particles: Freeze"
+Когда run Action Simulate
+Когда run Debug "Particles: Step"
+Когда run Debug "Particles: Step"
+Когда run Debug "Particles: Step"
+Когда state
+Тогда-вид 4_broken the emitter whose material is broken draws a large square sprite filled with the grey world checker of the default surface (two greys, 100 cm cells), not a soft round disc; editor.log names M_Test_BrokenParticle, the field Params...Value and the checker fallback
+Когда run Action Stop
+Дано run Scene "Open Scene VFX_Demo_Impacts.desce"
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position 0,30,320
 Дано --subject viewport set Camera.Direction 0,0,-1
@@ -17,7 +32,7 @@
 Когда run Debug "Particles: Step"
 Когда run Debug "Particles: Step"
 Когда state
-Тогда-вид 1a_flipbook_early two steps in (1/30 s, early in the flash's 0.14-0.22 s life): each flash is the first cell of T_ImpactFlash - a broad glowing star with long thin rays (Kenney star_09), not a round blurred disc; the sparks are thin straight streaks (trace_01)
+Тогда-вид 1a_flipbook_early two steps in (1/30 s, early in the flash's 0.14-0.22 s life): each flash is the first cell of T_ImpactFlash - a broad glowing star with long thin rays (Kenney star_09), not a round blurred disc; the sparks are a fan of bright thin streaks (T_ImpactSpark) around it, plain to the eye
 Когда run Debug "Particles: Step"
 Когда run Debug "Particles: Step"
 Когда run Debug "Particles: Step"
@@ -25,7 +40,7 @@
 Когда state
 Тогда 0_debugger the Particle Debugger (frozen) lists Dust, Flash and Sparks of both ImpactUp and ImpactPlusX with Total spawned > 0 and Alive > 0 for Flash and Sparks
 Когда state
-Тогда-вид 1_impacts each impact shows a flash whose shape is a later cell of the T_ImpactFlash flipbook (a thinner four-ray star, different from 1a_flipbook_early) and velocity-aligned spark streaks textured from T_ImpactSpark; the left one (x=-150) throws them upward, the right one (x=+150) sideways along +X - the difference is plain to the eye
+Тогда-вид 1_impacts each impact shows a flash whose shape is a later cell of the T_ImpactFlash flipbook (a thinner four-ray star, different from 1a_flipbook_early) and a fan of bright velocity-aligned spark streaks textured from T_ImpactSpark, each tens of pixels long and plainly visible (not faint hairlines); the left one (x=-150) throws them upward, the right one (x=+150) sideways along +X - the difference is plain to the eye
 Когда run Action Stop
 Когда run Entity "Add to selection ImpactPlusX"
 Когда set selected VFX.Overrides[0].Value 0,0,1,0

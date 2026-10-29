@@ -3,9 +3,15 @@
 // material's pipeline is still compiling on a worker, or after the driver refused it. A global shader: it is
 // compiled at startup and its pipeline is one the reveal waits for, so the fallback itself never falls back.
 // Lit mid-grey with a 100 cm world-space checker, so a stand-in is recognisable as one and not as a material.
+// The particle cells (UE: WorldGridMaterial is what a Niagara renderer draws when its material is invalid or lacks
+// the usage flag) give the same checker to a sprite / ribbon row whose named material is broken, missing or has no
+// particle cell (ParticleRenderer::ResolveSprite): a defect reads as the stand-in, never as an authored soft disc.
+// Those cells are unlit (Pass_ParticleSprite.glslh: BaseColor + Emissive), so the checker is the two greys as is.
 Shader "DefaultSurface"
 {
     Domain Surface
+    Usage ParticleSprites
+    Usage ParticleRibbons
 
     State
     {

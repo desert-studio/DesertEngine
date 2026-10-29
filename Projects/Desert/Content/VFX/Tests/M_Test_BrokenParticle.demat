@@ -1,0 +1,67 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "4088e09663904044ae838d2b40fc2380",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": [
+            "692a1274228f4c0aba0ad586acc699ff",
+            "0e628c572d5baca53ace0add4470336f"
+        ]
+    },
+    "Shader": {
+        "Guid": "692a1274228f4c0aba0ad586acc699ff",
+        "Path": "engine:Shaders/Programs/Particles/ParticleSpriteTextured.shader"
+    },
+    "Params": [
+        {
+            "Name": "Tint",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ]
+        },
+        {
+            "Name": "Intensity",
+            "Value": 1.0
+        },
+        {
+            "Name": "SubUVColumns",
+            "Value": [
+                2.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "SubUVRows",
+            "Value": [
+                2.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "BlendFrames",
+            "Value": [
+                1.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "SpriteTexture",
+            "Guid": "0e628c572d5baca53ace0add4470336f",
+            "Path": "assets:VFX/Demo/Textures/T_ImpactFlash.detex"
+        }
+    ],
+    "CloudAssets": []
+}

@@ -338,8 +338,10 @@ namespace Desert::Graphic::System
         // The sprite draw of @p cellShader in this view, built on first use (null = refused, said once by name).
         SpriteDraw* SpriteDrawFor( const std::string& cellShader );
         // The draw renderer row @p row of @p fe draws with this frame: the row's material's cell of the row's
-        // vertex path (Sprite: ParticleSprite.Forward, Ribbon: ParticleRibbon.Forward), or that path's engine
-        // default cell with the refusal logged once; its runtime instance kept in @p material.
+        // vertex path (Sprite: ParticleSprite.Forward, Ribbon: ParticleRibbon.Forward); no material named = that
+        // path's engine default cell; a named material that is broken / missing / without the cell =
+        // DefaultSurface's checker cell with the refusal logged once; still loading = null (the row sits the frame
+        // out). Its runtime instance is kept in @p material.
         SpriteDraw* ResolveSprite( const ParticleFrameEmitter& fe, const ParticleFrameRenderer& row,
                                    EmitterMaterial& material );
         // The Mesh row's mesh and material sections, and its instance / argument buffers sized to the emitter's
@@ -374,6 +376,12 @@ namespace Desert::Graphic::System
         // The ParticleRibbonDefault template's ParticleRibbon.Forward cell (UE DefaultRibbonMaterial; Initialize
         // refuses without it).
         std::string m_DefaultRibbonCell;
+        // The default surface template's ParticleSprite.Forward / ParticleRibbon.Forward cells (UE
+        // WorldGridMaterial: the world checker a row draws with when the material it NAMES is broken, missing or
+        // has no particle cell, so a defect reads as a stand-in and never as an authored soft disc; empty = that
+        // template has no such cell, logged once by Initialize, and such a row is not drawn).
+        std::string m_BrokenCell;
+        std::string m_BrokenRibbonCell;
         // Per cell shader, per view (a draw's camera block is the view's). Null = that cell was refused.
         std::unordered_map<std::string, std::unique_ptr<SpriteDraw>> m_Sprites;
         // Per entity (raw entt entity value), per (emitter, renderer row), per view.
