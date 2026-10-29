@@ -4,6 +4,7 @@
 
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
+#include <Engine/Graphic/GpuDriven/GpuScene.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingGeometry.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
@@ -245,22 +246,32 @@ namespace Desert::Graphic::RayTracing
         if ( m_SceneMeshes == nullptr ||
              m_SceneGatherFrame != Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() )
             return Common::MakeError( "RayTracingScene: a scene gather before this frame's AddPasses" );
-        // Cached per primitive: the gather runs again only when what it reads changed IN STRUCTURE
-        // (RayTracingSceneGatherKey::SameStructure, O(records)) or a TLAS gather overwrote it since. A key that
-        // differs only in its records' worlds moves the kept primitives of those rows in place
-        // (GetSceneMovedPrimitives). A still scene costs the key, not the per-instance ISM walk.
+        // Kept current by the GpuScene change stream (GatherScene in the header): a frame reads the changes since
+        // its cursor - none on a still scene, one Moved per moving primitive - and gathers in full only on a
+        // structure change. No key over the records, no compare over them.
         m_SceneMoved.clear();
+        const GpuDriven::GpuScene* scene = m_SceneMeshes->GetGpuScene();
+        if ( scene == nullptr )
+            return Common::MakeError( "RayTracingScene: a scene gather before this frame's GPU-scene sync" );
         const RayTracingGatherInputs inputs = GatherInputsOf( *m_SceneMeshes, m_SceneViewOrigin, m_SceneLensScale );
         {
-            DESERT_PROFILE_SCOPE( "RayTracingScene: SceneGatherKey" );
-            MakeRayTracingSceneGatherKey( inputs, m_SceneGatherScratchKey );
-            if ( m_GatherIsScene && m_SceneGatherScratchKey.SameStructure( m_SceneGatherKey ) )
+            DESERT_PROFILE_SCOPE( "RayTracingScene: SceneGatherChanges" );
+            MakeRayTracingSceneUnsyncedKey( inputs, m_SceneViewCulls, m_SceneUnsyncedScratch );
+            const std::optional<std::span<const GpuDriven::PrimitiveChange>> changes =
+                 m_GatherIsScene && m_SceneStream == scene->GetStreamId() ? scene->ChangesSince( m_SceneCursor )
+                                                                         : std::nullopt;
+            const auto structural = []( const GpuDriven::PrimitiveChange& change )
             {
-                if ( m_SceneGatherScratchKey.Transforms == m_SceneGatherKey.Transforms )
-                    return BOOLSUCCESS;
-                MoveScenePrimitives();
-                std::swap( m_SceneGatherKey, m_SceneGatherScratchKey );
-                ++m_SceneGatherMoves;
+                // A meshless primitive (a landscape tile) is no record of the queues the gather reads.
+                return change.Kind == GpuDriven::PrimitiveChangeKind::Discarded ||
+                       ( change.Meshed && change.Kind != GpuDriven::PrimitiveChangeKind::Moved );
+            };
+            if ( changes && m_SceneUnsyncedScratch == m_SceneUnsyncedKey &&
+                 std::none_of( changes->begin(), changes->end(), structural ) )
+            {
+                m_SceneCursor = scene->GetChangeSerial();
+                if ( !changes->empty() && MoveScenePrimitives( *scene, *changes ) )
+                    ++m_SceneGatherMoves;
                 return BOOLSUCCESS;
             }
         }
@@ -269,8 +280,8 @@ namespace Desert::Graphic::RayTracing
             // primitive: none either, "RayTracingScene: SceneGatherMove" instead).
             DESERT_PROFILE_SCOPE( "RayTracingScene: SceneGather" );
             GatherRayTracingPrimitives( inputs, nullptr, m_Gather );
-            // The primitives a world of the key moves: one per row for every kind with a CPU world of its own
-            // (a static row merges its records; an ISM instance's world is its field snapshot, structure).
+            // The primitives a Moved change moves: one per row for every kind with a CPU world of its own (a static
+            // row merges its records; an ISM instance's world is its field's instances, an Updated change).
             m_ScenePrimitivesOfRow.clear();
             for ( std::size_t p = 0; p < m_Gather.Primitives.size(); ++p )
             {
@@ -279,35 +290,42 @@ namespace Desert::Graphic::RayTracing
                      kind == RayTracingPrimitiveKind::Skinned )
                     m_ScenePrimitivesOfRow.emplace( m_Gather.Primitives[p].GpuSceneRow, static_cast<uint32_t>( p ) );
             }
+            // The gather read the queues of this frame's sync: every change up to now is in it.
+            m_SceneStream    = scene->GetStreamId();
+            m_SceneCursor    = scene->GetChangeSerial();
+            m_SceneViewCulls = RayTracingGatherCullsByView( inputs );
+            MakeRayTracingSceneUnsyncedKey( inputs, m_SceneViewCulls, m_SceneUnsyncedKey );
         }
-        std::swap( m_SceneGatherKey, m_SceneGatherScratchKey );
         m_GatherIsScene = true;
         ++m_SceneGathers;
         return BOOLSUCCESS;
     }
 
-    void RayTracingSceneRenderer::MoveScenePrimitives()
+    bool RayTracingSceneRenderer::MoveScenePrimitives( const GpuDriven::GpuScene&                     scene,
+                                                       const std::span<const GpuDriven::PrimitiveChange> changes )
     {
-        // Same structure: the same primitives in the same order (RayTracingSceneGatherKey). Only the records whose
-        // world differs are applied, each to the primitives of its row; a row's records share one world (the
-        // gather takes the row's first), so a primitive moves once.
+        // Only Moved changes reach here (GatherScene). Applied in stream order, so a primitive moved twice since
+        // the cursor ends at its last world; the row's records share that world (the registry merges rigid
+        // records of one entity by world), so every kept primitive of the row takes it.
         DESERT_PROFILE_SCOPE( "RayTracingScene: SceneGatherMove" );
-        const std::vector<glm::mat4>& now  = m_SceneGatherScratchKey.Transforms;
-        const std::vector<glm::mat4>& kept = m_SceneGatherKey.Transforms;
-        for ( std::size_t record = 0; record < now.size(); ++record )
+        for ( const GpuDriven::PrimitiveChange& change : changes )
         {
-            if ( now[record] == kept[record] )
+            if ( !scene.IsValid( change.Primitive ) )
                 continue;
-            const auto [first, last] = m_ScenePrimitivesOfRow.equal_range( m_SceneGatherScratchKey.TransformRows[record] );
+            const uint32_t row            = scene.Primitive( change.Primitive ).FirstInstance;
+            const auto [first, last]      = m_ScenePrimitivesOfRow.equal_range( row );
             for ( auto it = first; it != last; ++it )
             {
                 RayTracingPrimitive& primitive = m_Gather.Primitives[it->second];
-                if ( primitive.World == now[record] )
+                if ( primitive.World == change.World )
                     continue;
-                primitive.World = now[record];
+                primitive.World = change.World;
                 m_SceneMoved.push_back( it->second );
             }
         }
+        std::sort( m_SceneMoved.begin(), m_SceneMoved.end() );
+        m_SceneMoved.erase( std::unique( m_SceneMoved.begin(), m_SceneMoved.end() ), m_SceneMoved.end() );
+        return !m_SceneMoved.empty();
     }
 
     Common::BoolResultStr RayTracingSceneRenderer::AddPasses(

@@ -49,7 +49,14 @@ namespace Desert::Graphic::RayTracing
     void GatherRayTracingPrimitives( const RayTracingGatherInputs& inputs, RayTracingGeometryVariants* variants,
                                      RayTracingGatherResult& out );
 
-    // RayTracingSceneGatherKey: RayTracingScene.hpp (held by RayTracingSceneRenderer without this header).
-    // @p out is cleared first (capacity kept).
-    void MakeRayTracingSceneGatherKey( const RayTracingGatherInputs& inputs, RayTracingSceneGatherKey& out );
+    // WHAT A SCENE GATHER READS THAT THE GPUSCENE CHANGE STREAM DOES NOT CARRY (GI-ALL-LIGHTS step 6). Every
+    // static, generic, skinned and ISM record is a GpuScene primitive: its add / remove / mesh / flags / instances /
+    // world / sections reach a kept scene gather as GpuScene::ChangesSince (RayTracingSceneRenderer::GatherScene).
+    // Left: the GPU-instanced producers (the landscape grass: no GpuScene primitive of their own; O(producers)) and,
+    // when an ISM field culls by distance (@p viewCulls, RayTracingGatherCullsByView at the last full gather), the
+    // view the cull reads. Words bit-exact; @p out is cleared first (capacity kept).
+    void MakeRayTracingSceneUnsyncedKey( const RayTracingGatherInputs& inputs, bool viewCulls,
+                                         std::vector<uint64_t>& out );
+    // An ISM field of @p inputs culls its instances by distance from the view (the gather reads the view).
+    [[nodiscard]] bool RayTracingGatherCullsByView( const RayTracingGatherInputs& inputs );
 } // namespace Desert::Graphic::RayTracing

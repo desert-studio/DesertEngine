@@ -404,9 +404,17 @@ namespace Desert::Graphic::RayTracing
             AppendSegmentRecords( *data.Mesh, skinnedSections, primitive, out );
         }
     }
+    bool RayTracingGatherCullsByView( const RayTracingGatherInputs& inputs )
+    {
+        for ( const MeshRenderer::InstancedMeshRenderData& data : inputs.Instanced )
+            if ( data.Mesh != nullptr && data.Transforms && data.CullDistance.Culls() )
+                return true;
+        return false;
+    }
+
     namespace
     {
-        // The words of MakeRayTracingSceneGatherKey: each value the gather reads, bit-exact.
+        // The words of MakeRayTracingSceneUnsyncedKey: each value the gather reads, bit-exact.
         struct KeyWriter
         {
             std::vector<uint64_t>& Words;
@@ -445,65 +453,11 @@ namespace Desert::Graphic::RayTracing
         };
     } // namespace
 
-    void MakeRayTracingSceneGatherKey( const RayTracingGatherInputs& inputs, RayTracingSceneGatherKey& out )
+    void MakeRayTracingSceneUnsyncedKey( const RayTracingGatherInputs& inputs, const bool viewCulls,
+                                         std::vector<uint64_t>& out )
     {
-        out.Words.clear();
-        out.InstancedRows.clear();
-        out.Fields.clear();
-        out.Transforms.clear();
-        out.TransformRows.clear();
-        const KeyWriter key{ out.Words };
-        // A record's world goes to Transforms, its row to TransformRows (RayTracingSceneGatherKey: per primitive).
-        const auto world = [&out]( const glm::mat4& transform, const uint32_t row )
-        {
-            out.Transforms.push_back( transform );
-            out.TransformRows.push_back( row );
-        };
-        key.Value( inputs.Static.size() );
-        key.Value( inputs.Generic.size() );
-        key.Value( inputs.Instanced.size() );
-        key.Value( inputs.GpuInstanced.size() );
-        key.Value( inputs.Skinned.size() );
-        for ( const MeshRenderer::StaticMeshRenderData& data : inputs.Static )
-        {
-            key.MeshOf( data.Mesh );
-            world( data.Transform, data.GpuInstance );
-            key.Value( data.GpuInstance );
-            key.Section( SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ) );
-            key.Value( data.CastShadows ? 1u : 0u );
-        }
-        for ( const MeshRenderer::GenericMeshRenderData& data : inputs.Generic )
-        {
-            key.Value( data.VisibleInRayTracing ? 1u : 0u );
-            if ( !data.VisibleInRayTracing )
-                continue;
-            key.MeshOf( data.Mesh );
-            world( data.Transform, data.GpuInstance );
-            key.Value( data.GpuInstance );
-            key.Section( GenericSectionOf( data ) );
-            key.Value( data.CastShadows ? 1u : 0u );
-        }
-        bool viewCulls = false;
-        for ( const MeshRenderer::InstancedMeshRenderData& data : inputs.Instanced )
-        {
-            key.Value( data.Entity );
-            key.MeshOf( data.Mesh );
-            key.Pointer( data.Transforms.get() );
-            key.Section( SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ) );
-            key.Value( data.CastShadows ? 1u : 0u );
-            key.Float( data.CullDistance.Min );
-            key.Float( data.CullDistance.Max );
-            key.Value( data.FirstGpuInstance );
-            if ( data.Mesh == nullptr || !data.Transforms )
-                continue;
-            out.Fields.push_back( data.Transforms );
-            viewCulls = viewCulls || data.CullDistance.Culls();
-            // The GPU-scene row of every instance (RayTracingPrimitive::GpuSceneRow), as the gather reads them.
-            const std::span<const uint32_t> rows = inputs.InstancedGpuInstances;
-            const std::size_t first = std::min<std::size_t>( data.FirstGpuInstance, rows.size() );
-            const std::size_t count = std::min( data.Transforms->size(), rows.size() - first );
-            out.InstancedRows.insert( out.InstancedRows.end(), rows.begin() + first, rows.begin() + first + count );
-        }
+        out.clear();
+        const KeyWriter key{ out };
         if ( viewCulls )
         {
             key.Float( inputs.ViewOrigin.x );
@@ -511,6 +465,7 @@ namespace Desert::Graphic::RayTracing
             key.Float( inputs.ViewOrigin.z );
             key.Float( inputs.DrawDistanceScale );
         }
+        key.Value( inputs.GpuInstanced.size() );
         for ( const MeshRenderer::GpuInstancedRenderData& data : inputs.GpuInstanced )
         {
             key.MeshOf( data.Mesh );
@@ -525,15 +480,6 @@ namespace Desert::Graphic::RayTracing
             key.Value( data.BucketCapacities.size() );
             for ( const uint32_t capacity : data.BucketCapacities )
                 key.Value( capacity );
-        }
-        for ( const MeshRenderer::SkinnedMeshRenderData& data : inputs.Skinned )
-        {
-            key.MeshOf( data.Mesh );
-            world( data.Transform, data.GpuInstance );
-            key.Value( data.GpuInstance );
-            key.Value( data.Sections.size() );
-            for ( const MeshRenderer::SkinnedSection& section : data.Sections )
-                key.Section( SourceOf( ~section.HiddenSubmeshes, MeshRenderer::ShadingOf( section ) ) );
         }
     }
 } // namespace Desert::Graphic::RayTracing

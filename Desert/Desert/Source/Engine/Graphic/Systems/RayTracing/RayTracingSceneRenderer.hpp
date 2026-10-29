@@ -39,6 +39,12 @@ namespace Desert::Graphic::System
     class MeshRenderer;
 }
 
+namespace Desert::Graphic::GpuDriven
+{
+    class GpuScene;
+    struct PrimitiveChange;
+}
+
 namespace Desert::Graphic::RayTracing
 {
     inline constexpr std::string_view kTlasPassName               = "RayTracingScene.TLAS";
@@ -321,9 +327,13 @@ namespace Desert::Graphic::RayTracing
         // segment records with no BLAS resolved (GatherRayTracingPrimitives with no variants) from the queues and
         // view AddPasses was given, so GetPrimitives / GetSegmentRecords answer for a reader of the scene's meshes
         // (the emissive light list under the software GI tracer, EmissiveLights.hpp). A frame with a TLAS keeps
-        // its gather (the same rows). Cached across frames: regathered only when RayTracingSceneGatherKey (the
-        // queues' primitives, transforms, sections, materials, ISM transform snapshots and rows) changes, or after
-        // a TLAS gather replaced it. Error: called before this frame's AddPasses.
+        // its gather (the same rows). Cached across frames and kept current by THE GPUSCENE CHANGE STREAM
+        // (GpuScene::ChangesSince, GI-ALL-LIGHTS step 6; UE FScene primitive updates): a still scene reads no
+        // change, a moved primitive's change sets World on the kept primitives of its row (O(changes), no record
+        // walked, no key built). Gathered in full only on a structure change of a meshed primitive (added,
+        // removed, updated, Content) or a Discarded frame, when the stream no longer reaches the cursor, when
+        // MakeRayTracingSceneUnsyncedKey (the grass producers; the view while an ISM culls by distance) differs,
+        // or after a TLAS gather replaced it. Error: called before this frame's AddPasses or GPU-scene sync.
         [[nodiscard]] Common::BoolResultStr GatherScene();
         // How many full scene gathers GatherScene ran since the view was made (a still scene, or one whose
         // primitives only move: one).
@@ -331,8 +341,8 @@ namespace Desert::Graphic::RayTracing
         {
             return m_SceneGathers;
         }
-        // How many GatherScene calls moved kept primitives in place instead (RayTracingSceneGatherKey: same
-        // structure, other worlds).
+        // How many GatherScene calls moved kept primitives in place instead (the stream carried only Moved
+        // changes, at least one of them of a primitive of the gather).
         [[nodiscard]] uint64_t GetSceneGatherMoveCount() const
         {
             return m_SceneGatherMoves;
@@ -391,16 +401,23 @@ namespace Desert::Graphic::RayTracing
         glm::vec3                   m_SceneViewOrigin{ 0.0f };
         float                       m_SceneLensScale   = 1.0f;
         uint64_t                    m_SceneGatherFrame = ~0ull;
-        // The scene gather's cache (GatherScene): the key m_Gather was gathered from, while m_GatherIsScene.
-        RayTracingSceneGatherKey m_SceneGatherKey;
-        RayTracingSceneGatherKey m_SceneGatherScratchKey; // this frame's, capacity kept
+        // The scene gather's cache (GatherScene), while m_GatherIsScene: the GpuScene stream m_Gather follows
+        // (GpuScene::GetStreamId) and the serial it has read up to, its unsynced key (and this frame's scratch,
+        // capacity kept), and whether an ISM of it culls by view.
+        uint64_t                 m_SceneStream = 0;
+        uint64_t                 m_SceneCursor = 0;
+        std::vector<uint64_t>    m_SceneUnsyncedKey;
+        std::vector<uint64_t>    m_SceneUnsyncedScratch;
+        bool                     m_SceneViewCulls = false;
         bool                     m_GatherIsScene = false;
         uint64_t                 m_SceneGathers  = 0;
         uint64_t                 m_SceneGatherMoves = 0;
         // The kept scene gather's primitives by GPU-scene row (kinds with a CPU world), and this frame's moved ones.
         std::unordered_multimap<uint32_t, uint32_t> m_ScenePrimitivesOfRow;
         std::vector<uint32_t>                       m_SceneMoved;
-        void MoveScenePrimitives(); // GatherScene: the scratch key's moved worlds onto the kept gather
+        // GatherScene: each Moved change of @p changes onto the kept primitives of its row (the GpuScene row's first
+        // instance, RayTracingPrimitive::GpuSceneRow); returns whether any primitive of the gather moved.
+        bool MoveScenePrimitives( const GpuDriven::GpuScene& scene, std::span<const GpuDriven::PrimitiveChange> changes );
         std::vector<RDG::BufferRef>                 m_DynamicBlas;   // CPU scratch: this frame's built BLASes
         std::vector<RayTracingDynamicGeometryBuild> m_DynamicBuilds; // CPU scratch: this frame's BLAS builds
         RayTracingSceneStats                        m_Stats;

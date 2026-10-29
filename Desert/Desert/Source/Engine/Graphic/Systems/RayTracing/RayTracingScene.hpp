@@ -281,36 +281,6 @@ namespace Desert::Graphic::RayTracing
         uint32_t               Record = 0; // the indexed-indirect record (submesh) that states count and first
     };
 
-    // THE IDENTITY OF A SCENE GATHER'S INPUTS (GI-ALL-LIGHTS step 3): every value GatherRayTracingPrimitives
-    // (RayTracingGather.hpp, MakeRayTracingSceneGatherKey) reads from its inputs and their meshes, in O(records) -
-    // an ISM field by its transform snapshot (immutable, and held here so its address cannot be reused by another)
-    // and the GPU-scene rows of its instances, never instance by instance. Equal keys gather the same primitives
-    // and segment records with no BLAS resolved, so a reader of the scene's meshes on a frame without a TLAS
-    // (RayTracingSceneRenderer::GatherScene) regathers only when a primitive, its transform, its sections or their
-    // materials change. The view (origin, lens scale) is part of the key only when an ISM field culls by distance
-    // - the one place the gather reads it.
-    // PER PRIMITIVE (GI-ALL-LIGHTS step 5): the world of a static / generic / skinned record is NOT in Words but
-    // in Transforms (one per such record, in key order, its GPU-scene row beside it in TransformRows). Equal
-    // structures (SameStructure) gather the same primitives in the same order with the same segment records, so
-    // a key that differs only in Transforms is applied to the kept gather in place - the moved rows' World, no
-    // primitive walk (RayTracingSceneRenderer::GatherScene). An ISM instance's world is its field's snapshot
-    // (Fields: a new snapshot is a new structure).
-    struct RayTracingSceneGatherKey
-    {
-        std::vector<uint64_t>                                      Words;
-        std::vector<uint32_t>                                      InstancedRows;
-        std::vector<std::shared_ptr<const std::vector<glm::mat4>>> Fields;
-        std::vector<glm::mat4>                                     Transforms;
-        std::vector<uint32_t>                                      TransformRows;
-
-        [[nodiscard]] bool SameStructure( const RayTracingSceneGatherKey& other ) const
-        {
-            return Words == other.Words && InstancedRows == other.InstancedRows && Fields == other.Fields &&
-                   TransformRows == other.TransformRows;
-        }
-        bool operator==( const RayTracingSceneGatherKey& ) const = default;
-    };
-
     struct RayTracingGatherResult
     {
         std::vector<RayTracingPrimitive>                                        Primitives;

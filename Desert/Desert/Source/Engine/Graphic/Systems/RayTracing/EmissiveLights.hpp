@@ -476,7 +476,7 @@ namespace Desert::Graphic::RayTracing
 
     // THE LIST ACROSS FRAMES (SceneRenderer::AddFrameEmissiveLights). Rebuilt on the CPU only when what it is made
     // of can have changed: the gather it reads was redone (@p regathered: a frame with a TLAS gathers every frame,
-    // a scene gather runs only when RayTracingSceneGatherKey moved) or a material's estimate moved
+    // a scene gather runs only when the GpuScene stream carried a structure change) or a material's estimate moved
     // (EmissiveMaterialTable). A still scene costs the materials' estimates, no primitive walk. The renderer then
     // compares what it keeps on the GPU with the list (StructureHash, then each static row's transform), so a
     // moving emitter re-expands its own triangles only and a static non-emitter never touches the list.

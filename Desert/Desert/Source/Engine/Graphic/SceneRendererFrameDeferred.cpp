@@ -1413,7 +1413,7 @@ namespace Desert::Graphic
             return estimate;
         };
         // The CPU list is rebuilt only when its gather was redone (every TLAS frame; a scene gather only when
-        // RayTracingSceneGatherKey's structure moved) or a material's estimate moved (EmissiveTriangleListCache);
+        // the GpuScene stream carried a structure change) or a material's estimate moved (EmissiveTriangleListCache);
         // a scene gather that only moved primitives moves their rows in place (GetSceneMovedPrimitives). The GPU
         // side then re-expands only what changed (EmissiveLightsRenderer::AddPasses).
         const uint64_t gathers    = m_RayTracingScene.GetSceneGatherCount();

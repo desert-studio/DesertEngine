@@ -9,7 +9,10 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
+#include <Engine/Geometry/Mesh.hpp>
+
 #include <algorithm>
+#include <cstdint>
 #include <optional>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
@@ -617,6 +620,76 @@ namespace Desert::Graphic::System
         registry.BeginFrame( frame );
         GpuDriven::GpuScene& scene = registry.Scene();
 
+        // MotionRecord::Content of each record: what the ray-tracing gather (RayTracingGather.hpp) reads of it
+        // besides its mesh, world, row and flags - its sections (visible submeshes, material instance, surface,
+        // masked / translucent, a generic record's own hit program), its ray-tracing visibility and the mesh's
+        // submesh list and residency. Bit-exact words folded per record; the registry turns a change into a
+        // Content change of the GpuScene stream.
+        struct ContentWords
+        {
+            uint64_t Hash = 0xCBF29CE484222325ull;
+            void     Value( const uint64_t value )
+            {
+                Hash = ( Hash ^ value ) * 0x100000001B3ull;
+            }
+            void Pointer( const void* pointer )
+            {
+                Value( static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( pointer ) ) );
+            }
+            void Section( const uint64_t hidden, const SectionShading& shading )
+            {
+                Value( hidden );
+                Pointer( shading.Instance );
+                Pointer( shading.Surface );
+                Value( ( shading.Masked ? 1u : 0u ) | ( shading.Translucent ? 2u : 0u ) );
+            }
+            void MeshOf( const Mesh* mesh )
+            {
+                Pointer( mesh );
+                if ( mesh == nullptr )
+                    return;
+                Pointer( mesh->GetSubmeshes().data() );
+                Value( mesh->GetSubmeshes().size() );
+                Value( mesh->GetGeometry().IndexCount );
+                Value( mesh->GetGeometry().IsResident() ? 1u : 0u );
+            }
+        };
+        const auto staticContent = []( const StaticMeshRenderData& data )
+        {
+            ContentWords words;
+            words.MeshOf( data.Mesh );
+            words.Section( data.HiddenSubmeshes, ShadingOf( data ) );
+            return words.Hash;
+        };
+        const auto genericContent = []( const GenericMeshRenderData& data )
+        {
+            ContentWords words;
+            words.Value( data.VisibleInRayTracing ? 1u : 0u );
+            words.MeshOf( data.Mesh );
+            words.Value( data.VisibleSubmeshMask );
+            words.Pointer( data.SlotMaterial );
+            // The gather keeps the record's hit program by address (SectionSource::ProgramHit).
+            words.Pointer( &data.RayHit );
+            words.Value( ( data.RayHit.Template.empty() ? 0u : 1u ) | ( data.RayHit.Opacity.has_value() ? 2u : 0u ) );
+            return words.Hash;
+        };
+        const auto skinnedContent = []( const SkinnedMeshRenderData& data )
+        {
+            ContentWords words;
+            words.MeshOf( data.Mesh );
+            words.Value( data.Sections.size() );
+            for ( const SkinnedSection& section : data.Sections )
+                words.Section( section.HiddenSubmeshes, ShadingOf( section ) );
+            return words.Hash;
+        };
+        const auto fieldContent = []( const InstancedMeshRenderData& data )
+        {
+            ContentWords words;
+            words.MeshOf( data.Mesh );
+            words.Section( data.HiddenSubmeshes, ShadingOf( data ) );
+            return words.Hash;
+        };
+
         // The queued records as the registry keys them (GpuSceneRegistry::Sync: one primitive per entity slot,
         // submesh records of one object share it, slots stable per submission); this function only gathers them,
         // writes each one's rows back and uploads the scene's deltas.
@@ -630,13 +703,15 @@ namespace Desert::Graphic::System
                                .Mesh      = data.Mesh,
                                .Flags     = rigidFlags( data.CastShadows, data.CastContactShadow ),
                                .ForcedLod = data.ForcedLOD,
-                               .LodBias   = data.LODBias } );
+                               .LodBias   = data.LODBias,
+                               .Content   = staticContent( data ) } );
         for ( const auto& data : m_GenericQueue )
             rigid.push_back( { .Entity = data.Entity,
                                .Part   = data.MotionPart,
                                .World  = data.Transform,
-                               .Mesh   = data.Mesh,
-                               .Flags  = rigidFlags( data.CastShadows, true ) } );
+                               .Mesh    = data.Mesh,
+                               .Flags   = rigidFlags( data.CastShadows, true ),
+                               .Content = genericContent( data ) } );
         rigid.insert( rigid.end(), otherRigid.begin(), otherRigid.end() );
 
         auto& skinned = m_ScratchSkinnedRecords;
@@ -646,8 +721,9 @@ namespace Desert::Graphic::System
             skinned.push_back( { .Entity = data.Entity,
                                  .World  = data.Transform,
                                  .Bones  = data.BoneMatrices,
-                                 .Mesh   = data.Mesh,
-                                 .Flags  = Flags::kSkinned | rigidFlags( data.CastShadows, true ) } );
+                                 .Mesh    = data.Mesh,
+                                 .Flags   = Flags::kSkinned | rigidFlags( data.CastShadows, true ),
+                                 .Content = skinnedContent( data ) } );
 
         // Every ISM / foliage field is ONE primitive whose GpuScene instances are its instances (UE instance
         // scene data; the GI card table and the TLAS custom index are keyed per instance).
@@ -661,7 +737,8 @@ namespace Desert::Graphic::System
                                 .CullDistanceStart = data.CullDistance.Min,
                                 .CullDistanceEnd   = data.CullDistance.Max,
                                 .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ),
-                                .BoundsPad         = WindBoundsPad( data.Wind ) } );
+                                .BoundsPad         = WindBoundsPad( data.Wind ),
+                                .Content           = fieldContent( data ) } );
 
         auto& rows = m_ScratchGpuSceneRows;
         registry.Sync( rigid, skinned, fields, rows );
