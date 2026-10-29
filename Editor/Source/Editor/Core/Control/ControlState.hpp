@@ -138,6 +138,16 @@ namespace Desert::Editor::Control
         uint32_t Receivers = 0; ///< of them, asked for by "VSM: Mark Receivers" (a forward receiver's own depth)
     };
 
+    /// The primary view's last forward depth prepass (Graphic/Systems/Scene/Mesh/MeshRenderer.hpp
+    /// ForwardPrepassStats): all zero on a frame that drew its meshes into the G-buffer.
+    struct ForwardPrepassSnapshot
+    {
+        uint32_t Draws            = 0;     ///< commands of "Forward: Depth Prepass"
+        uint32_t Cells            = 0;     ///< (material x path) cell draws the base pass was admitted
+        uint32_t GpuSections      = 0;     ///< GPU-instanced sections (landscape grass) the base pass was admitted
+        bool     DepthWriteInBase = false; ///< a base-pass draw wrote depth (only the Wireframe view's twins may)
+    };
+
     struct EditorSnapshot
     {
         std::string SceneName;
@@ -169,6 +179,8 @@ namespace Desert::Editor::Control
         uint32_t GeometryPoolMeshBinds = 0;
         // The primary view's virtual shadow map local lights (Shadows VirtualMaps), one per light it drew.
         std::vector<VsmLocalLightSnapshot> VsmLocalLights;
+        // The primary view's forward depth prepass, as its base pass of the same frame admitted it.
+        ForwardPrepassSnapshot ForwardPrepass;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -186,7 +198,8 @@ namespace Desert::Editor::Control
     /// actually honoured — the same rule the command line follows for its flags, and for the same reason:
     /// a list written out by hand drifts, and the drift shows up as a section that silently returns nothing.
     inline constexpr const char* kStateSections[] = {
-         "scene", "selection", "authoring", "documents", "panels", "views", "vsm", "log", "device", "quiescence",
+         "scene", "selection", "authoring", "documents", "panels", "views", "vsm", "render", "log", "device",
+         "quiescence",
     };
 
     [[nodiscard]] inline std::string KnownSectionList()
@@ -378,6 +391,19 @@ namespace Desert::Editor::Control
             Common::Json::Object vsm;
             vsm["localLights"] = Common::Json::Value( lights );
             root["vsm"]        = Common::Json::Value( vsm );
+        }
+
+        if ( Wanted( sections, "render" ) )
+        {
+            const ForwardPrepassSnapshot& prepass = snapshot.ForwardPrepass;
+            Common::Json::Object          forwardPrepass;
+            forwardPrepass["draws"]            = Num( prepass.Draws );
+            forwardPrepass["cells"]            = Num( prepass.Cells );
+            forwardPrepass["gpuSections"]      = Num( prepass.GpuSections );
+            forwardPrepass["depthWriteInBase"] = Common::Json::Value( prepass.DepthWriteInBase );
+            Common::Json::Object render;
+            render["forwardPrepass"] = Common::Json::Value( forwardPrepass );
+            root["render"]           = Common::Json::Value( render );
         }
 
         if ( Wanted( sections, "log" ) )

@@ -103,6 +103,7 @@
 #include <Engine/Graphic/Systems/Scene/Shadows/MegaLightsVolume.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedLocalShadow.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedSunShadow.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/ForwardPrepassStats.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 #include <Engine/Graphic/Systems/Scene/PathTracing/PathTracer.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
@@ -401,6 +402,8 @@ namespace Desert::Graphic
         /// Triangles the last frame's view pass drew, at the LOD each mesh was drawn with
         /// (MeshRenderer::GetViewTrianglesDrawn).
         [[nodiscard]] uint64_t GetViewTrianglesDrawn() const;
+        /// The last frame's forward depth prepass (MeshRenderer::GetForwardPrepassStats); zero without a mesh renderer.
+        [[nodiscard]] System::ForwardPrepassStats GetForwardPrepassStats() const;
 
         // UE-style Instanced Static Mesh: one mesh + one lit material drawn for every transform in
         // @p transforms. Material and transforms are both co-owned handles for the reason SubmitMesh's
@@ -1543,6 +1546,7 @@ namespace Desert::Graphic
         // from their renderers' programs as each is first built (RefuseProgramMethods). Never cleared: a program
         // that did not build on this device is not retried.
         ProgramRefusals m_ProgramRefusals;
+        bool            m_DeferredWithoutGBufferLogged = false; // BeginScene's lowering of Deferred, said once
         // A program only @p methods need did not build (@p program: its name, static storage; @p error: why). Each
         // method not yet refused is added to m_ProgramRefusals with one ERROR line naming it and the program; the
         // next BeginScene resolves the method below it (MethodLimit::Program), the rest of the frame is untouched.

@@ -32,6 +32,26 @@ namespace Desert::Graphic
                "GrassBlade.Depth" },
              { "ParticleRibbon.Forward", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
         };
+
+        // THE FORWARD PREPASS RELATION: the forward base pass draws an opaque mesh only where "Forward: Depth
+        // Prepass" drew it first (its depth test is CloserOrEqual with no write), so every path drawn in the
+        // view's opaque mesh passes - the paths with a G-buffer cell - has a view Depth cell. A row that gains
+        // Forward and GBuffer without Depth would leave that path's meshes out of the forward frame; it fails here
+        // instead. (The particle paths are drawn over the lit scene by ParticleRenderer, never by the mesh base
+        // pass.)
+        constexpr bool EveryOpaqueMeshPathHasViewDepth()
+        {
+            for ( uint32_t path = 0; path < kMeshVertexPathCount; ++path )
+            {
+                const auto& row = kMeshCells[path];
+                if ( row[static_cast<uint32_t>( MeshPass::GBuffer )] != nullptr &&
+                     row[static_cast<uint32_t>( MeshPass::Depth )] == nullptr )
+                    return false;
+            }
+            return true;
+        }
+        static_assert( EveryOpaqueMeshPathHasViewDepth(),
+                       "a mesh path with a GBuffer cell has no Depth cell: the forward prepass cannot admit it" );
     } // namespace
 
     const char* MeshCellFor( MeshVertexPath path, MeshPass pass )

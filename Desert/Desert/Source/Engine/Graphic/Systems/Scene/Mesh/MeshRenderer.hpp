@@ -59,6 +59,7 @@
 #include <map>
 #include <compare>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/ForwardPrepassStats.hpp>
 #include <Common/Core/AssetHandle.hpp>
 
 namespace Desert::Runtime
@@ -963,6 +964,18 @@ namespace Desert::Graphic::System
         /// forward generic), at the LOD each draw was built with: UE's stat "Triangles drawn" for the base pass.
         /// Shadow and debug passes are not counted.
         [[nodiscard]] uint64_t GetViewTrianglesDrawn() const;
+        /// The last frame's forward depth prepass and whether its base pass wrote depth (ForwardPrepassStats).
+        [[nodiscard]] const ForwardPrepassStats& GetForwardPrepassStats() const
+        {
+            return m_ForwardPrepassStats;
+        }
+        /// Whether this renderer can draw the view's meshes into the G-buffer (the (Static x GBuffer) pipeline
+        /// was built): SceneRenderer runs the deferred path only when it can, so the meshes are never drawn
+        /// forward on a deferred frame (where no forward depth prepass runs).
+        [[nodiscard]] bool DrawsGBuffer() const
+        {
+            return m_StaticGBufferPipeline != nullptr;
+        }
         void ClearQueues();
 
         // THE BOUNDARY IS DRAWN INSIDE THIS HEADER, not at the call sites, and Common/Core/Profiler.hpp
@@ -1511,6 +1524,7 @@ namespace Desert::Graphic::System
         std::map<PrepassCellKey, MaterialPipelineTracker::CellDraw> m_PrepassCellDraws;
         std::unordered_set<uint64_t>                                m_PrepassGpuSections; // GpuInstancedRenderData::Key
         std::optional<uint64_t>                                     m_PrepassFrame;
+        ForwardPrepassStats                                         m_ForwardPrepassStats; // GetForwardPrepassStats
         // Whether the pass being built pairs with the other half of the forward prepass (m_GeometryPass Forward
         // or Depth on the forward path, with the prepass's cells): static/instanced/grass not under the Wireframe
         // view (@p wireframeReplaced), skinned always.

@@ -931,6 +931,22 @@ namespace Desert::Graphic
         // dead setting, reintroduced by the fix for one.
         m_RenderPath = ( m_DebugView.WireframeMode || m_DebugView.LightingDebug ) ? Core::RenderPath::Forward
                                                                                   : sceneSettings.RenderingPath;
+        // The deferred path draws the meshes into the G-buffer: a mesh renderer without its (Static x GBuffer)
+        // pipeline (MeshRenderer::SetupGBufferPass named why) cannot, so the view is forward - its meshes then get
+        // the forward depth prepass their base pass tests against, never a forward draw on a deferred frame.
+        if ( m_RenderPath == Core::RenderPath::Deferred )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            if ( mesh != nullptr && !mesh->DrawsGBuffer() )
+            {
+                m_RenderPath = Core::RenderPath::Forward;
+                if ( !m_DeferredWithoutGBufferLogged )
+                    LOG_ERROR( "[SceneRenderer] the scene states the Deferred path but the mesh renderer has no "
+                               "G-buffer pipeline: this view renders Forward" );
+                m_DeferredWithoutGBufferLogged = true;
+            }
+        }
 
         // THE ANTI-ALIASING THIS FRAME RUNS (AA2), read from the settings layer's resolution of the
         // machine's choice for the SCENE'S path — not m_RenderPath: a debug view that forces forward must
@@ -3400,6 +3416,14 @@ namespace Desert::Graphic
         if ( found == m_RenderSystems.end() )
             return 0;
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetViewTrianglesDrawn();
+    }
+
+    System::ForwardPrepassStats SceneRenderer::GetForwardPrepassStats() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return {};
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetForwardPrepassStats();
     }
 
     void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,

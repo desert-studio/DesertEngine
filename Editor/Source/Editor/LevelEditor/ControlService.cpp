@@ -1341,6 +1341,11 @@ namespace Desert::Editor
             snapshot.GeometryPoolMeshBinds        = pool.MeshBinds;
             if ( const auto* primary = m_Workspace.PrimaryRenderer(); primary != nullptr )
             {
+                const Graphic::System::ForwardPrepassStats prepass = primary->GetForwardPrepassStats();
+                snapshot.ForwardPrepass = { .Draws            = prepass.Draws,
+                                            .Cells            = prepass.Cells,
+                                            .GpuSections      = prepass.GpuSections,
+                                            .DepthWriteInBase = prepass.DepthWriteInBase };
                 for ( const Graphic::System::VsmLocalLightStats& light : primary->GetVirtualShadowLocalStats() )
                     snapshot.VsmLocalLights.push_back( { .Source    = light.SourceId,
                                                          .Views     = light.Views,

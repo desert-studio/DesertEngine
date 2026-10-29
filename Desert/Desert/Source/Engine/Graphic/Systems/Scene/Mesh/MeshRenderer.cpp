@@ -220,7 +220,7 @@ namespace Desert::Graphic::System
         // The same path test the forward list's build makes: on Deferred the forward list is cleared and the
         // meshes are in the G-buffer list, the forward-shaded generics in the generic one.
         const bool deferred =
-             m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_StaticGBufferPipeline;
+             m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_SceneRenderer->GetGBuffer();
         if ( !deferred )
             return m_ForwardDraws.Triangles();
         return m_GBufferDraws.Triangles() + m_GenericDraws.Triangles();
@@ -469,10 +469,15 @@ namespace Desert::Graphic::System
             // only: in Deferred the meshes are drawn into the G-buffer by "Deferred: GBuffer" instead (this
             // target keeps sky/grid/terrain for compositing). The cloud layer's shadow map is one of the inputs.
             m_ForwardDraws.Clear();
+            // SceneRenderer's own test (its deferred block runs exactly then, and it runs the deferred path only
+            // where DrawsGBuffer): every frame that draws meshes here ran "Forward: Depth Prepass" before it.
             const bool deferred =
-                 m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_StaticGBufferPipeline;
+                 m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_SceneRenderer->GetGBuffer();
             if ( deferred || m_SceneRenderer->GetMainCamera() == nullptr )
+            {
+                m_ForwardPrepassStats = {};
                 return;
+            }
             const SceneViewInputs view = SceneViewInputsOf( refs );
             // Shadows.Method VirtualMaps: every forward cell reads the view's virtual shadow map, not the atlas.
             m_ForwardVirtualLocal = m_SceneRenderer->LocalShadowsAreVirtual();
@@ -480,6 +485,16 @@ namespace Desert::Graphic::System
             BuildSkinnedDraws( m_ForwardDraws );
             BuildGenericDraws( m_ForwardDraws, GenericSlice::Forward );
             m_ForwardDraws.Declare( declared, view );
+            // What this frame's prepass admitted (DeclareDepthPrepassDraws ran before this node), and whether any
+            // base-pass draw writes the depth it tests against.
+            m_ForwardPrepassStats = ForwardPrepassStats{
+                 .Draws       = PrepassCurrent() ? static_cast<uint32_t>( m_DepthPrepassDraws.GetCommands().size() )
+                                                 : 0u,
+                 .Cells       = PrepassCurrent() ? static_cast<uint32_t>( m_PrepassCellDraws.size() ) : 0u,
+                 .GpuSections = PrepassCurrent() ? static_cast<uint32_t>( m_PrepassGpuSections.size() ) : 0u,
+                 .DepthWriteInBase = std::ranges::any_of( m_ForwardDraws.GetCommands(),
+                                                          []( const MeshRendererDetail::MeshDrawCommand& draw )
+                                                          { return draw.Pipeline->GetSpecification().DepthWriteEnabled; } ) };
             // The skin cache's streams the forward skinned cell fetches by address (Vertex_Skinned.glslh).
             for ( const RDG::BufferRef& streams : m_SkinCacheReads )
                 declared.Read( streams, RDG::Access::StorageRead );
