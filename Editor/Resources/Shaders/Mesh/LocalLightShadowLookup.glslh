@@ -8,7 +8,8 @@
 // and the view's ShadowUB (ShadowFilter, unless LOCAL_SHADOW_FILTER_TAPS is defined) first (see Mesh/LocalLightShadow.glslh).
 // UNDER Shadows.Method VirtualMaps (DESERT_LOCAL_SHADOW_VSM) the atlas half is compiled out and Point/SpotLightShadow
 // and Point/SpotLightTransmission read the light's virtual map instead (see Mesh/LocalLightShadow.glslh for what the
-// includer then declares). The froxel fog does not define it: under VirtualMaps it still reads the atlas.
+// includer then declares). The froxel fog has the same two permutations (VolumetricFogRenderer picks by
+// Graphic::LocalShadowsVirtual, the rule every local-shadow reader takes).
 //
 // The PCF disc's rotation is keyed on a pixel: LOCAL_SHADOW_FILTER_PIXEL, the fragment's gl_FragCoord.xy unless the
 // includer names another (a compute receiver has no fragment: the froxel fog names its froxel's xy).

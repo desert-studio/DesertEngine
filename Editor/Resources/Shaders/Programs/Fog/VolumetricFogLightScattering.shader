@@ -7,7 +7,9 @@ Shader "VolumetricFogLightScattering"
         // froxel: the height fog's medium at a jittered point inside it, lit by
         //   * the sun, through its shadow cascades - the light shafts;
         //   * every point and spot light whose bounds touch the point, found through the view's light grid
-        //     (LIGHT-CLUSTER) and shadowed through the local shadow atlas - the halos around lamps;
+        //     (LIGHT-CLUSTER) and shadowed through the local shadow atlas, or under Shadows.Method VirtualMaps
+        //     (the DESERT_LOCAL_SHADOW_VSM permutation, UE: the froxels sample the light's virtual shadow map)
+        //     through the light's virtual map - the halos around lamps;
         //   * the sky, as an isotropic ambient (the distant sky light texel the height fog also reads);
         // each through the Henyey-Greenstein phase of the medium and scaled by its light's
         // VolumetricScatteringIntensity. The result is blended with LAST frame's value at the same world point
@@ -20,7 +22,6 @@ Shader "VolumetricFogLightScattering"
         #include <Common/VolumetricFog.glslh>
         #include <Mesh/PointLight.glslh>
         #include <Mesh/Spotlight.glslh>
-        #include <Mesh/LocalLightShadowView.glslh>
         #include <Mesh/LightGrid.glslh>
         // SKY_DISTANT_LIGHT_SPHERE_TEXEL only; like HeightFog.shader this pass defines neither LUT callback, so
         // the integrator half of SkyScattering.glslh stays out.
@@ -34,7 +35,6 @@ Shader "VolumetricFogLightScattering"
         // The pass's shared sampler states (separate textures, RDGShaderParameters.hpp).
         Uniform sampler LinearClampSampler;
         Uniform sampler LinearRepeatSampler;
-        Uniform sampler PointClampSampler;
         Uniform(2) texture3D LightScatteringHistoryTexture;
         #define LightScatteringHistoryTexture sampler3D(LightScatteringHistoryTexture, LinearClampSampler)
 
@@ -43,10 +43,38 @@ Shader "VolumetricFogLightScattering"
         Uniform(3) texture2DArray ShadowCascadesTexture;
         #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler)
 
-        // The point/spot shadow atlas and its views (Mesh/LocalLightShadowLookup.glslh reads them).
+        #ifdef DESERT_LOCAL_SHADOW_VSM
+        // Shadows.Method VirtualMaps: the point/spot lights' shadows from the view's virtual shadow map, through
+        // the reader the opaque composite and the surface cache's cards use (Common/VirtualShadowMap.glslh,
+        // VsmLocalVisibility): the atlas is not drawn. A froxel no pass marked reads its light's coarse mip
+        // ("VSM: Mark Coarse"), the resolution UE's volumetric fog reads local VSMs at too. Bound by name
+        // (VolumetricFogRenderer, kVsm*Block); slots 4/5 are the atlas permutation's, 10/11 free in both.
+        #include <Common/VirtualShadowMap.glslh>
+        ReadBuffer(4) VsmFrameData
+        {
+            VsmFrame Frame;
+            VsmLevel Levels[];
+        };
+        ReadBuffer(5) VsmPageTable
+        {
+            VsmPageEntry Entries[];
+        };
+        layout(set = 0, binding = 10, r32ui) restrict readonly uniform uimage2D PhysicalPoolTexture;
+        ReadBuffer(11) VsmLocalLightsUB
+        {
+            VsmLocalLight vsmLocalLights[];
+        };
+        #define DESERT_VSM_READ
+        #include <Common/VirtualShadowMap.glslh>
+        #else
+        // The point/spot shadow atlas and its views (Mesh/LocalLightShadowLookup.glslh reads them), through the
+        // pass's point-clamped state (declared only here: a shared sampler no stage samples is refused).
+        Uniform sampler PointClampSampler;
+        #include <Mesh/LocalLightShadowView.glslh>
         Uniform(4) texture2D LocalShadowAtlasTexture;
         #define LocalShadowAtlasTexture sampler2D(LocalShadowAtlasTexture, PointClampSampler)
         ReadBuffer(5) LocalShadowViewsUB { LocalShadowView localShadowViews[]; };
+        #endif
 
         // The sky's distant light texel (Programs/Sky/SkyDistantLight.shader), or the fallback when
         // VfSkyAmbient.w is 0.

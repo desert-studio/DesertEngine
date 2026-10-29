@@ -211,7 +211,18 @@ namespace Desert::Graphic
         if ( updatesCache )
         {
             const GlobalIllumination::Pipeline cardTracer = frameViews->Tracer;
-            if ( const auto program = cache->EnsureLightingProgram( cardTracer, LocalShadowsAreVirtual() );
+            // The cards' local shadows are the cache's (FrameViews::VirtualLocalShadows, resolved from the scene by
+            // the owner): the view recording the update must have built the same kind - the atlas, or the virtual
+            // maps - since the lighting reads this view's. A view whose Shadows method differs is refused by name.
+            if ( frameViews->VirtualLocalShadows != LocalShadowsAreVirtual() )
+            {
+                LOG_ERROR( "[SceneRenderer] Surface Cache: the cache's local shadows are {} and this view, which "
+                           "updates it this frame, draws {} (its Shadows method differs from the scene's)",
+                           frameViews->VirtualLocalShadows ? "virtual maps" : "the atlas",
+                           LocalShadowsAreVirtual() ? "virtual maps" : "the atlas" );
+                return;
+            }
+            if ( const auto program = cache->EnsureLightingProgram( cardTracer, frameViews->VirtualLocalShadows );
                  !program )
             {
                 // The cache resolves its next tracer without it; the view lowers its own GI off it.
@@ -350,6 +361,7 @@ namespace Desert::Graphic
             lighting.Tracer = MakeTracerFrame( graph, textures, SurfaceCacheTracer() );
             // The traced GI relights the pages' indirect term after its radiance cache update (AddFrameTracedGI).
             lighting.IndirectLighting = RadianceCacheRuns();
+            lighting.VirtualLocalShadows = frameViews->VirtualLocalShadows;
             if ( const auto lit = cache->AddDirectLightingPass( graph, import, scene, records, lighting );
                  !lit )
             {

@@ -2538,8 +2538,7 @@ namespace Desert::Graphic
 
     bool SceneRenderer::LocalShadowsAreVirtual() const
     {
-        return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::VirtualMaps &&
-               !PathTraced( m_RenderMethods );
+        return LocalShadowsVirtual( m_RenderMethods );
     }
 
     bool SceneRenderer::LocalShadowsAreScreenMask() const

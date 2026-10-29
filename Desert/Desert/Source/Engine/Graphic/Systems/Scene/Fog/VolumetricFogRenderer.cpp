@@ -79,6 +79,50 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
+    Core::ShaderVariant VolumetricFogRenderer::ScatteringVsmVariant()
+    {
+        return Core::ShaderVariant{ .Defines = { std::string( kLocalShadowVsmDefine ) }, .ShippedByCook = true };
+    }
+
+    std::vector<Core::CookedProgramVariant> VolumetricFogRenderer::ProgramVariants()
+    {
+        return { { std::string( kScatteringShaderName ), ScatteringVsmVariant() } };
+    }
+
+    Common::BoolResultStr VolumetricFogRenderer::EnsureScatteringVsmPipeline()
+    {
+        if ( m_ScatteringVsmPipeline )
+            return BOOLSUCCESS;
+        if ( !m_ScatteringVsmRefusal.empty() )
+            return Common::MakeError( m_ScatteringVsmRefusal );
+        const auto refuse = [this]( std::string why ) -> Common::BoolResultStr
+        {
+            m_ScatteringVsmRefusal = std::move( why );
+            LOG_ERROR( "[VolumetricFog] the local lights are not lit into the fog under Shadows.Method VirtualMaps "
+                       "(the fog stays analytic): {}",
+                       m_ScatteringVsmRefusal );
+            return Common::MakeError( m_ScatteringVsmRefusal );
+        };
+        const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
+        if ( !shaderService )
+            return refuse( "no shader service" );
+        auto acquired = shaderService->AcquireVariant( kScatteringShaderName, ScatteringVsmVariant() );
+        if ( !acquired )
+            return refuse( std::format( "{} ({}) was refused: {}", kScatteringShaderName, kLocalShadowVsmDefine,
+                                        acquired.GetError() ) );
+        const auto shader = acquired.ExtractValue();
+        std::string debugName = std::string( kScatteringShaderName ) + "|DESERT_LOCAL_SHADOW_VSM";
+        const auto  pipeline  = ComputePipeline::Create( { .Shader = shader, .DebugName = debugName } );
+        if ( !pipeline )
+            return refuse( pipeline.GetError() );
+        if ( const auto valid =
+                  m_ScatteringVsmLayout.Validate( shader, VolumetricFogLightScatteringShaderParameters::kVirtualLocal );
+             !valid )
+            return refuse( valid.GetError() );
+        m_ScatteringVsmPipeline = pipeline.GetValue();
+        return BOOLSUCCESS;
+    }
+
     bool VolumetricFogRenderer::CreatePipelines()
     {
         const auto shaderService = Runtime::ResourceRegistry::GetShaderService();
@@ -165,7 +209,7 @@ namespace Desert::Graphic::System
 
     std::vector<ComputeNodeDeclaration>
     VolumetricFogRenderer::DeclareFrameNodes( const FrameGraphRefs& refs, const ViewFrame& frame,
-                                              const VolumetricFogSunInput& sun )
+                                              const VolumetricFogSunInput& sun, const bool virtualLocalShadows )
     {
         std::vector<ComputeNodeDeclaration> nodes;
         m_Result = VolumetricFogFrameResult{};
@@ -173,14 +217,33 @@ namespace Desert::Graphic::System
             return nodes;
 
         const FrameTransients& t = refs.Transients;
-        if ( !t.Lights.Point.IsValid() || !t.Lights.Spot.IsValid() || !t.Lights.ShadowViews.IsValid() ||
-             !t.Lights.GridParams.IsValid() || !t.Lights.GridCells.IsValid() || !t.ShadowCascades.IsValid() )
+        if ( !t.Lights.Point.IsValid() || !t.Lights.Spot.IsValid() ||
+             ( !virtualLocalShadows && !t.Lights.ShadowViews.IsValid() ) || !t.Lights.GridParams.IsValid() ||
+             !t.Lights.GridCells.IsValid() || !t.ShadowCascades.IsValid() )
         {
             LOG_ERROR(
                  "[VolumetricFog] the view has no light grid or no cascade array this frame (AddFrameLightGrid "
                  "/ ImportSceneViewTextures did not run): the fog stays analytic" );
             return nodes;
         }
+        // THE LOCAL LIGHTS' SHADOW, by the rule every local-shadow reader takes (Graphic::LocalShadowsVirtual):
+        // under VirtualMaps the atlas is not drawn, and the froxels read the lights' virtual maps (UE: the
+        // volumetric fog samples a local light's VSM) through the DESERT_LOCAL_SHADOW_VSM permutation. No atlas
+        // fallback: a map or a program that is missing keeps the fog analytic, said by name.
+        if ( virtualLocalShadows )
+        {
+            if ( !t.Vsm.IsValid() )
+            {
+                LOG_ERROR( "[VolumetricFog] Shadows.Method VirtualMaps and the view built no virtual shadow map this "
+                           "frame (AddFrameVirtualShadows): the fog stays analytic" );
+                return nodes;
+            }
+            if ( !EnsureScatteringVsmPipeline() )
+                return nodes;
+        }
+        ComputePipeline* const scatteringPipeline =
+             virtualLocalShadows ? m_ScatteringVsmPipeline.get() : m_ScatteringPipeline.get();
+        ShaderBindingLayoutCache& scatteringLayout = virtualLocalShadows ? m_ScatteringVsmLayout : m_ScatteringLayout;
 
         const uint32_t width  = frame.Split.Render.Width;
         const uint32_t height = frame.Split.Render.Height;
@@ -261,7 +324,7 @@ namespace Desert::Graphic::System
                        uploaded.GetError() );
             return nodes;
         }
-        m_ScatteringPipeline->SetStorageBuffer( kVolumetricFogParamsBinding, m_ParamsBuffer.get() );
+        scatteringPipeline->SetStorageBuffer( kVolumetricFogParamsBinding, m_ParamsBuffer.get() );
         m_IntegrationPipeline->SetStorageBuffer( kVolumetricFogParamsBinding, m_ParamsBuffer.get() );
 
         const std::shared_ptr<Image> distantSkyLight =
@@ -271,7 +334,6 @@ namespace Desert::Graphic::System
         // Named here, not as a conditional inside the by-value argument (MSVC 19.44 hangs on that shape).
         std::string distantSkyLightName =
              atmosphere.DistantSkyLight ? "Sky.DistantLight" : "VolumetricFog.DistantSkyLightFallback";
-        const RDG::TextureRef atlas = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
 
         const std::string currentName =
              current == 0 ? "VolumetricFog.LightScatteringA" : "VolumetricFog.LightScatteringB";
@@ -294,9 +356,9 @@ namespace Desert::Graphic::System
         using Scattering = VolumetricFogLightScatteringShaderParameters;
         ComputeNodeDeclaration scattering;
         scattering.Name = "VolumetricFog: LightScattering";
-        scattering.Access
-             .Bindings( m_ScatteringLayout.Get( m_ScatteringPipeline->GetShader() ),
-                        Renderer::GetPipelineRouteFill( *m_ScatteringPipeline ) )
+        auto block = scattering.Access.Bindings( scatteringLayout.Get( scatteringPipeline->GetShader() ),
+                                                 Renderer::GetPipelineRouteFill( *scatteringPipeline ) );
+        block
              .Storage( Scattering::LightScatteringTexture, std::shared_ptr<Image>( m_LightScattering[current] ),
                        RDG::Access::StorageWrite, currentName )
              .Texture( Scattering::LightScatteringHistoryTexture, historyImage, RDG::Access::SampledCompute,
@@ -306,24 +368,39 @@ namespace Desert::Graphic::System
              .Texture( Scattering::ShadowCascadesTexture, t.ShadowCascades, RDG::Access::SampledCompute,
                        RDG::SubresourceRange::All() )
              .Sampler( Scattering::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
-             // Read with texelFetch and filtered by hand inside each tile (Mesh/LocalLightShadowLookup.glslh).
-             .Texture( Scattering::LocalShadowAtlasTexture, atlas, RDG::Access::SampledCompute,
-                       RDG::SubresourceRange::All() )
-             .Sampler( Scattering::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              // Read with texelFetch at its sphere texel.
              .Texture( Scattering::DistantSkyLightTexture, distantSkyLight, RDG::Access::SampledCompute,
                        std::move( distantSkyLightName ) )
              .Storage( Scattering::PointLightsUB, t.Lights.Point, RDG::Access::StorageRead )
              .Storage( Scattering::SpotLightsUB, t.Lights.Spot, RDG::Access::StorageRead )
-             .Storage( Scattering::LocalShadowViewsUB, t.Lights.ShadowViews, RDG::Access::StorageRead )
              .Storage( Scattering::LightGridParamsUB, t.Lights.GridParams, RDG::Access::StorageRead )
              .Storage( Scattering::LightGridCellsUB, t.Lights.GridCells, RDG::Access::StorageRead );
-        scattering.Record = [this, grid, current, frameIndex = frame.FrameIndex](
+        if ( virtualLocalShadows )
+        {
+            // The reader's tables (Common/VirtualShadowMap.glslh, DESERT_VSM_READ): this frame's map of the view.
+            block.Storage( kVsmFrameDataBlock, t.Vsm.FrameData, RDG::Access::StorageRead )
+                 .Storage( kVsmPageTableBlock, t.Vsm.PageTable, RDG::Access::StorageRead )
+                 .Storage( kVsmPhysicalPool, t.Vsm.PhysicalPool, RDG::Access::StorageRead )
+                 .Storage( kVsmLocalLightsBlock, t.Vsm.LocalLights, RDG::Access::StorageRead );
+        }
+        else
+        {
+            // A frame with no casting local light draws no atlas: its views table is then empty and the slot holds
+            // white (never read).
+            const RDG::TextureRef atlas = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
+            // Read with texelFetch and filtered by hand inside each tile (Mesh/LocalLightShadowLookup.glslh).
+            block
+                 .Texture( Scattering::LocalShadowAtlasTexture, atlas, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( Scattering::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Storage( Scattering::LocalShadowViewsUB, t.Lights.ShadowViews, RDG::Access::StorageRead );
+        }
+        scattering.Record = [this, scatteringPipeline, grid, current, frameIndex = frame.FrameIndex](
                                  RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             const RDG::PassBindings     bindings( context, context.GetBindingBlock( 0 ) );
             const Common::BoolResultStr dispatched = Renderer::DispatchCompute(
-                 bindings, *m_ScatteringPipeline, Groups( grid.x, kScatteringGroup ),
+                 bindings, *scatteringPipeline, Groups( grid.x, kScatteringGroup ),
                  Groups( grid.y, kScatteringGroup ), Groups( grid.z, kScatteringGroup ) );
             if ( dispatched )
             {

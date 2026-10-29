@@ -12,6 +12,7 @@
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Fog/VolumetricFogRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
@@ -210,7 +211,8 @@ namespace Desert::Editor
         // ShippedByCook refuses the miss by name):
         //   the tracing consumers   under every tracer permutation (GlobalIllumination::kTracerPermutations):
         //                           WorldRadianceCache, SurfaceCacheRenderer, SSRRenderer ProgramVariants;
-        //   the untraced systems    DeferredLightingRenderer, TemporalAA, TemporalSuperResolution ProgramVariants
+        //   the untraced systems    DeferredLightingRenderer, TemporalAA, TemporalSuperResolution,
+        //                           TerrainRenderer, VolumetricFogRenderer ProgramVariants
         //                           (and SSR's untraced front layer in SSRRenderer's);
         //   the mesh materials      every registered `.demat` (ContentRegistry) under its forward cell's
         //                           permutations (MeshRenderer::MaterialProgramVariants);
@@ -237,6 +239,7 @@ namespace Desert::Editor
             append( Graphic::System::SSRRenderer::ProgramVariants() );
             append( Graphic::System::DeferredLightingRenderer::ProgramVariants() );
             append( Graphic::System::TerrainRenderer::ProgramVariants() );
+            append( Graphic::System::VolumetricFogRenderer::ProgramVariants() );
             append( Graphic::TemporalAA::ProgramVariants() );
             append( Graphic::TemporalSuperResolution::ProgramVariants() );
 

@@ -223,6 +223,11 @@ namespace Desert::Graphic
                methods.Reflections.Effective == ReflectionMethod::PathTraced;
     }
 
+    bool LocalShadowsVirtual( const RenderMethods& methods )
+    {
+        return methods.Shadows.Effective == ShadowMethod::VirtualMaps && !PathTraced( methods );
+    }
+
     std::string_view PathTracingRefusal( const CapabilityCatalog& catalog )
     {
         // WalkDown's device checks, in its order, on the PathTraced rung.

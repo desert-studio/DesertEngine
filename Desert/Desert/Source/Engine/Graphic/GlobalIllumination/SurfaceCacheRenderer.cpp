@@ -321,10 +321,11 @@ namespace Desert::Graphic::SurfaceCache
             tracer        = GlobalIllumination::Pipeline{};
             tracer.Traced = true;
         }
-        m_FrameViews = FrameViews{ .Frame   = engineFrame,
-                                   .Origins = std::move( origins ),
-                                   .Budget  = MakeSurfaceCacheBudget( quality ),
-                                   .Tracer  = tracer };
+        m_FrameViews = FrameViews{ .Frame               = engineFrame,
+                                   .Origins             = std::move( origins ),
+                                   .Budget              = MakeSurfaceCacheBudget( quality ),
+                                   .Tracer              = tracer,
+                                   .VirtualLocalShadows = LocalShadowsVirtual( methods ) };
     }
 
     void SurfaceCacheRenderer::RefuseLightingTracer( const GlobalIllumination::Pipeline& tracer )
@@ -690,9 +691,14 @@ namespace Desert::Graphic::SurfaceCache
     {
         if ( frame.LightingPages.empty() )
             return BOOLSUCCESS;
-        // Under Shadows VirtualMaps (the view's virtual shadow map exists: AddFrameVirtualShadows ran before this)
-        // the lights read it, and the atlas's view table is not this program's.
-        const bool virtualLocalShadows = inputs.View.Vsm.IsValid();
+        // The cache's local shadow kind, stated with its frame (FrameViews::VirtualLocalShadows), not read off the
+        // updating view: under VirtualMaps the lights read the view's virtual shadow map (AddFrameVirtualShadows ran
+        // before this), and the atlas's view table is not this program's.
+        const bool virtualLocalShadows = inputs.VirtualLocalShadows;
+        if ( virtualLocalShadows && !inputs.View.Vsm.IsValid() )
+            return Common::MakeError<bool>( "surface cache direct lighting: the cache's lights read virtual shadow "
+                                            "maps, and the updating view built none this frame "
+                                            "(AddFrameVirtualShadows)" );
         if ( !inputs.Lights.Point.IsValid() || !inputs.Lights.Spot.IsValid() ||
              ( !virtualLocalShadows && !inputs.Lights.ShadowViews.IsValid() ) )
             return Common::MakeError<bool>( "surface cache direct lighting: the view's light buffers were not "

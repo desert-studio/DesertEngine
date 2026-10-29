@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
+#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
 #include <Engine/Graphic/Fog/VolumetricFogPayload.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
@@ -17,6 +18,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace Desert::Graphic
@@ -54,7 +56,10 @@ namespace Desert::Graphic::System
 
     // The LightScattering shader's parameters (Programs/Fog/VolumetricFogLightScattering.shader): the one spelling
     // the froxel lighting node binds and Initialize checks. The parameter block (VolumetricFogParamsBuffer) is the
-    // pipeline's own (SetStorageBuffer), not a graph binding.
+    // pipeline's own (SetStorageBuffer), not a graph binding. Two permutations, picked by Graphic::LocalShadowsVirtual:
+    // kAll is the atlas one's (the local lights read LocalShadowAtlasTexture / LocalShadowViewsUB through
+    // PointClampSampler), kVirtualLocal the DESERT_LOCAL_SHADOW_VSM one's (they read the view's virtual shadow map,
+    // the kVsm*Block tables of FrameGraphRefs.hpp, in place of all three).
     struct VolumetricFogLightScatteringShaderParameters
     {
         DESERT_SHADER_PARAMETER( StorageTexture, LightScatteringTexture );
@@ -78,6 +83,14 @@ namespace Desert::Graphic::System
              RDG::Erase( PointLightsUB ),          RDG::Erase( SpotLightsUB ),
              RDG::Erase( LocalShadowViewsUB ),     RDG::Erase( LightGridParamsUB ),
              RDG::Erase( LightGridCellsUB ) };
+        static constexpr std::array kVirtualLocal{
+             RDG::Erase( LightScatteringTexture ), RDG::Erase( LightScatteringHistoryTexture ),
+             RDG::Erase( ShadowCascadesTexture ),  RDG::Erase( DistantSkyLightTexture ),
+             RDG::Erase( LinearClampSampler ),     RDG::Erase( LinearRepeatSampler ),
+             RDG::Erase( PointLightsUB ),          RDG::Erase( SpotLightsUB ),
+             RDG::Erase( LightGridParamsUB ),      RDG::Erase( LightGridCellsUB ),
+             RDG::Erase( kVsmFrameDataBlock ),     RDG::Erase( kVsmPageTableBlock ),
+             RDG::Erase( kVsmPhysicalPool ),       RDG::Erase( kVsmLocalLightsBlock ) };
     };
 
     // The Integration shader's parameters (Programs/Fog/VolumetricFogIntegration.shader).
@@ -99,7 +112,9 @@ namespace Desert::Graphic::System
      *
      *   1. "VolumetricFog: LightScattering" (VolumetricFogLightScattering.shader): per froxel, the medium at a
      *      jittered point inside it, lit by the sun through its cascades, by the point and spot lights of the
-     *      view's light grid through the local shadow atlas, and by the sky; blended with last frame's froxel at
+     *      view's light grid through the local shadow atlas - or, under Shadows.Method VirtualMaps, through their
+     *      virtual shadow maps (the DESERT_LOCAL_SHADOW_VSM permutation; UE's froxels sample a local light's
+     *      VSM) -, and by the sky; blended with last frame's froxel at
      *      the same world point (temporal reprojection). Writes one of a PING-PONG pair: the other is the history.
      *   2. "VolumetricFog: Integration" (VolumetricFogIntegration.shader): front-to-back integral along every
      *      froxel column, into the volume the height fog pass samples at each pixel's depth (GetFrameResult).
@@ -118,6 +133,11 @@ namespace Desert::Graphic::System
         ~VolumetricFogRenderer() override;
 
         Common::BoolResultStr Initialize() override;
+
+        // The LightScattering program's DESERT_LOCAL_SHADOW_VSM permutation, ShippedByCook: the one statement
+        // EnsureScatteringVsmPipeline acquires and the package cook lists (PackageCook CookShaderVariants).
+        [[nodiscard]] static Core::ShaderVariant ScatteringVsmVariant();
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
         // The light-scattering history is the only state that outlives a frame (IRenderSystem::OnSceneReplaced,
         // kind 1): a new scene must not reproject the old one's fog, nor a camera cut the shot before it. The
@@ -147,9 +167,13 @@ namespace Desert::Graphic::System
          * @param refs  this graph's transients (cascades, local shadow atlas, light buffers) and system textures.
          * @param frame this view's frame (camera now and last frame, history reset reason).
          * @param sun   the sun and its cascades.
+         * @param virtualLocalShadows the view's local lights shadow through their virtual maps (SceneRenderer::
+         *        LocalShadowsAreVirtual - Graphic::LocalShadowsVirtual, the rule the opaque composite reads): the
+         *        DESERT_LOCAL_SHADOW_VSM permutation, reading refs' Transients.Vsm; false = the local shadow atlas.
          */
         std::vector<ComputeNodeDeclaration> DeclareFrameNodes( const FrameGraphRefs& refs, const ViewFrame& frame,
-                                                               const VolumetricFogSunInput& sun );
+                                                               const VolumetricFogSunInput& sun,
+                                                               bool virtualLocalShadows );
 
         // The integrated volume of THIS frame for the height fog pass (Integrated null when no node was declared).
         [[nodiscard]] const VolumetricFogFrameResult& GetFrameResult() const
@@ -160,8 +184,15 @@ namespace Desert::Graphic::System
     private:
         bool CreatePipelines();
         bool EnsureVolumes( const glm::uvec3& gridSize );
+        // The VSM permutation's pipeline, acquired the first frame a view of this renderer runs VirtualMaps (a
+        // machine that never does compiles nothing); a refusal is kept and named once - the fog then stays analytic
+        // under VirtualMaps rather than reading an atlas nobody drew.
+        [[nodiscard]] Common::BoolResultStr EnsureScatteringVsmPipeline();
 
         std::shared_ptr<ComputePipeline> m_ScatteringPipeline;
+        std::shared_ptr<ComputePipeline> m_ScatteringVsmPipeline;
+        mutable ShaderBindingLayoutCache m_ScatteringVsmLayout;
+        std::string                      m_ScatteringVsmRefusal;
         std::shared_ptr<ComputePipeline> m_IntegrationPipeline;
         mutable ShaderBindingLayoutCache m_ScatteringLayout;
         mutable ShaderBindingLayoutCache m_IntegrationLayout;

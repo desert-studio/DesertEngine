@@ -134,6 +134,12 @@ namespace Desert::Graphic
     // ResolveRenderMethods pairs them). The path tracer's image replaces the lit scene before post.
     [[nodiscard]] bool PathTraced( const RenderMethods& methods );
 
+    // THE LOCAL LIGHTS' SHADOWS ARE VIRTUAL MAPS: Shadows resolved to VirtualMaps on a view that does not path-trace.
+    // Every reader of a point or spot light's shadow picks its permutation by this one rule (DESERT_LOCAL_SHADOW_VSM:
+    // the opaque composite, the forward / translucent cells, the terrain, the froxel fog, the surface cache's cards);
+    // false = they read the local shadow atlas. PURE.
+    [[nodiscard]] bool LocalShadowsVirtual( const RenderMethods& methods );
+
     // WHETHER THIS DEVICE CAN PATH-TRACE AT ALL, whatever a view requests: empty when it can, else the reason a
     // PathTraced request is refused - the same walk and the same words as ResolveRenderMethods' Device /
     // DevicePipeline limit ("the device offers no ray query" / "... no ray tracing pipeline"). Reader: DesertCtl
