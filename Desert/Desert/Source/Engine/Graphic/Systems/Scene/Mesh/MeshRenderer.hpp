@@ -530,6 +530,14 @@ namespace Desert::Graphic::System
             return m_CascadeCasterVP[view];
         }
 
+        // THE SCENE'S BINNED DRAWS (GpuDriven::DrawCommandCache, UE FCachedPassMeshDrawList): fed by SyncGpuScene with
+        // the primitives whose draws changed, one entry per primitive gathered across its section records, each
+        // submesh's PSO the `.Binned` cell of its material for the pass (ResolveBinnedPipeline). Null before the
+        // first sync. The feed rebuilds the host tables; their upload, the cull and the issue are the frame's.
+        [[nodiscard]] const GpuDriven::DrawCommandCache* GetDrawCommandCache() const
+        {
+            return m_DrawCommandCache.get();
+        }
         [[nodiscard]] const GpuDriven::GpuScene* GetGpuScene() const
         {
             return m_GpuScene;
@@ -1770,6 +1778,41 @@ namespace Desert::Graphic::System
         // upload, so the table is at its final size and content before any pass is declared; the draw paths only
         // look rows up and lend the table to the recording cell. Cleared at each SyncGpuScene.
         std::unordered_map<GpuDriven::MaterialRowKey, uint32_t, GpuDriven::MaterialRowKeyHash> m_FrameMaterialRows;
+        // The surface and instance each scene material row was registered for (RegisterMaterialRow), indexed by row:
+        // what ResolveBinnedPipeline turns a GpuDrawSlot's MaterialRow back into a cell with.
+        struct RowSurface
+        {
+            const DataDrivenMaterial* Surface  = nullptr;
+            const MaterialInstance*   Instance = nullptr;
+        };
+        std::vector<RowSurface> m_RowSurfaces;
+        // What the DrawCommandCache holds per primitive (m_BinnedFeed) and what this sync gathered (scratch): a
+        // primitive is re-added only when its entry differs, removed when no record named it.
+        struct BinnedPrimitiveFeed
+        {
+            const Desert::Mesh*   Mesh = nullptr;
+            MeshGeometryBinding   Geometry;     // a re-upload to a new pool range rebins like a mesh change
+            std::vector<uint32_t> MaterialRows; // per submesh
+            uint32_t              FirstInstance     = 0;
+            uint32_t              InstanceCount     = 1;
+            uint64_t              HiddenSubmeshMask = 0;
+            uint32_t              Flags             = 0;
+            MeshVertexPath        Path              = MeshVertexPath::Static;
+            bool                  operator==( const BinnedPrimitiveFeed& ) const = default;
+        };
+        std::unique_ptr<GpuDriven::DrawCommandCache>                       m_DrawCommandCache;
+        std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_BinnedFeed;
+        std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_ScratchBinnedFeed;
+        std::unordered_set<std::string>                                    m_BinnedRefused; // said once each
+        void FeedDrawCommandCache( const GpuDriven::GpuScene& scene, const GpuDriven::GpuSceneRecordRows& rows );
+        // The PSO a submesh of @p primitive draws with in @p pass from material row @p materialRow: the pass's shared
+        // state with the material's `.Binned` cell (GBuffer / Forward: the template's cell, two-sided as
+        // CullPermutation; ShadowCascade: ShadowCasterShaderFor's cell, the default surface's for an opaque one).
+        // nullptr = not drawn in the pass (translucent, no cell, DepthPrepass / VirtualShadow not binned yet).
+        const GraphicsPipeline* ResolveBinnedPipeline( GpuDriven::MeshPass pass, GpuDriven::PrimitiveIndex primitive,
+                                                       uint32_t materialRow );
+        const GraphicsPipeline* BinnedCellPipeline( const std::string& cellShader, const GraphicsPipeline* passState,
+                                                    bool twoSided );
         std::unordered_set<const void*> m_MissingMaterialRowReported; // a template whose miss was said once
         // The row of (@p material, @p instance) with ReceiveSunShadows zeroed unless @p receiveSunShadows: added
         // or refreshed in @p registry the first time this frame asks, then the frame's index.

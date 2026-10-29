@@ -104,6 +104,7 @@ namespace Desert::Graphic::GpuDriven
         std::vector<PrimitiveIndex> SkinnedPrimitives;
         std::vector<InstanceIndex>  SkinnedInstances;
         std::vector<InstanceIndex>  FieldInstances;
+        std::vector<PrimitiveIndex> FieldPrimitives; // each field's primitive, beside FieldInstances
     };
 
     // A row's identity in the scene material table (GpuScene::AddMaterialRow): the template whose layout the row

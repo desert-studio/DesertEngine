@@ -197,6 +197,7 @@ namespace Desert::Graphic::GpuDriven
         out.SkinnedPrimitives.clear();
         out.SkinnedInstances.clear();
         out.FieldInstances.clear();
+        out.FieldPrimitives.clear();
         out.RigidPrimitives.reserve( rigid.size() );
         out.RigidInstances.reserve( rigid.size() );
         out.SkinnedPrimitives.reserve( skinned.size() );
@@ -324,6 +325,7 @@ namespace Desert::Graphic::GpuDriven
                 Queued( entry );
             }
             out.FieldInstances.push_back( m_Scene.Primitive( entry.Primitive ).FirstInstance );
+            out.FieldPrimitives.push_back( entry.Primitive );
         }
     }
 } // namespace Desert::Graphic::GpuDriven

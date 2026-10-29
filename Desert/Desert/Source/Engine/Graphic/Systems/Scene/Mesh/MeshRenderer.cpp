@@ -590,6 +590,9 @@ namespace Desert::Graphic::System
             Core::Formats::SetMaterialParam( material->GetSchema(), row, "ReceiveSunShadows", glm::vec4( 0.0f ) );
         const uint32_t index = registry.SyncMaterialRow( key, row );
         m_FrameMaterialRows.emplace( key, index );
+        if ( index >= m_RowSurfaces.size() )
+            m_RowSurfaces.resize( index + 1 );
+        m_RowSurfaces[index] = { material, instance };
         return index;
     }
 
@@ -624,6 +627,186 @@ namespace Desert::Graphic::System
         }
         block->LendViewBuffer( m_GpuScene->GetMaterialsBuffer() );
         return true;
+    }
+
+    void MeshRenderer::FeedDrawCommandCache( const GpuDriven::GpuScene&            scene,
+                                             const GpuDriven::GpuSceneRecordRows& rows )
+    {
+        if ( !m_DrawCommandCache )
+            m_DrawCommandCache = std::make_unique<GpuDriven::DrawCommandCache>(
+                 [this]( const GpuDriven::MeshPass pass, const GpuDriven::PrimitiveIndex primitive, const Desert::Mesh&,
+                         uint32_t, const uint32_t materialRow ) -> const GraphicsPipeline*
+                 { return ResolveBinnedPipeline( pass, primitive, materialRow ); } );
+
+        // One entry per primitive, gathered across its records: a record draws the submeshes it does not hide with
+        // its row; the primitive hides what every record hides (the other records' sections, the component's mask).
+        auto& feed = m_ScratchBinnedFeed;
+        feed.clear();
+        const auto claim = [&feed, &scene]( const GpuDriven::PrimitiveIndex primitive, const Desert::Mesh* mesh,
+                                            const MeshVertexPath path, const uint32_t firstInstance,
+                                            const uint32_t instanceCount, const uint64_t hidden, const uint32_t row )
+        {
+            if ( mesh == nullptr || !scene.IsValid( primitive ) )
+                return;
+            const size_t submeshes = mesh->GetSubmeshes().size();
+            auto [it, inserted]    = feed.try_emplace( primitive );
+            BinnedPrimitiveFeed& f = it->second;
+            if ( inserted )
+            {
+                f.Mesh              = mesh;
+                f.Geometry          = mesh->GetGeometry().MeshBinding();
+                f.Path              = path;
+                f.FirstInstance     = firstInstance;
+                f.InstanceCount     = instanceCount;
+                f.Flags             = scene.Primitive( primitive ).Flags;
+                f.HiddenSubmeshMask = ~0ull;
+                f.MaterialRows.assign( submeshes, row );
+            }
+            f.HiddenSubmeshMask &= hidden;
+            for ( size_t s = 0; s < submeshes && s < 64; ++s )
+                if ( ( hidden & ( 1ull << s ) ) == 0 )
+                    f.MaterialRows[s] = row;
+        };
+        for ( const auto& data : m_StaticQueue )
+            if ( data.MaterialSlots &&
+                 MeshRendererDetail::SectionSurface( data.MaterialSlots.get(), data.SectionSlot ).Surface != nullptr )
+                claim( data.GpuPrimitive, data.Mesh, MeshVertexPath::Static, data.GpuInstance, 1, data.HiddenSubmeshes,
+                       data.MaterialRow );
+        for ( size_t f = 0; f < m_InstancedQueue.size() && f < rows.FieldPrimitives.size(); ++f )
+        {
+            const auto& data = m_InstancedQueue[f];
+            const auto* mat =
+                 data.Material ? dynamic_cast<const DataDrivenMaterial*>( data.Material->GetParentMaterial() ) : nullptr;
+            if ( mat == nullptr || !data.Transforms )
+                continue;
+            if ( const auto row = FindMaterialRow( mat, data.Material.get(), true ) )
+                claim( rows.FieldPrimitives[f], data.Mesh, MeshVertexPath::Instanced, rows.FieldInstances[f],
+                       static_cast<uint32_t>( data.Transforms->size() ), data.HiddenSubmeshes, *row );
+        }
+        for ( const auto& data : m_SkinnedQueue )
+            for ( const auto& section : data.Sections )
+                if ( section.Material != nullptr && section.Instance != nullptr )
+                    if ( const auto row = FindMaterialRow( section.Material, section.Instance, true ) )
+                        claim( data.GpuPrimitive, data.Mesh, MeshVertexPath::Skinned, data.GpuInstance, 1,
+                               section.HiddenSubmeshes, *row );
+
+        // Only the changed primitives reach the cache (UE: a cached command is rebuilt when its primitive is).
+        for ( const auto& [primitive, entry] : feed )
+        {
+            if ( const auto held = m_BinnedFeed.find( primitive ); held != m_BinnedFeed.end() && held->second == entry )
+                continue;
+            const GpuDriven::PrimitiveDrawDesc desc{ .Mesh              = entry.Mesh,
+                                                     .MaterialRows      = entry.MaterialRows,
+                                                     .FirstInstance     = entry.FirstInstance,
+                                                     .InstanceCount     = entry.InstanceCount,
+                                                     .HiddenSubmeshMask = entry.HiddenSubmeshMask,
+                                                     .PrimitiveFlags    = entry.Flags };
+            if ( const Common::BoolResultStr added = m_DrawCommandCache->AddPrimitive( primitive, desc ); !added )
+            {
+                m_DrawCommandCache->RemovePrimitive( primitive );
+                LOG_ERROR( "[MeshRenderer] primitive {} has no binned draws: {}", primitive, added.GetError() );
+            }
+        }
+        for ( const auto& [primitive, entry] : m_BinnedFeed )
+            if ( !feed.contains( primitive ) )
+                m_DrawCommandCache->RemovePrimitive( primitive );
+        m_BinnedFeed.swap( feed );
+        m_DrawCommandCache->Rebuild();
+    }
+
+    const GraphicsPipeline* MeshRenderer::BinnedCellPipeline( const std::string&      cellShader,
+                                                              const GraphicsPipeline* passState, const bool twoSided )
+    {
+        if ( passState == nullptr )
+            return nullptr;
+        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
+        if ( !shader )
+        {
+            if ( m_BinnedRefused.insert( cellShader ).second )
+                LOG_ERROR( "[MeshRenderer] binned cell '{}' is not registered; its draws are not binned.", cellShader );
+            return nullptr;
+        }
+        GraphicsPipelineSpecification spec = passState->GetSpecification();
+        spec.Shader                        = shader;
+        spec.DebugName                     = std::format( "{} {}", spec.DebugName, cellShader );
+        if ( twoSided )
+            spec.CullMode = CullMode::None; // CullPermutation's rule
+        const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
+        if ( !built )
+        {
+            if ( m_BinnedRefused.insert( cellShader ).second )
+                LOG_ERROR( "[MeshRenderer] binned cell '{}' has no pipeline: {}", cellShader, built.GetError() );
+            return nullptr;
+        }
+        return built.GetValue().get();
+    }
+
+    const GraphicsPipeline* MeshRenderer::ResolveBinnedPipeline( const GpuDriven::MeshPass       pass,
+                                                                 const GpuDriven::PrimitiveIndex primitive,
+                                                                 const uint32_t                  materialRow )
+    {
+        const BinnedPrimitiveFeed* feed = nullptr;
+        if ( const auto it = m_ScratchBinnedFeed.find( primitive ); it != m_ScratchBinnedFeed.end() )
+            feed = &it->second;
+        else if ( const auto held = m_BinnedFeed.find( primitive ); held != m_BinnedFeed.end() )
+            feed = &held->second;
+        if ( feed == nullptr || materialRow >= m_RowSurfaces.size() )
+            return nullptr;
+        const RowSurface& row = m_RowSurfaces[materialRow];
+        if ( row.Surface == nullptr || IsTranslucentSurface( row.Surface ) )
+            return nullptr; // translucency is sorted per view, never binned
+        const MeshVertexPath path = feed->Path;
+        const size_t pathIndex = path == MeshVertexPath::Static ? 0 : path == MeshVertexPath::Instanced ? 1 : 2;
+        const std::string&     surface  = row.Surface->GetShaderName();
+        const std::string_view templ    = std::string_view( surface ).substr( 0, surface.find( '/' ) );
+        const bool             parallax = IsParallaxCell( surface );
+        const bool twoSided = row.Instance != nullptr ? row.Instance->IsTwoSided() : row.Surface->IsTwoSided();
+        const auto viewCell = [&]( const MeshPass meshPass ) -> std::optional<std::string>
+        {
+            auto cell = MeshShaderFor( templ, path, meshPass );
+            if ( cell && parallax )
+                return ParallaxCellOf( *cell );
+            return cell;
+        };
+        switch ( pass )
+        {
+            case GpuDriven::MeshPass::GBuffer:
+            {
+                const auto cell = viewCell( MeshPass::GBuffer );
+                const std::array<const GraphicsPipeline*, 3> states{ m_StaticGBufferPipeline.get(),
+                                                                     m_InstancedGBufferPipeline.get(),
+                                                                     m_SkinnedGBufferPipeline.get() };
+                return cell ? BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) : nullptr;
+            }
+            case GpuDriven::MeshPass::Forward:
+            {
+                const auto cell = viewCell( MeshPass::Forward );
+                const std::array<const GraphicsPipeline*, 3> states{ m_StaticPipeline.get(),
+                                                                     m_StaticInstancedPipeline.get(),
+                                                                     m_SkinnedPipeline.get() };
+                return cell ? BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], twoSided ) : nullptr;
+            }
+            case GpuDriven::MeshPass::ShadowCascade:
+            {
+                const auto fallback = MeshRendererDetail::DefaultSurfaceShaderName( path, MeshPass::ShadowDepth );
+                if ( !fallback )
+                    return nullptr;
+                const std::string_view defaultTemplate =
+                     std::string_view( *fallback ).substr( 0, fallback->find( '/' ) );
+                const auto cell =
+                     ShadowCasterShaderFor( templ, defaultTemplate, row.Surface->GetSchema().Blend, parallax, path );
+                const std::array<const GraphicsPipeline*, 3> states{ m_ShadowPipeline.get(),
+                                                                     m_ShadowInstancedPipeline.get(),
+                                                                     m_ShadowSkinnedPipeline.get() };
+                // The casters' state culls nothing already: a two-sided material changes no state there.
+                return cell ? BinnedCellPipeline( BinnedCellOf( *cell ), states[pathIndex], false ) : nullptr;
+            }
+            case GpuDriven::MeshPass::DepthPrepass:  // draws the generic queue only today (REMAINDER C)
+            case GpuDriven::MeshPass::VirtualShadow: // its own per-page remap until C feeds it the cull
+            case GpuDriven::MeshPass::Count:
+                break;
+        }
+        return nullptr;
     }
 
     Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
@@ -774,6 +957,7 @@ namespace Desert::Graphic::System
                      RegisterMaterialRow( registry, standIn->Material.get(), standIn->Instance.get(), false );
             }
         m_GpuScene = &scene;
+        FeedDrawCommandCache( scene, rows );
 
         // The scene's deltas reach the device in a graph of their own, submitted ahead of this view's graph: its
         // passes bind the tables by descriptor (CaptureFrameState), so the tables are at their final size and
