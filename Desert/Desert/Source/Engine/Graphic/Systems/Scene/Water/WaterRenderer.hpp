@@ -5,13 +5,13 @@
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Water/WaterQuadTree.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 
 #include <glm/glm.hpp>
 
-#include <chrono>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -38,10 +38,10 @@ namespace Desert::Graphic::System
     // reads) and before the glass — as one vertexless instanced draw per grid density.
     //
     // THE LOOK IS AN ASSET (UE UWaterBodyComponent::WaterMaterial): each body names a `.demat` whose template is a
-    // `Domain SingleLayerWater` program (WaterSurface.shader is the engine's); this renderer builds that program's
-    // pipeline, folds the material's values over the program's Properties schema by name
-    // (MaterialService::ResolveOverrides, as the terrain and the clouds do) into WaterMaterialUB and binds its
-    // ripple maps. The code is the physics of light in water and the grid; no colour is stated here.
+    // Surface-domain template of ShadingModel SingleLayerWater with Usage WaterMesh (WaterSurface.shader is the
+    // engine's); this renderer draws that template's `WaterMesh.SingleLayerWater` cell (the water mesh vertex
+    // factory + the single layer water pass), its material row folded from the `.demat` over the template's schema
+    // (MaterialService::ResolveOverrides) and its ripple maps in the bindless slots the row names.
     class WaterRenderer final : public RenderSystem
     {
     public:
@@ -61,7 +61,8 @@ namespace Desert::Graphic::System
         // SETUP of the water node: its one binding block - the material route (frame block, tile rows, material
         // values and ripple maps), the opaque scene's copy @p sceneCopy the surface refracts, and the scene/view
         // inputs of @p view its program has slots for (the opaque depth = the water's bottom, the sky cubes).
-        void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const SceneViewInputs& view );
+        void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const SceneViewInputs& view,
+                           const SceneFrameBinding& frame );
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
 
         void Submit( WaterZoneDraw zone )
@@ -103,7 +104,6 @@ namespace Desert::Graphic::System
         WaterProgram*                                 m_Frame = nullptr; // this frame's program
         ShaderBindingLayoutCache                      m_Layout;
         std::unordered_set<uint64_t>                  m_Warned;
-        std::chrono::steady_clock::time_point         m_Start = std::chrono::steady_clock::now();
 
         std::vector<WaterZoneDraw> m_Queue;
         std::vector<FrameDraw>     m_FrameDraws;

@@ -2039,6 +2039,8 @@ namespace Desert::Core::Preprocess
         includes.emplace_back( kSurfaceRayHitPassInclude );
         includes.emplace_back( kSurfaceRayHitRecordInclude );
         includes.push_back( SurfaceVertexInclude( kSurfaceGrassBladePath ) );
+        includes.push_back( SurfaceVertexInclude( kSurfaceWaterMeshPath ) );
+        includes.emplace_back( kSurfaceSingleLayerWaterPassInclude );
         return includes;
     }
 
@@ -2176,8 +2178,6 @@ namespace Desert::Core::Preprocess
                     result.Meta.Domain = ShaderDomain::UI;
                 else if ( v == "particle" )
                     result.Meta.Domain = ShaderDomain::Particle;
-                else if ( v == "singlelayerwater" )
-                    result.Meta.Domain = ShaderDomain::SingleLayerWater;
                 else
                 {
                     err = { line, "unknown Domain '" + v + "'" };
@@ -2353,11 +2353,13 @@ namespace Desert::Core::Preprocess
                     result.Surface.UsedWithParticleRibbons = true;
                 else if ( Lower( stated ) == "grassblades" )
                     result.Surface.UsedWithGrassBlades = true;
+                else if ( Lower( stated ) == "watermesh" )
+                    result.Surface.UsedWithWaterMesh = true;
                 else
                 {
                     // The author's spelling, not the folded one the comparison used.
                     err = { line,
-                            std::format( "unknown Usage '{}' (ParticleSprites, ParticleRibbons, GrassBlades)",
+                            std::format( "unknown Usage '{}' (ParticleSprites, ParticleRibbons, GrassBlades, WaterMesh)",
                                          stated ) };
                     return fail();
                 }
@@ -2839,6 +2841,18 @@ namespace Desert::Core::Preprocess
             result.Surface.ShadingModel          = model->Manifest.Guid;
             const std::string shadingModelDefine = ShadingModels::ShadingModelIndexDefine( model->Manifest.Name );
             result.Meta.Blend = result.Surface.Blend;
+            if ( result.Surface.UsedWithWaterMesh != ( model->Manifest.Name == kSingleLayerWaterShadingModel ) )
+            {
+                err = { surfaceSettingLine != 0 ? surfaceSettingLine : 1,
+                        result.Surface.UsedWithWaterMesh
+                             ? std::format( "Usage WaterMesh draws the single layer water pass, which only "
+                                            "ShadingModel {} shades (this template's is {})",
+                                            kSingleLayerWaterShadingModel, model->Manifest.Name )
+                             : std::format( "ShadingModel {} is drawn by the water mesh's single layer water pass: "
+                                            "declare Usage WaterMesh",
+                                            kSingleLayerWaterShadingModel ) };
+                return fail();
+            }
             if ( result.Surface.ResponsiveAA && !Formats::IsTranslucentBlend( result.Surface.Blend ) )
             {
                 err = { responsiveLine,
@@ -3057,6 +3071,24 @@ namespace Desert::Core::Preprocess
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );
                 }
+
+            // `Usage WaterMesh`: the single layer water cell, after the blade cells.
+            if ( result.Surface.UsedWithWaterMesh )
+            {
+                DShaderPass cell;
+                cell.Name  = SurfaceCellName( kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass );
+                cell.State = cellState;
+                for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                    cell.Stages.emplace(
+                         stage, AssembleSurfaceCellStage( stage, kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass,
+                                                          *surfaceBlock, includeBlock, autoDecls,
+                                                          result.Surface.Blend, shadingModelDefine,
+                                                          result.Surface.ResponsiveAA, opacityMaskFunction, false,
+                                                          heightFunctions, false ) );
+                result.Meta.PassNames.push_back( cell.Name );
+                result.Surface.Cells.push_back( cell.Name );
+                result.Passes.push_back( std::move( cell ) );
+            }
 
             // `Height <Texture2D> ... Scale(<Float>)`: every mesh cell again as its `.Parallax` permutation, after every other cell
             // (the base cells' order is unchanged). The ray tracing hit and the sprite have no screen derivatives

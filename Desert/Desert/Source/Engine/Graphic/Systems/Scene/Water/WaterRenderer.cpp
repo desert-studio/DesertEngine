@@ -4,7 +4,6 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
-#include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
 #include <Engine/Graphic/PipelineCache.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
@@ -28,9 +27,8 @@ namespace
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct WaterShaderParameters
     {
-        DESERT_SHADER_PARAMETER( UniformBuffer, WaterUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, WaterTiles );
-        DESERT_SHADER_PARAMETER( UniformBuffer, WaterMaterialUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Materials ); // Core::Formats::kMaterialRowBlockName
     };
 } // namespace
 
@@ -38,52 +36,28 @@ namespace Desert::Graphic::System
 {
     namespace
     {
-        // Matches WaterUB (binding 0) in Programs/Water/WaterSurfaceData.glslh: frame data only.
-        struct WaterUB
-        {
-            glm::mat4 ViewProjection;
-            glm::mat4 PrevViewProjection;
-            glm::vec4 CameraPos;
-            glm::vec4 SunDir;
-            glm::vec4 SunColor;
-            glm::vec4 Exposure; // x = ViewFrame::PreExposure, y = seconds since the renderer started, zw unused
-            glm::mat4 InvViewProjection;
-        };
-
-        // Matches WaterMaterialUB (binding 2): the `.demat`'s values, packed by name.
-        struct WaterMaterialUB
-        {
-            glm::vec4 Scattering;
-            glm::vec4 Absorption;
-            glm::vec4 ColorScaleBehindWater;
-            glm::vec4 Shading; // PhaseG, Roughness, RefractionStrength, Specular
-            glm::vec4 Ripple;  // RippleTileSizeA, RippleTileSizeB, RippleSpeed, RippleStrength
-            glm::vec4 RippleDirection;
-        };
-
-        // The ripple maps of WaterSurface.shader's Properties: the texture slots the material binds.
-        constexpr std::array<const char*, 2> kRippleMaps = { "RippleNormalA", "RippleNormalB" };
-
-        // Matches WaterTileRow (WaterTiles, binding 1).
+        // One drawn quadtree tile, std430 (Mesh/Surface/WaterMeshTiles.glslh WaterTileRow).
         struct WaterTileRow
         {
-            glm::vec4 Tile;
-            glm::vec4 Lod;
-            glm::vec4 Zone;
+            glm::vec4 Tile; // xy = lower (X, Z) corner relative to the zone origin, z = still level Y, w = side
+            glm::vec4 Lod;  // x = LOD level, y = morphs, z = can morph twice, w = height LOD factor
+            glm::vec4 Zone; // xy = the zone's world (X, Z) origin, z = LOD scale (cm), w = quads per side
         };
         static_assert( sizeof( WaterTileRow ) == 3 * sizeof( glm::vec4 ), "std430 rows of three vec4" );
 
-        // The culling box's padding above and below the still plane. The surface is flat (WATER-W6); WATER-W7's
-        // waves widen it by the bodies' MaxWaveHeight.
+        // The still surface's vertical extent the quadtree culls with (no GPU waves yet: REMAINDER).
         constexpr float kFlatSurfaceVerticalExtentCm = 1.0f;
+
+        // The cell a water material draws with (DShaderParser kSurfaceWaterMeshPath x kSurfaceSingleLayerWaterPass).
+        constexpr const char* kWaterCell = "WaterMesh.SingleLayerWater";
     } // namespace
 
     Common::BoolResultStr WaterRenderer::Initialize()
     {
         // The engine's program must build: a material naming it is the common case and its failure is loud here.
-        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "WaterSurface" );
+        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( std::format( "WaterSurface/{}", kWaterCell ) );
         if ( !shader )
-            return Common::MakeError( "WaterRenderer: missing shader 'WaterSurface'" );
+            return Common::MakeError( std::format( "WaterRenderer: missing shader 'WaterSurface/{}'", kWaterCell ) );
         return BOOLSUCCESS;
     }
 
@@ -107,20 +81,14 @@ namespace Desert::Graphic::System
         if ( auto it = m_Programs.find( templ.CompileName ); it != m_Programs.end() )
             return it->second.Pipeline ? &it->second : nullptr;
 
-        WaterProgram& program = m_Programs[templ.CompileName]; // an empty entry remembers a refusal
-        const auto    shader  = Runtime::ResourceRegistry::GetShaderService()->GetByName( templ.CompileName );
+        WaterProgram&     program  = m_Programs[templ.CompileName]; // an empty entry remembers a refusal
+        const std::string cellName = std::format( "{}/{}", templ.CompileName, kWaterCell );
+        const auto        shader   = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellName );
         if ( !shader )
         {
-            WarnOnce( material, std::format( "its template '{}' is not loaded", templ.CompileName ) );
-            return nullptr;
-        }
-        if ( shader->GetProgramMeta().Domain != Core::Formats::ShaderDomain::SingleLayerWater )
-        {
-            WarnOnce( material,
-                      std::format( "its template '{}' is of the {} domain, not SingleLayerWater - a water body "
-                                   "draws only a water material",
-                                   templ.CompileName,
-                                   Core::Formats::ShaderDomainName( shader->GetProgramMeta().Domain ) ) );
+            WarnOnce( material, std::format( "its template '{}' has no {} cell - a water body draws a template of "
+                                             "ShadingModel SingleLayerWater with Usage WaterMesh",
+                                             templ.CompileName, kWaterCell ) );
             return nullptr;
         }
 
@@ -138,66 +106,36 @@ namespace Desert::Graphic::System
             return nullptr;
         }
         program.Pipeline = pipeline.GetValue();
-        program.Material = std::make_unique<DataDrivenMaterial>( templ.CompileName );
+        program.Material = std::make_unique<DataDrivenMaterial>( cellName );
         return &program;
     }
 
     void WaterRenderer::ApplyMaterial( const Assets::AssetHandle& material, WaterProgram& program )
     {
-        // The schema first (every default), the `.demat` chain over it by name: nearest wins.
-        std::unordered_map<std::string, glm::vec4> values;
-        const auto& meta = program.Pipeline->GetSpecification().Shader->GetProgramMeta();
-        for ( const auto& param : meta.Params )
-            if ( !param.IsTexture && !param.IsAssetRef() )
-                values[param.Name] = param.Default;
+        // The body's `.demat` folded over the template's schema into the cell's material row (UE: the material's
+        // uniform expressions), its textures into the bindless slots the row names.
+        DataDrivenMaterial& cell = *program.Material;
+        cell.ApplyDefaults();
         MaterialOverrides overrides;
         if ( auto* materials = Runtime::ResourceRegistry::GetMaterialService() )
             (void)materials->ResolveOverrides( material, overrides );
         for ( const auto& [name, value] : overrides.Params )
-            values[name] = value;
-        const auto value = [&values]( const char* name ) -> glm::vec4
-        {
-            const auto it = values.find( name );
-            return it != values.end() ? it->second : glm::vec4( 0.0f );
-        };
-        const auto direction = []( float degrees )
-        {
-            const float r = glm::radians( degrees );
-            return glm::vec2( std::cos( r ), std::sin( r ) );
-        };
-
-        WaterMaterialUB ub{};
-        ub.Scattering            = value( "ScatteringCoefficients" );
-        ub.Absorption            = value( "AbsorptionCoefficients" );
-        ub.ColorScaleBehindWater = value( "ColorScaleBehindWater" );
-        ub.Shading = glm::vec4( value( "PhaseG" ).x, value( "Roughness" ).x, value( "RefractionStrength" ).x,
-                                value( "Specular" ).x );
-        ub.Ripple  = glm::vec4( std::max( value( "RippleTileSizeA" ).x, 1.0f ),
-                                std::max( value( "RippleTileSizeB" ).x, 1.0f ), value( "RippleSpeed" ).x,
-                                value( "RippleStrength" ).x );
-        const glm::vec2 a      = direction( value( "RippleAngleA" ).x );
-        const glm::vec2 b      = direction( value( "RippleAngleB" ).x );
-        ub.RippleDirection     = glm::vec4( a, b );
-        if ( auto* block = program.Material->Get<UniformBufferProperty>( WaterShaderParameters::WaterMaterialUB ) )
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as bytes
-            block->SetRawData( reinterpret_cast<const std::byte*>( &ub ), sizeof( ub ) );
-
-        // The ripple maps: the material's texture by handle; a slot it leaves empty keeps the schema's default.
+            (void)cell.SetParam( name, value );
         for ( const auto& [name, handle] : overrides.Textures )
         {
-            if ( handle == 0 || std::find_if( kRippleMaps.begin(), kRippleMaps.end(), [&name]( const char* slot )
-                                              { return name == slot; } ) == kRippleMaps.end() )
+            if ( handle == 0 )
                 continue;
-            auto* property = program.Material->Get<Texture2DProperty>(
-                 RDG::ShaderParameterOf<MaterialPropertyKind<Texture2DProperty>>{ std::string_view( name ) } );
-            auto* texture  = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
-            if ( property == nullptr || texture == nullptr )
+            auto* texture = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
+            if ( texture == nullptr )
                 continue; // still loading: picked up the frame it lands
-            auto* image = dynamic_cast<Image2D*>(
+            const auto* image = dynamic_cast<Image2D*>(
                  Runtime::ResourceRegistry::GetImageService()->Resolve( texture->GetImageHandle() ) );
             if ( image != nullptr )
-                property->SetImage( image, RDG::Access::SampledGraphics );
+                (void)cell.SetTexture( name, image );
         }
+        const Core::Formats::MaterialParamRow& row = cell.GetParamRow();
+        if ( auto* rows = cell.Get<StorageBufferProperty>( WaterShaderParameters::Materials ) )
+            rows->SetRawData( row.data(), static_cast<uint32_t>( row.size() * sizeof( glm::vec4 ) ) );
     }
 
     void WaterRenderer::PrepareFrame()
@@ -263,40 +201,20 @@ namespace Desert::Graphic::System
         if ( rows.empty() )
             return;
 
-        WaterUB     ub{};
-        const auto* viewFrame = m_SceneRenderer->GetViewFrame();
-        ub.ViewProjection     = viewFrame->ViewProjection;
-        ub.PrevViewProjection = viewFrame->PrevViewProjection;
-        ub.CameraPos          = glm::vec4( observer, 1.0f );
-        ub.SunDir             = glm::vec4( glm::normalize( glm::vec3( -0.4f, -0.85f, -0.35f ) ), 0.0f );
-        ub.SunColor           = glm::vec4( 1.0f, 0.98f, 0.92f, 3.0f );
-        ub.Exposure           = glm::vec4(
-             viewFrame->PreExposure,
-             std::chrono::duration<float>( std::chrono::steady_clock::now() - m_Start ).count(), 0.0f, 0.0f );
-        ub.InvViewProjection = glm::inverse( proj * view );
-        if ( const auto& lights = m_SceneRenderer->GetDirectionLights().DirectionLights; !lights.empty() )
-        {
-            ub.SunDir   = lights[0].Direction;
-            ub.SunColor = lights[0].ColorIntensity;
-        }
-
-        // Uploaded up front at final size, before any draw records (the terrain's reason: growing a storage buffer
-        // reallocates it under a draw already recorded against the old one).
         ApplyMaterial( material, *program );
-        if ( auto* block = program->Material->Get<UniformBufferProperty>( WaterShaderParameters::WaterUB ) )
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as bytes
-            block->SetRawData( reinterpret_cast<const std::byte*>( &ub ), sizeof( ub ) );
         if ( auto* tiles = program->Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
             tiles->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( WaterTileRow ) ) );
         m_Frame = program;
     }
 
     void WaterRenderer::DeclareDraws( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
-                                      const SceneViewInputs& view )
+                                      const SceneViewInputs& view, const SceneFrameBinding& frame )
     {
         // Exactly when RenderManual draws.
         if ( m_FrameDraws.empty() || m_Frame == nullptr || !sceneCopy.IsValid() )
             return;
+        // The view's camera, sun, sky cubes and sky look, by block name - as every surface cell gets them.
+        frame.ApplyTo( m_Frame->Material.get() );
         const auto layout = m_Layout.Get( m_Frame->Pipeline->GetSpecification().Shader );
         auto block = pass.Bindings( layout, m_Frame->Material->GetMaterialExecutor()->GetRouteFill() );
         BindSceneViewInputs( block, view, *layout );
@@ -315,11 +233,14 @@ namespace Desert::Graphic::System
         DESERT_PROFILE_PASS( "Water: Surface" );
 
         // The row base and the matrix are push constants, snapshotted per draw at record.
+        // Push constants, snapshotted per draw at record: the material row (the cell's one row) and the draw's
+        // first tile row (PrimitiveIndex: the water has no GpuScene primitive; Vertex_WaterMesh.glslh).
         const RDG::PassBindings block( context, context.GetBindingBlock( 0 ) );
-        material.SetPushMatrix( camera->GetProjectionMatrix() * camera->GetViewMatrix() );
+        material.SetPushMatrix( glm::mat4( 1.0f ) );
+        material.SetMaterialIndex( 0u );
         for ( const FrameDraw& draw : m_FrameDraws )
         {
-            material.SetMaterialIndex( draw.FirstRow );
+            material.SetPrimitiveIndex( draw.FirstRow );
             if ( auto drawn = Renderer::GetInstance().DrawProcedural(
                       block, *m_Frame->Pipeline, material.GetMaterialExecutor(),
                       draw.QuadsPerSide * draw.QuadsPerSide * 6u, draw.RowCount );
