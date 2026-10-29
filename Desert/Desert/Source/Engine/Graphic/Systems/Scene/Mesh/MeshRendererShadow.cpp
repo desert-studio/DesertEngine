@@ -847,10 +847,10 @@ namespace Desert::Graphic::System
                                   : Geometry::LODView{};
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins.
-        std::vector<std::pair<std::pair<Desert::StaticMesh*, uint64_t>, std::vector<const StaticMeshRenderData*>>>
+        std::vector<std::pair<std::pair<Desert::StaticMesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
                    byMesh;
         const auto bucketFor = [&]( Desert::StaticMesh* mesh,
-                                    uint64_t            hidden ) -> std::vector<const StaticMeshRenderData*>&
+                                    const SubmeshMask   hidden ) -> std::vector<const StaticMeshRenderData*>&
         {
             for ( auto& [key, v] : byMesh )
                 if ( key.first == mesh && key.second == hidden )
@@ -892,8 +892,8 @@ namespace Desert::Graphic::System
         if ( binnedLayer )
             AttachBinned( list, GpuDriven::MeshPass::ShadowCascade, c );
         // A VSM level while the levels' cluster raster is issued this frame (SetVirtualShadowGeometry): the
-        // submeshes whose clusters it draws (VsmClusteredSubmeshes) are rastered into the level's pages as
-        // clusters, never also by this walk; the entry's other submeshes are walked as before.
+        // submeshes whose clusters it draws (VsmWalkHidden, every submesh of the mesh) are rastered into the
+        // level's pages as clusters, never also by this walk; the entry's other submeshes are walked as before.
         const bool clustersDrawn = IsVirtualShadowView( c ) && m_VsmGeometry.has_value();
         for ( const auto& rd : m_StaticQueue )
         {
@@ -904,18 +904,16 @@ namespace Desert::Graphic::System
             {
                 continue;
             }
-            uint64_t hidden = rd.HiddenSubmeshes;
+            SubmeshMask hidden{ rd.HiddenSubmeshes };
             if ( clustersDrawn )
             {
-                const uint64_t clustered = VsmClusteredSubmeshes( rd );
-                if ( clustered != 0u )
-                {
-                    hidden |= clustered;
-                    const size_t   count = rd.Mesh->GetSubmeshes().size();
-                    const uint64_t all   = count >= 64u ? ~uint64_t{ 0 } : ( uint64_t{ 1 } << count ) - 1u;
-                    if ( count <= 64u && ( hidden & all ) == all )
-                        continue; // every submesh it shows is drawn as clusters
-                }
+                hidden                  = VsmWalkHidden( rd );
+                const std::size_t count = rd.Mesh->GetSubmeshes().size();
+                std::size_t       shown = 0;
+                while ( shown < count && hidden.Hides( shown ) )
+                    ++shown;
+                if ( shown == count )
+                    continue; // every submesh it shows is drawn as clusters
             }
             // The caster takes the material the LIT draw shows, by the same mapping: one entry per section
             // material (Rules::SplitMeshSlotDraws), shaded by SectionSurface, casting only its own submeshes - so

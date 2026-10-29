@@ -27,5 +27,20 @@
 Тогда-вид [vg_raster] the lit frame at frame 120 shows the lantern and its shadow as in the bins-only frame: frame mean within 1%
 Тогда [vg_raster_views] (step 14: candidates compacted per cut view, post clusters 64 per workgroup, cascade LOD by the cascade's own texel) vg_raster_cut60.png differs from the bins-only frame by < 1% of pixels; views.virtualGeometry.clustersDrawn > 0 and shadowClustersDrawn > 0; editor.log 0 VUID
 Тогда [vg_vsm] (step 16: the VSM clipmap levels are cluster cut views, their clusters rastered into the pages; Shadows.Method VirtualMaps, Bistro, 120 frames) views.virtualGeometry.vsmClustersDrawn[level] > 0 on every level that drew pages; the sun shadow (lit frame 120) differs from the bins-only VSM frame by < 1% of pixels (pixel diff); editor.log 0 VUID, no "the virtual shadow map draws its virtual geometry on the CPU walk"
+# Step 18/19 [vg_vsm_mixed]: a MIXED mesh (VG DAGs on some submeshes only - the lantern: its opaque metal sections are
+# clustered, its glass/masked sections have no `.VirtualGeometry` twin or no DAG) casts into the VSM from BOTH parts:
+# the clustered submeshes by "VSM: Raster VirtualGeometry", the rest by the levels' CPU walk (MeshRenderer::
+# VsmWalkHidden, a per-primitive submesh bitset with no 64 cap, so no submesh is drawn twice or lost).
+Когда run Scene "Set Shadows Method: VirtualMaps"
+Когда 120 frames render
+Когда shot viewport "vg_vsm_mixed120.png"
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_vsm_mixed] views.virtualGeometry.vsmClustersDrawn: one entry per clipmap level (17), > 0 on every level that drew pages (named per level in the report); views.virtualGeometry.vsmRefusedGroups == 0
+Тогда [vg_vsm_mixed] editor.log: 0 VUID, no "has no `.VirtualGeometry` twin", no "the virtual shadow map draws its virtual geometry on the CPU walk"
+Тогда-вид [vg_vsm_mixed] vg_vsm_mixed120.png: the lantern's shadow holds BOTH its clustered (metal frame) and walked (glass/masked) parts - pixel diff of the shadow vs the bins-only VSM frame of the same steps < 1% of pixels (pixel diff, not thumbnails)
+Когда run Scene "Set Shadows Method: Cascades"
+Когда 2 frames render
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_vsm_mixed] after switching back to cascades: views.virtualGeometry.vsmRefusedGroups == 0 (reset every frame the method is not VirtualMaps)
 Когда run View "View mode: Virtual Geometry Clusters"
 Тогда-вид [vg_raster] the lantern shows per-cluster colours on the same silhouette as the lit frame

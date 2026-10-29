@@ -153,7 +153,7 @@ namespace Desert::Graphic
         [[nodiscard]] static Common::BoolResultStr
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
-                    uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel,
+                    uint32_t firstInstance, SubmeshMask hiddenSubmeshMask, uint32_t lodLevel,
                     std::span<const uint32_t> submeshFirstRows = {} );
         // RenderMesh whose counts the GPU wrote: the same walk, each drawn submesh one indirect draw of a
         // kMeshDrawArgumentsBytes record of @p args (Graphic/MeshDrawArguments.hpp), which the pass declares
@@ -166,7 +166,7 @@ namespace Desert::Graphic
         [[nodiscard]] static Common::BoolResultStr
         RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                             const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
-                            uint64_t offset, uint64_t hiddenSubmeshMask, MeshDrawArgumentsOrder order );
+                            uint64_t offset, SubmeshMask hiddenSubmeshMask, MeshDrawArgumentsOrder order );
 
         // RDG-FAULT1 - what a pass's SETUP declares its binding blocks against (RenderPassDeclaration::Bindings,
         // RDG::PassBuilder::Bindings), so a block that does not match its shader faults the pass before anything

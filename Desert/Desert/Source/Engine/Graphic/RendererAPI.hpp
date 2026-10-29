@@ -212,13 +212,13 @@ namespace Desert::Graphic
         [[nodiscard]] virtual Common::BoolResultStr
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
-                    uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel,
+                    uint32_t firstInstance, SubmeshMask hiddenSubmeshMask, uint32_t lodLevel,
                     std::span<const uint32_t> submeshFirstRows ) = 0;
         // RenderMesh with its counts in a graph buffer (see Renderer::RenderMeshIndirect).
         [[nodiscard]] virtual Common::BoolResultStr
         RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                             const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
-                            uint64_t offset, uint64_t hiddenSubmeshMask, MeshDrawArgumentsOrder order ) = 0;
+                            uint64_t offset, SubmeshMask hiddenSubmeshMask, MeshDrawArgumentsOrder order ) = 0;
         // One IndirectGroup of a binned pass: @p pipeline's pass state (no per-draw material: binned materials are
         // bindless rows; draw.Material is the view's carrier of the scene blocks), @p geometry's vertex / stream / index buffers (the group's shared binding: one bind per pipeline
         // switch), then the indirect draws @p draw names. No push block is written: a binned draw reads its

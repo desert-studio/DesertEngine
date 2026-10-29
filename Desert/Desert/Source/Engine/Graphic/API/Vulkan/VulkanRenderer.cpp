@@ -910,7 +910,7 @@ namespace Desert::Graphic::API::Vulkan
                                                                 const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                                 const glm::mat4&        transform,
                                                                 const MaterialExecutor& material,
-                                                                const uint64_t          hiddenSubmeshMask,
+                                                                const SubmeshMask       hiddenSubmeshMask,
                                                                 const VkBuffer          visibleRows,
                                                                 const SubmeshDraw&      draw )
     {
@@ -962,7 +962,7 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t    drawn     = 0;
         for ( size_t si = 0; si < submeshes.size(); ++si )
         {
-            if ( si < 64 && ( ( hiddenSubmeshMask >> si ) & 1ull ) != 0 )
+            if ( hiddenSubmeshMask.Hides( si ) )
                 continue;
             const auto&     submesh        = submeshes[si];
             const glm::mat4 finalTransform = transform * submesh.Transform;
@@ -983,7 +983,7 @@ namespace Desert::Graphic::API::Vulkan
                                                          const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                          const glm::mat4&        transform,
                                                          const MaterialExecutor& material, uint32_t instanceCount,
-                                                         uint32_t firstInstance, uint64_t hiddenSubmeshMask,
+                                                         uint32_t firstInstance, SubmeshMask hiddenSubmeshMask,
                                                          uint32_t                        lodLevel,
                                                          const std::span<const uint32_t> submeshFirstRows )
     {
@@ -1041,7 +1041,7 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirect(
          const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
          const glm::mat4& transform, const MaterialExecutor& material, const RDG::BufferRef args,
-         const uint64_t offset, const uint64_t hiddenSubmeshMask, const MeshDrawArgumentsOrder order )
+         const uint64_t offset, const SubmeshMask hiddenSubmeshMask, const MeshDrawArgumentsOrder order )
     {
         DESERT_PROFILE_FUNC();
         const RDG::PassContext& context = bindings.GetContext();

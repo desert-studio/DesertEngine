@@ -338,29 +338,53 @@ namespace Desert::Graphic::System
         return result;
     }
 
-    uint64_t MeshRenderer::VsmClusteredSubmeshes( const StaticMeshRenderData& rd ) const
+    void MeshRenderer::VsmClusteredSubmeshes( const StaticMeshRenderData& rd, std::vector<uint64_t>& words ) const
     {
+        words.clear();
         if ( !m_VsmGeometry || !m_DrawCommandCache || rd.Mesh == nullptr )
-            return 0u;
+            return;
         const auto* registration = rd.Mesh->GetVirtualMesh();
         if ( registration == nullptr || !*registration )
-            return 0u;
-        // The walk's hidden mask holds 64 submeshes (StaticMeshRenderData::HiddenSubmeshes): a submesh past it
-        // cannot be hidden, so the walk draws it and it is never clustered here.
-        const size_t submeshes = std::min<size_t>( rd.Mesh->GetSubmeshes().size(), 64u );
-        uint64_t     clustered = 0u;
+            return;
+        const std::size_t submeshes = rd.Mesh->GetSubmeshes().size();
+        words.assign( ( submeshes + 63u ) / 64u, uint64_t{ 0 } );
+        const SubmeshMask own{ rd.HiddenSubmeshes }; // the entry's hidden sections
         for ( const VirtualGeometry::VirtualMeshDagSpan& span :
               VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index() ) )
         {
-            if ( span.Submesh >= submeshes || ( ( rd.HiddenSubmeshes >> span.Submesh ) & 1u ) != 0u )
+            if ( span.Submesh >= submeshes || own.Hides( span.Submesh ) )
                 continue;
             // A submesh whose group has no twin (a held refusal, SetVirtualShadowGeometry) stays walked, so its
             // shadow is never lost.
             if ( m_DrawCommandCache->SubmeshVirtualGeometryPipeline( GpuDriven::MeshPass::VirtualShadow,
                                                                      rd.GpuPrimitive, span.Submesh ) != nullptr )
-                clustered |= uint64_t{ 1 } << span.Submesh;
+                words[span.Submesh / 64u] |= uint64_t{ 1 } << ( span.Submesh % 64u );
         }
-        return clustered;
+    }
+
+    SubmeshMask MeshRenderer::VsmWalkHidden( const StaticMeshRenderData& rd )
+    {
+        std::vector<uint64_t>& words = m_VsmClusteredScratch;
+        VsmClusteredSubmeshes( rd, words );
+        if ( words.empty() )
+            return SubmeshMask{ rd.HiddenSubmeshes };
+        const uint64_t low = rd.HiddenSubmeshes | words.front();
+        // The words past submesh 63, without trailing zero words: equal sets intern to one element.
+        std::size_t end = words.size();
+        while ( end > 1u && words[end - 1u] == 0u )
+            --end;
+        if ( end <= 1u )
+            return SubmeshMask{ low };
+        const auto interned =
+             m_VsmHiddenWords.emplace( words.begin() + 1, words.begin() + static_cast<std::ptrdiff_t>( end ) ).first;
+        return SubmeshMask{ low, std::span<const uint64_t>( *interned ) };
+    }
+
+    void MeshRenderer::ResetVirtualShadowGeometry()
+    {
+        m_VsmGeometry.reset();
+        m_VsmRefusedGroups = 0;
+        m_VsmHiddenWords.clear();
     }
 
     Common::ResultStr<std::vector<uint8_t>>
@@ -420,9 +444,15 @@ namespace Desert::Graphic::System
     {
         // This frame's cluster issue (SetVirtualShadowGeometry) is consumed by this call whatever it returns: the
         // next frame's walk draws every caster unless that frame's cut is set again.
-        const std::unique_ptr<std::optional<MeshRendererDetail::BinnedIssue>,
-                              void ( * )( std::optional<MeshRendererDetail::BinnedIssue>* )>
-             consumed( &m_VsmGeometry, +[]( std::optional<MeshRendererDetail::BinnedIssue>* issue ) { issue->reset(); } );
+        struct ConsumeIssue
+        {
+            std::optional<MeshRendererDetail::BinnedIssue>& Issue;
+            ~ConsumeIssue()
+            {
+                Issue.reset();
+            }
+        };
+        const ConsumeIssue consumed{ m_VsmGeometry };
         if ( auto pipelines = EnsureVirtualShadowPipelines(); !pipelines.IsSuccess() )
             return pipelines;
 

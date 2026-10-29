@@ -1992,6 +1992,10 @@ namespace Desert::Graphic
         // cache comes before the traced GI - so they are forgotten HERE, before any reader: a handle from the last
         // frame's graph is not a handle in this one.
         m_TracedFrameShared = {};
+        // The virtual shadow map's cluster path is this frame's only if its VSM cut sets it again: a frame whose
+        // method is not VirtualMaps (or whose cut is refused) holds no last frame's issue or refused groups.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ResetVirtualShadowGeometry();
         AddFrameDrawBins( graph, textures, frame );
         AddFrameVirtualGeometry( graph, frame );
         AddFrameShadowDepths( graph, textures );

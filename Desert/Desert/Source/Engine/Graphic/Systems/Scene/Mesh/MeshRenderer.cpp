@@ -420,7 +420,7 @@ namespace Desert::Graphic::System
                 const auto& submeshes = command.Mesh->GetSubmeshes();
                 for ( std::size_t si = 0; si < submeshes.size(); ++si )
                 {
-                    if ( si < 64 && ( command.HiddenSubmeshMask & ( 1ull << si ) ) != 0 )
+                    if ( command.HiddenSubmeshMask.Hides( si ) )
                         continue;
                     const auto& sm      = submeshes[si];
                     uint32_t    indices = sm.IndexCount;

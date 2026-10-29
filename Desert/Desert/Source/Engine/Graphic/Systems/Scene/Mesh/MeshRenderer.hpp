@@ -51,6 +51,7 @@
 
 #include <functional>
 #include <map>
+#include <set>
 #include <utility>
 #include <memory>
 #include <array>
@@ -88,7 +89,7 @@ namespace Desert::Graphic::System
             const MaterialExecutor* Material          = nullptr;
             uint32_t                InstanceCount     = 1;
             uint32_t                FirstInstance     = 0;
-            uint64_t                HiddenSubmeshMask = 0;
+            SubmeshMask             HiddenSubmeshMask{};
             uint32_t                LodLevel          = 0;
             // A GPU-generated instanced draw (GpuInstances.hpp): each drawn submesh reads its record at
             // GpuInstanceArgsOffset( submesh ) of this graph buffer (InstanceCount / FirstInstance unused), and
@@ -628,7 +629,7 @@ namespace Desert::Graphic::System
         // [.Parallax].Binned.VirtualGeometry` on the VSM caster state), whose vertex stage takes the level's matrix
         // and fragment stage the level's page table from the cluster's view. The carriers are made by
         // AddVirtualShadowRasterPasses; from then the levels' CPU walk leaves out every submesh whose clusters a
-        // twin draws (VsmClusteredSubmeshes). Returns per group whether its clusters are drawn. A group with clusters
+        // twin draws (VsmWalkHidden). Returns per group whether its clusters are drawn. A group with clusters
         // binned and no twin is a HELD REFUSAL: logged once per cell, counted (VsmRefusedGroups), and its
         // submeshes stay in the CPU walk (no shadow is lost). Refused without the VSM caster pipelines, a draw
         // command cache or for bins of another group count; nothing is attached then.
@@ -636,11 +637,21 @@ namespace Desert::Graphic::System
         SetVirtualShadowGeometry( MeshRendererDetail::VirtualGeometryIssue issue,
                                   const GpuDriven::DrawCommandBuffers& upload, const GpuDriven::GpuSceneBuffers& scene );
         // THE ONE RULE "this submesh of a static entry is drawn as clusters into the virtual shadow map this
-        // frame": bit i set when the VSM cluster raster is issued (SetVirtualShadowGeometry) and submesh i, shown by
-        // @p rd with uploaded DAG rows, is binned at lod 0 into a VirtualShadow group with a `.VirtualGeometry` twin
-        // (DrawCommandCache::SubmeshVirtualGeometryPipeline). The levels' CPU walk hides exactly these submeshes
-        // and draws the rest (a mesh with VG on some submeshes keeps both shadows; a held refusal stays walked).
-        [[nodiscard]] uint64_t VsmClusteredSubmeshes( const StaticMeshRenderData& rd ) const;
+        // frame": bit i of @p words (word i / 64, for EVERY submesh of the mesh - no 64 cap) set when the VSM
+        // cluster raster is issued (SetVirtualShadowGeometry) and submesh i, shown by @p rd with uploaded DAG rows,
+        // is binned at lod 0 into a VirtualShadow group with a `.VirtualGeometry` twin
+        // (DrawCommandCache::SubmeshVirtualGeometryPipeline, which the GPU's raster binning reads the same way).
+        // The levels' CPU walk hides exactly these submeshes (VsmWalkHidden) and draws the rest (a mesh with VG on
+        // some submeshes keeps both shadows; a held refusal stays walked). @p words is resized to the mesh's words.
+        void VsmClusteredSubmeshes( const StaticMeshRenderData& rd, std::vector<uint64_t>& words ) const;
+        // The submeshes a VSM level's CPU walk hides of @p rd: the entry's own (HiddenSubmeshes) plus
+        // VsmClusteredSubmeshes. The words past the first 64 submeshes are interned in m_VsmHiddenWords (kept until
+        // the next ResetVirtualShadowGeometry), so equal masks share one view and their entries batch together.
+        [[nodiscard]] SubmeshMask VsmWalkHidden( const StaticMeshRenderData& rd );
+        // A new frame of the virtual shadow map's cluster path: drops the last frame's issue, its refusal count
+        // and its interned walk masks. Called by SceneRenderer before every frame's graph, so a frame whose
+        // method is not VirtualMaps (or whose VSM cut is refused) reports no refused groups.
+        void ResetVirtualShadowGeometry();
         // Groups of the VirtualShadow table holding bins but no `.VirtualGeometry` twin in this frame's VSM cluster
         // raster (SetVirtualShadowGeometry): their clusters are not rastered, their primitives stay in the walk.
         [[nodiscard]] uint32_t VsmRefusedGroups() const
@@ -1683,6 +1694,10 @@ namespace Desert::Graphic::System
         std::optional<MeshRendererDetail::BinnedIssue> m_VsmGeometry;
         MeshRendererDetail::MeshDrawList               m_VsmGeometryDraws;
         uint32_t                                       m_VsmRefusedGroups = 0;
+        // VsmWalkHidden's interned words past submesh 63 (a std::set: its elements never move, so the views the
+        // levels' draws hold stay valid until ResetVirtualShadowGeometry), and its scratch.
+        std::set<std::vector<uint64_t>> m_VsmHiddenWords;
+        std::vector<uint64_t>           m_VsmClusteredScratch;
         // Per non-mesh caster: its first block on the level's node and its first culled argument record.
         struct VsmCasterEntry
         {
@@ -2119,7 +2134,7 @@ namespace Desert::Graphic::System
             uint32_t            Count = 0;
             uint32_t            First = 0;
             uint32_t            LodLevel = 0; ///< see InstancedDraw::LodLevel — same omission, same fix
-            uint64_t            HiddenSubmeshMask = 0; ///< see InstancedDraw::HiddenSubmeshMask
+            SubmeshMask         HiddenSubmeshMask{}; ///< see InstancedDraw::HiddenSubmeshMask (a VSM level's is wide)
             InstanceWindPush    Wind;         ///< see InstancedDraw::Wind
             float               BoundsPad = 0.0f; ///< WindBoundsPad of the wind above, cm (MeshDrawCommand)
         };
@@ -2156,7 +2171,7 @@ namespace Desert::Graphic::System
         struct ShadowSingle
         {
             const StaticMeshRenderData* Data   = nullptr;
-            uint64_t                    Hidden = 0;
+            SubmeshMask                 Hidden{};
         };
         std::vector<ShadowSingle> m_ScratchShadowSingles;
         // Masked casters of one cascade: per cascade copy, its rows / instance transforms / bone poses end to
@@ -2180,7 +2195,7 @@ namespace Desert::Graphic::System
             // fields the cell fetches the cached pose by; a row without an address skins from the copy's bones.
             uint32_t          GpuPrimitive         = 0;
             uint32_t          LodLevel  = 0;
-            uint64_t          HiddenSubmeshMask = 0; // the caster's section group, as its lit draw
+            SubmeshMask       HiddenSubmeshMask{}; // the caster's section group, as its lit draw (+ VSM clusters)
             InstanceWindPush  Wind;
             float             BoundsPad = 0.0f; // WindBoundsPad of the wind above, cm (MeshDrawCommand)
             // Skinned path, virtual shadow map levels only: the posed world box (MeshDrawCommand::WorldBounds).
