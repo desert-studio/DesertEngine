@@ -680,6 +680,15 @@ namespace Desert::Runtime
         return SiblingOf( built, path, pass, view, Core::ShaderVariant{}, owner );
     }
 
+    Graphic::DataDrivenMaterial* MaterialService::GetViewVariant( const Graphic::Material* built,
+                                                                  Graphic::MeshVertexPath  path,
+                                                                  Graphic::MeshPass pass, uint32_t view,
+                                                                  const Core::ShaderVariant& permutation,
+                                                                  const void*                owner ) const
+    {
+        return SiblingOf( built, path, pass, view, permutation, owner );
+    }
+
     void MaterialService::ReleaseViewVariants( const void* owner )
     {
         if ( owner == nullptr )

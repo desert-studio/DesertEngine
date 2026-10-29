@@ -80,10 +80,17 @@ namespace Desert::Graphic::System
                 return kGpuInstancedViewBase + ( gpu.Key * 3u ) +
                        ( of == MeshPass::GBuffer ? 1u : of == MeshPass::Depth ? 2u : 0u );
             };
-            const uint32_t            view = viewOf( pass );
-            DataDrivenMaterial*       cell = parent != nullptr && materials->Owns( parent )
-                                                  ? materials->GetViewVariant( parent, gpu.Path, pass, view, this )
-                                                  : nullptr;
+            // This view's copy of the section's (path x pass) cell; the Forward one in its virtual-shadow
+            // permutation (ForwardVirtualCell: a blade or instance under a local light reads the VSM).
+            const auto cellOf = [&]( const MeshPass of ) -> DataDrivenMaterial*
+            {
+                if ( parent == nullptr || !materials->Owns( parent ) )
+                    return nullptr;
+                return ForwardVirtualCell( materials->GetViewVariant( parent, gpu.Path, of, viewOf( of ), this ),
+                                           parent, gpu.Path, of, viewOf( of ) );
+            };
+            const uint32_t      view = viewOf( pass );
+            DataDrivenMaterial* cell = cellOf( pass );
             if ( cell == nullptr )
             {
                 static std::unordered_set<const DataDrivenMaterial*> s_Refused;
@@ -109,8 +116,7 @@ namespace Desert::Graphic::System
                 }
                 else
                 {
-                    DataDrivenMaterial* const other =
-                         materials->GetViewVariant( parent, gpu.Path, companion->Pass, viewOf( companion->Pass ), this );
+                    DataDrivenMaterial* const other = cellOf( companion->Pass );
                     GraphicsPipeline* const otherPipeline =
                          other != nullptr && companion->InstancedState != nullptr
                               ? CullPermutation( CellPipeline( companion->InstancedState, *other ),
@@ -123,8 +129,9 @@ namespace Desert::Graphic::System
                 }
             }
 
+            // Recreated when the view's cell changed (Shadows.Method switched the Forward cell's permutation).
             auto& instance = m_GpuInstancedInstances[view];
-            if ( !instance )
+            if ( !instance || instance->GetParentMaterial() != cell )
                 instance = cell->CreateInstance( "GpuInstanced" );
             BindGpuInstancedBuffers( *cell, gpu );
             // The section's row is the scene material table's (SyncGpuScene), read by the cell of its template.

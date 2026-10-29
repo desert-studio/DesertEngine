@@ -154,6 +154,15 @@ namespace Desert::Graphic
 
     inline constexpr uint32_t kMeshVertexPathCount = 6;
 
+    // The paths whose Forward cell MeshRenderer draws in the view's opaque mesh passes - and so draws, under
+    // Shadows.Method VirtualMaps, in its DESERT_LOCAL_SHADOW_VSM permutation (MeshRenderer::ForwardVirtualCell):
+    // the per-object static, the skinned, the CPU/GPU instanced and the GPU grass blade. The cook ships each
+    // one's permutations from this list (MeshRenderer::MaterialProgramVariants). MeshVertexPath.cpp asserts it
+    // holds every path with a G-buffer cell (an opaque mesh path), so a new mesh path cannot be drawn without
+    // its virtual-shadow permutation being cooked. The particle paths are ParticleRenderer's.
+    inline constexpr MeshVertexPath kMeshRendererForwardPaths[] = {
+         MeshVertexPath::Static, MeshVertexPath::Skinned, MeshVertexPath::Instanced, MeshVertexPath::GrassBlade };
+
     // What the fragment stage of the draw WRITES. Orthogonal to the path above: the same geometry can be
     // rasterized into the lit scene, into the deferred G-buffer, into the transparent composite or into a
     // shadow cascade, and which one it is has nothing to do with how its vertices were fetched.

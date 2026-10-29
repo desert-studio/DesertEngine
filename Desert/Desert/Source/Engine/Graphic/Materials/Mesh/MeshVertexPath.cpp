@@ -52,6 +52,34 @@ namespace Desert::Graphic
         }
         static_assert( EveryOpaqueMeshPathHasViewDepth(),
                        "a mesh path with a GBuffer cell has no Depth cell: the forward prepass cannot admit it" );
+
+        // THE VIRTUAL-SHADOW COOK RELATION: every opaque mesh path (a G-buffer cell) is drawn forward by
+        // MeshRenderer through its VSM twin (ForwardVirtualCell), and the cook lists the twins of exactly
+        // kMeshRendererForwardPaths; a path missing there would draw a permutation no package ships.
+        constexpr bool EveryOpaqueMeshPathHasForwardVsmTwinCooked()
+        {
+            for ( uint32_t path = 0; path < kMeshVertexPathCount; ++path )
+            {
+                const auto& row = kMeshCells[path];
+                if ( row[static_cast<uint32_t>( MeshPass::GBuffer )] == nullptr )
+                    continue;
+                if ( row[static_cast<uint32_t>( MeshPass::Forward )] == nullptr )
+                    return false;
+                bool listed = false;
+                for ( const MeshVertexPath forward : kMeshRendererForwardPaths )
+                    listed = listed || static_cast<uint32_t>( forward ) == path;
+                if ( !listed )
+                    return false;
+            }
+            for ( const MeshVertexPath forward : kMeshRendererForwardPaths )
+                if ( kMeshCells[static_cast<uint32_t>( forward )][static_cast<uint32_t>( MeshPass::Forward )] ==
+                     nullptr )
+                    return false;
+            return true;
+        }
+        static_assert( EveryOpaqueMeshPathHasForwardVsmTwinCooked(),
+                       "an opaque mesh path is missing from kMeshRendererForwardPaths (or has no Forward cell): "
+                       "its DESERT_LOCAL_SHADOW_VSM permutation would not be cooked" );
     } // namespace
 
     const char* MeshCellFor( MeshVertexPath path, MeshPass pass )

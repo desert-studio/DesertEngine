@@ -623,7 +623,8 @@ namespace Desert::Graphic::System
     }
 
     DataDrivenMaterial* MeshRenderer::ForwardVirtualCell( DataDrivenMaterial* cell, const Material* built,
-                                                          const MeshVertexPath path, const MeshPass pass )
+                                                          const MeshVertexPath path, const MeshPass pass,
+                                                          const std::optional<uint32_t> view )
     {
         if ( !m_ForwardVirtualLocal || pass != MeshPass::Forward || cell == nullptr )
             return cell;
@@ -639,7 +640,10 @@ namespace Desert::Graphic::System
         if ( program == nullptr )
             return cell; // the sibling is a registered cell (CreateSurfaceMaterial); nothing to ask otherwise
         const Core::ShaderVariant permutation = ForwardShadowMaskVariant( *program, false, false, true );
-        return permutation.IsDefault() ? cell : materials->GetVariant( built, path, pass, permutation );
+        if ( permutation.IsDefault() )
+            return cell;
+        return view ? materials->GetViewVariant( built, path, pass, *view, permutation, this )
+                    : materials->GetVariant( built, path, pass, permutation );
     }
 
     MeshRenderer::StandInCell* MeshRenderer::ForwardVsmTwin( const DataDrivenMaterial& source )
@@ -699,8 +703,8 @@ namespace Desert::Graphic::System
     {
         // Every ForwardShadowMaskVariant the renderer can select for @p program (each combination of the sun mask,
         // the local masks and the virtual shadow map; only the virtual shadow map when @p virtualOnly - the
-        // instanced and skinned forward cells, which ForwardVirtualCell permutes and nothing else does), defaults
-        // omitted, each distinct permutation of @p programName once.
+        // instanced, skinned and grass blade forward cells, which ForwardVirtualCell permutes and nothing else
+        // does), defaults omitted, each distinct permutation of @p programName once.
         void AppendForwardShadowMaskVariants( const Shader& program, const std::string& programName,
                                               std::set<std::pair<std::string, uint64_t>>& listed,
                                               std::vector<Core::CookedProgramVariant>&     variants,
@@ -727,10 +731,10 @@ namespace Desert::Graphic::System
         for ( const ::Common::AssetHandle& handle : handles )
         {
             // The cell MaterialService::GetVariant builds the forward sibling in (CreateSurfaceMaterial's rule):
-            // the static one under every selectable permutation, the instanced and skinned ones under the
-            // virtual shadow map's (ForwardVirtualCell).
-            for ( const MeshVertexPath path :
-                  { MeshVertexPath::Static, MeshVertexPath::Instanced, MeshVertexPath::Skinned } )
+            // the static one under every selectable permutation, the instanced, skinned and grass blade ones
+            // under the virtual shadow map's (ForwardVirtualCell). A template without `Usage GrassBlades` has no
+            // GrassBlade cell (CellShaderNameOf refuses it).
+            for ( const MeshVertexPath path : kMeshRendererForwardPaths )
             {
                 const auto cell = materials.CellShaderNameOf( handle, path, MeshPass::Forward );
                 if ( !cell )
@@ -2105,20 +2109,24 @@ namespace Desert::Graphic::System
         // it and the ray-traced sun trace reads its depth and normal. Forward (MeshGeometryPass): the (Skinned x
         // Forward) cell into the scene target.
         // Depth ("Forward: Depth Prepass"): the (Skinned x Depth) cell into the scene depth.
+        // Forward under the Wireframe view: the line-polygon twin, writing its own depth (WireframePipelineOr).
         const auto skinnedPassState = [this]( const MeshPass pass ) -> GraphicsPipeline*
         {
             return pass == MeshPass::GBuffer ? m_SkinnedGBufferPipeline.get()
                    : pass == MeshPass::Depth ? m_SkinnedDepthPipeline.get()
-                                             : m_SkinnedPipeline.get();
+                                             : WireframePipelineOr( m_SkinnedPipeline.get() );
         };
-        const MeshPass    cellPass = m_GeometryPass;
+        const MeshPass cellPass = m_GeometryPass;
+        // The Wireframe view's skinned twin writes its own depth, as the static and instanced ones: not prepassed.
+        if ( cellPass == MeshPass::Depth && WireframeView() )
+            return;
         GraphicsPipeline* pipeline = skinnedPassState( cellPass );
         if ( pipeline == nullptr )
             return; // SetupGBufferPass / SetupDepthPrepass / SetupSkinnedGeometryPass said which cell is missing
-        // The forward path's other half of the depth prepass pairing, whose readiness is folded in (a skinned mesh
-        // has no wireframe twin: it is always prepassed).
+        // The forward path's other half of the depth prepass pairing, whose readiness is folded in (none under the
+        // Wireframe view: the twin is not prepassed).
         const std::optional<MeshPass> companionPass =
-             PairsWithPrepass( /*wireframeReplaced*/ false )
+             PairsWithPrepass( /*wireframeReplaced*/ true )
                   ? std::optional<MeshPass>( cellPass == MeshPass::Depth ? MeshPass::Forward : MeshPass::Depth )
                   : std::nullopt;
 
@@ -2519,6 +2527,18 @@ namespace Desert::Graphic::System
             return false;
         }
         m_SkinnedPipeline = skinned.GetValue();
+
+#if DESERT_DEV_INSTRUMENTS
+        // Its Wireframe-view twin, as StaticMeshWireframe is the static pipeline's: line polygons, depth written
+        // (the Wireframe view is not prepassed), so the view no longer depends on the (Skinned x Depth) prepass.
+        spec.DebugName         = "SkinnedMeshWireframe";
+        spec.DepthWriteEnabled = true;
+        spec.PolygonMode       = PrimitivePolygonMode::Wireframe;
+        if ( const auto wireframe = GraphicsPipeline::Create( spec ) )
+            m_SkinnedWireframePipeline = wireframe.GetValue();
+        else
+            LOG_ERROR( "[MeshRenderer] the wireframe view draws no skinned meshes: {}", wireframe.GetError() );
+#endif // DESERT_DEV_INSTRUMENTS
 
         return true;
     }

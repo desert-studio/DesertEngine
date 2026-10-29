@@ -1030,8 +1030,9 @@ namespace Desert::Graphic::System
 
         // THE WIREFRAME TWIN OF A FORWARD PASS PIPELINE (UE draws every mesh kind in its wireframe view through
         // the same pass it is drawn in otherwise): @p fallback's line-polygon twin while the view is on, else
-        // @p fallback. Static and Instanced each have one, so an ISM is drawn in wireframe by the same recording
-        // as in Lit — only the pass state differs. A pipeline with no twin answers itself.
+        // @p fallback. Static, Instanced and Skinned each have one, so an ISM or a character is drawn in wireframe
+        // by the same recording as in Lit — only the pass state differs. Each twin writes its own depth: the
+        // Wireframe view's forward meshes are not prepassed. A pipeline with no twin answers itself.
         [[nodiscard]] GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback ) const
         {
 #if DESERT_DEV_INSTRUMENTS
@@ -1041,6 +1042,8 @@ namespace Desert::Graphic::System
                 return m_StaticWireframePipeline.get();
             if ( fallback == m_StaticInstancedPipeline.get() && m_StaticInstancedWireframePipeline )
                 return m_StaticInstancedWireframePipeline.get();
+            if ( fallback == m_SkinnedPipeline.get() && m_SkinnedWireframePipeline )
+                return m_SkinnedWireframePipeline.get();
             return fallback;
 #else
             return fallback;
@@ -1385,10 +1388,13 @@ namespace Desert::Graphic::System
         // `.demat`'s DESERT_LOCAL_SHADOW_VSM permutation (MaterialService::GetVariant with that define); otherwise
         // @p cell. Null when the service refused the permutation (it names it). A renderer-built material (no
         // `.demat`: MeshECSSystem's default, a stand-in, the instanced spare) is drawn through its own twin
-        // (ForwardVsmTwin). A non-Forward @p pass is returned as given. The static, instanced and skinned forward
-        // draws ask it.
+        // (ForwardVsmTwin). A non-Forward @p pass is returned as given. The static, instanced, skinned and GPU
+        // (instanced / grass blade) forward draws ask it; a GPU section's cell is this view's copy (@p view: the
+        // MaterialService::GetViewVariant key it was asked under, owned by this renderer), and so is its
+        // permutation.
         [[nodiscard]] DataDrivenMaterial* ForwardVirtualCell( DataDrivenMaterial* cell, const Material* built,
-                                                              MeshVertexPath path, MeshPass pass );
+                                                              MeshVertexPath path, MeshPass pass,
+                                                              std::optional<uint32_t> view = std::nullopt );
         [[nodiscard]] static Core::ShaderVariant ForwardShadowMaskVariant( const Shader& shader, bool rayTracedSun,
                                                                            bool localShadowMasks,
                                                                            bool virtualLocal );
@@ -1526,8 +1532,8 @@ namespace Desert::Graphic::System
         std::optional<uint64_t>                                     m_PrepassFrame;
         ForwardPrepassStats                                         m_ForwardPrepassStats; // GetForwardPrepassStats
         // Whether the pass being built pairs with the other half of the forward prepass (m_GeometryPass Forward
-        // or Depth on the forward path, with the prepass's cells): static/instanced/grass not under the Wireframe
-        // view (@p wireframeReplaced), skinned always.
+        // or Depth on the forward path, with the prepass's cells): static/instanced/grass/skinned not under the
+        // Wireframe view (@p wireframeReplaced: the path has a wireframe twin writing its own depth).
         [[nodiscard]] bool PairsWithPrepass( bool wireframeReplaced ) const;
         // This frame's prepass decision for @p key, when the prepass ran this frame and decided it.
         [[nodiscard]] std::optional<MaterialPipelineTracker::CellDraw> PrepassCellDraw( const PrepassCellKey& key ) const;
@@ -1586,6 +1592,9 @@ namespace Desert::Graphic::System
 
         // Skinned
         std::shared_ptr<GraphicsPipeline> m_SkinnedPipeline;
+#if DESERT_DEV_INSTRUMENTS
+        std::shared_ptr<GraphicsPipeline> m_SkinnedWireframePipeline; // same spec, PolygonMode::Wireframe, depth written
+#endif
         std::shared_ptr<Shader>   m_SkinnedShader;
 
         // Silhouette (mask for the Jump Flood outline)
