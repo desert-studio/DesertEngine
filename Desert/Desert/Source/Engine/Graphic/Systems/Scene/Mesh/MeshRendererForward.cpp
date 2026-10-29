@@ -947,7 +947,7 @@ namespace Desert::Graphic::System
         // the cascades - the same decision the depth/normal prepass was declared with.
         // Likewise the local shadow masks, in place of the atlas (AddFrameGeneric: valid exactly when traced).
         m_GenericLocalShadowMasks = view.LocalShadowMasks.IsValid();
-        m_ForwardVirtualLocal     = view.Vsm.IsValid();
+        m_ForwardVirtualLocal     = m_SceneRenderer->LocalShadowsAreVirtual();
         BuildGenericDraws( m_GenericDraws, view.SunShadowMask.IsValid() ? GenericSlice::DeferredForwardRayTracedSun
                                                                         : GenericSlice::DeferredForward );
         m_GenericDraws.Declare( pass, view );
@@ -962,7 +962,7 @@ namespace Desert::Graphic::System
                                              const SceneViewInputs& view, const GlassFrontLayer& frontLayer )
     {
         m_GlassDraws.Clear();
-        m_ForwardVirtualLocal = view.Vsm.IsValid(); // TranslucentDrawFor's DESERT_LOCAL_SHADOW_VSM choice
+        m_ForwardVirtualLocal = m_SceneRenderer->LocalShadowsAreVirtual(); // TranslucentDrawFor's DESERT_LOCAL_SHADOW_VSM choice
         if ( m_StaticQueue.empty() )
         {
             return;

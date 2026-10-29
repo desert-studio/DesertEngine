@@ -196,7 +196,8 @@ namespace Desert::Graphic
     std::size_t MeshCellPipelineKeyHash::operator()( const MeshCellPipelineKey& key ) const
     {
         const std::size_t state  = std::hash<const void*>{}( key.PassState );
-        const std::size_t shader = std::hash<std::string>{}( key.CellShader );
+        const std::size_t shader =
+             std::hash<std::string>{}( key.CellShader ) ^ ( std::hash<uint64_t>{}( key.Variant ) << 1 );
         return state ^ ( shader + 0x9e3779b97f4a7c15ULL + ( state << 6 ) + ( state >> 2 ) );
     }
 } // namespace Desert::Graphic

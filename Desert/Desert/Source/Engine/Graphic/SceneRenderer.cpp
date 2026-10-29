@@ -1986,10 +1986,13 @@ namespace Desert::Graphic
         // (DESERT_LOCAL_SHADOW_VSM) - the atlas is not drawn. No G-buffer: no sun pages (the forward sun reads its
         // cascades) and no screen masks; each light's coarse mip is marked ("VSM: Mark Coarse") and a receiver
         // reads its own mip where mapped, the coarse one otherwise (VsmLocalOccluderDistance).
+        // The forward depth prepass (UE forward: the full depth prepass) runs first: "VSM: Mark Local" marks the
+        // pages its pixels read, as it does the deferred G-buffer's.
         if ( ( m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer ) && LocalShadowsAreVirtual() )
         {
             m_FrameVsmPages.reset();
-            (void)AddFrameVirtualShadows( graph, textures, {}, glm::vec3( 0.0f, 1.0f, 0.0f ), frame, {} );
+            const std::vector<RDG::TextureRef> prepass = AddFrameForwardDepthPrepass( graph, textures );
+            (void)AddFrameVirtualShadows( graph, textures, prepass, glm::vec3( 0.0f, 1.0f, 0.0f ), frame, {} );
         }
         AddFrameBasePass( graph, textures );
         // The selection outline's mask, which a face view's missing post chain would never read.
@@ -2661,7 +2664,10 @@ namespace Desert::Graphic
                                                        .FrameIndex     = frame.FrameIndex };
         // The sun only when the scene has a directional light (a night scene's map holds its lamps alone), and only
         // from a G-buffer: the forward path's sun reads its cascades.
-        const bool                        hasSun = deferred && !m_DirectionLights.DirectionLights.empty();
+        // `composite`: the deferred composite reads this frame's masks; a forward view's G-buffer is its depth
+        // prepass (AddFrameForwardDepthPrepass), which marks the local lights' pages only.
+        const bool composite = deferred && m_RenderPath == Core::RenderPath::Deferred;
+        const bool                        hasSun = composite && !m_DirectionLights.DirectionLights.empty();
         const System::VirtualShadowMapSun sun{ .DirectionToSun     = directionToSun,
                                                .SourceAngleDegrees = m_SunSourceAngleDegrees };
         // The point/spot lights given a mask slot (AssignLocalShadowMaskSlots: they cast, and their sphere meets
@@ -2683,8 +2689,12 @@ namespace Desert::Graphic
                                     .MaskSlot      = static_cast<uint32_t>( slot ) } );
             }
         }
-        if ( !hasSun && locals.empty() )
-            return {}; // nothing casts into the map this frame: its pages stay cached
+        // Under VirtualMaps every local-shadow reader is a VSM program (the forward cells, the terrain and the glass
+        // take the frame's LocalShadowsAreVirtual, as the generic prepass checked): the map's refs exist even when
+        // no light casts this frame (the page passes run over none; the view slots are a high-water mark, so the
+        // cached pages stay).
+        if ( !hasSun && !LocalShadowsAreVirtual() )
+            return {};
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
         // The casters that changed since the last frame drop their cached pages (UE VSM cache invalidation).
@@ -2734,7 +2744,7 @@ namespace Desert::Graphic
         }
         // The local masks are the deferred composite's and the generic opaque cells' (screen pixels of the
         // G-buffer); the forward path's cells read the map itself.
-        if ( deferred && !locals.empty() )
+        if ( composite && !locals.empty() )
         {
             const RDG::TextureRef masks = System::RayTracedLocalShadowRenderer::CreateMasks(
                  graph, view.Width, view.Height, static_cast<uint32_t>( locals.size() ) );

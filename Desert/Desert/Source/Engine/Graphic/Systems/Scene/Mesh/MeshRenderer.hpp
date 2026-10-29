@@ -996,6 +996,10 @@ namespace Desert::Graphic::System
         [[nodiscard]] GraphicsPipeline* CellPipeline( GraphicsPipeline*         passState,
                                                       const DataDrivenMaterial& cell );
         [[nodiscard]] GraphicsPipeline* CellPipeline( GraphicsPipeline* passState, const std::string& cellShader );
+        // @p permutation: the cell's own unregistered program (its variant hash keys the pipeline); null = the
+        // program registered as @p cellShader.
+        [[nodiscard]] GraphicsPipeline* CellPipeline( GraphicsPipeline* passState, const std::string& cellShader,
+                                                      const std::shared_ptr<Shader>& permutation );
         std::unordered_map<MeshCellPipelineKey, std::shared_ptr<GraphicsPipeline>, MeshCellPipelineKeyHash>
              m_CellPipelines; // null = refused
 

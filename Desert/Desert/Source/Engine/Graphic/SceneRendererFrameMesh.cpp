@@ -330,6 +330,24 @@ namespace Desert::Graphic
                   RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 
+    std::vector<RDG::TextureRef> SceneRenderer::AddFrameForwardDepthPrepass( RDG::Builder& graph,
+                                                                             FrameTextures& textures )
+    {
+        // THE FORWARD PATH'S DEPTH PREPASS under Shadows.Method VirtualMaps: the deferred path's own depth
+        // writers - the G-buffer node (static, instanced, skinned, surface generics), the terrain's and the
+        // generic opaque Depth/Normal prepass - into the view's G-buffer (allocated on both paths), so the VSM
+        // marks the local lights' pages from every opaque pixel's depth as on the deferred path. The forward
+        // base pass keeps its own depth (the sky clears it); nothing else reads these targets on this path.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* const meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        if ( !m_GBuffer || meshRenderer == nullptr )
+            return {};
+        AddFrameGBuffer( graph, textures, meshRenderer );
+        AddFrameTerrainGBuffer( graph, textures );
+        AddFrameForwardDepthNormal( graph, textures, meshRenderer );
+        return textures.Colors( m_GBuffer, "GBuffer" );
+    }
+
     void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {

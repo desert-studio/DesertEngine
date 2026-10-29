@@ -279,6 +279,9 @@ namespace Desert::Graphic
     {
         const void* PassState = nullptr;
         std::string CellShader;
+        // ShaderVariant::Hash of a permutation of CellShader (ShaderService::AcquireVariant), which is not
+        // registered under the name; 0 = the program registered as CellShader.
+        uint64_t Variant = 0;
 
         bool operator==( const MeshCellPipelineKey& ) const = default;
     };

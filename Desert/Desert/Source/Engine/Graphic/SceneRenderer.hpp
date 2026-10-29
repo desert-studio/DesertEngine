@@ -1073,6 +1073,9 @@ namespace Desert::Graphic
         // the frame.
         void AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
+        // The forward path's depth prepass under Shadows VirtualMaps (the deferred G-buffer depth writers into the
+        // view's G-buffer); the G-buffer's colour refs for AddFrameVirtualShadows, empty without one.
+        std::vector<RDG::TextureRef> AddFrameForwardDepthPrepass( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
         // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
         // declared reads; @p color / @p depth are the loads of the node's targets.

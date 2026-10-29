@@ -471,7 +471,7 @@ namespace Desert::Graphic::System
                 return;
             const SceneViewInputs view = SceneViewInputsOf( refs );
             // Shadows.Method VirtualMaps: every forward cell reads the view's virtual shadow map, not the atlas.
-            m_ForwardVirtualLocal = view.Vsm.IsValid();
+            m_ForwardVirtualLocal = m_SceneRenderer->LocalShadowsAreVirtual();
             BuildStaticDraws( m_ForwardDraws );
             BuildSkinnedDraws( m_ForwardDraws );
             BuildGenericDraws( m_ForwardDraws, GenericSlice::Forward );
