@@ -1,31 +1,34 @@
 #!/usr/bin/env bash
-# Generate project files (premake5 gmake2) and build Desert Engine on macOS.
+# Configure (cmake --preset) and build Desert Engine on macOS with Ninja.
 #
 # Usage:
-#   scripts/MacOS/BuildMacOS.sh [Debug|Release|Shipping] [--with-tests] [--gen-only] [--no-analyze]
+#   scripts/MacOS/BuildMacOS.sh [Debug|Release|Shipping] [--unity] [--gen-only] [--no-analyze]
 #                               [--no-ccache] [--project=<Name>]...
 #
 # Examples:
 #   scripts/MacOS/BuildMacOS.sh              # Debug build, static analysis on
 #   scripts/MacOS/BuildMacOS.sh Release      # Release build
 #   scripts/MacOS/BuildMacOS.sh Shipping     # what a player gets: no capture, no profiler, no counters
-#   scripts/MacOS/BuildMacOS.sh Debug --with-tests
+#   scripts/MacOS/BuildMacOS.sh Release --unity      # the CI speed build (preset macos-clang-ninja-unity)
 #   scripts/MacOS/BuildMacOS.sh Debug --no-analyze   # skip clang-tidy, and SAY so
 #   scripts/MacOS/BuildMacOS.sh Debug --no-ccache    # compile every unit, and SAY so
 #   scripts/MacOS/BuildMacOS.sh Shipping --project=Runtime --project=GamePackager
-#                                    # those projects and what the workspace says they depend on
+#                                    # those targets and what CMake says they depend on
+#
+# The test suites are always configured (CMakePresets.json `base`: DESERT_WITH_TESTS=ON), so a test runner
+# is a --project like any other target.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
 CONFIG="Debug"
-PREMAKE_ARGS=()
+PRESET="macos-clang-ninja"
 GEN_ONLY=0
 ANALYZE=1
 CCACHE=1
-# Workspace projects to build (make targets of build/Projects/Makefile). Empty = the whole workspace.
-# make builds each named project's dependencies first — the workspace Makefile lists them from the
-# projects' own `links` — so a list names what is WANTED, never the order to build it in.
+# CMake targets to build. Empty = the whole workspace. Ninja builds each named target's dependencies
+# first — CMake derives them from the targets' own links and dependencies — so a list names what is
+# WANTED, never the order to build it in.
 PROJECTS=()
 
 # WHERE THE ANALYSER ATTACHES. One path, named once. scripts/CI/CheckTidy.sh is the clang-tidy gate's
@@ -41,7 +44,7 @@ for arg in "$@"; do
         # people to run `scripts/MacOS/BuildMacOS.sh Shipping` — advice a script that refused the word
         # would turn into a second dead end.
         Debug|Release|Shipping) CONFIG="$arg" ;;
-        --with-tests)  PREMAKE_ARGS+=("--with-tests") ;;
+        --unity)       PRESET="macos-clang-ninja-unity" ;;
         --gen-only)    GEN_ONLY=1 ;;
         --no-analyze)  ANALYZE=0 ;;
         --no-ccache)   CCACHE=0 ;;
@@ -50,20 +53,31 @@ for arg in "$@"; do
     esac
 done
 
-if ! command -v premake5 >/dev/null 2>&1; then
-    echo "premake5 not found. Run scripts/MacOS/Setup.sh first." >&2
-    exit 1
-fi
+for tool in cmake ninja; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "$tool not found. Run scripts/MacOS/Setup.sh first." >&2
+        exit 1
+    fi
+done
 
 # NO GenVersion.sh CALL HERE, AND THE ABSENCE IS THE FIX. This script's single call to it was the
 # ONLY one in the repository, so the build identity was refreshed for whoever went through this
-# wrapper and for nobody else — `make` on its own compiled a header a month out of date. The generator
-# is now part of the Common project's own makefile, which the `make` below runs anyway. Calling it
+# wrapper and for nobody else — a bare build compiled a header a month out of date. The generator
+# is now a custom command of the Common target, which the build below runs anyway. Calling it
 # here as well would put the refresh in two places, and the one that runs first would hide a hook that
 # had stopped working: a missing header is a compile error, a stale one is a lie.
 
-echo "--- Generating Makefiles (premake5 gmake2)"
-premake5 gmake2 "${PREMAKE_ARGS[@]+"${PREMAKE_ARGS[@]}"}"
+# THE LAUNCHER IS PASSED ON EVERY CONFIGURE, NEVER LEFT TO THE CACHE. CMakeLists.txt looks for
+# sccache/ccache only while DESERT_COMPILER_LAUNCHER is undefined, so a cache configured once with
+# --no-ccache would stay uncached for every later build; stating it each time makes the flag mean what
+# it says on this run.
+LAUNCHER=""
+if [ "$CCACHE" -eq 1 ] && command -v ccache >/dev/null 2>&1; then
+    LAUNCHER="$(command -v ccache)"
+fi
+
+echo "--- Configuring (cmake --preset $PRESET)"
+cmake --preset "$PRESET" -DDESERT_COMPILER_LAUNCHER="$LAUNCHER"
 
 if [ "$GEN_ONLY" -eq 1 ]; then
     exit 0
@@ -138,7 +152,6 @@ fi
 # statistics are printed after the build so that a cache which has stopped hitting is visible in the
 # log of the run where it stopped, not three weeks later in a duration graph.
 # ---------------------------------------------------------------------------
-MAKE_TOOL_VARS=()
 if [ "$CCACHE" -eq 0 ]; then
     echo "!!! ccache DISABLED by --no-ccache: every translation unit will be compiled."
 elif ! command -v ccache >/dev/null 2>&1; then
@@ -148,23 +161,22 @@ elif ! command -v ccache >/dev/null 2>&1; then
 else
     export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime"
     export CCACHE_COMPRESS=1
-    # ON THE make COMMAND LINE, NOT IN THE ENVIRONMENT, and the difference is load-bearing. premake's
-    # generated makefiles assign the compiler behind `ifeq ($(origin CC), default)`, so a command-line
-    # variable wins and is inherited by every sub-make through MAKEFLAGS. Exporting CC/CXX instead
-    # would also reach scripts/CI/CheckTidy.sh below, which asks these same makefiles in dry run what
-    # they would compile — and would hand it command lines beginning with `ccache`.
-    MAKE_TOOL_VARS=(CC="ccache clang" CXX="ccache clang++")
+    # AS CMake's COMPILER LAUNCHER (configured above), NOT AS CC/CXX: the compiler stays clang/clang++,
+    # so the compile_commands.json that scripts/CI/CheckTidy.sh analyses names the compiler itself.
     ccache --zero-stats >/dev/null
     echo "--- ccache ON: $(ccache --version | head -1), cache at $(ccache --get-config cache_dir)"
 fi
 
-# gmake2 configs are lowercase
-MAKE_CONFIG="$(echo "$CONFIG" | tr '[:upper:]' '[:lower:]')"
+# Build presets are <configure preset>-<lowercase config> (CMakePresets.json).
+BUILD_PRESET="$PRESET-$(echo "$CONFIG" | tr '[:upper:]' '[:lower:]')"
 CORES="$(sysctl -n hw.ncpu)"
+TARGET_ARGS=()
+for project in "${PROJECTS[@]+"${PROJECTS[@]}"}"; do
+    TARGET_ARGS+=(--target "$project")
+done
 
-echo "--- Building ($CONFIG, -j$CORES): ${PROJECTS[*]:-every project}"
-make -C build/Projects config="$MAKE_CONFIG" -j"$CORES" "${MAKE_TOOL_VARS[@]+"${MAKE_TOOL_VARS[@]}"}" \
-    "${PROJECTS[@]+"${PROJECTS[@]}"}"
+echo "--- Building ($BUILD_PRESET, -j$CORES): ${PROJECTS[*]:-every target}"
+cmake --build --preset "$BUILD_PRESET" -j "$CORES" "${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}"
 
 echo ""
 echo "=== Build complete: build/Bin/$CONFIG ==="

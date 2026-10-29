@@ -23,28 +23,22 @@ WHAT="${1:-all}"
 section() { printf '\n== %s ==\n' "$1"; }
 
 if [ "$WHAT" = all ] || [ "$WHAT" = suites ]; then
-    section "TEST SUITES (from build/Projects/Makefile's own PROJECTS, never from *.make)"
-    # *.make would include orphans premake never deletes; that cost a false BUILD-FAIL and, in the
-    # tidy gate, a whole dead run.
-    if [ -f build/Projects/Makefile ]; then
+    section "TEST SUITES (from build/TestManifest.txt, which the configure step writes)"
+    # The manifest is `<Runner> <Suite>` per line, derived by Desert/Tests/CMakeLists.txt from the suite
+    # directories at configure time: no list of names here to drift from the tree.
+    if [ -s build/TestManifest.txt ]; then
         TMPLIST="$(mktemp -t projectindex)"
-        TOOLS="|$(ls Tools | tr '\n' '|')"
-        sed -n 's/^PROJECTS := //p' build/Projects/Makefile | tr ' ' '\n' | while read -r p; do
-            [ -n "$p" ] || continue
-            case "$p" in Desert|Common|Editor|Runtime|GLFW|ImGui*|imgui-node-editor|yaml-cpp|Jolt|Lua|Optick|MeshOptimizer|Dlib|ReflectCpp|Assimp|GoogleTest|BuildAllTests|RunAllTests) continue;; esac
-            case "$TOOLS" in *"|$p|"*) continue;; esac
-            printf '%s\n' "$p"
-        done | sort > "$TMPLIST"
+        awk 'NF == 2 { print $2 }' build/TestManifest.txt | sort -u > "$TMPLIST"
         column -c 110 < "$TMPLIST" 2>/dev/null || cat "$TMPLIST"
         # THE COUNT IS DERIVED FROM THE LIST THAT WAS JUST PRINTED, and that is the whole point.
-        # It used to count the RAW `PROJECTS :=` line while the list above was filtered — 263 against
+        # It used to count the raw project list while the list above was filtered — 263 against
         # 233 — so the header said "count" and answered a different question, with no word of it in
         # the output. An agent read 263, compared it with its sweep's 233 and had to work out which
         # of the two was lying. Found 2026-09-16 by А11.
-        printf '\n  count: %s   (test suites only — libraries, Tools/ and the aggregate targets are excluded)\n' "$(grep -c . "$TMPLIST")"
+        printf '\n  count: %s   (test suites, from the manifest the test runners are built from)\n' "$(grep -c . "$TMPLIST")"
         rm -f "$TMPLIST"
     else
-        echo "  no build/Projects/Makefile — run: CI=true premake5 gmake"
+        echo "  no build/TestManifest.txt — configure first: cmake --preset macos-clang-ninja (windows-msvc-ninja)"
     fi
 fi
 
@@ -62,8 +56,8 @@ fi
 if [ "$WHAT" = all ] || [ "$WHAT" = gates ]; then
     section "GATES, and the exit codes that are the interface"
     cat <<'TXT'
-  build       make -C build/Projects Desert config=debug -j8 ; make -C build/Projects Editor config=debug -j8
-              new files first: CI=true premake5 gmake
+  build       cmake --preset macos-clang-ninja ; cmake --build --preset macos-clang-ninja-debug --target Editor
+              (Windows: windows-msvc-ninja from an x64 developer prompt); new files need nothing: globs re-run
 
   sweep       recipe in .claude/skills/desert-engine-verify §3, verbatim
               detector is the "[  FAILED  ]" marker AND the exit code, never `grep FAILED`

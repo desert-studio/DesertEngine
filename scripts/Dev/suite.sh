@@ -2,11 +2,11 @@
 # suite.sh <Suite…> — build (Debug) and run the named test suites, from the tree root, in one call.
 # A suite's executable comes from build/TestManifest.txt (`<Executable> <Suite>`): its layer's runner
 # (CommonTests, ToolsTests, ...), run as `<runner> --desert-suite=<Suite>`, or a not-yet-converted suite's own binary.
-# Builds with ~/.claude/tools/build_quiet.sh (waits for any other make, ccache, -j4) or plain make -C build/Projects -f <Suite>.make.
+# Configures the host preset if needed (_common.sh dev_configure), then builds the runners with cmake --build (Debug,
+# compiler cache, -j4 or DEV_JOBS, after any other ninja finishes). Logs: build/DevLogs/suite-*/.
 # Prints one line per suite: `Suite: N passed / M failed` plus up to 5 failed test names; exit 1 on any red.
-# The .make files exist only after `CI=true premake5 gmake`. Logs: build/DevLogs/suite-*/.
 # Each run is capped at 300 s (SUITE_TIMEOUT overrides).
-# --dev-suites: build ONE runner, DevTests, of only the named suites (premake --dev-suites) instead of their layers'
+# --dev-suites: build ONE runner, DevTests, of only the named suites (DESERT_DEV_SUITES) instead of their layers'
 # runners: no other suite's TU is compiled and there is one link. The CI runners are untouched.
 set -u
 source "$(dirname "$0")/_common.sh"
@@ -24,31 +24,21 @@ cd "$DEV_ROOT" || exit 2
 LOG=$(dev_logdir suite)
 MANIFEST="$DEV_ROOT/build/TestManifest.txt"
 if [ -n "$dev" ]; then
-    dev_regen_makefiles "$LOG" "--dev-suites=$(IFS=,; echo "$*")" || exit 2
+    dev_configure "$LOG" "$(IFS=,; echo "$*")" || exit 2
     exe_of() { awk -v s="$1" '$2 == s { print "DevTests" }' "$MANIFEST"; }
 else
-    dev_regen_makefiles "$LOG" || exit 2
+    dev_configure "$LOG" || exit 2
     exe_of() { awk -v s="$1" '$2 == s { print $1 }' "$MANIFEST"; }
 fi
 targets=()
 for s in "$@"; do
     e=$(exe_of "$s")
     [ -n "$e" ] || { echo "suite.sh: $s is not in build/TestManifest.txt (no directory Desert/Tests/<Layer>/$s?)"; exit 2; }
-    [ -f "$DEV_PROJECTS/$e.make" ] || { echo "suite.sh: $e.make not found (CI=true premake5 gmake?)"; exit 2; }
+    dev_has_target "$e" || { echo "suite.sh: the build defines no target $e (build/cmake/$DEV_PRESET)"; exit 2; }
     case " ${targets[*]-} " in *" $e "*) ;; *) targets+=("$e") ;; esac
 done
-QUIET="$HOME/.claude/tools/build_quiet.sh"
-if [ -x "$QUIET" ]; then
-    # build_quiet drives the workspace Makefile (build/Projects/Makefile), whose per-suite targets also rebuild what the suite links.
-    out=$("$QUIET" "$DEV_ROOT" "$LOG/build.log" "${targets[@]}") || { echo "$out" | head -10; exit 2; }
-else
-    while pgrep -x make >/dev/null; do sleep 10; done
-    export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime" CCACHE_COMPRESS=1 CCACHE_BASEDIR=/Users/daniilsavcenko/Desktop/Programming/C++
-    for s in "${targets[@]}"; do
-        make -C "$DEV_PROJECTS" -f "$s.make" config=debug -j4 CC="ccache clang" CXX="ccache clang++" >>"$LOG/build.log" 2>&1 ||
-            { echo "suite.sh: build of $s FAILED; log $LOG/build.log"; grep -m 8 -E "error:|Undefined symbols|No rule" "$LOG/build.log"; exit 2; }
-    done
-fi
+dev_build "$LOG/build.log" "${targets[@]}" ||
+    { echo "suite.sh: build of ${targets[*]} FAILED; log $LOG/build.log"; grep -m 8 -E "error|Undefined symbols" "$LOG/build.log"; exit 2; }
 [ -n "$build_only" ] && { echo "suite.sh: built ${#targets[@]} executable(s) for $# suite(s)"; exit 0; }
 fail=0
 for s in "$@"; do

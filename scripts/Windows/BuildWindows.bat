@@ -1,19 +1,23 @@
 @echo off
 setlocal EnableDelayedExpansion
-REM Generate project files (premake5 vs2022) and build Desert Engine on Windows.
+REM Configure (cmake --preset) and build Desert Engine on Windows with MSVC and Ninja.
 REM
 REM Usage:
-REM   scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--with-tests] [--gen-only] [--no-analyze]
+REM   scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--unity] [--gen-only] [--no-analyze]
 REM
 REM Examples:
 REM   scripts\Windows\BuildWindows.bat                  Debug build, static analysis on
 REM   scripts\Windows\BuildWindows.bat Release          Release build
 REM   scripts\Windows\BuildWindows.bat Shipping         what a player gets: no capture, no profiler, no counters
-REM   scripts\Windows\BuildWindows.bat Debug --with-tests
+REM   scripts\Windows\BuildWindows.bat Release --unity  the CI speed build ^(preset windows-msvc-ninja-unity^)
+REM
+REM The test suites are always configured ^(CMakePresets.json `base`: DESERT_WITH_TESTS=ON^).
+REM The MSVC environment comes from vcvars64.bat of the Visual Studio instance vswhere reports when
+REM cl.exe is not already on PATH, so a plain cmd works as well as a Developer Command Prompt.
 REM   scripts\Windows\BuildWindows.bat Debug --no-analyze   skip clang-tidy, and SAY so
 REM
-REM THE NAME USED TO BE A LIE, AND FOUR SCRIPTS SHARED THE CONFUSION. Until now BuildWindows.bat only
-REM ran premake — it generated a solution and built nothing — while CompileWindows.bat was the one
+REM THE NAME USED TO BE A LIE, AND FOUR SCRIPTS SHARED THE CONFUSION. BuildWindows.bat once only
+REM generated a solution and built nothing — while CompileWindows.bat was the one
 REM that compiled, BuildWindowsWithTests.bat was the same generation with one flag, and
 REM BuildWindows_CMake.bat pointed a CMake generator at a directory with no CMakeLists.txt in it.
 REM Nothing in those names said which of them a person should run. This script now does what
@@ -27,7 +31,7 @@ set "ROOT=%CD%"
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 
 set "CONFIG=Debug"
-set "PREMAKE_ARGS="
+set "PRESET=windows-msvc-ninja"
 set "GEN_ONLY=0"
 set "ANALYZE=1"
 
@@ -51,62 +55,68 @@ REM `BuildWindows.bat Shipping` answered "[ERROR] Unknown argument: Shipping" --
 REM own "Runtime binary not found" message is what sends people here to build that configuration.
 REM Two dead ends in a row is how a configuration stops being used at all.
 if /I "%~1"=="Shipping"     (set "CONFIG=Shipping"       & shift & goto parse_args)
-if /I "%~1"=="--with-tests" (set "PREMAKE_ARGS=--with-tests" & shift & goto parse_args)
+if /I "%~1"=="--unity"      (set "PRESET=windows-msvc-ninja-unity" & shift & goto parse_args)
 if /I "%~1"=="--gen-only"   (set "GEN_ONLY=1"            & shift & goto parse_args)
 if /I "%~1"=="--no-analyze" (set "ANALYZE=0"             & shift & goto parse_args)
 echo [ERROR] Unknown argument: %~1 1>&2
-echo         Usage: scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--with-tests] [--gen-only] [--no-analyze] 1>&2
+echo         Usage: scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--unity] [--gen-only] [--no-analyze] 1>&2
 exit /b 1
 :args_done
 
-REM premake5 from PATH if the developer has one, otherwise the copy Setup.bat fetched. The deleted
-REM Python wrapper hard-coded vendor\bin\premake5.exe and could therefore not build on a machine where
-REM Setup.bat had found premake5 on PATH and never written that file.
-set "PREMAKE="
-where premake5 >NUL 2>&1
-if not errorlevel 1 set "PREMAKE=premake5"
-if not defined PREMAKE if exist "%ROOT%\vendor\bin\premake5.exe" set "PREMAKE=%ROOT%\vendor\bin\premake5.exe"
-if not defined PREMAKE (
-    echo [ERROR] premake5 not found on PATH or in vendor\bin. Run scripts\Windows\Setup.bat first. 1>&2
-    exit /b 1
+REM The x64 MSVC environment: kept when cl.exe is already on PATH ^(a Developer Command Prompt, CI's
+REM msvc-dev-cmd^), otherwise vcvars64.bat of the newest Visual Studio with the C++ toolset. Checked by
+REM EXIT CODE, never by scraping the output.
+where cl >NUL 2>&1
+if errorlevel 1 (
+    set "VCVARS="
+    if exist "%VSWHERE%" (
+        for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find VC\Auxiliary\Build\vcvars64.bat 2^>NUL`) do set "VCVARS=%%i"
+    )
+    if not defined VCVARS (
+        echo [ERROR] vcvars64.bat not found. Run scripts\Windows\Setup.bat, which installs the MSVC 1>&2
+        echo         v143 toolset, or open an x64 Developer Command Prompt. 1>&2
+        exit /b 1
+    )
+    call "!VCVARS!" >NUL
+    if errorlevel 1 (
+        echo [ERROR] "!VCVARS!" failed. 1>&2
+        exit /b 1
+    )
+)
+for %%t in (cmake ninja) do (
+    where %%t >NUL 2>&1
+    if errorlevel 1 (
+        echo [ERROR] %%t not found on PATH. Run scripts\Windows\Setup.bat, which installs the Visual 1>&2
+        echo         Studio C++ CMake tools ^(CMake 3.28+ and Ninja^). 1>&2
+        exit /b 1
+    )
 )
 
-REM NO GenVersion.bat CALL HERE, AND THE ABSENCE IS THE FIX. The build identity is generated by
-REM Common.vcxproj's PreBuildEvent, which runs on every build. Refreshing it here as well would put
+REM NO GenVersion.bat CALL HERE, AND THE ABSENCE IS THE FIX. The build identity is generated by a
+REM custom command of the Common target, which runs on every build. Refreshing it here as well would put
 REM the refresh in two places, and the one that runs first would hide a hook that had stopped
 REM working: a missing header is a compile error, a stale one is a lie.
 
-echo --- Generating project files ^(premake5 vs2022^)
-"%PREMAKE%" vs2022 %PREMAKE_ARGS%
+echo --- Configuring ^(cmake --preset %PRESET%^)
+cmake --preset %PRESET%
 if errorlevel 1 (
-    echo [ERROR] premake5 vs2022 failed. 1>&2
+    echo [ERROR] cmake --preset %PRESET% failed. 1>&2
     exit /b 1
 )
 
 if "%GEN_ONLY%"=="1" (
-    echo === build\Projects\Desert.sln generated ===
+    echo === build\cmake\%PRESET% configured ===
     exit /b 0
 )
 
-REM MSBuild from the Visual Studio instance vswhere reports, falling back to a plain `msbuild` for a
-REM Developer Command Prompt. Checked by EXIT CODE below, never by scraping the output.
-set "MSBUILD="
-if exist "%VSWHERE%" (
-    for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe 2^>NUL`) do set "MSBUILD=%%i"
-)
-if not defined MSBUILD (
-    where msbuild >NUL 2>&1
-    if not errorlevel 1 set "MSBUILD=msbuild"
-)
-if not defined MSBUILD (
-    echo [ERROR] MSBuild.exe not found. Run scripts\Windows\Setup.bat, which installs the MSVC 1>&2
-    echo         v143 toolset and MSBuild, or open a Developer Command Prompt. 1>&2
-    exit /b 1
-)
+REM Build presets are ^<configure preset^>-^<lowercase config^> ^(CMakePresets.json^).
+set "BUILD_PRESET=%PRESET%-debug"
+if /I "%CONFIG%"=="Release"  set "BUILD_PRESET=%PRESET%-release"
+if /I "%CONFIG%"=="Shipping" set "BUILD_PRESET=%PRESET%-shipping"
 
-echo --- Building ^(%CONFIG% ^| x64^)
+echo --- Building ^(%BUILD_PRESET%^)
 echo     Tip: close Editor.exe first — a running one makes the link fail with LNK1168.
-"%MSBUILD%" "%ROOT%\build\Projects\Desert.sln" -p:Configuration=%CONFIG% -p:Platform=x64 -m -v:minimal
+cmake --build --preset %BUILD_PRESET%
 if errorlevel 1 (
     echo [ERROR] build failed ^(%CONFIG%^). 1>&2
     exit /b 1
@@ -145,10 +155,10 @@ if not exist "%ANALYZER%" (
     REM
     REM "Could not run" is transient — a missing binary, a wrong version, a broken database — and it
     REM must refuse, because it is indistinguishable from "ran and found nothing" by output alone.
-    REM This is not that. The Windows entry point has never been written: the gate reads a compile
-    REM database built from premake's gmake2 makefiles, and a Windows build is MSBuild/MSVC, so the
-    REM analyser would read a DIFFERENT PROGRAM than the one being shipped. Refusing until somebody
-    REM writes it does not produce analysis — it produces a platform whose build always fails, which
+    REM This is not that. The Windows entry point has never been written. The MSVC compile database
+    REM it needs now exists ^(build\cmake\windows-msvc-ninja\compile_commands.json, filtered to one
+    REM configuration by scripts\CI\GenCompileCommands.sh^); the entry point and clang-tidy's MSVC
+    REM driver mode are what is owed. Refusing until somebody writes it does not produce analysis — it produces a platform whose build always fails, which
     REM is how "--no-analyze" becomes the command everybody types and the gate dies unnoticed.
     REM
     REM So it says so on every build, loudly, and proceeds. What keeps this from becoming a permanent
@@ -157,7 +167,7 @@ if not exist "%ANALYZER%" (
     echo. 1>&2
     echo !!! static analysis NOT AVAILABLE ON WINDOWS YET: "%ANALYZER%" does not exist. 1>&2
     echo     Nothing was checked by clang-tidy. This is a known gap, not a failure of your build: 1>&2
-    echo     the gate needs an MSVC compile database, which is its own task. 1>&2
+    echo     the Windows entry point of the gate is its own task. 1>&2
     echo     On macOS the same build DOES analyse, so a change that only builds here is unchecked. 1>&2
     echo. 1>&2
     goto after_analysis
