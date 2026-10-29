@@ -306,8 +306,6 @@ namespace Desert::Graphic::System
         }
         if ( ground != nullptr && ground->ExtentCm > 0.0f )
             waves.Info = glm::vec4( ground->Min, 1.0f / ground->ExtentCm, 1.0f );
-        if ( !program->Material->SetTexture( "WaterInfoTexture", m_WaterInfo.get() ) )
-            WarnOnce( material, "its template's pass has no WaterInfoTexture - the surf reads no ground" );
         if ( auto* tiles = program->Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
         {
             std::vector<std::byte> bytes( sizeof( WaterWavesBlock ) + rows.size() * sizeof( WaterTileRow ) );
@@ -320,10 +318,11 @@ namespace Desert::Graphic::System
     }
 
     void WaterRenderer::DeclareDraws( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
-                                      const SceneViewInputs& view, const SceneFrameBinding& frame )
+                                      const RDG::TextureRef waterInfo, const SceneViewInputs& view,
+                                      const SceneFrameBinding& frame )
     {
         // Exactly when RenderManual draws.
-        if ( m_FrameDraws.empty() || m_Frame == nullptr || !sceneCopy.IsValid() )
+        if ( m_FrameDraws.empty() || m_Frame == nullptr || !sceneCopy.IsValid() || !waterInfo.IsValid() )
             return;
         // The view's camera, sun, sky cubes and sky look, by block name - as every surface cell gets them.
         frame.ApplyTo( m_Frame->Material.get() );
@@ -332,7 +331,11 @@ namespace Desert::Graphic::System
         BindSceneViewInputs( block, view, *layout );
         constexpr RDG::TextureParameter kSceneColor{ "SceneColorTexture" };
         constexpr RDG::SamplerParameter kClamp{ "LinearClampSampler" };
+        // The WaterInfo ground (UE: the water info texture a view's water pass reads): a pass input like the scene
+        // copy, never a material property.
+        constexpr RDG::TextureParameter kWaterInfo{ "WaterInfoTexture" };
         block.Texture( kSceneColor, sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Texture( kWaterInfo, waterInfo, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Sampler( kClamp, RDG::SamplerDesc::LinearClamp() );
     }
 

@@ -65,11 +65,19 @@ namespace Desert::Graphic::System
             return !m_FrameDraws.empty();
         }
 
+        // The WaterInfo ground (UE WaterInfo texture) PrepareFrame keeps: a persistent image the frame graph
+        // imports and the water pass samples as WaterInfoTexture - a pass input, not a material property.
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetWaterInfo() const
+        {
+            return m_WaterInfo;
+        }
+
         // SETUP of the water node: its one binding block - the material route (frame block, tile rows, material
         // values and ripple maps), the opaque scene's copy @p sceneCopy the surface refracts, and the scene/view
-        // inputs of @p view its program has slots for (the opaque depth = the water's bottom, the sky cubes).
-        void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const SceneViewInputs& view,
-                           const SceneFrameBinding& frame );
+        // inputs of @p view its program has slots for (the opaque depth = the water's bottom, the sky cubes), and
+        // the imported WaterInfo ground @p waterInfo (GetWaterInfo) the surf reads its depth from.
+        void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, RDG::TextureRef waterInfo,
+                           const SceneViewInputs& view, const SceneFrameBinding& frame );
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
 
         void Submit( WaterZoneDraw zone )
