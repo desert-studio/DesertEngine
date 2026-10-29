@@ -553,7 +553,7 @@ def main():
                 stalled = 0
             brief = ""
             try:
-                brief = open(bm.group(1)).read() if bm else ""
+                brief = open(bm.group(1), encoding="utf-8", errors="replace").read() if bm else ""
             except Exception:
                 pass
             if stalled >= 2 and "## Пересмотр" not in brief:
