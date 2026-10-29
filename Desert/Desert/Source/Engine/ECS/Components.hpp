@@ -888,6 +888,11 @@ namespace Desert::ECS
                                             c.m_RuntimeDisplacedInstances.clear();
                                             c.m_SeenMaterialsVersion = 0;
                                         }
+                                        // A new mesh source (asset or built-in shape) makes the generated
+                                        // mesh describe the old one: drop it, the mesh system resolves the new.
+                                        if ( c.GetMeshHandle() != desc.MeshHandle ||
+                                             c.GetPrimitive() != desc.Primitive )
+                                            c.m_RuntimeMesh.reset();
                                         c.Assign( desc );
                                     } );
             return true;

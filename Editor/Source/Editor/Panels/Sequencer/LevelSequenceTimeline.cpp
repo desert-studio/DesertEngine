@@ -312,10 +312,10 @@ namespace Desert::Editor
         };
         const auto collect = [&slots, &materialName]( const auto& mesh )
         {
-            const size_t count = std::min( mesh.MaterialSlots.size(), mesh.RuntimeMaterialInstances.size() );
+            const size_t count = std::min( mesh.GetMaterialSlots().size(), mesh.RuntimeMaterialInstances().size() );
             for ( size_t slot = 0; slot < count; ++slot )
             {
-                const Graphic::MaterialInstance* instance = mesh.RuntimeMaterialInstances[slot].get();
+                const Graphic::MaterialInstance* instance = mesh.RuntimeMaterialInstances()[slot].get();
                 const Graphic::Material* material = instance != nullptr ? instance->GetParentMaterial() : nullptr;
                 const auto* executor = material != nullptr ? material->GetMaterialExecutor() : nullptr;
                 const auto  shader   = executor != nullptr ? executor->GetShader() : nullptr;
@@ -324,7 +324,7 @@ namespace Desert::Editor
                 LevelMaterialSlotChoice choice;
                 choice.Slot = static_cast<uint32_t>( slot );
                 choice.Label =
-                     LevelMaterialEdit::SlotLabel( choice.Slot, materialName( mesh.MaterialSlots[slot] ) );
+                     LevelMaterialEdit::SlotLabel( choice.Slot, materialName( mesh.GetMaterialSlots()[slot] ) );
                 using VT = ::Desert::Core::Formats::ShaderValueType;
                 for ( const auto& param : shader->GetProgramMeta().Params )
                 {

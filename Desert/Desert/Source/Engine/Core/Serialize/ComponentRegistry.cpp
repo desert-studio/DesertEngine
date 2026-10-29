@@ -252,7 +252,7 @@ namespace Desert::Core::Serialize
                 object[field] = Common::Json::Value( ( e.GetComponent<TComponent>().*get )() );
                 return { object };
             };
-            s.Deserialize = [field, set]( ECS::Entity e, const Common::Json::Node& g, const Assets::AssetManager&,
+            s.Deserialize = [field, get, set]( ECS::Entity e, const Common::Json::Node& g, const Assets::AssetManager&,
                                           Common::Json::Issues& issues )
             {
                 if ( !e.HasComponent<TComponent>() )
