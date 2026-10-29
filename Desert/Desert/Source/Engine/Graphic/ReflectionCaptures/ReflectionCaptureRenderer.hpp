@@ -324,6 +324,10 @@ namespace Desert::Graphic
         // and whether every capture was once written and faded in.
         uint64_t m_DrivenFrame   = ~0ull;
         bool     m_FirstFillDone = false;
+        // Captures written since the scene's set was gathered, and why each stayed stale: the log names the round
+        // that keeps the six face views alive (a relit or streamed write is rendered again).
+        uint64_t m_Writes        = 0;
+        bool     m_StaleRelit    = false; // the pending capture was relit while rendered
         // THE RECAPTURE BLEND: the array's last cube (index m_Captures.size()) is the staging cube a recapture is
         // written into; m_BlendCube's live cube is moved toward it one step per frame (kNoCapture: no blend).
         uint32_t m_BlendCube = kNoCapture;

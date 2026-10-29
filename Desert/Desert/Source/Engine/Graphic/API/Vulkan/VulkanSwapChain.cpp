@@ -154,9 +154,8 @@ namespace Desert::Graphic::API::Vulkan
              Graphic::ViewExtent{ surfCaps.currentExtent.width, surfCaps.currentExtent.height },
              Graphic::ViewExtent{ *width, *height } );
 
-        // REFUSED BEFORE ANYTHING IS CREATED. A 0-pixel extent reached vmaCreateImage in
-        // CreateColorAndDepthImages below, which refuses it with VK_ERROR_INITIALIZATION_FAILED -- and that
-        // refusal goes through VK_CHECK_RESULT, which breaks into the debugger. That was the reported crash on
+        // REFUSED BEFORE ANYTHING IS CREATED. A 0-pixel extent reached an image creation below, which
+        // refuses it with VK_ERROR_INITIALIZATION_FAILED -- and that refusal goes through VK_CHECK_RESULT, which breaks into the debugger. That was the reported crash on
         // minimising the editor on Windows. Rebuild() already declines to get this far, so reaching here means
         // the surface lost its area between that check and this one; the frame loop retries.
         if ( !Graphic::IsUsableViewExtent( resolved ) )
@@ -253,11 +252,6 @@ namespace Desert::Graphic::API::Vulkan
         }
         // The graph handles wrap the images just fetched; any handle of the previous images is dropped here.
         m_BackBufferGraphTextures.assign( swapChainImagesCount, nullptr );
-
-        const auto attachments = CreateColorAndDepthImages( vkLogicalDevice );
-        if ( !attachments.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "the swapchain colour/depth attachments: {}",
-                                                     attachments.GetError() );
 
         if ( !m_Output )
         {
@@ -544,7 +538,7 @@ namespace Desert::Graphic::API::Vulkan
         // obliged to destroy it. A8.
         if ( m_CaptureStaging != VK_NULL_HANDLE )
         {
-            // Same late-teardown hazard as the colour/depth pair below: with no renderer context there is
+            // Late-teardown hazard (as VulkanFramebuffer::Release): with no renderer context there is
             // no allocator to reach, and the device's own destruction takes the buffer with it.
             const auto ctx = EngineContext::GetInstance().GetRendererContext();
             if ( ctx )
@@ -555,42 +549,6 @@ namespace Desert::Graphic::API::Vulkan
             m_CaptureAllocation = nullptr;
             m_CaptureWidth      = 0;
             m_CaptureHeight     = 0;
-        }
-
-        if ( m_ColorImages.Image )
-        {
-            // Same late-teardown hazard as VulkanFramebuffer::Release: ~Application destroys the renderer
-            // context BEFORE the window (member order), so this can run with no context — and reaching
-            // through a null shared_ptr for the allocator segfaults on exit. Without it, just drop the
-            // handles; the GPU objects go with the device.
-            const auto   ctx = EngineContext::GetInstance().GetRendererContext();
-            VmaAllocator allocator =
-                 ctx ? SP_CAST( VulkanContext, ctx )->GetVulkanAllocator()->GetVMAAllocator() : nullptr;
-            if ( !allocator )
-            {
-                vkDestroyImageView( device, m_ColorImages.ImageView, nullptr );
-                vkDestroyImageView( device, m_DepthStencilImages.ImageView, nullptr );
-                m_VmaAllocation[0] = m_VmaAllocation[1] = nullptr;
-                m_ColorImages                           = {};
-                m_DepthStencilImages                    = {};
-                m_CompositeFramebuffer                  = nullptr;
-                return;
-            }
-            // Through the allocator's own door, as every other image is: its ledger recorded these two by tag
-            // on creation and drops the rows only when the deferred queue really destroys them, so a window
-            // resize leaves no dead rows and no untracked bytes behind.
-            const auto& vulkanAllocator = SP_CAST( VulkanContext, ctx )->GetVulkanAllocator();
-            // The header keeps the two allocations as `const void*` so it need not include vk_mem_alloc.h
-            // (see m_VmaAllocation); this is where the opaque handle is given its type back.
-            // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast,google-readability-casting)
-            vulkanAllocator->RT_DestroyImage( m_ColorImages.Image, (VmaAllocation)m_VmaAllocation[0],
-                                              m_ColorImages.ImageView );
-            vulkanAllocator->RT_DestroyImage( m_DepthStencilImages.Image, (VmaAllocation)m_VmaAllocation[1],
-                                              m_DepthStencilImages.ImageView );
-            // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast,google-readability-casting)
-
-            m_VmaAllocation[0] = m_VmaAllocation[1] = nullptr;
-            m_ColorImages = {}; m_DepthStencilImages = {};
         }
 
         m_CompositeFramebuffer = nullptr;
@@ -873,53 +831,5 @@ namespace Desert::Graphic::API::Vulkan
     }
 
 #endif // DESERT_DEV_INSTRUMENTS
-
-    Common::ResultStr<VkResult> VulkanSwapChain::CreateColorAndDepthImages( const std::shared_ptr<VulkanLogicalDevice>& device )
-    {
-        const auto& allocator =
-             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
-
-        // Color
-        VkImageCreateInfo cInfo = { .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D, .format = m_ColorFormat, .extent = { m_Width, m_Height, 1 }, .mipLevels = 1, .arrayLayers = 1, .samples = m_MSAASamples, .tiling = VK_IMAGE_TILING_OPTIMAL, .usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE, .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
-        auto colorAllocation = allocator->RT_AllocateImage( "SwapChain_Color", cInfo, VMA_MEMORY_USAGE_GPU_ONLY,
-                                                            m_ColorImages.Image );
-        if ( !colorAllocation )
-            return Common::MakeFormattedError<VkResult>( "swap chain colour image {}x{}: {}", m_Width, m_Height,
-                                                         colorAllocation.GetError() );
-        m_VmaAllocation[0] = colorAllocation.GetValue();
-
-        // A refused view used to be stored as VK_NULL_HANDLE and attached to the swap chain's
-        // framebuffer anyway; the resulting failure surfaced at framebuffer creation with no mention
-        // of the view that never existed.
-        auto colorView =
-             Utils::CreateImageView( device->GetVulkanLogicalDevice(), m_ColorImages.Image, m_ColorFormat,
-                                     VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_2D, 1, 1 );
-        if ( !colorView )
-        {
-            return Common::MakeFormattedError<VkResult>( "swap chain colour image view: {}",
-                                                         colorView.GetError() );
-        }
-        m_ColorImages.ImageView = colorView.GetValue();
-
-        // Depth
-        VkFormat dFormat = device->GetPhysicalDevice()->GetDepthFormat();
-        VkImageCreateInfo dInfo = { .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D, .format = dFormat, .extent = { m_Width, m_Height, 1 }, .mipLevels = 1, .arrayLayers = 1, .samples = m_MSAASamples, .tiling = VK_IMAGE_TILING_OPTIMAL, .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE, .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
-        auto depthAllocation = allocator->RT_AllocateImage( "SwapChain_Depth", dInfo, VMA_MEMORY_USAGE_GPU_ONLY,
-                                                            m_DepthStencilImages.Image );
-        if ( !depthAllocation )
-            return Common::MakeFormattedError<VkResult>( "swap chain depth image {}x{}: {}", m_Width, m_Height,
-                                                         depthAllocation.GetError() );
-        m_VmaAllocation[1] = depthAllocation.GetValue();
-
-        auto depthView = Utils::CreateImageView( device->GetVulkanLogicalDevice(), m_DepthStencilImages.Image,
-                                                 dFormat, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_VIEW_TYPE_2D, 1, 1 );
-        if ( !depthView )
-        {
-            return Common::MakeFormattedError<VkResult>( "swap chain depth image view: {}", depthView.GetError() );
-        }
-        m_DepthStencilImages.ImageView = depthView.GetValue();
-
-        return Common::MakeSuccess( VK_SUCCESS );
-    }
 
 } // namespace Desert::Graphic::API::Vulkan
