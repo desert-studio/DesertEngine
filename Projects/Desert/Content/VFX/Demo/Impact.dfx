@@ -40,7 +40,8 @@
                 "LoopCount": 1
             },
             "Stack": {
-                "EmitterSpawn": [
+                "EmitterSpawn": [],
+                "EmitterUpdate": [
                     {
                         "Module": {
                             "Guid": "02637a2ef2774901a0a88452af542abd",
@@ -63,7 +64,6 @@
                         ]
                     }
                 ],
-                "EmitterUpdate": [],
                 "ParticleSpawn": [
                     {
                         "Module": {
@@ -449,7 +449,8 @@
                 "LoopCount": 1
             },
             "Stack": {
-                "EmitterSpawn": [
+                "EmitterSpawn": [],
+                "EmitterUpdate": [
                     {
                         "Module": {
                             "Guid": "02637a2ef2774901a0a88452af542abd",
@@ -472,7 +473,6 @@
                         ]
                     }
                 ],
-                "EmitterUpdate": [],
                 "ParticleSpawn": [
                     {
                         "Module": {
@@ -755,7 +755,8 @@
                 "LoopCount": 1
             },
             "Stack": {
-                "EmitterSpawn": [
+                "EmitterSpawn": [],
+                "EmitterUpdate": [
                     {
                         "Module": {
                             "Guid": "02637a2ef2774901a0a88452af542abd",
@@ -778,7 +779,6 @@
                         ]
                     }
                 ],
-                "EmitterUpdate": [],
                 "ParticleSpawn": [
                     {
                         "Module": {

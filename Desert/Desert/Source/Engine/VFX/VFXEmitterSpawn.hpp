@@ -13,9 +13,9 @@
 // SpawnAccumulator instead (the fraction carries to the next step) — over N steps the same floor(N * dt * Rate).
 //
 // Engine CPU modules, each a `.dfxmod` of the engine module library that a row names by GUID (its `Usage` states
-// the Emitter groups: EmitterSpawn takes SpawnBurst only, fired ONCE when the instance starts — UE's Emitter
-// Spawn script runs once per emitter spawn — EmitterUpdate takes all three); a row whose module has no behaviour
-// here is refused naming its GUID and path:
+// the Emitter groups: all three run in EmitterUpdate, as UE's SpawnRate and SpawnBurst_Instantaneous do; the
+// EmitterSpawn group takes none of them - a one-shot is a burst with Loop Once); a row whose module has no
+// behaviour here is refused naming its GUID and path:
 //   SpawnRate          Input SpawnRate float  — particles per second while a loop is active
 //   SpawnBurst         Input SpawnCount int, Input SpawnTime float — SpawnCount particles once per loop, at
 //                      SpawnTime seconds into it (0 <= SpawnTime < LoopDuration)
@@ -113,17 +113,17 @@ namespace Desert::VFX
     {
         Assets::Serialization::VFXEmitterLifecycle Lifecycle;
         double                                     Rate = 0.0; ///< the sum of every SpawnRate module, per second
-        std::vector<VFXSpawnBurst>                 Bursts;     ///< EmitterUpdate: once in every loop
-        std::vector<VFXSpawnBurst> StartBursts; ///< EmitterSpawn: once per instance, Time into the first loop
+        std::vector<VFXSpawnBurst>                 Bursts;     ///< once in every loop
         /// engine:SpawnFromChannel, at most one per emitter: its spawns join the first fixed step of each tick.
         std::optional<VFXChannelSpawnModule> Channel;
 
         [[nodiscard]] bool operator==( const VFXSpawnPlan& ) const = default;
     };
 
-    /// Reads emitter @p emitterIndex's lifecycle and its EmitterSpawn and EmitterUpdate groups. A module the
-    /// group's usage does not take, a local module in the group, an input the module does not take or leaves out,
-    /// a source it cannot read and a burst outside its loop are errors naming the emitter, module and input.
+    /// Reads emitter @p emitterIndex's lifecycle and its EmitterUpdate group (an enabled EmitterSpawn row is an
+    /// error: no CPU module runs there). A module the group's usage does not take, a local module in the group, an
+    /// input the module does not take or leaves out, a source it cannot read and a burst outside its loop are
+    /// errors naming the emitter, module and input.
     Common::ResultStr<VFXSpawnPlan> CompileSpawnPlan( const Assets::Serialization::VFXSystemData& system,
                                                       std::size_t                                 emitterIndex,
          const std::vector<ECS::VFXUserOverride>& overrides = {} );
