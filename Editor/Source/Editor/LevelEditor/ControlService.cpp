@@ -40,6 +40,8 @@
 #include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
@@ -1666,6 +1668,15 @@ namespace Desert::Editor
                                                                     .Overflow         = vg.Overflow,
                                                                     .OccludedClusters = vg.OccludedClusters,
                                                                     .BinnedVgInstances = vg.BinnedVgInstances };
+            }
+            // The scene-owned GI pools: one per live scene that brought each up, never one per view.
+            for ( const ::Desert::Core::Scene* scene : ::Desert::Core::Scene::LiveScenes() )
+            {
+                ++snapshot.Scenes;
+                if ( scene->GetDistanceFields().GetBrickAtlas() != nullptr )
+                    ++snapshot.DistanceFieldPools;
+                if ( scene->GetSurfaceCache().IsConfigured() )
+                    ++snapshot.SurfaceCaches;
             }
         }
 
