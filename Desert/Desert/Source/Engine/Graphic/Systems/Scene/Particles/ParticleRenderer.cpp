@@ -163,13 +163,14 @@ namespace Desert::Graphic::System
                                       "ParticleRibbon.Forward cell" );
         m_DefaultRibbonCell = *ribbon;
         // The stand-in for a named material that cannot draw (UE WorldGridMaterial): the particle cells of the
-        // DEFAULT SURFACE template, found by that role and never by a name written here. A project whose default
-        // surface declares no particle usage keeps the renderer: such a row is then not drawn, said here once.
+        // STAND-IN surface template (`Role StandInSurface`), found by that role and never by a name written here.
+        // A project whose stand-in declares no particle usage keeps the renderer: such a row is then not drawn,
+        // said here once.
         for ( const auto& [path, into] : { std::pair{ MeshVertexPath::ParticleSprite, &m_BrokenCell },
                                            std::pair{ MeshVertexPath::ParticleRibbon, &m_BrokenRibbonCell } } )
         {
             auto broken =
-                 Runtime::ResourceRegistry::GetMaterialService()->DefaultSurfaceShader( path, MeshPass::Forward );
+                 Runtime::ResourceRegistry::GetMaterialService()->StandInSurfaceShader( path, MeshPass::Forward );
             if ( broken &&
                  Runtime::ResourceRegistry::GetShaderService()->GetByName( broken.GetValue() ) == nullptr )
                 broken = Common::MakeError<std::string>(
@@ -177,8 +178,8 @@ namespace Desert::Graphic::System
             if ( broken )
                 *into = broken.GetValue();
             else
-                LOG_ERROR( "[Particles] the default surface has no {}.Forward cell ({}): a row whose material "
-                           "cannot draw will not be drawn at all - declare `Usage {}` in the default surface",
+                LOG_ERROR( "[Particles] the stand-in surface has no {}.Forward cell ({}): a row whose material "
+                           "cannot draw will not be drawn at all - declare `Usage {}` in the stand-in surface",
                            MeshVertexPathName( path ), broken.GetError(),
                            path == MeshVertexPath::ParticleRibbon ? "ParticleRibbons" : "ParticleSprites" );
         }
@@ -886,11 +887,11 @@ namespace Desert::Graphic::System
                                              "file and the field)" )
                               : std::format( "is missing or its template has no `Usage {}` cell",
                                              ribbon ? "ParticleRibbons" : "ParticleSprites" ) );
-                LOG_ERROR( "[Particles] emitter {}.{} renderer row {} draws the DefaultSurface checker: its "
-                           "material '{}' ({}) {}",
-                           fe.EntityId, fe.Emitter, row.Row,
-                           name.empty() ? std::string( "<no material asset>" ) : name,
-                           static_cast<uint64_t>( handle ), reason );
+                LOG_ERROR(
+                     "[Particles] emitter {}.{} renderer row {} draws the stand-in checker (DefaultSurface): its "
+                     "material '{}' ({}) {}",
+                     fe.EntityId, fe.Emitter, row.Row, name.empty() ? std::string( "<no material asset>" ) : name,
+                     static_cast<uint64_t>( handle ), reason );
                 material.Refused    = handle;
                 material.HasRefused = true;
             }

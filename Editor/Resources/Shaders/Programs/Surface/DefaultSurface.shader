@@ -10,6 +10,8 @@
 Shader "DefaultSurface"
 {
     Domain Surface
+    // Found by this role (MaterialService::StandInSurfaceShader), never by its name.
+    Role StandInSurface
     Usage ParticleSprites
     Usage ParticleRibbons
 
