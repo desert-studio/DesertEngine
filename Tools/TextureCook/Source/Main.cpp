@@ -1,6 +1,7 @@
 // TextureCook — cook named texture sources into a project's Cooked/ tree.
 //
-//   TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] [--alpha-coverage <r,g,b,a>] <source> [<source> ...]
+//   TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] [--alpha-coverage <r,g,b,a>]
+//               [--dilate-under <mask.detex> <channel 0-3> <threshold>] <source> [<source> ...]
 //   TextureCook <project.deproj> [--engine-dir <dir>] --emit <asset.detex> <out.tex>
 //
 // `--emit` writes an asset's platform data (its DDC entry, derived first if absent) to a file. It exists for
@@ -20,6 +21,10 @@
 // level 0's share of texels at or above the threshold in every mip, the clip value of a masked material) into every
 // named asset before it is cooked; `0,0,0,0` clears them. The material importer sets it on its own; this is the
 // spelling for assets imported before it did (FOLIAGE-ALPHA-MIPS).
+//
+// `--dilate-under` writes the asset's ColorDilationMask (GRASS-ASSET p5): the colour is padded under the cut-away of
+// <mask.detex>'s channel (texels below <threshold>) before the mip chain, so the matte black of a foliage atlas whose
+// opacity is a separate image never reaches a mip. Threshold 0 clears it.
 //
 // Exit status: 0 when every source ends with a correct `.tex` on the disk (Cooked or Fresh), 1 when any
 // did not, 2 for a command line it cannot act on. Every source gets one line on stdout saying which.
@@ -47,7 +52,7 @@ namespace
         std::fprintf(
              stderr,
              "usage: TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] [--alpha-coverage <r,g,b,a>] "
-             "<source> [<source> ...]\n"
+             "[--dilate-under <mask.detex> <channel> <threshold>] <source> [<source> ...]\n"
              "       TextureCook <project.deproj> [--engine-dir <dir>] --emit <asset.detex> <out.tex>\n"
              "  paths are relative to the project's folder, e.g. Resources/Splash/Splash.detex\n"
              "  --engine-dir: the folder holding the engine's Resources/ (default: from this binary)\n"
@@ -163,6 +168,30 @@ int main( int argc, char** argv )
                  first += 2;
              }
 
+             std::optional<Desert::Assets::TextureDilationMask> dilation;
+             if ( count > first && std::string( args[first] ) == "--dilate-under" )
+             {
+                 if ( count < first + 5 )
+                     return Usage();
+                 const auto mask = Desert::Assets::ReadTextureSourceAssetFile( InProject( args[first + 1] ) );
+                 if ( !mask.IsSuccess() )
+                 {
+                     std::fprintf( stderr, "TextureCook: --dilate-under %s: %s\n", args[first + 1],
+                                   mask.GetError().c_str() );
+                     return 2;
+                 }
+                 Desert::Assets::TextureDilationMask set;
+                 set.Texture = mask.GetValue().Guid;
+                 if ( std::sscanf( args[first + 2], "%u", &set.Channel ) != 1 ||
+                      std::sscanf( args[first + 3], "%f", &set.Threshold ) != 1 )
+                 {
+                     std::fprintf( stderr, "TextureCook: --dilate-under wants <mask.detex> <channel> <threshold>\n" );
+                     return 2;
+                 }
+                 dilation = set;
+                 first += 4;
+             }
+
              Desert::Editor::TextureImporter importer;
              int                             status = 0;
              for ( int i = first; i < count; ++i )
@@ -193,6 +222,15 @@ int main( int argc, char** argv )
                  if ( coverage )
                  {
                      if ( const auto set = Desert::Assets::SetTextureAlphaCoverage( asset, *coverage ); !set )
+                     {
+                         std::fprintf( stderr, "TextureCook: %s: %s\n", args[i], set.GetError().c_str() );
+                         status = 1;
+                         continue;
+                     }
+                 }
+                 if ( dilation )
+                 {
+                     if ( const auto set = Desert::Assets::SetTextureColorDilationMask( asset, *dilation ); !set )
                      {
                          std::fprintf( stderr, "TextureCook: %s: %s\n", args[i], set.GetError().c_str() );
                          status = 1;

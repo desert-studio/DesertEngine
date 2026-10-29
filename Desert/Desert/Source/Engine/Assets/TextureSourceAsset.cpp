@@ -26,8 +26,9 @@ namespace Desert::Assets
 
     namespace
     {
-        // 1 = without ColorSpace, 2 = without AlphaCoverageThresholds (UpgradeTextureSourceAsset only)
-        constexpr uint32_t kImportInfoVersion = 3;
+        // 1 = without ColorSpace, 2 = without AlphaCoverageThresholds, 3 = without ColorDilationMask
+        // (UpgradeTextureSourceAsset only)
+        constexpr uint32_t kImportInfoVersion = 4;
 
         void PutU32( std::vector<std::byte>& out, const uint32_t v )
         {
@@ -91,6 +92,10 @@ namespace Desert::Assets
             PutString( out, Core::Formats::TextureColorSpaceName( info.Settings.ColorSpace ) );
             for ( const float threshold : info.Settings.AlphaCoverageThresholds )
                 PutU32( out, std::bit_cast<uint32_t>( threshold ) );
+            PutU64( out, info.Settings.ColorDilationMask.Texture.Hi );
+            PutU64( out, info.Settings.ColorDilationMask.Texture.Lo );
+            PutU32( out, info.Settings.ColorDilationMask.Channel );
+            PutU32( out, std::bit_cast<uint32_t>( info.Settings.ColorDilationMask.Threshold ) );
             return out;
         }
 
@@ -118,6 +123,19 @@ namespace Desert::Assets
                         return Common::MakeFormattedError<TextureImportInfo>(
                              "texture ImportInfo has alpha coverage threshold {}; a threshold is in [0, 1]",
                              threshold );
+            }
+            if ( expected >= 4 )
+            {
+                TextureDilationMask& mask = info.Settings.ColorDilationMask;
+                mask.Texture.Hi           = r.Get( 8 );
+                mask.Texture.Lo           = r.Get( 8 );
+                mask.Channel              = static_cast<uint32_t>( r.Get( 4 ) );
+                mask.Threshold            = std::bit_cast<float>( static_cast<uint32_t>( r.Get( 4 ) ) );
+                if ( r.Ok && ( mask.Channel > 3 || !( mask.Threshold >= 0.0f && mask.Threshold <= 1.0f ) ) )
+                    return Common::MakeFormattedError<TextureImportInfo>(
+                         "texture ImportInfo has dilation mask channel {} threshold {}; a channel is 0..3 and a "
+                         "threshold is in [0, 1]",
+                         mask.Channel, mask.Threshold );
             }
             if ( !r.Ok || r.At != bytes.size() )
                 return Common::MakeError<TextureImportInfo>(
@@ -355,6 +373,16 @@ namespace Desert::Assets
         PutU32( out, static_cast<uint32_t>( settings.Import.ColorSpace ) );
         for ( const float threshold : settings.Import.AlphaCoverageThresholds )
             PutU32( out, std::bit_cast<uint32_t>( threshold ) );
+        // The mask is another asset, keyed by identity (UE keys CompositeTexture by its source id). Appended only
+        // when set, as UE appends its optional settings: a texture without one keeps the key (and DDC entry) it had.
+        if ( const TextureDilationMask& mask = settings.Import.ColorDilationMask; mask.Enabled() )
+        {
+            PutU32( out, Common::Content::FourCC( "DILM" ) );
+            PutU64( out, mask.Texture.Hi );
+            PutU64( out, mask.Texture.Lo );
+            PutU32( out, mask.Channel );
+            PutU32( out, std::bit_cast<uint32_t>( mask.Threshold ) );
+        }
         return out;
     }
 
@@ -513,11 +541,17 @@ namespace Desert::Assets
             return Common::MakeSuccess( Out{} );
         if ( IsLegacyTextureIntentSidecar( file ) )
             return Common::MakeError<Out>( std::string( kLegacyTextureIntentSidecarRefusal ) );
-        // Version 2 (no AlphaCoverageThresholds) first, then version 1 (no ColorSpace either).
-        uint32_t                   from     = 2;
+        // Version 3 (no ColorDilationMask) first, then 2 (no AlphaCoverageThresholds either), then 1 (no ColorSpace).
+        uint32_t                   from     = 3;
+        const CC::SubsystemVersion v3[]     = { { kTextureAssetSubsystemTag, 3 } };
         const CC::SubsystemVersion v2[]     = { { kTextureAssetSubsystemTag, 2 } };
         const CC::SubsystemVersion v1[]     = { { kTextureAssetSubsystemTag, 1 } };
-        auto                       envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v2 } );
+        auto                       envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v3 } );
+        if ( !envelope.IsSuccess() )
+        {
+            from     = 2;
+            envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v2 } );
+        }
         if ( !envelope.IsSuccess() )
         {
             from     = 1;
@@ -596,6 +630,28 @@ namespace Desert::Assets
         if ( asset.Import.Settings.AlphaCoverageThresholds == thresholds )
             return Common::MakeSuccess( false );
         asset.Import.Settings.AlphaCoverageThresholds = thresholds;
+        if ( const auto written = WriteTextureSourceAssetFile( path, asset ); !written.IsSuccess() )
+            return Common::MakeError<bool>( written.GetError() );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<bool> SetTextureColorDilationMask( const std::filesystem::path& path,
+                                                         const TextureDilationMask&   mask )
+    {
+        if ( mask.Channel > 3 || !( mask.Threshold >= 0.0f && mask.Threshold <= 1.0f ) )
+            return Common::MakeFormattedError<bool>( "'{}': dilation mask channel {} threshold {} (channel 0..3, "
+                                                     "threshold in [0, 1])",
+                                                     path.generic_string(), mask.Channel, mask.Threshold );
+        auto read = ReadTextureSourceAssetFile( path );
+        if ( !read.IsSuccess() )
+            return Common::MakeError<bool>( read.GetError() );
+        TextureSourceAsset asset = read.ExtractValue();
+        if ( asset.Guid == mask.Texture )
+            return Common::MakeFormattedError<bool>( "'{}': a texture cannot be its own dilation mask",
+                                                     path.generic_string() );
+        if ( asset.Import.Settings.ColorDilationMask == mask )
+            return Common::MakeSuccess( false );
+        asset.Import.Settings.ColorDilationMask = mask;
         if ( const auto written = WriteTextureSourceAssetFile( path, asset ); !written.IsSuccess() )
             return Common::MakeError<bool>( written.GetError() );
         return Common::MakeSuccess( true );
