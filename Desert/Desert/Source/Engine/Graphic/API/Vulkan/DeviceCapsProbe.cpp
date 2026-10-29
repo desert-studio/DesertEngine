@@ -421,7 +421,8 @@ namespace Desert::Graphic::API::Vulkan
             return neural;
         }
 
-        ProbedDevice Probe( VkInstance instance, const vkb::PhysicalDevice& candidate )
+        ProbedDevice Probe( VkInstance instance, const vkb::PhysicalDevice& candidate,
+                            const DeviceRestrictions& restrictions )
         {
             ProbedDevice probed;
             probed.Physical             = std::make_shared<vkb::PhysicalDevice>( candidate );
@@ -431,6 +432,10 @@ namespace Desert::Graphic::API::Vulkan
                  PlanRoutes( device.properties.deviceName, DriverOf( device ), device.properties.apiVersion,
                              [&device]( std::string_view extension )
                              { return device.is_extension_present( std::string( extension ).c_str() ); } );
+            // Before the loop, so a hidden row is neither asked for nor enabled: the device built from this
+            // object is the one a card without ray tracing would give.
+            if ( restrictions.HideRayTracing )
+                HideRayTracing( probed.Caps );
 
             // Table order: every dependency is settled before the row that needs it (static_assert in
             // DeviceCaps.cpp), and a row whose dependencies are absent is not even asked.
@@ -467,7 +472,7 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
-    Common::ResultStr<ProbedDevice> SelectDevice( const vkb::Instance& instance )
+    Common::ResultStr<ProbedDevice> SelectDevice( const vkb::Instance& instance, const DeviceRestrictions& restrictions )
     {
         // vk-bootstrap lists and describes the devices; the judgement is DeviceCaps'. So the selector is
         // told to reject nothing: version 1.0 (CheckRequired names a too-old version itself), no present
@@ -489,7 +494,7 @@ namespace Desert::Graphic::API::Vulkan
         std::string                 refusals;
         for ( const vkb::PhysicalDevice& candidate : listed.value() )
         {
-            ProbedDevice probed = Probe( instance.instance, candidate );
+            ProbedDevice probed = Probe( instance.instance, candidate, restrictions );
             if ( const auto accepted = CheckRequired( probed.Caps ); !accepted )
             {
                 refusals += std::format( "\n  {}", accepted.GetError() );

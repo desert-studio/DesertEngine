@@ -134,6 +134,13 @@ namespace Desert::Graphic
     // ResolveRenderMethods pairs them). The path tracer's image replaces the lit scene before post.
     [[nodiscard]] bool PathTraced( const RenderMethods& methods );
 
+    // WHETHER THIS DEVICE CAN PATH-TRACE AT ALL, whatever a view requests: empty when it can, else the reason a
+    // PathTraced request is refused - the same walk and the same words as ResolveRenderMethods' Device /
+    // DevicePipeline limit ("the device offers no ray query" / "... no ray tracing pipeline"). Reader: DesertCtl
+    // `state device`, so a no-RT device names its path-tracing refusal even on a scene that never asked for it.
+    // PURE.
+    [[nodiscard]] std::string_view PathTracingRefusal( const Common::Scalability::CapabilityCatalog& catalog );
+
     // As LowerShadowsForFrame, for the path tracer: a path-traced view whose frame has no traceable scene (TLAS not
     // built) is lowered here to HardwareTraced on both axes with MethodLimit::FrameScene, before any pass is
     // declared, so the frame renders - and the overlay names - one decision. PURE.
