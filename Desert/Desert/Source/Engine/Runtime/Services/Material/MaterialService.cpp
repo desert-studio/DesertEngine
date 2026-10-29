@@ -286,16 +286,18 @@ namespace Desert::Runtime
                            permutation.VirtualSources.size() );
                 return nullptr;
             }
-            auto shader = ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
-            if ( !shader )
+            ShaderService* shaders  = ResourceRegistry::GetShaderService();
+            auto           acquired = shaders->AcquireVariant( shaderName, permutation );
+            if ( !acquired )
             {
-                LOG_ERROR( "[Materials] Material '{}': the permutation ({} define(s)) of the cell '{}' did not "
-                           "compile; the draw asking for it is refused.",
-                           asset->GetMetadata().Filepath.generic_string(), permutation.Defines.size(),
-                           shaderName );
+                if ( shaders->ClaimRefusalReport( shaderName, permutation ) )
+                    LOG_ERROR( "[Materials] Material '{}': the permutation ({} define(s)) of the cell '{}' was "
+                               "refused; the draw asking for it is refused: {}",
+                               asset->GetMetadata().Filepath.generic_string(), permutation.Defines.size(),
+                               shaderName, acquired.GetError() );
                 return nullptr;
             }
-            auto variant = std::make_shared<Graphic::DataDrivenMaterial>( shader );
+            auto variant = std::make_shared<Graphic::DataDrivenMaterial>( acquired.ExtractValue() );
             if ( const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( asset ) )
                 ApplySurfaceAsset( *variant, *surface );
             return variant;

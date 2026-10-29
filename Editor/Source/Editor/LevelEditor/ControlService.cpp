@@ -689,13 +689,11 @@ namespace Desert::Editor
         const Engine::NeuralComputeCaps&      caps   = EngineContext::GetInstance().GetCapabilities().Neural;
         const std::optional<NeuralKernelPath> forced = Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath;
 
+        // A forced path the device cannot run is not a failed request: it is reported refused, with the
+        // resolver's reason, like any other path (the loop below asks the same resolver).
         std::vector<NeuralKernelPath> paths;
         if ( forced )
-        {
-            if ( const auto resolved = Neural::ResolveNeuralKernelPath( caps, forced ); !resolved )
-                return Control::Response::Failure( id, resolved.GetError() );
             paths.push_back( *forced );
-        }
         else
             paths = { NeuralKernelPath::Fp32, NeuralKernelPath::Fp16, NeuralKernelPath::CoopMatFp16 };
 
@@ -711,16 +709,22 @@ namespace Desert::Editor
             if ( const auto runnable = Neural::ResolveNeuralKernelPath( caps, path ); !runnable )
             {
                 LOG_INFO( "[nn_check] path={} not run: {}", name, runnable.GetError() );
-                pending.Refused.emplace_back( name, runnable.GetError() );
+                pending.Refused.push_back( { name, runnable.GetError(), true } );
                 continue;
             }
+            // A refused kernel (ShaderService::AcquireVariant's compile/reflect reason, a pipeline refusal) is
+            // this path's verdict, not the whole check's: the other paths still run and report.
             auto submitted = Neural::FusedMlpCheckRun::Submit( *m_NnCompute, caps, path );
             if ( !submitted )
-                return Control::Response::Failure( id, std::format( "nn-check {}: {}", name, submitted.GetError() ) );
-            pending.Runs.push_back( std::move( submitted.GetValue() ) );
+            {
+                LOG_ERROR( "[nn_check] path={} refused: {}", name, submitted.GetError() );
+                pending.Refused.push_back( { name, submitted.GetError(), false } );
+                continue;
+            }
+            pending.Runs.push_back( submitted.ExtractValue() );
         }
-        if ( pending.Runs.empty() )
-            return Control::Response::Failure( id, "nn-check ran no path: the device can run none of them" );
+        // Held even with no run: ServiceNnCheck completes it on its next call, and the report names every
+        // path's refusal instead of a bare "ran nothing".
         m_NnCheck = std::move( pending );
         return std::nullopt;
     }
@@ -742,23 +746,46 @@ namespace Desert::Editor
     {
         namespace Neural = Engine::Neural;
         const int64_t              id = m_NnCheck->Id;
-        Common::Json::Value::Array runs;
-        for ( const auto& [name, reason] : m_NnCheck->Refused )
+        Common::Json::Value::Array                       runs;
+        std::vector<std::pair<std::string, std::string>> verdicts;
+        std::string                                      summary;
+        const auto appendSummary = [&summary]( const std::string& line )
+        {
+            if ( !summary.empty() )
+                summary += "; ";
+            summary += line;
+        };
+        const auto refuse = [&]( const std::string& name, const std::string& reason )
         {
             Common::Json::Object run;
             run["path"]    = Control::StateDetail::Str( name );
             run["refused"] = Control::StateDetail::Str( reason );
             runs.push_back( Common::Json::Value( run ) );
+            verdicts.emplace_back( name, std::format( "refused: {}", reason ) );
+            const std::string line = std::format( "path={} REFUSED: {}", name, reason );
+            LOG_INFO( "[nn_check6] {}", line );
+            appendSummary( line );
+        };
+        bool deviceRefused = false; // a path the device claims and the kernel/pipeline/readback refused
+        for ( const auto& refusal : m_NnCheck->Refused )
+        {
+            refuse( refusal.Path, refusal.Reason );
+            deviceRefused = deviceRefused || !refusal.DeviceLacksIt;
         }
 
-        std::string summary;
-        bool        pass = true;
+        bool pass = true;
+        bool ran  = false;
         for ( const auto& pendingRun : m_NnCheck->Runs )
         {
             const char* name    = Engine::NeuralKernelPathName( pendingRun->GetPath() );
             const auto  checked = pendingRun->Complete();
             if ( !checked )
-                return Control::Response::Failure( id, std::format( "nn-check {}: {}", name, checked.GetError() ) );
+            {
+                refuse( name, checked.GetError() );
+                deviceRefused = true;
+                continue;
+            }
+            ran                                    = true;
             const Neural::FusedMlpPathCheck& check = checked.GetValue();
             pass                                   = pass && check.Pass;
 
@@ -787,11 +814,26 @@ namespace Desert::Editor
                  "tolerance={:.0e} {}",
                  name, tileLabel, check.Tile, check.Output.MaxAbs, check.Output.Rel, check.WeightGrad.MaxAbs,
                  check.WeightGrad.Rel, check.MaskFlips, check.Tolerance, verdict );
-            LOG_INFO( "[nn_check4] {}", line );
-            if ( !summary.empty() )
-                summary += "; ";
-            summary += line;
+            LOG_INFO( "[nn_check6] {}", line );
+            appendSummary( line );
+            verdicts.emplace_back( name, check.Pass ? std::string( "pass" )
+                                                    : std::format( "fail: output rel={:.3e} weightGrad rel={:.3e} "
+                                                                   "maskFlips={} tolerance={:.0e}",
+                                                                   check.Output.Rel, check.WeightGrad.Rel,
+                                                                   check.MaskFlips, check.Tolerance ) );
         }
+        m_NnLastCheck = std::move( verdicts );
+        // A path the DEVICE LACKS is reported, not failed: a device without coopmat_fp16 still passes on the paths
+        // it can, and a forced path it lacks is the expected answer to that request (reply ok, the path listed
+        // "refused" with the resolver's reason, DesertCtl exit 0). A refusal on a path the device CLAIMS (the
+        // kernel did not compile/reflect, the pipeline or the readback failed) is a defect and fails the check,
+        // as does an unforced check where nothing ran or a path out of tolerance - the text lists every path.
+        if ( deviceRefused )
+            return Control::Response::Failure(
+                 id, std::format( "nn-check refused a path the device claims: {}", summary ) );
+        const bool expectedRefusal = !ran && m_NnCheck->Forced != "auto";
+        if ( !ran && !expectedRefusal )
+            return Control::Response::Failure( id, std::format( "nn-check ran no path: {}", summary ) );
         if ( !pass )
             return Control::Response::Failure( id, std::format( "nn-check out of tolerance: {}", summary ) );
 
@@ -803,7 +845,9 @@ namespace Desert::Editor
                                                                     shape.OutputDims ) );
         payload["batch"]  = Control::StateDetail::Num( Neural::kFusedMlpCheckBatch );
         payload["runs"]   = Common::Json::Value( runs );
-        payload["pass"]   = Common::Json::Value( pass );
+        payload["pass"]   = Common::Json::Value( pass && ran );
+        if ( expectedRefusal )
+            payload["refused"] = Control::StateDetail::Str( summary );
         return Control::Response::Success( id, std::move( payload ) );
     }
 
@@ -1493,6 +1537,7 @@ namespace Desert::Editor
                                                                   ? Engine::FormatCooperativeMatrixShape( neural.Tile )
                                                                   : std::string{};
             device.NnReason                                = neural.Reason;
+            device.NnLastCheck                             = m_NnLastCheck;
             device.NnShaderFloat16                         = neural.ShaderFloat16;
             device.NnShaderInt8                            = neural.ShaderInt8;
             device.NnStorageBuffer16BitAccess              = neural.StorageBuffer16BitAccess;

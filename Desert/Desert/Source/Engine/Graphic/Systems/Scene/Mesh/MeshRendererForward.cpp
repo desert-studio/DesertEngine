@@ -364,10 +364,22 @@ namespace Desert::Graphic::System
             const bool                    ownProgram     = programName != shaderName || !permutation.IsDefault();
             if ( ownProgram )
             {
-                shader = permutation.IsDefault() ? shaders->GetByName( programName )
-                                                 : shaders->AcquireVariant( programName, permutation );
+                if ( permutation.IsDefault() )
+                    shader = shaders->GetByName( programName );
+                else
+                {
+                    auto acquired = shaders->AcquireVariant( programName, permutation );
+                    if ( !acquired )
+                    {
+                        if ( shaders->ClaimRefusalReport( programName, permutation ) )
+                            LOG_ERROR( "[MeshRenderer] forward program '{}' not drawn: {}", programName,
+                                       acquired.GetError() );
+                        continue;
+                    }
+                    shader = acquired.ExtractValue();
+                }
                 if ( !shader || !shader->IsCompiled() )
-                    continue; // ShaderService named the program and its compile error once
+                    continue; // a registered program that failed its compile was named at registration
             }
             // The pipeline tracker's and the shared material's name of this program: the permutation is part of
             // it.
@@ -754,9 +766,16 @@ namespace Desert::Graphic::System
         const Core::ShaderVariant permutation = ForwardShadowMaskVariant( *shader, rayTracedSun, localShadowMasks );
         if ( !permutation.IsDefault() )
         {
-            program = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
-            if ( !program || !program->IsCompiled() )
-                return false; // ShaderService named the program and its compile error once
+            Runtime::ShaderService* shaders  = Runtime::ResourceRegistry::GetShaderService();
+            auto                    acquired = shaders->AcquireVariant( shaderName, permutation );
+            if ( !acquired )
+            {
+                if ( shaders->ClaimRefusalReport( shaderName, permutation ) )
+                    LOG_ERROR( "[MeshRenderer] generic forward pipeline of '{}' not ready: {}", shaderName,
+                               acquired.GetError() );
+                return false;
+            }
+            program = acquired.ExtractValue();
             for ( const auto& define : permutation.Defines )
                 std::format_to( std::back_inserter( programKey ), "|{}", define );
         }

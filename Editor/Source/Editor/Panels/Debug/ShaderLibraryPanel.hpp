@@ -17,6 +17,8 @@ namespace Desert::Editor
     private:
         void DrawShaderNode( const std::string& name, const std::shared_ptr<Graphic::Shader>& shader );
         void SaveShaderCode();
+        // Reload of the program @p name through ShaderService::Recompile (its variants and refusals with it).
+        void RecompileShader( const std::string& name );
 
     private:
         Graphic::Shader* m_SelectedShader;

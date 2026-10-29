@@ -145,8 +145,19 @@ namespace Desert::Graphic::System
             // Shadows Stochastic: the ray-traced sun's mask, and the local lights from MegaLights in place of the
             // light-grid loop and its shadow maps. Shadows HardwareTraced: the ray-traced sun's mask, and the local
             // lights' ray-traced masks by slot. Each from the one list the cook ships (ProgramVariants).
+            // A refused permutation keeps the service's reason, reported below where its pipeline would be.
+            std::vector<std::string> refusedBecause( m_Programs.size() );
             for ( std::size_t index = kScreenMaskSunProgram; index < m_Programs.size(); ++index )
-                m_Programs[index].Shader = shaders->AcquireVariant( "DeferredLighting", ProgramVariant( index ) );
+            {
+                auto acquired = shaders->AcquireVariant( "DeferredLighting", ProgramVariant( index ) );
+                if ( acquired )
+                    m_Programs[index].Shader = acquired.ExtractValue();
+                else
+                {
+                    m_Programs[index].Shader = nullptr;
+                    refusedBecause[index]    = acquired.GetError();
+                }
+            }
 
             const auto& target = m_TargetFramebuffer.lock();
             if ( !target )
@@ -167,8 +178,8 @@ namespace Desert::Graphic::System
                 const std::string programName{ kProgramDebugNames[index] };
                 Common::BoolResultStr built = BOOLSUCCESS;
                 if ( !program.Shader )
-                    built =
-                         Common::MakeError( std::format( "the '{}' permutation did not compile", programName ) );
+                    built = Common::MakeError(
+                         std::format( "the '{}' permutation was refused: {}", programName, refusedBecause[index] ) );
                 else
                 {
                     spec.DebugName      = programName;

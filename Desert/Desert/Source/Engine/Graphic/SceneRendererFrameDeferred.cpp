@@ -496,6 +496,21 @@ namespace Desert::Graphic
                                   TraceProgramName( m_GIPipeline, false ), traced.GetError() );
             return;
         }
+        // THE SCREEN-PROBE LAYOUT, validated here - where the method is chosen and before the trace legs compile
+        // under it - and not per frame in the gather: a layout the shaders do not compile, or a layout program the
+        // shader service refused, is said ONCE (ScreenProbeGather::ClaimLayoutRefusalReport, the shader service's
+        // refusal memory for a refused program), and the GI is not gathered while it stands. A recompile of the
+        // fixed shader (ShaderService::Recompile) forgets the refusal, so the next frame gathers.
+        if ( m_GIPipeline.ScreenProbes )
+            if ( const auto layout =
+                      m_ScreenProbeGather->EnsureLayoutPrograms( m_ScreenProbeDownsample, m_ScreenProbeTracedTexels );
+                 !layout )
+            {
+                if ( m_ScreenProbeGather->ClaimLayoutRefusalReport() )
+                    LOG_ERROR( "[SceneRenderer] ScreenProbes: not gathered while its layout is refused: {}",
+                               layout.GetError() );
+                return;
+            }
         if ( m_GIPipeline.ScreenProbes )
             if ( const auto traced = m_ScreenProbeGather->EnsureTraceProgram( m_GIPipeline ); !traced )
             {

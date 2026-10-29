@@ -108,7 +108,9 @@ namespace Desert::Editor
         [[nodiscard]] Control::Response ExecuteControlRequest( const Control::Request& request );
         // nn-check: the NN layer's fused MLP on the GPU against its CPU reference (see the definition).
         // nn-check: records every path's run into this frame's graph and holds the reply (nullopt) until that
-        // frame completes on the GPU; a refusal is the reply returned now.
+        // frame completes on the GPU. A path the device cannot run, or whose kernels are refused (the shader's
+        // compile/reflect reason from ShaderService::AcquireVariant), is reported refused WITH that reason beside
+        // the paths that ran; only a missing NN layer is a reply returned now.
         [[nodiscard]] std::optional<Control::Response> SubmitNnCheck( int64_t id );
         // Top of ServiceChannel: sends the held nn-check reply once its frame completed. True while one is held
         // (the channel reads nothing else meanwhile, so the ordering guarantee holds).
@@ -158,8 +160,19 @@ namespace Desert::Editor
             int64_t                                                       Id = 0;
             std::string                                                   Forced;
             std::vector<std::unique_ptr<Engine::Neural::FusedMlpCheckRun>> Runs;
-            std::vector<std::pair<std::string, std::string>>              Refused; ///< path, why not run
+            /// A path that did not run. DeviceLacksIt: the resolver refused it because the device does not
+            /// expose what it needs - an expected answer. Otherwise the device claims the path and the kernel,
+            /// its pipeline or its readback refused - a defect, and the check fails on it.
+            struct Refusal
+            {
+                std::string Path;
+                std::string Reason;
+                bool        DeviceLacksIt = false;
+            };
+            std::vector<Refusal> Refused;
         };
+        /// DeviceSnapshot::NnLastCheck: the last completed nn-check's (path, verdict), every asked path once.
+        std::vector<std::pair<std::string, std::string>> m_NnLastCheck;
         std::unique_ptr<Engine::Neural::FusedMlpCompute> m_NnCompute; ///< the NN pipelines, kept across checks
         std::optional<PendingNnCheck>                    m_NnCheck;
 

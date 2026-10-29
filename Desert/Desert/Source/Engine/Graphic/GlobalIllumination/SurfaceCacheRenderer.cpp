@@ -508,13 +508,14 @@ namespace Desert::Graphic::SurfaceCache
     {
         if ( m_LightingPipeline && tracer == m_LightingProgramFor )
             return BOOLSUCCESS;
-        auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+        auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
              std::string( kDirectLightingShaderName ), GlobalIllumination::TracerVariant( tracer ) );
-        if ( !shader )
-            return Common::MakeFormattedError<bool>(
-                 "surface cache: shader SurfaceCacheDirectLighting ({}) did not "
-                 "compile",
-                 GlobalIllumination::TracerDefine( tracer.Tracer ) );
+        if ( !acquired )
+            return Common::MakeFormattedError<bool>( "surface cache: shader SurfaceCacheDirectLighting ({}) was "
+                                                     "refused: {}",
+                                                     GlobalIllumination::TracerDefine( tracer.Tracer ),
+                                                     acquired.GetError() );
+        auto shader = acquired.ExtractValue();
         // One quad per relit page into the two lit layers (no depth, no blend: every texel of a relit page is
         // written).
         GraphicsPipelineSpecification lighting;

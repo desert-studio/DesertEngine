@@ -208,12 +208,13 @@ namespace Desert::Engine::Neural
         if ( !service )
             return Common::MakeFormattedError<KernelResult>( "no shader service to compile '{}' ({})", kShaderName,
                                                              key );
-        const std::shared_ptr<Graphic::Shader> shader = service->AcquireVariant( kShaderName, variant );
-        if ( !shader )
+        auto acquired = service->AcquireVariant( kShaderName, variant );
+        if ( !acquired )
             return Common::MakeFormattedError<KernelResult>(
-                 "the shader '{}' ({}) did not compile — expected "
-                 "Editor/Resources/Shaders/Programs/Compute/NeuralFusedMlp.shader",
-                 kShaderName, key );
+                 "the shader '{}' ({}) was refused: {} (source "
+                 "Editor/Resources/Shaders/Programs/Compute/NeuralFusedMlp.shader)",
+                 kShaderName, key, acquired.GetError() );
+        const std::shared_ptr<Graphic::Shader> shader = acquired.ExtractValue();
 
         Graphic::ComputePipelineSpecification specification;
         specification.Shader               = shader;
