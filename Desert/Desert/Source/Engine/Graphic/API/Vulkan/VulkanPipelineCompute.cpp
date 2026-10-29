@@ -439,8 +439,22 @@ namespace Desert::Graphic::API::Vulkan
         const VkPipelineCache pipelineCache =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetPipelineCache();
 
+        // Subgroup control (ComputePipelineSpecification): the stage is copied so the shader's own create info is
+        // never edited, and the required size is chained in front of whatever the stage already chains.
+        VkPipelineShaderStageCreateInfo                     stage = *computeStage;
+        VkPipelineShaderStageRequiredSubgroupSizeCreateInfo requiredSize{
+             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO };
+        if ( m_Specification.RequireFullSubgroups )
+            stage.flags |= VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT;
+        if ( m_Specification.RequiredSubgroupSize != 0 )
+        {
+            requiredSize.pNext                = const_cast<void*>( stage.pNext );
+            requiredSize.requiredSubgroupSize = m_Specification.RequiredSubgroupSize;
+            stage.pNext                       = &requiredSize;
+        }
+
         const VkComputePipelineCreateInfo pipelineInfo{ .sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-                                                        .stage  = *computeStage,
+                                                        .stage  = stage,
                                                         .layout = m_ComputePipelineLayout };
 
         {
