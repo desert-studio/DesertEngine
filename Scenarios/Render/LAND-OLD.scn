@@ -1,0 +1,11 @@
+# LAND-OLD: task/GI-ALL-LIGHTS landed over WATER p7 - the single layer water pass keeps both: the physics foam (WATER p7)
+# and the self-fog of the water's own light (GI-ALL-LIGHTS); the foam is an opaque layer under the full fog.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Ocean.desce
+Дано --subject viewport set Camera.Position 0,250,400
+Дано --subject viewport set Camera.Direction 0,-0.25,-0.97
+Дано run View "View mode: Lit"
+Тогда-вид 1_shore вода как WATER p7: берег уходит под воду, полоса пены у линии прибоя, дальше пены нет; сквозь мелководье видно дно; нет самотумана поверх воды (вода не светлее/не серее WATER p7); лог без "[Water]" отказов и ошибок валидации
+Когда set 2646278175089776126 WaterBodyData.WaterWaves assets:Water/Waves/StormOcean.dwaves
+Когда --subject viewport set Camera.Position 0,900,-5000
+Когда --subject viewport set Camera.Direction 0,-0.3,-0.95
+Тогда-вид 4_whitecaps StormOcean: барашки только на гребнях с хвостом затухания, как WATER p7; даль воды уходит в туман сцены плавно, без серой пелены
