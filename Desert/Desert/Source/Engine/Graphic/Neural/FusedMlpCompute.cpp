@@ -475,8 +475,9 @@ namespace Desert::Engine::Neural
         check.Output     = CompareFusedMlp( gpu.Output, reference.Output );
         check.WeightGrad = CompareFusedMlp( gpu.WeightGrad, reference.WeightGrad );
         check.MaskFlips  = CountReluMaskFlips( gpu.Activations, reference.Activations, problem.Shape, problem.Batch );
-        check.Tolerance  = FusedMlpTolerance( m_Path );
-        check.Pass       = check.Output.Rel <= check.Tolerance && check.WeightGrad.Rel <= check.Tolerance;
+        check.Tolerance         = FusedMlpTolerance( m_Path );
+        check.GradientTolerance = FusedMlpGradientTolerance( m_Path, problem.Batch );
+        check.Pass = check.Output.Rel <= check.Tolerance && check.WeightGrad.Rel <= check.GradientTolerance;
         return Common::MakeSuccess( std::move( check ) );
     }
 } // namespace Desert::Engine::Neural

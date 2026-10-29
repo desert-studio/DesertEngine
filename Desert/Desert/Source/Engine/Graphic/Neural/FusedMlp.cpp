@@ -198,4 +198,9 @@ namespace Desert::Engine::Neural
     {
         return path == NeuralKernelPath::Fp32 ? 1e-5 : 1e-2;
     }
+
+    double FusedMlpGradientTolerance( NeuralKernelPath path, uint32_t batch )
+    {
+        return std::max( FusedMlpTolerance( path ), double( batch ) * std::ldexp( 1.0, -24 ) );
+    }
 } // namespace Desert::Engine::Neural

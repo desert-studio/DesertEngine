@@ -817,6 +817,7 @@ namespace Desert::Editor
             run["weightGrad"] = errorJson( check.WeightGrad );
             run["maskFlips"]  = Control::StateDetail::Num( static_cast<double>( check.MaskFlips ) );
             run["tolerance"]  = Control::StateDetail::Num( check.Tolerance );
+            run["gradientTolerance"] = Control::StateDetail::Num( check.GradientTolerance );
             run["pass"]       = Common::Json::Value( check.Pass );
             runs.push_back( Common::Json::Value( run ) );
 
@@ -824,16 +825,17 @@ namespace Desert::Editor
             const char* verdict   = check.Pass ? "PASS" : "FAIL";
             const std::string line = std::format(
                  "path={}{}{} output abs={:.3e} rel={:.3e} | weightGrad abs={:.3e} rel={:.3e} | maskFlips={} | "
-                 "tolerance={:.0e} {}",
+                 "tolerance={:.0e} gradientTolerance={:.1e} {}",
                  name, tileLabel, check.Tile, check.Output.MaxAbs, check.Output.Rel, check.WeightGrad.MaxAbs,
-                 check.WeightGrad.Rel, check.MaskFlips, check.Tolerance, verdict );
+                 check.WeightGrad.Rel, check.MaskFlips, check.Tolerance, check.GradientTolerance, verdict );
             LOG_INFO( "[nn_check6] {}", line );
             appendSummary( line );
             verdicts.emplace_back( name, check.Pass ? std::string( "pass" )
                                                     : std::format( "fail: output rel={:.3e} weightGrad rel={:.3e} "
-                                                                   "maskFlips={} tolerance={:.0e}",
+                                                                   "maskFlips={} tolerance={:.0e} gradientTolerance={:.1e}",
                                                                    check.Output.Rel, check.WeightGrad.Rel,
-                                                                   check.MaskFlips, check.Tolerance ) );
+                                                                   check.MaskFlips, check.Tolerance,
+                                                                   check.GradientTolerance ) );
         }
         m_NnLastCheck = std::move( verdicts );
         // A path the DEVICE LACKS is reported, not failed: a device without coopmat_fp16 still passes on the paths

@@ -131,8 +131,9 @@ namespace Desert::Engine::Neural
         FusedMlpError    Output;            ///< the network outputs
         FusedMlpError    WeightGrad;        ///< dL/dW of every matrix
         uint64_t         MaskFlips = 0;     ///< hidden units whose ReLU mask differs from the reference's
-        double           Tolerance = 0;     ///< FusedMlpTolerance( Path )
-        bool             Pass      = false; ///< both relative errors within Tolerance
+        double           Tolerance         = 0;     ///< FusedMlpTolerance( Path ), for Output
+        double           GradientTolerance = 0;     ///< FusedMlpGradientTolerance( Path, Batch ), for WeightGrad
+        bool             Pass              = false; ///< each relative error within its tolerance
     };
 
     // ONE nn-check RUN IN FLIGHT: the check problem uploaded into a graph of its own ("NeuralFusedMlpCheck"),

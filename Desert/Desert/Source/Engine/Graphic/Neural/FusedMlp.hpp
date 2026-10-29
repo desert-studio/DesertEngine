@@ -96,6 +96,9 @@ namespace Desert::Engine::Neural
     [[nodiscard]] FusedMlpError CompareFusedMlp( const std::vector<float>& gpu,
                                                  const std::vector<float>& reference );
 
-    // The relative tolerance a path is held to: 1e-2 for the fp16 paths, 1e-5 for fp32.
+    // The relative tolerance a path's outputs are held to: 1e-2 for the fp16 paths, 1e-5 for fp32.
     [[nodiscard]] double FusedMlpTolerance( NeuralKernelPath path );
+    // The weight gradient is a sum over the batch, whose fp32 rounding grows with its length (Higham's
+    // gamma_n = n * 2^-24): the output tolerance, widened to that bound for a batch of `batch` rows.
+    [[nodiscard]] double FusedMlpGradientTolerance( NeuralKernelPath path, uint32_t batch );
 } // namespace Desert::Engine::Neural
