@@ -128,6 +128,7 @@ namespace Desert::ECS
             {
                 glm::vec3 Albedo{ 0.0f }, Subsurface{ 0.0f };
                 float     Roughness = 0.0f, Opacity = 0.0f;
+                float     Coverage = 1.0f; // the share of the cards' world area their mask keeps (a blade's)
             };
             std::optional<CoverLook> Cover;
         };

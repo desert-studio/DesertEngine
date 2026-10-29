@@ -619,7 +619,8 @@ namespace Desert::ECS
                                 for ( const auto& c : v.Blade->Cards )
                                     rects.emplace_back( c[0], c[1], c[2], c[3] );
                             GrassSections::CoverLook sum;
-                            float                    count = 0.0f;
+                            sum.Coverage = 0.0f;
+                            float count  = 0.0f;
                             for ( size_t si = 0; si < sections.Sections.size(); ++si )
                             {
                                 const std::optional<Common::Content::AssetGuid> material =
@@ -649,11 +650,13 @@ namespace Desert::ECS
                                 sum.Subsurface += glm::vec3( m.GetVec4( "SubsurfaceColor", glm::vec4( 1.0f ) ) );
                                 sum.Roughness += m.GetFloat( "RoughnessFactor", 1.0f );
                                 sum.Opacity += m.GetFloat( "SubsurfaceOpacity", 1.0f );
+                                sum.Coverage += look.GetValue().Coverage;
                                 count += 1.0f;
                             }
                             if ( count > 0.0f )
-                                sections.Cover = GrassSections::CoverLook{ sum.Albedo / count, sum.Subsurface / count,
-                                                                           sum.Roughness / count, sum.Opacity / count };
+                                sections.Cover = GrassSections::CoverLook{
+                                     sum.Albedo / count, sum.Subsurface / count, sum.Roughness / count,
+                                     sum.Opacity / count, sum.Coverage / count };
                         }
                     }
                     Graphic::System::GrassVarietyDraw variety;
@@ -719,7 +722,10 @@ namespace Desert::ECS
                             for ( const auto& c : v.Blade->Cards )
                                 aspect += ( c[2] - c[0] ) / std::max( c[3] - c[1], 1.0e-4f );
                             aspect /= static_cast<float>( std::max<size_t>( v.Blade->Cards.size(), 1u ) );
-                            area = v.Blade->Height * v.Blade->Height * aspect *
+                            // Only the share of the strip its mask keeps is leaf (GrassCoverLook::Coverage, from
+                            // the atlas): the rest is the soil the near field shows between its blades.
+                            const float leaf = sections.Cover ? sections.Cover->Coverage : 1.0f;
+                            area             = v.Blade->Height * v.Blade->Height * aspect * leaf *
                                    ( uniform ? meanX * meanX : meanX * meanUp ) *
                                    ( 1.0f - 0.5f * v.Blade->Patchiness );
                         }
