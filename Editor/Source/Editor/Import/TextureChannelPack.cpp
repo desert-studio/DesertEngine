@@ -138,7 +138,16 @@ namespace Desert::Editor
             return Common::MakeError<PackOutcome>(
                  std::format( "[Import] slot '{}': cannot encode '{}'", slot.Slot, out.generic_string() ) );
 
-        auto written = WriteDerivedTexture( encoded, out, ".png" );
+        // THE PACK IS CREATED WITH WHAT IT IS (TEX-SRGB): the slot's colour space (Linear for an ORM / mask pack,
+        // glTF 2.0 3.9) and the matching intent, as UE's material importer creates a packed map with SRGB off and
+        // TC_Masks. Without them the asset was Unspecified, which DefaultTextureColorSpace reads as sRGB: every
+        // packed ORM sampled through an *_SRGB view. An existing asset keeps its own settings (a user's edit).
+        Assets::TextureImportSettings created;
+        created.ColorSpace = slot.ColorSpace;
+        created.Intent     = slot.ColorSpace == ::Desert::Core::Formats::TextureColorSpace::SRGB
+                                  ? ::Desert::Core::Formats::TextureIntent::Colour
+                                  : ::Desert::Core::Formats::TextureIntent::PackedMasks;
+        auto written = WriteDerivedTexture( encoded, out, ".png", created );
         if ( !written.IsSuccess() )
             return Common::MakeError<PackOutcome>(
                  std::format( "[Import] slot '{}': {}", slot.Slot, written.GetError() ) );
@@ -146,7 +155,8 @@ namespace Desert::Editor
     }
 
     Common::ResultStr<PackOutcome> WriteDerivedTexture( std::string_view bytes, const std::filesystem::path& asset,
-                                                        std::string_view imageExtension )
+                                                        std::string_view                     imageExtension,
+                                                        const Assets::TextureImportSettings& settingsIfCreated )
     {
         // `asset` is a project key (relative) or absolute; it lands off the project (FullPath), the root the
         // texture importer reads that key from - never off the working directory. The provenance key names the
@@ -158,7 +168,7 @@ namespace Desert::Editor
         const auto view    = std::as_bytes( std::span( bytes ) );
         const auto written = Assets::WriteTextureSource( onDisk, Common::Content::ContentKind::Texture,
                                                          Common::AssetHandle::StableKeyForPath( image ),
-                                                         std::vector<std::byte>( view.begin(), view.end() ), {} );
+                                                         std::vector<std::byte>( view.begin(), view.end() ), settingsIfCreated );
         if ( !written.IsSuccess() )
             return Common::MakeError<PackOutcome>( std::format( "cannot write the texture asset '{}': {}",
                                                                 asset.generic_string(), written.GetError() ) );
