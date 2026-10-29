@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
