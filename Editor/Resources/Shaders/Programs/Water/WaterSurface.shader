@@ -36,6 +36,8 @@ Shader "WaterSurface"
         Float       FoamJacobianSoftness ("Whitecap Jacobian Softness", Range(0.01,1), Category("Foam")) = 0.25
         Float       FoamDecaySeconds ("Foam Decay (s)", Range(0.1,30), Category("Foam")) = 3
         Float       FoamBreakerIndex ("Breaker Index H/d", Range(0.4,1.5), Category("Foam")) = 0.78
+        Float       ShoreFadeCm ("Shore Fade Depth (cm)", Range(0,500), Category("Shore")) = 40
+        Float       DebugFoamMask ("Debug: Foam Mask Only", Range(0,1), Category("Debug")) = 0
     }
 
     ShadingModel SingleLayerWater
@@ -87,6 +89,8 @@ Shader "WaterSurface"
             w.FoamJacobianSoftness   = Material.FoamJacobianSoftness;
             w.FoamDecaySeconds       = Material.FoamDecaySeconds;
             w.FoamBreakerIndex       = Material.FoamBreakerIndex;
+            w.ShoreFadeCm            = Material.ShoreFadeCm;
+            w.DebugFoamMask          = Material.DebugFoamMask;
             return w;
         }
     }

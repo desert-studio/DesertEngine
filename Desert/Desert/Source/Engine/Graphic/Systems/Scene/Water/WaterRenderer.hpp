@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Water/WaterQuadTree.hpp>
+#include <Engine/Water/WaterBodyQuery.hpp>
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 
@@ -33,6 +34,8 @@ namespace Desert::Graphic::System
         // entity's X, Z), in Bodies' order.
         std::vector<Assets::AssetHandle> BodyWaves;
         std::vector<glm::vec2>           BodyWaveOrigins;
+        // The zone's bottom seen from above (UE WaterInfo ground depth); null over no landscape.
+        std::shared_ptr<const Water::WaterInfoGround> Ground;
     };
 
     // THE WATER SURFACE RENDERER (WATER-W6; UE FWaterMeshSceneProxy + its water vertex factory). Each frame it
@@ -108,6 +111,10 @@ namespace Desert::Graphic::System
         WaterProgram*                                 m_Frame = nullptr; // this frame's program
         ShaderBindingLayoutCache                      m_Layout;
         std::unordered_set<uint64_t>                  m_Warned;
+
+        // The WaterInfo ground uploaded last (WaterZoneDraw::Ground) and its texture.
+        std::shared_ptr<const Water::WaterInfoGround> m_GroundBaked;
+        std::shared_ptr<Image2D>                      m_WaterInfo;
 
         std::vector<WaterZoneDraw> m_Queue;
         std::vector<FrameDraw>     m_FrameDraws;

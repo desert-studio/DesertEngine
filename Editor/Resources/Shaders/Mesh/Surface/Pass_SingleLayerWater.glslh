@@ -60,6 +60,25 @@ layout( binding = 27 ) uniform texture2D SceneDepthTexture;
 // The body's waves (binding 24, ahead of the tiles): the foam reads the same Gerstner sum the vertex path moved.
 #include <Mesh/Surface/WaterMeshTiles.glslh>
 
+// THE WATER INFO GROUND (UE WaterInfo texture, its ground channel; Water::WaterInfoGround): the landscape's height
+// under the zone seen from straight above, world Y in cm, over the square WaterInfoFrame names. Binding 25: free
+// in every surface cell (WaterMeshTiles.glslh lists the taken ones).
+layout( binding = 25 ) uniform texture2D WaterInfoTexture;
+
+// The still water column at a world (X, Z): the still level minus the ground below it, from above - not the scene
+// depth behind the pixel, so a mesh in the water is no shallows and the depth does not move with the camera.
+// 0 = no ground under it (open sea, or a zone without a landscape).
+float WaterGroundDepth( vec2 worldXZ, float stillY )
+{
+    if ( WaterInfoFrame.w < 0.5 )
+        return 0.0;
+    const vec2 uv = ( worldXZ - WaterInfoFrame.xy ) * WaterInfoFrame.z;
+    if ( any( lessThan( uv, vec2( 0.0 ) ) ) || any( greaterThan( uv, vec2( 1.0 ) ) ) )
+        return 0.0;
+    const float ground = textureLod( sampler2D( WaterInfoTexture, LinearClampSampler ), uv, 0.0 ).r;
+    return ground < -0.5e6 ? 0.0 : max( stillY - ground, 1.0 ); // over the ground's own level: the thinnest film
+}
+
 const float kWaterPi = 3.14159265;
 
 vec3 WaterWorldAt( vec2 uv, float deviceDepth )
@@ -196,13 +215,21 @@ void main()
     // the texture's densest cells, a thick one covers; it is a rough diffuse layer on top, lit by the sun and sky.
     const float jitter    = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) +
                                    fract( i.Time * 7.31 ) );
-    const float depth     = baseDev > 0.0 ? i.VertexColor.g - baseBack.y : 0.0;
+    const float depth     = WaterGroundDepth( i.WorldPosition.xz, i.VertexColor.g );
     const float amount    = clamp( WaterFoamAmount( WaterWavePlane( i.UV1 ), i.Time, jitter, depth, w ), 0.0, 1.0 );
     const float foam      = amount * smoothstep( 0.85 - amount, 1.25 - amount, w.FoamCoverage );
     const vec3  foamN     = normalize( i.Normal );
     const vec3  foamLit   = w.FoamAlbedo * ( sun * max( dot( foamN, L ), 0.0 ) / kWaterPi + DesertAmbientIrradiance( foamN ) );
 
-    oColor                = vec4( mix( water, foamLit * exposure, foam ), 1.0 );
+    // --- The shore (UE's water material depth fade): where the surface meets the ground or a mesh, the water
+    // column along the view ray goes to zero and the surface fades into the unbent scene behind it, so the
+    // meeting line is soft wherever the two surfaces cross - no hard intersection edge.
+    const float shore = w.ShoreFadeCm > 0.0 ? smoothstep( 0.0, w.ShoreFadeCm, baseLen ) : 1.0;
+    const vec3  plain = texture( SceneColorTexture, uv ).rgb;
+
+    oColor = vec4( mix( plain, mix( water, foamLit * exposure, foam ), shore ), 1.0 );
+    if ( w.DebugFoamMask > 0.5 )
+        oColor = vec4( vec3( amount ) * exposure * 4.0, 1.0 ); // the physics mask alone: white = foam, black = water
     oVelocity             = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );
     oThinGeometryCoverage = kThinGeometryCoverageSurface;
 }
