@@ -8,6 +8,8 @@
 #include <Engine/Graphic/Systems/Scene/Skybox/SceneSkyLight.hpp>
 #include <Engine/Graphic/LocalShadowCache.hpp>
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Core/Math/Ray.hpp>
@@ -390,7 +392,8 @@ namespace Desert::Core
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) )
+           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) )
     {
         LiveSceneList().push_back( this );
         m_Subsystems.Begin();
@@ -403,7 +406,8 @@ namespace Desert::Core
            m_GpuScene( std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>() ),
            m_SkyLight( std::make_shared<Graphic::SceneSkyLight>( m_LedgerInstance ) ),
            m_LocalShadows( std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance ) ),
-           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) )
+           m_DistanceFields( std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance ) ),
+           m_SurfaceCache( std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance ) )
     {
         LiveSceneList().push_back( this );
         SetupRegistryCallbacks();
@@ -876,6 +880,21 @@ namespace Desert::Core
         // into a second renderer is exactly what it already supports — the draws are identical because
         // the world is identical; only the camera each renderer was opened with differs.
         {
+            // THE SCENE'S SURFACE CACHE, ONCE FOR EVERY VIEW (UE: the Lumen scene update gathers every view origin
+            // of the family before any view renders): the frame's view origins - the cameras just ticked above -
+            // and the scene's budget and card tracer are stated before the first view opens, so the one update the
+            // first view to reach the cache runs captures the cards in front of every viewport, not its own.
+            const auto& frames = Engine::FrameManager::GetInstance();
+            m_RetiringSurfaceCaches.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+            m_RetiringReflectionCaptures.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+            std::vector<glm::vec3> origins;
+            for ( const auto& view : m_Views.All() )
+                if ( view.Camera )
+                    origins.push_back( view.Camera->GetPosition() );
+            m_SurfaceCache->BeginFrame( frames.GetAbsoluteFrameCount(), std::move( origins ), m_Registry,
+                                        m_Settings.RenderingPath == RenderPath::Deferred );
+        }
+        {
             // THE SCENE'S REFLECTION CAPTURES FIRST, ONCE: their face views are frames of their own, closed before
             // any view opens, fed the same recorded draws. Only when a view reads them; the sky light they are lit
             // by is the one the first such view holds, lent to the faces (every view bakes the one sky of this
@@ -1310,10 +1329,19 @@ namespace Desert::Core
         // depth and the ray-tracing variants of the old world stayed resident under the next scene and were
         // still there when a reopen built the same ones again (FIELD-MEM p3). Their device objects are queued for
         // deletion here; the opener drains the queue before the new world loads (SceneWorkspace).
+        // The captures' renderer records into the views' frame graphs (faces, its face surface cache and global
+        // distance field, its own retire queues): frames in flight still read them, so it is parked whole like the
+        // surface cache below and dies with its queues once those frames retired (OnUpdate collects).
+        const std::uint64_t clearFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        m_RetiringReflectionCaptures.Park( std::move( m_ReflectionCaptures ), clearFrame );
         m_ReflectionCaptures = std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance );
         m_RayTracingCache    = std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance );
         m_LocalShadows       = std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance );
         m_DistanceFields   = std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance );
+        // The surface cache's atlases, capture framebuffer and pipelines are still read by the frames in flight
+        // (its pipelines are released at once, not queued): parked until those frames retired (OnUpdate collects).
+        m_RetiringSurfaceCaches.Park( std::move( m_SurfaceCache ), clearFrame );
+        m_SurfaceCache     = std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance );
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
         m_PlayerController = entt::null;

@@ -660,8 +660,8 @@ namespace Desert::Graphic
     {
         const ActiveViewScope          viewScope( m_ViewResources );
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
-        // A lent surface cache / distance field is its lender's (a reflection capture's), released with it.
-        m_OwnSurfaceCache.reset();
+        // A lent surface cache / distance field is its lender's (a reflection capture's), released with it; the
+        // view's surface cache is its scene's (Scene::GetSurfaceCache), released with the scene's world.
         m_RadianceCache.reset();
         m_ScreenProbeGather.reset();
         m_IrradianceFieldGather.reset();
@@ -919,6 +919,8 @@ namespace Desert::Graphic
         m_FrameLocalShadows = &scene.GetLocalShadows();
         // The scene's mesh distance fields, which this view's global distance field composites from.
         m_FrameDistanceFields = &scene.GetDistanceFields();
+        // The scene's surface cache, which every view of the scene reads and the frame's first view updates.
+        m_FrameSurfaceCache = &scene.GetSurfaceCache();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -1807,7 +1809,9 @@ namespace Desert::Graphic
                                               ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(),
                                                                                  camera->GetProjectionMatrix() } )
                                               : 1.0f;
-            const bool      required   = RayTracing::RayTracingSceneRequired( m_RenderMethods );
+            // The view's methods, or the scene's cards this view relights this frame with ray query.
+            const bool required =
+                 RayTracing::RayTracingSceneRequired( m_RenderMethods ) || SurfaceCacheUpdateTracesRayQuery();
 
             // The landscape tiles first: their vertex compute, then their BLAS requests join the RT scene's
             // dynamic-geometry pass, which the TLAS pass reads (orders it after the builds).
@@ -2514,6 +2518,7 @@ namespace Desert::Graphic
         m_FrameGpuScene           = nullptr;
         m_FrameLocalShadows       = nullptr;
         m_FrameDistanceFields     = nullptr;
+        m_FrameSurfaceCache       = nullptr;
 
         return BOOLSUCCESS;
     }

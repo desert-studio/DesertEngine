@@ -33,6 +33,7 @@
 #include <Common/Json/Carry.hpp>
 #include <cstdint>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
@@ -74,6 +75,11 @@ namespace Desert::Graphic
 namespace Desert::Graphic::DistanceField
 {
     class DistanceFieldSceneData;
+}
+
+namespace Desert::Graphic::SurfaceCache
+{
+    class SurfaceCacheRenderer;
 }
 
 namespace Common::Math
@@ -693,6 +699,15 @@ namespace Desert::Core
             return *m_DistanceFields;
         }
 
+        // THE SCENE'S SURFACE CACHE (UE: FScene's FLumenSceneData): one card atlas, one capture and one relight
+        // per engine frame for every view of this scene - the editor viewports and PIE, which plays in this Scene
+        // (Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp). Its device objects are made by the first view
+        // that brings it up. Renderer state cached on the scene, like the distance fields.
+        [[nodiscard]] Graphic::SurfaceCache::SurfaceCacheRenderer& GetSurfaceCache() const
+        {
+            return *m_SurfaceCache;
+        }
+
         // THE SCENE in the resource ledger: every device object of the scene's shared renderer state above — the
         // reflection-capture arrays, the ray-tracing cache, the sky light's capture — is a row of this instance,
         // and the scene's budget entry (SceneRenderer::SceneHoldings) is the sum of them.
@@ -863,6 +878,12 @@ namespace Desert::Core
         std::unique_ptr<Graphic::LocalShadowCache> m_LocalShadows;
         // See GetDistanceFields. Never null: made by both constructors.
         std::unique_ptr<Graphic::DistanceField::DistanceFieldSceneData> m_DistanceFields;
+        // See GetSurfaceCache. Never null: made by both constructors.
+        std::unique_ptr<Graphic::SurfaceCache::SurfaceCacheRenderer> m_SurfaceCache;
+        // The surface caches and capture renderers Clear dropped with their world, kept until no frame in flight
+        // reads them (collected at the top of the views' render, OnUpdate).
+        Assets::FrameRetireQueue<std::unique_ptr<Graphic::SurfaceCache::SurfaceCacheRenderer>> m_RetiringSurfaceCaches;
+        Assets::FrameRetireQueue<std::unique_ptr<Graphic::ReflectionCaptureRenderer>>          m_RetiringReflectionCaptures;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)
