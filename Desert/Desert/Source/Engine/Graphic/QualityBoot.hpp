@@ -15,5 +15,14 @@
 // the levels to fall back to (Scalability.hpp, QualityState::Initialize).
 namespace Desert::Graphic::QualityBoot
 {
-    [[nodiscard]] Common::BoolResultStr Start( const std::filesystem::path& machineJson );
+    // Where a quality change goes. ThisProcess is an unattended run (a scenario or a capture, the editor's
+    // IsUnattendedSession): changes apply live and machine.json is neither written nor migrated — the file is
+    // byte-for-byte what it was before the run (UE: -ExecCmds / automation cvars never reach
+    // GameUserSettings.ini).
+    enum class Persistence
+    {
+        MachineFile,
+        ThisProcess
+    };
+    [[nodiscard]] Common::BoolResultStr Start( const std::filesystem::path& machineJson, Persistence persistence );
 } // namespace Desert::Graphic::QualityBoot

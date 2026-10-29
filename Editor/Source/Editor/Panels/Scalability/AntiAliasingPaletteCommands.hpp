@@ -41,11 +41,11 @@ namespace Desert::Editor
                          QualityState::SetOverride( Parameter::AntiAliasingSamples, samples );
                     if ( !samplesReport.Refused.empty() )
                         return Common::MakeError( std::string( samplesReport.Refused ) );
-                    if ( !samplesReport.Saved )
+                    if ( !samplesReport.Kept() )
                         return Common::MakeError(
                              "the anti-aliasing method applies but machine.json was not saved" );
                 }
-                else if ( !methodReport.Saved )
+                else if ( !methodReport.Kept() )
                     return Common::MakeError( "the anti-aliasing method applies but machine.json was not saved" );
                 return PaletteCommandDone();
             };

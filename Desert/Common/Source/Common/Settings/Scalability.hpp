@@ -619,6 +619,12 @@ namespace Common::Scalability
         using Saver = Common::BoolResultStr ( * )( const QualitySelection& selection );
         static void Initialize( ScalabilityTable table, CapabilityCatalog catalog, QualitySelection saved,
                                 Saver save );
+        // An UNATTENDED run (a scenario, a capture: Editor::IsUnattendedSession) changes the quality of THIS
+        // PROCESS only; the Saver is not called. UE: a cvar set by -ExecCmds or an automation test lives in the
+        // process and never reaches GameUserSettings.ini. Without this, one scenario's
+        // "GlobalIllumination.Method Off" became the machine's ceiling for every later run (Overrides cap all
+        // scenes). Called by the host right after Initialize; `why` names the run in the log.
+        static void KeepInSession( std::string_view why );
         // A device loss / new device: same selection, new catalog -> re-resolve, report what changed.
         static void ReplaceCatalog( CapabilityCatalog catalog );
 
@@ -629,6 +635,12 @@ namespace Common::Scalability
             std::vector<Fallback> NewFallbacks; // fallbacks not present in the previous resolution
             bool                  ValuesChanged = false;
             bool                  Saved         = false;
+            bool                  SessionOnly   = false; // KeepInSession: applied, deliberately not saved
+            // The change is where the caller asked: on disk, or (an unattended run) in this process by design.
+            [[nodiscard]] bool Kept() const noexcept
+            {
+                return Saved || SessionOnly;
+            }
             std::string_view      Refused; // non-empty: nothing was applied, and why (logged at ERROR)
         };
         // THE apply point: resolve, log each NEW fallback once, publish ResolvedQuality (Generation + 1 when

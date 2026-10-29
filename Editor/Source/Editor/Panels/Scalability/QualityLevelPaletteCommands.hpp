@@ -36,7 +36,7 @@ namespace Desert::Editor
                            const auto report = QualityState::SetGroupLevel( group, level );
                            if ( !report.Refused.empty() )
                                return Common::MakeError( std::string( report.Refused ) );
-                           if ( !report.Saved )
+                           if ( !report.Kept() )
                                return Common::MakeError(
                                     "the quality level applies but machine.json was not saved" );
                            return PaletteCommandDone();
@@ -67,7 +67,7 @@ namespace Desert::Editor
                                                parameter, static_cast<ParameterValue>( v ) );
                                           if ( !report.Refused.empty() )
                                               return Common::MakeError( std::string( report.Refused ) );
-                                          if ( !report.Saved )
+                                          if ( !report.Kept() )
                                               return Common::MakeError(
                                                    "the method override applies but machine.json was not saved" );
                                           return PaletteCommandDone();
@@ -78,7 +78,7 @@ namespace Desert::Editor
                        const auto report = QualityState::ClearOverride( parameter );
                        if ( !report.Refused.empty() )
                            return Common::MakeError( std::string( report.Refused ) );
-                       if ( !report.Saved )
+                       if ( !report.Kept() )
                            return Common::MakeError( "the level applies but machine.json was not saved" );
                        return PaletteCommandDone();
                    } } );
@@ -113,7 +113,7 @@ namespace Desert::Editor
                        const auto report = QualityState::SetOverride( Parameter::RenderScalePercent, percent );
                        if ( !report.Refused.empty() )
                            return Common::MakeError( std::string( report.Refused ) );
-                       if ( !report.Saved )
+                       if ( !report.Kept() )
                            return Common::MakeError( "the render scale applies but machine.json was not saved" );
                        return PaletteCommandDone();
                    } } );
@@ -123,7 +123,7 @@ namespace Desert::Editor
                                   const auto report = QualityState::ClearOverride( Parameter::RenderScalePercent );
                                   if ( !report.Refused.empty() )
                                       return Common::MakeError( std::string( report.Refused ) );
-                                  if ( !report.Saved )
+                                  if ( !report.Kept() )
                                       return Common::MakeError(
                                            "the level applies but machine.json was not saved" );
                                   return PaletteCommandDone();
