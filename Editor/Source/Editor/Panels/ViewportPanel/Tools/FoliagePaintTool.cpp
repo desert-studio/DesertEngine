@@ -1213,16 +1213,19 @@ namespace Desert::Editor::Tools
                     return Common::MakeFormattedError<bool>(
                          "foliage: field {} vanished while its cell was written",
                          static_cast<uint64_t>( gather.Fields[i] ) );
-                auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms();
-                auto& selected  = Core::FoliagePaint::Selection()[gather.Fields[i]];
+                ECS::InstancedStaticMeshDesc desc =
+                     ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
+                auto& selected = Core::FoliagePaint::Selection()[gather.Fields[i]];
                 if ( !slotOf[i].has_value() )
                 {
-                    instances.clear();
+                    desc.InstanceTransforms.clear();
+                    ECS::SetInstancedStaticMesh( *ref->get().GetRegistry(), ref->get().GetHandle(), desc );
                     selected.clear();
                     continue;
                 }
-                instances = std::move( out[*slotOf[i]].Instances );
-                selected  = std::move( out[*slotOf[i]].Selected );
+                desc.InstanceTransforms = std::move( out[*slotOf[i]].Instances );
+                ECS::SetInstancedStaticMesh( *ref->get().GetRegistry(), ref->get().GetHandle(), desc );
+                selected = std::move( out[*slotOf[i]].Selected );
                 if ( !cellSize.has_value() )
                     continue;
                 // The field is now its cell's (a field whose grid changed was filed by its instances): its entity
@@ -1882,9 +1885,11 @@ namespace Desert::Editor::Tools
             auto ref = scene.FindEntityByID( uuid );
             if ( selected.empty() || !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                 continue;
-            auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms();
-            stroke.Touch( uuid, instances, selected );
-            edit( instances, selected );
+            ECS::InstancedStaticMeshDesc desc =
+                 ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
+            stroke.Touch( uuid, desc.InstanceTransforms, selected );
+            edit( desc.InstanceTransforms, selected );
+            ECS::SetInstancedStaticMesh( *ref->get().GetRegistry(), ref->get().GetHandle(), desc );
             edited.push_back( uuid );
         }
         // FO-6: an instance moved over a cell edge goes to the neighbour cell's field (UE
@@ -1999,11 +2004,14 @@ namespace Desert::Editor::Tools
             const auto type = ResolveType( manager, ref->get().GetComponent<ECS::FoliageComponent>().FoliageType );
             if ( !type )
                 continue;
-            auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms();
+            ECS::InstancedStaticMeshDesc desc =
+                 ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
+            auto& instances = desc.InstanceTransforms;
             stroke.Touch( uuid, instances, Core::FoliagePaint::SelectionOf( uuid ) );
             const auto added = FoliageFill( type->GetData(), triangles, Core::FoliagePaint::PaintDensity(), filter,
                                             stroke.Random() );
             instances.insert( instances.end(), added.begin(), added.end() );
+            ECS::SetInstancedStaticMesh( *ref->get().GetRegistry(), ref->get().GetHandle(), desc );
             placed += added.size();
             LOG_INFO( "[Foliage] fill '{}': {} placed on {} triangles; field now {}", type->GetDisplayName(),
                       added.size(), triangles.size(), instances.size() );
