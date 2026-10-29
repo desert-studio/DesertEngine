@@ -350,7 +350,7 @@ namespace Desert::Graphic::SurfaceCache
                                    .Origins             = std::move( origins ),
                                    .Budget              = MakeSurfaceCacheBudget( quality ),
                                    .Tracer              = tracer,
-                                   .VirtualLocalShadows = LocalShadowsVirtual( methods ) };
+                                   .VirtualLocalShadows = LocalLightsVirtualPages( methods ) };
     }
 
     void SurfaceCacheRenderer::RefuseLightingTracer( const GlobalIllumination::Pipeline& tracer )

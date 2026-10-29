@@ -1,4 +1,5 @@
 #pragma once
+#include <unordered_set>
 
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/InstanceCullDistance.hpp>
@@ -725,6 +726,25 @@ namespace Desert::Graphic
         // traced): "VSM: Project Local" per slot, read by the same RayTracedLocal programs, and every forward
         // reader (the mesh cells, the forward terrain) reads the virtual map in place of the atlas.
         [[nodiscard]] bool LocalShadowsAreVirtual() const;
+        // This frame's point/spot lights have virtual-shadow-map pages: LocalShadowsAreVirtual, or Shadows Stochastic
+        // whose visibility source is vsm+screen (MegaLights' trace and volume read the pages by ShadowMaskSlot). The
+        // one test every page reader asks: the page passes' local lights, the surface cache's cards.
+        [[nodiscard]] bool LocalLightsReadVirtualPages() const;
+        // The visibility sources MegaLights' trace and volume run this frame: one per source a casting light of
+        // the view resolved to (m_StochasticSourceLights, AssignLocalShadowMaskSlots), so each light is tested by
+        // its own payload ShadowVisibility. A view with no casting light in it names the frame's Visibility (a
+        // vsm+screen frame: screen, no local page was drawn), so the programs always have one source.
+        [[nodiscard]] Common::Scalability::StochasticSources StochasticTraceSources() const;
+        // The lights whose Shadow Method is not Auto, as AssignLocalShadowMaskSlots resolved them this frame
+        // (DesertCtl state render.shadows.lights).
+        [[nodiscard]] const std::vector<StochasticLightMethod>& GetStochasticLightMethods() const
+        {
+            return m_StochasticLightMethods;
+        }
+        [[nodiscard]] const System::VirtualShadowMapQuality& GetVirtualShadowQuality() const
+        {
+            return m_VirtualShadowQuality;
+        }
 
         // Shared GraphicsPipeline cache (keyed by shader + target + render-state). Renderers request
         // pipelines from here instead of creating their own; cleared on Init (full rebuild).
@@ -1119,11 +1139,15 @@ namespace Desert::Graphic
                                                        const ViewFrame&                    frame );
         bool                       EnsureMegaLightsResources();
         // The MegaLights translucency volume (System::MegaLightsVolumeRenderer) into FrameTransients::
-        // MegaLightsVolume, sliced over @p lightGrid's depth range: on under Stochastic with a local light, the
-        // neutral block (System::AddMegaLightsVolumeOff) otherwise or - logged - when its pass could not be
-        // declared.
+        // MegaLightsVolume, sliced over @p lightGrid's depth range, its froxels' visibility the frame's
+        // StochasticVisibility per light (rayquery: the TLAS; vsm+screen: the screen trace from the froxel point
+        // over the closest HZB, then the local lights' virtual pages, so it runs after AddFrameVirtualShadows;
+        // screen: the screen trace): on under Stochastic with a local light; otherwise, or - logged - when its pass
+        // could not be declared, the neutral block OnUpdate set stays. @p hzbDepth: the single-sample opaque depth
+        // the HZB is built from on the forward path (the depth prepass's); invalid on the deferred path (the
+        // G-buffer's).
         void AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
-                                       const LightGridParamsPayload& lightGrid );
+                                       const LightGridParamsPayload& lightGrid, RDG::TextureRef hzbDepth );
         // This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps).
         [[nodiscard]] bool SunShadowIsVirtual() const;
         // THE ONE ANSWER TO "is the sun shadowed from a screen mask this frame" (the ray-traced sun or the virtual
@@ -1446,8 +1470,11 @@ namespace Desert::Graphic
                                                   const std::vector<RDG::TextureRef>& sceneColor,
                                                   System::CopyRenderer* copy, RDG::TextureRef into,
                                                   std::function<void()> recorded );
-        // The closest-depth hierarchy of the G-buffer depth (HZBRenderer), invalid when it was not built.
-        RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures );
+        // The closest-depth hierarchy (HZBRenderer) of the opaque scene depth, built once per graph by its first
+        // caller into FrameTransients::ClosestHzb and returned from there to every later one: of @p depth (the
+        // forward path's single-sample prepass depth) or, invalid, of the G-buffer depth. Invalid when it was not
+        // built.
+        RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef depth = {} );
         // SSR's trace + denoiser over @p screenTrace, before the lighting. Resolved: the reflection the lighting
         // composes (SsrTexture); invalid when SSR did not run.
         // Reflections.TranslucentFrontLayer of the resolved quality.
@@ -1825,6 +1852,12 @@ namespace Desert::Graphic
         // its shadow denoiser history per light too). Pruned each frame to the frame's lights.
         System::RayTracedLocalShadowRenderer                                     m_RayTracedLocalShadow;
         std::vector<System::RayTracedLocalShadowLight>                           m_LocalShadowMaskLights;
+        // Shadows Stochastic, this frame (AssignLocalShadowMaskSlots): the lights per resolved source
+        // (StochasticVisibility order), the non-Auto lights' methods, and the (SourceId, method) pairs whose clamp
+        // was logged (once per light and method).
+        std::array<uint32_t, 3>            m_StochasticSourceLights{};
+        std::vector<StochasticLightMethod> m_StochasticLightMethods;
+        std::unordered_set<uint64_t>       m_ReportedLightMethodClamps;
         std::unordered_map<uint32_t, std::unique_ptr<System::ScreenSpaceDenoiser>> m_LocalShadowDenoisers;
         // A pruned light's denoiser (its extracted history textures) is PARKED here, not destroyed: frames still
         // in flight may read its history; released once no frame recorded before the prune can (FrameRetireQueue).
@@ -1842,7 +1875,6 @@ namespace Desert::Graphic
         // BeginScene.
         System::MegaLightsVolumeRenderer m_MegaLightsVolume;
         System::MegaLightsVolumeQuality  m_MegaLightsVolumeQuality;
-        bool                             m_MegaLightsVolumeReady = false;
         // "Shadows: Virtual Shadow Map" (per view: the page cache is this view's), created on the first frame that
         // resolves the sun to VirtualMaps; its quality (Shadows.Virtual*) taken each BeginScene.
         System::VirtualShadowMapRenderer m_VirtualShadowMap;

@@ -94,6 +94,7 @@ namespace Desert::ECS
                           .DepthBias       = spotlight.Data.ShadowBias,
                           .SlopeBias       = spotlight.Data.ShadowSlopeBias,
                           .ResolutionScale = spotlight.Data.ShadowResolutionScale,
+                          .ShadowMethod    = spotlight.Data.ShadowMethod,
                           .SourceId        = static_cast<uint32_t>( entity ) + 1u };
 
                      renderCommandBuffer.Emplace<Graphic::Render::SpotLightCommand>( light, shadow );

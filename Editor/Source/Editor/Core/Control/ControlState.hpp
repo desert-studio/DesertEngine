@@ -220,6 +220,16 @@ namespace Desert::Editor::Control
         uint32_t Receivers = 0; ///< of them, asked for by "VSM: Mark Receivers" (a forward receiver's own depth)
     };
 
+    /// One light whose Shadow Method is not Auto, as the primary view resolved it this frame
+    /// (Graphic::StochasticLightMethod): requested Common::Scalability::kLightShadowMethodNames, effective
+    /// kStochasticVisibilityNames.
+    struct ShadowLightMethodSnapshot
+    {
+        uint32_t    Source = 0; ///< LocalLightShadowSettings::SourceId (entity + 1)
+        std::string Requested;
+        std::string Effective;
+    };
+
     /// The primary view's last forward depth prepass (Graphic/Systems/Scene/Mesh/MeshRenderer.hpp
     /// ForwardPrepassStats): all zero on a frame that drew its meshes into the G-buffer.
     struct ForwardPrepassSnapshot
@@ -264,6 +274,15 @@ namespace Desert::Editor::Control
         std::vector<VsmLocalLightSnapshot> VsmLocalLights;
         // The primary view's forward depth prepass, as its base pass of the same frame admitted it.
         ForwardPrepassSnapshot ForwardPrepass;
+        // The primary view's Shadows method this frame (Graphic::RenderMethods: requested, effective) and, under
+        // Stochastic, MegaLights' visibility source (Common::Scalability::kStochasticVisibilityNames).
+        std::string ShadowsRequested;
+        std::string ShadowsEffective;
+        std::string ShadowsVisibility;
+        // Under Stochastic: the lights with their own Shadow Method, and the local lights' SMRT samples per ray
+        // (Scalability Shadows.VirtualSMRTSamplesPerRayLocal, VsmLocalVisibilityRay).
+        std::vector<ShadowLightMethodSnapshot> ShadowsLights;
+        uint32_t                               ShadowsSmrtSamplesLocal = 0;
         // The scene-owned GI pools (UE: FScene's FDistanceFieldSceneData and FLumenSceneData), over every live
         // Core::Scene: Scenes, the live scenes; DistanceFieldPools, those whose mesh distance-field brick atlas is
         // resident (DistanceFieldSceneData::GetBrickAtlas); SurfaceCaches, those whose surface cache atlases are
@@ -500,6 +519,22 @@ namespace Desert::Editor::Control
             forwardPrepass["depthWriteInBase"] = Common::Json::Value( prepass.DepthWriteInBase );
             Common::Json::Object render;
             render["forwardPrepass"] = Common::Json::Value( forwardPrepass );
+            Common::Json::Object shadows;
+            shadows["requested"]  = Common::Json::Value( snapshot.ShadowsRequested );
+            shadows["method"]     = Common::Json::Value( snapshot.ShadowsEffective );
+            shadows["visibility"] = Common::Json::Value( snapshot.ShadowsVisibility );
+            shadows["smrtSamplesLocal"] = Num( snapshot.ShadowsSmrtSamplesLocal );
+            Common::Json::Value::Array shadowLights;
+            for ( const ShadowLightMethodSnapshot& light : snapshot.ShadowsLights )
+            {
+                Common::Json::Object entry;
+                entry["source"]    = Num( light.Source );
+                entry["requested"] = Common::Json::Value( light.Requested );
+                entry["effective"] = Common::Json::Value( light.Effective );
+                shadowLights.push_back( Common::Json::Value( entry ) );
+            }
+            shadows["lights"] = Common::Json::Value( shadowLights );
+            render["shadows"]     = Common::Json::Value( shadows );
             root["render"]           = Common::Json::Value( render );
         }
 

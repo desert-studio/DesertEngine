@@ -163,7 +163,7 @@ namespace Desert::Graphic::SurfaceCache
             // process settings under the machine's ceiling and the device - when traced, else the software walk
             // every device runs. The updating view records the lighting with it and builds what it reads.
             GlobalIllumination::Pipeline Tracer;
-            // The local lights' shadows the cards are lit through (LocalShadowsVirtual of the scene's resolved methods):
+            // The local lights' shadows the cards are lit through (LocalLightsVirtualPages of the scene's resolved methods):
             // true = their virtual maps (the DESERT_LOCAL_SHADOW_VSM lighting program), false = the local shadow
             // atlas. The cache's, not the updating view's: the view that records the frame's lighting must have
             // built the same kind of local shadows, else AddDirectLightingPass refuses it by name.

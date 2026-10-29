@@ -2,6 +2,7 @@
 
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Settings/RenderMethods.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -49,6 +50,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( AccelerationStructure, SceneTlas );
         DESERT_SHADER_PARAMETER( StorageBuffer, RayTracingGeometryRecords );
         DESERT_SHADER_PARAMETER( StorageBuffer, RayTracingMaterialRecords );
+        DESERT_SHADER_PARAMETER( Texture, HzbTexture );
     };
 
     // The most traced samples a froxel takes per frame: the shader's MEGALIGHTS_VOLUME_MAX_SAMPLES
@@ -69,8 +71,16 @@ namespace Desert::Graphic::System
     // This frame's inputs, graph refs of this view's graph.
     struct MegaLightsVolumeInputs
     {
+        // The visibility sources the frame's casting lights resolved to (never empty; each froxel sample tests its
+        // light's own, the payload's ShadowVisibility, as the surface samples do) and what they read: the TLAS and
+        // its records (RayQuery), the closest HZB of the opaque scene depth (VirtualMaps, Screen: the screen trace
+        // from the froxel point, SceneRenderer::AddFrameHZB - the surface trace's) and the virtual shadow map's
+        // reader tables with the local lights' pages (VirtualMaps).
+        Common::Scalability::StochasticSources Sources;
         RDG::BufferRef                      Tlas;
         RayTracing::RayTracingMetadataFrame Metadata;
+        RDG::TextureRef                     Hzb;
+        VirtualShadowMapReadRefs            Vsm;
         ViewLightBuffers                    Lights;  // the rows and the light grid (AddFrameLightGrid)
         RDG::TextureRef                     Black3D; // System.Black3D: the history before one exists
         uint32_t                            PointLights = 0;
@@ -95,8 +105,11 @@ namespace Desert::Graphic::System
         glm::uvec4 Size;        // froxels xyz, frame index
         glm::uvec4 Counts;      // points, spots, samples per froxel, history readable
         glm::vec4  Params;      // history weight, ray bias (cm), render extent (px)
+        glm::mat4  JitteredViewProjection;    // the screen trace: the matrices the HZB's depth was drawn with
+        glm::mat4  InvJitteredViewProjection;
+        glm::vec4  CameraPosition; // xyz
     };
-    static_assert( sizeof( MegaLightsVolumeUniforms ) == 336 );
+    static_assert( sizeof( MegaLightsVolumeUniforms ) == 480 );
 
     // MegaLightsVolumeUB (Common/MegaLightsVolume.glslh), std430: what a reader maps a fragment with.
     struct MegaLightsVolumeReadParams
@@ -123,32 +136,32 @@ namespace Desert::Graphic::System
     class MegaLightsVolumeRenderer
     {
     public:
-        [[nodiscard]] Common::BoolResultStr Initialize()
-        {
-            m_Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( kShaderName ) );
-            if ( !m_Shader )
-                return Common::MakeError( std::format( "MegaLights: shader {} not found", kShaderName ) );
-            const auto pipeline =
-                 ComputePipeline::Create( { .Shader = m_Shader, .DebugName = std::string( kShaderName ) } );
-            if ( !pipeline )
-                return Common::MakeError( pipeline.GetError() );
-            m_Pipeline = pipeline.GetValue();
-            return BOOLSUCCESS;
-        }
-
-        // Declares "MegaLights: Volume" and returns the volume ON. An error, never an unshadowed volume, when the
-        // frame has no TLAS or no light grid.
+        // Declares "MegaLights: Volume" with the program of @p in.Sources (ProgramOf, built on its first frame,
+        // EnsureProgram) and returns the volume ON. An error, never a volume lit without its source, when the
+        // frame lacks what a source reads (the TLAS, the virtual shadow map) or the light grid.
         [[nodiscard]] Common::ResultStr<MegaLightsVolumeRefs> AddPasses( RDG::Builder&                  graph,
                                                                          const MegaLightsVolumeInputs&  in,
                                                                          const MegaLightsVolumeQuality& quality,
                                                                          const ViewFrame&               frame )
         {
-            if ( !m_Pipeline )
+            if ( in.Sources.Empty() )
                 return Common::MakeError<MegaLightsVolumeRefs>(
-                     "MegaLights: Volume: the pipeline is not initialised" );
-            if ( !in.Tlas.IsValid() || !in.Metadata.Geometry.IsValid() || !in.Metadata.Materials.IsValid() )
+                     "MegaLights: Volume: the frame names no visibility source" );
+            const std::size_t programIndex = ProgramOf( in.Sources );
+            if ( const Common::BoolResultStr built = EnsureProgram( programIndex ); !built )
+                return Common::MakeError<MegaLightsVolumeRefs>( built.GetError() );
+            const Program& program = m_Programs[programIndex];
+            if ( in.Sources.RayQuery &&
+                 ( !in.Tlas.IsValid() || !in.Metadata.Geometry.IsValid() || !in.Metadata.Materials.IsValid() ) )
                 return Common::MakeError<MegaLightsVolumeRefs>(
-                     "MegaLights: Volume: Shadows resolved to Stochastic but the frame has no TLAS" );
+                     "MegaLights: Volume: a light's visibility is rayquery but the frame has no TLAS" );
+            if ( in.Sources.ScreenTrace() && !in.Hzb.IsValid() )
+                return Common::MakeError<MegaLightsVolumeRefs>(
+                     "MegaLights: Volume: a light's visibility traces the screen but the frame has no closest HZB" );
+            if ( in.Sources.VirtualMaps && !in.Vsm.IsValid() )
+                return Common::MakeError<MegaLightsVolumeRefs>(
+                     "MegaLights: Volume: a light's visibility is vsm+screen but the frame drew no virtual shadow "
+                     "map" );
             if ( !in.Lights.GridParams.IsValid() || !in.Lights.GridCells.IsValid() || !in.Black3D.IsValid() )
                 return Common::MakeError<MegaLightsVolumeRefs>( std::format(
                      "MegaLights: Volume: the frame has no {}",
@@ -193,7 +206,10 @@ namespace Desert::Graphic::System
                                        readable ? 1u : 0u ),
                  .Params =
                       glm::vec4( 1.0f / static_cast<float>( quality.MaxHistory + 1u ), kMegaLightsVolumeRayBias,
-                                 static_cast<float>( in.Width ), static_cast<float>( in.Height ) ) };
+                                 static_cast<float>( in.Width ), static_cast<float>( in.Height ) ),
+                 .JitteredViewProjection    = frame.JitteredViewProjection,
+                 .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                 .CameraPosition            = glm::vec4( frame.CameraPosition, 1.0f ) };
             const RDG::BufferRef view = graph.CreateBuffer( RDG::BufferDesc{ sizeof( MegaLightsVolumeUniforms ) },
                                                             "MegaLights.Volume.ViewUB" );
             graph.QueueBufferUpload( view,
@@ -213,8 +229,8 @@ namespace Desert::Graphic::System
                  kPassName, RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
-                     auto block =
-                          pass.Bindings( m_Layout.Get( m_Shader ), Renderer::GetPipelineRouteFill( *m_Pipeline ) );
+                     const RDG::ShaderBindingLayout& layout = program.Layout.Get( program.Shader );
+                     auto block = pass.Bindings( layout, Renderer::GetPipelineRouteFill( *program.Pipeline ) );
                      block.Uniform( MegaLightsVolumeShaderParameters::MegaLightsVolumeViewUB, view )
                           .Sampler( MegaLightsVolumeShaderParameters::LinearClampSampler,
                                     RDG::SamplerDesc::LinearClamp() )
@@ -223,24 +239,30 @@ namespace Desert::Graphic::System
                           .Storage( ShaderProtocols::SpotLight::Parameter, in.Lights.Spot,
                                     RDG::Access::StorageRead )
                           .Storage( kLightGridParamsBlock, in.Lights.GridParams, RDG::Access::StorageRead )
-                          .Storage( kLightGridCellsBlock, in.Lights.GridCells, RDG::Access::StorageRead )
-                          .AccelerationStructure( MegaLightsVolumeShaderParameters::SceneTlas, in.Tlas )
-                          .Storage( MegaLightsVolumeShaderParameters::RayTracingGeometryRecords,
-                                    in.Metadata.Geometry, RDG::Access::StorageRead )
-                          .Storage( MegaLightsVolumeShaderParameters::RayTracingMaterialRecords,
-                                    in.Metadata.Materials, RDG::Access::StorageRead );
+                          .Storage( kLightGridCellsBlock, in.Lights.GridCells, RDG::Access::StorageRead );
+                     if ( in.Sources.RayQuery )
+                         block.AccelerationStructure( MegaLightsVolumeShaderParameters::SceneTlas, in.Tlas )
+                              .Storage( MegaLightsVolumeShaderParameters::RayTracingGeometryRecords,
+                                        in.Metadata.Geometry, RDG::Access::StorageRead )
+                              .Storage( MegaLightsVolumeShaderParameters::RayTracingMaterialRecords,
+                                        in.Metadata.Materials, RDG::Access::StorageRead );
+                     if ( in.Sources.VirtualMaps )
+                         BindVirtualShadowMapReads( block, in.Vsm, layout );
+                     if ( in.Sources.ScreenTrace() )
+                         block.Texture( MegaLightsVolumeShaderParameters::HzbTexture, in.Hzb,
+                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
                      for ( std::size_t channel = 0; channel < 3; ++channel )
                          block.Texture( kHistoryInputs[channel], history[channel], RDG::Access::SampledCompute,
                                         RDG::SubresourceRange::All() )
                               .Storage( kOutputs[channel], written[channel], RDG::Access::StorageWrite );
                  },
-                 [this, size, stamped,
+                 [pipeline = program.Pipeline, size, stamped,
                   index = frame.FrameIndex]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "MegaLights" );
                      const RDG::PassBindings     bindings( context, context.GetBindingBlock( 0 ) );
                      const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
-                          bindings, *m_Pipeline, ( size.Width + 3u ) / 4u, ( size.Height + 3u ) / 4u,
+                          bindings, *pipeline, ( size.Width + 3u ) / 4u, ( size.Height + 3u ) / 4u,
                           ( size.Depth + 3u ) / 4u );
                      if ( dispatched.IsSuccess() )
                          stamped->Stamp.Stamp( index );
@@ -250,7 +272,30 @@ namespace Desert::Graphic::System
         }
 
     private:
-        static constexpr std::string_view                kShaderName        = "MegaLightsVolume";
+        // The programs, one per set of visibility sources (ProgramOf: the surface trace's set, MegaLights.hpp
+        // TraceProgramOf); each branches per light on its payload's ShadowVisibility
+        // (Common/MegaLightsVolumeWrite.glslh VolumeVisibility). Every program but the ray query alone holds the
+        // screen trace from the froxel point (the HZB bound: StochasticSources::ScreenTrace).
+        static constexpr std::size_t                                 kProgramRayQuery               = 0;
+        static constexpr std::size_t                                 kProgramVirtualMaps            = 1;
+        static constexpr std::size_t                                 kProgramScreen                 = 2;
+        static constexpr std::size_t                                 kProgramRayQueryAndScreen      = 3;
+        static constexpr std::size_t                                 kProgramRayQueryAndVirtualMaps = 4;
+        static constexpr std::size_t                                 kProgramCount                  = 5;
+        static constexpr std::array<std::string_view, kProgramCount> kShaderNames                   = {
+             "MegaLightsVolume", "MegaLightsVolumeVirtual", "MegaLightsVolumeScreen",
+             "MegaLightsVolumeRayQueryScreen", "MegaLightsVolumeRayQueryVirtual" };
+
+        // The one program that holds every source of @p sources (not empty).
+        [[nodiscard]] static constexpr std::size_t
+        ProgramOf( const Common::Scalability::StochasticSources& sources )
+        {
+            if ( sources.RayQuery )
+                return sources.VirtualMaps ? kProgramRayQueryAndVirtualMaps
+                       : sources.Screen    ? kProgramRayQueryAndScreen
+                                           : kProgramRayQuery;
+            return sources.VirtualMaps ? kProgramVirtualMaps : kProgramScreen;
+        }
         static constexpr std::string_view                kPassName          = "MegaLights: Volume";
         static constexpr std::array<RDG::TextureParameter, 3> kHistoryInputs     = {
              RDG::TextureParameter( "HistoryRTexture" ), RDG::TextureParameter( "HistoryGTexture" ),
@@ -302,9 +347,42 @@ namespace Desert::Graphic::System
             return refs;
         }
 
-        std::shared_ptr<Shader>          m_Shader;
-        std::shared_ptr<ComputePipeline> m_Pipeline;
-        mutable ShaderBindingLayoutCache m_Layout;
+        struct Program
+        {
+            std::shared_ptr<Shader>          Shader;
+            std::shared_ptr<ComputePipeline> Pipeline;
+            mutable ShaderBindingLayoutCache Layout;
+        };
+
+        // The program @p source (ProgramOf), built once: a device without ray query never builds a ray-query one.
+        // A failure is latched (no later frame repairs a shader).
+        [[nodiscard]] Common::BoolResultStr EnsureProgram( const std::size_t source )
+        {
+            Program&   program = m_Programs[source];
+            if ( program.Pipeline )
+                return BOOLSUCCESS;
+            if ( !m_ProgramErrors[source].empty() )
+                return Common::MakeError( m_ProgramErrors[source] );
+            const std::string_view name = kShaderNames[source];
+            program.Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( name ) );
+            if ( !program.Shader )
+            {
+                m_ProgramErrors[source] = std::format( "MegaLights: Volume: shader {} not found", name );
+                return Common::MakeError( m_ProgramErrors[source] );
+            }
+            const auto pipeline =
+                 ComputePipeline::Create( { .Shader = program.Shader, .DebugName = std::string( name ) } );
+            if ( !pipeline )
+            {
+                m_ProgramErrors[source] = pipeline.GetError();
+                return Common::MakeError( m_ProgramErrors[source] );
+            }
+            program.Pipeline = pipeline.GetValue();
+            return BOOLSUCCESS;
+        }
+
+        std::array<Program, kProgramCount>     m_Programs; // per ProgramOf, built on first use (EnsureProgram)
+        std::array<std::string, kProgramCount> m_ProgramErrors;
         std::array<HistorySlot, 2>       m_Slots;
         uint32_t                         m_Parity = 0;
     };

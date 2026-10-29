@@ -111,13 +111,17 @@ namespace Desert::Graphic::System
     public:
         using RenderSystem::RenderSystem;
 
-        // The permutation of the composite program @p program (kScreenMaskSunProgram..kVirtualLocalProgram; the
-        // cascades' program is the default one), cooked: ShippedByCook - the one statement Initialize acquires and
-        // ProgramVariants lists.
+        // The permutation of the composite program @p program (kScreenMaskSunProgram..kMegaLightsCascadeProgram;
+        // the cascades' program is the default one), cooked: ShippedByCook - the one statement Initialize acquires
+        // and ProgramVariants lists.
         [[nodiscard]] static Core::ShaderVariant ProgramVariant( const std::size_t program )
         {
-            Core::ShaderVariant variant{ .Defines = { std::string( kSunShadowScreenMaskDefine ) } };
-            if ( program == kMegaLightsProgram )
+            Core::ShaderVariant variant;
+            // Every permutation but MegaLights under StochasticVisibility::Screen reads the sun's screen mask;
+            // that one keeps the sun's cascades (the screen source draws no sun mask).
+            if ( program != kMegaLightsCascadeProgram )
+                variant.Defines.emplace_back( kSunShadowScreenMaskDefine );
+            if ( program == kMegaLightsProgram || program == kMegaLightsCascadeProgram )
                 variant.Defines.emplace_back( kMegaLightsDefine );
             if ( program == kRayTracedLocalProgram || program == kVirtualLocalProgram )
                 variant.Defines.emplace_back( kLocalShadowScreenMaskDefine );
@@ -345,8 +349,10 @@ namespace Desert::Graphic::System
                            const DeferredEnvironmentInput& environment, const glm::mat4& jitteredViewProjection )
         {
             // The sun's arm picks the program this frame's composite draws with; MegaLights' local lights pick
-            // theirs (the sun is then the ray-traced mask: SceneRenderer resolves Stochastic's sun to it).
-            m_Active = shadow.MegaLightsLocalLights  ? kMegaLightsProgram
+            // theirs, by the sun's arm: Stochastic's sun follows its visibility source (rayquery: the ray-traced
+            // mask, vsm+screen: the virtual map's mask, screen: the cascades).
+            const bool sunMask = std::holds_alternative<DeferredScreenShadowMask>( shadow.Sun );
+            m_Active = shadow.MegaLightsLocalLights  ? ( sunMask ? kMegaLightsProgram : kMegaLightsCascadeProgram )
                        : shadow.VirtualLocalLights   ? kVirtualLocalProgram
                        : shadow.RayTracedLocalLights ? kRayTracedLocalProgram
                                                      : shadow.Sun.index();
@@ -407,7 +413,7 @@ namespace Desert::Graphic::System
                            inputs.SubsurfaceDiffuse, RDG::Access::StorageWrite );
             // The light rows and their shadow views: the light-grid loop's. The MegaLights program reads
             // MegaLights' lighting instead.
-            if ( m_Active == kMegaLightsProgram )
+            if ( m_Active == kMegaLightsProgram || m_Active == kMegaLightsCascadeProgram )
                 block.Texture( DeferredLightingCompositeShaderParameters::MegaLightsDiffuseTexture,
                                inputs.MegaLightsDiffuse, kRead, kWhole )
                      .Texture( DeferredLightingCompositeShaderParameters::MegaLightsSpecularTexture,
@@ -508,7 +514,8 @@ namespace Desert::Graphic::System
 
         // One program per DeferredShadowInput::Sun arm (the index): the cascades, and the
         // DESERT_SUN_SHADOW_SCREEN_MASK permutation reading the screen shadow mask; then the MegaLights program
-        // (the screen mask + DESERT_MEGALIGHTS) for Shadows Stochastic.
+        // (the screen mask + DESERT_MEGALIGHTS) for Shadows Stochastic, and its cascades twin (DESERT_MEGALIGHTS
+        // alone) for Stochastic whose visibility source is the screen (no sun mask is drawn then).
         struct CompositeProgram
         {
             std::shared_ptr<Shader>                   Shader;
@@ -521,11 +528,14 @@ namespace Desert::Graphic::System
         static constexpr std::size_t kMegaLightsProgram    = 2; // DeferredShadowInput::MegaLightsLocalLights
         static constexpr std::size_t kRayTracedLocalProgram = 3; // DeferredShadowInput::RayTracedLocalLights
         static constexpr std::size_t kVirtualLocalProgram   = 4; // DeferredShadowInput::VirtualLocalLights
-        static constexpr std::array<std::string_view, 5> kProgramDebugNames = {
+        static constexpr std::size_t kMegaLightsCascadeProgram = 5; // MegaLightsLocalLights under the sun's cascades
+        static constexpr std::array<std::string_view, 6> kProgramDebugNames = {
              "DeferredLighting", "DeferredLighting RayTracedSun", "DeferredLighting MegaLights",
-             "DeferredLighting RayTracedLocal", "DeferredLighting VirtualLocal" };
+             "DeferredLighting RayTracedLocal", "DeferredLighting VirtualLocal",
+             "DeferredLighting MegaLightsCascades" };
         // The Shadows methods each program alone serves; empty = every method needs it (the cascades' program).
-        // HardwareTraced and VirtualMaps read the screen mask; Stochastic draws its own MegaLights program.
+        // HardwareTraced and VirtualMaps read the screen mask; Stochastic draws its own MegaLights programs (the
+        // sun's mask, or its cascades under StochasticVisibility::Screen).
         static constexpr std::array<Common::Scalability::ShadowMethod, 2> kScreenMaskSunMethods = {
              Common::Scalability::ShadowMethod::VirtualMaps, Common::Scalability::ShadowMethod::HardwareTraced };
         static constexpr std::array<Common::Scalability::ShadowMethod, 1> kMegaLightsMethods = {
@@ -534,9 +544,9 @@ namespace Desert::Graphic::System
              Common::Scalability::ShadowMethod::HardwareTraced };
         static constexpr std::array<Common::Scalability::ShadowMethod, 1> kVirtualLocalMethods = {
              Common::Scalability::ShadowMethod::VirtualMaps };
-        static constexpr std::array<std::span<const Common::Scalability::ShadowMethod>, 5> kProgramShadowMethods =
+        static constexpr std::array<std::span<const Common::Scalability::ShadowMethod>, 6> kProgramShadowMethods =
              { std::span<const Common::Scalability::ShadowMethod>{}, kScreenMaskSunMethods, kMegaLightsMethods,
-               kRayTracedLocalMethods, kVirtualLocalMethods };
+               kRayTracedLocalMethods, kVirtualLocalMethods, kMegaLightsMethods };
         // Program @p index made ready to draw: the permutation acquired from the shader service (the cascades'
         // program keeps the shader Initialize looked up), its pipeline over the scene target and its material.
         // On an error the program is left empty and the error is the reason it was refused.
@@ -592,7 +602,7 @@ namespace Desert::Graphic::System
             for ( const Common::Scalability::ShadowMethod method : kProgramShadowMethods[index] )
                 AddRefusal( m_Refusals.Shadows, method, kProgramDebugNames[index], reason );
         }
-        std::array<CompositeProgram, 5> m_Programs;
+        std::array<CompositeProgram, 6> m_Programs;
         ProgramRefusals                 m_Refusals;
         std::size_t                     m_Active = kCascadeProgram; // FillMaterial's arm, this frame
 

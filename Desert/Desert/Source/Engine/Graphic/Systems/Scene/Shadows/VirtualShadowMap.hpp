@@ -62,6 +62,13 @@ namespace Desert::Graphic::System
     // r.Shadow.Virtual.SMRT.RayLengthScaleDirectional bounds the same march): the widest penumbra the map can
     // show.
     inline constexpr float kVsmSmrtRayLengthPages = 4.0f;
+    // How steeply a local light's SMRT ray may extrapolate the surface it has followed from the receiver (UE
+    // r.Shadow.Virtual.SMRT.ExtrapolateMaxSlopeLocal; Common/VirtualShadowMap.glslh VsmLocalVisibilityRay), in cm of
+    // the map's view depth per cm of lateral travel across the map (2 = surfaces up to ~63 degrees from the light's
+    // view plane): an occluder that continues that surface within this slope is the receiver's own surface, not a
+    // caster. Higher = softer contact penumbrae and less self-shadowing on tilted receivers, more light leaking
+    // behind a caster whose depth jump is below the slope times the lateral step; 0 = the surface held flat.
+    inline constexpr float kVsmSmrtExtrapolateMaxSlopeLocal = 2.0f;
 
     // Local lights (VSM_LEVEL_LOCAL): every view a mip chain of virtual maps, mip k of a view 128 >> k pages a
     // side.
@@ -108,8 +115,9 @@ namespace Desert::Graphic::System
         glm::vec4 Lod{ 0.0f };             // x LOD bias, y level count, z first level, w frame index
         glm::vec4 ToSun{ 0.0f };           // xyz toward the sun, w SourceAngle radians
         glm::vec4 Smrt{ 0.0f };            // x rays, y samples per ray, z normal bias texels, w ray length pages
+        glm::vec4 SmrtLocal{ 0.0f };       // x samples per local ray, y extrapolation max slope, zw 0 (std430 pad)
     };
-    static_assert( sizeof( VsmFrameGpu ) == 128 );
+    static_assert( sizeof( VsmFrameGpu ) == 144 );
 
     struct VsmLevelGpu
     {
@@ -218,6 +226,7 @@ namespace Desert::Graphic::System
         float ResolutionLodBias = 0.0f; // Shadows.VirtualResolutionLodBias, levels (ResolutionLodBiasDirectional)
         uint32_t SmrtRayCount   = 8;    // Shadows.VirtualSMRTRayCount (r.Shadow.Virtual.SMRT.RayCountDirectional)
         uint32_t SmrtSamplesPerRay = 4; // Shadows.VirtualSMRTSamplesPerRay (SMRT.SamplesPerRayDirectional)
+        uint32_t SmrtSamplesPerRayLocal = 8; // Shadows.VirtualSMRTSamplesPerRayLocal (SMRT.SamplesPerRayLocal)
     };
 
     // A world box whose casters changed this frame (UE FVirtualShadowMapCacheManager invalidation): a movable

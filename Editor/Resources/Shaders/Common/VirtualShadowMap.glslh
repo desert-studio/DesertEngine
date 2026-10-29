@@ -49,6 +49,7 @@ struct VsmFrame
     vec4 Lod;               // x = resolution LOD bias (levels), y = level count, z = first level, w = frame index
     vec4 ToSun;             // xyz = toward the sun, w = SourceAngle radians
     vec4 Smrt;              // x = rays per pixel, y = samples per ray, z = normal bias texels, w = ray length pages
+    vec4 SmrtLocal;         // x = samples per local light ray, y = extrapolation max slope (depth cm per lateral cm)
 };
 
 // A LEVEL is one virtual map of the page table: a clipmap level of the sun (VSM_LEVEL_CLIPMAP, the first
@@ -331,6 +332,89 @@ float VsmLocalVisibility( VsmLocalLight light, vec3 world, vec3 normal )
         }
     }
     return lit / 9.0;
+}
+
+// SHADOW MAP RAY TRACING FOR A LOCAL LIGHT (UE VirtualShadowMapSMRTCommon.ush SMRTRayCast through a local light's
+// perspective map; the sun's form is VirtualShadowMapProject.shader): whether the one ray from a receiver at @p world
+// (normal @p normal) along @p dir, which reaches a point of the light's source sphere @p reach cm away, crosses an
+// occluder the map holds. 1 = lit, 0 = blocked. The caller draws @p dir over the source sphere (MegaLights:
+// SampleLightSourceSphere), so the fraction of its rays that pass is the area of the emitter the receiver sees: the
+// penumbra widens with the occluder's distance from the receiver (contact hardening), where the PCF above blurs
+// every edge by the same texels whatever SourceRadius is.
+// The ray leaves the receiver as VsmLocalVisibility does (off the surface along its normal by a texel of the
+// receiver's mip); Frame.SmrtLocal.x samples go along it (Scalability Shadows.VirtualSMRTSamplesPerRayLocal, UE
+// SMRT.SamplesPerRayLocal), denser near the receiver (t^2, as the sun's march), each shifted by @p jitter in [0, 1).
+// A sample is projected through the view of the light that sees it (a ray of a point light may cross cube faces) at
+// the receiver's mip - an unmapped page there falls back to coarser mips (VsmLocalOccluderDistance).
+// SLOPE EXTRAPOLATION (UE SMRTRayCast with r.Shadow.Virtual.SMRT.ExtrapolateMaxSlopeLocal): a depth map holds the
+// front surface only, so the receiver's own surface, curving or tilted toward the light, reads as "nearer than the
+// ray" at the samples next to it. The march keeps the surface it has followed - its depth at the last sample and its
+// slope, in depth cm per cm of lateral travel across the map, clamped to Frame.SmrtLocal.y - seeded with the
+// receiver itself. A sample blocks only when the map's occluder is nearer than the ray AND nearer than that surface
+// extrapolated to the sample, each by a texel of the mip at the sample's depth: a caster is a jump in depth, the
+// receiver's surface a continuation. Before a slope is measured the extrapolation allows the steepest slope toward
+// the light. A sample on another cube face than the previous one starts a new history (the depths are along another
+// axis there) and is tested plainly. Frame.SmrtLocal.y = 0 holds the followed surface flat.
+// A sample outside a spot's view holds no occluder; a sample past the near plane is inside the emitter, where nothing
+// casts. Frame.Smrt.x = 0 (the quality asks for no shadow-map rays) reads the PCF lookup instead, as the sun's
+// projection does with no rays.
+float VsmLocalVisibilityRay( VsmLocalLight light, vec3 world, vec3 normal, vec3 dir, float reach, float jitter )
+{
+    if ( uint( Frame.Smrt.x ) == 0u )
+        return VsmLocalVisibility( light, world, normal );
+    uint first;
+    uint mip;
+    vec4 clip0;
+    if ( !VsmLocalReceiver( light, world, first, mip, clip0 ) )
+        return 1.0;
+    const float texelScale = light.Params.z * float( 1u << mip ); // the mip's texel per cm of view depth
+    const vec3  L          = normalize( light.Position.xyz - world );
+    const float NdotL      = clamp( dot( normal, L ), 0.0, 1.0 );
+    const vec3  origin     = world + normal * ( texelScale * clip0.w ) * ( 0.5 + 1.5 * ( 1.0 - NdotL ) );
+    const uint  samples    = max( uint( Frame.SmrtLocal.x ), 1u );
+    const float maxSlope   = max( Frame.SmrtLocal.y, 0.0 );
+    // The surface followed so far: on view @p historyView, depth @p historyDepth at map position @p historyAt
+    // (texels of the mip), slope @p historySlope. Seeded with the receiver, whose slope is not known yet.
+    uint  historyView  = first;
+    float historyDepth = clip0.w;
+    vec2  historyAt    = ( clip0.xy / clip0.w * 0.5 + 0.5 ) * float( Levels[first + mip].Pages.y * VSM_PAGE_SIZE );
+    float historySlope = -maxSlope;
+    for ( uint s = 0u; s < samples; ++s )
+    {
+        const float t    = ( float( s ) + jitter ) / float( samples );
+        const vec3  at   = origin + dir * ( reach * t * t );
+        const uint  view = light.Views.x + VsmLocalView( light, at ) * VSM_LOCAL_MIPS;
+        const vec4  clip = Levels[view].ViewProjection * vec4( at, 1.0 );
+        if ( clip.w <= light.Params.x )
+            break;
+        const vec2 ndc = clip.xy / clip.w;
+        if ( any( greaterThan( abs( ndc ), vec2( 1.0 ) ) ) )
+            continue;
+        const float size     = float( Levels[view + mip].Pages.y * VSM_PAGE_SIZE );
+        const vec2  mapAt    = ( ndc * 0.5 + 0.5 ) * size;
+        const float texelCm  = texelScale * clip.w; // a texel of the mip at the sample's depth
+        const float occluder = VsmLocalOccluderDistance( light, view, mip, ivec2( floor( mapAt ) ) );
+        const bool  nearer   = occluder < clip.w - texelCm;
+        if ( view != historyView )
+        {
+            if ( nearer )
+                return 0.0;
+            historyView  = view;
+            historyDepth = occluder;
+            historyAt    = mapAt;
+            historySlope = -maxSlope;
+            continue;
+        }
+        const float lateral   = distance( mapAt, historyAt ) * texelCm;
+        const float predicted = historyDepth + historySlope * lateral;
+        if ( nearer && occluder < predicted - texelCm )
+            return 0.0;
+        if ( lateral > 0.0 )
+            historySlope = clamp( ( occluder - historyDepth ) / lateral, -maxSlope, maxSlope );
+        historyDepth = occluder;
+        historyAt    = mapAt;
+    }
+    return 1.0;
 }
 
 // THE LIGHT THROUGH A SUBSURFACE RECEIVER'S OCCLUDERS (DesertLight::TransmissionShadow) from light @p light: the

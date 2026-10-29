@@ -121,20 +121,21 @@ namespace Desert::Graphic::System
             };
             for ( uint32_t k = 0; k < World::Landscape::kLandscapeMaxWeightLayers; ++k )
             {
-                const std::string layer = std::format( "Layer{}", k );
+                const std::string layer                                            = std::format( "Layer{}", k );
                 instance.InputTileSize[k / 4][static_cast<glm::length_t>( k % 4 )] = read( layer + "TileSize" );
                 // LayerKBlend is an Int: the row holds its bits (MaterialRowSlotValue).
                 instance.InputBlend[k / 4][static_cast<glm::length_t>( k % 4 )] =
                      static_cast<float>( std::bit_cast<int32_t>( read( layer + "Blend" ) ) );
             }
-            instance.DisplacementTiling = glm::vec4( read( "FarTilingDistance" ), read( "FarTilingScale" ), 0.0f, 0.0f );
-            const float magnitude = dicingRate > 0 ? read( "DisplacementMagnitude" ) : 0.0f;
-            const float fadeStart = std::max( read( "DisplacementFadeStart" ), 1.0f );
-            const float fadeEnd   = std::max( read( "DisplacementFadeEnd" ), fadeStart + 1.0f );
+            instance.DisplacementTiling =
+                 glm::vec4( read( "FarTilingDistance" ), read( "FarTilingScale" ), 0.0f, 0.0f );
+            const float magnitude     = dicingRate > 0 ? read( "DisplacementMagnitude" ) : 0.0f;
+            const float fadeStart     = std::max( read( "DisplacementFadeStart" ), 1.0f );
+            const float fadeEnd       = std::max( read( "DisplacementFadeEnd" ), fadeStart + 1.0f );
             instance.Displacement     = glm::vec4( magnitude, read( "DisplacementCenter" ), fadeStart, fadeEnd );
-            instance.DisplacementView   = glm::vec4( camera, 0.0f );
+            instance.DisplacementView = glm::vec4( camera, 0.0f );
             instance.DiceWindow       = glm::vec4( 0.0f );
-            instance.DiceRings          = glm::vec4( -1.0f );
+            instance.DiceRings        = glm::vec4( -1.0f );
             if ( magnitude <= 0.0f || instance.Params.w > 0.5f || l.SpacingCm <= 0.0f )
                 return;
 
@@ -578,6 +579,7 @@ namespace Desert::Graphic::System
                 {
                     materials.Shadow->SetTexture( layers.ArrayNames[3], layers.Arrays[3].get() );
                     materials.VirtualShadow->SetTexture( layers.ArrayNames[3], layers.Arrays[3].get() );
+                    materials.Depth->SetTexture( layers.ArrayNames[3], layers.Arrays[3].get() );
                 }
                 surface->SetTexture( "HeightmapTexture", t.Heightmap.get() );
                 materials.Shadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
@@ -1072,11 +1074,14 @@ namespace Desert::Graphic::System
             return true;
         if ( m_PipelineVsmRefused )
             return false;
-        const auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "Terrain", ForwardVsmVariant() );
-        std::string error = "its DESERT_LOCAL_SHADOW_VSM permutation did not compile (ShaderService named the error)";
-        if ( shader && shader->IsCompiled() )
-            m_PipelineVsm = CreateTerrainPipeline( m_SceneRenderer, shader, "TerrainPipeline|DESERT_LOCAL_SHADOW_VSM",
-                                                   SceneTargetLayout(), error, TerrainDepthState::BasePass );
+        auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "Terrain", ForwardVsmVariant() );
+        std::string error;
+        if ( acquired )
+            m_PipelineVsm = CreateTerrainPipeline( m_SceneRenderer, acquired.ExtractValue(),
+                                                   "TerrainPipeline|DESERT_LOCAL_SHADOW_VSM", SceneTargetLayout(), error,
+                                                   TerrainDepthState::BasePass );
+        else
+            error = std::format( "its DESERT_LOCAL_SHADOW_VSM permutation was refused: {}", acquired.GetError() );
         if ( !m_PipelineVsm )
         {
             m_PipelineVsmRefused = true;

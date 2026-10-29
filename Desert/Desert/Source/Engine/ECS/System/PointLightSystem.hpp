@@ -80,6 +80,7 @@ namespace Desert::ECS
                           .DepthBias       = pointlight.Data.ShadowBias,
                           .SlopeBias       = pointlight.Data.ShadowSlopeBias,
                           .ResolutionScale = pointlight.Data.ShadowResolutionScale,
+                          .ShadowMethod    = pointlight.Data.ShadowMethod,
                           .SourceId        = static_cast<uint32_t>( entity ) + 1u };
 
                      renderCommandBuffer.Emplace<Graphic::Render::PointLightCommand>( light, shadow );

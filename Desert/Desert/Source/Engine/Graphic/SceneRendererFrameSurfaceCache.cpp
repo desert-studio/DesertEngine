@@ -212,14 +212,15 @@ namespace Desert::Graphic
         {
             const GlobalIllumination::Pipeline cardTracer = frameViews->Tracer;
             // The cards' local shadows are the cache's (FrameViews::VirtualLocalShadows, resolved from the scene by
-            // the owner): the view recording the update must have built the same kind - the atlas, or the virtual
-            // maps - since the lighting reads this view's. A view whose Shadows method differs is refused by name.
-            if ( frameViews->VirtualLocalShadows != LocalShadowsAreVirtual() )
+            // the owner): the view recording the update must have built the same kind - the atlas, or virtual pages
+            // (Shadows VirtualMaps, or Stochastic's vsm+screen lights) - since the lighting reads this view's. A view
+            // whose local lights read otherwise is refused by name.
+            if ( frameViews->VirtualLocalShadows != LocalLightsReadVirtualPages() )
             {
                 LOG_ERROR( "[SceneRenderer] Surface Cache: the cache's local shadows are {} and this view, which "
-                           "updates it this frame, draws {} (its Shadows method differs from the scene's)",
+                           "updates it this frame, draws {} (its local lights' shadow sources differ from the scene's)",
                            frameViews->VirtualLocalShadows ? "virtual maps" : "the atlas",
-                           LocalShadowsAreVirtual() ? "virtual maps" : "the atlas" );
+                           LocalLightsReadVirtualPages() ? "virtual maps" : "the atlas" );
                 return;
             }
             if ( const auto program = cache->EnsureLightingProgram( cardTracer, frameViews->VirtualLocalShadows );

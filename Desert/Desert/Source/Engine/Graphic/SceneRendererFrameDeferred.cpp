@@ -824,9 +824,6 @@ namespace Desert::Graphic
                                                    .Lights = meshRenderer != nullptr
                                                                   ? meshRenderer->DirectionalShadows()
                                                                   : SceneResources::DirectionalShadowViews{} };
-            // Shadows Stochastic: MegaLights' local lighting (AddFrameMegaLights logged why one is missing; a view
-            // without local lights has none to add): black adds no local light, never the unshadowed grid loop.
-            shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
             // Shadows HardwareTraced: the lights with a ShadowMaskSlot read the ray-traced masks
             // (AddFrameRayTracedLocalShadows logged why they are missing; the sun-mask program then reads the
             // lights' shadow views - their maps where drawn, otherwise unshadowed).
@@ -839,6 +836,10 @@ namespace Desert::Graphic
         }
         else if ( meshRenderer != nullptr )
             shadow.Sun = DeferredCascadeShadow{ .Lights = meshRenderer->DirectionalShadows() };
+        // Shadows Stochastic: MegaLights' local lighting under either sun arm (the mask under rayquery and
+        // vsm+screen, the cascades under screen; AddFrameMegaLights logged why one is missing, a view without local
+        // lights has none to add): black adds no local light, never the unshadowed grid loop.
+        shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
         inputs.MegaLightsDiffuse  = megaLights.Diffuse.IsValid() ? megaLights.Diffuse : refs.System.Black;
         inputs.MegaLightsSpecular = megaLights.Specular.IsValid() ? megaLights.Specular : refs.System.Black;
         // SSS-PROFILE: the split's target, or a 1x1 transient the composite never writes (SubsurfaceSplit off).
@@ -1284,20 +1285,25 @@ namespace Desert::Graphic
         return sceneCopy;
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameHZB( RDG::Builder& graph, FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::AddFrameHZB( RDG::Builder& graph, FrameTextures& textures,
+                                                const RDG::TextureRef depth )
     {
+        if ( textures.Transients.ClosestHzb.IsValid() )
+            return textures.Transients.ClosestHzb; // one hierarchy per graph: its first caller built it
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* hzb = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
         if ( hzb == nullptr )
             return {};
-        const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
-        const auto            desc  = graph.GetTextureDesc( depth );
+        const RDG::TextureRef source = depth.IsValid() ? depth : textures.Depth( m_GBuffer, "GBuffer" );
+        const auto            desc   = graph.GetTextureDesc( source );
         if ( !desc )
         {
             LOG_ERROR( "[SceneRenderer] HZB: {}", desc.GetError() );
             return {};
         }
-        return hzb->AddPasses( graph, depth, desc.GetValue().Size.Width, desc.GetValue().Size.Height );
+        textures.Transients.ClosestHzb =
+             hzb->AddPasses( graph, source, desc.GetValue().Size.Width, desc.GetValue().Size.Height );
+        return textures.Transients.ClosestHzb;
     }
 
     SceneRenderer::FrameScreenTrace

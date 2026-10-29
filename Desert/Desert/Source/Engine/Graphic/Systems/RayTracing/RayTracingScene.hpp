@@ -32,7 +32,7 @@ namespace Desert
 // number; nothing is gathered twice and no second per-instance table exists.
 //
 // GATED BY THE METHODS. A frame builds a TLAS only when one of its three resolved methods traces hardware rays
-// (Common::Scalability::NeedsRayQuery). ResolveRenderMethods already walked a method the device cannot run down to
+// (Common::Scalability::NeedsRayQuery; Shadows Stochastic by its StochasticVisibility). ResolveRenderMethods already walked a method the device cannot run down to
 // one it can (MethodLimit::Device), so "a resolved method needs ray query" already implies the device has it.
 namespace Desert
 {
@@ -329,7 +329,10 @@ namespace Desert::Graphic::RayTracing
     {
         return Common::Scalability::NeedsRayQuery( methods.GlobalIllumination.Effective ) ||
                Common::Scalability::NeedsRayQuery( methods.Reflections.Effective ) ||
-               Common::Scalability::NeedsRayQuery( methods.Shadows.Effective );
+               Common::Scalability::NeedsRayQuery( methods.Shadows.Effective ) ||
+               // Stochastic traces only when its visibility source is the ray query (Graphic::ShadowsTraceRays).
+               ( methods.Shadows.Effective == Common::Scalability::ShadowMethod::Stochastic &&
+                 methods.Visibility == Common::Scalability::StochasticVisibility::RayQuery );
     }
 
     [[nodiscard]] inline std::array<float, 12> ToRowMajor3x4( const glm::mat4& world )

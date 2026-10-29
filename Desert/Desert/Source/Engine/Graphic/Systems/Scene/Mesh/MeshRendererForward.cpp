@@ -677,16 +677,20 @@ namespace Desert::Graphic::System
         if ( permutation.IsDefault() )
             return nullptr; // reads no local shadow atlas: drawn as itself (the slot stays empty)
         StandInCell& twin = slot.Twin.emplace();
-        if ( const auto shader = shaders->AcquireVariant( name, permutation ); shader && shader->IsCompiled() )
+        auto        acquired = shaders->AcquireVariant( name, permutation );
+        std::string refusal  = "its material instance could not be made";
+        if ( acquired )
         {
-            twin.Material = std::make_shared<DataDrivenMaterial>( shader );
+            twin.Material = std::make_shared<DataDrivenMaterial>( acquired.ExtractValue() );
             twin.Instance = twin.Material->CreateInstance( std::format( "ForwardVsmTwin_{}", name ) );
         }
+        else
+            refusal = std::string( acquired.GetError() );
         if ( !twin.Material || !twin.Instance )
         {
-            LOG_ERROR( "[MeshRenderer] cell '{}' has no DESERT_LOCAL_SHADOW_VSM permutation (ShaderService named "
-                       "the error): its renderer-owned draws are not drawn forward under Shadows.Method VirtualMaps",
-                       name );
+            LOG_ERROR( "[MeshRenderer] cell '{}' has no DESERT_LOCAL_SHADOW_VSM permutation ({}): its "
+                       "renderer-owned draws are not drawn forward under Shadows.Method VirtualMaps",
+                       name, refusal );
             twin.Material.reset();
         }
         return &twin;
@@ -2426,14 +2430,29 @@ namespace Desert::Graphic::System
         auto& slot = m_Translucent[key];
 
         const auto& target = m_SceneRenderer != nullptr ? m_SceneRenderer->GetTargetFramebuffer() : nullptr;
-        const auto  shader =
-             permutation.IsDefault() || cellProgram == nullptr ? cellProgram : shaders->AcquireVariant( cellShader, permutation );
-        if ( !shader || !shader->IsCompiled() || !target )
+        std::shared_ptr<Shader> shader = cellProgram;
+        std::string             refusal;
+        if ( cellProgram == nullptr )
+            refusal = "no such shader is registered";
+        else if ( !permutation.IsDefault() )
         {
-            LOG_ERROR( "[MeshRenderer] translucent cell '{}' will not draw: {}", key,
-                       !shader ? "no such shader is registered"
-                       : !shader->IsCompiled() ? "its program did not compile (ShaderService named the error)"
-                                               : "the renderer has no target framebuffer" );
+            // The DESERT_LOCAL_SHADOW_VSM twin: a refused permutation carries the service's reason.
+            auto acquired = shaders->AcquireVariant( cellShader, permutation );
+            if ( acquired )
+                shader = acquired.ExtractValue();
+            else
+            {
+                shader.reset();
+                refusal = std::string( acquired.GetError() );
+            }
+        }
+        if ( refusal.empty() && !shader->IsCompiled() )
+            refusal = "its program did not compile (ShaderService named the error)";
+        if ( refusal.empty() && !target )
+            refusal = "the renderer has no target framebuffer";
+        if ( !refusal.empty() )
+        {
+            LOG_ERROR( "[MeshRenderer] translucent cell '{}' will not draw: {}", key, refusal );
             return nullptr;
         }
 

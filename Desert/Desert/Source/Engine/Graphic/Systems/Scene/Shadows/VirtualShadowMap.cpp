@@ -542,7 +542,9 @@ namespace Desert::Graphic::System
                                                        : 0.0f ),
              .Smrt  = glm::vec4( static_cast<float>( quality.SmrtRayCount ),
                                  static_cast<float>( quality.SmrtSamplesPerRay ), kVsmNormalBiasTexels,
-                                 kVsmSmrtRayLengthPages ) };
+                                 kVsmSmrtRayLengthPages ),
+             .SmrtLocal = glm::vec4( static_cast<float>( quality.SmrtSamplesPerRayLocal ),
+                                     kVsmSmrtExtrapolateMaxSlopeLocal, 0.0f, 0.0f ) };
         std::vector<std::byte> frameBytes( sizeof( VsmFrameGpu ) + levels.size() * sizeof( VsmLevelGpu ) );
         std::memcpy( frameBytes.data(), &header, sizeof( header ) );
         std::memcpy( frameBytes.data() + sizeof( header ), levels.data(), levels.size() * sizeof( VsmLevelGpu ) );
