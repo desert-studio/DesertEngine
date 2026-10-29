@@ -90,8 +90,14 @@ namespace Desert::Editor
         // whose reply has gone out — the layer closes the application with it.
         // @p displacementUnsettled: the presented frame drew a displaced primitive's base while its twin was on
         // its way (DisplacementStats::Unsettled, read after the frame's EndFrame).
+        // @p materialPipelinesCompiling: the presented frame drew a default-surface stand-in for a material
+        // whose own pipeline was on a worker (SceneWorkspace::MaterialPipelinesCompiling).
+        // @p grassInstancesSettling: the presented frame drew grass whose instance buffers may be truncated
+        // (SceneWorkspace::GrassInstancesSettling).
         [[nodiscard]] std::optional<int32_t> OnFramePresented( bool displacementUnsettled,
-                                                               bool subsurfaceHistoryConverging );
+                                                               bool subsurfaceHistoryConverging,
+                                                               bool materialPipelinesCompiling,
+                                                               bool grassInstancesSettling );
 
         // OnDetach: abandon a request still in flight (logged, never answered) and remove the socket file.
         void Close();
@@ -157,8 +163,8 @@ namespace Desert::Editor
 
         struct PendingNnCheck
         {
-            int64_t                                                       Id = 0;
-            std::string                                                   Forced;
+            int64_t                                                        Id = 0;
+            std::string                                                    Forced;
             std::vector<std::unique_ptr<Engine::Neural::FusedMlpCheckRun>> Runs;
             /// A path that did not run. DeviceLacksIt: the resolver refused it because the device does not
             /// expose what it needs - an expected answer. Otherwise the device claims the path and the kernel,

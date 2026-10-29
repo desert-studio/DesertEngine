@@ -787,7 +787,8 @@ namespace Desert::Editor
         // container exists to carry (`blitDst=0`) — so the chain has to be in the file before the
         // format can change, and that ordering is `Docs/World/PROGRAMME.md` §5.
         auto chain = Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base, data.Pixels,
-                                                           asset.Import.Settings.ColorSpace );
+                                                           asset.Import.Settings.ColorSpace,
+                                                           asset.Import.Settings.AlphaCoverageThresholds );
         if ( !chain.IsSuccess() )
         {
             LOG_ERROR( "[TextureImporter] '{0}' was decoded but its mip chain could not be built: {1}. "
@@ -1115,7 +1116,7 @@ namespace Desert::Editor
     }
 
     Common::ResultStr<std::vector<TextureImporter::PlatformMip>>
-    TextureImporter::DecodePlatformMips( const std::filesystem::path& asset )
+    TextureImporter::DecodePlatformMips( const std::filesystem::path& asset, const uint32_t maxEdge )
     {
         using Result = std::vector<PlatformMip>;
         // The platform data the GPU uploads (a DDC miss cooks it through the registered builder), so the CPU sees
@@ -1137,6 +1138,8 @@ namespace Desert::Editor
         for ( size_t l = 0; l < data.Levels.size(); ++l )
         {
             const Assets::Serialization::TextureLevel& level = data.Levels[l];
+            if ( maxEdge > 0 && std::max( level.Width, level.Height ) > maxEdge )
+                continue;
             if ( level.ByteOffset + level.ByteSize > data.Pixels.size() )
                 return Common::MakeFormattedError<Result>( "texture '{}' level {} ends at {} of {} bytes",
                                                            asset.string(), l, level.ByteOffset + level.ByteSize,
@@ -1151,6 +1154,43 @@ namespace Desert::Editor
             mips.push_back( { level.Width, level.Height, texels.ExtractValue() } );
         }
         return Common::MakeSuccess( std::move( mips ) );
+    }
+
+    Common::ResultStr<std::string> TextureImporter::BuildGrassCoverLook( const Assets::GrassCoverLookInput& input )
+    {
+        // 256 texels across: a blade card of a 2k atlas keeps a few dozen texels of its width, enough for the
+        // mean of its veins and dry tips; the level is the cooked one, so the mean is what the mip chain draws.
+        constexpr uint32_t kGrassCoverLookEdge = 256;
+        auto               albedo              = DecodePlatformMips( input.AlbedoAsset, kGrassCoverLookEdge );
+        if ( !albedo.IsSuccess() )
+            return Common::MakeError<std::string>( albedo.GetError() );
+        if ( albedo.GetValue().empty() )
+            return Common::MakeFormattedError<std::string>( "albedo map '{}' has no level within {} texels",
+                                                            input.AlbedoAsset.generic_string(), kGrassCoverLookEdge );
+        const PlatformMip&                               a = albedo.GetValue().front();
+        std::optional<std::vector<PlatformMip>>          maskMips;
+        std::optional<Assets::GrassCoverLookLevel>       maskLevel;
+        if ( !input.MaskAsset.empty() )
+        {
+            auto mask = DecodePlatformMips( input.MaskAsset, kGrassCoverLookEdge );
+            if ( !mask.IsSuccess() )
+                return Common::MakeError<std::string>( mask.GetError() );
+            if ( mask.GetValue().empty() )
+                return Common::MakeFormattedError<std::string>( "opacity mask '{}' has no level within {} texels",
+                                                                input.MaskAsset.generic_string(),
+                                                                kGrassCoverLookEdge );
+            maskMips             = mask.ExtractValue();
+            const PlatformMip& m = maskMips->front();
+            maskLevel            = Assets::GrassCoverLookLevel{ m.Width, m.Height, m.Texels };
+        }
+        const Assets::GrassCoverLook look =
+             Assets::AverageGrassCoverLook( input, { a.Width, a.Height, a.Texels }, maskLevel );
+        if ( look.Coverage <= 0.0f )
+            return Common::MakeFormattedError<std::string>(
+                 "albedo map '{}': no texel of its {} rect(s) passes the opacity mask '{}' (clip {})",
+                 input.AlbedoAsset.generic_string(), input.Rects.size(), input.MaskAsset.generic_string(),
+                 input.MaskClip );
+        return Common::MakeSuccess( Assets::EncodeGrassCoverLook( look ) );
     }
 
 } // namespace Desert::Editor

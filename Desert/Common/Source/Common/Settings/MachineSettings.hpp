@@ -120,6 +120,14 @@ namespace Common::Settings
         // and every entry under it is rebuildable, so pointing it at an empty directory costs time only.
         std::string DerivedDataCachePath;
 
+        // RUN AS A CARD WITHOUT RAY TRACING (NO-RT, owner 10-28). True = the device probe plans the ray tracing
+        // rows unreachable (DeviceCaps HideRayTracing): VK_KHR_acceleration_structure / ray_query /
+        // ray_tracing_pipeline are not enabled, the catalog offers RayTracingMode None only, and every method is
+        // lowered by the same ResolveRenderMethods a non-RT card goes through — no per-pass flag exists. Read
+        // once, when the Vulkan device is created (VulkanLogicalDevice::Create); a change takes effect on the next
+        // start.
+        bool HideRayTracing = false;
+
         // THE NN LAYER'S KERNEL PATH, FORCED on this machine (NN-RUNTIME step 2; UE keeps such a switch as a
         // console variable). Absent = the path the device selects (NeuralComputeCaps::Path). A forced path the
         // device cannot run is refused by the NN layer naming what is missing, never replaced by another
@@ -164,6 +172,12 @@ namespace Common::Settings
         // owns are picked up (see UnknownKeys). Refuses, loudly, when Load() was never called — a store
         // with no path is not a store, and guessing one would be the silent fallback §1.4 forbids.
         static bool Save();
+
+        // AN UNATTENDED RUN (a scenario, a capture: Editor::IsUnattendedSession) changes machine settings for THIS
+        // PROCESS only: from here on Save() keeps the values in Get() and writes nothing, for every writer
+        // (quality, display, the forced NN kernel path). UE: a cvar set by -ExecCmds or an automation run never
+        // reaches GameUserSettings.ini. Called once by QualityBoot::Start; `why` names the run in the log.
+        static void KeepInSession( std::string_view why );
 
         // Every level High, no override: the selection of a machine that never chose anything and has no valid
         // benchmark recommendation.

@@ -1,0 +1,90 @@
+// THE GRASS FIELD'S FAR COVER (GRASS-FIELD): one field of grass from the blade at the camera to the landscape's edge.
+// The generator (Programs/Grass/GrassGenerate.shader) grows each grass layer's blades where its weight allows and
+// thins them with distance - between StartCullDistance and EndCullDistance a blade survives with the share
+// 1 - faded. The blades it drops are not gone from the field: the ground's own shading carries them on, here, from
+// the SAME data - the tile's layer weights and the layer's grass types (LandscapeECSSystem::EmitGrass sums the
+// varieties into TerrainInstance::GrassCover*: leaf area index, the blades' mean albedo from the blade asset and its
+// material, the material's subsurface colour and roughness). So the cover rises exactly as the blades thin and the
+// field has no line where the blades end.
+//
+// The look of a canopy seen from afar is a canopy's, not a tint (Ross-Goudriaan's turbid medium, the model leaf
+// canopies are measured against): the share of the ground a ray from the eye meets blades over is the gap
+// fraction's complement 1 - exp(-G * LAI / mu) (G = 0.5, randomly oriented leaves; mu = cos of the view zenith),
+// so a field seen at grazing angles is closed and from above shows its soil. What the eye sees of the cover are the
+// blades' faces turned towards it: upright blades of random azimuth show a mean normal of 2/pi times the horizontal
+// view direction against the soil's mu, so front-lit grass brightens at grazing angles and back-lit grass lets the
+// light through (the TwoSidedFoliage model the blades shade with, written by the caller with SubsurfaceColor).
+// The light that reaches into the canopy is its mean over depth, (1 - exp(-k LAI)) / (k LAI), k = 0.5: the cover's
+// occlusion, as the blade's own root-darkening is the near blade's.
+#ifndef LANDSCAPE_GRASS_COVER_GLSLH
+#define LANDSCAPE_GRASS_COVER_GLSLH
+
+#include <Common/TerrainInstance.glslh>
+
+struct LandscapeGrassCover
+{
+    vec3  Albedo;     // the blades' mean albedo
+    vec3  Subsurface; // the blade material's SubsurfaceColor
+    float Roughness;
+    float Lai;        // the leaf area index the thinned-out blades leave to the cover at this point
+};
+
+// The cover at a point of tile @p t with layer weights @p w0 / @p w1, @p viewDistance from the camera.
+LandscapeGrassCover LandscapeGrassCoverAt( TerrainInstance t, vec4 w0, vec4 w1, float viewDistance )
+{
+    LandscapeGrassCover c;
+    c.Albedo     = vec3( 0.0 );
+    c.Subsurface = vec3( 0.0 );
+    c.Roughness  = 0.0;
+    c.Lai        = 0.0;
+    for ( int i = 0; i < 8; ++i )
+    {
+        float w   = i < 4 ? w0[i] : w1[i - 4];
+        vec4  rng = t.GrassCoverRange[i];
+        if ( t.GrassCover[i].a <= 0.0 || t.LayerColors[i].a < 0.5 || w <= rng.z )
+            continue;
+        // The generator's share of dropped blades at this distance (its `faded`).
+        float faded = clamp( ( viewDistance - rng.x ) / max( rng.y - rng.x, 1.0 ), 0.0, 1.0 );
+        float lai   = t.GrassCover[i].a * w * faded;
+        c.Albedo += lai * t.GrassCover[i].rgb;
+        c.Subsurface += lai * t.GrassCoverLight[i].rgb;
+        c.Roughness += lai * t.GrassCoverLight[i].a;
+        c.Lai += lai;
+    }
+    if ( c.Lai > 0.0 )
+    {
+        // The blades' mean colour, their material's clump tint included (LandscapeECSSystem's cover sum).
+        c.Albedo     = c.Albedo / c.Lai;
+        c.Subsurface = c.Subsurface / c.Lai;
+        c.Roughness  = c.Roughness / c.Lai;
+    }
+    return c;
+}
+
+// Lays cover @p c over the ground's @p albedo / @p N / @p roughness / @p ao seen along @p V (unit, towards the eye)
+// with geometric normal @p Ng. Returns the share of the view the cover takes and, in @p transmission, the
+// TwoSidedFoliage SubsurfaceColor of the pixel (the blades' albedo times their material's, by that share).
+float LandscapeApplyGrassCover( LandscapeGrassCover c, vec3 V, vec3 Ng, inout vec3 albedo, inout vec3 N,
+                                inout float roughness, inout float ao, out vec3 transmission )
+{
+    transmission = vec3( 0.0 );
+    if ( c.Lai <= 0.0 )
+        return 0.0;
+    float mu    = clamp( dot( V, Ng ), 0.02, 1.0 );
+    float cover = 1.0 - exp( -0.5 * c.Lai / mu );
+
+    vec3  across = V - Ng * dot( V, Ng );
+    float lh     = length( across );
+    vec3  facing = lh > 1.0e-4 ? across / lh : Ng;
+    vec3  canopy = normalize( Ng * mu + facing * ( sqrt( max( 1.0 - mu * mu, 0.0 ) ) * 0.63661977 ) );
+
+    albedo       = mix( albedo, c.Albedo, cover );
+    N            = normalize( mix( N, canopy, cover ) );
+    roughness    = mix( roughness, c.Roughness, cover );
+    float k      = 0.5 * c.Lai;
+    ao           = mix( ao, ( 1.0 - exp( -k ) ) / k, cover );
+    transmission = c.Albedo * c.Subsurface * cover;
+    return cover;
+}
+
+#endif // LANDSCAPE_GRASS_COVER_GLSLH

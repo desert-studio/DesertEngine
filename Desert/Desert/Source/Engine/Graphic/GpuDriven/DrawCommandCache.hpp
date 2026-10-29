@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
@@ -80,12 +81,13 @@ namespace Desert::Graphic::GpuDriven
     }
 
     // One multi-draw call: the bins [FirstBin, +BinCount) of a pass share these. The group key is the pipeline x
-    // the mesh's geometry buffers (vertex, optional streams, index): a mesh owns its buffers, so the mesh IS the
-    // key of its buffers, and the record binds all three from it (one stream buffer per mesh, MeshVertexLayout).
+    // the geometry binding (MeshGeometry::SharedBinding): every pooled mesh of an arena shares its arena's
+    // buffers at offset 0, so one group - one bind - serves every mesh of the pipeline, its bins' rows carrying
+    // the pool-absolute FirstIndex / VertexOffset. An unpooled mesh (a GPU-written twin) is a group of its own.
     struct IndirectGroup
     {
         const GraphicsPipeline* Pipeline = nullptr; // owned by the SceneRenderer's PipelineCache
-        const Mesh*             Geometry = nullptr; // its vertex / stream / index buffers
+        MeshGeometryBinding     Binding;            // the vertex / stream / index buffers the group binds
         uint32_t                FirstBin = 0;
         uint32_t                BinCount = 0;
     };

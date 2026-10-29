@@ -123,9 +123,25 @@ namespace Desert::Editor::Control
 
         std::vector<std::string> NnCooperativeMatrixShapes; ///< FormatCooperativeMatrixShape, driver order
 
+        // RAY TRACING (NO-RT): what the device offers and what the main viewport resolved to, so a scenario on a
+        // card without RT (or with it hidden by machine.json) reads the fallback from one source.
+        std::string Rt; ///< "on" | "off" (the device has none) | "hidden" (machine.json HideRayTracing)
+        std::vector<std::string> RtModes; ///< Catalog RayTracingModes, kRayTracingModeNames, best first
+        /// Graphic::PathTracingRefusal: empty when the device can path-trace, else why a PathTraced request is
+        /// refused.
+        std::string PathTracingRefusal;
+        bool        PathTracingActive = false; ///< the main viewport path-traces this frame (Graphic::PathTraced)
+        /// The main viewport's SceneRenderer::GetRenderMethods(), one Graphic::FormatRenderMethods row per axis
+        /// ("GI: HardwareTraced -> ScreenSpace (the device offers no ray query)"), plus the effective method
+        /// names. Empty / "" when no main viewport renders.
+        std::vector<std::string> MethodRows;
+        std::string              GIMethod;
+        std::string              ReflectionsMethod;
+        std::string              ShadowsMethod;
+
         /// The last nn-check's verdict per path it was asked for, in its order: (path, "pass" | "fail: <errors>" |
-        /// "refused: <reason>"). Empty until the first nn-check completes. Every asked path has an entry, so a path
-        /// that is silently missing from a check is visible as missing here.
+        /// "refused: <reason>"). Empty until the first nn-check completes. Every asked path has an entry, so a
+        /// path that is silently missing from a check is visible as missing here.
         std::vector<std::pair<std::string, std::string>> NnLastCheck;
     };
 
@@ -184,6 +200,11 @@ namespace Desert::Editor::Control
         // ISM instances the main view's last geometry pass drew, after the frustum and the foliage cull
         // distance (FO-5): what a CullDistance edit is measured by.
         uint32_t IsmInstancesDrawn = 0;
+        // The last completed frame's GeometryPool counters (Graphic/GeometryPool.hpp GeometryPoolStats): Binds,
+        // the shared (binned) geometry binds, equal to the binned passes' pipeline switches; MeshBinds, the
+        // per-mesh binds, counted apart.
+        uint32_t GeometryPoolBinds     = 0;
+        uint32_t GeometryPoolMeshBinds = 0;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -372,6 +393,8 @@ namespace Desert::Editor::Control
             views["budgetBytes"]  = Num( static_cast<double>( snapshot.BudgetBytes ) );
             views["usageBytes"]   = Num( static_cast<double>( snapshot.UsageBytes ) );
             views["ismInstancesDrawn"] = Num( snapshot.IsmInstancesDrawn );
+            views["geometryPoolBinds"]     = Num( snapshot.GeometryPoolBinds );
+            views["geometryPoolMeshBinds"] = Num( snapshot.GeometryPoolMeshBinds );
             root["views"]         = Common::Json::Value( views );
         }
 
@@ -425,9 +448,31 @@ namespace Desert::Editor::Control
             }
             nn["lastCheck"] = Common::Json::Value( lastCheck );
 
+            Common::Json::Value::Array modes;
+            for ( const std::string& mode : device.RtModes )
+                modes.push_back( Str( mode ) );
+            Common::Json::Value::Array rows;
+            for ( const std::string& row : device.MethodRows )
+                rows.push_back( Str( row ) );
+
+            Common::Json::Object pathTracing;
+            pathTracing["available"] = Common::Json::Value( device.PathTracingRefusal.empty() );
+            pathTracing["reason"]    = Str( device.PathTracingRefusal );
+            pathTracing["active"]    = Common::Json::Value( device.PathTracingActive );
+
+            Common::Json::Object methods;
+            methods["gi"]          = Str( device.GIMethod );
+            methods["reflections"] = Str( device.ReflectionsMethod );
+            methods["shadows"]     = Str( device.ShadowsMethod );
+            methods["rows"]        = Common::Json::Value( rows );
+
             Common::Json::Object section;
-            section["name"] = Str( device.Name );
-            section["nn"]   = Common::Json::Value( nn );
+            section["name"]        = Str( device.Name );
+            section["nn"]          = Common::Json::Value( nn );
+            section["rt"]          = Str( device.Rt );
+            section["rtModes"]     = Common::Json::Value( modes );
+            section["pathTracing"] = Common::Json::Value( pathTracing );
+            section["methods"]     = Common::Json::Value( methods );
             root["device"]  = Common::Json::Value( section );
         }
 

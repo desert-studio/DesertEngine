@@ -112,7 +112,7 @@ namespace Desert::Graphic::GlobalIllumination
         return {};
     }
 
-    void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame )
+    void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame, RDG::Access sampled )
     {
         const auto all = RDG::SubresourceRange::All();
         block.Storage( GITracingShaderParameters::SurfaceCardBuffer, frame.Cards, RDG::Access::StorageRead )
@@ -122,11 +122,11 @@ namespace Desert::Graphic::GlobalIllumination
              .Storage( GITracingShaderParameters::SurfaceCacheInstancesUB, frame.InstanceRows,
                        RDG::Access::StorageRead )
              .Texture( GITracingShaderParameters::SurfaceCacheFinalLightingTexture, frame.FinalLighting,
-                       RDG::Access::SampledCompute, all )
+                       sampled, all )
              .Sampler( GITracingShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              .Texture( GITracingShaderParameters::SurfaceCacheDepthTexture, frame.Depth,
-                       RDG::Access::SampledCompute, all )
+                       sampled, all )
              .Texture( GITracingShaderParameters::SurfaceCacheOpacityTexture, frame.Opacity,
-                       RDG::Access::SampledCompute, all );
+                       sampled, all );
     }
 } // namespace Desert::Graphic::GlobalIllumination

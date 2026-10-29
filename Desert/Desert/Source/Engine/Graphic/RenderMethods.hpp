@@ -107,7 +107,7 @@ namespace Desert::Graphic
         ResolvedMethod<Common::Scalability::GIMethod>         GlobalIllumination;
         ResolvedMethod<Common::Scalability::ReflectionMethod> Reflections;
         ResolvedMethod<Common::Scalability::ShadowMethod>     Shadows;
-        // The shadow supplements, after the same rule (both refused at load until they land, so both false).
+        // The shadow supplements, after the same rule (distance-field shadows refused at load until they land).
         bool ContactShadows       = false;
         bool DistanceFieldShadows = false;
 
@@ -133,6 +133,13 @@ namespace Desert::Graphic
     // THE VIEW PATH-TRACES this frame: GI and reflections both resolved to PathTraced (they are one integrator,
     // ResolveRenderMethods pairs them). The path tracer's image replaces the lit scene before post.
     [[nodiscard]] bool PathTraced( const RenderMethods& methods );
+
+    // WHETHER THIS DEVICE CAN PATH-TRACE AT ALL, whatever a view requests: empty when it can, else the reason a
+    // PathTraced request is refused - the same walk and the same words as ResolveRenderMethods' Device /
+    // DevicePipeline limit ("the device offers no ray query" / "... no ray tracing pipeline"). Reader: DesertCtl
+    // `state device`, so a no-RT device names its path-tracing refusal even on a scene that never asked for it.
+    // PURE.
+    [[nodiscard]] std::string_view PathTracingRefusal( const Common::Scalability::CapabilityCatalog& catalog );
 
     // As LowerShadowsForFrame, for the path tracer: a path-traced view whose frame has no traceable scene (TLAS not
     // built) is lowered here to HardwareTraced on both axes with MethodLimit::FrameScene, before any pass is

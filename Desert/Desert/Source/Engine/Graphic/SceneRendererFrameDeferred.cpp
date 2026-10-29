@@ -510,8 +510,8 @@ namespace Desert::Graphic
         // refusal memory for a refused program), and the GI is not gathered while it stands. A recompile of the
         // fixed shader (ShaderService::Recompile) forgets the refusal, so the next frame gathers.
         if ( m_GIPipeline.ScreenProbes )
-            if ( const auto layout =
-                      m_ScreenProbeGather->EnsureLayoutPrograms( m_ScreenProbeDownsample, m_ScreenProbeTracedTexels );
+            if ( const auto layout = m_ScreenProbeGather->EnsureLayoutPrograms( m_ScreenProbeDownsample,
+                                                                                m_ScreenProbeTracedTexels );
                  !layout )
             {
                 if ( m_ScreenProbeGather->ClaimLayoutRefusalReport() )
@@ -575,7 +575,7 @@ namespace Desert::Graphic
         textures.Transients.RadianceCacheIrradiance  = cache.GetValue().Irradiance;
         textures.Transients.RadianceCacheDepth       = cache.GetValue().Depth;
 
-        // The cards' indirect light off this update (the radiosity slot): the frame's relit pages - by the view
+        // The cards' radiosity (UE LumenRadiosity, this frame's tracer): the frame's relit pages - by the view
         // that updated the cache this frame (a lent cache already updated this frame is read, not relit).
         SurfaceCache::SurfaceCacheRenderer* const surfaceCache = ReadSurfaceCache();
         if ( surfaceCache != nullptr && m_SurfaceCacheFrame && m_SurfaceCacheFrame->Updated )
@@ -583,11 +583,22 @@ namespace Desert::Graphic
             const GlobalIllumination::RadianceCacheFrame& rc = cache.GetValue();
             if ( const auto lit = surfaceCache->AddIndirectLightingPass(
                       graph, import, m_SurfaceCacheFrame->Scene, m_SurfaceCacheFrame->Buffers,
-                      { .Params      = rc.Params,
-                        .Indirection = rc.Indirection,
-                        .Probes      = rc.Probes,
-                        .Irradiance  = rc.Irradiance,
-                        .Depth       = rc.Depth } );
+                      { .Params          = rc.Params,
+                        .Indirection     = rc.Indirection,
+                        .Probes          = rc.Probes,
+                        .Irradiance      = rc.Irradiance,
+                        .Depth           = rc.Depth,
+                        .Tracer          = inputs.Tracer,
+                        .Hits            = inputs.SurfaceCache,
+                        .GIFrame         = inputs.GIFrame,
+                        .PointLights     = inputs.PointLights,
+                        .SpotLights      = inputs.SpotLights,
+                        .WorldGridParams = inputs.WorldGridParams,
+                        .WorldGridCells  = inputs.WorldGridCells,
+                        .EnvSpecular     = inputs.EnvSpecular,
+                        .GBufferDepth    = inputs.GBufferDepth,
+                        .GBufferA        = inputs.GBufferA,
+                        .GBufferEmissive = inputs.GBufferEmissive } );
                  !lit )
             {
                 if ( m_TracedGICardLightingRefusal.Claim( lit.GetError() ) )
@@ -909,6 +920,15 @@ namespace Desert::Graphic
         const auto* const subsurface = static_cast<const System::SubsurfaceRenderer*>( it->second.get() );
         auto* const       profiles   = Runtime::ResourceRegistry::GetSubsurfaceProfileService();
         return subsurface->IsReady() && profiles != nullptr && profiles->Registry().Count() > 0u;
+    }
+
+    bool SceneRenderer::GrassInstancesSettling() const
+    {
+        const auto it = m_RenderSystems.find( "GrassSystem" );
+        if ( it == m_RenderSystems.end() || IsSceneCapture() )
+            return false;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        return static_cast<const System::GrassRenderer*>( it->second.get() )->InstancesSettling();
     }
 
     bool SceneRenderer::SubsurfaceHistoryConverging() const

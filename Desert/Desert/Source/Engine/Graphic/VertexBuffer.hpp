@@ -246,6 +246,14 @@ namespace Desert::Graphic
 
         [[nodiscard]] virtual Common::BoolResultStr RT_Invalidate() = 0;
 
+        // A Pooled buffer's range write (blocking one-off copy, like RT_Invalidate's upload). Refused by every
+        // other usage. A Pooled buffer never grows: the GeometryPool adds a page instead.
+        [[nodiscard]] virtual Common::BoolResultStr RT_WriteRange( uint64_t /*offset*/, const void* /*data*/,
+                                                                   uint64_t /*size*/ )
+        {
+            return Common::MakeError<bool>( "RT_WriteRange: not a Pooled buffer" );
+        }
+
         // @p file / @p line name the ledger row after the line that asked for the buffer: a vertex buffer has no
         // name of its own, and a row a closing view leaves behind has to say WHOSE it is (EDITOR-LOG-CLEAN).
         // __builtin_FILE/__builtin_LINE rather than std::source_location::current(): Apple clang 15 evaluates

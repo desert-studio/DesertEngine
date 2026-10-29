@@ -60,7 +60,7 @@ namespace Desert::Graphic::RayTracing
             if ( prepared.GetValue().NeedsBuild )
             {
                 if ( const auto imported =
-                          Renderer::ImportVertexBuffer( mesh.GetVertexBuffer(), entry.VerticesImport );
+                          Renderer::ImportMeshVertices( mesh.GetGeometry(), entry.VerticesImport );
                      !imported )
                 {
                     if ( !entry.RefusalLogged )

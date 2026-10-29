@@ -218,13 +218,16 @@ namespace Desert::Engine::Neural
     static_assert( sizeof( NrcVertexGpu ) == 32 && sizeof( NrcQueryGpu ) == 64 &&
                    sizeof( NrcTrainingSampleGpu ) == 64 );
 
-    // The trace's NRC push (PathTracer TracePush::Nrc, PathTracer.shader NrcParams / NrcSpread).
+    // The trace's NRC parameters: the contents of NrcTraceTargets::Params, read by the PATH_TRACING_NRC trace as
+    // PathTracer.shader NrcTraceParamsUB (NrcParams / NrcSpread). A buffer, not the trace's push: the push is full
+    // (PathTracer TracePush is Vulkan's guaranteed 128 bytes with the light grid's descriptor).
     struct NrcTraceParams
     {
         glm::uvec4 Params; ///< x = each segment's query capacity (> 0: Nrc), y = training tile side, z / w = this
                            ///< frame's pixel offset in the tile
         glm::vec4 Spread; ///< x = kNrcSpreadThreshold, y = kNrcUnbiasedTrainingPaths, z = kNrcMinThroughput, w = 0
     };
+    static_assert( sizeof( NrcTraceParams ) == 32, "PathTracer.shader NrcTraceParamsUB (std430: uvec4, vec4)" );
 
     // This frame's buffers the trace writes (AddTraceTargets) and the cache passes read.
     struct NrcTraceTargets
@@ -233,7 +236,7 @@ namespace Desert::Engine::Neural
         RDG::BufferRef TrainingSamples;
         RDG::BufferRef SelfQueries;
         RDG::BufferRef Counters;
-        NrcTraceParams Push;
+        RDG::BufferRef Params; ///< one NrcTraceParams, uploaded by AddTraceTargets
         uint32_t       Width         = 0;
         uint32_t       Height        = 0;
         uint32_t       PathsPerFrame = 0;

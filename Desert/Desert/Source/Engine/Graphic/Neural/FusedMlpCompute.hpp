@@ -71,8 +71,8 @@ namespace Desert::Engine::Neural
     };
 
     // The transients the three passes write: Output [Batch][64] fp32, Activations / Grads [MatrixCount][Batch][64]
-    // (fp32 on the fp32 path, fp16 on the fp16 paths: FusedMlpStoredElementBytes), WeightGrad [MatrixCount][64][64]
-    // fp32. A consumer reads them in later passes of the same graph, or extracts them.
+    // (fp32 on the fp32 path, fp16 on the fp16 paths: FusedMlpStoredElementBytes), WeightGrad
+    // [MatrixCount][64][64] fp32. A consumer reads them in later passes of the same graph, or extracts them.
     struct FusedMlpGraphOutputs
     {
         Graphic::RDG::BufferRef Output;
@@ -112,8 +112,9 @@ namespace Desert::Engine::Neural
         // Refuses (adding nothing) a path ResolveNeuralKernelPath refuses, a shape / batch ValidateFusedMlp
         // refuses, an invalid input handle, a coopmat tile that does not divide the width and a pipeline that
         // does not build.
-        [[nodiscard]] Common::ResultStr<FusedMlpGraphOutputs>
-        AddTrainingPasses( Graphic::RDG::Builder& graph, const FusedMlpGraphInputs& inputs, NeuralKernelPath path );
+        [[nodiscard]] Common::ResultStr<FusedMlpGraphOutputs> AddTrainingPasses( Graphic::RDG::Builder&     graph,
+                                                                                 const FusedMlpGraphInputs& inputs,
+                                                                                 NeuralKernelPath           path );
 
         // THE PASSES ONE BY ONE, for a consumer whose loss gradient depends on the forward's output (the neural
         // radiance cache: forward, its loss pass, then the backward). Each refuses as AddTrainingPasses does.
@@ -147,7 +148,7 @@ namespace Desert::Engine::Neural
         struct Kernel
         {
             std::shared_ptr<Graphic::ComputePipeline> Pipeline;
-            Graphic::ShaderBindingLayoutCache          Layout; ///< the reflected slots its binding block names
+            Graphic::ShaderBindingLayoutCache         Layout; ///< the reflected slots its binding block names
         };
 
         // The pipeline of @p kernel on @p path, built on first use and kept for this object's lifetime.
@@ -173,12 +174,13 @@ namespace Desert::Engine::Neural
     struct FusedMlpPathCheck
     {
         NeuralKernelPath Path = NeuralKernelPath::Fp32;
-        std::string      Tile;              ///< FormatCooperativeMatrixShape for coopmat_fp16, empty otherwise
-        FusedMlpError    Output;            ///< the network outputs
-        FusedMlpError    WeightGrad;        ///< dL/dW of every matrix
-        uint64_t         MaskFlips = 0;     ///< hidden units whose ReLU mask differs from the reference's
-        double           Tolerance = 0;     ///< FusedMlpTolerance( Path )
-        bool             Pass      = false; ///< both relative errors within Tolerance
+        std::string      Tile;                  ///< FormatCooperativeMatrixShape for coopmat_fp16, empty otherwise
+        FusedMlpError    Output;                ///< the network outputs
+        FusedMlpError    WeightGrad;            ///< dL/dW of every matrix, Worst = the element that set Rel
+        uint64_t         MaskFlips         = 0; ///< hidden units whose ReLU mask differs from the reference's
+        double           Tolerance         = 0; ///< FusedMlpTolerance( Path ), for Output
+        double           GradientTolerance = 0; ///< FusedMlpGradientTolerance (derived), for WeightGrad
+        bool             Pass              = false; ///< each relative error within its tolerance
     };
 
     // ONE nn-check RUN IN FLIGHT: the check problem uploaded into a graph of its own ("NeuralFusedMlpCheck"),

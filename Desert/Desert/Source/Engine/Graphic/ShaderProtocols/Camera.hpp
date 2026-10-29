@@ -51,7 +51,8 @@
     /* frame is rescaled by PreExposure / PrevPreExposure */                                                      \
     FIELD( float, PreExposure, PreExposure, { 1.0f } )         /* offset 468, ViewFrame::PreExposure */           \
     FIELD( float, PrevPreExposure, PrevPreExposure, { 1.0f } ) /* offset 472, ViewFrame::PrevPreExposure */       \
-    FIELD( float, CameraPad2, CameraPad2, { 0.0f } )           /* offset 476; block size 480 */
+    /* UE View.StateFrameIndexMod8: the view's frame count mod 8, the temporal step of a dithered opacity mask */ \
+    FIELD( float, FrameIndexMod8, FrameIndexMod8, { 0.0f } ) /* offset 476; block size 480 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -104,6 +105,7 @@ namespace Desert::Graphic::ShaderProtocols
         ub.SunDirection              = frame.SunDirection;
         ub.PreExposure               = frame.PreExposure;
         ub.PrevPreExposure           = frame.PrevPreExposure;
+        ub.FrameIndexMod8            = static_cast<float>( frame.FrameIndex % 8u );
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols

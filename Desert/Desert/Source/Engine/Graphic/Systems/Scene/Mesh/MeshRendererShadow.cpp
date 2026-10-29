@@ -602,9 +602,14 @@ namespace Desert::Graphic::System
 
     GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const DataDrivenMaterial& cell )
     {
+        return CellPipeline( passState, cell.GetShaderName() );
+    }
+
+    GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const std::string& cellShader )
+    {
         if ( passState == nullptr )
             return nullptr;
-        MeshCellPipelineKey key{ passState, cell.GetShaderName() };
+        MeshCellPipelineKey key{ passState, cellShader };
         if ( const auto found = m_CellPipelines.find( key ); found != m_CellPipelines.end() )
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_CellPipelines[key];
@@ -681,7 +686,13 @@ namespace Desert::Graphic::System
             }
         }
         const bool standInReady = standIn != nullptr && standIn->GetReadiness() == PipelineReadiness::Ready;
+        const auto before       = m_MaterialPipelines.StateOf( key );
         const auto choice       = m_MaterialPipelines.ChooseCell( key, reports, standInReady );
+        if ( choice.Draw != MaterialPipelineTracker::CellDraw::Own )
+            ++m_StandInDraws;
+        else if ( before && *before != MaterialPipelineState::Ready )
+            LOG_INFO( "[MeshRenderer] '{}' draws its own pipeline now (it was {})", key,
+                      MaterialPipelineStateName( *before ) );
         if ( choice.Announce )
             LOG_INFO( "[MeshRenderer] '{}' draws the default surface until its pipeline is ready (pipeline {}{})",
                       key, MaterialPipelineStateName( reports ),

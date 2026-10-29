@@ -298,10 +298,31 @@ vec3 DesertSurfaceWorldNormal( SurfaceInput i, SurfaceOutput s )
 // that line (DShaderParser OpacityMaskFunction) between the surface block and the pass header. Every cell clips
 // with it, BEFORE evaluating the surface; ray tracing reads the same line from ShaderProgramMeta::OpacityMask.
 // A hit cell clips in its any-hit stage (ignoreIntersectionEXT), never in closest hit: a hit has no discard.
+// UE's Dither Opacity Mask (MaterialTemplate.ush GetMaterialCoverageAndClipping, MATERIAL_DITHER_OPACITY_MASK): the
+// 5-value screen dither plus noise, stepped by View.StateFrameIndexMod8 so TAA integrates it. Returned in [0, 1).
+float DesertOpacityMaskDither( const vec2 svPosition, const float frameIndexMod8 )
+{
+    const float dither5 = fract( ( svPosition.x + svPosition.y * 2.0 - 1.5 + frameIndexMod8 ) / 5.0 );
+    const float noise   = fract( dot( vec2( 171.0, 231.0 ) / 71.0, svPosition ) );
+    return ( dither5 * 5.0 + noise ) * ( 1.0 / 6.0 );
+}
+
 #if defined( DESERT_SURFACE_MASKED ) && !defined( DESERT_SURFACE_PASS_Hit )
+#if defined( DESERT_SURFACE_OPACITY_DITHER )
+// A dithering material (DESERT_SURFACE_OPACITY_DITHER > 0.5) cuts below 1 - dither: a pixel is kept with
+// probability = mask, so a mip texel holding the MEAN coverage of leaves smaller than itself keeps their share of
+// the pixel (UE's spelling clips mask - clip + dither - 1; ours drops the clip so a fully opaque texel always stays
+// and the kept share is the mask itself, Wyman & McGuire's hashed alpha test). The clip value is unused then.
+#define DESERT_SURFACE_CLIP( i ) \
+    if ( DesertSurfaceOpacityMask( i ) < ( DESERT_SURFACE_OPACITY_DITHER > 0.5 \
+                                               ? 1.0 - DesertOpacityMaskDither( gl_FragCoord.xy, cameraUB.FrameIndexMod8 ) \
+                                               : Material.OpacityMaskClipValue ) ) \
+        discard
+#else
 #define DESERT_SURFACE_CLIP( i ) \
     if ( DesertSurfaceOpacityMask( i ) < Material.OpacityMaskClipValue ) \
         discard
+#endif
 #else
 #define DESERT_SURFACE_CLIP( i )
 #endif

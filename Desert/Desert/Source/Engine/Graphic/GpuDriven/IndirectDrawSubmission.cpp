@@ -26,7 +26,7 @@ namespace Desert::Graphic::GpuDriven
             const IndirectGroup& indirect = pass.Groups[group];
             if ( indirect.BinCount == 0u )
                 continue;
-            if ( indirect.Pipeline == nullptr || indirect.Geometry == nullptr )
+            if ( indirect.Pipeline == nullptr || indirect.Binding.Vertices == nullptr )
                 return Common::MakeFormattedError( "{}: indirect group {} has no {}",
                                                    bindings.GetContext().GetPassName(), group,
                                                    indirect.Pipeline == nullptr ? "pipeline" : "geometry" );
@@ -37,7 +37,7 @@ namespace Desert::Graphic::GpuDriven
             draw.Stride          = kIndirectDrawStride;
             draw.MaxDrawsPerCall = mode.MaxDrawsPerCall;
             if ( const Common::BoolResultStr recorded =
-                      api.RenderMeshIndirectGroup( bindings, *indirect.Pipeline, *indirect.Geometry, draw );
+                      api.RenderMeshIndirectGroup( bindings, *indirect.Pipeline, indirect.Binding, draw );
                  !recorded )
                 return recorded;
         }

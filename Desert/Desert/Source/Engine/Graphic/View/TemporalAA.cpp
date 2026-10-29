@@ -255,7 +255,7 @@ namespace Desert::Graphic
                                  acquired.GetError() );
             return nullptr;
         }
-        const std::shared_ptr<Shader> shader = acquired.ExtractValue();
+        const std::shared_ptr<Shader> shader       = acquired.ExtractValue();
         const std::string pipelineName = std::format( "{} ({})", kShaderName, define );
         const auto        built = ComputePipeline::Create( { .Shader = shader, .DebugName = pipelineName } );
         if ( !built )

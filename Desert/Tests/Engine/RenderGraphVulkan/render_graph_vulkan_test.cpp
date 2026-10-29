@@ -140,7 +140,7 @@ namespace
             out.Instance = instance.value();
 
             // The engine's judgement of the device, not a second one.
-            auto probed = SelectDevice( out.Instance );
+            auto probed = SelectDevice( out.Instance, DeviceRestrictions{} );
             if ( !probed )
             {
                 out.Error = probed.GetError();

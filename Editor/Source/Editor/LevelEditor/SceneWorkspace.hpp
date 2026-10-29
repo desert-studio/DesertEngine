@@ -20,6 +20,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Core
@@ -104,6 +105,12 @@ namespace Desert::Editor
         // Any view's subsurface scatter still averaging its history (SceneRenderer::SubsurfaceHistoryConverging):
         // the control gate's PendingWork::SubsurfaceHistory, asked after the frame like Displacement.
         [[nodiscard]] bool SubsurfaceHistoryConverging() const;
+        // Any view's last frame drew a material's default-surface stand-in while its own pipeline compiled
+        // (SceneRenderer::GetStandInDraws): the control gate's PendingWork::MaterialPipelines.
+        [[nodiscard]] bool MaterialPipelinesCompiling() const;
+        // Any view's last frame drew grass whose instance buffers may be truncated (SceneRenderer::
+        // GrassInstancesSettling, a camera cut): the control gate's PendingWork::GrassInstances.
+        [[nodiscard]] bool GrassInstancesSettling() const;
 
         // THE ACTIVE SCENE'S WORLD WAS REPLACED (Open, New, Stop's snapshot restore): its entities were torn down
         // and rebuilt. Everything keyed by the old entities follows the world, in ONE place for all three paths:
@@ -113,6 +120,18 @@ namespace Desert::Editor
         // the one caller that re-selects afterwards: its snapshot is the authored world the selection came from
         // (PlaySession::Stop, as UE's EndPlayMap selects the PIE selection's editor counterparts).
         void ActiveSceneReplaced();
+
+        // THE ACTIVE SCENE'S OLD WORLD IS GONE (its entities cleared, Scene::Clear): every view of it releases
+        // what it built from that world (SceneRenderer::ReleaseWorldResources), the device is idled and the
+        // deferred deletions are drained - UE's world teardown (GC + FlushRenderingCommands) before the next world
+        // loads. Called by the opener between Clear and the load; without it the old world's device memory was
+        // still resident, or owed deletion, at the next world's peak (FIELD-MEM p3: a reopen peaked 1080 MB
+        // higher).
+        void ReleaseActiveWorld();
+        /// The device-memory window of one scene open (VulkanAllocator::BeginSceneOpen): starts it at the top
+        /// of an open, and samples the footprint at the end of the load, which runs without frames.
+        void BeginSceneOpenMeasure( std::string_view scene );
+        void SampleSceneOpenMeasure();
 
         // The standard ECS systems, shared by the primary scene and every extra document.
         void BuildSceneSystems( Desert::Core::Scene& scene );

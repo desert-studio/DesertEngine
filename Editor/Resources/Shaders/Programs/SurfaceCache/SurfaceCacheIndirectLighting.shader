@@ -1,21 +1,18 @@
 // DesertAsset {"Kind":"Shader","Guid":"5c7221306c9643589755dfc28bebcaa7","Versions":{"SHDR":1},"Dependencies":[]}
-// THE SURFACE CACHE'S INDIRECT LIGHTING (GI-CARD-LOOKUP; UE's radiosity slot, LumenRadiosity.cpp + the combine of
-// LumenSceneLighting.usf): every page relit this frame (the same SceneFrame::LightingPages the direct lighting
-// relit) takes the world radiance cache's irradiance at each texel (Common/RadianceCache.glslh
-// RadianceCacheIrradianceAt, the update of this frame) and leaves IndirectLighting = albedo x that irradiance (the
-// cache's irradiance is already / PI) - plus, on a subsurface texel (the Subsurface layer), subsurface x the
-// cache's irradiance at -N: the sky and bounce let through a leaf from its far side (FOLIAGE-LOOK-5, as the
-// direct lighting lets the sun through) - and recombines FinalLighting = direct + indirect + emissive. A traced hit
-// then reads its bounce from the card in one fetch instead of interpolating eight cache probes per ray.
+// THE SURFACE CACHE'S INDIRECT LIGHTING (GI-SHADE-DARK; UE LumenRadiosity.usf LumenRadiosityIntegrateCS + the
+// combine of LumenSceneLighting.usf): every page relit this frame (the same SceneFrame::LightingPages the direct
+// lighting and the radiosity trace relit) integrates its texels' irradiance from the card's OWN radiosity probes
+// (Common/SurfaceCacheRadiosity.glslh: the four nearest probes of the page, bilinear, each probe's traced hemisphere
+// cosine-weighted about the texel's normal - SurfaceCacheRadiosityTrace.shader traced them this frame) and leaves
+// IndirectLighting = albedo x that irradiance - plus, on a subsurface texel (the Subsurface layer), subsurface x the
+// world radiance cache's irradiance at -N: the sky and bounce let through a leaf from its far side
+// (FOLIAGE-LOOK-5; a probe's hemisphere holds only the front) - and recombines FinalLighting = direct + indirect +
+// emissive. A traced hit then reads its bounce from the card in one fetch.
 //
-// WHERE THIS DIFFERS FROM UE (for the owner): UE's radiosity gathers each card texel's hemisphere by tracing
-// probes against the previous FinalLighting (r.LumenScene.Radiosity.*). Here the texel reads the world radiance
-// cache, whose probes trace the same cards - the same feedback (every frame adds a bounce) without a second set of
-// probes; the radiosity probes (RadiosityProbeSpacing / HemisphereResolution of the budget) replace it when that
-// task lands.
-//
-// Runs after the radiance cache's update of the frame (SceneRenderer::AddFrameTracedGI); the frame's traced hits
-// read the previous FinalLighting (one frame of lag, as UE's radiosity has).
+// As UE: the card's radiosity depends on no screen or world probe cache (GI-SHADE-DARK p1: the world cache was
+// nearly empty at the surfaces, so shaded walls had no bounce at all and every ray reading them came back black).
+// Runs after the radiosity trace of the frame; the trace's hits read the previous FinalLighting (one frame of lag,
+// as UE's radiosity has).
 Shader "SurfaceCacheIndirectLighting"
 {
     Vertex
@@ -87,9 +84,14 @@ Shader "SurfaceCacheIndirectLighting"
         // The light the texel lets through (rgb); 0 = opaque (SurfaceCacheCardCopy).
         Uniform(14) texture2D AtlasSubsurfaceTexture;
         #define AtlasSubsurfaceTexture sampler2D(AtlasSubsurfaceTexture, PointClampSampler)
+        // The radiosity probes' traced radiance, one stratum per texel (SurfaceCacheRadiosityTrace.shader).
+        Uniform(15) texture2D RadiosityTraceTexture;
+        #define RadiosityTraceTexture sampler2D(RadiosityTraceTexture, PointClampSampler)
         #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
         #define RADIANCE_CACHE_PROBES radianceCacheProbes
         #include <Common/RadianceCache.glslh>
+        #define RADIOSITY_OPACITY AtlasOpacityTexture
+        #include <Common/SurfaceCacheRadiosity.glslh>
 
         layout(location = 0) in flat uint v_CardIndex;
         layout(location = 1) in flat vec4 v_CardUVRect;
@@ -97,14 +99,48 @@ Shader "SurfaceCacheIndirectLighting"
         Out(0) vec4 oIndirect;
         Out(1) vec4 oFinal;
 
-        // [-1, 1]² octahedral -> unit vector (UE OctahedronToUnitVector), as the direct lighting decodes it.
-        vec3 OctahedronToUnitVector(vec2 o)
+        // The irradiance over pi at the texel of normal @p N from the probes of its page (UE IntegrateProbes):
+        // the four nearest tiles' probes, bilinear by the texel's place among the tile centres, a probe facing
+        // away from N (dot <= 0) left out; each probe's strata cosine-weighted about N.
+        vec3 RadiosityIrradiance( ivec4 page, ivec2 atlasTexel, vec3 N )
         {
-            vec3 n = vec3(o, 1.0 - abs(o.x) - abs(o.y));
-            const float t = max(-n.z, 0.0);
-            n.x += n.x >= 0.0 ? -t : t;
-            n.y += n.y >= 0.0 ? -t : t;
-            return normalize(n);
+            const ivec2 inPage = atlasTexel - page.xy;
+            const ivec2 tiles  = ( page.zw + RADIOSITY_PROBE_SPACING - 1 ) / RADIOSITY_PROBE_SPACING;
+            const vec2  t      = ( vec2( inPage ) + 0.5 ) / float( RADIOSITY_PROBE_SPACING ) - 0.5;
+            const ivec2 t0     = ivec2( floor( t ) );
+            const vec2  f      = t - vec2( t0 );
+            vec3  sum    = vec3( 0.0 );
+            float weight = 0.0;
+            for ( int corner = 0; corner < 4; ++corner )
+            {
+                const ivec2 offset = ivec2( corner & 1, corner >> 1 );
+                const ivec2 tileId = clamp( t0 + offset, ivec2( 0 ), tiles - 1 );
+                const vec2  b      = mix( 1.0 - f, f, vec2( offset ) );
+                const float w      = b.x * b.y;
+                if ( w <= 0.0 )
+                    continue;
+                const ivec4 tile = RadiosityTileOf( tileId, page.zw );
+                ivec2       probeTexel;
+                if ( !RadiosityProbeTexel( page.xy + tile.xy, tile.zw, probeTexel ) )
+                    continue;
+                const vec3 probeN =
+                     RadiosityOctahedronToUnitVector( texelFetch( AtlasNormalTexture, probeTexel, 0 ).rg * 2.0 - 1.0 );
+                if ( dot( probeN, N ) <= 0.0 )
+                    continue;
+                vec3 e = vec3( 0.0 );
+                for ( int y = 0; y < tile.w; ++y )
+                    for ( int x = 0; x < tile.z; ++x )
+                    {
+                        const vec3 direction =
+                             RadiosityHemisphereDirection( ( vec2( x, y ) + 0.5 ) / vec2( tile.zw ), probeN );
+                        const vec3 radiance =
+                             texelFetch( RadiosityTraceTexture, page.xy + tile.xy + ivec2( x, y ), 0 ).rgb;
+                        e += radiance * max( dot( N, direction ), 0.0 );
+                    }
+                sum += w * e * ( 2.0 / float( tile.z * tile.w ) );
+                weight += w;
+            }
+            return weight > 0.0 ? sum / weight : vec3( 0.0 );
         }
 
         void main()
@@ -118,23 +154,15 @@ Shader "SurfaceCacheIndirectLighting"
             }
             // The texel's world position and normal, exactly as the direct lighting places them.
             const SurfaceCard card = surfaceCards[v_CardIndex];
-            const vec2  res        = vec2(uvec2(1u << (card.info.x & 0xFFu), 1u << ((card.info.x >> 8u) & 0xFFu)));
-            const vec2  atlasSize  = vec2(textureSize(AtlasOpacityTexture, 0));
-            const ivec2 pageOrigin = ivec2(v_AtlasUVRect.xy * atlasSize + 0.5);
-            const vec2  cardTexel  = floor(v_CardUVRect.xy * res + 0.5) + vec2(atlasTexel - pageOrigin) + 0.5;
-            const vec2  uv         = cardTexel / res;
-            const vec2  local      = vec2(2.0 * uv.x - 1.0, 1.0 - 2.0 * uv.y) * card.localExtent.xy;
-            const vec3  origin = vec3(card.worldToLocal[0].w, card.worldToLocal[1].w, card.worldToLocal[2].w);
-            const float depth  = texelFetch(AtlasDepthTexture, atlasTexel, 0).r;
-            const vec3 worldPos = origin + card.worldToLocal[0].xyz * local.x + card.worldToLocal[1].xyz * local.y +
-                                  card.worldToLocal[2].xyz * (card.localExtent.z - depth * 2.0 * card.localExtent.z);
-            const vec3 N = OctahedronToUnitVector(texelFetch(AtlasNormalTexture, atlasTexel, 0).rg * 2.0 - 1.0);
+            const ivec4 page = RadiosityPageTexels( v_AtlasUVRect, vec2( textureSize( AtlasOpacityTexture, 0 ) ) );
+            const vec3  worldPos = RadiosityTexelWorldPosition( card, v_CardUVRect, page, atlasTexel,
+                                                                texelFetch( AtlasDepthTexture, atlasTexel, 0 ).r );
+            const vec3 N =
+                 RadiosityOctahedronToUnitVector( texelFetch( AtlasNormalTexture, atlasTexel, 0 ).rg * 2.0 - 1.0 );
 
-            // The texel is seen from its own normal (no viewer): the cache's surface bias leaves along it.
-            const vec4 irradiance = RadianceCacheIrradianceAt(worldPos, N, N, 0.5);
-            const vec3 albedo     = texelFetch(AtlasAlbedoTexture, atlasTexel, 0).rgb;
-            vec3       indirect   = irradiance.a > 0.0 ? albedo * max(irradiance.rgb, vec3(0.0)) : vec3(0.0);
-            // The far side of a leaf, read the same way from -N.
+            const vec3 albedo   = texelFetch( AtlasAlbedoTexture, atlasTexel, 0 ).rgb;
+            vec3       indirect = albedo * RadiosityIrradiance( page, atlasTexel, N );
+            // The far side of a leaf, from the world radiance cache at -N.
             const vec3 subsurface = texelFetch(AtlasSubsurfaceTexture, atlasTexel, 0).rgb;
             if (max(subsurface.r, max(subsurface.g, subsurface.b)) > 0.0)
             {

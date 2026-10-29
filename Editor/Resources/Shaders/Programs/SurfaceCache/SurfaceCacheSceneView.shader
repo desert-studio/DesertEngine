@@ -20,11 +20,13 @@ Shader "SurfaceCacheSceneView"
             mat4  ViewProjection;
             vec4  CameraPosition;
             uvec4 Counts; // x = atlas side, y = card count
+            vec4  ColorScale; // x = the scale of the colour: the view's pre-exposure for FinalLighting (radiance), 1 for albedo
         };
         Out(0) vec2 v_Local;                                    // card space, [-1, 1]² over the card
         Out(1) vec4 v_Clip;                                     // clip position on the card plane
         layout(location = 2) out flat vec4 v_ClipDepthStep;      // clip offset from the plane to the far side
         layout(location = 3) out flat uvec4 v_CardInfo;          // res x | y << 16, pages x | y << 16, first page
+        layout(location = 4) out flat float v_ColorScale;        // SceneViewPush.ColorScale.x
 
         void main()
         {
@@ -45,6 +47,7 @@ Shader "SurfaceCacheSceneView"
             v_ClipDepthStep = ViewProjection * vec4(z * (2.0 * extent.z), 0.0);
             const uvec2 res = uvec2(1u << (card.info.x & 0xFFu), 1u << ((card.info.x >> 8u) & 0xFFu));
             v_CardInfo      = uvec4(res.x | (res.y << 16u), card.pages.x, card.pages.y, 0u);
+            v_ColorScale    = ColorScale.x;
             // A card not captured yet, or seen from behind, collapses (all six vertices outside the clip box).
             gl_Position = SurfaceCardVisible(card) && facing ? v_Clip : vec4(0.0, 0.0, -2.0, 1.0);
         }
@@ -67,6 +70,7 @@ Shader "SurfaceCacheSceneView"
         In(1) vec4 v_Clip;
         layout(location = 2) in flat vec4 v_ClipDepthStep;
         layout(location = 3) in flat uvec4 v_CardInfo;
+        layout(location = 4) in flat float v_ColorScale;
         Out(0) vec4 oColor;
 
         void main()
@@ -92,7 +96,9 @@ Shader "SurfaceCacheSceneView"
             // Back to the captured surface: the depth layer runs from the card plane (0) to the far side (1).
             const vec4 clip = v_Clip - texelFetch(AtlasDepthTexture, atlasTexel, 0).r * v_ClipDepthStep;
             gl_FragDepth    = clip.z / clip.w;
-            oColor          = vec4(texelFetch(AtlasColorTexture, atlasTexel, 0).rgb, 1.0);
+            // The post chain reads the target as scene colour, stored at radiance x pre-exposure (UE
+            // VisualizeLumenScene writes View.PreExposure-scaled lighting the same way).
+            oColor          = vec4(texelFetch(AtlasColorTexture, atlasTexel, 0).rgb * v_ColorScale, 1.0);
         }
     }
 }

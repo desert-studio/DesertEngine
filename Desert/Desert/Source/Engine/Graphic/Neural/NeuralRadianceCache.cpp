@@ -393,10 +393,13 @@ namespace Desert::Engine::Neural
         const uint32_t tile  = std::max( 1u, uint32_t( std::ceil( std::sqrt( pixels / kNrcMaxTrainingPaths ) ) ) );
         uint64_t       state = frameSeed;
         const uint64_t offset = SplitMix( state );
-        targets.Push.Params =
+        NrcTraceParams params;
+        params.Params =
              glm::uvec4( m_QueryCapacity, tile, uint32_t( offset % tile ), uint32_t( ( offset >> 32 ) % tile ) );
-        targets.Push.Spread =
+        params.Spread =
              glm::vec4( kNrcSpreadThreshold, float( kNrcUnbiasedTrainingPaths ), kNrcMinThroughput, 0.0f );
+        targets.Params = graph.CreateBuffer( RDG::BufferDesc{ sizeof( NrcTraceParams ) }, "NRC.TraceParams" );
+        graph.QueueBufferUpload( targets.Params, std::as_bytes( std::span( &params, 1 ) ) );
         return Common::MakeSuccess( std::move( targets ) );
     }
 

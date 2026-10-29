@@ -65,20 +65,24 @@ namespace Desert::Assets::Serialization
     /// levels at most (15, 7, 3, 1) - the size of the generator's bucket table.
     inline constexpr uint32_t kGrassBladeMaxSegments = 15;
 
+    /// The most cards a Blade variety draws from (Mesh/Surface/GrassBlade.glslh GRASS_BLADE_MAX_CARDS).
+    inline constexpr size_t kGrassBladeMaxCards = 8;
+
     /**
-     * @brief The shape of a procedural blade (Kind Blade). Per-instance size comes from the variety's scale ranges
-     * (ScaleX the width, ScaleZ the height, as for a mesh), the facing from RandomRotation and the clump.
-     *
-     * Colours are linear RGB in 0..1.
+     * @brief How a blade card stands (Kind Blade). Its look - outline, colour, veins, dry tips - is the variety's
+     * material: a scanned blade atlas (UE's Landscape Grass Type draws a foliage material too). The blade names
+     * which rectangles of that atlas are its cards; the vertex stage bends one card per instance, as wide as the
+     * card is at the blade's height. Per-instance size comes from the variety's scale ranges (ScaleX the width,
+     * ScaleZ the height, as for a mesh), the facing from RandomRotation and the clump.
      */
     struct GrassBlade
     {
         /// Blade height, cm, at scale 1.
         float Height = 45.0f;
-        /// Width at the root, cm, at scale 1.
-        float Width = 1.2f;
-        /// The share of the root width lost by the tip: 0 = a ribbon, 1 = a point.
-        float Taper = 0.9f;
+        /// The cards on the material's atlas, each (u0, vTip, u1, vRoot) in texture space (v down the image, the
+        /// tip above the root): 1..kGrassBladeMaxCards, each instance draws one uniformly (repeat a card to draw
+        /// it more often).
+        std::vector<std::array<float, 4>> Cards;
         /// How far the tip leans forward at rest, as a share of the height (0 = upright).
         float Curvature = 0.35f;
         /// 0..1: how far each blade's own lean strays from Curvature, either way (0.4: from 0.6 to 1.4 times it).
@@ -93,15 +97,7 @@ namespace Desert::Assets::Serialization
         /// clump's share of the facing alone; restores the per-blade facing a strong Clumping takes away).
         float FacingJitter = 0.0f;
         /// 0..1: the share of the wind's sway the blade resists (1 = it does not move).
-        float                Stiffness = 0.3f;
-        std::array<float, 3> BaseColor{ 0.06f, 0.10f, 0.03f };
-        std::array<float, 3> TipColor{ 0.25f, 0.33f, 0.09f };
-        /// The colour a dry tip turns to.
-        std::array<float, 3> DryTipColor{ 0.45f, 0.38f, 0.20f };
-        /// 0..1: the share of blades with a dry tip.
-        float DryTipShare = 0.25f;
-        /// 0..1: how much of a dry blade, from the tip down, is dry.
-        float DryTipLength = 0.3f;
+        float Stiffness = 0.3f;
         /// 0..1: how strongly blades follow their clump - its facing, its height and its tint (0 = independent).
         float Clumping = 0.5f;
         /// The clump cell's side, cm.

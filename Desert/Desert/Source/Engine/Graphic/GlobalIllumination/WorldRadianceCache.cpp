@@ -138,7 +138,7 @@ namespace Desert::Graphic::GlobalIllumination
             return Common::MakeFormattedError<bool>( "radiance cache: shader {} ({}, {}) was refused: {}", name,
                                                      TracerDefine( pipeline.Tracer ),
                                                      HitLightingDefine( pipeline.Hits ), acquired.GetError() );
-        auto shader = acquired.ExtractValue();
+        auto shader  = acquired.ExtractValue();
         auto compute = ComputePipeline::Create(
              { .Shader = shader, .DebugName = std::format( "{} ({})", name, TracerDefine( pipeline.Tracer ) ) } );
         if ( !compute )

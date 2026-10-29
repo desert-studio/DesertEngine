@@ -34,6 +34,7 @@
 #include "Editor/Core/CommandHistory.hpp"
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -49,6 +50,7 @@
 #include <ImGui/imgui.h>
 #include <ImGui/imgui_internal.h>
 
+#include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <glm/gtc/quaternion.hpp>
@@ -548,7 +550,9 @@ namespace Desert::Editor
     }
 
     std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled,
-                                                             const bool subsurfaceHistoryConverging )
+                                                             const bool subsurfaceHistoryConverging,
+                                                             const bool materialPipelinesCompiling,
+                                                             const bool grassInstancesSettling )
     {
         ++m_FrameIndex;
         // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
@@ -561,6 +565,16 @@ namespace Desert::Editor
         // read a full history window (SSS-PROFILE 3_scale4: a shot right after `SubsurfaceScale 4` saw fresh
         // texels).
         m_FrameQuiescence.Set( Control::PendingWork::SubsurfaceHistory, subsurfaceHistoryConverging );
+        // Also decided by the frame itself (GRASS-SETTLE): a draw whose pipeline was still on a worker was drawn
+        // with the default surface, so the frame is not the scene. UE's automated screenshot calls
+        // FinishAllCompilation first; here the reply/shot waits for a frame with no stand-in (FIELD_Barn
+        // 1_first: a grey-blue foliage patch with a straight edge, its GBuffer_TwoSided cell compiling).
+        m_FrameQuiescence.Set( Control::PendingWork::MaterialPipelines, materialPipelinesCompiling );
+        // And the grass (GRASS-SETTLE p14): after a camera cut its instance buffers are sized by the previous
+        // view's GPU count and the generator drops the rest, so a block of cells drew without its meshes until the
+        // count came back. UE's automated screenshot waits for the async grass builds; here the reply waits for a
+        // frame whose every grass variety read back within capacity (GrassRenderer::InstancesSettling).
+        m_FrameQuiescence.Set( Control::PendingWork::GrassInstances, grassInstancesSettling );
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;
@@ -679,15 +693,17 @@ namespace Desert::Editor
 
     // nn-check (NN-RUNTIME step 4): the fused MLP's training step as render-graph passes against its CPU
     // reference, on the seeded nn-check problem. machine.json ForcedNeuralKernelPath set = that one path (refused,
-    // naming what the device lacks, when it cannot run); absent = every path, a path the device cannot run reported
-    // with why and not run. Every run is recorded into THIS frame's graph; the reply waits until that frame has
-    // completed on the GPU (ServiceNnCheck), then is a success only when every path that ran is within its tolerance.
+    // naming what the device lacks, when it cannot run); absent = every path, a path the device cannot run
+    // reported with why and not run. Every run is recorded into THIS frame's graph; the reply waits until that
+    // frame has completed on the GPU (ServiceNnCheck), then is a success only when every path that ran is within
+    // its tolerance.
     std::optional<Control::Response> ControlService::SubmitNnCheck( const int64_t id )
     {
         namespace Neural = Engine::Neural;
         using Engine::NeuralKernelPath;
-        const Engine::NeuralComputeCaps&      caps   = EngineContext::GetInstance().GetCapabilities().Neural;
-        const std::optional<NeuralKernelPath> forced = Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath;
+        const Engine::NeuralComputeCaps&      caps = EngineContext::GetInstance().GetCapabilities().Neural;
+        const std::optional<NeuralKernelPath> forced =
+             Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath;
 
         // A forced path the device cannot run is not a failed request: it is reported refused, with the
         // resolver's reason, like any other path (the loop below asks the same resolver).
@@ -744,12 +760,12 @@ namespace Desert::Editor
 
     Control::Response ControlService::CompleteNnCheck()
     {
-        namespace Neural = Engine::Neural;
-        const int64_t              id = m_NnCheck->Id;
+        namespace Neural                                    = Engine::Neural;
+        const int64_t                                    id = m_NnCheck->Id;
         Common::Json::Value::Array                       runs;
         std::vector<std::pair<std::string, std::string>> verdicts;
         std::string                                      summary;
-        const auto appendSummary = [&summary]( const std::string& line )
+        const auto                                       appendSummary = [&summary]( const std::string& line )
         {
             if ( !summary.empty() )
                 summary += "; ";
@@ -795,32 +811,50 @@ namespace Desert::Editor
                 object["maxAbs"] = Control::StateDetail::Num( error.MaxAbs );
                 object["maxRef"] = Control::StateDetail::Num( error.MaxRef );
                 object["rel"]    = Control::StateDetail::Num( error.Rel );
+                if ( error.Worst.Valid )
+                {
+                    Common::Json::Object worst;
+                    worst["matrix"]    = Control::StateDetail::Num( error.Worst.Matrix );
+                    worst["j"]         = Control::StateDetail::Num( error.Worst.Row );
+                    worst["k"]         = Control::StateDetail::Num( error.Worst.Column );
+                    worst["gpu"]       = Control::StateDetail::Num( error.Worst.Gpu );
+                    worst["ref"]       = Control::StateDetail::Num( error.Worst.Reference );
+                    worst["magnitude"] = Control::StateDetail::Num( error.Worst.Magnitude );
+                    object["worst"]    = Common::Json::Value( worst );
+                }
                 return Common::Json::Value( object );
             };
             Common::Json::Object run;
-            run["path"]       = Control::StateDetail::Str( name );
-            run["tile"]       = Control::StateDetail::Str( check.Tile );
-            run["output"]     = errorJson( check.Output );
-            run["weightGrad"] = errorJson( check.WeightGrad );
-            run["maskFlips"]  = Control::StateDetail::Num( static_cast<double>( check.MaskFlips ) );
-            run["tolerance"]  = Control::StateDetail::Num( check.Tolerance );
-            run["pass"]       = Common::Json::Value( check.Pass );
+            run["path"]              = Control::StateDetail::Str( name );
+            run["tile"]              = Control::StateDetail::Str( check.Tile );
+            run["output"]            = errorJson( check.Output );
+            run["weightGrad"]        = errorJson( check.WeightGrad );
+            run["maskFlips"]         = Control::StateDetail::Num( static_cast<double>( check.MaskFlips ) );
+            run["tolerance"]         = Control::StateDetail::Num( check.Tolerance );
+            run["gradientTolerance"] = Control::StateDetail::Num( check.GradientTolerance );
+            run["pass"]              = Common::Json::Value( check.Pass );
             runs.push_back( Common::Json::Value( run ) );
 
-            const char* tileLabel = check.Tile.empty() ? "" : " tile=";
-            const char* verdict   = check.Pass ? "PASS" : "FAIL";
+            const char*                           tileLabel = check.Tile.empty() ? "" : " tile=";
+            const char*                           verdict   = check.Pass ? "PASS" : "FAIL";
+            const Neural::FusedMlpError::Element& worst     = check.WeightGrad.Worst;
+            const std::string                     worstText =
+                 std::format( "worst dW[{}][{}][{}] gpu={:.6e} ref={:.6e} magnitude={:.6e}", worst.Matrix,
+                              worst.Row, worst.Column, worst.Gpu, worst.Reference, worst.Magnitude );
             const std::string line = std::format(
-                 "path={}{}{} output abs={:.3e} rel={:.3e} | weightGrad abs={:.3e} rel={:.3e} | maskFlips={} | "
-                 "tolerance={:.0e} {}",
+                 "path={}{}{} output abs={:.3e} rel={:.3e} | weightGrad abs={:.3e} rel={:.3e} {} | maskFlips={} | "
+                 "tolerance={:.0e} gradientTolerance={:.2e} {}",
                  name, tileLabel, check.Tile, check.Output.MaxAbs, check.Output.Rel, check.WeightGrad.MaxAbs,
-                 check.WeightGrad.Rel, check.MaskFlips, check.Tolerance, verdict );
+                 check.WeightGrad.Rel, worstText, check.MaskFlips, check.Tolerance, check.GradientTolerance,
+                 verdict );
             LOG_INFO( "[nn_check6] {}", line );
             appendSummary( line );
-            verdicts.emplace_back( name, check.Pass ? std::string( "pass" )
-                                                    : std::format( "fail: output rel={:.3e} weightGrad rel={:.3e} "
-                                                                   "maskFlips={} tolerance={:.0e}",
-                                                                   check.Output.Rel, check.WeightGrad.Rel,
-                                                                   check.MaskFlips, check.Tolerance ) );
+            verdicts.emplace_back(
+                 name, check.Pass ? std::string( "pass" )
+                                  : std::format( "fail: output rel={:.3e} weightGrad rel={:.3e} ({}) "
+                                                 "maskFlips={} tolerance={:.0e} gradientTolerance={:.2e}",
+                                                 check.Output.Rel, check.WeightGrad.Rel, worstText,
+                                                 check.MaskFlips, check.Tolerance, check.GradientTolerance ) );
         }
         m_NnLastCheck = std::move( verdicts );
         // A path the DEVICE LACKS is reported, not failed: a device without coopmat_fp16 still passes on the paths
@@ -840,12 +874,12 @@ namespace Desert::Editor
         const Neural::FusedMlpShape& shape = Neural::kFusedMlpCheckShape;
         Common::Json::Object         payload;
         payload["forced"] = Control::StateDetail::Str( m_NnCheck->Forced );
-        payload["shape"]  = Control::StateDetail::Str( std::format( "{} -> {} x {} -> {}", shape.InputDims,
-                                                                    shape.HiddenLayers, Neural::kFusedMlpWidth,
-                                                                    shape.OutputDims ) );
-        payload["batch"]  = Control::StateDetail::Num( Neural::kFusedMlpCheckBatch );
-        payload["runs"]   = Common::Json::Value( runs );
-        payload["pass"]   = Common::Json::Value( pass && ran );
+        payload["shape"] =
+             Control::StateDetail::Str( std::format( "{} -> {} x {} -> {}", shape.InputDims, shape.HiddenLayers,
+                                                     Neural::kFusedMlpWidth, shape.OutputDims ) );
+        payload["batch"] = Control::StateDetail::Num( Neural::kFusedMlpCheckBatch );
+        payload["runs"]  = Common::Json::Value( runs );
+        payload["pass"]  = Common::Json::Value( pass && ran );
         if ( expectedRefusal )
             payload["refused"] = Control::StateDetail::Str( summary );
         return Control::Response::Success( id, std::move( payload ) );
@@ -1405,6 +1439,16 @@ namespace Desert::Editor
                                         : camera->GetDirection();
 
         PlaceEditorCamera( *camera, position, forward );
+        // A PLACED POSE IS A TELEPORT, so it is a camera cut for every view this camera feeds (UE
+        // FEditorViewportClient::SetIsCameraCut -> FSceneView::bCameraCut, as a bookmark jump makes it): the
+        // histories reprojected from the old pose are reset. Without it the temporal history of the pose before
+        // (a far view seconds away) was reprojected into the new one and settled over seconds as a pale block with
+        // a straight edge (GRASS-SETTLE p21). A camera a person flies is never cut.
+        if ( const auto& scene = m_Workspace.ActiveScene() )
+            for ( size_t view = 0; view < scene->GetViewCount(); ++view )
+                if ( scene->GetViewCamera( view ).get() == camera )
+                    if ( auto* renderer = scene->GetViewRenderer( view ) )
+                        renderer->ResetTemporalHistory();
 
         // INPUT IS NOT DISABLED, and the difference from the capture path is deliberate. `--shot` turns it
         // off because nothing may nudge the camera between the placement and the readback, and there is no
@@ -1523,6 +1567,9 @@ namespace Desert::Editor
             snapshot.IsmInstancesDrawn                = m_Workspace.PrimaryRenderer() != nullptr
                                                              ? m_Workspace.PrimaryRenderer()->GetIsmInstancesDrawn()
                                                              : 0u;
+            const Graphic::GeometryPoolStats pool = Graphic::GeometryPool::Get().GetStats();
+            snapshot.GeometryPoolBinds            = pool.Binds;
+            snapshot.GeometryPoolMeshBinds        = pool.MeshBinds;
         }
 
         {
@@ -1554,6 +1601,32 @@ namespace Desert::Editor
             device.NnMaxComputeSharedMemorySize            = neural.MaxComputeSharedMemorySize;
             for ( const Engine::CooperativeMatrixShape& shape : neural.CooperativeMatrixShapes )
                 device.NnCooperativeMatrixShapes.push_back( Engine::FormatCooperativeMatrixShape( shape ) );
+
+            // Ray tracing: the catalog's modes (what every RT consumer branches on), why rt is off, and what the
+            // main viewport resolved to - its SceneRenderer's RenderMethods, the rows its overlay and the log
+            // print.
+            const Common::Scalability::CapabilityCatalog& catalog = capabilities.Catalog;
+            const bool rtOffered = std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
+                                                []( Common::Scalability::RayTracingMode m )
+                                                { return m != Common::Scalability::RayTracingMode::None; } );
+            device.Rt            = rtOffered ? "on" : ( capabilities.RayTracingHidden ? "hidden" : "off" );
+            for ( const Common::Scalability::RayTracingMode mode : catalog.RayTracingModes )
+                device.RtModes.emplace_back(
+                     Common::Scalability::kRayTracingModeNames[static_cast<std::size_t>( mode )] );
+            device.PathTracingRefusal = std::string( Graphic::PathTracingRefusal( catalog ) );
+            if ( const Graphic::SceneRenderer* renderer = m_Workspace.PrimaryRenderer() )
+            {
+                const Graphic::RenderMethods& methods = renderer->GetRenderMethods();
+                device.MethodRows                     = Graphic::FormatRenderMethods( methods );
+                device.PathTracingActive              = Graphic::PathTraced( methods );
+                const auto name                       = []( const auto& names, const auto method )
+                { return std::string( names[static_cast<std::size_t>( method )] ); };
+                device.GIMethod =
+                     name( Common::Scalability::kGIMethodNames, methods.GlobalIllumination.Effective );
+                device.ReflectionsMethod =
+                     name( Common::Scalability::kReflectionMethodNames, methods.Reflections.Effective );
+                device.ShadowsMethod = name( Common::Scalability::kShadowMethodNames, methods.Shadows.Effective );
+            }
         }
 
         // The main view's neural radiance cache (System::PathTracer's read-back), absent = inactive.

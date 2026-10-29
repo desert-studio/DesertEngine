@@ -311,8 +311,10 @@ namespace Desert::Graphic::GlobalIllumination
     [[nodiscard]] std::string_view SurfaceCacheFrameMissing( const SurfaceCacheFrame& frame );
 
     // Declares the surface cache's reads of GIHitRadiance on a tracing consumer's binding block, under the names
-    // // Common/SurfaceCacheSampling.glslh declares (at GI_SURFACE_CACHE_BINDING .. + 6).
-    void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame );
+    // Common/SurfaceCacheSampling.glslh declares (at GI_SURFACE_CACHE_BINDING .. + 6); @p sampled is the atlas
+    // layers' access (SampledGraphics for a raster consumer).
+    void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame,
+                                   RDG::Access sampled = RDG::Access::SampledCompute );
 
     // THE DIRECTIONAL LIGHTS A CACHE'S HISTORY WAS LIT BY: the frame sun and atmosphere light 1 (the moon), each
     // as the lit passes receive it (SceneRenderer::GetFrameSun / GetFrameLight1: direction it travels, rgb colour

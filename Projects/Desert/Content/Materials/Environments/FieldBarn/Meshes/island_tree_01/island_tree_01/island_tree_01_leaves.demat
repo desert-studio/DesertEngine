@@ -37,6 +37,10 @@
             "Value": [0.20000000298023224, 0.0, 0.0, 0.0]
         },
         {
+            "Name": "DitherOpacityMask",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
             "Name": "OpacityChannel",
             "Value": [0.0, 0.0, 0.0, 0.0]
         },

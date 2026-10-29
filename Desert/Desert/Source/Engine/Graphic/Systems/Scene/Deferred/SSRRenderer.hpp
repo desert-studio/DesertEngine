@@ -272,7 +272,7 @@ namespace Desert::Graphic::System
                      "SSR: the traced reflections' program ({}, {}) was refused: {}",
                      GlobalIllumination::TracerDefine( pipeline.Tracer ),
                      GlobalIllumination::HitLightingDefine( pipeline.Hits ), acquired.GetError() );
-            auto shader = acquired.ExtractValue();
+            auto       shader  = acquired.ExtractValue();
             const auto compute = ComputePipeline::Create(
                  { .Shader = shader,
                    .DebugName =
@@ -306,7 +306,7 @@ namespace Desert::Graphic::System
             if ( !acquired )
                 return Common::MakeFormattedError<bool>(
                      "SSR: the hit-lit ray generation ('SSR/HitLighting') was refused: {}", acquired.GetError() );
-            auto program = acquired.ExtractValue();
+            auto                            program = acquired.ExtractValue();
             RayTracingPipelineSpecification spec{
                  .Program = program, .HitGroups = {}, .DebugName = "SSRHitLighting" };
             for ( const std::string& name : templates )

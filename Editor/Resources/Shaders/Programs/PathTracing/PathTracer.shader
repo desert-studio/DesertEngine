@@ -19,6 +19,10 @@
 // the sphere; the material rays never meet the sphere, so that sample takes the whole weight; a PCG hash sequence instead of
 // UE's scrambled Sobol (FRandomSequence); a box pixel filter.
 //
+// THE LIGHT CHOICE (PathTracing.LightSampling, PathTracingChooseLights): 0 evaluates every light's estimate at each
+// vertex (UE); 1 takes the local lights from this frame's light grid (NVIDIA RTXDI ReGIR, PathTracerLightGrid.shader)
+// and resamples a few of its cell's slots at the vertex - unbiased, so both converge to the same image.
+//
 // THE EMISSIVE SURFACES AS LIGHTS (Common/EmissiveLights.glslh, the scene's one emissive triangle list): next event
 // estimation picks a triangle by its power and a point uniformly on it, as its own strategy beside the analytic
 // lights (NVIDIA RTXDI: one sample per light kind), and a material ray that meets emission takes the power-heuristic
@@ -50,6 +54,8 @@ Shader "PathTracer"
             #include <Common/RayTracingPayload.glslh>
             #include <Common/EmissiveLights.glslh>
             #include <Common/PathTracingDenoise.glslh>
+            #include <Common/PathTracingRandom.glslh>
+            #include <Common/PathTracingLightGrid.glslh>
 
             layout(binding = 1) uniform accelerationStructureEXT SceneTlas;
             // The view's running sum (rgb) of every path since the last reset; a = the paths summed.
@@ -126,6 +132,13 @@ Shader "PathTracer"
             };
             #include <Common/EmissiveLightsSampling.glslh>
 
+            // The light grid of this frame (PathTracing.LightSampling 1, Common/PathTracingLightGrid.glslh): per slot
+            // the local light and its W; one unread slot when LightGridSize.x = 0.
+            layout(std430, binding = 18) readonly buffer PathTracingLightGridUB
+            {
+                uvec2 lightGrid[];
+            };
+
             #define PATH_TRACING_SKY_RADIANCE SkyRadianceTexture
             #define PATH_TRACING_SKY_PDF      skyPdf
             #include <Common/PathTracingSky.glslh>
@@ -142,37 +155,9 @@ Shader "PathTracer"
                 uvec4 EmissiveCounts;        // the static part: x = triangles, y = power tree leaves, z = its levels, w = TLAS instances of the lookup
                 uvec4 EmissiveDynamicCounts; // the dynamic part: x = triangles, y = power tree leaves, z = its levels
                 uvec4 CameraParams;          // x = 1: camera rays through the (jittered) pixel centre, the signal a denoising upscaler takes raw
-                // The neural radiance cache (NeuralRadianceCache.hpp NrcTraceParams; zero without it, and read only
-                // under PATH_TRACING_NRC - declared in both variants so the push range is the C++ TracePush's):
-                // NrcParams x = the query capacity of each path's segment (0: no cache), y = training tile side,
-                // z / w = this frame's pixel offset in the tile;
-                // NrcSpread x = spread threshold c, y = 1 training path in y never stops on the spread rule, z = the
-                // throughput below which a training vertex gives no sample.
-                uvec4 NrcParams;
-                vec4  NrcSpread;
+                vec4  LightGrid;             // the light grid: xyz = its min corner (cm), w = the cell side (cm)
+                uvec4 LightGridSize;         // xyz = its cells along x, y, z, w = slots per cell; x = 0: no grid (LightSampling 0)
             };
-
-            // ---- Random numbers: a PCG hash chain per pixel and path (UE: FRandomSequence). ----
-            uint PathTracingHash(uint v)
-            {
-                const uint state = v * 747796405u + 2891336453u;
-                const uint word  = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-                return (word >> 22u) ^ word;
-            }
-            float PathTracingRandom(inout uint rng)
-            {
-                rng = PathTracingHash(rng);
-                return float(rng >> 8u) * (1.0 / 16777216.0);
-            }
-            vec2 PathTracingRandom2(inout uint rng)
-            {
-                return vec2(PathTracingRandom(rng), PathTracingRandom(rng));
-            }
-
-            float PathTracingLuminance(vec3 c)
-            {
-                return dot(c, vec3(0.2126, 0.7152, 0.0722));
-            }
 
             // UE MonteCarlo.ush MISWeightPower: the power heuristic, beta = 2.
             float PathTracingMISWeightPower(float pdf, float otherPdf)
@@ -459,18 +444,112 @@ Shader "PathTracer"
                 return total;
             }
 
-            // Next event estimation at a hit: one light chosen by its estimate, its sample weighted against the
-            // material's density (area lights: the sun's cone, the sky); delta lights take the whole weight.
-            vec3 PathTracingSampleLights(PathTracingMaterial m, vec3 P, vec3 N, vec3 V, vec3 origin, float total,
-                                         inout uint rng)
+            // ---- The choice of one light at a vertex (PathTracing.LightSampling). ----
+            // 0, every light: each light's estimate is evaluated at the vertex and one is chosen in proportion to it
+            // (UE EstimateLight), O(lights) per vertex.
+            // 1, the light grid (NVIDIA RTXDI ReGIR, Common/PathTracingLightGrid.glslh): the sun, the sky and the moon
+            // keep their estimates; the local lights are kPathTracingLightGridDraws slots drawn uniformly from the
+            // vertex's cell, resampled once more here by the light's unshadowed f * cos at the vertex (RTXDI's
+            // initial-sample RIS). Each drawn slot (y_i, W_i) carries an unbiased contribution weight, so
+            //   L_est = (1 / K) sum_i estimate(y_i) W_i
+            // is an unbiased estimate of what mode 0 sums over the local lights, and the light resampled from the K
+            // carries W = (1 / target(y)) (1 / K) sum_i target(y_i) W_i. The choice between the two parts is made
+            // with L_est in place of the exact sum, and both the light sample and the material ray's MIS weight read
+            // the same choice: the estimator, conditioned on the slots drawn, is RIS's, and RIS is unbiased (the
+            // accumulation converges to mode 0's image). A vertex outside the grid takes mode 0.
+            const uint kPathTracingLightGridDraws = 8u;
+            // The share every light whose emitter is not wholly below the vertex's horizon keeps in the resampling
+            // target beside f * cos toward its centre: a sample of the sphere may lie above the horizon while its
+            // centre is below it, and the target must not be 0 where the light sample is not.
+            const float kPathTracingLightTargetFloor = 0.01;
+
+            struct PathTracingLightChoice
             {
-                if (total <= 0.0)
+                float Total;       // the normaliser of the choice: the sun, sky and moon estimates + the local part
+                float LocalTotal;  // the local part of Total (L_est); < 0: mode 0, every light by its estimate
+                uint  Local;       // the resampled local light (kPathTracingLightGridNone: none)
+                float LocalWeight; // its W
+            };
+
+            // The resampling target of local light @p local at the vertex: its estimate times the material's f * cos
+            // toward its centre (+ the floor); 0 when the whole emitter sphere is below the horizon.
+            float PathTracingLocalLightTarget(PathTracingMaterial m, vec3 P, vec3 N, vec3 V, uint local, float estimate)
+            {
+                if (estimate <= 0.0)
+                    return 0.0;
+                const bool  point        = local < Counts.x;
+                const vec3  position     = point ? pointLights[local].position : spotLights[local - Counts.x].position;
+                const float sourceRadius = point ? pointLights[local].sourceRadius
+                                                 : spotLights[local - Counts.x].sourceRadius;
+                const vec3  toLight      = position - P;
+                const float dist         = length(toLight);
+                if (dist <= sourceRadius)
+                    return estimate * (1.0 + kPathTracingLightTargetFloor);
+                const vec3 L = toLight / dist;
+                if (dot(N, L) < -sourceRadius / dist)
+                    return 0.0;
+                const float bsdf = PathTracingLuminance(
+                    EvaluateDirectLight(L, vec3(1.0), V, N, m.F0, m.Metallic, m.Roughness, m.BaseColor));
+                return estimate * (max(bsdf, 0.0) + kPathTracingLightTargetFloor);
+            }
+
+            PathTracingLightChoice PathTracingChooseLights(PathTracingMaterial m, vec3 P, vec3 N, vec3 V, inout uint rng)
+            {
+                PathTracingLightChoice choice;
+                choice.LocalTotal  = -1.0;
+                choice.Local       = kPathTracingLightGridNone;
+                choice.LocalWeight = 0.0;
+                const uint cell    = PathTracingLightGridCell(P, LightGrid, LightGridSize);
+                if (cell == kPathTracingLightGridNone)
+                {
+                    choice.Total = PathTracingEstimateTotal(P);
+                    return choice;
+                }
+                float localTotal   = 0.0;
+                float weightSum    = 0.0;
+                float chosenTarget = 0.0;
+                for (uint k = 0u; k < kPathTracingLightGridDraws; ++k)
+                {
+                    const uint  pick = min(uint(PathTracingRandom(rng) * float(LightGridSize.w)), LightGridSize.w - 1u);
+                    const uvec2 slot = lightGrid[cell * LightGridSize.w + pick];
+                    if (slot.x == kPathTracingLightGridNone)
+                        continue;
+                    const float W        = uintBitsToFloat(slot.y);
+                    const float estimate = PathTracingEstimate(kPathTracingFirstLocalLight + slot.x, P);
+                    localTotal += estimate * W;
+                    const float target = PathTracingLocalLightTarget(m, P, N, V, slot.x, estimate);
+                    const float weight = target * W;
+                    if (weight <= 0.0)
+                        continue;
+                    weightSum += weight;
+                    if (PathTracingRandom(rng) * weightSum < weight)
+                    {
+                        choice.Local = slot.x;
+                        chosenTarget = target;
+                    }
+                }
+                choice.LocalTotal  = localTotal / float(kPathTracingLightGridDraws);
+                choice.LocalWeight = choice.Local != kPathTracingLightGridNone
+                                         ? weightSum / (float(kPathTracingLightGridDraws) * chosenTarget)
+                                         : 0.0;
+                choice.Total = PathTracingEstimate(0u, P) + PathTracingEstimate(1u, P) + PathTracingEstimate(2u, P) +
+                               choice.LocalTotal;
+                return choice;
+            }
+
+            // Next event estimation at a hit: one light of @p choice, its sample weighted against the material's
+            // density (area lights: the sun's cone, the sky); delta lights take the whole weight.
+            vec3 PathTracingSampleLights(PathTracingMaterial m, vec3 P, vec3 N, vec3 V, vec3 origin,
+                                         PathTracingLightChoice choice, inout uint rng)
+            {
+                if (choice.Total <= 0.0)
                     return vec3(0.0);
                 const uint lights = kPathTracingFirstLocalLight + Counts.x + Counts.y;
-                float      pick   = PathTracingRandom(rng) * total;
-                uint       chosen = lights - 1u;
+                const bool grid   = choice.LocalTotal >= 0.0;
+                float      pick   = PathTracingRandom(rng) * choice.Total;
+                uint       chosen = grid ? kPathTracingLightGridNone : lights - 1u;
                 float      share  = 0.0;
-                for (uint l = 0u; l < lights; ++l)
+                for (uint l = 0u; l < (grid ? kPathTracingFirstLocalLight : lights); ++l)
                 {
                     share = PathTracingEstimate(l, P);
                     if (pick < share)
@@ -480,7 +559,18 @@ Shader "PathTracer"
                     }
                     pick -= share;
                 }
-                const float pickPdf = share / total;
+                float pickPdf;
+                if (chosen == kPathTracingLightGridNone)
+                {
+                    // The grid's local part, chosen with probability LocalTotal / Total; its light's density within
+                    // it is 1 / W.
+                    if (choice.Local == kPathTracingLightGridNone || choice.LocalTotal <= 0.0)
+                        return vec3(0.0);
+                    chosen  = kPathTracingFirstLocalLight + choice.Local;
+                    pickPdf = choice.LocalTotal / (choice.Total * choice.LocalWeight);
+                }
+                else
+                    pickPdf = share / choice.Total;
                 if (pickPdf <= 0.0)
                     return vec3(0.0);
                 const vec2 u = PathTracingRandom2(rng);
@@ -692,6 +782,15 @@ Shader "PathTracer"
             layout(std430, binding = 33) buffer NrcCountersUB
             {
                 uint nrcCounters[];
+            };
+            // NeuralRadianceCache.hpp NrcTraceParams (a buffer: the push is full with the light grid's descriptor).
+            // NrcParams x = the query capacity of each path's segment (> 0: the cache), y = training tile side,
+            // z / w = this frame's pixel offset in the tile; NrcSpread x = spread threshold c, y = 1 training path in
+            // y never stops on the spread rule, z = the throughput below which a training vertex gives no sample.
+            layout(std430, binding = 34) readonly buffer NrcTraceParamsUB
+            {
+                uvec4 NrcParams;
+                vec4  NrcSpread;
             };
 
             // Where the last traced path ended in the cache (PathTracingTracePath -> main, which writes the query once
@@ -954,12 +1053,12 @@ Shader "PathTracer"
                     }
             #endif
                     const vec3  next  = P + N * offset;
-                    const float total = PathTracingEstimateTotal(P);
+                    const PathTracingLightChoice choice = PathTracingChooseLights(m, P, N, V, rng);
                     // Each light sample is shared between the lobes by its own direction's f * cos (a sampler that
                     // returns before evaluating the BSDF returns nothing, so the reset share is never used).
                     vec3 before               = radiance;
                     gPathTracingSpecularShare = vec3(0.0);
-                    PathTracingAccumulate(radiance, throughput * PathTracingSampleLights(m, P, N, V, next, total, rng),
+                    PathTracingAccumulate(radiance, throughput * PathTracingSampleLights(m, P, N, V, next, choice, rng),
                                           false);
                     if (firstSurface)
                         specularDirect += (radiance - before) * gPathTracingSpecularShare;
@@ -974,6 +1073,9 @@ Shader "PathTracer"
                         break;
                     cameraRay = false;
 
+                    // The probabilities the vertex's light sampler chose the sky and the directional lights with
+                    // (the same choice its light sample was drawn from).
+                    const float total = choice.Total;
                     lightPickSky = total > 0.0 ? PathTracingEstimate(1u, P) / total : 0.0;
                     lightPickDirectional = total > 0.0 ? vec2(PathTracingEstimate(0u, P), PathTracingEstimate(2u, P)) / total
                                                        : vec2(0.0);
