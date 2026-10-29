@@ -1,0 +1,52 @@
+# FPS-CPU-LOAD: load hitches - one-off uploads (mesh VB/IB, pooled arena writes, Image2D/Cube/3D creation, SetData,
+# CopyLayersFrom, cube mips) are submitted and not waited for (FPS-CPU-3), so streaming GI_Bistro_Night in no longer
+# sleeps the CPU on "Vulkan: FlushOneShot fence wait".
+# The profile half runs headless, outside the scenario runner (no .scn keyword starts a profile capture). The SAME
+# command runs on the dev tip and on this branch, with default machine settings (no machine.json overrides):
+#   Editor --project ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
+#          --camera -20,250,330 --look -140,260,170 --shot <dir>/fps_load_last.png --shot-frames 300 --gpu-profile
+# The scene is opened cold (meshes, textures, distance fields and terrain arrays stream in during the 300 frames).
+# [fps_load] PASS when, read from the two editor.log "[Profiler]" dumps:
+#   - the "Vulkan: FlushOneShot fence wait" row's total (cpu ms x count) is lower on the branch than on dev;
+#   - 0 VUID lines in the branch log;
+#   - fps_load_last.png pixel-diff vs the dev one < 0.5 % (scripts/Dev/frames_compare.py).
+# [fps_load_async] (FPS-CPU-4): the same headless command with ASYNC COMPUTE ON and SYNCHRONIZATION VALIDATION ON.
+#   Async compute has no switch: it is on whenever the GPU has a compute queue family apart from graphics and is not
+#   a portability (MoltenVK) device (VulkanCapabilityCatalog.cpp:151 catalog.AsyncCompute). On the Windows NVIDIA box
+#   it is on; the proof is the ABSENCE of the line "RDG: no separate compute queue family" in editor.log. On a box
+#   that prints that line this check does not apply (the async pipe is the graphics queue), so it is not a PASS.
+#   Sync validation: run with the environment variable DESERT_VULKAN_VALIDATION=1 (VulkanContext.cpp:147-151 enables
+#   VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT; about 1.4 GB extra on Bistro).
+#     DESERT_VULKAN_VALIDATION=1 Editor <the headless command above> --shot <dir>/fps_load_async_last.png
+# [fps_load_async] PASS when: editor.log has no "RDG: no separate compute queue family" line; 0 VUID lines
+#   (SYNC-HAZARD-* included); fps_load_async_last.png pixel-diff vs the dev fps_load_last.png < 0.5 %.
+# [fps_async_passes] (FPS-CPU-6): production passes declare PassFlags::AsyncCompute - the particle simulation run
+#   (Compact / Dispatch Args / Spawn+Update / readbacks / sort / Mesh Instances+LOD), the "Clouds" shadow-map nodes,
+#   "LightGrid", "LightGridWorld". One switch: RenderPipeline.AsyncCompute (Scalability, default 1, resolved to 0 on a
+#   device without CapabilityCatalog::AsyncCompute). Run the headless command twice with DESERT_VULKAN_VALIDATION=1:
+#   once as is (async on), once with the machine.json Quality override "RenderPipeline.AsyncCompute": 0 (async off).
+# [fps_async_passes] PASS when: the async-on editor.log has "[RDG] graph 'SceneView' async compute segments:" naming
+#   the runs above; 0 VUID and 0 SYNC-HAZARD lines in both logs; the two last frames differ < 0.5 %
+#   (scripts/Dev/frames_compare.py); "GPU: Frame Total" in the async-on [Profiler] dump is not above the async-off one
+#   ("RDG Async: <first> .. <last>" rows are the compute-queue spans that overlap the graphics rows).
+# [fps_async_ao] (FPS-CPU-7): "Deferred: SSAO" (GTAO) is a compute pass (SSAO.shader Compute, UE
+#   r.AmbientOcclusion.Compute) flagged PassFlags::AsyncCompute: fork after the G-buffer depth / GBufferB, join at
+#   "Deferred: Composite". There is no raster AO path any more. The node exists only when SSAO runs: PostProcess
+#   EnableSSAO on and the screen probes' short-range AO not replacing it (SceneRendererFrameDeferred.cpp
+#   ScreenProbeAOReplacesSSAO). If the GI_Bistro_Night log has no "Deferred: SSAO" in the RDG pass list, the scene's
+#   GI replaced it and this check does not apply to that scene (NOT a PASS) - run it on a scene whose GI is not the
+#   screen-probe gather. Same two headless runs as [fps_async_passes] (DESERT_VULKAN_VALIDATION=1; async on / off).
+# [fps_async_ao] PASS when: the async-on "[RDG] graph 'SceneView' async compute segments:" line has a segment that
+#   names "Deferred: SSAO"; 0 VUID and 0 SYNC-HAZARD lines in both logs; the async-on last frame differs from the
+#   dev tip's < 0.5 % (scripts/Dev/frames_compare.py).
+# The interactive half below walks the camera across the street while the scene streams in, and checks the frames.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Тогда-вид 0_street_start ночная улица Бистро: фасады, фонари и витрины на месте, нет чёрных/пустых мешей и текстур-заглушек
+Когда --subject viewport set Camera.Position -230,270,50
+Тогда-вид 1_street_mid середина улицы, догруженные меши и текстуры целые (нет мусора в вершинах, нет полос в текстурах)
+Когда --subject viewport set Camera.Position -440,300,-230
+Когда --subject viewport set Camera.Direction 0.6,0.05,0.8
+Тогда-вид 2_street_across другая сторона улицы, смотрим назад: всё догружено, кадр совпадает с dev на этой же точке (< 0.5 %), в логе 0 VUID

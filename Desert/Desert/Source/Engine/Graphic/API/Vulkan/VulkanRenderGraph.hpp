@@ -4,6 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanResourceSharing.hpp>
 #include <Engine/Graphic/AllocationLedger.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -45,6 +46,11 @@ namespace Desert::Graphic::API::Vulkan
         VkFormat DepthStencilFormat = VK_FORMAT_UNDEFINED;
         // The physical device's limits: a RenderArea pass is refused by name past its framebuffer / viewport size.
         VkPhysicalDeviceLimits Limits{};
+        // The queue-family sharing every transient and extracted resource is created with: the device's rule
+        // (VulkanPhysicalDevice::GetResourceSharing, VulkanResourceSharing.hpp). A graph with an AsyncCompute
+        // segment is refused unless it is CONCURRENT across both pipes' families, because the backend realises the
+        // graph's fork/join release / acquire pairs without family indices (RecordBarriers).
+        VulkanResourceSharing Sharing;
 
         // Debug labels exist only on an instance with VK_EXT_debug_utils; null means no labels.
         PFN_vkCmdBeginDebugUtilsLabelEXT CmdBeginLabel = nullptr;
@@ -540,6 +546,15 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<std::shared_ptr<VulkanRdgTexture>> m_Textures; // by resource index, this graph only
         std::vector<std::shared_ptr<VulkanRdgBuffer>>  m_Buffers;
         std::vector<int32_t>                           m_ProfilerScopes; // open scope per nesting level
+        // The GPU row of the AsyncCompute segment recording now ("RDG Async: <first> .. <last>"), -1 when none: the
+        // segment's span on the compute queue, beside the per-pass rows, so its overlap with the graphics rows
+        // between its fork and join is readable (and its sum against "GPU: Frame Total" is not a tiling).
+        const RDG::CompileResult* m_Result = nullptr; // the graph between BeginGraph and EndGraph / AbandonGraph
+        int32_t                   m_SegmentScope = -1;
+        std::string m_SegmentScopeName;
+        // Per graph name, the async segment line last logged (Execute): a new "[RDG] ... async compute segments"
+        // line only when a graph's segments change.
+        std::map<std::string, std::string> m_AsyncSegmentsLogged;
 #if DESERT_DEV_INSTRUMENTS
         std::vector<std::unique_ptr<Common::Profiling::ScopedTimer>> m_CpuScopes; // CPU row of the same pass
 #endif

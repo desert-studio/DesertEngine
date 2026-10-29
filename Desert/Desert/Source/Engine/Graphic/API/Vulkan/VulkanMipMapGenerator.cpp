@@ -125,7 +125,13 @@ namespace Desert::Graphic::API::Vulkan
 
         VkCommandBuffer commandBuffer = cmdAlloc.GetValue();
         RecordCubeChain( commandBuffer, *SP_CAST( VulkanImageCube, imageCube ) );
-        CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( commandBuffer );
+        // NOT WAITED FOR (FPS-CPU-3): the chain is GPU-only (blits), every sampler of the cube is a later
+        // submission on this queue, and RecordCubeChain's barriers carry ALL_COMMANDS on both sides. Nothing on
+        // the CPU reads the levels.
+        const auto submitted =
+             CommandBufferAllocator::GetInstance().RT_SubmitGraphicThenRelease( commandBuffer, nullptr );
+        if ( !submitted.IsSuccess() )
+            return Common::MakeError( submitted.GetError() );
 
         return Common::MakeSuccess( true );
     }
