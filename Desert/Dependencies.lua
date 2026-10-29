@@ -250,6 +250,11 @@ Dependencies = {
             glm = baseDir .. "/glm",
             GLFW = baseDir .. "/GLFW/include",
             optick = baseDir .. "/optick/src",
+            -- <rflcpp/rfl/...>: Common's PUBLIC headers include it (Common/Json/Json.hpp, Project/ProjectFormat.hpp), so
+            -- every project that sees Common's headers needs it -- which is what this table is. It used to sit in
+            -- CommonSpecific (plus copies in DesertSpecific/TestSpecific), and every tool that reached Json.hpp without
+            -- naming that second table failed with C1083 (DShaderTool, CloudVolumeBaker: run 40926375233).
+            reflect_cpp = baseDir .. "/reflect-cpp/include",
         },
         Defines = {
             -- Optick: keep these identical to BuildScripts/ThirdParty/Optick.lua so optick.h compiles the
@@ -261,9 +266,6 @@ Dependencies = {
     },
 
     CommonSpecific = {
-        IncludeDir = {
-            reflect_cpp = baseDir .. "/reflect-cpp/include",
-        },
         Libraries = {
             reflect_cpp = getReflectCppLib("Debug"),
         },
@@ -277,7 +279,6 @@ Dependencies = {
             stb = baseDir .. "/stb/include",
             vkallocator = baseDir .. "/VulkanAllocator",
             entt = baseDir .. "/entt/include",
-            reflect_cpp = baseDir .. "/reflect-cpp/include",
             meshoptimizer = baseDir .. "/meshoptimizer/src",
             -- <opensubdiv/far/...>: the CPU refiner the Subdivide port runs on (BuildScripts/ThirdParty/OpenSubdiv.lua).
             opensubdiv = baseDir .. "/OpenSubdiv",
@@ -312,7 +313,6 @@ Dependencies = {
     TestSpecific = {
         IncludeDir = {
             gtest = getGTestIncludeDir(),
-            reflect_cpp = baseDir .. "/reflect-cpp/include",
             -- Shader headers compiled as C++ (LandscapeHeight.glslh via LandscapeData.cpp, and the rest of
             -- Shaders/Common). Every suite gets it because the partitioner reaches LandscapeData.cpp, and a
             -- per-suite line was forgotten four times in one day (2026-09-24).

@@ -46,11 +46,6 @@ project "LatticePeak"
         externalincludedirs { path }
     end
 
-    -- rfl/json.hpp, which CloudTypeData.cpp reads the type library through.
-    for name, path in DesertSortedPairs(deps.CommonSpecific.IncludeDir) do
-        externalincludedirs { path }
-    end
-
     for _, define in ipairs(deps.Common.Defines) do
         defines { define }
     end

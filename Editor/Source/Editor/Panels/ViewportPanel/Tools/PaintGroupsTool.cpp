@@ -68,7 +68,7 @@ namespace Desert::Editor::Tools
             return glm::vec4( r, g, b, alpha );
         }
 
-        void Refuse( MS& ms, const std::string& what, const std::string& why )
+        void RefusePaintGroups( MS& ms, const std::string& what, const std::string& why )
         {
             ms.PaintGroupsStatus = std::format( "{} refused: {}", what, why );
             LOG_ERROR( "[Modeling] Paint PolyGroups: {0}", ms.PaintGroupsStatus );
@@ -158,13 +158,13 @@ namespace Desert::Editor::Tools
         MS& ms = MS::Get();
         if ( !m_Session )
         {
-            Refuse( ms, "Accept", ms.PaintGroupsStatus );
+            RefusePaintGroups( ms, "Accept", ms.PaintGroupsStatus );
             return false;
         }
         ECS::StaticMeshComponent* component = MeshOf( EntityOf( scene, m_Session->Entity ) );
         if ( component == nullptr )
         {
-            Refuse( ms, "Accept", "the entity is gone" );
+            RefusePaintGroups( ms, "Accept", "the entity is gone" );
             return false;
         }
         if ( m_Session->Painted == 0 )
@@ -176,7 +176,7 @@ namespace Desert::Editor::Tools
         auto after = std::shared_ptr<const Geometry::DynamicMesh3>( std::move( m_Session->Working ) );
         if ( auto set = ECS::SetEditableMesh( *component, after ); !set.IsSuccess() )
         {
-            Refuse( ms, "Accept", set.GetError() );
+            RefusePaintGroups( ms, "Accept", set.GetError() );
             m_Session.reset();
             return false;
         }

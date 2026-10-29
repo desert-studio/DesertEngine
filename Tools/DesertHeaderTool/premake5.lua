@@ -22,11 +22,6 @@ project "DesertHeaderTool"
         externalincludedirs { path }
     end
 
-    -- CommonSpecific carries reflect-cpp: the template data model is a Common::Json value tree.
-    for name, path in DesertSortedPairs(deps.CommonSpecific.IncludeDir) do
-        externalincludedirs { path }
-    end
-
     -- Lua: Source/ModuleTable.cpp executes BuildScripts/DesertModules.lua, the module table premake reads, so
     -- the reflected types are grouped by module from the same text (plan C11). Lua is a ThirdParty project
     -- above Desert/, so this tool still builds before the engine.

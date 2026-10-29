@@ -801,7 +801,7 @@ namespace Desert::Geometry
             out.insert( out.end(), p, p + values.size() * sizeof( T ) );
         }
 
-        struct Reader
+        struct TopologyReader
         {
             std::span<const uint8_t> Data;
             size_t                   Cursor = 0;
@@ -1463,7 +1463,7 @@ namespace Desert::Geometry
              std::memcmp( data.data(), kTopologyMagic, sizeof( kTopologyMagic ) ) != 0 )
             return Common::MakeError<DisplacementTopology>(
                  "not a displacement topology (magic is not DESTDSPT)" );
-        Reader         r{ data, sizeof( kTopologyMagic ) };
+        TopologyReader r{ data, sizeof( kTopologyMagic ) };
         const uint32_t version = r.Pod<uint32_t>();
         if ( version != kTopologyFormatVersion )
             return Common::MakeFormattedError<DisplacementTopology>(

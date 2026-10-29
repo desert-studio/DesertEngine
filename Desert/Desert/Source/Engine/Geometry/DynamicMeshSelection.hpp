@@ -59,4 +59,9 @@ namespace Desert::Geometry
                                                     const ElementSelection& selection );
     [[nodiscard]] ElementSelection InvertSelection( const DynamicMesh3& mesh, const GroupTopology& topology,
                                                     const ElementSelection& selection );
+
+    // Every live triangle ID of @p mesh, in iteration order: the "whole mesh" region a mesh-wide operation
+    // (UV unwrap/reset, XForm merge/duplicate) runs on. One definition; the per-file copies in
+    // DynamicMeshUVOperations.cpp and DynamicMeshXformOperations.cpp collided in one unity blob (C2084).
+    [[nodiscard]] std::vector<int> AllTriangleIds( const DynamicMesh3& mesh );
 } // namespace Desert::Geometry

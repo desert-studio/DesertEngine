@@ -29,12 +29,6 @@ project "AssetRegistryTool"
         externalincludedirs { path }
     end
 
-    -- CommonSpecific carries reflect-cpp, which Common/Project/ProjectFormat.hpp includes directly
-    -- (<rflcpp/rfl/ExtraFields.hpp>) — reading a .deproj is what this tool starts from.
-    for name, path in DesertSortedPairs(deps.CommonSpecific.IncludeDir) do
-        externalincludedirs { path }
-    end
-
     links { "Common", "ReflectCpp" }
 
     filter "configurations:Debug"

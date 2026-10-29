@@ -48,14 +48,6 @@ namespace Desert::Editor::Tools
             }
         }
 
-        ECS::StaticMeshComponent* MeshOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
-        {
-            auto ref = scene.FindEntityByID( id );
-            if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
-                return nullptr;
-            return &ref->get().GetComponent<ECS::StaticMeshComponent>();
-        }
-
         glm::dmat4 WorldOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
         {
             auto ref = scene.FindEntityByID( id );
@@ -193,7 +185,7 @@ namespace Desert::Editor::Tools
         {
             const auto selected = Core::SelectionManager::GetSelected();
             if ( ms.ActiveTool != m_Session->Tool || !selected.has_value() || *selected != m_Session->Entity ||
-                 MeshOf( scene, m_Session->Entity ) == nullptr )
+                 FindToolTargetComponent( scene, m_Session->Entity ) == nullptr )
             {
                 if ( ms.ActiveTool != m_Session->Tool && ms.ReqCancel )
                     ms.ReqCancel = false;
@@ -234,7 +226,7 @@ namespace Desert::Editor::Tools
             ms.UVStatus = "Select an entity with a static mesh.";
             return;
         }
-        ECS::StaticMeshComponent* component = MeshOf( scene, *selected );
+        ECS::StaticMeshComponent* component = FindToolTargetComponent( scene, *selected );
         if ( component == nullptr )
         {
             ms.UVStatus = "The selected entity has no static mesh.";
@@ -290,7 +282,7 @@ namespace Desert::Editor::Tools
             default:
                 break;
         }
-        ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
+        ECS::StaticMeshComponent* component = FindToolTargetComponent( scene, m_Session->Entity );
         if ( !out.IsSuccess() )
         {
             // A refused setting shows the input, not a stale preview.
@@ -320,7 +312,7 @@ namespace Desert::Editor::Tools
 
     void UVTool::Restore( ::Desert::Core::Scene& scene )
     {
-        ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
+        ECS::StaticMeshComponent* component = FindToolTargetComponent( scene, m_Session->Entity );
         if ( component == nullptr )
             return;
         switch ( PlanMeshRestore( component->EditableMesh, m_Session->Committed ) )
@@ -351,7 +343,7 @@ namespace Desert::Editor::Tools
             return refuse( ms.UVStatus.empty() ? std::string( "no mesh is selected" ) : ms.UVStatus );
         if ( !m_Session->Preview )
             return refuse( ms.UVStatus );
-        ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
+        ECS::StaticMeshComponent* component = FindToolTargetComponent( scene, m_Session->Entity );
         if ( component == nullptr || component->EditableMesh != m_Session->Preview )
             return refuse( "the entity no longer draws the preview" );
         Commands::RecordMeshChange( m_Session->Entity, std::format( "Modeling: {}", ToolName( m_Session->Tool ) ),
