@@ -56,7 +56,7 @@ def load():
 
 
 def save(s):
-    tmp = STATE + ".tmp"
+    tmp = "%s.%d.tmp" % (STATE, os.getpid())  # per-process: two hooks sharing one tmp interleaved their writes
     with open(tmp, "w") as f:
         json.dump(s, f)  # ASCII: open() uses the locale code page, which has no «→» / «≤» from board rows
     os.replace(tmp, STATE)
