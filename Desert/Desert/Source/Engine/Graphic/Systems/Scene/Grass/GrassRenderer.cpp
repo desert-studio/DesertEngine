@@ -437,9 +437,9 @@ namespace Desert::Graphic::System
         {
             const GrassBladeDraw&    b = *variety.Blade;
             const size_t             cards = std::min( b.Cards.size(), gpu.ShapeData.Cards.size() );
-            gpu.ShapeData              = GrassBladeShapeGpu{
-                 glm::vec4( b.Height, b.Stiffness, b.Curvature, static_cast<float>( cards ) ),
-                 glm::vec4( b.CurvatureSpread, b.BendSpread, 0.0f, 0.0f ) };
+            gpu.ShapeData =
+                 GrassBladeShapeGpu{ glm::vec4( b.Height, b.Stiffness, b.Curvature, static_cast<float>( cards ) ),
+                                     glm::vec4( b.CurvatureSpread, b.BendSpread, 0.0f, 0.0f ) };
             std::copy_n( b.Cards.begin(), cards, gpu.ShapeData.Cards.begin() );
             if ( const auto wrote = gpu.Shape->SetData( &gpu.ShapeData, sizeof( gpu.ShapeData ) );
                  !wrote.IsSuccess() )

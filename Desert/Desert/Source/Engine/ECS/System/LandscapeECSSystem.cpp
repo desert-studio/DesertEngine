@@ -616,7 +616,8 @@ namespace Desert::ECS
                         for ( const auto& c : b.Cards )
                         {
                             cards.emplace_back( c[0], c[1], c[2], c[3] );
-                            maxWidth = std::max( maxWidth, b.Height * ( c[2] - c[0] ) / std::max( c[3] - c[1], 1.0e-4f ) );
+                            maxWidth = std::max( maxWidth,
+                                                 b.Height * ( c[2] - c[0] ) / std::max( c[3] - c[1], 1.0e-4f ) );
                         }
                         variety.Blade = Graphic::System::GrassBladeDraw{ .Height          = b.Height,
                                                                          .Curvature       = b.Curvature,

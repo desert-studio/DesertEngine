@@ -73,7 +73,7 @@ namespace Desert::Graphic::System
         /// cm at scale 1 (the bounds).
         std::vector<glm::vec4> Cards;
         float                  MaxWidth = 0.0f;
-        float    Clumping = 0.5f, ClumpSize = 35.0f, ClumpPull = 0.0f;
+        float                  Clumping = 0.5f, ClumpSize = 35.0f, ClumpPull = 0.0f;
         float    Scatter = 0.0f, Patchiness = 0.0f, PatchSize = 800.0f;
         uint32_t Segments    = 6;
         float    LodDistance = 700.0f;

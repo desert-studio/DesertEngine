@@ -66,8 +66,8 @@ namespace Desert::Assets::Serialization
                                         std::isfinite( b.ClumpPull ) && std::isfinite( b.ClumpSize ) &&
                                         std::isfinite( b.Scatter ) && std::isfinite( b.Patchiness ) &&
                                         std::isfinite( b.PatchSize ) && std::isfinite( b.LodDistance );
-                    if ( !finite || !( b.Height > 0.0f ) || !( b.ClumpSize > 0.0f ) ||
-                         !( b.PatchSize > 0.0f ) || !( b.LodDistance > 0.0f ) )
+                    if ( !finite || !( b.Height > 0.0f ) || !( b.ClumpSize > 0.0f ) || !( b.PatchSize > 0.0f ) ||
+                         !( b.LodDistance > 0.0f ) )
                         return Common::MakeFormattedError<bool>( "grass variety {} (Blade): Height {}, "
                                                                  "ClumpSize {}, PatchSize {} and LodDistance {} "
                                                                  "must be finite and > 0",
@@ -75,9 +75,8 @@ namespace Desert::Assets::Serialization
                                                                  b.LodDistance );
                     for ( const auto& [name, value] :
                           { std::pair{ "Curvature", b.Curvature }, std::pair{ "Stiffness", b.Stiffness },
-                            std::pair{ "Clumping", b.Clumping },
-                            std::pair{ "ClumpPull", b.ClumpPull }, std::pair{ "Scatter", b.Scatter },
-                            std::pair{ "Patchiness", b.Patchiness },
+                            std::pair{ "Clumping", b.Clumping }, std::pair{ "ClumpPull", b.ClumpPull },
+                            std::pair{ "Scatter", b.Scatter }, std::pair{ "Patchiness", b.Patchiness },
                             std::pair{ "CurvatureSpread", b.CurvatureSpread },
                             std::pair{ "BendSpread", b.BendSpread } } )
                         if ( value < 0.0f || value > 1.0f )
@@ -97,8 +96,9 @@ namespace Desert::Assets::Serialization
                              "grass variety {} (Blade): Segments {} is outside 1..{}", i, b.Segments,
                              kGrassBladeMaxSegments );
                     if ( b.Cards.empty() || b.Cards.size() > kGrassBladeMaxCards )
-                        return Common::MakeFormattedError<bool>( "grass variety {} (Blade): {} Cards, 1..{} wanted",
-                                                                 i, b.Cards.size(), kGrassBladeMaxCards );
+                        return Common::MakeFormattedError<bool>(
+                             "grass variety {} (Blade): {} Cards, 1..{} wanted", i, b.Cards.size(),
+                             kGrassBladeMaxCards );
                     for ( size_t c = 0; c < b.Cards.size(); ++c )
                     {
                         const auto& r = b.Cards[c];
