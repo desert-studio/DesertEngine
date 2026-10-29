@@ -60,6 +60,7 @@ namespace Desert::Engine::Neural
     {
         std::vector<float> Output;      ///< Batch * 64
         std::vector<float> WeightGrad;  ///< MatrixCount * 64 * 64
+        std::vector<float> WeightGradMagnitude; ///< MatrixCount * 64 * 64: sum over the batch of |g| * |h|
         std::vector<float> Activations; ///< MatrixCount * Batch * 64: h_l, the input of matrix l (h_0 = input)
     };
 
@@ -105,6 +106,11 @@ namespace Desert::Engine::Neural
 
     [[nodiscard]] FusedMlpError CompareFusedMlp( const std::vector<float>& gpu,
                                                  const std::vector<float>& reference );
+    // A SUM IS MEASURED AGAINST ITS TERMS, NOT ITS RESULT: a weight gradient is a sum over the batch whose
+    // signed terms cancel, so its rounding is bounded by the sum of the terms' magnitudes (Higham: |error| <=
+    // gamma_n * sum |g| |h|), not by |sum|. Rel is the largest |gpu - reference| / magnitude over the elements.
+    [[nodiscard]] FusedMlpError CompareFusedMlpSum( const std::vector<float>& gpu, const std::vector<float>& reference,
+                                                    const std::vector<float>& magnitude );
 
     // The relative tolerance a path's outputs are held to: 1e-2 for the fp16 paths, 1e-5 for fp32.
     [[nodiscard]] double FusedMlpTolerance( NeuralKernelPath path );

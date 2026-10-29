@@ -481,7 +481,7 @@ namespace Desert::Engine::Neural
         check.Path       = m_Path;
         check.Tile       = m_Tile;
         check.Output     = CompareFusedMlp( gpu.Output, reference->Output );
-        check.WeightGrad = CompareFusedMlp( gpu.WeightGrad, reference->WeightGrad );
+        check.WeightGrad = CompareFusedMlpSum( gpu.WeightGrad, reference->WeightGrad, reference->WeightGradMagnitude );
         check.MaskFlips =
              CountReluMaskFlips( gpu.Activations, reference->Activations, problem.Shape, problem.Batch );
         check.Tolerance         = FusedMlpTolerance( m_Path );

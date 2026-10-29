@@ -90,6 +90,7 @@ namespace Desert::Engine::Neural
             FusedMlpResult result;
             result.Output.assign( size_t( batch ) * W, 0.0f );
             result.WeightGrad.assign( size_t( L ) * W * W, 0.0f );
+            result.WeightGradMagnitude.assign( size_t( L ) * W * W, 0.0f );
 
             for ( uint32_t l = 0; l < L; ++l )
             {
@@ -112,13 +113,19 @@ namespace Desert::Engine::Neural
             {
                 const float* weights = &problem.Weights[size_t( l ) * W * W];
                 float*       grad    = &result.WeightGrad[size_t( l ) * W * W];
+                float*       mag     = &result.WeightGradMagnitude[size_t( l ) * W * W];
                 for ( uint32_t j = 0; j < W; ++j )
                     for ( uint32_t k = 0; k < W; ++k )
                     {
-                        double sum = 0.0;
+                        double sum = 0.0, magnitude = 0.0;
                         for ( uint32_t b = 0; b < batch; ++b )
-                            sum += double( g[size_t( b ) * W + j] ) * double( h[l][size_t( b ) * W + k] );
+                        {
+                            const double term = double( g[size_t( b ) * W + j] ) * double( h[l][size_t( b ) * W + k] );
+                            sum += term;
+                            magnitude += std::abs( term );
+                        }
                         grad[j * W + k] = float( sum );
+                        mag[j * W + k]  = float( magnitude );
                     }
                 if ( l == 0 )
                     break;
@@ -213,6 +220,26 @@ namespace Desert::Engine::Neural
         if ( gpu.size() != reference.size() )
             error.MaxAbs = INFINITY;
         error.Rel = error.MaxRef > 0.0 ? error.MaxAbs / error.MaxRef : error.MaxAbs;
+        return error;
+    }
+
+    FusedMlpError CompareFusedMlpSum( const std::vector<float>& gpu, const std::vector<float>& reference,
+                                      const std::vector<float>& magnitude )
+    {
+        FusedMlpError error = CompareFusedMlp( gpu, reference );
+        if ( magnitude.size() != reference.size() || std::isinf( error.MaxAbs ) )
+        {
+            error.Rel = INFINITY;
+            return error;
+        }
+        error.Rel = 0.0;
+        for ( size_t i = 0; i < reference.size(); ++i )
+        {
+            const double difference = std::abs( double( gpu[i] ) - double( reference[i] ) );
+            // A zero magnitude means every term was zero: the sum must be exactly zero too.
+            const double rel = magnitude[i] > 0.0f ? difference / double( magnitude[i] ) : ( difference > 0.0 ? INFINITY : 0.0 );
+            error.Rel        = std::max( error.Rel, rel );
+        }
         return error;
     }
 
