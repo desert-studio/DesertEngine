@@ -1261,9 +1261,18 @@ namespace Desert::Graphic
         [[nodiscard]] std::optional<System::SSRRenderer::TracedReads>
         MakeTracedReflectionReads( RDG::Builder& graph, FrameTextures& textures, System::SSRRenderer& ssr,
                                    const std::vector<RDG::TextureRef>& gbuffer, const ViewFrame& frame );
-        // The tracer of the surface cache's shadow rays: the GI pipeline's when it traces, otherwise the software
-        // walk.
+        // The surface cache this view is bound to this frame - the lent one (ShareSurfaceCache), else its scene's
+        // (m_FrameSurfaceCache) - initialised or not; null outside BeginScene/EndScene.
+        [[nodiscard]] SurfaceCache::SurfaceCacheRenderer* BoundSurfaceCache() const;
+        // What the bound cache's owner stated for this engine frame (SurfaceCacheRenderer::BeginFrame): every
+        // view's origin, the budget and the card tracer. Null when it stated nothing.
+        [[nodiscard]] const SurfaceCache::SurfaceCacheRenderer::FrameViews* SurfaceCacheFrameViews() const;
+        // The tracer of the surface cache's shadow rays: the cache's for this frame (FrameViews::Tracer, resolved
+        // from the scene, not from this view); untraced when its owner stated no views.
         [[nodiscard]] GlobalIllumination::Pipeline SurfaceCacheTracer() const;
+        // This view updates the bound cache this frame (the frame's first to reach it) with the hardware tracer:
+        // its frame builds the TLAS the card lighting's shadow rays walk, whatever its own methods need.
+        [[nodiscard]] bool SurfaceCacheUpdateTracesRayQuery() const;
         // The active tracer's reads of this frame for @p pipeline (GlobalIllumination::TracerFrame).
         [[nodiscard]] GlobalIllumination::TracerFrame
         MakeTracerFrame( RDG::Builder& graph, const FrameTextures& textures,

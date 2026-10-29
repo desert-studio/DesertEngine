@@ -8,8 +8,10 @@
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheScene.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/RenderMethods.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 
+#include <entt/entt.hpp>
 #include <glm/glm.hpp>
 
 #include <array>
@@ -137,9 +139,40 @@ namespace Desert::Graphic::SurfaceCache
         {
             return m_CaptureBuffer != nullptr;
         }
-        // The machine's budget; a new atlas side recreates the layers and drops every capture. Asked by the view
-        // that updates the cache this frame (UpdatedIn false): the views of one scene read one atlas, so a view of
-        // another quality reads the budget the frame's first view set rather than re-cutting it per view.
+        // THE FRAME'S VIEWS, stated by the cache's owner once per engine frame BEFORE any view of the frame opens
+        // (Core::Scene::OnUpdate for the scene's cache, ReflectionCaptureRenderer for a capture point's): what the
+        // frame's one update is cut from, whichever view runs it (UE: the Lumen scene update gathers every view
+        // origin of the family and reads the r.LumenScene settings, never one view's).
+        struct FrameViews
+        {
+            uint64_t Frame = 0;
+            // Every view's origin: the cards' distances, so their resolutions and capture order (SurfaceCacheScene::
+            // Update). Never empty when stated.
+            std::vector<glm::vec3> Origins;
+            // The machine's budget (Scalability GlobalIllumination group, QualityState::Resolved).
+            SurfaceCacheBudget Budget;
+            // The tracer the cards are lit with (their shadow rays): the scene's GI method - its unbound post
+            // process settings under the machine's ceiling and the device - when traced, else the software walk
+            // every device runs. The updating view records the lighting with it and builds what it reads.
+            GlobalIllumination::Pipeline Tracer;
+        };
+        // States @p origins of engine frame @p engineFrame and resolves the budget and the card tracer from the
+        // scene: @p registry's unbound post-process volumes (ResolveViewSettings without a view position) and
+        // @p deferred (the scene's rendering path) under the machine's quality and the device catalogue, minus the
+        // tracers whose lighting program did not build here (RefuseLightingTracer).
+        void BeginFrame( uint64_t engineFrame, std::vector<glm::vec3> origins, const entt::registry& registry,
+                         bool deferred );
+        // The views stated for @p engineFrame; null when BeginFrame did not run in it.
+        [[nodiscard]] const FrameViews* ViewsOf( uint64_t engineFrame ) const
+        {
+            return m_FrameViews && m_FrameViews->Frame == engineFrame ? &*m_FrameViews : nullptr;
+        }
+        // @p tracer's lighting program did not build (EnsureLightingProgram failed): the GI methods it serves are
+        // refused for the cache's tracer from the next BeginFrame on (the view refuses them for its own GI).
+        void RefuseLightingTracer( const GlobalIllumination::Pipeline& tracer );
+
+        // The frame's budget (FrameViews::Budget); a new atlas side recreates the layers and drops every capture.
+        // Asked by the view that updates the cache this frame (UpdatedIn false).
         [[nodiscard]] Common::BoolResultStr Configure( const SurfaceCacheBudget& budget );
         // Whether UpdateScene already ran in @p engineFrame: a later view of the frame reads that update.
         [[nodiscard]] bool UpdatedIn( uint64_t engineFrame ) const
@@ -162,17 +195,18 @@ namespace Desert::Graphic::SurfaceCache
             SceneFrame Scene;
             bool       Updated = false;
         };
-        // Brings the scene up to @p instances at @p camera, once per @p engineFrame (UPDATED AT MOST ONCE PER
-        // ENGINE FRAME, as GlobalDistanceField::AddUpdatePasses): the first call of a frame updates the scene and
-        // its caller records the passes that write the atlases; every later one in the same frame - another view
-        // of the scene, at its own camera - hands back the frame's records with Updated false and reads the same
-        // atlases (UE: one Lumen scene update per scene render, read by all its views). A second update in the
-        // frame would capture and relight over what the frame's earlier graph reads.
+        // Brings the scene up to @p instances seen from every origin of the frame's views (BeginFrame, required in
+        // @p engineFrame), once per @p engineFrame (UPDATED AT MOST ONCE PER ENGINE FRAME, as
+        // GlobalDistanceField::AddUpdatePasses): the first call of a frame updates the scene and its caller
+        // records the passes that write the atlases; every later one in the same frame - another view of the
+        // scene - hands back the frame's records with Updated false and reads the same atlases (UE: one Lumen
+        // scene update per scene render, read by all its views). A second update in the frame would capture and
+        // relight over what the frame's earlier graph reads.
         // @p lighting is the frame's directional lights: a significant change from those the lit pages were last
         // fully relit under (GlobalIllumination::InvalidatesLightingHistory) relights every visible page this
         // frame.
         [[nodiscard]] Common::ResultStr<SceneUpdate>
-        UpdateScene( const std::vector<SceneInstance>& instances, const glm::vec3& camera, uint64_t engineFrame,
+        UpdateScene( const std::vector<SceneInstance>& instances, uint64_t engineFrame,
                      const GlobalIllumination::DirectionalLighting& lighting );
         // The scene's tables (rows by placement, the row of an instance). Its frame update is UpdateScene's.
         [[nodiscard]] const SurfaceCacheScene& GetScene() const
@@ -251,6 +285,9 @@ namespace Desert::Graphic::SurfaceCache
         };
         ResourceOwnerInstance     m_LedgerInstance; // see the constructor
         std::optional<FrameUpdate> m_FrameUpdate;
+        std::optional<FrameViews>  m_FrameViews; // BeginFrame's, the latest frame
+        // The tracers whose lighting program did not build (RefuseLightingTracer): BeginFrame resolves under them.
+        ProgramRefusals m_Refusals;
         // The directional lighting of the last full relight (empty until the first update).
         std::optional<GlobalIllumination::DirectionalLighting>                m_LitBy;
         uint32_t                                                              m_AtlasSize = 0;

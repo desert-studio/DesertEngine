@@ -1764,7 +1764,9 @@ namespace Desert::Graphic
                                               ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(),
                                                                                  camera->GetProjectionMatrix() } )
                                               : 1.0f;
-            const bool      required   = RayTracing::RayTracingSceneRequired( m_RenderMethods );
+            // The view's methods, or the scene's cards this view relights this frame with ray query.
+            const bool required =
+                 RayTracing::RayTracingSceneRequired( m_RenderMethods ) || SurfaceCacheUpdateTracesRayQuery();
 
             // The landscape tiles first: their vertex compute, then their BLAS requests join the RT scene's
             // dynamic-geometry pass, which the TLAS pass reads (orders it after the builds).

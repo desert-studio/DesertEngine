@@ -30,6 +30,7 @@
 #include <Common/Json/Carry.hpp>
 #include <cstdint>
 #include <Engine/Assets/AssetManager.hpp>
+#include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/System/System.hpp>
 #include <Engine/Graphic/Framebuffer.hpp>
@@ -848,6 +849,9 @@ namespace Desert::Core
         std::unique_ptr<Graphic::DistanceField::DistanceFieldSceneData> m_DistanceFields;
         // See GetSurfaceCache. Never null: made by both constructors.
         std::unique_ptr<Graphic::SurfaceCache::SurfaceCacheRenderer> m_SurfaceCache;
+        // The caches Clear dropped with their world, kept until no frame in flight reads them (collected at the top
+        // of the views' render, OnUpdate).
+        Assets::FrameRetireQueue<std::unique_ptr<Graphic::SurfaceCache::SurfaceCacheRenderer>> m_RetiringSurfaceCaches;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)

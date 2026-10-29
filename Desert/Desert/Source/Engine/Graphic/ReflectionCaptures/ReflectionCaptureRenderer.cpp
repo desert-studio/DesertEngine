@@ -562,7 +562,10 @@ namespace Desert::Graphic
         view.Renderer->BorrowEnvironment( environment );
         // The capture point's one field (m_FaceField), shared by the six faces.
         view.Renderer->ShareGlobalDistanceField( m_FaceField.get() );
-        // ... and its one surface cache (m_FaceSurfaceCache).
+        // ... and its one surface cache (m_FaceSurfaceCache), whose one view this frame stands at the capture point.
+        m_FaceSurfaceCache->BeginFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
+                                        { capture.CapturePosition }, scene.GetRegistry(),
+                                        scene.GetSettings().RenderingPath == Core::RenderPath::Deferred );
         view.Renderer->ShareSurfaceCache( m_FaceSurfaceCache.get() );
         if ( const auto begun = view.Renderer->BeginScene( scene, &view.View ); !begun )
         {
