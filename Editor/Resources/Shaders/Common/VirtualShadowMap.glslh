@@ -40,11 +40,34 @@ struct VsmFrame
     vec4 Smrt;              // x = rays per pixel, y = samples per ray, z = normal bias texels, w = ray length pages
 };
 
+// A LEVEL is one virtual map of the page table: a clipmap level of the sun (VSM_LEVEL_CLIPMAP, the first
+// Frame.Lod.y levels) or one mip of one view of a point / spot light (VSM_LEVEL_LOCAL: a spot has one view, a point
+// light six cube faces, each a 16k perspective map with VSM_LOCAL_MIPS mips; UE FVirtualShadowMap per local light
+// with its mip chain). A local level's pages are addressed directly (page (x, y) of its mip, no window, no tag).
+#define VSM_LEVEL_CLIPMAP 0u
+#define VSM_LEVEL_LOCAL   1u
+#define VSM_LOCAL_MIPS    8u // VSM_MAX_MIP_LEVELS: 128 x 128 pages at mip 0 down to 1 x 1
+#define VSM_LOCAL_POINT_CONE -2.0 // VsmLocalLight.Spot.w of a point light: no cone
+
 struct VsmLevel
 {
-    mat4  ViewProjection; // world -> level clip: orthographic, standard Z [0, 1] (0 = toward the sun)
-    ivec4 Window;         // xy = world page coordinate of the window's page 0, z = absolute level, w = 1 reset now
-    vec4  Extent;         // x = page world size cm, y = depth range cm, z = radius cm, w = texel world size cm
+    mat4  ViewProjection; // world -> level clip: standard Z [0, 1]; orthographic (sun) or perspective (local)
+    ivec4 Window;         // xy = world page coordinate of the window's page 0 (local: 0), z = absolute level (local:
+                          // mip), w = 1 reset now
+    vec4  Extent;         // x = page world size cm (local: 0), y = depth range cm (local: far), z = radius cm (local:
+                          // near), w = texel world size cm (local: at unit distance from the light)
+    uvec4 Pages;          // x = first page-table entry, y = pages per side (0 = unused level), z = VSM_LEVEL_*,
+                          // w = local: the light's index in VsmLocalLights (VSM_INVALID: not shaded this frame)
+};
+
+// One point / spot light shaded from the map this frame ("VSM: Mark Local", "VSM: Project Local").
+struct VsmLocalLight
+{
+    vec4  Position; // xyz cm, w attenuation radius cm
+    vec4  Spot;     // xyz out of the cone apex, w cos outer half-angle (VSM_LOCAL_POINT_CONE = a point light)
+    uvec4 Views;    // x = level of its view 0 mip 0 (view v mip m = x + v * VSM_LOCAL_MIPS + m), y = view count,
+                    // z = its screen-mask layer, w = finest mip its pixels may ask for
+    vec4  Params;   // x = near cm, y = far cm, z = texel world size at unit distance (mip 0), w = source radius cm
 };
 
 struct VsmPageEntry
@@ -60,6 +83,67 @@ uint VsmEntryIndex( uint level, ivec2 worldPage )
 {
     const uvec2 slot = uvec2( worldPage & ivec2( int( VSM_LEVEL_PAGES ) - 1 ) );
     return level * VSM_PAGES_PER_LEVEL + slot.y * VSM_LEVEL_PAGES + slot.x;
+}
+
+// The page-table entry of page @p page of level @p level, whatever its kind: a clipmap level is toroidal around its
+// window (VsmEntryIndex), a local level addressed directly.
+uint VsmLevelEntryIndex( VsmLevel level, uint levelIndex, ivec2 windowPage )
+{
+    if ( level.Pages.z == VSM_LEVEL_LOCAL )
+        return level.Pages.x + uint( windowPage.y ) * level.Pages.y + uint( windowPage.x );
+    return VsmEntryIndex( levelIndex, level.Window.xy + windowPage );
+}
+
+// The tag an allocated entry of slot @p local of @p level holds while it is current: the world page of a clipmap
+// slot, the page itself of a local one.
+ivec2 VsmExpectedTag( VsmLevel level, uint local )
+{
+    if ( level.Pages.z == VSM_LEVEL_LOCAL )
+        return ivec2( int( local % level.Pages.y ), int( local / level.Pages.y ) );
+    const ivec2 slot   = ivec2( int( local % VSM_LEVEL_PAGES ), int( local / VSM_LEVEL_PAGES ) );
+    const ivec2 offset = ( slot - level.Window.xy ) & ivec2( int( VSM_LEVEL_PAGES ) - 1 );
+    return level.Window.xy + offset;
+}
+
+// The page of @p level slot @p local stands for, relative to its window (0 .. side - 1 on each axis).
+ivec2 VsmWindowPageOfSlot( VsmLevel level, uint local )
+{
+    return VsmExpectedTag( level, local ) - ( level.Pages.z == VSM_LEVEL_LOCAL ? ivec2( 0 ) : level.Window.xy );
+}
+
+// The pages of @p level a world box covers: false when none (outside the map, or behind a perspective view). A box
+// that reaches behind a local view's near plane covers the whole map (its projection is unbounded there).
+bool VsmLevelPageRect( VsmLevel level, vec3 lo, vec3 hi, out ivec2 lowPage, out ivec2 highPage, out float nearest )
+{
+    const int side  = int( level.Pages.y );
+    vec2      first = vec2( 1.0e30 );
+    vec2      last  = vec2( -1.0e30 );
+    nearest         = 1.0e30;
+    bool behind     = false;
+    for ( uint c = 0u; c < 8u; ++c )
+    {
+        const vec3 corner = mix( lo, hi, vec3( float( c & 1u ), float( ( c >> 1u ) & 1u ), float( ( c >> 2u ) & 1u ) ) );
+        const vec4 clip   = level.ViewProjection * vec4( corner, 1.0 );
+        if ( level.Pages.z == VSM_LEVEL_LOCAL && clip.w <= 1.0e-4 )
+        {
+            behind = true;
+            continue;
+        }
+        const vec3 ndc  = level.Pages.z == VSM_LEVEL_LOCAL ? clip.xyz / clip.w : clip.xyz;
+        const vec2 page = ( ndc.xy * 0.5 + 0.5 ) * float( side );
+        first           = min( first, page );
+        last            = max( last, page );
+        nearest         = min( nearest, ndc.z );
+    }
+    if ( behind )
+    {
+        first   = vec2( 0.0 );
+        last    = vec2( float( side - 1 ) );
+        nearest = 0.0;
+    }
+    lowPage  = max( ivec2( floor( first ) ), ivec2( 0 ) );
+    highPage = min( ivec2( floor( last ) ), ivec2( side - 1 ) );
+    return side > 0 && nearest <= 1.0 && all( lessThanEqual( lowPage, highPage ) );
 }
 
 // The world page the slot @p local (0 .. 16383) of a level stands for this frame, given its window.
@@ -98,6 +182,52 @@ bool VsmProject( VsmLevel level, vec3 world, out vec2 texel, out float depth )
     texel           = ( clip.xy * 0.5 + 0.5 ) * VSM_VIRTUAL_RESOLUTION;
     depth           = clip.z;
     return all( greaterThanEqual( texel, vec2( 0.0 ) ) ) && all( lessThan( texel, vec2( VSM_VIRTUAL_RESOLUTION ) ) );
+}
+
+// ---- Point / spot lights (VSM_LEVEL_LOCAL) ----------------------------------------------------------------------
+
+// Whether @p world is lit by local light @p light at all: inside its attenuation sphere and, for a spot, its cone.
+bool VsmLocalReaches( VsmLocalLight light, vec3 world )
+{
+    const vec3  fromLight = world - light.Position.xyz;
+    const float distance  = length( fromLight );
+    if ( distance >= light.Position.w || distance <= 1.0e-3 )
+        return false;
+    return light.Spot.w <= VSM_LOCAL_POINT_CONE + 0.5 || dot( fromLight / distance, light.Spot.xyz ) >= light.Spot.w;
+}
+
+// The view of @p light a world point is seen through: 0 for a spot, the cube face for a point light in the faces'
+// order (Graphic::PointShadowFaceViewProj, Mesh/LocalLightShadow.glslh PointShadowFace): +X -X +Y -Y +Z -Z.
+uint VsmLocalView( VsmLocalLight light, vec3 world )
+{
+    if ( light.Views.y <= 1u )
+        return 0u;
+    const vec3 d = world - light.Position.xyz;
+    const vec3 a = abs( d );
+    if ( a.x >= a.y && a.x >= a.z )
+        return d.x > 0.0 ? 0u : 1u;
+    if ( a.y >= a.z )
+        return d.y > 0.0 ? 2u : 3u;
+    return d.z > 0.0 ? 4u : 5u;
+}
+
+// THE MIP A RECEIVER IS SHADED FROM (UE: a local light's mip from the receiver's screen footprint against the map's
+// texel at the receiver's depth from the light): the texel of mip m at view depth @p viewDepth is
+// viewDepth * Params.z * 2^m; the finest mip whose texel is not smaller than the footprint, moved by the LOD bias,
+// never finer than the light's Views.w (the finest the CPU drew passes for).
+uint VsmLocalMip( VsmFrame frame, VsmLocalLight light, vec3 world, float viewDepth )
+{
+    const float distanceCm = max( length( world - frame.CameraFootprint.xyz ), 1.0 );
+    const float footprint  = max( distanceCm * frame.CameraFootprint.w, 1.0e-4 );
+    const float texel0     = max( viewDepth * light.Params.z, 1.0e-6 );
+    const float mip        = floor( log2( footprint / texel0 ) + frame.Lod.x );
+    return uint( clamp( mip, float( light.Views.w ), float( VSM_LOCAL_MIPS - 1u ) ) );
+}
+
+// The view distance a stored standard-Z depth of a local view stands for (perspectiveRH_ZO).
+float VsmLocalLinearDepth( float z, float nearPlane, float farPlane )
+{
+    return nearPlane * farPlane / max( farPlane - z * ( farPlane - nearPlane ), 1.0e-6 );
 }
 
 #endif

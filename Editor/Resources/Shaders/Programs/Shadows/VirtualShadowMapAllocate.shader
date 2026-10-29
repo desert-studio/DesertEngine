@@ -52,9 +52,10 @@ Shader "VirtualShadowMapAllocate"
         {
             const uint level = gl_WorkGroupID.y;
             const uint local = gl_GlobalInvocationID.x;
-            if ( local >= VSM_PAGES_PER_LEVEL )
+            const uint side  = Levels[level].Pages.y;
+            if ( local >= side * side )
                 return;
-            const uint index = level * VSM_PAGES_PER_LEVEL + local;
+            const uint index = Levels[level].Pages.x + local;
             uint       flags = Entries[index].Flags;
             if ( ( flags & VSM_FLAG_REQUESTED ) == 0u )
                 return;
@@ -74,7 +75,7 @@ Shader "VirtualShadowMapAllocate"
                 if ( previous != VSM_INVALID )
                     Entries[previous].Flags = 0u; // a cached page nobody requested: its entry is unmapped
                 Owners[physical] = index;
-                const ivec2 world  = VsmWorldPageOfSlot( Levels[level].Window.xy, local );
+                const ivec2 world  = VsmExpectedTag( Levels[level], local );
                 flags              = VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
                 Entries[index]   = VsmPageEntry( physical, flags, world.x, world.y );
             }

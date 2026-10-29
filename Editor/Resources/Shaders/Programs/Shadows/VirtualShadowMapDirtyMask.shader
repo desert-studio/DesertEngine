@@ -25,19 +25,37 @@ Shader "VirtualShadowMapDirtyMask"
         {
             uint DirtyPageMask[]; // level l, cell c: bit c % 32 of word l * VSM_MASK_WORDS_PER_LEVEL + c / 32
         };
+        // The level's pages this frame, for the host (VirtualShadowMapRenderer::GetLocalLightStats): x = requested,
+        // y = rendered (requested and dirty: cleared and drawn), z = cached (requested, kept from an earlier frame).
+        Buffer(3) VsmLevelStats
+        {
+            uvec4 LevelStats[];
+        };
 
         void main()
         {
             const uint level = gl_WorkGroupID.y;
             const uint local = gl_GlobalInvocationID.x;
-            if ( local >= VSM_PAGES_PER_LEVEL )
+            const uint side  = Levels[level].Pages.y;
+            if ( local >= side * side )
                 return;
             const uint drawn = VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
-            if ( ( Entries[level * VSM_PAGES_PER_LEVEL + local].Flags & drawn ) != drawn )
+            const uint flags = Entries[Levels[level].Pages.x + local].Flags;
+            if ( ( flags & VSM_FLAG_REQUESTED ) != 0u )
+            {
+                atomicAdd( LevelStats[level].x, 1u );
+                if ( ( flags & VSM_FLAG_ALLOCATED ) != 0u )
+                {
+                    if ( ( flags & VSM_FLAG_DIRTY ) != 0u )
+                        atomicAdd( LevelStats[level].y, 1u );
+                    else
+                        atomicAdd( LevelStats[level].z, 1u );
+                }
+            }
+            if ( ( flags & drawn ) != drawn )
                 return;
             // The slot's world page this frame, as a page of the level's window (0 .. 127 on each axis).
-            const ivec2 window     = Levels[level].Window.xy;
-            const ivec2 windowPage = VsmWorldPageOfSlot( window, local ) - window;
+            const ivec2 windowPage = VsmWindowPageOfSlot( Levels[level], local );
             const uvec2 cell       = uvec2( windowPage ) / VSM_MASK_CELL_PAGES;
             const uint  index      = cell.y * VSM_MASK_CELLS + cell.x;
             atomicOr( DirtyPageMask[level * VSM_MASK_WORDS_PER_LEVEL + index / 32u], 1u << ( index % 32u ) );

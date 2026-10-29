@@ -5,6 +5,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/LocalShadows.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/RayTracedSunShadow.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <utility>
 #include <vector>
 
 namespace
@@ -31,6 +33,20 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, VsmAllocator );
         DESERT_SHADER_PARAMETER( StorageBuffer, VsmLists );
         DESERT_SHADER_PARAMETER( StorageBuffer, VsmDirtyMask );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmLevelStats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmLocalLights );
+    };
+
+    struct VirtualShadowMapProjectLocalShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmFrameData );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmPageTable );
+        DESERT_SHADER_PARAMETER( StorageTexture, PhysicalPoolTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmLocalLights );
+        DESERT_SHADER_PARAMETER( StorageTexture, LocalShadowMasksTexture );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -75,7 +91,7 @@ namespace Desert::Graphic::System
             const char* Shader;
             const char* Pass;
         };
-        constexpr std::array<KernelName, 10> kKernelNames{ {
+        constexpr std::array<KernelName, 12> kKernelNames{ {
              { "VirtualShadowMapInvalidate", "VSM: Invalidate" },
              { "VirtualShadowMapInvalidateCasters", "VSM: Invalidate Casters" },
              { "VirtualShadowMapMark", "VSM: Mark" },
@@ -86,6 +102,8 @@ namespace Desert::Graphic::System
              { "VirtualShadowMapProject", "VSM: Project" },
              { "VirtualShadowMapDirtyMask", "VSM: Dirty Mask" },
              { "VirtualShadowMapCullCasters", "VSM: Cull Casters" },
+             { "VirtualShadowMapMarkLocal", "VSM: Mark Local" },
+             { "VirtualShadowMapProjectLocal", "VSM: Project Local" },
         } };
 
         constexpr uint32_t kGroup64    = 64; // LocalSize(64, 1, 1) of the page and physical-page kernels
@@ -160,10 +178,10 @@ namespace Desert::Graphic::System
     }
 
     bool VirtualShadowMapRenderer::AcquirePersistent( RDG::Builder& graph, const uint32_t physicalPages,
-                                                      RDG::TextureRef& pool, RDG::BufferRef& pageTable,
-                                                      RDG::BufferRef& owners )
+                                                      const uint32_t localViews, RDG::TextureRef& pool,
+                                                      RDG::BufferRef& pageTable, RDG::BufferRef& owners )
     {
-        if ( m_PhysicalPages == physicalPages )
+        if ( m_PhysicalPages == physicalPages && m_LocalViews == localViews )
         {
             pool      = graph.RegisterExternal( m_Pool, "VSM.PhysicalPool" );
             pageTable = graph.RegisterExternal( m_PageTable, "VSM.PageTable" );
@@ -185,8 +203,10 @@ namespace Desert::Graphic::System
 
         // Every entry unmapped (flags 0), every physical page free: the pool's texels are never read before a
         // clear.
-        const std::vector<VsmPageEntryGpu> entries( static_cast<std::size_t>( kVsmClipmapLevelCount ) *
-                                                    kVsmPagesPerLevel );
+        // The sun's levels, then kVsmLocalViewEntries per local view slot.
+        const std::vector<VsmPageEntryGpu> entries(
+             static_cast<std::size_t>( kVsmClipmapLevelCount ) * kVsmPagesPerLevel +
+             static_cast<std::size_t>( localViews ) * kVsmLocalViewEntries );
         pageTable = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = entries.size() * sizeof( VsmPageEntryGpu ) },
                                         "VSM.PageTable" );
         graph.QueueBufferUpload( pageTable, Bytes( entries ) );
@@ -199,7 +219,185 @@ namespace Desert::Graphic::System
         graph.Extract( owners, m_Owners, RDG::Access::StorageWrite );
 
         m_PhysicalPages = physicalPages;
+        m_LocalViews    = localViews;
         return true;
+    }
+
+    uint32_t VirtualShadowMapRenderer::PlaceLocalLights( const std::span<const VirtualShadowMapLocalLight> locals,
+                                                         const glm::vec3& camera, const float pixelFootprint,
+                                                         const float lodBias, const uint64_t frameIndex,
+                                                         std::vector<VsmLocalLightGpu>& gpuLights,
+                                                         std::vector<VsmLocalRaster>&   rasters )
+    {
+        // Lights gone for kVsmLocalRetireFrames give their slots back; the rest start the frame unchanged.
+        std::erase_if( m_LocalPlacements, [frameIndex]( const LocalPlacement& placement )
+                       { return placement.LastFrame + kVsmLocalRetireFrames < frameIndex; } );
+        for ( LocalPlacement& placement : m_LocalPlacements )
+        {
+            placement.Reset      = false;
+            placement.FrameLight = kVsmInvalid;
+        }
+
+        uint32_t capacity = std::max( m_LocalViews, kVsmMinLocalViews );
+        // The first run of @p views free view slots, growing the table when there is none.
+        const auto placeViews = [this, &capacity]( const uint32_t views )
+        {
+            std::vector<bool> used( capacity, false );
+            for ( const LocalPlacement& placement : m_LocalPlacements )
+                for ( uint32_t v = 0; v < placement.Views; ++v )
+                    if ( placement.FirstView + v < capacity )
+                        used[placement.FirstView + v] = true;
+            uint32_t run = 0;
+            for ( uint32_t slot = 0; slot < capacity; ++slot )
+            {
+                run = used[slot] ? 0u : run + 1u;
+                if ( run == views )
+                    return slot + 1u - views;
+            }
+            const uint32_t first = capacity;
+            while ( capacity < first + views )
+                capacity *= 2u;
+            return first;
+        };
+
+        gpuLights.clear();
+        rasters.clear();
+        gpuLights.reserve( locals.size() );
+        for ( std::size_t i = 0; i < locals.size(); ++i )
+        {
+            const VirtualShadowMapLocalLight& light = locals[i];
+            const bool     point = light.CosOuter <= kVsmLocalPointCone + 0.5f;
+            const uint32_t views = point ? kPointShadowFaces : 1u;
+            const float    farPlane  = std::max( light.Radius, 1.0f );
+            const float    nearPlane = LocalShadowNear( farPlane, light.SourceRadius );
+            // The atlas's views (LocalShadows.hpp), at the virtual map's side: the guard band is a fraction of a
+            // texel there.
+            std::array<glm::mat4, 6> viewProjection{};
+            float                    tanHalf = GuardedTanHalf( 1.0f, kVsmVirtualResolution );
+            if ( point )
+            {
+                for ( uint32_t face = 0; face < kPointShadowFaces; ++face )
+                    viewProjection[face] =
+                         PointShadowFaceViewProj( light.Position, face, nearPlane, farPlane, kVsmVirtualResolution );
+            }
+            else
+            {
+                const float outer = std::acos( std::clamp( light.CosOuter, -1.0f, 1.0f ) );
+                viewProjection[0] = SpotShadowViewProj( light.Position, light.SpotDirection, outer, nearPlane,
+                                                        farPlane, kVsmVirtualResolution );
+                tanHalf           = GuardedTanHalf(
+                     std::tan( std::clamp( outer, glm::radians( 1.0f ), glm::radians( 89.0f ) ) ),
+                     kVsmVirtualResolution );
+            }
+            const float texelAtUnit = 2.0f * tanHalf / static_cast<float>( kVsmVirtualResolution );
+
+            auto placement = std::find_if( m_LocalPlacements.begin(), m_LocalPlacements.end(),
+                                           [&light]( const LocalPlacement& p ) { return p.SourceId == light.SourceId; } );
+            if ( placement != m_LocalPlacements.end() && placement->Views != views )
+            {
+                m_LocalPlacements.erase( placement ); // a point became a spot or back: new slots
+                placement = m_LocalPlacements.end();
+            }
+            if ( placement == m_LocalPlacements.end() )
+            {
+                LocalPlacement fresh;
+                fresh.SourceId  = light.SourceId;
+                fresh.Views     = views;
+                fresh.FirstView = placeViews( views );
+                m_LocalPlacements.push_back( fresh );
+                placement = std::prev( m_LocalPlacements.end() );
+            }
+            // A light that moved, turned or changed its cone or reach redraws every page (UE: a moved local
+            // light invalidates its whole virtual shadow map).
+            if ( placement->ViewProjection != viewProjection || placement->Near != nearPlane ||
+                 placement->Far != farPlane )
+                placement->Reset = true;
+            placement->ViewProjection = viewProjection;
+            placement->Near           = nearPlane;
+            placement->Far            = farPlane;
+            placement->TexelAtUnit    = texelAtUnit;
+            placement->LastFrame      = frameIndex;
+            placement->FrameLight     = static_cast<uint32_t>( i );
+
+            // The finest mip any receiver of the light can ask for (VsmLocalMip): the nearest receiver to the
+            // camera at the far end of the light's reach.
+            const float nearestToCamera = std::max( glm::length( camera - light.Position ) - farPlane, 1.0f );
+            const float ratio = nearestToCamera * pixelFootprint / std::max( farPlane * texelAtUnit, 1.0e-6f );
+            const float finest =
+                 std::clamp( std::floor( std::log2( std::max( ratio, 1.0e-6f ) ) + lodBias ), 0.0f,
+                             static_cast<float>( kVsmLocalMipCount - 1u ) );
+            const auto     fineMip   = static_cast<uint32_t>( finest );
+            const uint32_t firstLevel = kVsmClipmapLevelCount + placement->FirstView * kVsmLocalMipCount;
+
+            gpuLights.push_back( VsmLocalLightGpu{
+                 .Position = glm::vec4( light.Position, farPlane ),
+                 .Spot     = glm::vec4( point ? glm::vec3( 0.0f ) : glm::normalize( light.SpotDirection ),
+                                        point ? kVsmLocalPointCone : light.CosOuter ),
+                 .Views    = glm::uvec4( firstLevel, views, light.MaskSlot, fineMip ),
+                 .Params   = glm::vec4( nearPlane, farPlane, texelAtUnit, light.SourceRadius ) } );
+            for ( uint32_t v = 0; v < views; ++v )
+                for ( uint32_t mip = fineMip; mip < kVsmLocalMipCount; ++mip )
+                    rasters.push_back( VsmLocalRaster{ .Level           = firstLevel + v * kVsmLocalMipCount + mip,
+                                                       .ResolutionPages = VsmLocalMipPages( mip ),
+                                                       .Light           = static_cast<uint32_t>( i ),
+                                                       .View            = v,
+                                                       .Mip             = mip,
+                                                       .ViewProjection  = viewProjection[v] } );
+        }
+        return capacity;
+    }
+
+    void VirtualShadowMapRenderer::WriteLocalLevels( std::vector<VsmLevelGpu>& levels, const bool resetAll ) const
+    {
+        for ( const LocalPlacement& placement : m_LocalPlacements )
+        {
+            for ( uint32_t v = 0; v < placement.Views; ++v )
+            {
+                const uint32_t view = placement.FirstView + v;
+                for ( uint32_t mip = 0; mip < kVsmLocalMipCount; ++mip )
+                {
+                    const uint32_t level = kVsmClipmapLevelCount + view * kVsmLocalMipCount + mip;
+                    levels[level]        = VsmLevelGpu{
+                                .ViewProjection = placement.ViewProjection[v],
+                                .Window = glm::ivec4( 0, 0, static_cast<int>( mip ), placement.Reset || resetAll ? 1 : 0 ),
+                                .Extent = glm::vec4( 0.0f, placement.Far, placement.Near,
+                                                     placement.TexelAtUnit * static_cast<float>( 1u << mip ) ),
+                                .Pages  = glm::uvec4( kVsmClipmapLevelCount * kVsmPagesPerLevel +
+                                                          view * kVsmLocalViewEntries + VsmLocalMipEntryOffset( mip ),
+                                                      VsmLocalMipPages( mip ), kVsmLevelKindLocal,
+                                                      placement.FrameLight ) };
+                }
+            }
+        }
+    }
+
+    void VirtualShadowMapRenderer::ReadStats( const uint32_t slot )
+    {
+        const RDG::ExternalBuffer& readback = m_StatsReadback[slot];
+        if ( !readback.Physical )
+            return; // the slot has not been used yet
+        const std::span<const std::byte>                   bytes  = readback.Physical->ReadForHost();
+        const std::vector<std::pair<uint32_t, uint32_t>>& owners = m_StatsLevelLights[slot];
+        const std::size_t levels = std::min( owners.size(), bytes.size() / sizeof( glm::uvec4 ) );
+        m_LocalStats.clear();
+        for ( std::size_t level = 0; level < levels; ++level )
+        {
+            const auto [sourceId, views] = owners[level];
+            if ( sourceId == 0 )
+                continue;
+            glm::uvec4 counts{ 0u };
+            std::memcpy( &counts, bytes.data() + level * sizeof( glm::uvec4 ), sizeof( counts ) );
+            auto stats = std::find_if( m_LocalStats.begin(), m_LocalStats.end(),
+                                       [sourceId]( const VsmLocalLightStats& s ) { return s.SourceId == sourceId; } );
+            if ( stats == m_LocalStats.end() )
+            {
+                m_LocalStats.push_back( VsmLocalLightStats{ .SourceId = sourceId, .Views = views } );
+                stats = std::prev( m_LocalStats.end() );
+            }
+            stats->Requested += counts.x;
+            stats->Rendered += counts.y;
+            stats->Cached += counts.z;
+        }
     }
 
     bool VirtualShadowMapRenderer::UpdateClipmap( const glm::vec3& directionToSun, const glm::vec3& camera,
@@ -221,7 +419,9 @@ namespace Desert::Graphic::System
                                                                                           kVsmClipmapFirstLevel + static_cast<int>( i ),
                                                            depthMoved ? 1 : 0 ),
                                                             .Extent         = glm::vec4( level.PageWorld, level.DepthRange, level.Radius,
-                                                                                         level.PageWorld / static_cast<float>( kVsmPageSize ) ) };
+                                                                                         level.PageWorld / static_cast<float>( kVsmPageSize ) ),
+                                                            .Pages = glm::uvec4( i * kVsmPagesPerLevel, kVsmLevelPages,
+                                                                                 kVsmLevelKindClipmap, kVsmInvalid ) };
         }
         return lightChanged;
     }
@@ -274,35 +474,76 @@ namespace Desert::Graphic::System
             return Common::MakeError<VirtualShadowMapFrame>(
                  "Shadows: Virtual Shadow Map: Shadows.VirtualMaxPhysicalPages is 0" );
 
-        std::array<VsmLevelGpu, kVsmClipmapLevelCount> levels{};
-        const bool lightChanged = UpdateClipmap( sun.DirectionToSun, view.CameraPosition, levels );
+        // THE SUN'S CLIPMAP, when there is a sun: a turn of the sun redraws its levels (Window.w), not the local
+        // lights' pages.
+        std::array<VsmLevelGpu, kVsmClipmapLevelCount> clipmap{};
+        if ( sun != nullptr )
+        {
+            const bool lightChanged = UpdateClipmap( sun->DirectionToSun, view.CameraPosition, clipmap );
+            if ( lightChanged )
+                for ( VsmLevelGpu& level : clipmap )
+                    level.Window.w = 1;
+        }
+        else
+        {
+            m_LightDirection.reset(); // the next sun starts its levels anew
+        }
 
-        VirtualShadowMapFrame frame;
-        RDG::BufferRef        owners;
-        const bool            made =
-             AcquirePersistent( graph, quality.MaxPhysicalPages, frame.PhysicalPool, frame.PageTable, owners );
-        const uint32_t resetAll = made || lightChanged || staticCastersChanged ? 1u : 0u;
-        for ( uint32_t i = 0; i < kVsmClipmapLevelCount; ++i )
+        // THE LOCAL LIGHTS' VIEWS in the table, and the mips each one draws this frame.
+        const float pixelFootprint =
+             2.0f / ( std::abs( view.Projection[1][1] ) * static_cast<float>( view.Height ) );
+        std::vector<VsmLocalLightGpu> gpuLights;
+        VirtualShadowMapFrame         frame;
+        const uint32_t                localViews =
+             PlaceLocalLights( locals, view.CameraPosition, pixelFootprint, quality.ResolutionLodBias, view.FrameIndex,
+                               gpuLights, frame.LocalRasters );
+
+        RDG::BufferRef owners;
+        const bool     made = AcquirePersistent( graph, quality.MaxPhysicalPages, localViews, frame.PhysicalPool,
+                                                 frame.PageTable, owners );
+        const uint32_t resetAll   = made || staticCastersChanged ? 1u : 0u;
+        const uint32_t levelCount = kVsmClipmapLevelCount + m_LocalViews * kVsmLocalMipCount;
+        frame.LevelCount          = levelCount;
+        frame.HasSun              = sun != nullptr;
+        frame.LocalLightCount     = static_cast<uint32_t>( gpuLights.size() );
+
+        std::vector<VsmLevelGpu> levels( levelCount );
+        if ( sun != nullptr )
+            std::copy( clipmap.begin(), clipmap.end(), levels.begin() );
+        WriteLocalLevels( levels, resetAll != 0u );
+        frame.LevelViewProjection.resize( levelCount, glm::mat4( 1.0f ) );
+        for ( uint32_t i = 0; i < levelCount; ++i )
             frame.LevelViewProjection[i] = levels[i].ViewProjection;
 
         // VsmFrameData: the view's constants, then the levels.
+        const glm::vec3 toSun = sun != nullptr ? glm::normalize( sun->DirectionToSun ) : glm::vec3( 0.0f, 1.0f, 0.0f );
         const VsmFrameGpu header{
              .InvViewProjection = view.InvJitteredViewProjection,
-             .CameraFootprint   = glm::vec4( view.CameraPosition, 2.0f / ( std::abs( view.Projection[1][1] ) *
-                                                                         static_cast<float>( view.Height ) ) ),
+             .CameraFootprint   = glm::vec4( view.CameraPosition, pixelFootprint ),
              .Lod   = glm::vec4( quality.ResolutionLodBias, static_cast<float>( kVsmClipmapLevelCount ),
                                  static_cast<float>( kVsmClipmapFirstLevel ),
                                  static_cast<float>( static_cast<uint32_t>( view.FrameIndex & 0xFFFFu ) ) ),
-             .ToSun = glm::vec4( glm::normalize( sun.DirectionToSun ),
-                                 glm::radians( std::max( sun.SourceAngleDegrees, 0.0f ) ) ),
+             .ToSun = glm::vec4( toSun, sun != nullptr ? glm::radians( std::max( sun->SourceAngleDegrees, 0.0f ) )
+                                                       : 0.0f ),
              .Smrt  = glm::vec4( static_cast<float>( quality.SmrtRayCount ),
                                  static_cast<float>( quality.SmrtSamplesPerRay ), kVsmNormalBiasTexels,
                                  kVsmSmrtRayLengthPages ) };
-        std::vector<std::byte> frameBytes( sizeof( VsmFrameGpu ) + sizeof( levels ) );
+        std::vector<std::byte> frameBytes( sizeof( VsmFrameGpu ) + levels.size() * sizeof( VsmLevelGpu ) );
         std::memcpy( frameBytes.data(), &header, sizeof( header ) );
-        std::memcpy( frameBytes.data() + sizeof( header ), levels.data(), sizeof( levels ) );
+        std::memcpy( frameBytes.data() + sizeof( header ), levels.data(), levels.size() * sizeof( VsmLevelGpu ) );
         frame.FrameData = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = frameBytes.size() }, "VSM.FrameData" );
         graph.QueueBufferUpload( frame.FrameData, frameBytes );
+
+        // VsmLocalLights (at least one record: a buffer is never empty).
+        {
+            std::vector<VsmLocalLightGpu> records = gpuLights;
+            if ( records.empty() )
+                records.emplace_back();
+            frame.LocalLights =
+                 graph.CreateBuffer( RDG::BufferDesc{ .Bytes = records.size() * sizeof( VsmLocalLightGpu ) },
+                                     "VSM.LocalLights" );
+            graph.QueueBufferUpload( frame.LocalLights, Bytes( records ) );
+        }
 
         const uint32_t       pages = quality.MaxPhysicalPages;
         const RDG::BufferRef allocator =
@@ -311,29 +552,54 @@ namespace Desert::Graphic::System
         graph.QueueBufferUpload( allocator, Bytes( zeroCounters ) );
         const RDG::BufferRef lists =
              graph.CreateBuffer( RDG::BufferDesc{ .Bytes = 3ull * pages * sizeof( uint32_t ) }, "VSM.Lists" );
+        // "VSM: Dirty Mask"'s per-level page counts, for the host (GetLocalLightStats).
+        const std::vector<glm::uvec4> zeroStats( levelCount, glm::uvec4( 0u ) );
+        const RDG::BufferRef          levelStats =
+             graph.CreateBuffer( RDG::BufferDesc{ .Bytes = zeroStats.size() * sizeof( glm::uvec4 ) },
+                                 "VSM.LevelStats" );
+        graph.QueueBufferUpload( levelStats, Bytes( zeroStats ) );
 
-        // The overflow this slot's previous frame counted, then this frame's counters handed to the host in its
-        // place (read when the slot comes round again).
+        // The overflow and the page counts this slot's previous frame counted, then this frame's handed to the host
+        // in their place (read when the slot comes round again).
         const uint32_t slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
         if ( m_AllocatorReadback.size() != slots )
         {
             m_AllocatorReadback.assign( slots, RDG::ExternalBuffer{} );
             m_ReadbackPhysicalPages.assign( slots, 0u );
+            m_StatsReadback.assign( slots, RDG::ExternalBuffer{} );
+            m_StatsLevelLights.assign( slots, {} );
         }
         const uint32_t slot = static_cast<uint32_t>( view.FrameIndex % slots );
         ReportOverflow( slot );
+        ReadStats( slot );
         m_AllocatorReadback[slot]     = RDG::ExternalBuffer{};
         m_ReadbackPhysicalPages[slot] = pages;
         graph.Extract( allocator, m_AllocatorReadback[slot], RDG::Access::HostRead );
+        m_StatsReadback[slot] = RDG::ExternalBuffer{};
+        graph.Extract( levelStats, m_StatsReadback[slot], RDG::Access::HostRead );
+        std::vector<std::pair<uint32_t, uint32_t>>& levelLights = m_StatsLevelLights[slot];
+        levelLights.assign( levelCount, { 0u, 0u } );
+        for ( const LocalPlacement& placement : m_LocalPlacements )
+            for ( uint32_t level = kVsmClipmapLevelCount + placement.FirstView * kVsmLocalMipCount;
+                  level < kVsmClipmapLevelCount + ( placement.FirstView + placement.Views ) * kVsmLocalMipCount;
+                  ++level )
+                levelLights[level] = { placement.SourceId, placement.Views };
 
-        for ( uint32_t i = 0; i < kVsmClipmapLevelCount; ++i )
+        // VsmRasterLevel of the levels drawn this frame: the sun's, and the local mips (LocalRasters).
+        frame.RasterLevel.resize( levelCount );
+        const auto rasterLevel = [&graph, &frame]( const uint32_t level )
         {
-            const glm::uvec4 level( i, 0u, 0u, 0u );
-            frame.RasterLevel[i] = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = sizeof( level ) },
-                                                       std::format( "VSM.RasterLevel{}", i ) );
-            graph.QueueBufferUpload( frame.RasterLevel[i],
-                                     std::as_bytes( std::span<const glm::uvec4>( &level, 1 ) ) );
-        }
+            const glm::uvec4 value( level, 0u, 0u, 0u );
+            frame.RasterLevel[level] = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = sizeof( value ) },
+                                                           std::format( "VSM.RasterLevel{}", level ) );
+            graph.QueueBufferUpload( frame.RasterLevel[level],
+                                     std::as_bytes( std::span<const glm::uvec4>( &value, 1 ) ) );
+        };
+        if ( sun != nullptr )
+            for ( uint32_t i = 0; i < kVsmClipmapLevelCount; ++i )
+                rasterLevel( i );
+        for ( const VsmLocalRaster& raster : frame.LocalRasters )
+            rasterLevel( raster.Level );
 
         const RDG::BufferRef  frameData = frame.FrameData;
         const RDG::BufferRef  pageTable = frame.PageTable;
@@ -378,7 +644,7 @@ namespace Desert::Graphic::System
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kW )
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmPhysicalOwners, owners, kW );
              },
-             glm::uvec4( resetAll, 0u, 0u, 0u ), glm::uvec3( entryGroups, kVsmClipmapLevelCount, 1u ) );
+             glm::uvec4( resetAll, 0u, 0u, 0u ), glm::uvec3( entryGroups, levelCount, 1u ) );
 
         // Nothing to invalidate per caster when every page was just dropped.
         if ( !invalidations.empty() && resetAll == 0u )
@@ -402,9 +668,10 @@ namespace Desert::Graphic::System
                           .Storage( VirtualShadowMapPagesShaderParameters::VsmInvalidations, boxBuffer, kR );
                  },
                  std::nullopt,
-                 glm::uvec3( static_cast<uint32_t>( invalidations.size() ), kVsmClipmapLevelCount, 1u ) );
+                 glm::uvec3( static_cast<uint32_t>( invalidations.size() ), levelCount, 1u ) );
         }
 
+        if ( sun != nullptr )
         dispatch(
              Mark,
              [&]( RDG::BindingBlockBuilder& block )
@@ -418,6 +685,25 @@ namespace Desert::Graphic::System
              },
              glm::uvec4( view.Width, view.Height, 0u, 0u ),
              glm::uvec3( Groups( view.Width, kScreenTile ), Groups( view.Height, kScreenTile ), 1u ) );
+
+        if ( !gpuLights.empty() )
+        {
+            const RDG::BufferRef localLights = frame.LocalLights;
+            dispatch(
+                 MarkLocal,
+                 [&]( RDG::BindingBlockBuilder& block )
+                 {
+                     block.Storage( VirtualShadowMapPagesShaderParameters::VsmFrameData, frameData, kR )
+                          .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kW )
+                          .Sampler( VirtualShadowMapPagesShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Texture( VirtualShadowMapPagesShaderParameters::GBufferDepthTexture, view.Depth,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Storage( VirtualShadowMapPagesShaderParameters::VsmLocalLights, localLights, kR );
+                 },
+                 glm::uvec4( view.Width, view.Height, static_cast<uint32_t>( gpuLights.size() ), 0u ),
+                 glm::uvec3( Groups( view.Width, kScreenTile ), Groups( view.Height, kScreenTile ), 1u ) );
+        }
 
         dispatch(
              Gather,
@@ -440,14 +726,14 @@ namespace Desert::Graphic::System
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmAllocator, allocator, kW )
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmLists, lists, kW );
              },
-             glm::uvec4( pages, 0u, 0u, 0u ), glm::uvec3( entryGroups, kVsmClipmapLevelCount, 1u ) );
+             glm::uvec4( pages, 0u, 0u, 0u ), glm::uvec3( entryGroups, levelCount, 1u ) );
 
         // The cells of each level holding a page drawn this frame, for the casters' cull.
         frame.DirtyMask =
-             graph.CreateBuffer( RDG::BufferDesc{ .Bytes = uint64_t{ kVsmClipmapLevelCount } *
-                                                           kVsmMaskWordsPerLevel * sizeof( uint32_t ) },
+             graph.CreateBuffer( RDG::BufferDesc{ .Bytes = uint64_t{ levelCount } * kVsmMaskWordsPerLevel *
+                                                           sizeof( uint32_t ) },
                                  "VSM.DirtyMask" );
-        const std::vector<uint32_t> zeroMask( size_t{ kVsmClipmapLevelCount } * kVsmMaskWordsPerLevel, 0u );
+        const std::vector<uint32_t> zeroMask( size_t{ levelCount } * kVsmMaskWordsPerLevel, 0u );
         graph.QueueBufferUpload( frame.DirtyMask, Bytes( zeroMask ) );
         const RDG::BufferRef dirtyMask = frame.DirtyMask;
         dispatch(
@@ -456,9 +742,10 @@ namespace Desert::Graphic::System
              {
                  block.Storage( VirtualShadowMapPagesShaderParameters::VsmFrameData, frameData, kR )
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kR )
-                      .Storage( VirtualShadowMapPagesShaderParameters::VsmDirtyMask, dirtyMask, kW );
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmDirtyMask, dirtyMask, kW )
+                      .Storage( VirtualShadowMapPagesShaderParameters::VsmLevelStats, levelStats, kW );
              },
-             std::nullopt, glm::uvec3( entryGroups, kVsmClipmapLevelCount, 1u ) );
+             std::nullopt, glm::uvec3( entryGroups, levelCount, 1u ) );
 
         dispatch(
              ClearArgs, [&]( RDG::BindingBlockBuilder& block )
@@ -605,5 +892,53 @@ namespace Desert::Graphic::System
                                                                  Groups( height, kScreenTile ), 1 );
              } );
         return Common::MakeSuccess( mask );
+    }
+
+    Common::BoolResultStr VirtualShadowMapRenderer::AddLocalProjection( RDG::Builder&                     graph,
+                                                                        const VirtualShadowMapFrame&      frame,
+                                                                        const VirtualShadowMapViewInputs& view,
+                                                                        const RDG::TextureRef             masks )
+    {
+        const KernelProgram& kernel = m_Kernels[ProjectLocal];
+        if ( !kernel.Pipeline )
+            return Common::MakeError( "Shadows: Virtual Shadow Map: the pipelines are not initialised" );
+        if ( frame.LocalLightCount == 0 )
+            return BOOLSUCCESS; // no local light in view: the composite reads no layer
+        if ( !masks.IsValid() )
+            return Common::MakeError( "Shadows: Virtual Shadow Map: the local lights have no screen-mask array" );
+        const glm::uvec4 push( view.Width, view.Height, frame.LocalLightCount, 0u );
+        graph.AddPass(
+             kKernelNames[ProjectLocal].Pass, RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Bindings( kernel.Layout.Get( kernel.Program ),
+                                Renderer::GetPipelineRouteFill( *kernel.Pipeline ) )
+                      .Storage( VirtualShadowMapProjectLocalShaderParameters::VsmFrameData, frame.FrameData,
+                                RDG::Access::StorageRead )
+                      .Storage( VirtualShadowMapProjectLocalShaderParameters::VsmPageTable, frame.PageTable,
+                                RDG::Access::StorageRead )
+                      .Storage( VirtualShadowMapProjectLocalShaderParameters::PhysicalPoolTexture, frame.PhysicalPool,
+                                RDG::Access::StorageRead )
+                      .Sampler( VirtualShadowMapProjectLocalShaderParameters::PointClampSampler,
+                                RDG::SamplerDesc::PointClamp() )
+                      .Texture( VirtualShadowMapProjectLocalShaderParameters::GBufferDepthTexture, view.Depth,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( VirtualShadowMapProjectLocalShaderParameters::GBufferNormalTexture, view.Normal,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Storage( VirtualShadowMapProjectLocalShaderParameters::VsmLocalLights, frame.LocalLights,
+                                RDG::Access::StorageRead )
+                      .Storage( VirtualShadowMapProjectLocalShaderParameters::LocalShadowMasksTexture, masks,
+                                RDG::Access::StorageWrite )
+                      .PushConstantBytes( static_cast<uint32_t>( sizeof( push ) ) );
+             },
+             [pipeline = kernel.Pipeline, push]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 DESERT_PROFILE_PASS( "VSM: Project Local" );
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, Groups( push.x, kScreenTile ),
+                                                                 Groups( push.y, kScreenTile ), push.z );
+             } );
+        return BOOLSUCCESS;
     }
 } // namespace Desert::Graphic::System

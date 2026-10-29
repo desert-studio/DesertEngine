@@ -2623,7 +2623,8 @@ namespace Desert::Graphic
         const System::MeshRenderer::VirtualShadowInvalidation invalidation =
              meshes->CollectVirtualShadowInvalidation();
         const Common::ResultStr<System::VirtualShadowMapFrame> pages = m_VirtualShadowMap.AddPagePasses(
-             graph, view, sun, m_VirtualShadowQuality, invalidation.Boxes, invalidation.StaticCastersChanged );
+             graph, view, &sun, std::span<const System::VirtualShadowMapLocalLight>{}, m_VirtualShadowQuality,
+             invalidation.Boxes, invalidation.StaticCastersChanged );
         if ( !pages )
         {
             LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
