@@ -283,7 +283,10 @@ namespace Desert::Graphic::System
              AcquirePersistent( graph, quality.MaxPhysicalPages, frame.PhysicalPool, frame.PageTable, owners );
         const uint32_t resetAll = made || lightChanged || staticCastersChanged ? 1u : 0u;
         for ( uint32_t i = 0; i < kVsmClipmapLevelCount; ++i )
+        {
             frame.LevelViewProjection[i] = levels[i].ViewProjection;
+            frame.LevelTexelWorld[i]     = levels[i].Extent.w;
+        }
 
         // VsmFrameData: the view's constants, then the levels.
         const VsmFrameGpu header{

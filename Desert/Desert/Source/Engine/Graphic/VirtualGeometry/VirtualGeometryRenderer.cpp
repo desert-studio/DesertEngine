@@ -49,6 +49,7 @@ namespace Desert::Graphic::VirtualGeometry
             DESERT_SHADER_PARAMETER( StorageBuffer, ClusterCutDispatchArgs );
             DESERT_SHADER_PARAMETER( StorageBuffer, ClusterCutOccludedCandidates );
             DESERT_SHADER_PARAMETER( StorageBuffer, ClusterCutOccludedCount );
+            DESERT_SHADER_PARAMETER( StorageBuffer, ClusterCutVsmDirtyMask );
             DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
             DESERT_SHADER_PARAMETER( Texture, ClusterCutHzbTexture );
         };
@@ -149,6 +150,7 @@ namespace Desert::Graphic::VirtualGeometry
             RDG::BufferRef ArgsSlot;     // step 1's DispatchArgs slot: an unread buffer
             RDG::BufferRef OccludedCandidates, OccludedCount; // the main phase's post carry (post: unread slots)
             RDG::TextureRef Hzb; // the views' HZB of the phase (previous frame / this frame), or the neutral texture
+            RDG::BufferRef  VsmDirtyMask; // the VSM levels' "VSM: Dirty Mask", or a one-word stand-in (no level)
         };
 
         void BindCut( RDG::PassBuilder& pass, const VirtualGeometryRenderer::Programs::Program& program,
@@ -177,6 +179,7 @@ namespace Desert::Graphic::VirtualGeometry
                  .Storage( P::ClusterCutStatus, b.Status, W )
                  .Storage( P::ClusterCutOccludedCandidates, b.OccludedCandidates, W )
                  .Storage( P::ClusterCutOccludedCount, b.OccludedCount, W )
+                 .Storage( P::ClusterCutVsmDirtyMask, b.VsmDirtyMask, R )
                  .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                  .Texture( P::ClusterCutHzbTexture, b.Hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( CutPush ) ) );
@@ -227,6 +230,21 @@ namespace Desert::Graphic::VirtualGeometry
             if ( hzb.IsValid() && hzb != viewHzb )
                 return Common::MakeError<Result>( "VirtualGeometry: Cluster Cut: views with two HZBs in one dispatch" );
             hzb = viewHzb;
+        }
+        // One drawn-page mask per dispatch: a VSM level's view (kVsmPageMask) culls its nodes and clusters against
+        // the frame's "VSM: Dirty Mask" (VirtualShadowMapFrame::DirtyMask, every level's words in one buffer).
+        RDG::BufferRef vsmDirtyMask{};
+        for ( const ClusterCullView& view : views )
+        {
+            if ( ( view.Instance.View.Flags & GpuDriven::CullViewFlags::kVsmPageMask ) == 0u )
+                continue;
+            if ( !view.Instance.VsmDirtyMask.IsValid() )
+                return Common::MakeError<Result>( std::format(
+                     "VirtualGeometry: Cluster Cut: VSM level {} has no drawn-page mask", view.Instance.View.VsmLevel ) );
+            if ( vsmDirtyMask.IsValid() && vsmDirtyMask != view.Instance.VsmDirtyMask )
+                return Common::MakeError<Result>(
+                     "VirtualGeometry: Cluster Cut: VSM levels with two drawn-page masks in one dispatch" );
+            vsmDirtyMask = view.Instance.VsmDirtyMask;
         }
         const bool hasHzb = hzb.IsValid();
         if ( post && !hasHzb )
@@ -314,6 +332,10 @@ namespace Desert::Graphic::VirtualGeometry
         b.DispatchArgs = Upload( graph, "VirtualGeometry.CutDispatchArgs", Bytes( zeros ) );
         b.ArgsSlot     = Upload( graph, "VirtualGeometry.CutArgsSlot", Bytes( zeros ) );
         b.Hzb          = hasHzb ? hzb : neutralHzb;
+        const std::vector<uint32_t> noDirtyMask( 1u, 0u );
+        b.VsmDirtyMask = vsmDirtyMask.IsValid()
+                              ? vsmDirtyMask
+                              : Upload( graph, "VirtualGeometry.CutVsmDirtyMaskSlot", Bytes( noDirtyMask ) );
         // The post carry (ClusterCandidateLayout::PostCarry): every entry the main phase finds occluded is a
         // disjoint subtree or a cluster of a candidate's cut, so the visible capacity bounds each region: node
         // children from row 0, clusters from row carryCapacity (packed 64 per post workgroup).

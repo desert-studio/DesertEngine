@@ -155,30 +155,13 @@ Shader "InstanceCull"
             return ( gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x ) * 64u + gl_LocalInvocationIndex;
         }
 
-        // "VSM: Cull Casters"' page test (Programs/Shadows/VirtualShadowMapCullCasters.shader), same arithmetic.
+        // "VSM: Cull Casters"' page test (Common/VirtualShadowMap.glslh VsmBoxMaskCells), against this view's level.
         bool CoversDrawnVsmCell( GpuCullView view, vec3 boxMin, vec3 boxMax )
         {
-            vec2  first   = vec2( 1.0e30 );
-            vec2  last    = vec2( -1.0e30 );
-            float nearest = 1.0e30;
-            for ( uint c = 0u; c < 8u; ++c )
-            {
-                const vec3 corner =
-                     mix( boxMin, boxMax, vec3( float( c & 1u ), float( ( c >> 1u ) & 1u ), float( ( c >> 2u ) & 1u ) ) );
-                const vec4 clip = view.ViewProjection * vec4( corner, 1.0 );
-                const vec2 page = ( clip.xy * 0.5 + 0.5 ) * float( VSM_LEVEL_PAGES );
-                first           = min( first, page );
-                last            = max( last, page );
-                nearest         = min( nearest, clip.z );
-            }
-            if ( nearest > 1.0 )
+            ivec2 lowCell;
+            ivec2 highCell;
+            if ( !VsmBoxMaskCells( view.ViewProjection, boxMin, boxMax, lowCell, highCell ) )
                 return false;
-            const ivec2 lowPage  = max( ivec2( floor( first ) ), ivec2( 0 ) );
-            const ivec2 highPage = min( ivec2( floor( last ) ), ivec2( int( VSM_LEVEL_PAGES ) - 1 ) );
-            if ( any( greaterThan( lowPage, highPage ) ) )
-                return false;
-            const ivec2 lowCell  = lowPage / int( VSM_MASK_CELL_PAGES );
-            const ivec2 highCell = highPage / int( VSM_MASK_CELL_PAGES );
             for ( int y = lowCell.y; y <= highCell.y; ++y )
             {
                 for ( int x = lowCell.x; x <= highCell.x; ++x )

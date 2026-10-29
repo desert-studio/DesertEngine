@@ -47,6 +47,7 @@ Shader "ClusterCut"
         #include <Common/GpuScene.glslh>
         #include <Common/VirtualGeometry.glslh>
         #include <Common/GpuCullTests.glslh>
+        #include <Common/VirtualShadowMap.glslh>
 
         ReadBuffer(0) ClusterCutPrimitives
         {
@@ -138,6 +139,13 @@ Shader "ClusterCut"
             uint OccludedCounts[]; // [0] children, [1] clusters: the post phase's CandidateCounts (same layout)
         };
 
+        // A virtual shadow map level's view (DESERT_GPU_CULL_VIEW_VSM_PAGE_MASK): "VSM: Dirty Mask" of this frame,
+        // kVsmMaskWordsPerLevel words per level (a one-word stand-in when the dispatch has no such view).
+        ReadBuffer(19) ClusterCutVsmDirtyMask
+        {
+            uint DirtyPageMask[];
+        };
+
         Uniform sampler PointClampSampler;
         Uniform(16) texture2D ClusterCutHzbTexture; // the previous frame's furthest HZB of the views (neutral: none)
         #define ClusterCutHzb sampler2D(ClusterCutHzbTexture, PointClampSampler)
@@ -195,6 +203,27 @@ Shader "ClusterCut"
             OccludedCandidates[region * Params2.y + i] = VgClusterCandidate( f.Instance, f.Dag, entry, f.View );
         }
 
+        // UE Nanite's VSM page cull (NaniteCullRaster: a node / cluster is drawn into a virtual shadow map only over
+        // pages it is rendered to this frame): a VSM level's box covers a "VSM: Dirty Mask" cell of its level holding
+        // a page drawn this frame (Common/VirtualShadowMap.glslh VsmBoxMaskCells, the instance cull's same test).
+        bool CoversDrawnVsmCell( GpuCullView view, vec3 boxMin, vec3 boxMax )
+        {
+            ivec2 lowCell;
+            ivec2 highCell;
+            if ( !VsmBoxMaskCells( view.ViewProjection, boxMin, boxMax, lowCell, highCell ) )
+                return false;
+            for ( int y = lowCell.y; y <= highCell.y; ++y )
+            {
+                for ( int x = lowCell.x; x <= highCell.x; ++x )
+                {
+                    const uint index = uint( y ) * VSM_MASK_CELLS + uint( x );
+                    if ( ( DirtyPageMask[view.VsmLevel * VSM_MASK_WORDS_PER_LEVEL + index / 32u] & ( 1u << ( index % 32u ) ) ) != 0u )
+                        return true;
+                }
+            }
+            return false;
+        }
+
         // A node child's or a cluster's box: in the frustum, and not hidden by the HZB when the candidate tests it
         // (CutFrame::TestHzb): last frame's through PrevViewProjection (main), this frame's through ViewProjection
         // (post). @p occludedSlot: the s_Occluded counter an occluded box adds to; @p entry: its post entry.
@@ -204,6 +233,9 @@ Shader "ClusterCut"
             vec3 boxMax;
             VgWorldBox( center, extent, f.World, boxMin, boxMax );
             if ( !GpuCull_FrustumIntersects( view, boxMin, boxMax ) )
+                return false;
+            // A VSM level: only over a page drawn this frame (the rest of the level keeps its cached depth).
+            if ( ( view.Flags & DESERT_GPU_CULL_VIEW_VSM_PAGE_MASK ) != 0u && !CoversDrawnVsmCell( view, boxMin, boxMax ) )
                 return false;
             const mat4 hzbViewProjection = Params2.z != 0u ? view.ViewProjection : view.PrevViewProjection;
             if ( f.TestHzb && GpuCull_IsOccludedByHzb( ClusterCutHzb, view, hzbViewProjection, boxMin, boxMax ) )

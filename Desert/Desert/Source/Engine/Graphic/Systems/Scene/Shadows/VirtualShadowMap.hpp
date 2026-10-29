@@ -208,6 +208,9 @@ namespace Desert::Graphic::System
         std::array<RDG::BufferRef, kVsmClipmapLevelCount> RasterLevel{};
         RDG::BufferRef DirtyMask; // VsmDirtyMask: kVsmMaskWordsPerLevel words per level
         std::array<glm::mat4, kVsmClipmapLevelCount> LevelViewProjection{};
+        // Each level's world size of one texel, cm (VsmLevelGpu::Extent.w): what a caster's LOD is measured in
+        // (the virtual geometry's cut per level, SceneRenderer::AddFrameVirtualGeometryShadowPages).
+        std::array<float, kVsmClipmapLevelCount> LevelTexelWorld{};
     };
 
     class VirtualShadowMapRenderer
