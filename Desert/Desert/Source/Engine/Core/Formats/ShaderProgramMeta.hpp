@@ -5,6 +5,8 @@
 #include <Engine/Core/Formats/Shader.hpp>
 #include <Engine/Core/Formats/TextureIntent.hpp>
 
+#include <Common/Core/UUID.hpp>
+
 #include <glm/glm.hpp>
 
 #include <optional>
@@ -433,6 +435,10 @@ namespace Desert::Core::Formats
         // The surface height a template declares with its `Height` line (see SurfaceHeight); nullopt for every other
         // program. Assigning its texture selects the template's `.Parallax` cells (Graphic::ParallaxCellOf).
         std::optional<SurfaceHeight> Height;
+        // The shading model of a `Domain Surface` template (DShaderParser SurfaceTemplateInfo::ShadingModel: the
+        // model's Guid, DefaultLit when the template names none); Null for every other program. The cells were
+        // compiled for it (DESERT_SHADING_MODEL_INDEX); this is what the runtime reads to name it.
+        Common::UUID ShadingModel;
 
         // A program fragment and nothing else: no stages of its own, so it compiles to no modules and is
         // never used to build a pipeline. ShaderService registers it by name without complaining that it

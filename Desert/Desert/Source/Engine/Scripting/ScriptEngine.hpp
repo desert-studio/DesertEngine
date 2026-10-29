@@ -117,6 +117,19 @@ namespace Desert::Scripting
         // differs) gets its declared default back, so the running script sees the value Details shows.
         void SyncProperties( uint32_t entity, uint32_t slot, const std::vector<ScriptProperty>& overrides );
 
+        // One property the running slot declares and the value its script holds NOW (what it last wrote to
+        // `Properties.<name>`). Value is empty for a kind no scalar holds (Asset, Entity, Array) and for a value
+        // of another kind than the declaration (the script stored a table, a function, nil).
+        struct LiveProperty
+        {
+            std::string                Name;
+            PropertyType               Type = PropertyType::Number;
+            std::optional<ScriptValue> Value;
+        };
+        // Every property the running slot declares, in declaration order - the gameplay debugger's Script
+        // category. Empty when the slot runs no script.
+        [[nodiscard]] std::vector<LiveProperty> ReadLiveProperties( uint32_t entity, uint32_t slot ) const;
+
         // The other direction, for the slot's SaveGame properties only (`names`, ReadScriptSaveGameProperties):
         // what the running script wrote to `Properties.<name>` is copied into `props` (added when the slot did
         // not list it yet), so the slot holds the game state a save captures. Call after OnStart / OnUpdate. A

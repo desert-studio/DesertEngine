@@ -55,7 +55,7 @@ namespace Desert::Debug
             GameplayDebuggerCategoryData               Data;
         };
 
-        /// With the engine's categories registered (Basic).
+        /// With the engine's categories registered: Basic, Physics, Script (digits 1-3).
         GameplayDebugger();
 
         /// UE IGameplayDebugger::RegisterCategory: appended, so its digit is its place in the list.
