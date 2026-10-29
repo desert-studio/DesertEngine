@@ -1,0 +1,11 @@
+# GI-EMISSIVE-LIGHTS (link of GI-ALL-LIGHTS): under the hardware GI tracer the surface cache's direct lighting samples the scene's emissive triangles as lights (the path tracer's one emissive list, picked by power, shadowed by the tracer's ray), and the radiosity leaves the emission of its hits out (counted once). A lamp's glowing shade now lights the wall beside it in the cache, so every GI ray meeting that wall carries the bounce.
+# Headless shots (the project is outside the repo): F:/BistroFoliageProj, Editor --project F:/BistroFoliageProj/Desert.deproj --scene <scene> --camera ... --look ... --shot <png> --shot-frames 120. Baseline = the same shots from a dev build (origin/dev at this branch's merge-base).
+Дано: F:/BistroFoliageProj, B16_Bistro_Street_v70.desce, Lit, GlobalIllumination.Method 5 (HardwareTraced), Reflections.Method as the level; the sun up, the scene's point/spot lights on; camera on the street by the lit shop windows / lamps.
+Когда: run Quality "Quality: GlobalIllumination.Method HardwareTraced"; shoot after 120 frames (this branch) and the same with the dev build.
+Тогда [gi_all_lights_link] 0_day_hwgi: diff vs dev > 0 in the region around the emissive fixtures (facade/pavement next to the lamp shades and windows), larger there than elsewhere; no NaN/Inf pixel (frame mean finite, no black/white speckle blocks); 0 VUID and 0 "[SceneRenderer] Surface Cache" errors in editor.log
+Дано: the same, GI_Bistro_Night (sun down, lamps and emissive shades only).
+Когда: shoot after 120 frames, this branch and dev.
+Тогда 1_night_hwgi: walls and pavement beside the emissive shades brighter than dev (mean luminance in the lamp region up), no fireflies above the dev frame's max; 0 VUID
+Дано: the same scene, GlobalIllumination.Method 4 (SoftwareTraced).
+Когда: shoot after 120 frames, this branch and dev.
+Тогда 2_day_swgi: byte-identical to dev up to the GI's own frame-to-frame noise (the software tracer has no emissive list: GI-EMISSIVE-LIGHTS-SW); 0 VUID

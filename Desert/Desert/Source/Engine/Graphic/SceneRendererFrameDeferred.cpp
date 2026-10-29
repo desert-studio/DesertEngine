@@ -1369,6 +1369,10 @@ namespace Desert::Graphic
             return Common::MakeError<Result>(
                  "the emissive lights are built from the view's TLAS, which this frame "
                  "did not build" );
+        // Its programs, on the first frame that asks (the path tracer's bring-up, or the hardware GI tracer's
+        // surface cache lighting, GI-EMISSIVE-LIGHTS); made once, kept.
+        if ( const Common::BoolResultStr ready = m_EmissiveLights.Initialize(); !ready )
+            return Common::MakeError<Result>( ready.GetError() );
         // The estimate the tree's powers are made of: the segment's emissive colour x intensity in the row the
         // raster draws it with. A landscape tile's hit group emits nothing (TerrainRayHit), a whole-entity
         // override has no surface row.

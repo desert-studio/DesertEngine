@@ -127,9 +127,33 @@ namespace Desert::Graphic::SurfaceCache
             glm::vec4  LightColor{ 0.0f };
             glm::vec4  Light1Dir{ 0.0f };   // atmosphere light 1 (the moon)
             glm::vec4  Light1Color{ 0.0f }; // a == 0: none
-            glm::uvec4 Flags{ 0u }; // x = 1: the pages keep their IndirectLighting (it runs this frame)
+            glm::uvec4 Flags{ 0u }; // x = 1: the pages keep their IndirectLighting (it runs this frame); y = frame
+            glm::uvec4 Emissive{ 0u };        // EmissiveLightsFrame::StaticParams (hardware tracer; else 0)
+            glm::uvec4 EmissiveDynamic{ 0u }; // EmissiveLightsFrame::DynamicParams
         };
-        static_assert( sizeof( DirectLightingPush ) == 80 );
+        static_assert( sizeof( DirectLightingPush ) == 112 );
+
+        // Programs/SurfaceCache/SurfaceCacheDirectLighting.shader's emissive triangle blocks (hardware tracer).
+        struct SurfaceCacheEmissiveLightsShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveSegmentsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveLookupUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveTrianglesUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissivePowerUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicSegmentsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicTrianglesUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicPowerUB );
+        };
+        // Programs/SurfaceCache/SurfaceCacheRadiosityTrace.shader's card emission a hit leaves out (hardware
+        // tracer, GI_HIT_EXCLUDES_EMISSION).
+        constexpr RDG::TextureParameter kRadiosityExcludedEmissive{ "SurfaceCacheEmissiveTexture" };
+
+        // The tracer whose programs sample the emissive triangles as lights (GI-EMISSIVE-LIGHTS): the hardware
+        // one, whose frame carries the TLAS the list is built from.
+        [[nodiscard]] bool SamplesEmissiveLights( const GlobalIllumination::Pipeline& tracer )
+        {
+            return tracer.Tracer == GlobalIllumination::Tracer::HardwareRayQuery;
+        }
 
         // Programs/SurfaceCache/SurfaceCacheRadiosityTrace.shader SurfaceRadiosityPush.
         struct RadiosityTracePush
@@ -656,6 +680,10 @@ namespace Desert::Graphic::SurfaceCache
              !missing.empty() )
             return Common::MakeFormattedError<bool>(
                  "surface cache direct lighting: {} (its shadow rays off the view's shadow maps)", missing );
+        const bool emissiveLights = SamplesEmissiveLights( inputs.Tracer.Pipeline );
+        if ( emissiveLights && !inputs.Emissive.Valid )
+            return Common::MakeError<bool>( "surface cache direct lighting: the hardware tracer samples the emissive "
+                                            "triangles, and the frame built no list (AddFrameEmissiveLights)" );
         if ( const auto program = EnsureLightingProgram( inputs.Tracer.Pipeline ); !program )
             return program;
         std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
@@ -675,6 +703,12 @@ namespace Desert::Graphic::SurfaceCache
         push.Light1Dir                = inputs.Light1Dir;
         push.Light1Color              = inputs.Light1Color;
         push.Flags.x                  = inputs.IndirectLighting ? 1u : 0u;
+        push.Flags.y                  = m_FrameUpdate ? static_cast<uint32_t>( m_FrameUpdate->Frame ) : 0u;
+        if ( emissiveLights )
+        {
+            push.Emissive        = inputs.Emissive.StaticParams();
+            push.EmissiveDynamic = inputs.Emissive.DynamicParams();
+        }
         GraphicsPipeline* const raw   = m_LightingPipeline.get();
         const uint32_t          count = static_cast<uint32_t>( frame.LightingPages.size() );
         graph.AddPass(
@@ -713,6 +747,19 @@ namespace Desert::Graphic::SurfaceCache
                                 RDG::SamplerDesc::PointClamp() );
                  // The active tracer's reads (its visibility rays), sampled in the fragment stage.
                  GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, RDG::Access::SampledGraphics );
+                 if ( emissiveLights )
+                 {
+                     using E                    = SurfaceCacheEmissiveLightsShaderParameters;
+                     constexpr RDG::Access kR   = RDG::Access::StorageRead;
+                     const auto&           list = inputs.Emissive;
+                     block.Storage( E::EmissiveSegmentsUB, list.Static.Segments, kR )
+                          .Storage( E::EmissiveLookupUB, list.Lookup, kR )
+                          .Storage( E::EmissiveTrianglesUB, list.Static.Triangles, kR )
+                          .Storage( E::EmissivePowerUB, list.Static.Power, kR )
+                          .Storage( E::EmissiveDynamicSegmentsUB, list.Dynamic.Segments, kR )
+                          .Storage( E::EmissiveDynamicTrianglesUB, list.Dynamic.Triangles, kR )
+                          .Storage( E::EmissiveDynamicPowerUB, list.Dynamic.Power, kR );
+                 }
                  // The cascades, the cloud map and the local shadow atlas, with the composite's samplers; the
                  // light grid read is the world grid bound above, not the view's.
                  // (BindSceneViewInputs would bind the view's grid under the same block name a second time.)
@@ -804,6 +851,9 @@ namespace Desert::Graphic::SurfaceCache
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( RadiosityTracePush ) ) );
                  GlobalIllumination::DeclareSurfaceCacheReads( block, inputs.Hits, kS );
                  GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
+                 // The emission the hits leave out: the direct lighting sampled the emitters (GI-EMISSIVE-LIGHTS).
+                 if ( SamplesEmissiveLights( inputs.Tracer.Pipeline ) )
+                     block.Texture( kRadiosityExcludedEmissive, layers[4], kS, all );
                  pass.ColorTarget( 0, trace, RDG::LoadOp::Load() );
              },
              [traceRaw, tracePush, count]( RDG::PassContext& context ) -> Common::BoolResultStr

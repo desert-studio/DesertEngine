@@ -9,6 +9,7 @@
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/Graphic/Systems/RayTracing/EmissiveLightsRenderer.hpp>
 
 #include <glm/glm.hpp>
 
@@ -87,6 +88,10 @@ namespace Desert::Graphic::SurfaceCache
             glm::vec4                       Light1Dir{ 0.0f, -1.0f, 0.0f, 0.0f };
             glm::vec4                       Light1Color{ 0.0f };
             GlobalIllumination::TracerFrame Tracer;
+            // The scene's emissive triangles as lights (GI-EMISSIVE-LIGHTS; RayTracing::EmissiveLightsFrame, the
+            // path tracer's one list): required (Valid) under the hardware tracer, whose program samples them;
+            // the software tracer's program has no list to read (it is built from the TLAS segment records).
+            RayTracing::EmissiveLightsFrame Emissive;
             // The indirect lighting runs this frame (AddIndirectLightingPass after the radiance cache update): a
             // page's FinalLighting keeps the IndirectLighting it last received; otherwise it is direct only.
             bool IndirectLighting = false;
