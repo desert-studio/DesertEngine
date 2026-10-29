@@ -2,6 +2,7 @@
 
 #include <Common/Core/Profiler.hpp>
 #include <Common/Core/ResultStr.hpp>
+#include <Common/Settings/RenderMethods.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -24,6 +25,7 @@
 #include <format>
 #include <memory>
 #include <span>
+#include <string>
 #include <string_view>
 
 // MEGALIGHTS (UE 5.5 Renderer/Private/MegaLights; Shadows Stochastic): the view's local lights shaded at a FIXED
@@ -39,8 +41,11 @@
 //  3) "MegaLights: Spatial Resampling"  - ReSTIR DI spatial reuse over Shadows.MegaLightsSpatialSamples
 //  neighbours; 4) "MegaLights: Trace Samples"       - ONE visibility test per surviving sample (UE traces each
 //  sample once):
-//     the light's contact shadow through the G-buffer depth, then a ray query toward a point of its source sphere
-//     (SourceRadius: soft shadows); W scaled by it. Next frame's history;
+//     the light's contact shadow through the G-buffer depth, then the frame's visibility source
+//     (Common::Scalability::StochasticVisibility, one program each): a ray query toward a point of its source
+//     sphere (SourceRadius: soft shadows), or without rays the screen trace over the closest HZB followed by the
+//     light's virtual shadow map pages (VSM-LOCAL), or the screen trace alone; W scaled by it. Next frame's
+//     history;
 //  5) "MegaLights: Shade Samples"       - at RENDER resolution, every pixel shades its sample pixel's traced
 //     reservoirs with its own surface (UE ShadeLightSamples: the upsample), the shading model's specular lobe and
 //     its diffuse rest apart, each demodulated by its reflectance (Mesh/MegaLightsDemodulation.glslh);
@@ -72,6 +77,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, HistorySurfaceTexture );
         DESERT_SHADER_PARAMETER( Texture, ReservoirsTexture );
         DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+        DESERT_SHADER_PARAMETER( Texture, HzbTexture );
     };
 
     inline constexpr std::string_view kMegaLightsDiffuseName  = "MegaLights.Diffuse";
@@ -113,8 +119,13 @@ namespace Desert::Graphic::System
         RDG::TextureRef                     ShadingWord; // RG32_UINT
         RDG::TextureRef                     Velocity;    // FrameTransients::Velocity
         RDG::TextureRef                     Black;       // System.Black: the history before one exists
+        // The frame's visibility source and what it reads: the TLAS and its records (RayQuery), the closest HZB
+        // (VirtualMapsAndScreen, Screen) and the virtual shadow map's reader tables (VirtualMapsAndScreen).
+        Common::Scalability::StochasticVisibility Visibility = Common::Scalability::StochasticVisibility::RayQuery;
         RDG::BufferRef                      Tlas;
         RayTracing::RayTracingMetadataFrame Metadata;
+        RDG::TextureRef                     Hzb;
+        VirtualShadowMapReadRefs            Vsm;
         ViewLightBuffers                    Lights; // the rows and the light grid (AddFrameLightGrid)
         uint32_t                            PointLights = 0;
         uint32_t                            SpotLights  = 0;
@@ -143,19 +154,12 @@ namespace Desert::Graphic::System
     public:
         [[nodiscard]] Common::BoolResultStr Initialize()
         {
+            // The trace's program is the visibility source's, built on its first frame (EnsureTrace): a device
+            // without ray query never builds the ray-query one.
             for ( std::size_t stage = 0; stage < kStageCount; ++stage )
-            {
-                Stage&           program = m_Stages[stage];
-                std::string_view name    = kShaderNames[stage];
-                program.Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( name ) );
-                if ( !program.Shader )
-                    return Common::MakeError( std::format( "MegaLights: shader {} not found", name ) );
-                const auto pipeline =
-                     ComputePipeline::Create( { .Shader = program.Shader, .DebugName = std::string( name ) } );
-                if ( !pipeline )
-                    return Common::MakeError( pipeline.GetError() );
-                program.Pipeline = pipeline.GetValue();
-            }
+                if ( stage != kTrace )
+                    if ( const Common::BoolResultStr built = Build( m_Stages[stage], kShaderNames[stage] ); !built )
+                        return built;
             if ( const Common::BoolResultStr diffuse = m_DiffuseDenoiser.Initialize(); !diffuse )
                 return diffuse;
             return m_SpecularDenoiser.Initialize();
@@ -169,13 +173,25 @@ namespace Desert::Graphic::System
                                                                        const MegaLightsQuality& quality,
                                                                        const ViewFrame&         frame )
         {
-            for ( const Stage& stage : m_Stages )
-                if ( !stage.Pipeline )
+            using Common::Scalability::StochasticVisibility;
+            for ( std::size_t stage = 0; stage < kStageCount; ++stage )
+                if ( stage != kTrace && !m_Stages[stage].Pipeline )
                     return Common::MakeError<MegaLightsLighting>(
                          "MegaLights: the pipelines are not initialised" );
-            if ( !in.Tlas.IsValid() || !in.Metadata.Geometry.IsValid() || !in.Metadata.Materials.IsValid() )
+            const auto source = static_cast<std::size_t>( in.Visibility );
+            if ( const Common::BoolResultStr trace = EnsureTrace( in.Visibility ); !trace )
+                return Common::MakeError<MegaLightsLighting>( trace.GetError() );
+            if ( in.Visibility == StochasticVisibility::RayQuery &&
+                 ( !in.Tlas.IsValid() || !in.Metadata.Geometry.IsValid() || !in.Metadata.Materials.IsValid() ) )
                 return Common::MakeError<MegaLightsLighting>(
-                     "MegaLights: Shadows resolved to Stochastic but the frame has no TLAS" );
+                     "MegaLights: the visibility source is the ray query but the frame has no TLAS" );
+            if ( in.Visibility != StochasticVisibility::RayQuery && !in.Hzb.IsValid() )
+                return Common::MakeError<MegaLightsLighting>(
+                     std::format( "MegaLights: the visibility source is {} but the frame has no HZB",
+                                  Common::Scalability::kStochasticVisibilityNames[source] ) );
+            if ( in.Visibility == StochasticVisibility::VirtualMapsAndScreen && !in.Vsm.IsValid() )
+                return Common::MakeError<MegaLightsLighting>(
+                     "MegaLights: the visibility source is vsm+screen but the frame has no virtual shadow map" );
             if ( !in.Lights.GridCells.IsValid() || !in.Velocity.IsValid() )
                 return Common::MakeError<MegaLightsLighting>( std::format(
                      "MegaLights: the frame has no {}",
@@ -247,19 +263,32 @@ namespace Desert::Graphic::System
                          .Texture( MegaLightsShaderParameters::GBufferShadingWordTexture, in.ShadingWord,
                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             };
-            const auto tracing = [&]( RDG::BindingBlockBuilder& block )
+            const Stage& traceProgram = m_Trace[source];
+            const auto   tracing      = [&]( RDG::BindingBlockBuilder& block )
             {
-                block.AccelerationStructure( MegaLightsShaderParameters::SceneTlas, in.Tlas )
-                     .Storage( MegaLightsShaderParameters::RayTracingGeometryRecords, in.Metadata.Geometry,
-                               RDG::Access::StorageRead )
-                     .Storage( MegaLightsShaderParameters::RayTracingMaterialRecords, in.Metadata.Materials,
-                               RDG::Access::StorageRead );
+                switch ( in.Visibility )
+                {
+                case StochasticVisibility::RayQuery:
+                    block.AccelerationStructure( MegaLightsShaderParameters::SceneTlas, in.Tlas )
+                         .Storage( MegaLightsShaderParameters::RayTracingGeometryRecords, in.Metadata.Geometry,
+                                   RDG::Access::StorageRead )
+                         .Storage( MegaLightsShaderParameters::RayTracingMaterialRecords, in.Metadata.Materials,
+                                   RDG::Access::StorageRead );
+                    return;
+                case StochasticVisibility::VirtualMapsAndScreen:
+                    BindVirtualShadowMapReads( block, in.Vsm, traceProgram.Layout.Get( traceProgram.Shader ) );
+                    [[fallthrough]];
+                case StochasticVisibility::Screen:
+                    block.Texture( MegaLightsShaderParameters::HzbTexture, in.Hzb, RDG::Access::SampledCompute,
+                                   RDG::SubresourceRange::All() );
+                    return;
+                }
             };
             const auto read =
                  [&]( RDG::BindingBlockBuilder& block, RDG::TextureParameter name, RDG::TextureRef texture )
             { block.Texture( name, texture, RDG::Access::SampledCompute, RDG::SubresourceRange::All() ); };
 
-            AddStage( graph, kGenerate, sampleWidth, sampleHeight,
+            AddStage( graph, kGenerate, m_Stages[kGenerate], sampleWidth, sampleHeight,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
@@ -268,7 +297,7 @@ namespace Desert::Graphic::System
                                .Storage( MegaLightsShaderParameters::OutReservoirsTexture, generated,
                                          RDG::Access::StorageWrite );
                       } );
-            AddStage( graph, kTemporal, sampleWidth, sampleHeight,
+            AddStage( graph, kTemporal, m_Stages[kTemporal], sampleWidth, sampleHeight,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
@@ -279,7 +308,7 @@ namespace Desert::Graphic::System
                           block.Storage( MegaLightsShaderParameters::OutReservoirsTexture, temporal,
                                          RDG::Access::StorageWrite );
                       } );
-            AddStage( graph, kSpatial, sampleWidth, sampleHeight,
+            AddStage( graph, kSpatial, m_Stages[kSpatial], sampleWidth, sampleHeight,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
@@ -289,7 +318,7 @@ namespace Desert::Graphic::System
                       } );
             HistorySlot* stamped = &next;
             AddStage(
-                 graph, kTrace, sampleWidth, sampleHeight,
+                 graph, kTrace, traceProgram, sampleWidth, sampleHeight,
                  [&]( RDG::BindingBlockBuilder& block )
                  {
                      common( block, true );
@@ -301,7 +330,7 @@ namespace Desert::Graphic::System
                                     RDG::Access::StorageWrite );
                  },
                  [stamped, index = frame.FrameIndex]() { stamped->Stamp.Stamp( index ); } );
-            AddStage( graph, kShade, width, height,
+            AddStage( graph, kShade, m_Stages[kShade], width, height,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
@@ -342,6 +371,10 @@ namespace Desert::Graphic::System
         static constexpr std::array<std::string_view, kStageCount> kShaderNames = {
              "MegaLightsGenerateSamples", "MegaLightsTemporalResampling", "MegaLightsSpatialResampling",
              "MegaLightsTraceSamples", "MegaLightsShadeSamples" };
+        // The trace's program per visibility source (Common::Scalability::StochasticVisibility order).
+        static constexpr std::array<std::string_view, 3> kTraceShaderNames = {
+             "MegaLightsTraceSamples", "MegaLightsTraceSamplesVirtual", "MegaLightsTraceSamplesScreen" };
+        static_assert( kTraceShaderNames.size() == Common::Scalability::kStochasticVisibilityNames.size() );
         static constexpr std::array<std::string_view, kStageCount> kPassNames = {
              "MegaLights: Generate Samples", "MegaLights: Temporal Resampling", "MegaLights: Spatial Resampling",
              "MegaLights: Trace Samples", "MegaLights: Shade Samples" };
@@ -357,6 +390,33 @@ namespace Desert::Graphic::System
             std::shared_ptr<ComputePipeline> Pipeline;
             mutable ShaderBindingLayoutCache Layout;
         };
+
+        [[nodiscard]] static Common::BoolResultStr Build( Stage& program, const std::string_view name )
+        {
+            program.Shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( name ) );
+            if ( !program.Shader )
+                return Common::MakeError( std::format( "MegaLights: shader {} not found", name ) );
+            const auto pipeline =
+                 ComputePipeline::Create( { .Shader = program.Shader, .DebugName = std::string( name ) } );
+            if ( !pipeline )
+                return Common::MakeError( pipeline.GetError() );
+            program.Pipeline = pipeline.GetValue();
+            return true;
+        }
+
+        // The trace program of @p visibility, built once; a failure is latched (no later frame repairs a shader).
+        [[nodiscard]] Common::BoolResultStr EnsureTrace( const Common::Scalability::StochasticVisibility visibility )
+        {
+            const auto source = static_cast<std::size_t>( visibility );
+            if ( m_Trace[source].Pipeline )
+                return true;
+            if ( !m_TraceErrors[source].empty() )
+                return Common::MakeError( m_TraceErrors[source] );
+            Common::BoolResultStr built = Build( m_Trace[source], kTraceShaderNames[source] );
+            if ( !built )
+                m_TraceErrors[source] = built.GetError();
+            return built;
+        }
 
         // One history slot, sample-pixel sized: the traced reservoirs (stacked layers) and the representative
         // surface they were traced from.
@@ -405,10 +465,9 @@ namespace Desert::Graphic::System
         // @p onDispatched runs after a successful dispatch (the history stamp).
         template <typename Declare, typename Done = void ( * )()>
         void AddStage(
-             RDG::Builder& graph, const std::size_t stage, const uint32_t width, const uint32_t height,
-             Declare&& declare, Done onDispatched = [] {} )
+             RDG::Builder& graph, const std::size_t stage, const Stage& program, const uint32_t width,
+             const uint32_t height, Declare&& declare, Done onDispatched = [] {} )
         {
-            const Stage& program = m_Stages[stage];
             graph.AddPass(
                  kPassNames[stage], RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -429,7 +488,9 @@ namespace Desert::Graphic::System
                  } );
         }
 
-        std::array<Stage, kStageCount> m_Stages;
+        std::array<Stage, kStageCount> m_Stages; // [kTrace] unused: the trace is m_Trace's
+        std::array<Stage, 3>           m_Trace;  // per StochasticVisibility, built on first use (EnsureTrace)
+        std::array<std::string, 3>     m_TraceErrors;
         std::array<HistorySlot, 2>     m_Slots;
         uint32_t                       m_Parity = 0;
         ScreenSpaceDenoiser            m_DiffuseDenoiser{ DenoiserSignal::DiffuseIndirect };

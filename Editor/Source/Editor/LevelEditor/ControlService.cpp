@@ -1358,6 +1358,18 @@ namespace Desert::Editor
             if ( const auto* primary = m_Workspace.PrimaryRenderer(); primary != nullptr )
             {
                 const Graphic::System::ForwardPrepassStats prepass = primary->GetForwardPrepassStats();
+                {
+                    using namespace Common::Scalability;
+                    const Graphic::RenderMethods& methods = primary->GetRenderMethods();
+                    snapshot.ShadowsRequested =
+                         kShadowMethodNames[static_cast<std::size_t>( methods.Shadows.Requested )];
+                    snapshot.ShadowsEffective =
+                         kShadowMethodNames[static_cast<std::size_t>( methods.Shadows.Effective )];
+                    snapshot.ShadowsVisibility =
+                         methods.Shadows.Effective == ShadowMethod::Stochastic
+                              ? kStochasticVisibilityNames[static_cast<std::size_t>( methods.Visibility )]
+                              : std::string_view{};
+                }
                 snapshot.ForwardPrepass = { .Draws            = prepass.Draws,
                                             .Cells            = prepass.Cells,
                                             .GpuSections      = prepass.GpuSections,

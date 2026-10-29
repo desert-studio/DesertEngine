@@ -16,7 +16,13 @@
 // The includer, before this file: `Uniform sampler PointClampSampler;`. Defines:
 //   MEGALIGHTS_SHADING - the pass evaluates a light at its pixel (the target function, the shading): GBufferA and
 //                        the shading word are declared and the registry's shading models included.
-//   MEGALIGHTS_TRACE   - the pass traces visibility: Common/RayQueryVisibility.glslh included before this file
+//   MEGALIGHTS_TRACE   - the pass tests visibility, from ONE source (Common::Scalability::StochasticVisibility):
+//     MEGALIGHTS_VISIBILITY_RAY_QUERY - Common/RayQueryVisibility.glslh included before this file;
+//     MEGALIGHTS_VISIBILITY_SCREEN    - the screen trace over the closest-depth HZB (the includer declares
+//                                       HzbTexture, Common/HZBTrace.glslh), alone;
+//     MEGALIGHTS_VISIBILITY_VSM       - beside MEGALIGHTS_VISIBILITY_SCREEN: then the light's virtual shadow map
+//                                       pages (the includer declares the VSM reader's tables, DESERT_VSM_READ,
+//                                       and VsmLocalLightsUB { VsmLocalLight vsmLocalLights[]; })
 //                        (MEGALIGHTS_SHADING too: the contact shadow reads the shading word and the subsurface
 //                        opacity of the receiver).
 // Bindings: 0 the view block, 1 depth, 2 GBufferB, 3 GBufferA, 4 the shading word, 6 / 16 the point / spot rows
@@ -46,7 +52,7 @@ Uniform(0) MegaLightsViewUB
 	uvec4 Counts;                    // x = point lights, y = spot lights, z = samples per pixel, w = spatial samples
 	vec4  Params;                    // x = temporal history cap (frames), y = history readable (> 0.5),
 	                                   // z = shadow-ray normal bias (cm), w = spatial reuse radius (sample pixels)
-	uvec4 Frame;                     // x = frame index, y = render width, z = render height, w = downsample factor
+	uvec4 MegaLightsFrame;           // x = frame index, y = render width, z = render height, w = downsample factor
 	vec4  ContactShadowView;         // SceneResources ContactShadowView: x = steps (0 = off), y = tan(fov / 2),
 	                                   // z = dither frame (Common/ContactShadow.glslh)
 };
@@ -66,12 +72,12 @@ layout(set = 0, binding = 4) uniform utexture2D GBufferShadingWordTexture;
 // The render resolution: the G-buffer's, the shading's and the denoiser's.
 ivec2 MegaLightsViewSize()
 {
-	return ivec2(Frame.yz);
+	return ivec2(MegaLightsFrame.yz);
 }
 
 int MegaLightsDownsampleFactor()
 {
-	return max(int(Frame.w), 1);
+	return max(int(MegaLightsFrame.w), 1);
 }
 
 // The sample pixels: one per factor x factor block of render pixels (the last block of a row may be partial).
@@ -114,7 +120,7 @@ uint MegaLightsPcg(uint v)
 // One stream per pixel, frame and pass (@p pass tells the passes' streams apart).
 uint MegaLightsSeed(ivec2 pixel, uint pass)
 {
-	return MegaLightsPcg(uint(pixel.x) + MegaLightsPcg(uint(pixel.y) + MegaLightsPcg(Frame.x * 8u + pass)));
+	return MegaLightsPcg(uint(pixel.x) + MegaLightsPcg(uint(pixel.y) + MegaLightsPcg(MegaLightsFrame.x * 8u + pass)));
 }
 
 float MegaLightsRandom(inout uint state)
@@ -133,7 +139,7 @@ ivec2 MegaLightsScreenPixel(ivec2 samplePixel)
 	const int   cells  = factor * factor;
 	const ivec2 size   = MegaLightsViewSize();
 	const ivec2 corner = samplePixel * factor;
-	const int   start  = int(MegaLightsPcg(Frame.x + MegaLightsPcg(uint(samplePixel.x) +
+	const int   start  = int(MegaLightsPcg(MegaLightsFrame.x + MegaLightsPcg(uint(samplePixel.x) +
 	                                                                  MegaLightsPcg(uint(samplePixel.y)))) %
 	                         uint(cells));
 	for (int i = 0; i < cells; ++i)
@@ -329,6 +335,60 @@ vec2 g_MegaLightsTracedPixel = vec2(0.0);
 #define CONTACT_SHADOW_PIXEL g_MegaLightsTracedPixel
 #include <Common/ContactShadow.glslh>
 
+#if defined(MEGALIGHTS_VISIBILITY_SCREEN)
+// The light's slot in the frame's virtual shadow map (-1: not shadowed from it this frame).
+int MegaLightsLightShadowMaskSlot(int light)
+{
+	const int points = int(Counts.x);
+	return light < points ? pointLights[light].shadowMaskSlot : spotLights[light - points].shadowMaskSlot;
+}
+
+// THE SCREEN TRACE (UE MegaLights' screen traces, MegaLightsScreenSpaceTracing: TraceHZB over the closest HZB with a
+// relative depth thickness): the shadow ray from @p origin along @p dir for @p length cm, walked over the closest
+// depth hierarchy (Common/HZBTrace.glslh). Occluded when the walk stops on a depth texel the ray passes BEHIND by
+// less than the thickness (a surface in front of the ray, not a wall it merely went behind); a ray leaving the
+// screen or the near plane is not occluded by what the screen does not hold (the next source answers it).
+#define MEGALIGHTS_SCREEN_TRACE_ITERATIONS          64
+#define MEGALIGHTS_SCREEN_TRACE_RELATIVE_THICKNESS  0.02
+vec3 MegaLightsToScreen(vec3 world)
+{
+	const vec4 clip = JitteredWorldToClip * vec4(world, 1.0);
+	const vec3 ndc  = clip.xyz / clip.w;
+	return vec3(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, ndc.z); // Common/ScreenUV.glslh, inverted
+}
+
+bool MegaLightsScreenTraceOccluded(vec3 origin, vec3 dir, float length)
+{
+	if (length <= 0.0)
+		return false;
+	// The near plane cuts a segment that runs behind the eye: clip-space w along the ray is affine.
+	const float w0 = (JitteredWorldToClip * vec4(origin, 1.0)).w;
+	const float w1 = (JitteredWorldToClip * vec4(origin + dir * length, 1.0)).w;
+	const float nearW = 1.0; // 1 cm in front of the eye
+	if (w0 <= nearW)
+		return false;
+	const float reach = w1 >= nearW ? length : length * (w0 - nearW) / max(w0 - w1, 1e-6);
+	const vec3  start = MegaLightsToScreen(origin);
+	const vec3  end   = MegaLightsToScreen(origin + dir * reach);
+	if (any(lessThan(start.xy, vec2(0.0))) || any(greaterThan(start.xy, vec2(1.0))))
+		return false;
+	const HZBTraceResult walk = HZBTraceScreen(start, end, MEGALIGHTS_SCREEN_TRACE_ITERATIONS);
+	if (!walk.Stopped)
+		return false;
+	// The thickness test, in distance from the eye: the ray's point at the stop against the depth texel's surface.
+	const ivec2 texel   = clamp(ivec2(walk.Position.xy * vec2(textureSize(HzbTexture, 0))), ivec2(0),
+	                            textureSize(HzbTexture, 0) - 1);
+	const float sceneZ  = texelFetch(HzbTexture, texel, 0).r;
+	if (sceneZ <= 0.0)
+		return false; // the sky
+	const vec3  surface = ReconstructWorldPosition(walk.Position.xy, sceneZ, InverseJitteredViewProjection);
+	const vec3  ray     = ReconstructWorldPosition(walk.Position.xy, walk.Position.z, InverseJitteredViewProjection);
+	const float dSurface = distance(surface, CameraPosition.xyz);
+	const float dRay     = distance(ray, CameraPosition.xyz);
+	return dRay >= dSurface && dRay - dSurface <= MEGALIGHTS_SCREEN_TRACE_RELATIVE_THICKNESS * dSurface;
+}
+#endif
+
 // THE ONE VISIBILITY TEST of a sample (UE MegaLights traces each sample once): 0..1, how much of @p light reaches
 // the surface point @p p. The ray aims at a point of the light's source sphere, uniform in the solid angle it
 // subtends (UE SampleSphereLight / UniformSampleCone: SourceRadius makes the shadow soft over frames), first
@@ -360,7 +420,22 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 	if (contact <= 0.0)
 		return 0.0;
 	const vec3 origin = p.Position + p.N * (dot(p.N, dir) >= 0.0 ? bias : -bias);
+#if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY)
 	return contact * RayQueryVisibility(origin, dir, max(reach - 2.0 * bias, 0.0), RAY_TRACING_MASK_SHADOW_CASTER);
+#elif defined(MEGALIGHTS_VISIBILITY_SCREEN)
+	if (MegaLightsScreenTraceOccluded(origin, dir, max(reach - 2.0 * bias, 0.0)))
+		return 0.0;
+#if defined(MEGALIGHTS_VISIBILITY_VSM)
+	// The occluders the screen does not hold: the light's virtual shadow map, its pages marked from this G-buffer
+	// ("VSM: Mark Local") - slot = the light's index in the frame's VsmLocalLights (AssignLocalShadowMaskSlots).
+	const int slot = MegaLightsLightShadowMaskSlot(light);
+	if (slot >= 0)
+		return contact * VsmLocalVisibility(vsmLocalLights[slot], p.Position, p.N);
+#endif
+	return contact;
+#else
+#error "MegaLights.glslh: MEGALIGHTS_TRACE needs a MEGALIGHTS_VISIBILITY_* source"
+#endif
 }
 #endif
 

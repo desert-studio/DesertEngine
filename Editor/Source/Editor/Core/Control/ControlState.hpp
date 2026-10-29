@@ -181,6 +181,11 @@ namespace Desert::Editor::Control
         std::vector<VsmLocalLightSnapshot> VsmLocalLights;
         // The primary view's forward depth prepass, as its base pass of the same frame admitted it.
         ForwardPrepassSnapshot ForwardPrepass;
+        // The primary view's Shadows method this frame (Graphic::RenderMethods: requested, effective) and, under
+        // Stochastic, MegaLights' visibility source (Common::Scalability::kStochasticVisibilityNames).
+        std::string ShadowsRequested;
+        std::string ShadowsEffective;
+        std::string ShadowsVisibility;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -403,6 +408,11 @@ namespace Desert::Editor::Control
             forwardPrepass["depthWriteInBase"] = Common::Json::Value( prepass.DepthWriteInBase );
             Common::Json::Object render;
             render["forwardPrepass"] = Common::Json::Value( forwardPrepass );
+            Common::Json::Object shadows;
+            shadows["requested"]  = Common::Json::Value( snapshot.ShadowsRequested );
+            shadows["method"]     = Common::Json::Value( snapshot.ShadowsEffective );
+            shadows["visibility"] = Common::Json::Value( snapshot.ShadowsVisibility );
+            render["shadows"]     = Common::Json::Value( shadows );
             root["render"]           = Common::Json::Value( render );
         }
 

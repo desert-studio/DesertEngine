@@ -203,6 +203,16 @@ namespace Desert::Graphic
         out.Shadows = ResolveAxis( post.ShadowsMethod, quality.As<ShadowMethod>( Parameter::ShadowsMethod ),
                                    OverriddenIn( quality, Parameter::ShadowsMethod ), device, gBuffer,
                                    std::span<const MethodRefusal<ShadowMethod>>( refusals.Shadows ) );
+        // Stochastic's visibility source, down the same order as the methods: the ray query, else what VirtualMaps
+        // needs (the virtual map's pages), else the screen trace, which needs nothing but the G-buffer.
+        const bool virtualMaps = device.FragmentStores &&
+                                 device.RenderArea >= NeedsRenderArea( ShadowMethod::VirtualMaps ) &&
+                                 RefusedProgram( std::span<const MethodRefusal<ShadowMethod>>( refusals.Shadows ),
+                                                 ShadowMethod::VirtualMaps )
+                                      .empty();
+        out.RaylessVisibility = virtualMaps ? StochasticVisibility::VirtualMapsAndScreen : StochasticVisibility::Screen;
+        out.DeviceVisibility  = device.RayQuery ? StochasticVisibility::RayQuery : out.RaylessVisibility;
+        out.Visibility        = out.DeviceVisibility;
         out.ContactShadows       = post.ContactShadows && kContactShadowsImplemented;
         out.DistanceFieldShadows = post.DistanceFieldShadows && kDistanceFieldShadowsImplemented;
         return out;
@@ -210,11 +220,27 @@ namespace Desert::Graphic
 
     void LowerShadowsForFrame( RenderMethods& methods, const bool rayTracedSceneReady )
     {
-        if ( rayTracedSceneReady || !NeedsRayQuery( methods.Shadows.Effective ) )
+        methods.Visibility = methods.DeviceVisibility;
+        if ( rayTracedSceneReady )
+            return;
+        if ( methods.Shadows.Effective == ShadowMethod::Stochastic )
+        {
+            // MegaLights runs without rays: the frame's samples test the rayless source (the overlay row names it).
+            methods.Visibility = methods.RaylessVisibility;
+            return;
+        }
+        if ( !NeedsRayQuery( methods.Shadows.Effective ) )
             return;
         methods.Shadows.Effective = ShadowMethod::CascadedMaps;
         if ( methods.Shadows.Limit == MethodLimit::None )
             methods.Shadows.Limit = MethodLimit::FrameScene;
+    }
+
+    bool ShadowsTraceRays( const RenderMethods& methods )
+    {
+        return NeedsRayQuery( methods.Shadows.Effective ) ||
+               ( methods.Shadows.Effective == ShadowMethod::Stochastic &&
+                 methods.Visibility == StochasticVisibility::RayQuery );
     }
 
     bool PathTraced( const RenderMethods& methods )
@@ -239,7 +265,11 @@ namespace Desert::Graphic
     {
         return { FormatAxis( "GI", kGIKey, methods.GlobalIllumination, kGIMethodNames ),
                  FormatAxis( "Reflections", kReflectionsKey, methods.Reflections, kReflectionMethodNames ),
-                 FormatAxis( "Shadows", kShadowsKey, methods.Shadows, kShadowMethodNames ) };
+                 FormatAxis( "Shadows", kShadowsKey, methods.Shadows, kShadowMethodNames ) +
+                      ( methods.Shadows.Effective == ShadowMethod::Stochastic
+                             ? std::format( " (visibility {})",
+                                            kStochasticVisibilityNames[static_cast<std::size_t>( methods.Visibility )] )
+                             : std::string{} ) };
     }
 
     void ReportRenderMethods( const RenderMethods& methods )

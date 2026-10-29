@@ -76,10 +76,35 @@ namespace Common::Scalability
         CascadedMaps = 0, // the sun's cascaded shadow maps
         VirtualMaps,      // virtual shadow maps (SHADOW-VSM: VirtualShadowMapRenderer, "VSM: Raster")
         HardwareTraced,   // ray-query visibility (RT-SHADOWS: RayTracedSunShadow); RT device
-        // Stochastic: the sun as HardwareTraced, the local lights by MegaLights (System::MegaLightsRenderer:
-        // ReSTIR DI over the light grid, ray-query visibility, the screen-space denoiser); RT device.
+        // Stochastic: the local lights by MegaLights (System::MegaLightsRenderer: ReSTIR DI over the light grid,
+        // one visibility test per sample, the screen-space denoiser), on ANY device: the test's source is
+        // StochasticVisibility below (ray query, else the virtual shadow map's pages plus a screen trace, else the
+        // screen trace alone), and the sun follows the same source (ray traced, virtual map, cascades).
         Stochastic,
     };
+
+    // WHERE MegaLights' ONE VISIBILITY TEST PER SAMPLE COMES FROM (UE 5.5 MegaLights: r.MegaLights.HardwareRayTracing
+    // and the per-light shadow method RayTracing / VirtualShadowMap, its screen traces before either). Resolved
+    // from the device beside ShadowMethod (Graphic::ResolveRenderMethods), per frame from the TLAS
+    // (Graphic::LowerShadowsForFrame): a Stochastic frame is never lowered for want of rays, its source is.
+    //  RayQuery             - the contact march through the G-buffer depth, then a ray query over the TLAS;
+    //                         the sun ray traced (RayTracedSunShadow).
+    //  VirtualMapsAndScreen - the screen trace through the scene's depth, then the light's virtual shadow map
+    //                         pages (VSM-LOCAL: "VSM: Mark Local" from the G-buffer, Common/VirtualShadowMap.glslh
+    //                         VsmLocalVisibility); the sun from the virtual map's clipmap. Needs what VirtualMaps
+    //                         needs (fragment stores, the render area).
+    //  Screen               - the screen trace alone (no off-screen occluder); the sun from its cascades.
+    enum class StochasticVisibility : int
+    {
+        RayQuery = 0,
+        VirtualMapsAndScreen,
+        Screen,
+    };
+    // DesertCtl's state, the overlay row and the log spell these.
+    inline constexpr std::array<std::string_view, 3> kStochasticVisibilityNames{ "rayquery", "vsm+screen",
+                                                                                 "screen" };
+    static_assert( static_cast<std::size_t>( StochasticVisibility::Screen ) + 1 ==
+                   kStochasticVisibilityNames.size() );
 
     // By name: Scalability.json, the log line and the overlay print these, one list per enum.
     inline constexpr std::array<std::string_view, 7> kGIMethodNames{
@@ -150,9 +175,10 @@ namespace Common::Scalability
     {
         return method == ReflectionMethod::HardwareTraced || method == ReflectionMethod::PathTraced;
     }
+    // Stochastic is not here: its visibility source walks down instead of the method (StochasticVisibility).
     [[nodiscard]] constexpr bool NeedsRayQuery( ShadowMethod method )
     {
-        return method == ShadowMethod::HardwareTraced || method == ShadowMethod::Stochastic;
+        return method == ShadowMethod::HardwareTraced;
     }
 
     // ---- What a method needs from the device: stores and atomics in the fragment stage (CapabilityCatalog

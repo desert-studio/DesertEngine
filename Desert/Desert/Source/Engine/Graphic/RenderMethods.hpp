@@ -95,6 +95,15 @@ namespace Desert::Graphic
         ResolvedMethod<Common::Scalability::GIMethod>         GlobalIllumination;
         ResolvedMethod<Common::Scalability::ReflectionMethod> Reflections;
         ResolvedMethod<Common::Scalability::ShadowMethod>     Shadows;
+        // Shadows Stochastic's visibility source (Common::Scalability::StochasticVisibility): the best the device
+        // runs (`DeviceVisibility`) and this frame's (`Visibility`: the device's, or, a ray-query device whose frame
+        // has no traceable scene, the best source without rays - LowerShadowsForFrame). Meaningless under any
+        // other Shadows method.
+        Common::Scalability::StochasticVisibility DeviceVisibility = Common::Scalability::StochasticVisibility::RayQuery;
+        Common::Scalability::StochasticVisibility Visibility       = Common::Scalability::StochasticVisibility::RayQuery;
+        // The best source without rays on this device (VirtualMapsAndScreen or Screen): where a RayQuery frame
+        // without a TLAS lands.
+        Common::Scalability::StochasticVisibility RaylessVisibility = Common::Scalability::StochasticVisibility::Screen;
         // The shadow supplements, after the same rule (distance-field shadows refused at load until they land).
         bool ContactShadows       = false;
         bool DistanceFieldShadows = false;
@@ -111,12 +120,15 @@ namespace Desert::Graphic
                                                       bool gBuffer, const ProgramRefusals& refusals );
 
     // THE FRAME'S SUN-SHADOW PATH, decided ONCE per view-frame before any pass is declared
-    // (SceneRenderer::OnUpdate, right after the view's TLAS is declared): a Shadows method that traces rays
-    // (HardwareTraced, Stochastic) whose frame has no traceable scene (`rayTracedSceneReady` false: TLAS not
-    // built, or the trace resources could not be created) is lowered here to CascadedMaps with
-    // MethodLimit::FrameScene, so every pass of the frame (cascades, prepass, composite, forward) reads one
-    // decision and the overlay / log name the cause. PURE. The next BeginScene resolves afresh.
+    // (SceneRenderer::OnUpdate, right after the view's TLAS is declared): HardwareTraced whose frame has no
+    // traceable scene (`rayTracedSceneReady` false: TLAS not built, or the trace resources could not be created)
+    // is lowered here to CascadedMaps with MethodLimit::FrameScene; Stochastic keeps its method and its
+    // Visibility drops from RayQuery to RaylessVisibility. Every pass of the frame (cascades, prepass, composite,
+    // forward) reads one decision and the overlay / log name the cause. PURE. The next BeginScene resolves afresh.
     void LowerShadowsForFrame( RenderMethods& methods, bool rayTracedSceneReady );
+
+    // This frame's Shadows trace hardware rays: HardwareTraced, or Stochastic whose visibility is the ray query.
+    [[nodiscard]] bool ShadowsTraceRays( const RenderMethods& methods );
 
     // THE VIEW PATH-TRACES this frame: GI and reflections both resolved to PathTraced (they are one integrator,
     // ResolveRenderMethods pairs them). The path tracer's image replaces the lit scene before post.

@@ -1049,7 +1049,7 @@ namespace Desert::Graphic
         // System.Black (no local light that frame).
         System::MegaLightsLighting AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
                                                        const std::vector<RDG::TextureRef>& gbuffer,
-                                                       const ViewFrame&                    frame );
+                                                       const ViewFrame&                    frame, RDG::TextureRef screenHzb );
         bool                       EnsureMegaLightsResources();
         // The MegaLights translucency volume (System::MegaLightsVolumeRenderer) into FrameTransients::
         // MegaLightsVolume, sliced over @p lightGrid's depth range: on under Stochastic with a local light, the
