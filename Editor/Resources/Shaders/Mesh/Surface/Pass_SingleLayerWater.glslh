@@ -12,7 +12,6 @@
 //   - the interface through the SHADING MODEL (ShadingModels/SingleLayerWater.shadingmodel): the sun's specular and
 //     the environment's reflection, the volume weighted by what the split-sum Fresnel lets through.
 #include <Common/Velocity.glslh>
-#include <Common/ThinGeometryCoverage.glslh>
 
 DESERT_SURFACE_VARYINGS( in )
 
@@ -52,6 +51,9 @@ layout( binding = 27 ) uniform texture2D SceneDepthTexture;
 #include <Mesh/BRDF.glslh>
 #include <Mesh/AmbientIBL.glslh>
 #include <Generated/ShadingModels.glslh>
+// After the lighting half of Mesh/AmbientIBL.glslh: this header includes the generated models, whose own
+// include of AmbientIBL would otherwise take its sampler-less half first (as Pass_Forward.glslh orders it).
+#include <Common/ThinGeometryCoverage.glslh>
 
 const float kWaterPi = 3.14159265;
 

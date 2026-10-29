@@ -3154,13 +3154,18 @@ namespace Desert::Core::Preprocess
         // whose cell set lost it is refused here by name, rather than having some other cell stand in for it.
         if ( !result.Surface.Cells.empty() )
         {
-            const DShaderPass* defaultCell = result.FindPass( std::string( kSurfaceDefaultCell ) );
+            // A SingleLayerWater template has no mesh cells (`meshCells` above): its one drawn cell is its default.
+            const std::string defaultCellName =
+                 result.Surface.UsedWithWaterMesh
+                      ? SurfaceCellName( kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass )
+                      : std::string( kSurfaceDefaultCell );
+            const DShaderPass* defaultCell = result.FindPass( defaultCellName );
             if ( defaultCell == nullptr )
                 return Common::MakeFormattedError<DShaderParseResult>(
-                     "DShader '{}': surface template has no default cell '{}'", result.Name, kSurfaceDefaultCell );
+                     "DShader '{}': surface template has no default cell '{}'", result.Name, defaultCellName );
             result.Meta.State           = defaultCell->State;
             result.Stages               = defaultCell->Stages;
-            result.Meta.DefaultPassName = std::string( kSurfaceDefaultCell );
+            result.Meta.DefaultPassName = defaultCellName;
         }
         // Guarded, because a medium-only shader has no passes at all and `front()` on an empty vector is
         // the kind of crash that reads as a corrupt file rather than as a missing branch.

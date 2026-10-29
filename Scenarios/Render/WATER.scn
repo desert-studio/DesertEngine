@@ -7,6 +7,6 @@
 Тогда-вид 1_shore камера 1.7 м над водой: вода не константа - Френель, синевато-зелёная толща по поглощению (M_Water_Ocean), без резкой границы; лог без "[Water]" отказов
 Когда --subject viewport set Camera.Position 0,40,0
 Тогда-вид 2_grazing скользящий взгляд: по Френелю отражается небо, блик солнца
-Когда set 2646278175089776126 WaterBodyData.WaterMaterial Content/Water/Materials/M_Water_Swamp.demat
+Когда set 2646278175089776126 WaterBodyData.WaterMaterial assets:Water/Materials/M_Water_Swamp.demat
 Когда --subject viewport set Camera.Position 0,170,0
 Тогда-вид 3_material тот же вид с M_Water_Swamp: мутная зеленовато-бурая вода, меняется только ассет
